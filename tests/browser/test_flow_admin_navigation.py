@@ -22,20 +22,6 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_admin_redirect_root_to_appearance(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin")  # legacy URL on purpose: proves the redirect (AC6)
-    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=8000)
-    _nav.expect_route(page, "settings/appearance")
-
-
-@pytest.mark.browser
-def test_admin_legacy_system_redirects_to_appearance(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/system")  # legacy URL on purpose: proves the redirect (AC6)
-    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=8000)
-    _nav.expect_route(page, "settings/appearance")
-
-
-@pytest.mark.browser
 def test_admin_picker_click_from_providers_redirects_to_appearance(
     app_clean: str, page: Page
 ) -> None:

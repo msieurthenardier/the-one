@@ -20,14 +20,13 @@ import json
 import time
 from types import SimpleNamespace
 
-import aiosqlite
 import httpx
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_db
 from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.llm import anthropic_oauth, plan_credentials
 from the_one.llm.plan_credentials import (
@@ -43,10 +42,7 @@ from the_one.llm.plan_credentials import (
 @pytest.fixture
 async def env(tmp_path, monkeypatch):
     """Real repository over a tmp DB, wired into the credential-source seam."""
-    conn = await aiosqlite.connect(str(tmp_path / "test.db"))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(tmp_path / "test.db")
 
     key = Fernet.generate_key()
     key_path = tmp_path / "test.key"

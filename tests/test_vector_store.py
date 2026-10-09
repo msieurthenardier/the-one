@@ -22,14 +22,13 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TypeVar
 
-import aiosqlite
 import numpy as np
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.config import settings
 from the_one.db._write_lock import reset_for_test as reset_write_lock
 from the_one.db._write_lock import write_transaction
-from the_one.db.schema import ensure_schema
 from the_one.vectors import _reset_for_test as reset_vectors_module
 from the_one.vectors._store import (
     VectorStore,
@@ -75,10 +74,7 @@ def _reset_module_state():
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

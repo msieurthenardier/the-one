@@ -18,11 +18,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one.config import settings
 from the_one.connectors import registry
 from the_one.connectors.manager import ConnectorManager, set_manager
 from the_one.connectors.stub import StubPlugin
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 
@@ -47,10 +47,7 @@ async def client_and_key(tmp_path):
     ``interfaces.web.api``'s module-level accessors."""
     db_path = tmp_path / "test.db"
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     test_key = Fernet.generate_key()
     key_path = tmp_path / "test.key"

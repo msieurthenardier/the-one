@@ -12,6 +12,7 @@ import logging
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.repositories import SQLiteAgentStore
 from the_one.encryption import Encryptor
@@ -20,15 +21,9 @@ from the_one.knowledge.kb_rename import rename_kb_tool_references
 
 @pytest.fixture
 async def conn(tmp_path):
-    import aiosqlite
-
-    from the_one.db.schema import ensure_schema
 
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

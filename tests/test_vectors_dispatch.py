@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import asyncio
 
-import aiosqlite
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.config import settings
 from the_one.db._write_lock import reset_for_test as reset_write_lock
 from the_one.db.repositories import AppMetadataRepository
-from the_one.db.schema import ensure_schema
 from the_one.knowledge.settings import VECTOR_STORE_KEY, VectorStoreSettings
 from the_one.vectors import _build_store, _reset_for_test, get_vector_store
 from the_one.vectors.usearch_store import UsearchStore
@@ -27,10 +26,7 @@ from the_one.vectors.usearch_store import UsearchStore
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

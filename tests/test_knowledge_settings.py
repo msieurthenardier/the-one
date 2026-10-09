@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from tests._schema_template import connect_template_db
 from the_one.knowledge.settings import (
     CHUNKING_KEY,
     EMBEDDING_KEY,
@@ -24,15 +25,9 @@ from the_one.knowledge.settings import (
 
 @pytest.fixture
 async def conn(tmp_path):
-    import aiosqlite
-
-    from the_one.db.schema import ensure_schema
 
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

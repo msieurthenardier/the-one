@@ -45,11 +45,11 @@ from unittest.mock import AsyncMock, patch
 import aiosqlite
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession
 from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import ChatSessionRepository, SQLiteAgentStore
-from the_one.db.schema import ensure_schema
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import (
     SESSION_STATUS_AGENT_DELETED,
@@ -80,10 +80,7 @@ _N = 750  # arbitrary; large enough to distinguish from incidental zeros
 async def conn(tmp_path):
     """Fresh aiosqlite connection with schema applied."""
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

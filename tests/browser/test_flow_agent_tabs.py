@@ -263,35 +263,6 @@ def test_knowledge_tab_renders_attach_surface(app_with_agent: SeededApp, page: P
 
 
 @pytest.mark.browser
-@pytest.mark.skip(
-    reason=(
-        "Leg 02 agent-editor polish dropped the stub Advanced collapsible "
-        "('[data-testid=\"advanced-collapsible\"]' no longer rendered). "
-        "Advanced-section UX is deferred to a future flight. "
-        "See mission 08 Known Issues / Flight 6 Chat Polish scope."
-    )
-)
-def test_advanced_section_visible_with_disabled_inputs(
-    app_with_agent: SeededApp, page: Page
-) -> None:
-    """Advanced section: visible disclosure, three disabled inputs, caption."""
-    base_url = app_with_agent.base_url
-    _nav.goto(page, base_url, "agents")
-    _wait_editor_ready(page)
-
-    advanced = page.locator('[data-testid="advanced-collapsible"]')
-    expect(advanced).to_be_visible()
-
-    # Open the disclosure.
-    advanced.locator("summary").click()
-
-    inputs = advanced.locator("input[disabled]")
-    assert inputs.count() == 3
-
-    expect(advanced.locator(".advanced-caption")).to_contain_text("Coming soon")
-
-
-@pytest.mark.browser
 def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> None:
     """Test button click triggers fetch; result renders in .test-result span.
 

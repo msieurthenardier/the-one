@@ -19,13 +19,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession
 from the_one.db.repositories import (
@@ -33,7 +33,6 @@ from the_one.db.repositories import (
     ChatSessionRepository,
     SQLiteAgentStore,
 )
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.retention import LAST_PURGE_KEY
@@ -59,9 +58,9 @@ async def app_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     eviction assertions start clean.
     """
     import the_one.interfaces.web.app as app_mod
+    from tests._schema_template import copy_template
     from the_one.config import settings
     from the_one.db import connection as db_connection
-    from the_one.db import init_db
     from the_one.db.connection import get_connection
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
@@ -69,7 +68,7 @@ async def app_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(app_mod, "_sessions", {})
     monkeypatch.setattr(app_mod, "_chat_history_purge_task", None)
 
-    await init_db()
+    copy_template(settings.db_path)
     conn = await get_connection()
     yield app_mod, conn
     monkeypatch.setattr(db_connection, "_connection", None)
@@ -165,10 +164,7 @@ async def client(tmp_path: Path):
     """Test client over the api router with an isolated DB (mirrors
     test_db_api.client)."""
     db_path = tmp_path / "test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     test_key = Fernet.generate_key()
     test_encryptor = Encryptor(test_key, key_path=tmp_path / "test.key")

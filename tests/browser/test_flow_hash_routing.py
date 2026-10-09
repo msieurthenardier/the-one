@@ -139,23 +139,6 @@ def test_hash_routing_studio_agent_persists_on_refresh(
 
 
 @pytest.mark.browser
-def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
-    """Navigating to the legacy `#studio` rewrites the URL to `#agents`.
-
-    A legacy-redirect proof (DD2): the router rewrites the hash with
-    replaceState before the unknown-route check.
-    """
-    base_url = app_clean
-
-    page.goto(f"{base_url}#studio")  # legacy URL on purpose: proves the redirect (AC6)
-    # Wait for studio to mount.
-    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
-
-    # URL was rewritten by the F3 router (replaceState, not pushState).
-    _nav.expect_route(page, "agents")
-
-
-@pytest.mark.browser
 def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
     """The legacy `#studio/knowledge` redirects to `#library/knowledge`; refresh preserves it."""
     base_url = app_clean

@@ -8,22 +8,30 @@
 # Runnable two ways:
 #   fly -t the-one execute -c ci/tasks/test.yml -i repo=.   (local tree)
 #   as a task in ci/the-one.pipeline.yml                            (git resource)
+# Installs from uv.lock (`uv sync --locked`): exactly the locked closure, and an
+# error if uv.lock is stale against pyproject.toml. The uv cache is a Concourse
+# task cache (per worker, per job, per task step NAME; cold on `fly execute`).
+# uv is pinned through the image tag.
 platform: linux
 
 image_resource:
   type: registry-image
   source:
-    repository: python
-    tag: "3.11"
+    repository: ghcr.io/astral-sh/uv
+    tag: "0.9.30-python3.11-bookworm"
 
 inputs:
   - name: repo
+
+caches:
+  - path: uv-cache
 
 run:
   path: bash
   args:
     - -ceu
     - |
+      export UV_CACHE_DIR="$PWD/uv-cache" UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1
       cd repo
-      pip install -e ".[all-llms,dev]"
-      python -m pytest tests/ --timeout=300 --tb=short
+      time uv sync --locked --extra all-llms --extra dev
+      .venv/bin/python -m pytest tests/ --timeout=300 --tb=short

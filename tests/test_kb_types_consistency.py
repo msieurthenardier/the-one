@@ -17,12 +17,11 @@ from __future__ import annotations
 import sqlite3
 from typing import get_args
 
-import aiosqlite
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.db._kb_types import KB_ITEM_STATUSES, KB_ITEM_TYPES
 from the_one.db.models import KBItem
-from the_one.db.schema import ensure_schema
 
 
 def test_kb_item_types_tuple_has_expected_members() -> None:
@@ -48,9 +47,7 @@ def test_pydantic_status_literal_matches_kb_item_statuses() -> None:
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "kb-types-check.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     await connection.execute("INSERT INTO knowledge_bases (id, name) VALUES ('kb1', 'KB1')")
     await connection.commit()
     yield connection

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._schema_template import copy_template
 from the_one.platform.pty import PtySession
 
 # Every test in this module drives the real ``lifespan(app)`` through
@@ -92,6 +93,7 @@ def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from the_one.db import connection as db_connection
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
+    copy_template(settings.db_path)
     # The DB singleton may already be open from a prior test; force
     # reconnect against the new path.
     monkeypatch.setattr(db_connection, "_connection", None)
@@ -180,7 +182,6 @@ async def test_lifespan_reconciles_leftover_rotation_sidecar(
     from the_one.db.connection import get_connection
     from the_one.db.models import LLMProviderConfig
     from the_one.db.repositories import LLMProviderRepository
-    from the_one.db.schema import ensure_schema
     from the_one.encryption import Encryptor, _encryptor_cache
 
     tmp_path = _isolated_data_dir
@@ -190,7 +191,6 @@ async def test_lifespan_reconciles_leftover_rotation_sidecar(
     (tmp_path / "encryption.key.next").write_bytes(new_key)
 
     conn = await get_connection()
-    await ensure_schema(conn)
 
     # Seed a provider row already re-encrypted under the pending (new) key —
     # simulating a rotation whose commit succeeded before the crash.
@@ -264,11 +264,9 @@ async def test_lifespan_warms_up_embedding_backend_when_a_kb_exists(
     from the_one.db.connection import get_connection
     from the_one.db.models import KnowledgeBase
     from the_one.db.repositories import KnowledgeBaseRepository
-    from the_one.db.schema import ensure_schema
     from the_one.interfaces.web.app import app, lifespan
 
     conn = await get_connection()
-    await ensure_schema(conn)
     await KnowledgeBaseRepository(conn).create(KnowledgeBase(id="kb1", name="KB One"))
 
     main_thread_ident = threading.get_ident()
@@ -303,11 +301,9 @@ async def test_lifespan_warm_up_failure_does_not_fail_startup(
     from the_one.db.connection import get_connection
     from the_one.db.models import KnowledgeBase
     from the_one.db.repositories import KnowledgeBaseRepository
-    from the_one.db.schema import ensure_schema
     from the_one.interfaces.web.app import app, lifespan
 
     conn = await get_connection()
-    await ensure_schema(conn)
     await KnowledgeBaseRepository(conn).create(KnowledgeBase(id="kb1", name="KB One"))
 
     def _explode() -> None:

@@ -282,17 +282,47 @@ GENERAL_ALIAS_ROWS = [
 ]
 
 
-@pytest.mark.parametrize(("legacy", "route"), REDIRECT_ROWS + GENERAL_ALIAS_ROWS)
-def test_redirect_row_on_boot(app_clean: str, page: Page, legacy: str, route: str) -> None:
+def test_redirect_rows_on_boot(app_clean: str, page: Page) -> None:
     """Every DD2 row rewrites on boot, with replaceState (never a push), before
-    the unknown-route check, stamping a seq."""
-    writes = _boot_recorded(page, app_clean, legacy)
-    first = writes[0]
-    assert first["kind"] == "replaceState", writes
-    assert first["url"] == "#" + route, writes
-    assert isinstance(first["state"]["seq"], int)
-    assert not [w for w in writes if w["kind"] == "pushState"], writes
-    assert page.evaluate("history.length") == 2  # about:blank + the app entry
+    the unknown-route check, stamping a seq, and the committed destination
+    renders. One server; each row boots a fresh page in the same (cookied)
+    context so ``history.length`` is per row. Failures are collected so one bad
+    row never hides another."""
+    failures: list[str] = []
+    # The fixture page's first goto performs the handoff exchange, landing the
+    # session cookie in the shared context that the per-row pages reuse.
+    _boot(page, app_clean)
+    for legacy, route in REDIRECT_ROWS + GENERAL_ALIAS_ROWS:
+        row_page = page.context.new_page()
+        try:
+            writes = _boot_recorded(row_page, app_clean, legacy)
+            first = writes[0] if writes else {}
+            seen: list[str] = []
+            if first.get("kind") != "replaceState":
+                seen.append(f"first write kind {first.get('kind')!r}")
+            if first.get("url") != "#" + route:
+                seen.append(f"first write url {first.get('url')!r}")
+            if not isinstance((first.get("state") or {}).get("seq"), int):
+                seen.append(f"seq {(first.get('state') or {}).get('seq')!r}")
+            if [w for w in writes if w["kind"] == "pushState"]:
+                seen.append("pushState used")
+            length = row_page.evaluate("history.length")
+            if length != 2:  # about:blank + the app entry
+                seen.append(f"history.length {length}")
+            dest = row_page.evaluate(
+                "() => { const p = document.querySelector("
+                "'.content-panel.active[data-destination]');"
+                " return p ? p.getAttribute('data-destination') : null; }"
+            )
+            if dest != route.split("/")[0]:
+                seen.append(f"active destination {dest!r}")
+            if seen:
+                failures.append(f"({legacy!r}, {route!r}): {'; '.join(seen)}; writes={writes}")
+        except Exception as exc:  # noqa: BLE001 - collected, reported below
+            failures.append(f"({legacy!r}, {route!r}): raised {exc!r}")
+        finally:
+            row_page.close()
+    assert not failures, "redirect rows failed:\n" + "\n".join(failures)
 
 
 def test_redirect_on_traversal_replaces(app_clean: str, page: Page) -> None:

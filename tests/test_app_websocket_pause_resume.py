@@ -16,14 +16,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
-from the_one.db.schema import ensure_schema
+from tests._schema_template import connect_template_db
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.api import router
@@ -186,10 +185,7 @@ async def oauth_callback_client(tmp_path):
     Mirrors ``tests/test_oauth_callback_route.py``.
     """
     db_path = tmp_path / "callback.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
 
     with (

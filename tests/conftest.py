@@ -317,19 +317,14 @@ async def isolated_db(tmp_path, monkeypatch):
     still consumed by other tests that need an isolated DB behind the
     connection singleton.
     """
-    import aiosqlite as _aiosqlite
-
+    from tests._schema_template import connect_template_db
     from the_one.config import settings as _settings
     from the_one.db import connection as _db_connection
-    from the_one.db.schema import ensure_schema as _ensure_schema
 
     monkeypatch.setattr(_settings, "data_dir", tmp_path)
     db_path = _settings.db_path
 
-    conn = await _aiosqlite.connect(str(db_path))
-    conn.row_factory = _aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await _ensure_schema(conn)
+    conn = await connect_template_db(db_path)
     await conn.close()
 
     monkeypatch.setattr(_db_connection, "_connection", None)

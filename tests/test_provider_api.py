@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
-from the_one.db.schema import ensure_schema
+from tests._schema_template import connect_template_db
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 
@@ -61,10 +61,7 @@ async def client(tmp_path):
     """Create a test client with an isolated DB and test encryptor."""
     db_path = tmp_path / "test.db"
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     # Create a test encryptor with a temp key file
     test_key = Fernet.generate_key()
@@ -3295,10 +3292,7 @@ async def plan_env(tmp_path):
     API deliberately never returns)."""
     db_path = tmp_path / "test.db"
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     test_key = Fernet.generate_key()
     key_path = tmp_path / "test.key"

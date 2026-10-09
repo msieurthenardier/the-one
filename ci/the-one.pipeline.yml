@@ -29,6 +29,15 @@ resources:
       uri: git@github.com:msieurthenardier/the-one.git
       branch: main
       private_key: ((github-deploy-key.private_key))
+      # Flight-artifact-only pushes trigger nothing (docs/ and *.md are NOT
+      # ignored: unit tests read them). See ci/README.md "ignore_paths".
+      ignore_paths:
+        - missions/**
+        - sorties/**
+        - squawks/**
+        - maintenance/**
+        - service-reports/**
+        - .flightops/**
 
 jobs:
   - name: ci
@@ -43,6 +52,8 @@ jobs:
               file: repo/ci/tasks/lint.yml
             - task: test
               file: repo/ci/tasks/test.yml
+            # One browser task: run-tests.sh --parallel 1 runs every lane in sequence
+            # (no lane list here). See ci/tasks/browser.yml and ci/README.md.
             - task: browser
               file: repo/ci/tasks/browser.yml
             - task: windows-tests

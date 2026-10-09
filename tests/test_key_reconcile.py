@@ -6,19 +6,16 @@ import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_memory
 from the_one.db.key_reconcile import reconcile_pending_key, sample_ciphertexts
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 
 
 @pytest.fixture
 async def conn():
-    connection = await aiosqlite.connect(":memory:")
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_memory()
     yield connection
     await connection.close()
 

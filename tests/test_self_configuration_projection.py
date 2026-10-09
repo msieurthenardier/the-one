@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import json
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.models import KnowledgeBase, LLMProviderConfig, MCPSource
 from the_one.db.repositories import (
@@ -27,7 +27,6 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     ToolConfigRepository,
 )
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.self_configuration.projection import (
     build_describe_my_capabilities,
@@ -37,10 +36,7 @@ from the_one.self_configuration.projection import (
 
 @pytest.fixture
 async def db(tmp_path):
-    conn = await aiosqlite.connect(str(tmp_path / "test.db"))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(tmp_path / "test.db")
     test_key = Fernet.generate_key()
     encryptor = Encryptor(test_key, key_path=tmp_path / "test.key")
     yield conn, encryptor

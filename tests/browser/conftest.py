@@ -77,6 +77,7 @@ from browser._ui_engines import engine_browser, engine_page  # noqa: F401 - regi
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
+from tests._schema_template import copy_template
 from the_one import api_credential
 from the_one.api_credential import LocalApiCredential
 
@@ -155,7 +156,7 @@ def _wait_for_ready(
                 return
         except httpx.HTTPError as exc:
             last_exc = exc
-        time.sleep(0.1)
+        time.sleep(0.03)
     raise TimeoutError(f"App at {base_url} not ready within {timeout}s (last error: {last_exc})")
 
 
@@ -203,7 +204,7 @@ OLLAMA_LIBRARY_TEST_CATALOG = {
 
 
 def _spawn_app(
-    tmp_path: Path, extra_env: dict[str, str] | None = None
+    tmp_path: Path, extra_env: dict[str, str] | None = None, *, seed_db: bool = True
 ) -> tuple[str, subprocess.Popen, LocalApiCredential, Path]:
     """Spawn a fresh app subprocess and return ``(base_url, proc, credential,
     data_dir)``.
@@ -223,10 +224,18 @@ def _spawn_app(
     is no server-side-creation race to poll for — the deferred open
     question the flight spec left for this leg is avoided rather than
     resolved, exactly as the leg artifact directs.
+
+    Unless ``seed_db=False``, ``data_dir / "the-one.db"`` is seeded from the
+    session's migrated schema template (``tests/_schema_template.py``) before
+    ``Popen``, so the server's ``init_db`` finds the schema current and replays
+    no migrations at boot. Pass ``seed_db=False`` for a test that asserts
+    first-boot or migration behaviour.
     """
     port = _free_port()
     data_dir = tmp_path / "the-one-data"
     data_dir.mkdir()
+    if seed_db:
+        copy_template(data_dir / "the-one.db")
 
     credential = _write_credential(data_dir)
 

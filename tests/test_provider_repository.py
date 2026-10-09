@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_memory
 from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 
 
@@ -21,9 +20,7 @@ def encryptor(tmp_path):
 @pytest.fixture()
 async def repo(encryptor):
     """Yield a LLMProviderRepository backed by an in-memory DB."""
-    conn = await aiosqlite.connect(":memory:")
-    conn.row_factory = aiosqlite.Row
-    await ensure_schema(conn)
+    conn = await connect_template_memory()
     yield LLMProviderRepository(conn, encryptor)
     await conn.close()
 

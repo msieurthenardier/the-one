@@ -11,12 +11,11 @@ from __future__ import annotations
 
 from typing import get_args
 
-import aiosqlite
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.db._provider_types import PROVIDER_TYPES
 from the_one.db.models import LLMProviderConfig
-from the_one.db.schema import ensure_schema
 from the_one.llm.registry import PROVIDER_TYPE_MAP
 
 
@@ -54,10 +53,8 @@ async def test_sqlite_check_constraint_matches_provider_types(tmp_path) -> None:
     """Open a fresh DB, introspect the live ``llm_providers`` CHECK constraint,
     and assert the literal values in it match ``PROVIDER_TYPES``."""
     db_path = tmp_path / "schema-check.db"
-    conn = await aiosqlite.connect(str(db_path))
+    conn = await connect_template_db(db_path)
     try:
-        conn.row_factory = aiosqlite.Row
-        await ensure_schema(conn)
         async with conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='llm_providers'"
         ) as cursor:

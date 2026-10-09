@@ -34,6 +34,7 @@ async def setup(tmp_path):
 
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA synchronous=OFF")
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
@@ -112,6 +113,7 @@ class TestSchemaV7:
         """v6 → v7: removed tool names are stripped; NULL whitelist is preserved."""
         db_path = tmp_path / "v7-strip.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -223,6 +225,7 @@ class TestSchemaV8:
 
         db_path = tmp_path / "v8-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -333,6 +336,7 @@ class TestSchemaV8:
         tool_configs is created empty, schema_version lands at 8."""
         db_path = tmp_path / "v8-from-v7.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -392,6 +396,7 @@ class TestSchemaV8:
         time: no errors, no duplicate schema_version rows for v8."""
         db_path = tmp_path / "v8-idempotent.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -421,6 +426,7 @@ class TestSchemaV8:
         schema_version is 8."""
         db_path = tmp_path / "v8-chain.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -483,6 +489,7 @@ class TestSchemaV9:
 
         db_path = tmp_path / "v9-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -527,6 +534,7 @@ class TestSchemaV9:
 
         db_path = tmp_path / "v9-from-v8.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -563,6 +571,7 @@ class TestSchemaV9:
     async def test_v9_migration_is_idempotent(self, tmp_path) -> None:
         db_path = tmp_path / "v9-idempotent.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -585,6 +594,7 @@ class TestSchemaV9:
         run the v9 ADD COLUMN. The seeded row must have enabled=1."""
         db_path = tmp_path / "v9-chain.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -614,6 +624,7 @@ class TestSchemaV10:
     ) -> None:
         db_path = tmp_path / "v10-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -653,6 +664,7 @@ class TestSchemaV10:
     async def test_v10_migration_on_v9_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
         db_path = tmp_path / "v10-from-v9.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -744,6 +756,7 @@ CREATE TABLE mcp_sources (
     async def test_v10_migration_is_idempotent(self, tmp_path) -> None:
         db_path = tmp_path / "v10-idempotent.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -765,6 +778,7 @@ CREATE TABLE mcp_sources (
         row must emerge as type='streamable-http' with secrets='{}'."""
         db_path = tmp_path / "v10-chain.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -825,6 +839,7 @@ class TestSchemaV11:
         """
         db_path = tmp_path / "v11-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -862,6 +877,7 @@ class TestSchemaV11:
         lands at CURRENT_VERSION."""
         db_path = tmp_path / "v11-from-v10.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -920,6 +936,7 @@ class TestSchemaV11:
         time: no errors, no duplicate schema_version rows for v11."""
         db_path = tmp_path / "v11-idempotent.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -946,6 +963,7 @@ class TestMigrationV12:
         """A fresh schema (CURRENT_VERSION>=12) must accept openrouter rows."""
         db_path = tmp_path / "v11.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -967,6 +985,7 @@ class TestMigrationV12:
 
         db_path = tmp_path / "idem.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -992,6 +1011,7 @@ class TestMigrationV12:
 
         db_path = tmp_path / "v11_to_v12.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1122,6 +1142,7 @@ class TestMigrationV12:
 
         db_path = tmp_path / "partial.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1155,6 +1176,7 @@ class TestMigrationV12:
 
         db_path = tmp_path / "types.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await ensure_schema(conn)
 
@@ -1196,6 +1218,7 @@ class TestSchemaV13:
         """
         db_path = tmp_path / "v13-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1239,6 +1262,7 @@ class TestSchemaV13:
         """
         db_path = tmp_path / "v13-cols.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1298,6 +1322,7 @@ class TestSchemaV13:
         time: no errors, no duplicate schema_version rows for v13."""
         db_path = tmp_path / "v13-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1345,6 +1370,7 @@ class TestSchemaV14:
         table is named ``connectors``)."""
         db_path = tmp_path / "v14-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1377,6 +1403,7 @@ class TestSchemaV14:
         time: no errors, no duplicate schema_version rows for v14."""
         db_path = tmp_path / "v14-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1410,6 +1437,7 @@ class TestSchemaV14:
         """
         db_path = tmp_path / "v14-from-real-v13.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1527,6 +1555,7 @@ class TestSchemaV15:
         """Fresh DB → ensure_schema → v15 surfaces exist."""
         db_path = tmp_path / "v15-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1561,6 +1590,7 @@ class TestSchemaV15:
         time: no errors, no duplicate schema_version rows for v15."""
         db_path = tmp_path / "v15-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1592,6 +1622,7 @@ class TestSchemaV15:
         """
         db_path = tmp_path / "v15-from-real-v14.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1708,6 +1739,7 @@ class TestSchemaV16:
         """Fresh DB → ensure_schema → v16 surfaces exist."""
         db_path = tmp_path / "v16-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1771,6 +1803,7 @@ class TestSchemaV16:
         and the parent table is ``connectors``."""
         db_path = tmp_path / "v16-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1818,6 +1851,7 @@ class TestSchemaV16:
         # with` guarantees the in-loop close regardless of how the test exits.
         async with aiosqlite.connect(str(db_path)) as conn:
             conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA synchronous=OFF")
             await conn.execute("PRAGMA foreign_keys=ON")
 
             await conn.execute(
@@ -1949,6 +1983,7 @@ class TestSchemaV17:
         time: no errors, no duplicate schema_version rows for v17."""
         db_path = tmp_path / "v17-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -1983,6 +2018,7 @@ class TestSchemaV17:
 
         db_path = tmp_path / "v17-from-real-v16.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2084,6 +2120,7 @@ class TestSchemaV18:
         time: no errors, no duplicate schema_version rows for v18."""
         db_path = tmp_path / "v18-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2118,6 +2155,7 @@ class TestSchemaV18:
 
         db_path = tmp_path / "v18-from-real-v17.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2219,6 +2257,7 @@ class TestSchemaV20:
         time: no errors, no duplicate schema_version rows for v20."""
         db_path = tmp_path / "v20-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2253,6 +2292,7 @@ class TestSchemaV20:
 
         db_path = tmp_path / "v20-from-real-v19.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2375,6 +2415,7 @@ class TestSchemaV22:
         """
         db_path = tmp_path / "v22-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2403,6 +2444,7 @@ class TestSchemaV22:
         """
         db_path = tmp_path / "v22-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2424,6 +2466,7 @@ class TestSchemaV22:
         """
         db_path = tmp_path / "v22-legacy-empty-channels.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2498,6 +2541,7 @@ class TestSchemaV22:
         """
         db_path = tmp_path / "v22-legacy-nonempty-channels.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2560,6 +2604,7 @@ class TestSchemaV22:
         """
         db_path = tmp_path / "v22-legacy-no-allowlist.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2668,6 +2713,7 @@ class TestSchemaV23:
         """
         db_path = tmp_path / "v23-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2717,6 +2763,7 @@ class TestSchemaV23:
         surfaces v38 doesn't drop are still in place."""
         db_path = tmp_path / "v23-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -2757,6 +2804,7 @@ class TestSchemaV23:
         """
         db_path = tmp_path / "v23-from-real-v22.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3034,6 +3082,7 @@ class TestSchemaV30:
         """Fresh DB → ensure_schema → chat_history_retention_days exists on agents."""
         db_path = tmp_path / "v30-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3066,6 +3115,7 @@ class TestSchemaV30:
         DEFAULT backfill)."""
         db_path = tmp_path / "v30-from-v29.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3134,6 +3184,7 @@ class TestSchemaV30:
         """Calling ensure_schema twice leaves v30 in schema_version exactly once."""
         db_path = tmp_path / "v30-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3160,6 +3211,7 @@ class TestSchemaV31:
         """Fresh DB → ensure_schema → app_metadata exists, schema_version at 31."""
         db_path = tmp_path / "v31-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3193,6 +3245,7 @@ class TestSchemaV31:
         """Calling ensure_schema twice leaves v31 in schema_version exactly once."""
         db_path = tmp_path / "v31-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3223,6 +3276,7 @@ class TestSchemaV32:
         """Fresh DB → ensure_schema → tool_configs.secrets exists, head at 32."""
         db_path = tmp_path / "v32-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3246,6 +3300,7 @@ class TestSchemaV32:
         row's plaintext '{}' default survives and the head advances to 32."""
         db_path = tmp_path / "v32-existing.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3301,6 +3356,7 @@ class TestSchemaV32:
         does not error on the second ADD COLUMN attempt."""
         db_path = tmp_path / "v32-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3393,6 +3449,7 @@ class TestSchemaV33:
         db_path = tmp_path / "v33-fresh.db"
         async with aiosqlite.connect(str(db_path)) as conn:
             conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA synchronous=OFF")
             await conn.execute("PRAGMA foreign_keys=ON")
             await ensure_schema(conn)
 
@@ -3424,6 +3481,7 @@ class TestSchemaV33:
         db_path = tmp_path / "v33-populated.db"
         async with aiosqlite.connect(str(db_path)) as conn:
             conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA synchronous=OFF")
             await conn.execute("PRAGMA foreign_keys=ON")
             await self._build_v32_db(conn)
 
@@ -3465,6 +3523,7 @@ class TestSchemaV33:
         db_path = tmp_path / "v33-plan-insert.db"
         async with aiosqlite.connect(str(db_path)) as conn:
             conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA synchronous=OFF")
             await conn.execute("PRAGMA foreign_keys=ON")
             await self._build_v32_db(conn)
 
@@ -3494,6 +3553,7 @@ class TestSchemaV33:
         db_path = tmp_path / "v33-rerun.db"
         async with aiosqlite.connect(str(db_path)) as conn:
             conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA synchronous=OFF")
             await conn.execute("PRAGMA foreign_keys=ON")
             await self._build_v32_db(conn)
 
@@ -3529,6 +3589,7 @@ class TestSchemaV34:
         """
         db_path = tmp_path / "v34-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3572,6 +3633,7 @@ class TestSchemaV34:
         """field / status / source CHECK domains reject out-of-domain values."""
         db_path = tmp_path / "v34-checks.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3603,6 +3665,7 @@ class TestSchemaV34:
         """idx_agent_revisions_agent_status on (agent_name, status) is created."""
         db_path = tmp_path / "v34-index.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3621,6 +3684,7 @@ class TestSchemaV34:
         """ensure_schema twice: v34 stamped exactly once, no error."""
         db_path = tmp_path / "v34-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3637,6 +3701,7 @@ class TestSchemaV34:
         """A v33-shaped DB (agent_revisions dropped, stamp rewound) re-migrates cleanly."""
         db_path = tmp_path / "v34-upgrade.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3677,6 +3742,7 @@ class TestSchemaV35:
         """Fresh DB → ensure_schema → agents has the column NOT NULL DEFAULT 0."""
         db_path = tmp_path / "v35-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3699,6 +3765,7 @@ class TestSchemaV35:
         """A v34-shaped DB with an agent row backfills the column to 0."""
         db_path = tmp_path / "v35-backfill.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3721,6 +3788,7 @@ class TestSchemaV35:
         """ensure_schema twice: v35 stamped exactly once, no error."""
         db_path = tmp_path / "v35-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3737,6 +3805,7 @@ class TestSchemaV35:
         """A v34-shaped DB (column dropped, stamp rewound) re-migrates cleanly."""
         db_path = tmp_path / "v35-upgrade.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3792,6 +3861,7 @@ class TestSchemaV36:
         the AC1 column shape."""
         db_path = tmp_path / "v36-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3833,6 +3903,7 @@ class TestSchemaV36:
         does not fire and this test would false-pass."""
         db_path = tmp_path / "v36-cascade.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3870,6 +3941,7 @@ class TestSchemaV36:
     async def test_v36_index_on_source_id_exists(self, tmp_path) -> None:
         db_path = tmp_path / "v36-index.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3887,6 +3959,7 @@ class TestSchemaV36:
     async def test_v36_idempotent_on_rerun(self, tmp_path) -> None:
         db_path = tmp_path / "v36-rerun.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -3903,6 +3976,7 @@ class TestSchemaV36:
         """A v35-shaped DB (table dropped, stamp rewound) re-migrates cleanly."""
         db_path = tmp_path / "v36-upgrade.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -3987,6 +4061,7 @@ class TestSchemaV37:
         foreign_keys == 1`` after the envelope."""
         db_path = tmp_path / "v37-shape.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4046,6 +4121,7 @@ class TestSchemaV37:
         pointed-at row is unchanged."""
         db_path = tmp_path / "v37-chain.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4102,6 +4178,7 @@ class TestSchemaV37:
         the column present and the version re-stamped exactly once."""
         db_path = tmp_path / "v37-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4142,6 +4219,7 @@ class TestSchemaV37:
         """ensure_schema twice on a fresh DB: v37 stamped exactly once."""
         db_path = tmp_path / "v37-double.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -4215,6 +4293,7 @@ class TestSchemaV38:
         survive."""
         db_path = tmp_path / "v38-upgrade.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4290,6 +4369,7 @@ class TestSchemaV38:
         never occurs against a real, monotonic ``schema_version``.)"""
         db_path = tmp_path / "v38-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4317,6 +4397,7 @@ class TestSchemaV38:
         """ensure_schema twice on a fresh DB: v38 stamped exactly once."""
         db_path = tmp_path / "v38-double.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -4351,6 +4432,7 @@ class TestSchemaV39:
 
         db_path = tmp_path / "v39-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4404,6 +4486,7 @@ class TestSchemaV39:
         'telegram' becomes insertable post-migration."""
         db_path = tmp_path / "v39-from-v38.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4447,6 +4530,7 @@ class TestSchemaV39:
         """ensure_schema twice on a fresh DB: v39 stamped exactly once."""
         db_path = tmp_path / "v39-double.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -4482,6 +4566,7 @@ class TestSchemaV39:
 
         db_path = tmp_path / "v39-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4578,6 +4663,7 @@ class TestSchemaV40:
         FTS5 shadow tables and ``sqlite_sequence`` also exist)."""
         db_path = tmp_path / "v40-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4647,6 +4733,7 @@ class TestSchemaV40:
 
         db_path = tmp_path / "v40-check.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4688,6 +4775,7 @@ class TestSchemaV40:
         foreign_keys is 1 afterwards."""
         db_path = tmp_path / "v40-from-v39.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4732,6 +4820,7 @@ class TestSchemaV40:
         """ensure_schema twice on a fresh DB: v40 stamped exactly once."""
         db_path = tmp_path / "v40-double.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -4751,6 +4840,7 @@ class TestSchemaV40:
         table, still queryable) survives intact."""
         db_path = tmp_path / "v40-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4783,6 +4873,7 @@ class TestSchemaV40:
         was already populated (the guard's own signal column)."""
         db_path = tmp_path / "v40-stamp-only-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4813,6 +4904,7 @@ class TestSchemaV40:
         (``AUTOINCREMENT``, not a plain ``INTEGER PRIMARY KEY``)."""
         db_path = tmp_path / "v40-autoincrement.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4870,6 +4962,7 @@ class TestSchemaV41:
         unchanged)."""
         db_path = tmp_path / "v41-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4904,6 +4997,7 @@ class TestSchemaV41:
         already-present table."""
         db_path = tmp_path / "v41-preexisting-table.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4943,6 +5037,7 @@ class TestSchemaV41:
         ``ensure_schema``."""
         db_path = tmp_path / "v41-purge-sqlite-vec.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -4974,6 +5069,7 @@ class TestSchemaV41:
         record is untouched by the purge."""
         db_path = tmp_path / "v41-keep-usearch.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -5011,6 +5107,7 @@ class TestSchemaV41:
         untouched regardless of its real shape."""
         db_path = tmp_path / "v41-kb-vectors-survives.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -5033,6 +5130,7 @@ class TestSchemaV41:
         (mirrors ``TestSchemaV40.test_v40_idempotent_on_double_ensure``)."""
         db_path = tmp_path / "v41-double.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
@@ -5056,6 +5154,7 @@ class TestSchemaV41:
         afterward) while a non-sqlite-vec record is untouched."""
         db_path = tmp_path / "v41-rewind.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
@@ -5123,6 +5222,7 @@ class TestSchemaV41:
         guard directly."""
         db_path = tmp_path / "v41-no-app-metadata.db"
         conn = await aiosqlite.connect(str(db_path))
+        await conn.execute("PRAGMA synchronous=OFF")
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 

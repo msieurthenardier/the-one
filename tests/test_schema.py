@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 async def fresh_db():
     """Return an in-memory connection with no schema applied."""
     conn = await aiosqlite.connect(":memory:")
+    await conn.execute("PRAGMA synchronous=OFF")
     yield conn
     await conn.close()
 
@@ -81,6 +82,7 @@ async def fresh_db():
 async def v2_db():
     """Return an in-memory connection at schema version 2."""
     conn = await aiosqlite.connect(":memory:")
+    await conn.execute("PRAGMA synchronous=OFF")
     # Apply legacy V1 (with llm_provider/llm_base_url columns)
     await conn.executescript(_LEGACY_SCHEMA_V1)
     await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (1,))

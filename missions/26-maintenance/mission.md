@@ -1,6 +1,6 @@
 # Mission: Post-Mission-25 Maintenance
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -143,6 +143,6 @@ the flight's Technical Approach.
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: [Test-suite runtime](flights/01-test-suite-runtime/flight.md):
+- [x] Flight 1: [Test-suite runtime](flights/01-test-suite-runtime/flight.md):
   template databases, browser quick wins, local lane parallelism, CI split and
   locked installs, plus a conditional shared-server leg.

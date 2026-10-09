@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import aiosqlite
 import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
-from the_one.db.schema import ensure_schema
+from tests._schema_template import connect_template_db
 from the_one.interfaces.web.api import router
 from the_one.tools._search_backends import SearchResult
 
@@ -29,10 +28,7 @@ async def client(tmp_path):
     `tests/test_db_api.py:16-35` exactly."""
     db_path = tmp_path / "test.db"
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     with patch("the_one.interfaces.web.api.get_connection", return_value=conn):
         test_app = FastAPI()

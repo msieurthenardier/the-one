@@ -23,18 +23,88 @@ Pipeline UI: `http://localhost:8080/teams/the-one/pipelines/the-one`.
 | Lint (ruff check + format) | `ci/tasks/lint.yml` | "lint" job (`lint.yml`, break-glass) + `pr-lint.yml` "lint" job (pre-merge, PRs) |
 | Release-closure pip-audit | — | `pr-lint.yml` "pip-audit" job (pre-merge, PRs) |
 | Full default test suite | `ci/tasks/test.yml` | "test" job (`test.yml`) |
-| Browser tests (Playwright) | `ci/tasks/browser.yml` | "browser" job (`test.yml`) |
+| Browser tests (Playwright, every lane in sequence, Chromium + WebKit) | `ci/tasks/browser.yml` | "browser" job (`test.yml`) |
 | Windows curated subset (~427 tests) | `ci/tasks/windows-tests.yml` | "windows" job (`test.yml`) |
 | bwrap sandbox tests (privileged) | `ci/tasks/bwrap.yml` | "bwrap" job (`test.yml`) |
 | Windows installer build + MinIO publish | `build-windows-installer` job (pipeline) | `windows-installer.yml` (v\* tag only) |
 
-All five CI lanes run in parallel (`in_parallel`, `fail_fast: false`) as a single `ci`
-job. The browser lane is the long pole (~9 min on Concourse, vs ~15 min on GH shared
-runners). On Concourse the full browser suite runs on **every push to `main`** — the
+All five CI tasks run in parallel (`in_parallel`, `fail_fast: false`) as a single `ci`
+job. The browser task is a single task that runs `scripts/run-tests.sh --parallel 1`:
+every canonical browser lane, one after another (no lane list lives in CI, so it cannot
+drift from the local lanes; `tests/test_run_tests_lanes.py` pins that). Its CI time is
+**unmeasured until the first post-merge build**; locally the eight lanes sum to about
+2240 s sequential. On Concourse the full browser suite runs on **every push to `main`** — the
 path-filter that rationed it on GitHub Actions (minutes cost) is gone (DD5). None of
 these five lanes run on GitHub Actions PR triggers — `pr-lint.yml` (lint + pip-audit
 only) is the only pre-merge GH Actions gate; the heavy lanes stay post-merge on
 Concourse.
+
+## Installs, caches and the concurrency policy (M26 F1 L5)
+
+**Locked installs.** Every task installs from `uv.lock` with `uv sync --locked`
+(`--extra all-llms --extra dev`; lint `--extra dev` only), in the pinned image
+`ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm` (the `0.10.0-python3.11-bookworm`
+tag does not exist). `--locked` installs exactly the lock and errors when `uv.lock` is
+stale against `pyproject.toml` ("The lockfile at `uv.lock` needs to be updated, but
+`--locked` was provided"), so a forgotten relock fails CI; `--frozen` would install
+silently. Tools run from the synced `.venv` (`PYTHON=.venv/bin/python` for
+`run-tests.sh`). `bwrap` builds its venv inside `/opt/the-one`. `windows-tests`
+stays on `pip install -e` (a uv install was never validated on the Windows worker).
+
+**Caches.** `uv-cache` (all Linux tasks) and, in the browser task, `playwright-browsers`
+are Concourse task `caches:`. They are per worker, per job and per task step NAME, so
+renaming a task drops its cache. They do not persist across one-off `fly execute`
+builds, so `fly execute` install times are cold; the first pipeline build fills the
+caches and a second build shows the cached times. The cache volume is mounted `noexec`
+(a browser spawned from it fails with EACCES): Playwright downloads into it and the
+task runs the browsers from a copy under `/opt/pw`. The task also forces apt to IPv4
+(the workers have no IPv6 route; one build failed with "Network is unreachable").
+
+**Concurrency policy.** CI runs ONE browser task, whose lanes run one after another, so
+at most one browser lane runs at a time. A local gate (`make gate`, which runs three
+lanes at once) and a CI build never run at the same time on this host. **There are no
+`container_limits` on any task, on purpose:** the local Concourse workers reject them
+(runc: `cannot enter cgroupv2 "/sys/fs/cgroup/garden" with domain controllers -- it is
+in threaded mode`, on both linux workers, for memory alone, cpu alone or both), so a
+task that sets them fails at container creation. `tests/test_run_tests_lanes.py` fails
+if one is added; re-add them only after the workers' cgroup layout is fixed. Memory is
+the real constraint: a three-task browser trial exhausted the host (about 12.6 GB of
+Shmem in Docker Desktop's VM, load near 140) and took Concourse down, which is why CI
+runs a single browser task. Watch host memory during the first post-merge build.
+
+**`ignore_paths`.** The `repo` resource ignores `missions/**`, `sorties/**`,
+`squawks/**`, `maintenance/**`, `service-reports/**` and `.flightops/**`: flight logs,
+debriefs, squawks and maintenance reports trigger no build. `docs/` and `*.md` are NOT
+ignored, because unit tests read `docs/*.md` and repository Markdown (for example
+`tests/test_ui_control_inventory.py` and the testid-registry guards), so a doc-only
+change can break CI and must still trigger. A mixed commit (code plus flight artifacts)
+still triggers, and the build tests the whole tree at that commit.
+`build-windows-installer` takes the same `repo` with `passed: [ci]`, so an ignored
+commit triggers neither job; the installer is built from the last commit that passed
+`ci`.
+
+**Scheduled audit.** `pr-lint.yml` also runs `pip-audit` weekly (Mondays 06:17 UTC) and
+on `workflow_dispatch`; `lint` stays PR-only (squawk 0107). A scheduled failure is
+visible through GitHub's failed-workflow notification, which goes to the user who last
+edited the cron line, and GitHub disables scheduled workflows after 60 days with no
+repository activity. `windows-installer.yml` runs the same audit as a job its build
+`needs:`, so a finding fails a `v*` release before any build time is spent.
+
+## Measured times
+
+`fly execute`, cold caches, one task at a time (2026-10-08). Install is the
+`uv sync --locked` step; wall includes the image pull.
+
+| Task | Result | Install step | Wall |
+|---|---|---|---|
+| `lint` | passed | 26 s | 2m56s |
+| `bwrap` (`-p`) | 41 passed, 3 expected skips | 38 s | 1m17s |
+| `test` | 5620 passed, 1 failed, 12 skipped | 37 s | 6m31s |
+
+The one `test` failure was `test_self_configuration_surface.py::TestSquawk0005ShutdownDrainUnderLoad::test_live_surface_connection_evicted_before_general_drain`
+(an MCP initialize timeout); it passes when its file runs alone in the same container
+and has not failed locally. The browser task's CI time is **unmeasured**; the first
+post-merge build is its measurement.
 
 ## Pre-merge lint + audit gate
 
@@ -68,7 +138,7 @@ runs two jobs, both fail-on-nonzero:
 
 Runs the exact CI task on the Concourse worker against your **current files**
 (committed or not). `-i repo=.` uploads the working tree — not git-archive — so
-**use a clean tree** (no stray `.venv/`, `dist/`, `build/` directories) to avoid
+**use a clean tree (a fresh export without `.venv/`)** (no stray `.venv/`, `dist/`, `build/` directories) to avoid
 uploading large artifacts to the worker.
 
 ```bash
@@ -86,7 +156,7 @@ fly -t the-one execute -p -c ci/tasks/bwrap.yml      -i repo=.
 
 ### 2. Automatic CI on every push to `main`
 
-The `ci` job has a `git` resource on `main` (`trigger: true`) and runs all five lanes
+The `ci` job has a `git` resource on `main` (`trigger: true`) and runs all five tasks
 in parallel. Watch it at `http://localhost:8080/teams/the-one/pipelines/the-one`.
 
 The `build-windows-installer` job auto-triggers after `ci` passes (`trigger: true` +
@@ -194,8 +264,8 @@ Concourse workspace lives under `/tmp/build/<id>/repo/` — and bwrap's `--tmpfs
 overlay shadows everything under `/tmp` inside the sandbox. Moving the checkout to
 `/opt/the-one` (outside `/tmp`) ensures `_PROJECT_ROOT` resolves to a path that is
 visible inside the sandbox, reproducing the GitHub Actions `/home/runner/work/...`
-condition. The venv is also installed at `/opt/venv` (not in the repo input) for the
-same reason.
+condition. The venv is built by `uv sync --locked` inside `/opt/the-one` (`/opt/the-one/.venv`), so
+the editable install points there, for the same reason.
 
 ### Windows-worker quirks
 
@@ -221,7 +291,7 @@ Once the flight PR merges to `main` (the commit carries `ci/tasks/*` +
 `ci/the-one.pipeline.yml`):
 
 1. The `the-one/ci` job auto-triggers on the merge commit → confirm it goes **green**
-   across all five lanes (lint / test / browser / windows-tests / bwrap).
+   across all five tasks (lint / test / browser / windows-tests / bwrap).
 2. `build-windows-installer` auto-runs (`passed: [ci]`) → confirm the `.exe` lands in
    MinIO (`the-one-installers`).
 3. **Destroy the paused `windows-installer` pipeline** so only the unified pipeline
