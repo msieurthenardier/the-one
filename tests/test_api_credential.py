@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -387,7 +388,7 @@ class TestFileCreation:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("not-a-valid-credential")
         os.chmod(path, 0o600)
-        with pytest.raises(CredentialFileError, match=str(path)):
+        with pytest.raises(CredentialFileError, match=re.escape(str(path))):
             get_credential()
 
 

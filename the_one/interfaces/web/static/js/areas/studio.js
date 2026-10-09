@@ -3221,7 +3221,15 @@ App.registerArea({
         providerSelect.addEventListener('change', function () {
           var selectedProviderId = providerSelect.value;
           var modelEl = editorEl.querySelector('#studio-model');
-          if (modelEl) modelEl.selectedIndex = 0;
+          if (modelEl) {
+            // Carry the current choice across the switch so
+            // fetchModelsForProvider can surface it as "(custom)" when the new
+            // provider doesn't list it (squawk 0156). It is consumed (and
+            // deleted) by that fetch's success path.
+            if (modelEl.value) modelEl.dataset.pendingValue = modelEl.value;
+            else delete modelEl.dataset.pendingValue;
+            modelEl.selectedIndex = 0;
+          }
           clearVramWarning();
           fetchModelsForProvider(selectedProviderId);
           recomputeTestDisabled();
