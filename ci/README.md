@@ -49,7 +49,9 @@ stale against `pyproject.toml` ("The lockfile at `uv.lock` needs to be updated, 
 `--locked` was provided"), so a forgotten relock fails CI; `--frozen` would install
 silently. Tools run from the synced `.venv` (`PYTHON=.venv/bin/python` for
 `run-tests.sh`). `bwrap` builds its venv inside `/opt/the-one`. `windows-tests`
-stays on `pip install -e` (a uv install was never validated on the Windows worker).
+(no uv image on the Windows worker) pip-installs `uv==0.9.30` into the choco Python 3.11,
+runs `uv sync --locked` with `UV_PYTHON` set to it (`UV_PYTHON_DOWNLOADS=never`), and runs
+pytest from `.venv\Scripts\python.exe`.
 
 **Caches.** `uv-cache` (all Linux tasks) and, in the browser task, `playwright-browsers`
 are Concourse task `caches:`. They are per worker, per job and per task step NAME, so

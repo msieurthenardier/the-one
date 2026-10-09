@@ -146,6 +146,11 @@ A change under `the_one/interfaces/web/static/` must also run the static JS/CSS
 guards — `tests/test_ui_guards.py`, `tests/test_token_definitions.py` and
 `tests/test_design_tokens_a11y.py` — not only a browser lane (squawk 0106).
 
+Process hygiene: kill only PIDs or PGIDs you recorded yourself (or the `.pgids`
+files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
+no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
+processes (a `make up` server, another session's tests) (squawk 0160).
+
 If a test hangs, isolate and fix it — do not paper over with `xfail` or skips
 unless the leg artifact explicitly authorizes that. Update flight log with
 outcomes. Propagate changes to artifacts (flight, mission, leg), CLAUDE.md,
@@ -215,6 +220,11 @@ action: fix-review-issues
 
 Address the following review feedback:
 {reviewer-issues}
+
+Process hygiene: kill only PIDs or PGIDs you recorded yourself (or the `.pgids`
+files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
+no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
+processes (a `make up` server, another session's tests) (squawk 0160).
 
 Fix all blocking issues. Non-blocking issues: fix if straightforward, otherwise
 note as accepted. Signal [HANDOFF:review-needed] when fixes are complete.

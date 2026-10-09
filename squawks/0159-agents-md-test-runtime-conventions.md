@@ -1,10 +1,10 @@
 # Squawk 0159: agents.md lacks the test template-DB rule and the parallel runner contract
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-09
-**Completed**: —
+**Completed**: 2026-10-09
 
 ## Report
 Mission 26 F01 introduced two conventions that live only in code, CLAUDE.md's Testing section, and the flight log:
@@ -22,10 +22,19 @@ Mission 26 F01 introduced two conventions that live only in code, CLAUDE.md's Te
 - Debrief recommendation 4 (`missions/26-maintenance/flights/01-test-suite-runtime/flight-debrief.md`).
 
 ## Corrective Action
-*(written at completion)*
+Added two sections to `the_one/agents.md` (under "Testing patterns", after "Browser test isolation"): "Test databases come from the session template" and "Parallel test runner contract (`scripts/run-tests.sh --parallel N`)". Added a one-paragraph pointer to both from CLAUDE.md's Testing section (it had none). Documentation only; no code changed.
 
 ## Verification
-*(written at completion)*
+Every claim was checked against the code, not the flight artifacts:
+- `tests/_schema_template.py`: the four helpers and their behaviour (once-per-process build, `journal_mode=DELETE`, `copy_template` refuses an existing dest and chmods 0o600, `connect_template_memory` uses the backup API, never-open-the-template note).
+- `tests/test_schema_template.py`: `ALLOWED_DIRECT_CALLERS`, the `ast` guard (`ensure_schema`/`init_db` calls under `tests/`), the stale-entry test, and `test_template_matches_fresh_replay` (what it compares).
+- `tests/browser/conftest.py::_spawn_app`: `seed_db=True` default, copy before `Popen`, `seed_db=False` for first-boot/migration tests.
+- `scripts/run-tests.sh`: `--parallel`/`--lane` exclusivity, child invocation under `setsid`, log/xml/pgids files, `BUDGET` ordering, TERM-then-5 s-then-KILL cleanup, `.pgids` contents and removal, USR1 watchdog and 15 s escalation, `RUN_TESTS_PARENT_PID` guard and `.parent-died` marker, exit-code rules (137/143, missing/empty junit, first failing lane in schedule order), `PARALLEL_RESULT` format (including the aborted-run form), `TEST_TIMEOUT` defaults 1200/2400.
+- `tests/test_run_tests_lanes.py`: the plan test pins shape (every lane once, numeric, descending), timeout defaults and exit-2 errors, not the budget values. The agents.md text says so (the brief said the test "pins" the budget; it does not pin values).
+- Markdown only; ruff not applicable.
 
 ## Sign-Off
-*(written at completion)*
+
+**Reviewer**: independent batch Reviewer (Sonnet tier: the batch touches the self-configuration credential-isolation tests and a CI install script). Spot-checked the documented claims against `tests/_schema_template.py`, `tests/test_schema_template.py`, `scripts/run-tests.sh` and `tests/browser/conftest.py::_spawn_app`. All match.
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-09` on branch `squawk/turnaround-2026-10-09`

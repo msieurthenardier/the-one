@@ -72,6 +72,26 @@ async def _wait_ready(base_url: str, timeout: float = 10.0) -> None:
     raise RuntimeError(f"server on {base_url} did not become ready within {timeout}s")
 
 
+def _reset_sse_shutdown_flag() -> None:
+    """Clear ``sse_starlette``'s process-global shutdown latch.
+
+    The MCP streamable-HTTP responses are ``sse_starlette`` ``EventSourceResponse``s.
+    Each one races a shutdown watcher (one per thread/event loop) that polls the
+    uvicorn server found through the SIGTERM handler and, once that server's
+    ``should_exit`` is set, latches ``AppStatus.should_exit = True`` on the CLASS —
+    a flag nothing ever clears. This fixture stops its server with
+    ``should_exit = True``; if the previous test's watcher happens to poll (every
+    0.5 s) inside that teardown window — which a loaded host stretches — the latch
+    survives into the NEXT test's fresh server, where every SSE response is
+    cancelled before it sends anything, so the first ``initialize`` POST gets an
+    empty body and the client waits out its 30 s budget (squawks 0134, 0157).
+    One server per process in production, so this is test isolation only.
+    """
+    from sse_starlette import sse as sse_mod
+
+    sse_mod.AppStatus.should_exit = False
+
+
 @pytest.fixture
 async def running_surface(isolated_db, monkeypatch):
     """Spin up a fresh, minimal app (real gate + real API router + a freshly
@@ -81,6 +101,9 @@ async def running_surface(isolated_db, monkeypatch):
     sc_credentials.clear_for_test()
     sc_credentials.reset_registration_for_test()
     sc_external.clear_for_test()
+    # The previous test's loop is closed by now, so its watcher can no longer
+    # re-latch the flag after this reset.
+    _reset_sse_shutdown_flag()
 
     from the_one.self_configuration import surface as surface_mod
 
@@ -127,6 +150,7 @@ async def running_surface(isolated_db, monkeypatch):
     finally:
         server.should_exit = True
         await asyncio.wait_for(task, timeout=10.0)
+        _reset_sse_shutdown_flag()
         sc_credentials.clear_for_test()
         sc_credentials.reset_registration_for_test()
         sc_external.clear_for_test()

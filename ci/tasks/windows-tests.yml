@@ -2,7 +2,9 @@
 # Runs the OS-divergent platform/PTY/filesystem/config/encryption/sandbox subset
 # (~427 tests) on the Concourse `platform: windows` worker.
 # Toolchain provisioned per-run via choco (Python 3.11).
-# The `[all-llms,dev]` extras spec is quoted so PowerShell does not mangle the brackets.
+# Installs from uv.lock (`uv sync --locked --extra all-llms --extra dev`), like the Linux
+# tasks. uv is pinned (0.9.30, the Linux image's version) and pip-installed into the
+# choco Python; UV_PYTHON points at that interpreter so uv never downloads its own.
 #
 # Environment parity with GitHub Actions Windows runner:
 #   GH uses `shell: bash` (Git-Bash) which provides `true`, `sleep`, etc. and sets HOME.
@@ -28,6 +30,9 @@ platform: windows
 inputs:
   - name: repo
 
+caches:
+  - path: uv-cache
+
 run:
   path: powershell
   args:
@@ -47,12 +52,21 @@ run:
       $py = "C:\Python311\python.exe"
       if (!(Test-Path $py)) { throw "python311 not at $py" }
       & $py --version
+      $env:UV_CACHE_DIR = Join-Path $PWD "uv-cache"
+      $env:UV_LINK_MODE = "copy"
+      $env:UV_PYTHON = $py
+      $env:UV_PYTHON_DOWNLOADS = "never"
+      $env:UV_NO_PROGRESS = "1"
       Set-Location repo
-      Write-Host "=== [2/3] pip install deps ==="
-      & $py -m pip install --upgrade pip --quiet
-      & $py -m pip install -e ".[all-llms,dev]" --quiet
+      Write-Host "=== [2/3] locked install (uv sync --locked) ==="
+      & $py -m pip install uv==0.9.30 --quiet
+      if ($LASTEXITCODE -ne 0) { throw "installing uv failed" }
+      $t = Get-Date
+      & $py -m uv sync --locked --extra all-llms --extra dev
+      if ($LASTEXITCODE -ne 0) { throw "uv sync --locked failed" }
+      Write-Host ("uv sync took {0:N0}s" -f ((Get-Date) - $t).TotalSeconds)
       Write-Host "=== [3/3] run curated Windows test subset ==="
-      & $py -m pytest --timeout=300 --tb=short `
+      & .venv\Scripts\python.exe -m pytest --timeout=300 --tb=short `
         --deselect "tests/test_execution_tools.py::test_build_tool_profile_default_allowlist" `
         tests/test_platform_paths.py tests/test_platform_shell.py `
         tests/test_platform_interpreter.py tests/test_platform_tempdirs.py `

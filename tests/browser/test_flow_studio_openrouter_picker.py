@@ -205,62 +205,96 @@ def test_picker_preserves_value_across_type_switch_as_custom(
     app_with_two_providers,
     page: Page,
 ) -> None:
-    """Switching provider type repopulates the model picker from the new
-    provider and never presents the old provider's model as one of its listed
-    models.
+    """Switching provider carries the chosen model across as a visible
+    "(custom)" option when the new provider does not list it, and shows it as
+    a normal listed model again when switching back (squawk 0156).
 
     Sequence:
       1. Select OpenRouter, pick "anthropic/claude-3.5-sonnet".
-      2. Switch to Ollama (which doesn't list that id): the picker holds
-         Ollama's models only, and the OpenRouter id is not selected as a
-         real listed option.
-      3. Switch back to OpenRouter: the id is a real listed model again,
+      2. Switch to Ollama (which doesn't list that id): the id is present as
+         "<id> (custom)" and selected.
+      3. Switch back to OpenRouter: the id is a real listed model, selected,
          never labelled "(custom)".
-
-    Squawk 0156: the original contract (the old id carried across the switch
-    as a visible "(custom)" option) does not hold today; the provider-change
-    handler clears the selection before the carry-over code can read it, so
-    step 2's value is empty. That is deliberately NOT asserted here; when the
-    squawk is fixed, tighten step 2 to expect the "(custom)" option.
     """
     base_url = app_with_two_providers["base_url"]
     openrouter_id = app_with_two_providers["openrouter_id"]
     ollama_id = app_with_two_providers["ollama_id"]
     chosen = "anthropic/claude-3.5-sonnet"
 
+    # No Ollama daemon runs in the test environment, so serve it a model list
+    # that does not contain the OpenRouter ids.
+    page.route(
+        f"**/api/providers/{ollama_id}/models",
+        lambda route: route.fulfill(
+            json=[{"id": "llama3", "name": "llama3"}],
+        ),
+    )
+
     _nav.goto(page, base_url, "agents")
     expect(page.locator('[data-testid="agents-list"]')).to_be_visible(timeout=8000)
     _lists.agents_new(page)
 
-    # Step 1: pick an openrouter model.
     page.locator("#studio-provider").select_option(openrouter_id)
-    expect(page.locator("#studio-model option")).to_have_count(4, timeout=8000)
+    expect(page.locator(f'#studio-model option[value="{chosen}"]')).to_have_count(1, timeout=8000)
     page.locator("#studio-model").select_option(chosen)
     expect(page.locator("#studio-model")).to_have_value(chosen, timeout=2000)
 
-    # Step 2: switch to Ollama. The picker is rebuilt from Ollama's list.
     page.locator("#studio-provider").select_option(ollama_id)
-    expect(page.locator("#studio-model option")).not_to_have_count(4, timeout=8000)
-    page.wait_for_function(
-        "() => !document.querySelector('.model-loading')?.textContent"
-        " || document.querySelector('.model-loading').textContent !== 'Loading models\u2026'",
-        timeout=8000,
-    )
-    options = page.eval_on_selector_all(
-        "#studio-model option", "els => els.map(e => ({v: e.value, t: e.textContent}))"
-    )
-    selected = page.locator("#studio-model").input_value()
-    # The openrouter id is never offered as one of Ollama's real models.
-    assert not [o for o in options if o["v"] == chosen and "(custom)" not in o["t"]], options
-    # And if it is carried across at all, it is flagged rather than passed off.
-    if selected == chosen:
-        assert any(o["v"] == chosen and "(custom)" in o["t"] for o in options), options
+    custom = page.locator(f'#studio-model option[value="{chosen}"]')
+    expect(custom).to_have_text(f"{chosen} (custom)", timeout=8000)
+    expect(page.locator("#studio-model")).to_have_value(chosen)
 
-    # Step 3: switch back to OpenRouter. The id is a real listed model and is
-    # never labelled "(custom)".
     page.locator("#studio-provider").select_option(openrouter_id)
     expect(page.locator("#studio-model option")).to_have_count(4, timeout=8000)
     labels = page.eval_on_selector_all(
         f'#studio-model option[value="{chosen}"]', "els => els.map(e => e.textContent)"
     )
     assert labels == [chosen], labels
+    expect(page.locator("#studio-model")).to_have_value(chosen)
+
+
+@pytest.mark.browser
+def test_picker_stale_carried_value_does_not_resurface(
+    app_with_two_providers,
+    page: Page,
+) -> None:
+    """A carried-over value is consumed by the fetch it was captured for: pick
+    A, switch away and back, pick B, switch again -> B (custom), never A."""
+    base_url = app_with_two_providers["base_url"]
+    openrouter_id = app_with_two_providers["openrouter_id"]
+    ollama_id = app_with_two_providers["ollama_id"]
+    a = "anthropic/claude-3.5-sonnet"
+    b = "no-tools-model"
+    # No Ollama daemon runs in the test environment, so serve it a model list
+    # that does not contain the OpenRouter ids.
+    page.route(
+        f"**/api/providers/{ollama_id}/models",
+        lambda route: route.fulfill(
+            json=[{"id": "llama3", "name": "llama3"}],
+        ),
+    )
+
+    _nav.goto(page, base_url, "agents")
+    expect(page.locator('[data-testid="agents-list"]')).to_be_visible(timeout=8000)
+    _lists.agents_new(page)
+
+    page.locator("#studio-provider").select_option(openrouter_id)
+    expect(page.locator(f'#studio-model option[value="{a}"]')).to_have_count(1, timeout=8000)
+    page.locator("#studio-model").select_option(a)
+
+    page.locator("#studio-provider").select_option(ollama_id)
+    expect(page.locator(f'#studio-model option[value="{a}"]')).to_have_text(
+        f"{a} (custom)", timeout=8000
+    )
+
+    page.locator("#studio-provider").select_option(openrouter_id)
+    expect(page.locator("#studio-model option")).to_have_count(4, timeout=8000)
+    page.locator("#studio-model").select_option(b)
+    expect(page.locator("#studio-model")).to_have_value(b)
+
+    page.locator("#studio-provider").select_option(ollama_id)
+    expect(page.locator(f'#studio-model option[value="{b}"]')).to_have_text(
+        f"{b} (custom)", timeout=8000
+    )
+    expect(page.locator("#studio-model")).to_have_value(b)
+    assert page.locator(f'#studio-model option[value="{a}"]').count() == 0

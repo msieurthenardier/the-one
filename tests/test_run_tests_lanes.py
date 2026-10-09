@@ -270,7 +270,10 @@ def test_no_ci_task_sets_container_limits() -> None:
 
 
 def test_ci_tasks_install_from_the_lockfile() -> None:
-    for name in ("test", "lint", "bwrap", "browser"):
+    for name in ("test", "lint", "bwrap", "browser", "windows-tests"):
         text = (REPO / "ci" / "tasks" / f"{name}.yml").read_text()
         assert "uv sync --locked" in text, name
-        assert "pip install" not in text, name
+        # windows-tests has no uv image: it pip-installs the pinned uv itself, nothing else.
+        assert "pip install" not in text.replace("pip install uv==0.9.30", ""), name
+        if name == "windows-tests":
+            assert "pip install uv==0.9.30" in text
