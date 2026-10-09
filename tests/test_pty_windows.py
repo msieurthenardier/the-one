@@ -53,6 +53,15 @@ def _typed_kernel32():
     return k32
 
 
+def _output_lines(output: bytes) -> list[bytes]:
+    """Split PTY output into lines with VT escape sequences stripped, so a
+    result can be matched as its own line (not as a substring of the echo)."""
+    import re
+
+    clean = re.sub(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)", b"", output)
+    return [ln.strip() for ln in clean.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")]
+
+
 @pytest.fixture(autouse=True)
 def _windows_pty_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force PassthroughSandbox for all tests in this module.
@@ -80,29 +89,59 @@ async def test_start_creates_alive_session() -> None:
 
 @pytest.mark.asyncio
 async def test_send_echo_hello_round_trip() -> None:
-    """``send("echo hello")`` returns output containing ``hello``."""
+    """``send`` submits the line: the command RUNS, not just echoes.
+
+    ``set /a 6*7`` prints ``42``; the echoed typed line (``set /a 6*7``)
+    does not contain it (squawk 0164 — the PTY-echo trap).
+    """
     from the_one.platform.pty_windows import WindowsPtySession
 
     session = WindowsPtySession()
     try:
         await session.start()
-        output = await session.send("echo hello", timeout=15.0)
-        assert b"hello" in output
+        output = await session.send("set /a 6*7", timeout=15.0)
+        assert b"42" in output
     finally:
         await session.close()
 
 
 @pytest.mark.asyncio
 async def test_send_second_command_state_persists() -> None:
-    """A second send in the same session succeeds — PTY state persists."""
+    """A second send in the same session runs — PTY state persists.
+
+    ``echo a^b`` prints ``ab`` (cmd drops the caret); the echoed input keeps
+    ``a^b``, so ``ab`` proves execution. Variables set earlier must persist.
+    """
     from the_one.platform.pty_windows import WindowsPtySession
 
     session = WindowsPtySession()
     try:
         await session.start()
-        await session.send("echo first", timeout=15.0)
-        output2 = await session.send("echo second", timeout=15.0)
-        assert b"second" in output2
+        out1 = await session.send("set /a x=40+2", timeout=15.0)
+        assert b"42" in out1
+        output2 = await session.send("echo a^b", timeout=15.0)
+        assert b"ab" in _output_lines(output2)
+        # State persisted and the first command's result is not replayed here.
+        output3 = await session.send("echo %x%", timeout=15.0)
+        assert b"42" in output3
+        assert b"%x%" not in output3.replace(b"echo %x%", b"")
+
+    finally:
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_send_multiline_runs_each_line() -> None:
+    """Multi-line input submits every line (LF and CRLF alike)."""
+    from the_one.platform.pty_windows import WindowsPtySession
+
+    session = WindowsPtySession()
+    try:
+        await session.start()
+        output = await session.send("set /a 1+1\nset /a 2*50\r\nset /a 7*11", timeout=15.0)
+        assert b"2" in _output_lines(output)
+        assert b"100" in output
+        assert b"77" in output
     finally:
         await session.close()
 
@@ -143,7 +182,8 @@ async def test_last_activity_updated_after_send() -> None:
         before = session.last_activity
         # Brief pause to ensure monotonic difference is measurable.
         time.sleep(0.05)
-        await session.send("echo ts", timeout=15.0)
+        out = await session.send("set /a 3*3", timeout=15.0)
+        assert b"9" in out
         after = session.last_activity
         assert after >= before
     finally:
@@ -167,19 +207,6 @@ async def test_send_after_close_raises_runtime_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "The grandchild-launch harness (a detached `start /b` child writing its "
-        "PID through the cmd.exe-through-ConPTY session) is unreliable in CI — "
-        "the PID file isn't written within the window, so the Job-Object reap "
-        "assertion is never reached. The Job Object teardown CODE is "
-        "correct-by-construction (KILL_ON_JOB_CLOSE; the 7 round-trip tests + "
-        "start()/close() plumbing pass). Definitive orphan-reap verification is "
-        "deferred to the operator's Windows host (Leg 5 behavior test) — see "
-        "flight log. Matches the test_parent_death_reaps_grandchild disposition."
-    ),
-)
 @pytest.mark.asyncio
 async def test_close_reaps_grandchild() -> None:
     """Closing a session kills backgrounded grandchildren via the Job Object.
