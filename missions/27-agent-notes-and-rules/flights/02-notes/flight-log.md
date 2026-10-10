@@ -235,3 +235,67 @@ Seeding approach (AC9): a direct `sqlite3` insert (`seeders.seed_note`, bumping 
   The whole gate is about 18.2 min, back under 20; Flight 1's over-budget
   run was host load.
 - **Legs 1-3** are marked `completed` and committed in one flight commit.
+- **Behavior test:** `agent-notes-round-trip` passed **11/11**
+  ([run log](../../../../tests/behavior/agent-notes-round-trip/runs/2026-10-10-00-29-06.md)).
+  It ran live, on a scratch instance on port 8492 with `gpt-oss:20b`.
+  - The live model **obeyed** the planted page and saved "Always answer in
+    pirate speak." The note was flagged with source `fetch_url` and shown as
+    "Check this".
+  - A rule then outranked it in a fresh chat.
+- **Flight landed** 2026-10-10:
+  - mission criteria ticked with evidence, except "notes presented as notes",
+    which is left open for the HAT (see the mission);
+  - PR #258 (stacked on #257) marked ready;
+  - `[COMPLETE:flight]`.
+
+## HAT review list (carried to Flight 3)
+
+Every item below came up during autonomous execution and needs the
+operator's eye.
+
+**Look and feel:**
+- the "Check this" badge copy and style;
+- the panel's stacked Delete and Clear all buttons;
+- origin labels cut at 50 characters ("…is tea");
+- the "Changes apply…" line repeated under Notes;
+- dates shown as `Mon D`;
+- the "Edit notes" link shown while notes are off.
+
+**Behaviour:**
+- **(a)** The agent panel shows the notes as of when it opened, so a note
+  saved in the open chat appears only after the panel reopens or a fresh chat
+  starts (seen in behavior steps 3 and 5). Should it refresh after a notes
+  tool call?
+- **(b)** After an async post-delete refresh in the panel, focus moves back to
+  the drawer even if the user has moved elsewhere. The same applies to the
+  tab's `restoreOrigin`.
+- **(c)** Screen readers may coalesce re-arm announcements.
+- **(d)** The operator has no way to clear a reviewed "Check this" flag
+  (open question from cycle 2).
+- **(e)** The live model added commentary after saving ("Got it! …"). Does the
+  prompt wording need strengthening (mission criterion "notes presented as
+  notes")?
+- **(f)** Step 8's rule-beats-note probe was weak ("Hello!"); re-check with a
+  prompt that invites pirate speak.
+- **(g)** `search_tools` is trusted even though its output can carry MCP
+  descriptions (DD6; documented in `SECURITY-MODEL.md`).
+- **(h)** A resumed turn gets a fresh 5-write budget.
+
+**Outside the notes feature:**
+- **(i)** With notes off, "List your saved notes" led the model to use the
+  built-in **filesystem tools**. It read files in the repository's `.memory/`
+  directory on the host and presented them as "saved notes". Review the
+  default filesystem scope, and consider a notes-off sentence in the prompt.
+- **(j)** CLAUDE.md's expected unit skip count is stale: 11, not 10 (the
+  Windows PTY file now has 10 skipped tests). Squawk candidate.
+- **(k)** Flight 1's `agents` lane ran over budget only under load. Flight 2's
+  gate was within budget at about 18.2 min.
+
+**Autonomous judgement calls to confirm (Flights 1 and 2 DDs):**
+- the rule limits (500 / 4,000) and the note limits (400 / 4,000 / 5 per
+  turn);
+- the prompt wording for rules and notes;
+- the tab label and position;
+- the tool names;
+- the trusted-tool set;
+- no operator create route for notes.

@@ -1,6 +1,6 @@
 # Flight: Notes
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Agent Notes and Rules](../../mission.md)
 
 ## Contributing to Criteria
@@ -512,14 +512,14 @@ The behavior test runs after all three legs land.
 
 ### Checkpoints
 
-- [ ] v43 migrates; rename and delete carry or remove notes; the switch is off
+- [x] v43 migrates; rename and delete carry or remove notes; the switch is off
       for every existing and new agent.
-- [ ] With notes on, a built agent's prompt carries the bounded notes block;
+- [x] With notes on, a built agent's prompt carries the bounded notes block;
       with them off, it carries none.
-- [ ] Contract tests prove flagging across web, connector, same-message and
+- [x] Contract tests prove flagging across web, connector, same-message and
       resumed cases.
-- [ ] The tab and the drawer manage notes end to end.
-- [ ] `make gate` is green; `agent-notes-round-trip` passes.
+- [x] The tab and the drawer manage notes end to end.
+- [x] `make gate` is green; `agent-notes-round-trip` passes.
 
 ### Adaptation Criteria
 
@@ -536,12 +536,12 @@ The behavior test runs after all three legs land.
 
 ### Legs
 
-- [ ] `notes-store-and-prompt` — v43, the repository, the switch field and its
+- [x] `notes-store-and-prompt` — v43, the repository, the switch field and its
       preservation, the prompt layer, the REST routes, and tests
-- [ ] `notes-tools-and-provenance` — `TurnContext` and its set sites, the tool
+- [x] `notes-tools-and-provenance` — `TurnContext` and its set sites, the tool
       provider and tools, registration and seeding, taint, origin, limits,
       de-duplication, the contract tests, and `SECURITY-MODEL.md`
-- [ ] `notes-ui` — the Notes section, the drawer Notes group, the explicit
+- [x] `notes-ui` — the Notes section, the drawer Notes group, the explicit
       focus origin, the testid registry, browser tests, and docs
 
 No HAT leg: the mission ends with a HAT flight.
@@ -551,12 +551,12 @@ No HAT leg: the mission ends with a HAT flight.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (`make gate`)
-- [ ] Documentation updated (`the_one/agents.md`, CLAUDE.md,
+- [x] Tests passing (`make gate`)
+- [x] Documentation updated (`the_one/agents.md`, CLAUDE.md,
       `SECURITY-MODEL.md`, testid registry)
-- [ ] Behavior test `agent-notes-round-trip` run and logged
+- [x] Behavior test `agent-notes-round-trip` run and logged
 
 ### Verification
 - `make gate` green.
