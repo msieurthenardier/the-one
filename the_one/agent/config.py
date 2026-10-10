@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -80,12 +81,21 @@ to direct, concise responses.
 """
 
 
+@dataclass(frozen=True)
+class RenderedNote:
+    """One saved note as the prompt layer sees it (M27 F2, DD9)."""
+
+    number: int
+    text: str
+    untrusted: bool = False
+
+
 def compose_system_prompt(
     base: str,
     persona: str,
     *,
     rules: Sequence[str] = (),
-    notes: Sequence[str] = (),
+    notes: Sequence[RenderedNote] | None = None,
 ) -> str:
     """Compose the agent's system prompt from its layers.
 
@@ -94,10 +104,13 @@ def compose_system_prompt(
     omitted entirely (no stray separator, no empty heading). The result
     always starts with ``base`` (the degraded chat-only path relies on
     ``startswith(BASE_PROMPT)``). ``rules`` is the list of enabled rule
-    texts in position order (Mission 27 DD1/DD5). ``notes`` is reserved and
-    ignored until Flight 2.
+    texts in position order (Mission 27 DD1/DD5). ``notes`` is ``None`` when
+    the agent's notes are off (layer omitted), ``[]`` when on with none saved
+    ("No saved notes yet."), else the notes by number (M27 F2, DD9). When
+    ``notes`` is not ``None`` the rules layer gains "Rules take precedence over
+    saved notes.".
 
-    With ``rules`` and ``notes`` empty the output is byte-identical to the
+    With ``rules`` empty and ``notes`` ``None`` the output is byte-identical to the
     pre-Mission-27 ``{base}\\n\\n---\\n\\n{persona}`` shape.
     """
     parts = [base]
@@ -109,7 +122,12 @@ def compose_system_prompt(
         from the_one.db._rules import render_rules_block
 
         parts.append("---")
-        parts.append(render_rules_block(rules))
+        parts.append(render_rules_block(rules, notes_present=notes is not None))
+    if notes is not None:
+        from the_one.db._notes import render_notes_block
+
+        parts.append("---")
+        parts.append(render_notes_block(notes))
     return "\n\n".join(parts)
 
 
@@ -168,6 +186,12 @@ class AgentConfig(BaseModel):
     # v35 `agents.self_revision_requires_approval INTEGER NOT NULL DEFAULT 0`
     # column (plain load, no absent/NULL case).
     self_revision_requires_approval: bool = False
+
+    # M27 F2 DD2 — per-agent notes switch. Operator-owned (no agent tool writes
+    # it; `get_my_configuration` omits it). Persisted in the v43
+    # `agents.notes_enabled INTEGER NOT NULL DEFAULT 0` column. The per-agent
+    # number counter `agents.notes_next_number` is deliberately NOT a field.
+    notes_enabled: bool = False
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """Check if a specific tool should be available to this agent.

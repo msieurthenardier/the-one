@@ -309,3 +309,27 @@ def test_create_mode_shows_save_first_and_no_controls(
     )
     expect(page.locator('[data-testid="rules-add-input"]')).to_have_count(0)
     expect(page.locator('[data-testid="rules-add-btn"]')).to_have_count(0)
+
+
+def test_failed_add_by_mouse_click_lands_focus_on_the_add_textarea(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Flight 1 cycle-3 residual: the failure focus comes from the explicit origin,
+    not document.activeElement, so a mouse click (which can leave focus on <body>
+    in WebKit) still ends on the Add textarea."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_tab(page, base, agent)
+
+    def fail_post(route):
+        if route.request.method == "POST":
+            route.fulfill(status=500, content_type="application/json", body='{"detail":"boom"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/agents/*/rules", fail_post)
+    box = page.locator('[data-testid="rules-add-input"]')
+    box.fill("Keep me.")
+    page.click('[data-testid="rules-add-btn"]')
+    expect(page.locator('[data-testid="rules-error"]')).to_be_visible(timeout=8000)
+    expect(box).to_have_value("Keep me.")
+    expect(box).to_be_focused()

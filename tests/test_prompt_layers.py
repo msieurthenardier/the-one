@@ -251,3 +251,97 @@ async def test_get_my_configuration_returns_the_raw_persona_not_the_composed_pro
 
     assert projection["system_prompt"] == "I am alpha."
     assert "Operator rule." not in str(projection)
+
+
+# ── Notes layer (M27 F2 L1) ──────────────────────────────────────────────
+
+_NOTE_ORIGIN = {
+    "origin_kind": "web",
+    "origin_session_id": None,
+    "origin_label": None,
+    "origin_platform": None,
+    "origin_peer_id": None,
+    "origin_peer_name": None,
+}
+
+
+async def _notes_on(conn, name="alpha", *texts, untrusted=False):
+    from the_one.db.repositories import AgentNoteRepository
+
+    await SQLiteAgentStore(conn).set_notes_enabled(name, True)
+    repo = AgentNoteRepository(conn)
+    for t in texts:
+        await repo.create(name, t, untrusted=untrusted, sources=[], **_NOTE_ORIGIN)
+    return repo
+
+
+async def test_build_notes_off_loads_nothing_even_with_stored_notes(conn) -> None:
+    repo = await _notes_on(conn, "alpha", "stored")
+    await SQLiteAgentStore(conn).set_notes_enabled("alpha", False)
+    out = await build_system_prompt("alpha", "P", conn=conn)
+    assert out == compose_system_prompt(BASE_PROMPT, "P")
+    assert "saved_notes" not in out
+    assert len(await repo.list_for_agent("alpha")) == 1  # off loses nothing
+
+
+async def test_build_notes_on_empty_and_with_notes(conn) -> None:
+    await _notes_on(conn, "alpha")
+    out = await build_system_prompt("alpha", "P", conn=conn)
+    assert out == compose_system_prompt(BASE_PROMPT, "P", notes=[])
+    assert "No saved notes yet." in out
+
+    from the_one.agent.config import RenderedNote
+
+    repo = await _notes_on(conn, "alpha", "first")
+    await repo.create("alpha", "second", untrusted=True, sources=["x"], **_NOTE_ORIGIN)
+    await repo.create("alpha", "gone", untrusted=False, sources=[], **_NOTE_ORIGIN)
+    await repo.forget_by_agent("alpha", 3)
+    out = await build_system_prompt("alpha", "P", conn=conn)
+    assert out == compose_system_prompt(
+        BASE_PROMPT,
+        "P",
+        notes=[RenderedNote(1, "first", False), RenderedNote(2, "second", True)],
+    )
+    assert "[2] (unverified) second" in out
+
+
+async def test_build_notes_on_without_rules_has_no_rules_layer(conn) -> None:
+    await _notes_on(conn, "alpha", "n")
+    out = await build_system_prompt("alpha", "P", conn=conn)
+    assert RULES_HEADING not in out and "<saved_notes>" in out
+
+
+async def test_build_notes_on_with_rules_adds_precedence(conn, repo) -> None:
+    from the_one.db._rules import RULES_OVER_NOTES
+
+    await repo.create("alpha", "A rule.")
+    await _notes_on(conn, "alpha", "n")
+    out = await build_system_prompt("alpha", "P", conn=conn)
+    assert RULES_OVER_NOTES in out
+
+
+async def test_factory_build_carries_notes_and_registers_the_notes_tools(factory, conn) -> None:
+    await _notes_on(conn, "alpha", "remember this")
+    agent = await factory.create("alpha")
+    assert "[1] remember this" in agent.messages[0].content
+    note_tools = sorted(n for n in agent.tools.tool_names if "note" in n.lower())
+    assert note_tools == ["forget_note", "save_note", "update_note"]  # M27 F2 L2
+
+
+async def test_chat_only_degraded_path_keeps_the_notes(factory, conn) -> None:
+    await _notes_on(conn, "alpha", "degraded note")
+    agent = await factory.create("alpha")
+    degraded = agent._build_degraded_messages()[0].content
+    assert degraded.startswith(CHAT_ONLY_PROMPT)
+    assert "<saved_notes>\n[1] degraded note" in degraded
+
+
+async def test_get_my_configuration_omits_notes_enabled(conn, monkeypatch, tmp_path) -> None:
+    from the_one.self_configuration import surface
+
+    await _notes_on(conn, "alpha", "secret note")
+    monkeypatch.setattr(surface, "get_connection", AsyncMock(return_value=conn))
+    monkeypatch.setattr(surface, "get_encryptor", lambda *_a, **_kw: get_encryptor(tmp_path))
+    monkeypatch.setattr(surface, "_calling_agent", AsyncMock(return_value="alpha"))
+    projection = await surface.get_my_configuration(ctx=None)
+    assert "notes" not in str(projection).lower()

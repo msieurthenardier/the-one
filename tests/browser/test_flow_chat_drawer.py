@@ -19,6 +19,8 @@ in the ``chats`` lane (``test_flow_chat*``).
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import httpx
 import pytest
@@ -27,9 +29,11 @@ from browser._a11y_resolvers import collect_label_failures
 from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     SeededApp,
+    enable_notes,
     seed_knowledge_base,
     seed_mcp_source,
     seed_mock_agents,
+    seed_note,
     seed_session,
     seed_tool_config,
 )
@@ -355,6 +359,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     labels = page.locator(f"{USES} h4").all_inner_texts()
     assert labels == [
         "Rules",
+        "Notes",
         "Knowledge bases",
         "MCP servers",
         "Built-in tools",
@@ -765,3 +770,275 @@ def test_rules_group_404_is_no_rules_and_500_is_couldnt_load(
     _chats.start_chat(page, agent)
     expect(_group(page, "rules").locator("p")).to_have_text("Couldn't load", timeout=8000)
     expect(_group(page, "knowledge").locator("p")).to_have_text("None")
+
+
+# ── The Notes group (M27 F2 L3; flight DD10) ─────────────────────────────────
+
+
+@pytest.fixture
+def notes_app(app_with_data_dir: tuple[str, Path]) -> tuple[SeededApp, Path]:
+    base, data_dir = app_with_data_dir
+    provider_id = _provider(base, "notes-drawer-provider")
+    agent = _agent(base, {"name": "notes-drawer-agent", "provider_config_id": provider_id})
+    return SeededApp(base_url=base, provider_id=provider_id, agent_name=agent), data_dir
+
+
+def _stored_notes(base: str, agent: str) -> list[dict]:
+    r = httpx.get(f"{base}/api/agents/{agent}/notes", headers=auth_headers_for(base), timeout=5)
+    assert r.status_code == 200, r.text
+    return r.json()["notes"]
+
+
+def test_notes_group_off_shows_kept_count_and_follows_rules(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    seed_note(data_dir, agent, "Kept one.")
+    seed_note(data_dir, agent, "Kept two.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    expect(group.locator("h4")).to_have_text("Notes", timeout=8000)
+    expect(group.locator('[data-testid="chat-drawer-notes-off"]')).to_have_text("Off")
+    expect(group.locator('[data-testid="chat-drawer-notes-kept"]')).to_have_text("2 kept")
+    expect(group.locator('[data-testid="chat-drawer-notes-item"]')).to_have_count(0)
+    # The Notes group is the sibling right after Rules.
+    order = page.evaluate(
+        """() => Array.from(document.querySelectorAll('[data-testid="chat-drawer-uses"] .chat-drawer-group')).map((g) => g.dataset.group)"""
+    )
+    assert order[:2] == ["rules", "notes"], order
+
+
+def test_notes_group_lists_notes_with_origin_and_check_this(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    sid = seed_session(base, agent, "Trip planning", "2026-01-01T09:00:00+00:00")
+    seed_note(data_dir, agent, "Likes window seats.", session_id=sid, label="Trip planning")
+    long_text = "A very long note that keeps going. " * 10
+    seed_note(
+        data_dir,
+        agent,
+        long_text.strip(),
+        untrusted=True,
+        sources=["fetch_url"],
+        origin_kind="connector",
+        platform="discord",
+        peer_name="Sam",
+    )
+    seed_note(data_dir, agent, "<b>x</b>", origin_kind="other")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(3, timeout=8000)
+    expect(items.nth(0)).to_contain_text("[1]")
+    expect(items.nth(0)).to_contain_text("Likes window seats.")
+    expect(items.nth(0)).to_contain_text("Trip planning")
+    expect(items.nth(1)).to_contain_text("discord \u00b7 Sam")
+    expect(items.nth(1)).to_have_attribute("title", long_text.strip())
+    check = items.nth(1).locator('[data-testid="chat-drawer-notes-check"]')
+    expect(check).to_have_text("Check this")
+    assert check.get_attribute("title") == "Written after content not from you: fetch_url"
+    expect(items.nth(0).locator('[data-testid="chat-drawer-notes-check"]')).to_have_count(0)
+    # Markup in a note is literal text.
+    expect(items.nth(2)).to_contain_text("<b>x</b>")
+    assert items.nth(2).locator("b").count() == 0
+    expect(items.nth(2)).to_contain_text("Outside a chat")
+    clamped = page.evaluate(
+        """() => { const e = document.querySelectorAll('[data-testid="chat-drawer-notes-item"] .chat-drawer-note-text')[1];
+                   return e.scrollHeight > e.clientHeight; }"""
+    )
+    assert clamped
+    expect(group.locator('[data-testid="chat-drawer-notes-delete"]').first).to_have_attribute(
+        "aria-label", "Delete note 1"
+    )
+
+
+def test_notes_group_per_note_delete_is_armed_then_confirmed(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "Keep me.")
+    seed_note(data_dir, agent, "Delete me.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+    btn = items.nth(1).locator('[data-testid="chat-drawer-notes-delete"]')
+    btn.click()
+    expect(btn).to_have_class(re.compile("confirm-delete"))
+    assert len(_stored_notes(base, agent)) == 2  # armed only
+    btn.click()
+    expect(items).to_have_count(1, timeout=8000)
+    expect(items.first).to_contain_text("Keep me.")
+    assert [n["text"] for n in _stored_notes(base, agent)] == ["Keep me."]
+
+
+def test_notes_group_clear_all_is_armed_with_the_count_then_confirmed(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    for text in ("One.", "Two.", "Three."):
+        seed_note(data_dir, agent, text)
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    expect(group.locator('[data-testid="chat-drawer-notes-item"]')).to_have_count(3, timeout=8000)
+    clear = group.locator('[data-testid="chat-drawer-notes-clear"]')
+    clear.click()
+    expect(clear).to_contain_text("Clear all 3?")
+    assert len(_stored_notes(base, agent)) == 3
+    clear.click()
+    expect(group.locator('[data-testid="chat-drawer-notes-empty"]')).to_have_text(
+        "No notes yet", timeout=8000
+    )
+    assert _stored_notes(base, agent) == []
+    expect(group.locator('[data-testid="chat-drawer-notes-edit-link"]')).to_be_focused()
+
+
+def test_notes_group_failed_delete_says_so_and_keeps_the_list(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "Stay.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(1, timeout=8000)
+
+    def fail_delete(route):
+        if route.request.method == "DELETE":
+            route.fulfill(status=500, content_type="application/json", body='{"detail":"boom"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/agents/*/notes/**", fail_delete)
+    btn = items.first.locator('[data-testid="chat-drawer-notes-delete"]')
+    btn.click()
+    btn.click()
+    expect(group.locator('[data-testid="chat-drawer-notes-failed"]')).to_have_text(
+        "Couldn't delete", timeout=8000
+    )
+    expect(items).to_have_count(1)
+    assert len(_stored_notes(base, agent)) == 1
+
+
+def test_notes_group_arm_is_announced_in_the_status_line(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "One.")
+    seed_note(data_dir, agent, "Two.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+    status = group.locator('[data-testid="chat-drawer-notes-status"]')
+    expect(status).to_have_attribute("role", "status")
+    expect(status).to_have_text("")
+    items.first.locator('[data-testid="chat-drawer-notes-delete"]').click()
+    expect(status).to_contain_text("delete note 1")
+    group.locator('[data-testid="chat-drawer-notes-clear"]').click()
+    expect(status).to_contain_text("all 2 notes")
+
+
+def test_notes_group_failed_delete_returns_focus_to_the_same_control(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "One.")
+    seed_note(data_dir, agent, "Two.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+
+    def fail_delete(route):
+        if route.request.method == "DELETE":
+            route.fulfill(status=500, content_type="application/json", body='{"detail":"boom"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/agents/*/notes**", fail_delete)
+    btn = items.nth(1).locator('[data-testid="chat-drawer-notes-delete"]')
+    btn.click()
+    btn.click()
+    expect(group.locator('[data-testid="chat-drawer-notes-failed"]')).to_be_visible(timeout=8000)
+    expect(
+        group.locator('[data-testid="chat-drawer-notes-item"]')
+        .nth(1)
+        .locator('[data-testid="chat-drawer-notes-delete"]')
+    ).to_be_focused()
+    clear = group.locator('[data-testid="chat-drawer-notes-clear"]')
+    clear.click()
+    clear.click()
+    expect(group.locator('[data-testid="chat-drawer-notes-clear"]')).to_be_focused(timeout=8000)
+
+
+def test_notes_group_successful_delete_never_drops_focus_to_body(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "One.")
+    seed_note(data_dir, agent, "Two.")
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    items = group.locator('[data-testid="chat-drawer-notes-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+    btn = items.first.locator('[data-testid="chat-drawer-notes-delete"]')
+    btn.click()
+    btn.click()
+    expect(items).to_have_count(1, timeout=8000)
+    expect(items.first.locator('[data-testid="chat-drawer-notes-delete"]')).to_be_focused()
+
+
+def test_notes_group_empty_404_error_and_edit_link(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, _ = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "notes")
+    expect(group.locator('[data-testid="chat-drawer-notes-empty"]')).to_have_text(
+        "No notes yet", timeout=8000
+    )
+    link = group.locator('[data-testid="chat-drawer-notes-edit-link"]')
+    expect(link).to_have_text("Edit notes")
+    link.click()
+    _nav.expect_route(page, f"agents/{_nav.seg(agent)}/rules-and-notes")
+    expect(page.locator('[data-testid="notes-section"]')).to_be_visible(timeout=8000)
+
+    # A 404 reads "No notes yet"; any other failure is "Couldn't load".
+    page.route(
+        "**/api/agents/*/notes",
+        lambda route: route.fulfill(
+            status=404, body='{"detail": "nope"}', content_type="application/json"
+        ),
+    )
+    _nav.goto(page, base, "chats")
+    _chats.start_chat(page, agent)
+    expect(_group(page, "notes").locator("p").first).to_have_text("No notes yet", timeout=8000)
+    page.unroute("**/api/agents/*/notes")
+    page.route(
+        "**/api/agents/*/notes",
+        lambda route: route.fulfill(
+            status=500, body='{"detail": "boom"}', content_type="application/json"
+        ),
+    )
+    page.reload()
+    _chats.start_chat(page, agent)
+    expect(_group(page, "notes").locator("p")).to_have_text("Couldn't load", timeout=8000)

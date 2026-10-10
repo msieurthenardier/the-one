@@ -1,6 +1,6 @@
 # Flight: Notes
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Agent Notes and Rules](../../mission.md)
 
 ## Contributing to Criteria
@@ -178,8 +178,10 @@ context carries only the peer and the write budget.**
   - the CLI step (`cli.py:85`);
   - the two self-test steps (`app.py` ~`:2736`, `:2750`).
 
-  Review confirmed this list is complete: `api.py:803` builds an agent but
-  never steps it.
+  *Correction (leg 2 review):* the REST `/api/chat` handler calls
+  `_process_and_broadcast` directly. So the web set site is **inside
+  `_process_and_broadcast`** around `session.agent.step`, and `TurnContext`
+  carries `session_id`. See leg 2 AC1 and AC3.
 - **When unset,** the notes tools:
   - still compute taint from their Agent;
   - add the source `"unknown context"` and flag the note untrusted

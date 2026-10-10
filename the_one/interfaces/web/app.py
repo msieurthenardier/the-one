@@ -30,8 +30,10 @@ from the_one.agent import Agent
 # _resume_paused_session (line ~853). New consumers should import
 # from the_one.agent._context directly.
 from the_one.agent._context import (
+    TurnContext,
     current_chat_session_id,  # noqa: F401  back-compat re-export
     current_tool_call_id,  # noqa: F401  re-export for future consumers
+    current_turn,
 )
 from the_one.agent.config import BASE_PROMPT
 from the_one.agent.factory import (
@@ -2155,6 +2157,10 @@ async def _process_and_broadcast(
     _me = asyncio.current_task()
     if _me in _started_tasks:
         _running_tasks.add(_me)
+    # M27 F2 DD5: the notes tools' per-turn context (write budget, origin
+    # session). Set HERE, around the one `agent.step`, so the WebSocket path
+    # and the REST `/api/chat` handler (which calls this directly) both get it.
+    turn_token = current_turn.set(TurnContext(peer=None, session_id=session.id))
     try:
         async for msg in session.agent.step(
             user_input,
@@ -2374,6 +2380,8 @@ async def _process_and_broadcast(
             session,
             {"type": "system", "content": f"Agent error: {exc}"},
         )
+    finally:
+        current_turn.reset(turn_token)
 
     # F5 L4: apply visibility tagging if this is a connector-
     # attached session. Runs whether agent.step succeeded or
@@ -2461,6 +2469,8 @@ async def _resume_paused_session(session: Session) -> None:
     # the resumed tool dispatch may trigger. Symmetric with
     # ``_spawn_message_processing``'s set/reset pattern.
     csid_token = current_chat_session_id.set(session.id)
+    # M27 F2 DD5: a resumed turn gets a fresh notes write budget (accepted).
+    turn_token = current_turn.set(TurnContext(peer=None, session_id=session.id))
 
     # M16 F06 L01: resume-path usage accumulator. Initialise before the
     # loop so the settle write (outside the try/except) sees accumulated
@@ -2509,6 +2519,7 @@ async def _resume_paused_session(session: Session) -> None:
                 },
             )
     finally:
+        current_turn.reset(turn_token)
         current_chat_session_id.reset(csid_token)
 
     # F5 L4: symmetric storage-edge shim for the resume path.
@@ -2733,9 +2744,13 @@ async def selftest() -> dict[str, Any]:
     # Check 1: basic chat
     try:
         reply_parts = []
-        async for msg in agent.step("Reply with exactly: SELFTEST_OK"):
-            if msg.role == Role.ASSISTANT and msg.content:
-                reply_parts.append(msg.content)
+        _tt = current_turn.set(TurnContext())
+        try:
+            async for msg in agent.step("Reply with exactly: SELFTEST_OK"):
+                if msg.role == Role.ASSISTANT and msg.content:
+                    reply_parts.append(msg.content)
+        finally:
+            current_turn.reset(_tt)
         reply = " ".join(reply_parts)
         ok = len(reply) > 0
         checks.append({"name": "chat", "pass": ok, "detail": reply[:100]})
@@ -2747,9 +2762,13 @@ async def selftest() -> dict[str, Any]:
     # Check 2: tool use
     try:
         got_tool_result = False
-        async for msg in agent.step("Read the file /app/pyproject.toml"):
-            if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
-                got_tool_result = True
+        _tt = current_turn.set(TurnContext())
+        try:
+            async for msg in agent.step("Read the file /app/pyproject.toml"):
+                if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
+                    got_tool_result = True
+        finally:
+            current_turn.reset(_tt)
         detail = "read_file executed" if got_tool_result else "no tool result"
         checks.append(
             {

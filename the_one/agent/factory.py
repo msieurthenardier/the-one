@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     # undefined.
     from the_one.knowledge.tool_provider import KBToolProvider
     from the_one.mcp._tool_provider import MCPToolProvider
+    from the_one.notes.tool_provider import NotesToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +279,7 @@ class AgentFactory:
         tool_providers: list[ToolProvider] | None = None,
         mcp_provider: "MCPToolProvider | None" = None,
         kb_provider: "KBToolProvider | None" = None,
+        notes_provider: "NotesToolProvider | None" = None,
     ) -> None:
         self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
@@ -297,6 +299,12 @@ class AgentFactory:
         from the_one.knowledge.tool_provider import KBToolProvider as _KBToolProvider
 
         self.kb_provider = kb_provider if kb_provider is not None else _KBToolProvider()
+
+        # Mission 27 F2 (DD3): NotesToolProvider injected the same way (lazy
+        # import for the same cycle-avoidance reason); tests pass a stub.
+        from the_one.notes.tool_provider import NotesToolProvider as _NotesToolProvider
+
+        self.notes_provider = notes_provider if notes_provider is not None else _NotesToolProvider()
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -488,6 +496,17 @@ class AgentFactory:
                 ):
                     registry.register(tool)
 
+        # Mission 27 F2 (DD3): the notes tools, only when the operator's
+        # `notes_enabled` switch is on. Registered OUTSIDE the
+        # `is_tool_enabled` / `disabled_names` filter on purpose: they are not
+        # built-ins, so a built-in-only `enabled_tools` whitelist must never
+        # strip them. The notes switch is their only control.
+        notes_tools: list[Tool] = []
+        if self.notes_provider is not None:
+            notes_tools = await self.notes_provider.get_tools_for_agent(config, agent_name=name)
+            for tool in notes_tools:
+                registry.register(tool)
+
         # DD-5 (Mission 23 Flight 3 Leg 2, mission-owner-amended baseline-
         # visibility carve-out): SEED the containers rather than append
         # inside Agent._compute_visible_schemas — a pre-seeded name is
@@ -512,13 +531,20 @@ class AgentFactory:
                 loaded_schemas.append(seed_tool.to_schema())
                 loaded_tool_names.add(seed_tool_name)
 
+        # Mission 27 F2 (DD3): seed the notes tools into the baseline so they
+        # are visible from the first turn (factory-only: `agent/core.py` is
+        # frozen and its seed/reset mechanism already handles N entries).
+        for notes_tool in notes_tools:
+            loaded_schemas.append(notes_tool.to_schema())
+            loaded_tool_names.add(notes_tool.name)
+
         # 3. Resolve system prompt
         system_prompt = await build_system_prompt(config.name, config.system_prompt, conn=conn)
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's
         # _compute_visible_schemas() picks up mutations from stub search calls.
-        return Agent(
+        agent = Agent(
             llm=llm,
             tools=registry,
             system_prompt=system_prompt,
@@ -526,6 +552,12 @@ class AgentFactory:
             loaded_schemas=loaded_schemas,
             loaded_tool_names=loaded_tool_names,
         )
+        # Mission 27 F2 (DD5/DD6): each notes tool reads its owning Agent's
+        # messages at execute time to compute the untrusted flag. Bound after
+        # construction (the Agent does not exist while tools are built).
+        for notes_tool in notes_tools:
+            notes_tool.bind_agent(agent)  # type: ignore[attr-defined]
+        return agent
 
     async def list_agents(self) -> list[str]:
         """List all available agent names (stored + default)."""

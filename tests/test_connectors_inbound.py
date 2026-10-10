@@ -1136,3 +1136,58 @@ async def test_silence_paths_never_auto_deliver(conn_repo, chat_repo) -> None:
 
     assert StubPlugin.outbound_records == []
     assert await chat_repo.list() == []
+
+
+async def test_dispatch_inbound_sets_turn_context_with_the_envelope_peer(
+    conn_repo, chat_repo, seeded_agent
+) -> None:
+    """M27 F2 L2 (AC3): inside a tool during ``dispatch_inbound`` the notes
+    ``TurnContext`` carries the envelope's peer and the session row id."""
+    from the_one.agent._context import current_turn
+    from the_one.agent.core import Agent
+    from the_one.tools.base import Tool, ToolRegistry
+
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    seen: list = []
+
+    class Probe(Tool):
+        name = "probe"
+        description = "probe"
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        async def execute(self, **kwargs) -> str:
+            seen.append(current_turn.get())
+            return "ok"
+
+    class _Factory:
+        async def create(self, name: str):
+            reg = ToolRegistry()
+            reg.register(Probe())
+            llm = FakeLLM(
+                [
+                    Message.assistant(
+                        "", tool_calls=[ToolCall(id="c1", name="probe", arguments={})]
+                    ),
+                    Message.assistant("done"),
+                ]
+            )
+            return Agent(llm=llm, tools=reg, system_prompt="sys")
+
+    set_factory(_Factory())  # type: ignore[arg-type]
+    await dispatch_inbound(
+        "conn-1",
+        _envelope(peer_id="peer-1", peer_name="Alice", is_dm=True, text="hello"),
+        manager=mgr,
+    )
+
+    assert len(seen) == 1 and seen[0] is not None
+    turn = seen[0]
+    assert (turn.peer.platform, turn.peer.connector_id) == ("stub", "conn-1")
+    assert (turn.peer.peer_id, turn.peer.peer_name) == ("peer-1", "Alice")
+    sessions = await chat_repo.list()
+    assert turn.session_id == sessions[0].id
+    assert current_turn.get() is None

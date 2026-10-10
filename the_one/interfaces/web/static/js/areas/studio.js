@@ -1930,6 +1930,22 @@ App.registerArea({
     }
     function reorderRules(name, ids) { return rulesJson('PUT', rulesUrl(name, '/order'), { ids: ids }); }
 
+    // M27 F2 L3 -- notes network calls (DD11). The same fetchJson contract.
+    function notesUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/notes' + (suffix || '');
+    }
+    function fetchNotes(name) { return App.api.fetchJson(notesUrl(name)); }
+    function setNotesEnabled(name, enabled) {
+      return rulesJson('PUT', notesUrl(name, '/settings'), { enabled: !!enabled });
+    }
+    function updateNote(name, id, text) {
+      return rulesJson('PUT', notesUrl(name, '/' + encodeURIComponent(id)), { text: text });
+    }
+    function deleteNote(name, id) {
+      return rulesJson('DELETE', notesUrl(name, '/' + encodeURIComponent(id)));
+    }
+    function clearNotes(name) { return rulesJson('DELETE', notesUrl(name)); }
+
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
     function fetchSelfConfigurationStatus(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
@@ -2840,6 +2856,11 @@ App.registerArea({
         updateRule: updateRule,
         deleteRule: deleteRule,
         reorderRules: reorderRules,
+        fetchNotes: fetchNotes,
+        setNotesEnabled: setNotesEnabled,
+        updateNote: updateNote,
+        deleteNote: deleteNote,
+        clearNotes: clearNotes,
         // M21 F01 L02 — Self-configuration tab network calls.
         fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,
         onEnableSelfConfiguration: enableSelfConfiguration,

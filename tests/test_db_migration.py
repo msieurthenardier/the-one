@@ -4985,7 +4985,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 42
+        assert CURRENT_VERSION == 43
 
         await conn.close()
 
@@ -5336,12 +5336,12 @@ async def _seed_revisions(conn) -> None:
 class TestSchemaV42:
     async def test_fresh_replay_has_agent_rules_and_cascading_revisions(self, tmp_path) -> None:
         """AC1, AC3: a fresh v0 replay (v34 creates, v37 rebuilds, v42
-        rebuilds again) reaches v42 with the new table and FK shapes."""
+        rebuilds again) reaches v43 with the new table and FK shapes."""
         conn = await _open(tmp_path / "fresh.db")
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 42 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 43 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5421,7 +5421,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
         await _seed_revisions(conn)
         # Rewind only the stamp: the table already carries the cascade.
-        await conn.execute("DELETE FROM schema_version WHERE version = 42")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 42")
         await conn.commit()
         async with conn.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'agent_revisions'"
@@ -5476,4 +5476,101 @@ class TestSchemaV42:
         for table in ("agent_rules", "agent_revisions"):
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
                 assert (await cur.fetchone())[0] == 0
+        await conn.close()
+
+
+# ── v43 (Mission 27 Flight 2, DD1): agent_notes + notes columns ──
+
+
+class TestSchemaV43:
+    async def test_fresh_replay_has_agent_notes_and_columns(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh43.db")
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 43 == CURRENT_VERSION
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            acols = {r["name"]: r for r in await cur.fetchall()}
+        for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
+            col = acols[name]
+            assert (col["type"], col["notnull"], str(col["dflt_value"])) == (
+                "INTEGER",
+                1,
+                default,
+            )
+        async with conn.execute("PRAGMA table_info(agent_notes)") as cur:
+            cols = [r["name"] for r in await cur.fetchall()]
+        assert cols == [
+            "id",
+            "agent_name",
+            "number",
+            "text",
+            "untrusted",
+            "untrusted_sources",
+            "origin_kind",
+            "origin_session_id",
+            "origin_label",
+            "origin_platform",
+            "origin_peer_id",
+            "origin_peer_name",
+            "created_at",
+            "updated_at",
+            "updated_by",
+        ]
+        fk = (await _fk_rows(conn, "agent_notes"))["agent_name"]
+        assert (fk["table"], fk["on_update"], fk["on_delete"]) == ("agents", "CASCADE", "CASCADE")
+        async with conn.execute("PRAGMA index_list(agent_notes)") as cur:
+            idx = {r["name"]: r for r in await cur.fetchall()}
+        assert idx["idx_agent_notes_agent_number"]["unique"] == 1
+        # CHECK constraints
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO agent_notes (id, agent_name, number, text, origin_kind, "
+                "created_at, updated_at, updated_by) VALUES ('1','a',1,'t','bogus','t','t','agent')"
+            )
+        await conn.close()
+
+    async def test_rewound_to_v42_reruns_guards(self, tmp_path) -> None:
+        """A v42 database with existing agents backfills the columns; a rewind
+        that still has the table and columns re-runs without error."""
+        conn = await _open(tmp_path / "v42.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('legacy')")
+        await conn.commit()
+        await conn.execute("DELETE FROM schema_version WHERE version >= 43")
+        await conn.commit()
+        await ensure_schema(conn)  # columns + table present: guards make it a no-op
+        await ensure_schema(conn)
+        async with conn.execute(
+            "SELECT notes_enabled, notes_next_number FROM agents WHERE name='legacy'"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (0, 1)
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 43") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_rename_carries_notes_and_counter_delete_removes(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "rename43.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn, None)
+        await conn.execute("INSERT INTO agents (name, notes_enabled) VALUES ('alpha', 1)")
+        await conn.execute(
+            "INSERT INTO agent_notes (id, agent_name, number, text, untrusted, origin_kind, "
+            "created_at, updated_at, updated_by) VALUES ('n1','alpha',3,'keep me',1,'web',"
+            "'t','t','agent')"
+        )
+        await conn.execute("UPDATE agents SET notes_next_number = 4 WHERE name='alpha'")
+        await conn.commit()
+        await store.rename("alpha", "beta")
+        async with conn.execute(
+            "SELECT agent_name, number, text, untrusted FROM agent_notes"
+        ) as cur:
+            assert [tuple(r) for r in await cur.fetchall()] == [("beta", 3, "keep me", 1)]
+        async with conn.execute(
+            "SELECT notes_enabled, notes_next_number FROM agents WHERE name='beta'"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (1, 4)
+        await store.delete("beta")
+        async with conn.execute("SELECT COUNT(*) FROM agent_notes") as cur:
+            assert (await cur.fetchone())[0] == 0
         await conn.close()

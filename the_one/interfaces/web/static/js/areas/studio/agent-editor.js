@@ -224,7 +224,12 @@
       createRule: callbacks.createRule,
       updateRule: callbacks.updateRule,
       deleteRule: callbacks.deleteRule,
-      reorderRules: callbacks.reorderRules
+      reorderRules: callbacks.reorderRules,
+      fetchNotes: callbacks.fetchNotes,
+      setNotesEnabled: callbacks.setNotesEnabled,
+      updateNote: callbacks.updateNote,
+      deleteNote: callbacks.deleteNote,
+      clearNotes: callbacks.clearNotes
     });
     // F6 L3 — extended signature: pass agent + allKnowledgeBases +
     // callbacks so the Knowledge tab can render the real attach surface

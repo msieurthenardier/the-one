@@ -75,6 +75,17 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
 | `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
 | `chat-drawer-note` | chat | The drawer's state line for a non-agent view: "The default agent", "This agent no longer exists" or "Loading…" (M25 F4 L6) |
+| `chat-drawer-notes` | chat | the drawer Notes group's `<ul>` of notes (M27 F2 L3) |
+| `chat-drawer-notes-check` | chat | a "Check this" marker on an untrusted note in the drawer, sources in `title` (M27 F2 L3) |
+| `chat-drawer-notes-clear` | chat | the Notes group's **Clear all**, two-step through `App.confirmDelete`, armed text "Clear all {n}?" (M27 F2 L3) |
+| `chat-drawer-notes-delete` | chat | a note's Delete in the drawer, two-step, accessible name "Delete note {n}" (M27 F2 L3) |
+| `chat-drawer-notes-edit-link` | chat | the Notes group's **Edit notes** `<a>` to `#agents/{name}/rules-and-notes` (M27 F2 L3) |
+| `chat-drawer-notes-empty` | chat | the Notes group's "No notes yet" (M27 F2 L3) |
+| `chat-drawer-notes-failed` | chat | the Notes group's "Couldn't delete" (`role=alert`) after a failed delete or clear (M27 F2 L3) |
+| `chat-drawer-notes-status` | chat | the Notes group's visually hidden polite status line (`role=status`); announces the Delete / Clear all arm (M27 F2 review fix) |
+| `chat-drawer-notes-item` | chat | one note in the drawer (`<li>`, `data-id`, `data-number`, full text in `title`) (M27 F2 L3) |
+| `chat-drawer-notes-kept` | chat | the Notes group's "{n} kept" line, shown only while notes are off and some are stored (M27 F2 L3) |
+| `chat-drawer-notes-off` | chat | the Notes group's "Off" (M27 F2 L3) |
 | `chat-drawer-rule` | chat | one enabled rule in the drawer's Rules group (`<li>`, full text in `title`, text clamped to two lines) (M27 F1 L2) |
 | `chat-drawer-rules` | chat | the drawer Rules group's `<ol>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-edit-link` | chat | the Rules group's **Edit rules** `<a>` to `#agents/{name}/rules-and-notes` (M27 F1 L2) |
@@ -218,6 +229,32 @@ caught — but it cannot see where the attribute is emitted.
 | `model-ctx-chip` | studio | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3); since M25 F3 L3 the Agents list's title-row "New" (`App.ui.button`, small outlined, plus icon) -> `#agents/~new` |
 | `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button; since M25 F3 L5a the Providers page header's "Add provider" (`App.ui.button`, outlined, plus icon) |
+| `notes-applies-note` | studio | the Notes section's "Changes apply…" line (M27 F2 L3) |
+| `notes-clear-all` | studio | Notes **Clear all** (opens the confirm dialog; hidden when there are no notes) (M27 F2 L3) |
+| `notes-create-mode` | studio | create-mode notice "Save the agent first to let it keep notes." (M27 F2 L3) |
+| `notes-empty` | studio | the Notes list's "No notes yet." (M27 F2 L3) |
+| `notes-enabled-toggle` | studio | the "Let this agent keep notes" `App.ui.toggle` input (`role=switch`); saves immediately (M27 F2 L3) |
+| `notes-error` | studio | the Notes section's inline error area (`role=alert`, hidden when empty) (M27 F2 L3) |
+| `notes-list` | studio | the notes list (`<ul>`) (M27 F2 L3) |
+| `notes-off-message` | studio | "Notes are off. This agent can't see or write notes. Saved notes are kept." (hidden while on) (M27 F2 L3) |
+| `notes-row` | studio | one note row (`<li>`, `data-id`, `data-number`) (M27 F2 L3) |
+| `notes-row-cancel` | studio | note inline edit Cancel (M27 F2 L3) |
+| `notes-row-check` | studio | the "Check this" badge on an untrusted note; accessible name and `title` list the sources (M27 F2 L3) |
+| `notes-row-delete` | studio | note Delete, two-step through `App.confirmDelete` (M27 F2 L3) |
+| `notes-row-edit` | studio | note Edit; `data-note-id` (M27 F2 L3) |
+| `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
+| `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
+| `notes-row-edited` | studio | "Edited by you" on an operator-edited note (M27 F2 L3) |
+| `notes-row-meta` | studio | a note's meta line (time, origin, badges) (M27 F2 L3) |
+| `notes-row-origin` | studio | the note's origin: chat link, "(chat deleted)", platform and peer, or "Outside a chat" (M27 F2 L3) |
+| `notes-row-origin-link` | studio | the origin `<a>` to `#chats/{id}` when the chat still exists (M27 F2 L3) |
+| `notes-row-platform` | studio | a connector origin's platform badge (M27 F2 L3) |
+| `notes-row-save` | studio | note inline edit Save (M27 F2 L3) |
+| `notes-row-text` | studio | the note's text paragraph (M27 F2 L3) |
+| `notes-row-time` | studio | the note's time ("Updated …" when edited) (M27 F2 L3) |
+| `notes-section` | studio | the Notes section of the Rules and notes tab (M27 F2 L3) |
+| `notes-status` | studio | the Notes section's visually hidden polite status line (delete arm, limit) (M27 F2 L3) |
+| `notes-usage` | studio | the "{used} of {total} characters" line (M27 F2 L3) |
 | `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
 | `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
 | `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |

@@ -1579,3 +1579,64 @@
   font-variant-numeric: tabular-nums;
 }
 .area-studio .rules-add-count--over { color: var(--status-danger); }
+
+/* === Notes section (M27 F2 L3, flight DD10) ================================
+   Rows reuse the Rules list recipe; meta sits under the text. "Check this" is
+   text on the elevated surface with a warning ring (never colour alone). */
+.area-studio .notes-enabled-toggle { margin: 0 0 var(--space-2); }
+.area-studio .notes-off-message {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  line-height: var(--line-height-normal);
+}
+.area-studio .notes-off-message[hidden] { display: none; }
+.area-studio .notes-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+.area-studio .notes-usage {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.area-studio .notes-row-number {
+  flex: none;
+  min-width: 28px;
+  padding-top: 4px;
+  color: var(--fg-muted);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+.area-studio .notes-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.area-studio .notes-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
+.area-studio .notes-list .notes-row:first-child { border-top: 1px solid var(--border); }
+.area-studio .notes-row-body { flex: 1 1 auto; min-width: 0; }
+.area-studio .notes-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+}
+.area-studio .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
+.area-studio .notes-row-origin-link { text-decoration: underline; }
+.area-studio .notes-row-edited { color: var(--fg-secondary); }
+.area-studio .notes-check-badge {
+  background: var(--surface-elevated);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--status-warning);
+}
+.area-studio .notes-bar [hidden] { display: none; }

@@ -638,6 +638,43 @@ class TestRulesAtSettle:
         assert agent.system_prompt.startswith(BASE_PROMPT)
         assert "Hidden." not in agent.system_prompt
 
+    async def test_settle_recompose_keeps_the_notes_block(self, isolated_db) -> None:
+        """M27 F2 (AC11): the next_turn recompose goes through build_system_prompt,
+        so the notes block (and the precedence sentence) survives it."""
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import AgentNoteRepository
+
+        conn = await get_connection()
+        enc = Encryptor(Fernet.generate_key(), key_path=isolated_db.parent / "k2.key")
+        store = SQLiteAgentStore(conn, enc)
+        await store.save(AgentConfig(name="default"))
+        await store.set_notes_enabled("default", True)
+        await AgentRuleRepository(conn).create("default", "Rule.")
+        await AgentNoteRepository(conn).create(
+            "default",
+            "Kept note.",
+            untrusted=True,
+            sources=["fetch_url"],
+            origin_kind="web",
+            origin_session_id=None,
+            origin_label=None,
+            origin_platform=None,
+            origin_peer_id=None,
+            origin_peer_name=None,
+        )
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-n1", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        await _process_and_broadcast(session, "hi")
+
+        from the_one.agent.config import RenderedNote
+
+        expected = compose_system_prompt(
+            BASE_PROMPT, "NEW", rules=["Rule."], notes=[RenderedNote(1, "Kept note.", True)]
+        )
+        assert agent.system_prompt == expected
+        assert "[1] (unverified) Kept note." in agent.messages[0].content
+
     async def test_failed_rules_read_falls_back_and_turn_still_sends_done(
         self, isolated_db, monkeypatch
     ) -> None:

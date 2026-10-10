@@ -25,6 +25,10 @@ RULES_HEADING = (
 )
 
 
+# Appended to the rules layer when a notes layer follows it (M27 F2, DD9).
+RULES_OVER_NOTES = "Rules take precedence over saved notes."
+
+
 class RuleLimitError(ValueError):
     """A rule or the agent's rule total exceeds a limit (HTTP 422)."""
 
@@ -61,10 +65,13 @@ def total_limit_error(attempted_total: int) -> RuleLimitError:
     )
 
 
-def render_rules_block(rules: Sequence[str]) -> str:
+def render_rules_block(rules: Sequence[str], notes_present: bool = False) -> str:
     """The DD5 rules layer: heading, blank line, then ``1. …`` numbered rules.
 
     A rule containing a newline is rendered as-is after its number.
+    With ``notes_present`` the heading gains "Rules take precedence over saved
+    notes." (the default output is unchanged).
     """
     numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(rules, start=1))
-    return f"{RULES_HEADING}\n\n{numbered}"
+    heading = f"{RULES_HEADING}\n{RULES_OVER_NOTES}" if notes_present else RULES_HEADING
+    return f"{heading}\n\n{numbered}"
