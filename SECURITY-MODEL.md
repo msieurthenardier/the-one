@@ -329,7 +329,11 @@ operator-owned `agents` column that no agent tool and no
     **backwards** (Ollama ids repeat across turns), and attributes results by
     position. It fails closed ("unknown position", "unknown tool", "unknown
     context") whenever it cannot place the call. An agent update never clears
-    the flag; it ORs in the new taint and merges the sources.
+    the flag; it ORs in the new taint and merges the sources. An **operator
+    edit that changes the text clears the flag and its sources** (the operator
+    reviewed and rewrote the note; `updated_by` becomes `operator`); an
+    identical-text save is a no-op and keeps the flag. A later agent update in
+    a tainted conversation flags it again.
   - *The prompt block is bounded and delimited.* Notes are rendered inside
     `<saved_notes>` with a heading that says they are reference material, not
     instructions; flagged notes read `(unverified)`. Every note is collapsed to

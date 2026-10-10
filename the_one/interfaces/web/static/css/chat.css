@@ -175,9 +175,9 @@
      lines (the full text is in the row's title); "{n} off" and the "Edit
      rules" link sit under the list. */
   .chat-drawer-rules {
-    list-style: none;
+    list-style: disc outside;
     margin: 0;
-    padding: 0;
+    padding: 0 0 0 var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -191,23 +191,23 @@
     overflow-wrap: anywhere;
   }
   .chat-drawer-rules-off { margin: 0; color: var(--fg-muted); font-size: var(--font-size-caption); }
-  .chat-drawer-rules-link { align-self: flex-start; font-size: var(--font-size-caption); }
 
-  /* M27 F2 L3 (DD10): the Notes group. Each note: [n] and its text clamped to
+  /* M27 F2 L3 (DD10): the Notes group. Each note: bulleted, its text clamped to
      two lines (full text in the row's title), a short origin line with a
-     "Check this" marker (text on the elevated surface, a warning ring), and a
-     small Delete. */
+     warning-triangle flag (F3 L2: read-only, no Delete), and a muted Pending
+     list for notes the chat's prompt does not carry yet. */
   .chat-drawer-notes {
-    list-style: none;
+    list-style: disc outside;
     margin: 0;
-    padding: 0;
+    padding: 0 0 0 var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
   }
-  .chat-drawer-notes > li { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .chat-drawer-notes > li { display: list-item; min-width: 0; }
+  .chat-drawer-rules > li::marker,
+  .chat-drawer-notes > li::marker { color: var(--fg-muted); }
   .chat-drawer-note-head { display: flex; gap: var(--space-2); min-width: 0; }
-  .chat-drawer-note-number { flex: none; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
   .chat-drawer-note-text {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -217,6 +217,7 @@
     overflow-wrap: anywhere;
   }
   .chat-drawer-note-origin {
+    margin-top: 2px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -225,19 +226,15 @@
     font-size: var(--font-size-caption);
     overflow-wrap: anywhere;
   }
-  .chat-drawer-note-check {
-    padding: 0 6px;
-    border-radius: 4px;
-    background: var(--surface-elevated);
-    color: var(--fg);
-    box-shadow: inset 0 0 0 1px var(--status-warning);
+  .chat-drawer-notes-pending-head {
+    margin: var(--space-2) 0 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
   }
-  .chat-drawer-note-delete,
-  .chat-drawer-notes-clear { align-self: flex-start; }
-  .chat-drawer-notes-kept,
-  .chat-drawer-notes-failed { margin: 0; color: var(--fg-muted); font-size: var(--font-size-caption); }
-  .chat-drawer-notes-failed { color: var(--status-danger); }
+  .chat-drawer-notes--pending .chat-drawer-note-text,
+  .chat-drawer-notes--pending .chat-drawer-note-origin { color: var(--fg-muted); }
+  .chat-drawer-notes-kept { margin: 0; color: var(--fg-muted); font-size: var(--font-size-caption); }
 
   /* M25 F4 L4b (reference spec 5.4): the new-chat state, shown only while a
      chat is pending. Centred on both axes, padded 24px, an inner column at

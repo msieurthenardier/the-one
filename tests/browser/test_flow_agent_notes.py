@@ -154,7 +154,7 @@ def test_row_meta_origin_link_deleted_chat_and_other(
     assert link.get_attribute("href") == _nav.href(f"chats/{_nav.seg(sid)}")
     expect(rows.nth(0).locator('[data-testid="notes-row-time"]')).to_have_text("Jan 1")
     expect(rows.nth(0).locator('[data-testid="notes-row-edited"]')).to_have_count(0)
-    expect(rows.nth(0).locator('[data-testid="notes-row-check"]')).to_have_count(0)
+    expect(rows.nth(0).locator('[data-testid="notes-row-flag"]')).to_have_count(0)
 
     deleted = rows.nth(1).locator('[data-testid="notes-row-origin"]')
     expect(deleted).to_have_text("Old chat (chat deleted)")
@@ -181,15 +181,17 @@ def test_check_this_badge_lists_its_sources(notes_app: tuple[SeededApp, Path], p
     )
     _open_tab(page, base, agent)
     expect(page.locator(ROWS)).to_have_count(2, timeout=8000)
-    badge = page.locator(ROWS).nth(1).locator('[data-testid="notes-row-check"]')
-    expect(badge).to_have_text("Check this")
-    want = "Written after content not from you: fetch_url, Sam"
-    assert badge.get_attribute("title") == want
-    assert (
-        badge.get_attribute("aria-label")
-        == "Check this: written after content not from you: fetch_url, Sam"
+    badge = page.locator(ROWS).nth(1).locator('[data-testid="notes-row-flag"]')
+    want = (
+        "Check this note: it was written after content that didn't come from you "
+        "(fetch_url, Sam). It may have been planted."
     )
-    expect(page.locator('[data-testid="notes-row-check"]')).to_have_count(1)
+    expect(badge).to_have_attribute("title", want)
+    expect(badge).to_have_attribute("aria-label", want)
+    expect(badge).to_have_attribute("role", "img")
+    expect(badge.locator("svg")).to_have_count(1)
+    expect(badge).not_to_have_text("Check this")
+    expect(page.locator('[data-testid="notes-row-flag"]')).to_have_count(1)
 
 
 def test_note_text_with_markup_renders_literally(
@@ -217,7 +219,7 @@ def test_note_text_with_markup_renders_literally(
         "<i>chat</i> (chat deleted)"
     )
     assert page.evaluate("window.__pwned") is None
-    assert "<u>src</u>" in row.locator('[data-testid="notes-row-check"]').get_attribute("title")
+    assert "<u>src</u>" in row.locator('[data-testid="notes-row-flag"]').get_attribute("title")
 
 
 def test_edit_save_cancel_and_edited_by_you(notes_app: tuple[SeededApp, Path], page: Page) -> None:
@@ -248,6 +250,34 @@ def test_edit_save_cancel_and_edited_by_you(notes_app: tuple[SeededApp, Path], p
     expect(row.locator('[data-testid="notes-row-time"]')).to_contain_text("Updated")
     stored = _stored(base, agent)["notes"][0]
     assert stored["text"] == "Saved edit." and stored["updated_by"] == "operator"
+
+
+def test_operator_edit_clears_the_warning_flag(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    enable_notes(base, agent)
+    seed_note(data_dir, agent, "Planted.", untrusted=True, sources=["fetch_url"])
+    _open_tab(page, base, agent)
+    row = page.locator(ROWS).first
+    flag = row.locator('[data-testid="notes-row-flag"]')
+    expect(flag).to_have_count(1, timeout=8000)
+    # Saving identical text keeps it.
+    row.locator('[data-testid="notes-row-edit"]').click()
+    row.locator('[data-testid="notes-row-save"]').click()
+    expect(row.locator('[data-testid="notes-row-flag"]')).to_have_count(1)
+    assert _stored(base, agent)["notes"][0]["untrusted"] is True
+    # A real change clears it.
+    row.locator('[data-testid="notes-row-edit"]').click()
+    row.locator('[data-testid="notes-row-edit-input"]').fill("Reviewed and rewritten.")
+    row.locator('[data-testid="notes-row-save"]').click()
+    expect(row.locator('[data-testid="notes-row-text"]')).to_have_text(
+        "Reviewed and rewritten.", timeout=8000
+    )
+    expect(row.locator('[data-testid="notes-row-flag"]')).to_have_count(0)
+    stored = _stored(base, agent)["notes"][0]
+    assert stored["untrusted"] is False and stored["untrusted_sources"] == []
 
 
 def test_over_limit_edit_is_blocked_and_a_duplicate_422_shows_inline(
@@ -434,4 +464,4 @@ def test_a_note_saved_through_the_real_chain_appears_with_its_origin_link(
         "Prefers metric units.", timeout=8000
     )
     expect(row.locator('[data-testid="notes-row-origin-link"]')).to_be_visible()
-    expect(row.locator('[data-testid="notes-row-check"]')).to_have_count(0)
+    expect(row.locator('[data-testid="notes-row-flag"]')).to_have_count(0)

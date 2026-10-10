@@ -2612,7 +2612,25 @@ async def index() -> HTMLResponse:
 
 @app.get("/api/info")
 async def info() -> dict[str, Any]:
-    return {"version": __version__, "base_prompt": BASE_PROMPT}
+    from the_one.agent.config import RenderedNote
+    from the_one.db._notes import render_notes_block
+    from the_one.db._rules import render_rules_block
+
+    # The rules and notes layers are rendered by the same functions that build a
+    # real prompt, from placeholder content, so the Prompts page cannot drift.
+    return {
+        "version": __version__,
+        "base_prompt": BASE_PROMPT,
+        "rules_prompt_example": render_rules_block(
+            ["{first enabled rule}", "{second enabled rule}"], notes_present=True
+        ),
+        "notes_prompt_example": render_notes_block(
+            [
+                RenderedNote(1, "{a saved note}", False),
+                RenderedNote(2, "{a note saved while outside text was in the conversation}", True),
+            ]
+        ),
+    }
 
 
 @app.get(LIVENESS_PATH)

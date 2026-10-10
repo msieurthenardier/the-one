@@ -81,6 +81,7 @@ async def test_get_defaults_off_with_limits_and_usage(client) -> None:
         "enabled": False,
         "notes": [],
         "limits": {"note_chars": 400, "total_chars": 4000, "writes_per_turn": 5},
+        "pending_known": False,
         "usage": {"total_chars": 0},
     }
 
@@ -132,7 +133,7 @@ async def test_list_edit_delete_clear_flow(client) -> None:
     r = await client.put(f"/api/agents/{name}/notes/{a.id}", json={"text": "edited\nline"})
     assert r.status_code == 200
     assert r.json()["text"] == "edited line" and r.json()["updated_by"] == "operator"
-    assert r.json()["untrusted"] is True
+    assert r.json()["untrusted"] is False and r.json()["untrusted_sources"] == []
 
     assert (await client.delete(f"/api/agents/{name}/notes/{b.id}")).json() == {"status": "ok"}
     assert (await client.delete(f"/api/agents/{name}/notes")).json() == {"deleted": 1}

@@ -53,30 +53,49 @@
 
   // ── Prompts ───────────────────────────────────────────────────────────
 
-  function renderPromptsPage(container) {
-    var pre = el('pre', { className: 'admin-base-prompt code-block', text: 'Loading…' });
-    pre.setAttribute('data-testid', 'base-prompt-content');
-    renderPage(container, 'Prompts', null, [
-      text('The foundational system prompt every agent inherits. ' +
-        'Per-agent personas are appended to this base; ' +
-        'this content is read-only and only changes via code releases.'),
-      pre
-    ]);
-    fetchBasePrompt(pre);
+  function promptLayer(title, help, pre) {
+    var kids = [el('div', { className: 'section-title', text: title })];
+    if (help) { kids.push(text(help)); }
+    if (pre) { kids.push(pre); }
+    return el('div', { className: 'admin-prompt-layer' }, kids);
   }
 
-  function fetchBasePrompt(preEl) {
+  function promptPre() {
+    return el('pre', { className: 'admin-base-prompt code-block', text: 'Loading\u2026' });
+  }
+
+  function renderPromptsPage(container) {
+    var base = promptPre();
+    base.setAttribute('data-testid', 'base-prompt-content');
+    var rules = promptPre();
+    rules.setAttribute('data-testid', 'rules-prompt-content');
+    var notes = promptPre();
+    notes.setAttribute('data-testid', 'notes-prompt-content');
+    renderPage(container, 'Prompts', null, [
+      text('Every agent\u2019s system prompt is assembled from these layers, in this order, ' +
+        'separated by ---: the base prompt, the agent\u2019s own system prompt (set on its General tab), ' +
+        'then rules and notes. They are read-only and only change via code releases. ' +
+        'The Rules and Notes layers below show placeholder content.'),
+      promptLayer('Base prompt', null, base),
+      promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.', rules),
+      promptLayer('Notes', 'Added last when the agent keeps notes.', notes)
+    ]);
+    fetchPrompts(base, rules, notes);
+  }
+
+  function fetchPrompts(baseEl, rulesEl, notesEl) {
+    function fill(pre, value, fallback) {
+      pre.textContent = typeof value === 'string' ? value : fallback;
+    }
     fetch('/api/info')
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (typeof data.base_prompt === 'string') {
-          preEl.textContent = data.base_prompt;
-        } else {
-          preEl.textContent = '(base prompt unavailable)';
-        }
+        fill(baseEl, data.base_prompt, '(base prompt unavailable)');
+        fill(rulesEl, data.rules_prompt_example, '(unavailable)');
+        fill(notesEl, data.notes_prompt_example, '(unavailable)');
       })
       .catch(function () {
-        preEl.textContent = '(failed to load)';
+        [baseEl, rulesEl, notesEl].forEach(function (p) { p.textContent = '(failed to load)'; });
       });
   }
 

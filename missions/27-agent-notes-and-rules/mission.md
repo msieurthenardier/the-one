@@ -139,7 +139,7 @@ Facts about the codebase that shape the design (verified at `77308c5`):
     example, consolidate or forget notes), and the operator sees the refusal in
     the tool stream.
       *(Flight 2, unit tier: limits of 400 characters per note, 4,000 in total and 5 writes per turn; normalised duplicate detection that is not counted; refusals raise, so the tool stream shows `is_error`, with corrective text. `tests/test_notes_store.py` and `tests/test_notes_tools.py`.)*
-- [ ] **Notes are presented as notes, not instructions.**
+- [x] **Notes are presented as notes, not instructions.**
   - Saved notes reach the agent clearly marked as reference material, beneath
     the rules.
   - The agent refers to them as saved notes, not as personal recollection, and
@@ -154,6 +154,16 @@ Facts about the codebase that shape the design (verified at `77308c5`):
       After saving, it replied "Got it! Your favourite colour is teal." The
       operator should judge whether that counts as commentary, and whether the
       wording needs strengthening.
+  - **Settled at the HAT** *(Flight 3, operator)*:
+    - A short acknowledgement after saving ("MERLIN notes saved.") is
+      acceptable.
+    - **Narrowed:** the no-"memory" vocabulary rule applies to
+      **operator-facing** language. The sentence telling the agent to say
+      "saved notes, never memories" was removed from the prompt.
+    - The notes wording was reworked with the operator. Notes are things the
+      person told the agent about their life, phrased as told; secrets and
+      planted instructions are never saved. The plain-language "(unverified)"
+      sentence is shown on Settings › Prompts.
 - [x] **Injected content cannot plant a note unnoticed.**
   - Once untrusted content has appeared anywhere in a conversation, every note
     written later in that conversation is flagged. Untrusted content includes
@@ -227,7 +237,13 @@ Facts about the codebase that shape the design (verified at `77308c5`):
   notes"), with a Rules section and a Notes section, because they are closely
   related layers of the same prompt. The open conversation's agent panel shows
   both as well: rules read-only with a link to the tab, notes with delete and
-  clear all.
+  clear all. *(Amended at the Flight 3 HAT, by operator decision, overriding
+  #230: the panel is **read-only** for both. Rules and notes are bulleted
+  lists with no edit links, delete or Clear all; management goes through
+  **Open agent settings**. Untrusted notes carry a warning-triangle icon with an
+  explanatory tooltip, the tab included. Notes not yet in the open chat's
+  prompt sit greyed out under "Pending · used from the next chat", and the
+  panel refreshes live.)*
 - **Flat, non-personified language.** In the UI and the prompt: "saved notes",
   never "I remember". No cheerful announcements in the UI.
 - **The feature is called Notes, never Memory** (operator decision). This

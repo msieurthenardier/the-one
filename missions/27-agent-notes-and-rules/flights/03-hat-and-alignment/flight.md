@@ -1,6 +1,6 @@
 # Flight: HAT and Alignment
 
-**Status**: planning
+**Status**: landed
 **Mission**: [Agent Notes and Rules](../../mission.md)
 
 > Drafted by the Flight Director on 2026-10-10, at the end of the overnight
@@ -9,12 +9,12 @@
 
 ## Contributing to Criteria
 
-- [ ] **Notes are presented as notes, not instructions**: the one criterion
+- [x] **Notes are presented as notes, not instructions**: the one criterion
       left open after Flight 2. Is the live model's post-save acknowledgement
       acceptable?
-- [ ] Operator confirmation of every criterion ticked from automated and
+- [x] Operator confirmation of every criterion ticked from automated and
       behavior-test evidence (Flights 1 and 2).
-- [ ] Operator confirmation, or reversal, of each autonomous judgement call.
+- [x] Operator confirmation, or reversal, of each autonomous judgement call.
 
 ---
 
@@ -45,16 +45,22 @@ while the operator was away.
 
 ### Open Questions (for the operator, before or during the walk)
 
-- [ ] **Environment:**
+- [x] **Environment** (operator, 2026-10-10): a scratch dev instance on port
+      8490 with a scratch data directory and local Ollama `gpt-oss:20b`, viewed
+      in the operator's own browser through a handoff link.
   - A dev instance on 8490 or higher with a scratch data directory, using the
     local Ollama provider as the behavior tests did? Or the operator's real
     providers?
   - The behavior tests used `gpt-oss:20b`. A stronger model may behave
     differently around the "save without comment" and rule-versus-note
     wording.
-- [ ] **Connector:** walk a real Discord channel, or the stub seam?
-- [ ] **Item (i):** should the default filesystem scope or the base prompt
+- [x] **Connector** (operator): the stub seam. The Flight Director injects
+      peer messages.
+- [x] **Item (i):** should the default filesystem scope or the base prompt
       change? That is outside this mission, so is it a squawk or a new sortie?
+      → It did not recur at HAT step 8 (the agent answered "I don't have any
+      notes saved."). It stays a **watch item**, recorded in the mission
+      debrief, with no action now.
 
 ### Design Decisions
 
@@ -78,9 +84,9 @@ Design Guidance").
   an inline fix.
 
 ### Prerequisites
-- [ ] The operator has reviewed PRs #257 and #258, or chooses to review during
+- [x] The operator has reviewed PRs #257 and #258, or chooses to review during
       the HAT.
-- [ ] A dev instance is running from this branch (never port 8484 or 8485,
+- [x] A dev instance is running from this branch (never port 8484 or 8485,
       never the default data directory). Ollama or a chosen provider is
       reachable.
 
@@ -90,8 +96,19 @@ Design Guidance").
 
 ### Legs
 
-- [ ] `hat-and-alignment` *(interactive)*: the guided walk below. Fixes are
+- [x] `hat-and-alignment` *(interactive)*: the guided walk below. Fixes are
       made inline or through the fix-vs-feature gate.
+- [x] `drawer-read-only-notes` *(added at the HAT; a FEATURE through the gate,
+      with a design review)*: a read-only, bulleted chat panel; a
+      warning-triangle flag with a tooltip (the tab too); Pending notes from a
+      server-side comparison with the live prompt; live refresh; an operator
+      edit clears the flag.
+- [x] `prompts-page-layers` *(added at the HAT; a FEATURE through the gate)*:
+      Settings › Prompts shows the base, rules and notes layers, rendered by
+      the real functions.
+- [x] *Inline HAT fixes*: two rounds of notes prompt wording (proactive and
+      life-oriented; "memories" sentence removed; plain-language
+      "(unverified)"); bulleted panel lists.
 
 #### Draft walk (state transitions)
 
@@ -134,11 +151,11 @@ Design Guidance").
     reverse each call.
 
 ### Checkpoints
-- [ ] Walk complete with no open blocking findings.
-- [ ] The open criterion is settled.
-- [ ] Every judgement call is confirmed or reversed, recorded in the flight
+- [x] Walk complete with no open blocking findings.
+- [x] The open criterion is settled.
+- [x] Every judgement call is confirmed or reversed, recorded in the flight
       log.
-- [ ] Gate green after the HAT fixes, and both behavior specs re-run if their
+- [x] Gate green after the HAT fixes, and both behavior specs re-run if their
       contracts changed.
 
 ---
@@ -146,9 +163,9 @@ Design Guidance").
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] HAT leg completed
-- [ ] Fixes committed, with the PRs updated
-- [ ] Mission criteria final; mission debrief scheduled
+- [x] HAT leg completed
+- [x] Fixes committed, with the PRs updated
+- [x] Mission criteria final; mission debrief scheduled
 
 ### Verification
 - The operator's sign-off on the walk.

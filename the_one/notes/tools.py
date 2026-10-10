@@ -217,9 +217,11 @@ async def _origin(turn: TurnContext | None) -> dict[str, Any]:
 class SaveNoteTool(_NotesToolBase):
     name = SAVE_NOTE_TOOL_NAME
     description = (
-        "Save a short note to this agent's saved notes, for a durable fact likely to "
-        "matter in later conversations. Saved notes are shown to you at the start of "
-        "every conversation."
+        "Save a short note to this agent's saved notes: something the person you're "
+        "talking with told you about their life (a preference, a plan or a circumstance) "
+        "that may matter in a later conversation, written as what they told you. Never "
+        "save passwords, keys or other secrets. Saved notes are shown to you at the "
+        "start of every later conversation."
     )
     parameters: dict[str, Any] = {
         "type": "object",

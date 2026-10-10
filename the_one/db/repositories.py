@@ -1944,8 +1944,8 @@ class AgentNoteRepository:
             )
         else:
             await self.conn.execute(
-                "UPDATE agent_notes SET text = ?, updated_at = ?, updated_by = 'operator' "
-                "WHERE id = ?",
+                "UPDATE agent_notes SET text = ?, untrusted = 0, untrusted_sources = '[]', "
+                "updated_at = ?, updated_by = 'operator' WHERE id = ?",
                 (norm, now, note_id),
             )
         updated = await self.get(name, note_id)
@@ -1984,9 +1984,11 @@ class AgentNoteRepository:
     async def update_by_operator(
         self, name: str, note_id: str, text: str
     ) -> tuple[AgentNote, bool]:
-        """Operator edit by id; keeps the flag; no switch check (DD11).
+        """Operator edit by id; no switch check (DD11).
 
-        Returns ``(note, changed)``; identical text is a no-op.
+        A real text change clears the unverified flag and its sources (the
+        operator has reviewed and rewritten it); identical text is a no-op
+        that keeps the flag. Returns ``(note, changed)``.
         """
         async with write_transaction(self.conn):
             return await self._update_locked(name, "id = ?", note_id, text, by="operator")

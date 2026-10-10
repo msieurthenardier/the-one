@@ -62,6 +62,8 @@ caught — but it cannot see where the attribute is emitted.
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
 | `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `base-prompt-content` | admin | The Prompts page's read-only base prompt (`#settings/prompts`; on the single General page until M25 F3 L5a) |
+| `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
+| `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
@@ -76,19 +78,15 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
 | `chat-drawer-note` | chat | The drawer's state line for a non-agent view: "The default agent", "This agent no longer exists" or "Loading…" (M25 F4 L6) |
 | `chat-drawer-notes` | chat | the drawer Notes group's `<ul>` of notes (M27 F2 L3) |
-| `chat-drawer-notes-check` | chat | a "Check this" marker on an untrusted note in the drawer, sources in `title` (M27 F2 L3) |
-| `chat-drawer-notes-clear` | chat | the Notes group's **Clear all**, two-step through `App.confirmDelete`, armed text "Clear all {n}?" (M27 F2 L3) |
-| `chat-drawer-notes-delete` | chat | a note's Delete in the drawer, two-step, accessible name "Delete note {n}" (M27 F2 L3) |
-| `chat-drawer-notes-edit-link` | chat | the Notes group's **Edit notes** `<a>` to `#agents/{name}/rules-and-notes` (M27 F2 L3) |
+| `chat-drawer-notes-flag` | chat | the warning-triangle (`alert-triangle`, `role=img`) on an untrusted note in the drawer; its `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `chat-drawer-notes-check`) |
+| `chat-drawer-notes-pending` | chat | the drawer Notes group's `<ul>` of pending notes (the open chat's prompt does not carry them yet), muted, under the Pending subheading (M27 F3 L2) |
+| `chat-drawer-notes-pending-head` | chat | the "Pending · used from the next chat" subheading above the pending list (M27 F3 L2) |
 | `chat-drawer-notes-empty` | chat | the Notes group's "No notes yet" (M27 F2 L3) |
-| `chat-drawer-notes-failed` | chat | the Notes group's "Couldn't delete" (`role=alert`) after a failed delete or clear (M27 F2 L3) |
-| `chat-drawer-notes-status` | chat | the Notes group's visually hidden polite status line (`role=status`); announces the Delete / Clear all arm (M27 F2 review fix) |
 | `chat-drawer-notes-item` | chat | one note in the drawer (`<li>`, `data-id`, `data-number`, full text in `title`) (M27 F2 L3) |
 | `chat-drawer-notes-kept` | chat | the Notes group's "{n} kept" line, shown only while notes are off and some are stored (M27 F2 L3) |
 | `chat-drawer-notes-off` | chat | the Notes group's "Off" (M27 F2 L3) |
 | `chat-drawer-rule` | chat | one enabled rule in the drawer's Rules group (`<li>`, full text in `title`, text clamped to two lines) (M27 F1 L2) |
-| `chat-drawer-rules` | chat | the drawer Rules group's `<ol>` of enabled rules (M27 F1 L2) |
-| `chat-drawer-rules-edit-link` | chat | the Rules group's **Edit rules** `<a>` to `#agents/{name}/rules-and-notes` (M27 F1 L2) |
+| `chat-drawer-rules` | chat | the drawer Rules group's bulleted `<ul>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
@@ -239,12 +237,12 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-off-message` | studio | "Notes are off. This agent can't see or write notes. Saved notes are kept." (hidden while on) (M27 F2 L3) |
 | `notes-row` | studio | one note row (`<li>`, `data-id`, `data-number`) (M27 F2 L3) |
 | `notes-row-cancel` | studio | note inline edit Cancel (M27 F2 L3) |
-| `notes-row-check` | studio | the "Check this" badge on an untrusted note; accessible name and `title` list the sources (M27 F2 L3) |
 | `notes-row-delete` | studio | note Delete, two-step through `App.confirmDelete` (M27 F2 L3) |
 | `notes-row-edit` | studio | note Edit; `data-note-id` (M27 F2 L3) |
 | `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
 | `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
 | `notes-row-edited` | studio | "Edited by you" on an operator-edited note (M27 F2 L3) |
+| `notes-row-flag` | studio | the warning-triangle (`App.noteFlag`, `role=img`) on an untrusted note in the Rules and notes tab; `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `notes-row-check`) |
 | `notes-row-meta` | studio | a note's meta line (time, origin, badges) (M27 F2 L3) |
 | `notes-row-origin` | studio | the note's origin: chat link, "(chat deleted)", platform and peer, or "Outside a chat" (M27 F2 L3) |
 | `notes-row-origin-link` | studio | the origin `<a>` to `#chats/{id}` when the chat still exists (M27 F2 L3) |
@@ -440,6 +438,14 @@ again. A retired id cannot come back.
 | `back-mcp-source-btn` | studio | M25 F3 L4b (DD2) — the MCP server editor is hosted beside the Library list; the breadcrumb's "MCP servers" link (`editor-breadcrumb-link`) replaces Back |
 | `back-provider-btn` | admin | M25 F3 L5b (DD2, DD7) — the provider editor opens below the Providers tiles; the breadcrumb's "Providers" link (`editor-breadcrumb-link`) replaces Back |
 | `back-tool-btn` | admin | M25 F3 L5b (DD2, DD7) — the tool editor opens below the tool list; the breadcrumb's "Built-in tools" link (`editor-breadcrumb-link`) replaces Back |
+| `chat-drawer-notes-check` | chat | M27 F3 L2 (HAT decision, overrides #230) — renamed `chat-drawer-notes-flag`; the "Check this" chip is a warning triangle |
+| `chat-drawer-notes-clear` | chat | M27 F3 L2 (HAT decision, overrides #230) — the drawer's Notes group is read-only; notes are managed in the Rules and notes tab |
+| `chat-drawer-notes-delete` | chat | M27 F3 L2 (HAT decision, overrides #230) — the drawer's Notes group is read-only; notes are managed in the Rules and notes tab |
+| `chat-drawer-notes-edit-link` | chat | M27 F3 L2 (HAT decision, overrides #230) — Open agent settings (`chat-drawer-settings-link`) is the way to the editor |
+| `chat-drawer-notes-failed` | chat | M27 F3 L2 (HAT decision, overrides #230) — no delete in the drawer, so no delete failure |
+| `chat-drawer-notes-status` | chat | M27 F3 L2 (HAT decision, overrides #230) — no delete arm to announce |
+| `chat-drawer-rules-edit-link` | chat | M27 F3 L2 (HAT decision, overrides #230) — Open agent settings (`chat-drawer-settings-link`) is the way to the editor |
+| `notes-row-check` | studio | M27 F3 L2 — the "Check this" badge is the warning-triangle flag `notes-row-flag` |
 | `entity-tile` | studio, admin | M25 F3 (the tile grids are replaced by the list panes). The testid is retired, but the `entity-tile*` CSS classes are deliberately kept: they are live on the Built-in tools tiles (`areas/admin/tools-grid.js`) and the Providers tiles (`areas/admin/providers-list.js`), so the classes' presence is not a sign the testid still exists |
 | `new-chat-btn` | chat | M25 F4 L4b (DD3, DD6) — the chat header's hover-expanding "New Chat" (a new chat with the current agent) is retired with `h2.session-agent-badge`; the Chats list's New chat (`chats-new-btn`) and the new-chat state's "Pick a different agent" (`chat-pick-different-btn`) open the agent picker |
 | `new-connector-btn` | studio | M25 F3 L4a (DD5) — the Connectors grid is retired; the Library list's Add menu (`library-add-connector`) replaces it |

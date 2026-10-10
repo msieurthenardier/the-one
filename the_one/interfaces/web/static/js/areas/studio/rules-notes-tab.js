@@ -548,11 +548,6 @@
     return out;
   }
 
-  function checkTitle(sources) {
-    var list = (sources || []).map(String);
-    return 'Written after content not from you' + (list.length ? ': ' + list.join(', ') : '');
-  }
-
   function formatCount(n) {
     return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
@@ -738,12 +733,8 @@
       var meta = el('div', 'notes-row-meta');
       meta.setAttribute('data-testid', 'notes-row-meta');
       if (note.untrusted) {
-        var title = checkTitle(note.untrusted_sources);
-        var check = App.ui.badge({ text: 'Check this', title: title, testid: 'notes-row-check' });
-        check.classList.add('notes-check-badge');
-        check.setAttribute('role', 'note');
-        // The accessible name starts with the visible text (WCAG 2.5.3).
-        check.setAttribute('aria-label', 'Check this: ' + title.charAt(0).toLowerCase() + title.slice(1));
+        var check = App.noteFlag(note.untrusted_sources || []);
+        check.setAttribute('data-testid', 'notes-row-flag');
         meta.appendChild(check);
       }
       var changed = note.updated_at && note.updated_at !== note.created_at;

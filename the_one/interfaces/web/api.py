@@ -36,6 +36,8 @@ from the_one.db._notes import (
     NOTES_TOTAL_MAX_CHARS,
     NoteDuplicateError,
     NoteLimitError,
+    parse_notes_block,
+    render_note_line_text,
 )
 from the_one.db._rules import (
     RULE_MAX_CHARS,
@@ -1435,14 +1437,57 @@ def _notes_limits() -> dict[str, int]:
     }
 
 
+async def _session_notes_map(name: str, session_id: str | None) -> dict[int, str] | None:
+    """The notes the open chat's CURRENT system prompt carries, or None.
+
+    Reads the live web session's ``agent.messages[0]`` when it is loaded, else
+    the persisted row's first message. None when there is nothing to compare:
+    no/unknown session, another agent's session, or a prompt with no notes block.
+    """
+    if not session_id:
+        return None
+    from the_one.db.codec import decode_messages
+    from the_one.interfaces.web.app import _sessions
+
+    text: str | None = None
+    live = _sessions.get(session_id)
+    if live is not None and getattr(live, "agent", None) is not None:
+        if (live.agent_name or "default") != name:
+            return None
+        msgs = getattr(live.agent, "messages", None)
+        if msgs and isinstance(msgs[0].content, str):
+            text = msgs[0].content
+    if text is None:
+        try:
+            row = await (await _chat_repo()).get(session_id)
+        except KeyError:
+            return None
+        if (row.agent_name or "default") != name:
+            return None
+        msgs = decode_messages(row.messages)
+        if not msgs or not isinstance(msgs[0].content, str):
+            return None
+        text = msgs[0].content
+    return parse_notes_block(text)
+
+
 @router.get("/agents/{name}/notes")
-async def list_agent_notes(name: str) -> dict[str, Any]:
+async def list_agent_notes(name: str, session_id: str | None = None) -> dict[str, Any]:
     _store, config = await _load_agent_or_404(name)
     repo = await _agent_notes_repo()
     notes = await repo.list_for_agent(name)
+    in_prompt = await _session_notes_map(name, session_id)
+    rows = []
+    for n in notes:
+        row = n.model_dump(exclude={"agent_name"})
+        row["pending"] = in_prompt is not None and in_prompt.get(n.number) != render_note_line_text(
+            n
+        )
+        rows.append(row)
     return {
         "enabled": config.notes_enabled,
-        "notes": [n.model_dump(exclude={"agent_name"}) for n in notes],
+        "notes": rows,
+        "pending_known": in_prompt is not None,
         "limits": _notes_limits(),
         "usage": {"total_chars": sum(len(n.text) for n in notes)},
     }

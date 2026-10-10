@@ -235,11 +235,20 @@ async def test_sources_capped_at_ten(repo) -> None:
     assert len(out.untrusted_sources) == 10
 
 
-async def test_operator_edit_keeps_flag_and_sets_updated_by(repo) -> None:
+async def test_operator_edit_clears_flag_and_sets_updated_by(repo) -> None:
     a, _ = await _save(repo, "alpha", "v1", untrusted=True, sources=["fetch_url"])
     out, changed = await repo.update_by_operator("alpha", a.id, "v2")
-    assert changed and out.untrusted and out.updated_by == "operator"
-    assert out.untrusted_sources == ["fetch_url"]
+    assert changed and not out.untrusted and out.updated_by == "operator"
+    assert out.untrusted_sources == []
+    # A later agent update in a tainted conversation flags it again.
+    again, _ = await repo.update_by_agent("alpha", a.number, "v3", untrusted=True, sources=["x"])
+    assert again.untrusted and again.untrusted_sources == ["x"]
+
+
+async def test_identical_text_operator_save_keeps_flag(repo) -> None:
+    a, _ = await _save(repo, "alpha", "v1", untrusted=True, sources=["fetch_url"])
+    out, changed = await repo.update_by_operator("alpha", a.id, "v1")
+    assert not changed and out.untrusted and out.untrusted_sources == ["fetch_url"]
 
 
 async def test_scoped_by_agent_and_misses(repo) -> None:

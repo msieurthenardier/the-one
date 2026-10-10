@@ -46,17 +46,18 @@
 //            "Couldn't load" for that group only.
 //   Rules (M27 F1 L2, DD7): first in "What it can use": the agent's enabled
 //            rules in order (two-line clamp, full text in `title`), "{n} off"
-//            for disabled ones, "No rules" (also on a 404), and an "Edit rules"
-//            link (a plain <a href> to `#agents/{name}/rules-and-notes`, so the
-//            global link interceptor runs the leave guard). Fetched once per
-//            open and agent: GET /api/agents/{name}/rules.
-//   Notes (M27 F2 L3, DD10): after Rules: "Off" and "{n} kept" when the switch
-//            is off; when on, each note's [n], its text (two-line clamp, full
-//            text in `title`), a short origin line, a "Check this" marker for
-//            untrusted ones, a Delete and a Clear all (both App.confirmDelete),
-//            and an "Edit notes" link; "No notes yet" (also on a 404). Fetched
-//            once per open and agent (GET /api/agents/{name}/notes); a delete
-//            or clear re-fetches, a failed one shows "Couldn't delete".
+//            for disabled ones, "No rules" (also on a 404). Read-only: no edit
+//            link (Open agent settings is the way to the editor). Fetched once
+//            per open and agent: GET /api/agents/{name}/rules.
+//   Notes (M27 F2 L3, DD10; F3 L2): after Rules, READ-ONLY: "Off" and "{n} kept"
+//            when the switch is off; when on, each note's [n], a warning-triangle
+//            flag (testid chat-drawer-notes-flag) for untrusted ones, its text
+//            (two-line clamp, full text in `title`) and a short origin line;
+//            "No notes yet" (also on a 404). Notes the open chat's prompt does
+//            not carry yet sit muted under "Pending · used from the next chat".
+//            Fetched per open, agent and session (GET /api/agents/{name}/notes
+//            ?session_id=, the server marks `pending`); refreshNotes() re-fetches
+//            on a live save/update/forget and after a rejoin.
 //   footer   Open agent settings (App.ui.button secondary, the settings gear,
 //            testid chat-drawer-settings-link): a guarded go() to the agent,
 //            then App.studio.clearAgentFilter() on a commit (reference spec
@@ -180,9 +181,9 @@
     var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
     var rulesState = { gen: -1, agent: null, status: 'idle', value: null };
     // M27 F2 L3 (DD10): the Notes group's per-open fetch, shaped like rulesState
-    // (value = {enabled, notes}); `deleteFailed` shows "Couldn't delete" in the
-    // group while the list stays as it was.
-    var notesState = { gen: -1, agent: null, status: 'idle', value: null, deleteFailed: false };
+    // (value = {enabled, notes}), keyed on agent AND session (F3 L2).
+    var notesState = { gen: -1, agent: null, session: null, status: 'idle', value: null };
+    var notesToken = 0;
     var storeTried = {};
     var storeFailed = {};
 
@@ -334,7 +335,8 @@
         if (!on.length) {
           box.appendChild(el('p', { className: 'chat-drawer-none', text: 'No rules' }));
         } else {
-          var ol = el('ol', { className: 'chat-drawer-rules' });
+          var ol = el('ul', { className: 'chat-drawer-rules' });
+          ol.setAttribute('role', 'list');
           ol.setAttribute('data-testid', 'chat-drawer-rules');
           for (var j = 0; j < on.length; j++) {
             var li = el('li', null, [el('span', { className: 'chat-drawer-rule-text', text: String(on[j].text) })]);
@@ -349,10 +351,6 @@
           offEl.setAttribute('data-testid', 'chat-drawer-rules-off');
           box.appendChild(offEl);
         }
-        var link = el('a', { className: 'chat-drawer-rules-link', text: 'Edit rules' });
-        link.setAttribute('href', App.router.href({ destination: 'agents', id: agentName, tab: 'rules-and-notes' }));
-        link.setAttribute('data-testid', 'chat-drawer-rules-edit-link');
-        box.appendChild(link);
         return box;
       }
       box.appendChild(el('p', {
@@ -362,12 +360,13 @@
       return box;
     }
 
-    // M27 F2 L3 (DD10): the Notes group, sibling after Rules. Note text is
-    // attacker-influenced, so every field goes through textContent (el's
-    // `text`) and `title`, never an HTML sink. Off: "Off" and "{n} kept". On:
-    // each note's [n], its text clamped to two lines, a short origin line and a
-    // "Check this" marker for untrusted ones, with a per-note Delete and a
-    // Clear all (both armed through App.confirmDelete), then the Edit notes link.
+    // M27 F2 L3 (DD10) / F3 L2: the Notes group, sibling after Rules, READ-ONLY
+    // (notes are managed in the agent's Rules and notes tab, via Open agent
+    // settings). Note text is attacker-influenced, so every field goes through
+    // textContent (el's `text`) and `title`, never an HTML sink. Off: "Off" and
+    // "{n} kept". On: the in-use notes, then (when the server knows the open
+    // chat's prompt) a "Pending · used from the next chat" subheading and the
+    // notes that prompt does not carry yet, muted.
     function noteOriginLine(n) {
       if (n.origin_kind === 'other') return 'Outside a chat';
       if (n.origin_kind === 'connector') {
@@ -377,43 +376,38 @@
       return String(n.origin_label || 'Untitled chat') + (n.origin_exists ? '' : ' (chat deleted)');
     }
 
-    function notesRequest(agentName, method, suffix) {
-      return fetch('/api/agents/' + encodeURIComponent(agentName) + '/notes' + (suffix || ''), {
-        method: method
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r;
-      });
-    }
-
-    // Focus a Notes control after a re-render (WCAG 2.4.3): `which` is a note
-    // id (its Delete) or NOTES_CLEAR; a vanished target falls to Edit notes.
-    var NOTES_CLEAR = '\u0000clear';
-    function focusNotesControl(which) {
-      var target = null;
-      if (which === NOTES_CLEAR) {
-        target = content.querySelector('[data-testid="chat-drawer-notes-clear"]');
-      } else if (which) {
-        var items = content.querySelectorAll('[data-group="notes"] [data-id]');
-        for (var i = 0; i < items.length; i++) {
-          if (items[i].getAttribute('data-id') === which) { target = items[i].querySelector('button'); break; }
-        }
+    function noteItem(n) {
+      var headKids = [];
+      if (n.untrusted) {
+        var flag = App.noteFlag(arr(n.untrusted_sources));
+        flag.setAttribute('data-testid', 'chat-drawer-notes-flag');
+        headKids.push(flag);
       }
-      if (!target) target = content.querySelector('[data-testid="chat-drawer-notes-edit-link"]');
-      if (target) target.focus();
+      headKids.push(el('span', { className: 'chat-drawer-note-text', text: String(n.text) }));
+      var li = el('li', null, [
+        el('div', { className: 'chat-drawer-note-head' }, headKids),
+        el('div', { className: 'chat-drawer-note-origin', text: noteOriginLine(n) })
+      ]);
+      li.setAttribute('title', String(n.text));
+      li.setAttribute('data-testid', 'chat-drawer-notes-item');
+      li.setAttribute('data-id', n.id);
+      li.setAttribute('data-number', String(n.number));
+      return li;
     }
 
-    function notesGroup(agentName) {
+    function noteList(rows, pending) {
+      var ul = el('ul', { className: 'chat-drawer-notes' + (pending ? ' chat-drawer-notes--pending' : '') });
+      ul.setAttribute('role', 'list');
+      if (pending) ul.setAttribute('data-testid', 'chat-drawer-notes-pending');
+      else ul.setAttribute('data-testid', 'chat-drawer-notes');
+      for (var i = 0; i < rows.length; i++) ul.appendChild(noteItem(rows[i]));
+      return ul;
+    }
+
+    function notesGroup() {
       var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'notes' } }, [
         el('h4', { className: 'chat-drawer-group-label', text: 'Notes' })
       ]);
-      // Polite status line: announces the delete arm (the buttons' persistent
-      // aria-label overrides the swapped "Confirm delete?" text).
-      var statusEl = el('p', { className: 'visually-hidden' });
-      statusEl.setAttribute('role', 'status');
-      statusEl.setAttribute('aria-live', 'polite');
-      statusEl.setAttribute('data-testid', 'chat-drawer-notes-status');
-      function announce(msg) { statusEl.textContent = msg || ''; }
       if (notesState.status !== 'ok') {
         box.appendChild(el('p', {
           className: 'chat-drawer-none',
@@ -426,7 +420,6 @@
       if (!enabled) {
         var offEl = el('p', { className: 'chat-drawer-value', text: 'Off' });
         offEl.setAttribute('data-testid', 'chat-drawer-notes-off');
-        offEl.id = 'chat-drawer-notes-off-msg';
         box.appendChild(offEl);
         if (all.length) {
           var kept = el('p', { className: 'chat-drawer-notes-kept', text: all.length + ' kept' });
@@ -438,139 +431,63 @@
         none.setAttribute('data-testid', 'chat-drawer-notes-empty');
         box.appendChild(none);
       } else {
-        var ul = el('ul', { className: 'chat-drawer-notes' });
-        ul.setAttribute('role', 'list');
-        ul.setAttribute('data-testid', 'chat-drawer-notes');
-        all.forEach(function (n, index) {
-          var textEl = el('span', { className: 'chat-drawer-note-text', text: String(n.text) });
-          var head = el('div', { className: 'chat-drawer-note-head' }, [
-            el('span', { className: 'chat-drawer-note-number', text: '[' + n.number + ']' }),
-            textEl
-          ]);
-          var origin = el('div', { className: 'chat-drawer-note-origin' });
-          if (n.untrusted) {
-            var title = 'Written after content not from you' +
-              (arr(n.untrusted_sources).length ? ': ' + arr(n.untrusted_sources).join(', ') : '');
-            var check = el('span', { className: 'chat-drawer-note-check', text: 'Check this' });
-            check.setAttribute('title', title);
-            check.setAttribute('role', 'note');
-            check.setAttribute('aria-label', 'Check this: ' + title.charAt(0).toLowerCase() + title.slice(1));
-            check.setAttribute('data-testid', 'chat-drawer-notes-check');
-            origin.appendChild(check);
-          }
-          origin.appendChild(el('span', { text: noteOriginLine(n) }));
-          var del = App.ui.button({
-            variant: 'danger',
-            size: 'sm',
-            ariaLabel: 'Delete note ' + n.number,
-            className: 'delete-btn chat-drawer-note-delete',
-            testid: 'chat-drawer-notes-delete'
+        var inUse = [];
+        var pending = [];
+        for (var i = 0; i < all.length; i++) (all[i].pending ? pending : inUse).push(all[i]);
+        if (inUse.length) box.appendChild(noteList(inUse, false));
+        if (pending.length) {
+          var head = el('p', {
+            className: 'chat-drawer-notes-pending-head',
+            text: 'Pending · used from the next chat'
           });
-          del.appendChild(el('span', { text: 'Delete' })).setAttribute('data-confirm-title', '');
-          del.addEventListener('click', function () {
-            announce('');
-            App.confirmDelete(del, function (btn, revert) {
-              notesState.deleteFailed = false;
-              notesRequest(agentName, 'DELETE', '/' + encodeURIComponent(n.id)).then(function () {
-                var next = all[index + 1] || all[index - 1] || null;
-                refreshNotes(agentName, next ? next.id : NOTES_CLEAR, n.id);
-              }, function () {
-                revert();
-                notesState.deleteFailed = true;
-                render();
-                focusNotesControl(n.id);
-              });
-            });
-            if (del.classList.contains('confirm-delete')) {
-              announce('Press Delete again to delete note ' + n.number + '.');
-            }
-          });
-          var li = el('li', null, [head, origin, del]);
-          li.setAttribute('title', String(n.text));
-          li.setAttribute('data-testid', 'chat-drawer-notes-item');
-          li.setAttribute('data-id', n.id);
-          li.setAttribute('data-number', String(n.number));
-          ul.appendChild(li);
-        });
-        box.appendChild(ul);
-        var clear = App.ui.button({
-          variant: 'danger',
-          size: 'sm',
-          ariaLabel: 'Clear all ' + all.length + (all.length === 1 ? ' note' : ' notes'),
-          className: 'delete-btn chat-drawer-notes-clear',
-          testid: 'chat-drawer-notes-clear'
-        });
-        clear.appendChild(el('span', { text: 'Clear all' })).setAttribute('data-confirm-title', '');
-        clear.addEventListener('click', function () {
-          announce('');
-          App.confirmDelete(clear, function (btn, revert) {
-            notesState.deleteFailed = false;
-            notesRequest(agentName, 'DELETE').then(function () {
-              refreshNotes(agentName, null, NOTES_CLEAR);
-            }, function () {
-              revert();
-              notesState.deleteFailed = true;
-              render();
-              focusNotesControl(NOTES_CLEAR);
-            });
-          }, { confirmLabel: 'Clear all ' + all.length + '?' });
-          if (clear.classList.contains('confirm-delete')) {
-            announce('Press Clear all again to delete all ' + all.length + (all.length === 1 ? ' note.' : ' notes.'));
-          }
-        });
-        box.appendChild(clear);
+          head.setAttribute('data-testid', 'chat-drawer-notes-pending-head');
+          box.appendChild(head);
+          box.appendChild(noteList(pending, true));
+        }
       }
-      if (notesState.deleteFailed) {
-        var failed = el('p', { className: 'chat-drawer-notes-failed', text: 'Couldn\'t delete' });
-        failed.setAttribute('data-testid', 'chat-drawer-notes-failed');
-        failed.setAttribute('role', 'alert');
-        box.appendChild(failed);
-      }
-      box.appendChild(statusEl);
-      var link = el('a', { className: 'chat-drawer-rules-link', text: 'Edit notes' });
-      link.setAttribute('href', App.router.href({ destination: 'agents', id: agentName, tab: 'rules-and-notes' }));
-      link.setAttribute('data-testid', 'chat-drawer-notes-edit-link');
-      box.appendChild(link);
       return box;
     }
 
-    // Read the notes once per open and agent (a raw fetch: a 404, no stored
-    // row, reads as "No notes yet"). `refresh` keeps the old list on screen
-    // until the new one arrives; `focusId` puts focus on that note's Delete.
-    function loadNotes(agentName, gen, refresh, focusId, failFocus) {
+    // Read the notes once per open, agent and session (a raw fetch: a 404, no
+    // stored row, reads as "No notes yet"). `refresh` keeps the old list on
+    // screen until the new one arrives, and a failed refresh keeps it too. The
+    // session id lets the server mark the notes the chat's prompt lacks.
+    function loadNotes(agentName, sessionId, gen, refresh) {
+      var token = ++notesToken;
       if (!refresh) {
-        notesState = { gen: gen, agent: agentName, status: 'pending', value: null, deleteFailed: false };
+        notesState = { gen: gen, agent: agentName, session: sessionId, status: 'pending', value: null };
       }
-      fetch('/api/agents/' + encodeURIComponent(agentName) + '/notes').then(function (r) {
+      var url = '/api/agents/' + encodeURIComponent(agentName) + '/notes' +
+        (sessionId ? '?session_id=' + encodeURIComponent(sessionId) : '');
+      fetch(url).then(function (r) {
         if (r.status === 404) return { enabled: true, notes: [] };
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       }).then(function (body) {
-        if (notesState.gen !== gen || notesState.agent !== agentName) return;
+        if (token !== notesToken) return;
         notesState = {
-          gen: gen, agent: agentName, status: 'ok', deleteFailed: false,
+          gen: gen, agent: agentName, session: sessionId, status: 'ok',
           value: { enabled: !!(body && body.enabled), notes: (body && body.notes) || [] }
         };
         render();
-        if (refresh) {
-          focusNotesControl(focusId);
-        }
       }, function () {
-        if (notesState.gen !== gen || notesState.agent !== agentName) return;
-        if (refresh) {
-          notesState.deleteFailed = true;
-          render();
-          focusNotesControl(failFocus);
-          return;
-        } else {
-          notesState = { gen: gen, agent: agentName, status: 'error', value: null, deleteFailed: false };
-        }
+        if (token !== notesToken) return;
+        if (refresh) return;
+        notesState = { gen: gen, agent: agentName, session: sessionId, status: 'error', value: null };
         render();
       });
     }
 
-    function refreshNotes(agentName, focusId, failFocus) {
-      loadNotes(agentName, notesState.gen, true, focusId, failFocus);
+    // Re-fetch the current view's notes now (a live save/update/forget, a
+    // rejoin's rebuild), bypassing the per-open cache. Only while open.
+    function refreshNotes() {
+      var info = describe();
+      if (info.kind !== 'agent' || !drawer.isOpen()) return;
+      loadNotes(info.name, viewSession(), openGen, notesState.status === 'ok');
+    }
+
+    function viewSession() {
+      return (view && view.sessionId) || null;
     }
 
     function storeStatus(name) {
@@ -588,7 +505,7 @@
       box.setAttribute('data-testid', 'chat-drawer-uses');
 
       box.appendChild(rulesGroup(agent.name));
-      box.appendChild(notesGroup(agent.name));
+      box.appendChild(notesGroup());
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -733,8 +650,10 @@
           render();
         });
       }
-      if (notesState.gen !== gen || notesState.agent !== info.name) {
-        loadNotes(info.name, gen, false, null);
+      var sid = viewSession();
+      if (notesState.gen !== gen || notesState.agent !== info.name || notesState.session !== sid) {
+        var same = notesState.gen === gen && notesState.agent === info.name && notesState.status === 'ok';
+        loadNotes(info.name, sid, gen, same);
       }
       ['knowledge-bases', 'mcp-sources'].forEach(function (name) {
         if (storeTried[name] === gen) return;
@@ -810,6 +729,7 @@
         active = !!on;
         apply();
       },
+      refreshNotes: refreshNotes,
       destroy: destroy
     };
   }

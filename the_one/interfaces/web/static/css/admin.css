@@ -66,6 +66,11 @@
     overflow-y: auto;
     margin: 0;
   }
+  /* Prompts page layers: one rhythm — eyebrow, one explanatory line, the
+     block; layers separated by one gap. */
+  .area-admin .admin-prompt-layer { margin-top: 24px; }
+  .area-admin .admin-prompt-layer .section-title { margin: 0 0 8px; }
+  .area-admin .admin-prompt-layer .admin-system-text { margin: 0 0 8px; }
   /* Theme toggle — quiet segmented control: accent-translucent base +
      hairline border; active option takes the solid accent fill. */
   .area-admin .admin-theme-toggle {

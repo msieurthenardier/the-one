@@ -1581,8 +1581,7 @@
 .area-studio .rules-add-count--over { color: var(--status-danger); }
 
 /* === Notes section (M27 F2 L3, flight DD10) ================================
-   Rows reuse the Rules list recipe; meta sits under the text. "Check this" is
-   text on the elevated surface with a warning ring (never colour alone). */
+   Rows reuse the Rules list recipe; meta sits under the text. The untrusted-note flag is the shared `.note-flag` (components.css). */
 .area-studio .notes-enabled-toggle { margin: 0 0 var(--space-2); }
 .area-studio .notes-off-message {
   margin: 0 0 var(--space-3);
@@ -1634,9 +1633,4 @@
 .area-studio .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
 .area-studio .notes-row-origin-link { text-decoration: underline; }
 .area-studio .notes-row-edited { color: var(--fg-secondary); }
-.area-studio .notes-check-badge {
-  background: var(--surface-elevated);
-  color: var(--fg);
-  box-shadow: inset 0 0 0 1px var(--status-warning);
-}
 .area-studio .notes-bar [hidden] { display: none; }

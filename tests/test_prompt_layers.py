@@ -345,3 +345,27 @@ async def test_get_my_configuration_omits_notes_enabled(conn, monkeypatch, tmp_p
     monkeypatch.setattr(surface, "_calling_agent", AsyncMock(return_value="alpha"))
     projection = await surface.get_my_configuration(ctx=None)
     assert "notes" not in str(projection).lower()
+
+
+def test_info_prompt_examples_match_composed_prompt():
+    import asyncio
+
+    from fastapi.testclient import TestClient  # noqa: F401
+
+    from the_one.agent.config import BASE_PROMPT, RenderedNote, compose_system_prompt
+    from the_one.interfaces.web.app import info
+
+    data = asyncio.run(info())
+    assert data["base_prompt"] == BASE_PROMPT
+    full = compose_system_prompt(
+        BASE_PROMPT,
+        "persona",
+        rules=["{first enabled rule}", "{second enabled rule}"],
+        notes=[
+            RenderedNote(1, "{a saved note}", False),
+            RenderedNote(2, "{a note saved while outside text was in the conversation}", True),
+        ],
+    )
+    assert data["rules_prompt_example"] in full
+    assert data["notes_prompt_example"] in full
+    assert "(unverified)" in data["notes_prompt_example"]
