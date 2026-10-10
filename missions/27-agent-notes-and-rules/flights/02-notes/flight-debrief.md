@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-10
 **Flight**: [Notes](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-10-10 (planning) - 2026-10-10 (landed; behavior test 11/11)
 **Legs Completed**: 3 of 3
 **Plugin version**: mission-control 1.2.0

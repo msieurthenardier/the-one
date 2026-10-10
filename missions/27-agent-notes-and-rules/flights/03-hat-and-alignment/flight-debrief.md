@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-10
 **Flight**: [HAT and Alignment](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-10-10 (one live session with the operator)
 **Legs Completed**: 3 of 3: `hat-and-alignment` (interactive), plus two legs
 added mid-HAT, `drawer-read-only-notes` and `prompts-page-layers`

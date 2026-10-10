@@ -1,6 +1,6 @@
 # Flight: Notes
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Agent Notes and Rules](../../mission.md)
 
 ## Contributing to Criteria

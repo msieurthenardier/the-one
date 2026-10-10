@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-10
 **Flight**: [Rules and the Prompt Foundation](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-10-09 (planning) - 2026-10-09 (landed; behavior test 9/9)
 **Legs Completed**: 2 of 2
 **Plugin version**: mission-control 1.2.0

@@ -4,7 +4,7 @@
 **Status**: draft
 **Created**: 2026-10-09 (Mission 27 Flight 1)
 **Updated**: 2026-10-10 (Mission 27 Flight 3 HAT: the panel is read-only and bulleted; step 4 is re-authored for the removed Edit rules link)
-**Last Run**: 2026-10-09: pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)). Step 4 was reworded after the run (the panel is open by default).
+**Last Run**: 2026-10-10 (post-HAT re-run): pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-10-21-05-09.md)). Earlier: 2026-10-09 pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
 
 ## Intent
 

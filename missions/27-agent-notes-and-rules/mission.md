@@ -1,6 +1,6 @@
 # Mission: Agent Notes and Rules
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -375,7 +375,7 @@ Facts about the codebase that shape the design (verified at `77308c5`):
   - The planted-note behavior test and the security-model update.
   - This flight carries the mission's risk and its own cluster of security
     decisions.
-- [ ] Flight 3: **HAT and alignment.** One guided human acceptance test for the
+- [x] Flight 3: **HAT and alignment.** *(landed 2026-10-10; behavior specs re-authored and re-run 9/9 and 11/11)* One guided human acceptance test for the
       whole mission, with the operator present (operator decision: Flights 1
       and 2 carry no HAT legs of their own and land on automated gates and
       behavior tests). It walks rules, notes, the Rules and notes tab and the
