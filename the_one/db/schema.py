@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 41
+CURRENT_VERSION = 43
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2613,3 +2613,129 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (41,))
         await conn.commit()
         version = 41
+
+    if version < 42:
+        # Mission 27 Flight 1 (DD3) — per-agent rules, and `agent_revisions`
+        # rebuilt so its `agent_name` foreign key follows a rename.
+        #
+        # `agent_rules` is brand new (CREATE IF NOT EXISTS). Its foreign key
+        # carries ON UPDATE CASCADE so `SQLiteAgentStore.rename` (a plain
+        # UPDATE of agents.name) carries the rows over. Any future
+        # agent-keyed table must declare ON UPDATE CASCADE too.
+        #
+        # `agent_revisions` (v34/v37) declared `REFERENCES agents(name) ON
+        # DELETE CASCADE` with no update action, so renaming an agent that
+        # had revision rows failed with FOREIGN KEY constraint failed. The
+        # rebuild follows the v37 ceremony with two corrections: the
+        # self-reference names the FINAL table (correct whether or not
+        # `legacy_alter_table` is on), and the guard reads
+        # PRAGMA foreign_key_list so a database already carrying the cascade
+        # (or a stamp-only rewind) skips the rebuild.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_rules ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+            "        ON DELETE CASCADE ON UPDATE CASCADE,"
+            "    text TEXT NOT NULL,"
+            "    enabled INTEGER NOT NULL DEFAULT 1,"
+            "    position INTEGER NOT NULL,"
+            "    created_at TEXT NOT NULL,"
+            "    updated_at TEXT NOT NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_rules_agent_position "
+            "ON agent_rules (agent_name, position)"
+        )
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_revisions'"
+        ) as cursor:
+            revisions_present = (await cursor.fetchone()) is not None
+        needs_fk_rebuild = False
+        if revisions_present:
+            async with conn.execute("PRAGMA foreign_key_list(agent_revisions)") as cursor:
+                fk_rows = await cursor.fetchall()
+            # foreign_key_list columns: id, seq, table, from, to, on_update, on_delete, match
+            needs_fk_rebuild = any(
+                row[2] == "agents" and str(row[5]).upper() != "CASCADE" for row in fk_rows
+            )
+        if needs_fk_rebuild:
+            await conn.executescript(
+                "PRAGMA foreign_keys=OFF;\n"
+                "DROP TABLE IF EXISTS agent_revisions_new;\n"
+                "CREATE TABLE agent_revisions_new ("
+                "    id TEXT PRIMARY KEY,"
+                "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+                "        ON DELETE CASCADE ON UPDATE CASCADE,"
+                "    field TEXT NOT NULL CHECK (field IN ('description', 'system_prompt')),"
+                "    proposed_value TEXT NOT NULL,"
+                "    base_value TEXT NOT NULL,"
+                "    status TEXT NOT NULL"
+                "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+                "    source TEXT NOT NULL CHECK (source IN ('self', 'restore', 'external')),"
+                "    source_principal TEXT,"
+                "    restored_from TEXT REFERENCES agent_revisions(id) ON DELETE SET NULL,"
+                "    created_at TEXT NOT NULL,"
+                "    resolved_at TEXT"
+                ");\n"
+                "INSERT INTO agent_revisions_new "
+                "(id, agent_name, field, proposed_value, base_value, status, source, "
+                " source_principal, restored_from, created_at, resolved_at) "
+                "SELECT id, agent_name, field, proposed_value, base_value, status, source, "
+                " source_principal, restored_from, created_at, resolved_at "
+                "FROM agent_revisions;\n"
+                "DROP TABLE agent_revisions;\n"
+                "ALTER TABLE agent_revisions_new RENAME TO agent_revisions;\n"
+                "CREATE INDEX IF NOT EXISTS idx_agent_revisions_agent_status "
+                "ON agent_revisions (agent_name, status);\n"
+            )
+            await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (42,))
+        await conn.commit()
+        version = 42
+
+    if version < 43:
+        # Mission 27 Flight 2 (DD1) — per-agent notes. `agents` gains the
+        # operator-owned `notes_enabled` switch (default off) and the
+        # `notes_next_number` counter (never part of AgentConfig or the save
+        # upsert, so a stale whole-row save cannot reuse a number). Both
+        # ADD COLUMNs are guarded by PRAGMA table_info; `agent_notes` and its
+        # unique index are idempotent. The FK carries ON UPDATE CASCADE so a
+        # rename carries the notes, and ON DELETE CASCADE removes them.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            agent_cols = {row[1] for row in await cursor.fetchall()}
+        if agent_cols and "notes_enabled" not in agent_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN notes_enabled INTEGER NOT NULL DEFAULT 0"
+            )
+        if agent_cols and "notes_next_number" not in agent_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN notes_next_number INTEGER NOT NULL DEFAULT 1"
+            )
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_notes ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+            "        ON DELETE CASCADE ON UPDATE CASCADE,"
+            "    number INTEGER NOT NULL,"
+            "    text TEXT NOT NULL,"
+            "    untrusted INTEGER NOT NULL DEFAULT 0,"
+            "    untrusted_sources TEXT NOT NULL DEFAULT '[]',"
+            "    origin_kind TEXT NOT NULL CHECK (origin_kind IN ('web', 'connector', 'other')),"
+            "    origin_session_id TEXT,"
+            "    origin_label TEXT,"
+            "    origin_platform TEXT,"
+            "    origin_peer_id TEXT,"
+            "    origin_peer_name TEXT,"
+            "    created_at TEXT NOT NULL,"
+            "    updated_at TEXT NOT NULL,"
+            "    updated_by TEXT NOT NULL CHECK (updated_by IN ('agent', 'operator'))"
+            ")"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_notes_agent_number "
+            "ON agent_notes (agent_name, number)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (43,))
+        await conn.commit()
+        version = 43

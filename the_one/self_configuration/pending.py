@@ -4,7 +4,7 @@ The write tool runs inside the loopback request's own task, so the
 contextvars the web layer sets around ``agent.step`` (``current_chat_
 session_id`` / ``current_tool_call_id``) are not visible to it, and the
 ``Agent`` object has no name of its own. A ``next_turn`` revision is
-therefore recorded here, KEYED BY AGENT NAME, and consumed by the two
+therefore recorded here, KEYED BY AGENT NAME, and consumed (awaited) by the two
 non-paused turn-settle sites in ``the_one/interfaces/web/app.py``
 (``_process_and_broadcast``'s ``if not paused:`` block and
 ``_resume_paused_session``'s ``if not re_paused:`` block) via
@@ -23,6 +23,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+from the_one.agent.prompt_layers import build_system_prompt
 from the_one.llm.base import Message
 
 if TYPE_CHECKING:
@@ -72,9 +74,12 @@ def record(
     )
 
 
-def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
+async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
     """Pop and apply the pending entry for *agent_name* onto the LIVE
     *agent* object, if one exists.
+
+    Async since M27 F1: a ``system_prompt`` entry is recomposed as base +
+    persona + the agent's enabled rules (one indexed read).
 
     Mutates ``agent.system_prompt`` and replaces ``agent.messages[0]``
     (always the system message — see ``Agent.__init__``/``reset``) with a
@@ -93,8 +98,22 @@ def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
 
     system_prompt = entry.get("system_prompt")
     if system_prompt is not None:
-        agent.system_prompt = system_prompt
-        agent.messages[0] = Message.system(system_prompt)
+        # M27 F1 (DD2): the entry carries only the raw persona; recompose
+        # base + persona + enabled rules so the base prompt is never lost
+        # (Known Issue 2). A failed rules read must not break the turn that
+        # is about to send ``done``: fall back to base + persona.
+        try:
+            composed = await build_system_prompt(agent_name, system_prompt)
+        except Exception:
+            logger.warning(
+                "self-configuration: could not load rules for agent %r at settle; "
+                "applying base + persona without rules",
+                agent_name,
+                exc_info=True,
+            )
+            composed = compose_system_prompt(BASE_PROMPT, system_prompt)
+        agent.system_prompt = composed
+        agent.messages[0] = Message.system(composed)
         logger.info(
             "self-configuration: applied pending system_prompt revision for agent %r",
             agent_name,

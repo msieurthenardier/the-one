@@ -25,9 +25,28 @@ from the_one.db._kb_types import (
     ChunkRecord,
     KBItemTransitionError,
 )
+from the_one.db._notes import (
+    NOTES_TOTAL_MAX_CHARS,
+    SOURCES_CAP,
+    NoteDuplicateError,
+    NotesDisabledError,
+    dedup_key,
+    validate_note_text,
+)
+from the_one.db._notes import (
+    total_limit_error as notes_total_limit_error,
+)
+from the_one.db._rules import (
+    RULES_TOTAL_MAX_CHARS,
+    RuleOrderError,
+    total_limit_error,
+    validate_rule_text,
+)
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import (
+    AgentNote,
     AgentRevision,
+    AgentRule,
     ChatSession,
     Connector,
     ConnectorDirectoryEntry,
@@ -219,8 +238,9 @@ class SQLiteAgentStore:
                     kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
                     chat_history_retention_days,
                     self_revision_requires_approval,
+                    notes_enabled,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     description=excluded.description,
                     provider_config_id=excluded.provider_config_id,
@@ -235,6 +255,7 @@ class SQLiteAgentStore:
                     mcp_overrides=excluded.mcp_overrides,
                     chat_history_retention_days=excluded.chat_history_retention_days,
                     self_revision_requires_approval=excluded.self_revision_requires_approval,
+                    notes_enabled=excluded.notes_enabled,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -252,6 +273,7 @@ class SQLiteAgentStore:
                     _encrypt_overrides_column(self.encryptor, config.mcp_overrides),
                     config.chat_history_retention_days,
                     int(config.self_revision_requires_approval),
+                    int(config.notes_enabled),
                     now,
                     now,
                 ),
@@ -273,6 +295,20 @@ class SQLiteAgentStore:
             await self.conn.execute(
                 "UPDATE agents SET self_revision_requires_approval = ?, "
                 "updated_at = ? WHERE name = ?",
+                (int(value), now_iso(), name),
+            )
+
+    async def set_notes_enabled(self, name: str, value: bool) -> None:
+        """Targeted UPDATE of the operator-owned notes switch (M27 F2, DD2).
+
+        Mirrors :meth:`set_self_revision_requires_approval`. Raises
+        ``KeyError`` if no agent exists at ``name``.
+        """
+        if not await self.exists(name):
+            raise KeyError(f"Agent config not found: {name}")
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agents SET notes_enabled = ?, updated_at = ? WHERE name = ?",
                 (int(value), now_iso(), name),
             )
 
@@ -395,6 +431,9 @@ class SQLiteAgentStore:
             # absent/NULL case survives at load (an inline missing-column
             # access on `aiosqlite.Row` would raise IndexError anyway).
             self_revision_requires_approval=bool(row["self_revision_requires_approval"]),
+            # M27 F2: the notes switch (v43 `NOT NULL DEFAULT 0`). The counter
+            # `notes_next_number` is deliberately never read here.
+            notes_enabled=bool(row["notes_enabled"]),
         )
 
 
@@ -1509,6 +1548,476 @@ class ConnectorDirectoryRepository:
             await self.conn.execute(
                 "DELETE FROM connector_directory WHERE connector_id = ?", (connector_id,)
             )
+
+
+# ── Agent rule repository ────────────────────────────────────────────────
+
+
+class AgentRuleRepository:
+    """Async access to ``agent_rules`` (Mission 27 F1, DD3/DD4).
+
+    Each mutating method opens ONE ``write_transaction`` itself (the guard is
+    not re-entrant) and reads, validates and writes inside it, so the 4,000
+    character cap check and the insert are atomic. Positions are 0-based and
+    dense. Limit violations raise :class:`RuleLimitError` /
+    :class:`RuleOrderError`; a missing or another agent's rule raises
+    ``KeyError``.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row(row: Any) -> AgentRule:
+        return AgentRule(
+            id=row[0],
+            agent_name=row[1],
+            text=row[2],
+            enabled=bool(row[3]),
+            position=row[4],
+            created_at=row[5],
+            updated_at=row[6],
+        )
+
+    _COLS = "id, agent_name, text, enabled, position, created_at, updated_at"
+
+    async def list_for_agent(self, name: str, *, enabled_only: bool = False) -> list[AgentRule]:
+        sql = f"SELECT {self._COLS} FROM agent_rules WHERE agent_name = ?"
+        if enabled_only:
+            sql += " AND enabled = 1"
+        sql += " ORDER BY position, id"
+        async with self.conn.execute(sql, (name,)) as cur:
+            return [self._row(r) for r in await cur.fetchall()]
+
+    async def get(self, name: str, rule_id: str) -> AgentRule | None:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} FROM agent_rules WHERE agent_name = ? AND id = ?",
+            (name, rule_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row(row) if row else None
+
+    async def total_chars(self, name: str, *, exclude_id: str | None = None) -> int:
+        sql = "SELECT COALESCE(SUM(LENGTH(text)), 0) FROM agent_rules WHERE agent_name = ?"
+        params: tuple[Any, ...] = (name,)
+        if exclude_id is not None:
+            sql += " AND id != ?"
+            params = (name, exclude_id)
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+    async def create(self, name: str, text: str, enabled: bool = True) -> AgentRule:
+        text = validate_rule_text(text)
+        rule_id = uuid.uuid4().hex
+        now = now_iso()
+        async with write_transaction(self.conn):
+            total = await self.total_chars(name)
+            if total + len(text) > RULES_TOTAL_MAX_CHARS:
+                raise total_limit_error(total + len(text))
+            async with self.conn.execute(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM agent_rules WHERE agent_name = ?",
+                (name,),
+            ) as cur:
+                row = await cur.fetchone()
+            position = int(row[0])
+            await self.conn.execute(
+                "INSERT INTO agent_rules "
+                "(id, agent_name, text, enabled, position, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (rule_id, name, text, 1 if enabled else 0, position, now, now),
+            )
+        return AgentRule(
+            id=rule_id,
+            agent_name=name,
+            text=text,
+            enabled=enabled,
+            position=position,
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def update(
+        self,
+        name: str,
+        rule_id: str,
+        *,
+        text: str | None = None,
+        enabled: bool | None = None,
+    ) -> AgentRule:
+        new_text = validate_rule_text(text) if text is not None else None
+        async with write_transaction(self.conn):
+            current = await self.get(name, rule_id)
+            if current is None:
+                raise KeyError(f"Rule not found: {rule_id}")
+            if new_text is not None:
+                others = await self.total_chars(name, exclude_id=rule_id)
+                if others + len(new_text) > RULES_TOTAL_MAX_CHARS:
+                    raise total_limit_error(others + len(new_text))
+            final_text = new_text if new_text is not None else current.text
+            final_enabled = current.enabled if enabled is None else enabled
+            now = now_iso()
+            await self.conn.execute(
+                "UPDATE agent_rules SET text = ?, enabled = ?, updated_at = ? "
+                "WHERE agent_name = ? AND id = ?",
+                (final_text, 1 if final_enabled else 0, now, name, rule_id),
+            )
+        return current.model_copy(
+            update={"text": final_text, "enabled": final_enabled, "updated_at": now}
+        )
+
+    async def delete(self, name: str, rule_id: str) -> None:
+        async with write_transaction(self.conn):
+            if await self.get(name, rule_id) is None:
+                raise KeyError(f"Rule not found: {rule_id}")
+            await self.conn.execute(
+                "DELETE FROM agent_rules WHERE agent_name = ? AND id = ?", (name, rule_id)
+            )
+            await self._redensify(name)
+
+    async def _redensify(self, name: str) -> None:
+        async with self.conn.execute(
+            "SELECT id FROM agent_rules WHERE agent_name = ? ORDER BY position, id", (name,)
+        ) as cur:
+            ids = [r[0] for r in await cur.fetchall()]
+        for pos, rid in enumerate(ids):
+            await self.conn.execute("UPDATE agent_rules SET position = ? WHERE id = ?", (pos, rid))
+
+    async def reorder(self, name: str, ids: Sequence[str]) -> list[AgentRule]:
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id FROM agent_rules WHERE agent_name = ?", (name,)
+            ) as cur:
+                existing = {r[0] for r in await cur.fetchall()}
+            if len(ids) != len(set(ids)) or set(ids) != existing:
+                raise RuleOrderError(
+                    "ids must list every one of this agent's rules exactly once, "
+                    f"in the new order ({len(existing)} expected, {len(ids)} given)."
+                )
+            now = now_iso()
+            for pos, rid in enumerate(ids):
+                await self.conn.execute(
+                    "UPDATE agent_rules SET position = ?, updated_at = ? WHERE id = ?",
+                    (pos, now, rid),
+                )
+        return await self.list_for_agent(name)
+
+
+# ── Agent note repository ────────────────────────────────────────────────
+
+
+def _merge_sources(old: Sequence[str], new: Sequence[str]) -> list[str]:
+    merged: list[str] = []
+    for src in [*old, *new]:
+        if src not in merged:
+            merged.append(src)
+    return merged[:SOURCES_CAP]
+
+
+class AgentNoteRepository:
+    """Async access to ``agent_notes`` (Mission 27 F2, DD1/DD4/DD7/DD8).
+
+    Each mutating method opens ONE ``write_transaction`` and never nests (the
+    guard is not re-entrant), so the switch re-check, the limits, the
+    de-duplication and the write are atomic. Every query is scoped by
+    ``agent_name``; the mutators raise ``KeyError`` on a miss (another agent's
+    note is a miss). The agent-facing methods (``create``,
+    ``update_by_agent``, ``forget_by_agent``) re-check ``notes_enabled``
+    inside the transaction and raise :class:`NotesDisabledError`; the
+    operator methods never check it.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    _COLS = (
+        "n.id, n.agent_name, n.number, n.text, n.untrusted, n.untrusted_sources, "
+        "n.origin_kind, n.origin_session_id, COALESCE(cs.title, n.origin_label), "
+        "cs.id IS NOT NULL, n.origin_platform, n.origin_peer_id, n.origin_peer_name, "
+        "n.created_at, n.updated_at, n.updated_by"
+    )
+    _FROM = "FROM agent_notes n LEFT JOIN chat_sessions cs ON cs.id = n.origin_session_id"
+
+    @staticmethod
+    def _row(row: Any) -> AgentNote:
+        try:
+            sources = json.loads(row[5]) if row[5] else []
+        except ValueError:
+            sources = []
+        label = row[8]
+        if row[6] != "other" and row[7] and not label:
+            label = "Untitled chat"
+        return AgentNote(
+            id=row[0],
+            agent_name=row[1],
+            number=row[2],
+            text=row[3],
+            untrusted=bool(row[4]),
+            untrusted_sources=[str(s) for s in sources] if isinstance(sources, list) else [],
+            origin_kind=row[6],
+            origin_session_id=row[7],
+            origin_label=label,
+            origin_exists=bool(row[9]),
+            origin_platform=row[10],
+            origin_peer_id=row[11],
+            origin_peer_name=row[12],
+            created_at=row[13],
+            updated_at=row[14],
+            updated_by=row[15],
+        )
+
+    async def list_if_enabled(self, name: str) -> list[AgentNote] | None:
+        """The prompt loader's read: the notes by number when the agent's switch
+        is on, ``None`` when it is off or the agent has no stored row."""
+        async with self.conn.execute(
+            "SELECT notes_enabled FROM agents WHERE name = ?", (name,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or not row[0]:
+            return None
+        return await self.list_for_agent(name)
+
+    async def list_for_agent(self, name: str) -> list[AgentNote]:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} {self._FROM} WHERE n.agent_name = ? ORDER BY n.number",
+            (name,),
+        ) as cur:
+            return [self._row(r) for r in await cur.fetchall()]
+
+    async def get(self, name: str, note_id: str) -> AgentNote | None:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} {self._FROM} WHERE n.agent_name = ? AND n.id = ?",
+            (name, note_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row(row) if row else None
+
+    async def get_by_number(self, name: str, number: int) -> AgentNote | None:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} {self._FROM} WHERE n.agent_name = ? AND n.number = ?",
+            (name, number),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row(row) if row else None
+
+    async def total_chars(self, name: str, *, exclude_id: str | None = None) -> int:
+        sql = "SELECT COALESCE(SUM(LENGTH(text)), 0) FROM agent_notes WHERE agent_name = ?"
+        params: tuple[Any, ...] = (name,)
+        if exclude_id is not None:
+            sql += " AND id != ?"
+            params = (name, exclude_id)
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+    async def _all_plain(self, name: str) -> list[tuple[str, int, str]]:
+        async with self.conn.execute(
+            "SELECT id, number, text FROM agent_notes WHERE agent_name = ?", (name,)
+        ) as cur:
+            return [(r[0], r[1], r[2]) for r in await cur.fetchall()]
+
+    async def _switch_state(self, name: str) -> tuple[bool, int]:
+        async with self.conn.execute(
+            "SELECT notes_enabled, notes_next_number FROM agents WHERE name = ?", (name,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Agent config not found: {name}")
+        return bool(row[0]), int(row[1])
+
+    async def create(
+        self,
+        name: str,
+        text: str,
+        *,
+        untrusted: bool,
+        sources: list[str],
+        origin_kind: str,
+        origin_session_id: str | None,
+        origin_label: str | None,
+        origin_platform: str | None,
+        origin_peer_id: str | None,
+        origin_peer_name: str | None,
+    ) -> tuple[AgentNote, bool]:
+        """Save a note; return ``(note, created)``.
+
+        A duplicate of an existing note writes nothing and returns that note
+        with ``created=False``. Raises :class:`NotesDisabledError`,
+        :class:`NoteLimitError`, ``ValueError`` (bad ``origin_kind``) or
+        ``KeyError`` (no such agent).
+        """
+        if origin_kind not in ("web", "connector", "other"):
+            raise ValueError(f"Invalid origin_kind: {origin_kind!r}")
+        norm = validate_note_text(text)
+        note_id = uuid.uuid4().hex
+        now = now_iso()
+        async with write_transaction(self.conn):
+            enabled, number = await self._switch_state(name)
+            if not enabled:
+                raise NotesDisabledError()
+            existing = await self._all_plain(name)
+            key = dedup_key(norm)
+            for _id, _num, etext in existing:
+                if dedup_key(etext) == key:
+                    dup = await self.get(name, _id)
+                    assert dup is not None
+                    return dup, False
+            total = sum(len(t) for _i, _n, t in existing)
+            if total + len(norm) > NOTES_TOTAL_MAX_CHARS:
+                raise notes_total_limit_error(total, total + len(norm))
+            await self.conn.execute(
+                "INSERT INTO agent_notes (id, agent_name, number, text, untrusted, "
+                "untrusted_sources, origin_kind, origin_session_id, origin_label, "
+                "origin_platform, origin_peer_id, origin_peer_name, created_at, "
+                "updated_at, updated_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'agent')",
+                (
+                    note_id,
+                    name,
+                    number,
+                    norm,
+                    1 if untrusted else 0,
+                    json.dumps(_merge_sources([], sources)),
+                    origin_kind,
+                    origin_session_id,
+                    origin_label,
+                    origin_platform,
+                    origin_peer_id,
+                    origin_peer_name,
+                    now,
+                    now,
+                ),
+            )
+            await self.conn.execute(
+                "UPDATE agents SET notes_next_number = notes_next_number + 1 WHERE name = ?",
+                (name,),
+            )
+        created = await self.get(name, note_id)
+        assert created is not None
+        return created, True
+
+    async def _update_locked(
+        self,
+        name: str,
+        match_sql: str,
+        match_arg: Any,
+        text: str,
+        *,
+        by: str,
+        untrusted: bool = False,
+        sources: Sequence[str] = (),
+    ) -> tuple[AgentNote, bool]:
+        """Shared body of the two update paths; call INSIDE the transaction."""
+        norm = validate_note_text(text)
+        async with self.conn.execute(
+            f"SELECT id, number, text, untrusted, untrusted_sources FROM agent_notes "
+            f"WHERE agent_name = ? AND {match_sql}",
+            (name, match_arg),
+        ) as cur:
+            cur_row = await cur.fetchone()
+        if cur_row is None:
+            raise KeyError(f"Note not found: {match_arg}")
+        note_id, _number, old_text = cur_row[0], cur_row[1], cur_row[2]
+        if norm == old_text:
+            current = await self.get(name, note_id)
+            assert current is not None
+            return current, False
+        key = dedup_key(norm)
+        for oid, onum, otext in await self._all_plain(name):
+            if oid != note_id and dedup_key(otext) == key:
+                raise NoteDuplicateError(f"Already saved as note [{onum}].", onum)
+        others = await self.total_chars(name, exclude_id=note_id)
+        if others + len(norm) > NOTES_TOTAL_MAX_CHARS:
+            raise notes_total_limit_error(others + len(old_text), others + len(norm))
+        now = now_iso()
+        if by == "agent":
+            try:
+                old_sources = json.loads(cur_row[4]) if cur_row[4] else []
+            except ValueError:
+                old_sources = []
+            new_flag = bool(cur_row[3]) or untrusted
+            new_sources = _merge_sources(old_sources, sources)
+            await self.conn.execute(
+                "UPDATE agent_notes SET text = ?, untrusted = ?, untrusted_sources = ?, "
+                "updated_at = ?, updated_by = 'agent' WHERE id = ?",
+                (norm, 1 if new_flag else 0, json.dumps(new_sources), now, note_id),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE agent_notes SET text = ?, untrusted = 0, untrusted_sources = '[]', "
+                "updated_at = ?, updated_by = 'operator' WHERE id = ?",
+                (norm, now, note_id),
+            )
+        updated = await self.get(name, note_id)
+        assert updated is not None
+        return updated, True
+
+    async def update_by_agent(
+        self,
+        name: str,
+        number: int,
+        text: str,
+        *,
+        untrusted: bool,
+        sources: list[str],
+    ) -> tuple[AgentNote, bool]:
+        """Agent edit by number; return ``(note, changed)``.
+
+        ORs ``untrusted`` into the stored flag and merges ``sources`` (capped);
+        keeps ``origin_*``. Identical text is an allowed no-op
+        (``changed=False``). Raises ``KeyError`` on a miss.
+        """
+        async with write_transaction(self.conn):
+            enabled, _ = await self._switch_state(name)
+            if not enabled:
+                raise NotesDisabledError()
+            return await self._update_locked(
+                name,
+                "number = ?",
+                number,
+                text,
+                by="agent",
+                untrusted=untrusted,
+                sources=sources,
+            )
+
+    async def update_by_operator(
+        self, name: str, note_id: str, text: str
+    ) -> tuple[AgentNote, bool]:
+        """Operator edit by id; no switch check (DD11).
+
+        A real text change clears the unverified flag and its sources (the
+        operator has reviewed and rewritten it); identical text is a no-op
+        that keeps the flag. Returns ``(note, changed)``.
+        """
+        async with write_transaction(self.conn):
+            return await self._update_locked(name, "id = ?", note_id, text, by="operator")
+
+    async def forget_by_agent(self, name: str, number: int) -> AgentNote:
+        """Delete a note by number (switch re-checked); return the deleted note."""
+        async with write_transaction(self.conn):
+            enabled, _ = await self._switch_state(name)
+            if not enabled:
+                raise NotesDisabledError()
+            note = await self.get_by_number(name, number)
+            if note is None:
+                raise KeyError(f"Note not found: {number}")
+            await self.conn.execute("DELETE FROM agent_notes WHERE id = ?", (note.id,))
+        return note
+
+    async def delete(self, name: str, note_id: str) -> None:
+        async with write_transaction(self.conn):
+            if await self.get(name, note_id) is None:
+                raise KeyError(f"Note not found: {note_id}")
+            await self.conn.execute(
+                "DELETE FROM agent_notes WHERE agent_name = ? AND id = ?", (name, note_id)
+            )
+
+    async def clear(self, name: str) -> int:
+        """Delete all of an agent's notes; the number counter is left alone."""
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute("DELETE FROM agent_notes WHERE agent_name = ?", (name,))
+            return cur.rowcount or 0
 
 
 # ── Agent revision repository ────────────────────────────────────────────

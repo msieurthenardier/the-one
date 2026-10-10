@@ -10,6 +10,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from the_one import __version__
+from the_one.agent._context import TurnContext, current_turn
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
 from the_one.db import close_connection, init_db
@@ -81,6 +82,8 @@ async def _run_cli() -> None:
                 console.print("[dim]Context cleared.[/dim]")
                 continue
 
+            # M27 F2 DD5: a fresh notes context per CLI turn (no session, no peer).
+            turn_token = current_turn.set(TurnContext())
             try:
                 async for msg in agent.step(user_input):
                     if msg.role == Role.ASSISTANT:
@@ -102,6 +105,8 @@ async def _run_cli() -> None:
                         console.print(f"  [{style}]{output}[/{style}]")
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
+            finally:
+                current_turn.reset(turn_token)
     finally:
         await close_connection()
 

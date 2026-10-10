@@ -20,7 +20,7 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, StrictBool, ValidationError
 
 from the_one import __version__
 from the_one.api_credential import LocalApiCredential
@@ -30,6 +30,21 @@ from the_one.connectors.base import ConnectorClientError, DoctorReport, InboundE
 from the_one.connectors.manager import PAIRING_TTL_SECONDS
 from the_one.connectors.manager import get_manager as get_connector_manager
 from the_one.db._kb_types import KBItemTransitionError
+from the_one.db._notes import (
+    NOTE_MAX_CHARS,
+    NOTE_WRITES_PER_TURN,
+    NOTES_TOTAL_MAX_CHARS,
+    NoteDuplicateError,
+    NoteLimitError,
+    parse_notes_block,
+    render_note_line_text,
+)
+from the_one.db._rules import (
+    RULE_MAX_CHARS,
+    RULES_TOTAL_MAX_CHARS,
+    RuleLimitError,
+    RuleOrderError,
+)
 from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
 from the_one.db.models import (
@@ -43,7 +58,9 @@ from the_one.db.models import (
 )
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
+    AgentNoteRepository,
     AgentRevisionRepository,
+    AgentRuleRepository,
     AppMetadataRepository,
     ChatSessionRepository,
     ConnectorDirectoryRepository,
@@ -376,6 +393,18 @@ async def _agent_revisions_repo() -> AgentRevisionRepository:
     # description/system_prompt values.
     conn = await get_connection()
     return AgentRevisionRepository(conn)
+
+
+async def _agent_rules_repo() -> AgentRuleRepository:
+    # M27 F1: plaintext operator-authored rules, no encryptor.
+    conn = await get_connection()
+    return AgentRuleRepository(conn)
+
+
+async def _agent_notes_repo() -> AgentNoteRepository:
+    # M27 F2: plaintext notes, no encryptor.
+    conn = await get_connection()
+    return AgentNoteRepository(conn)
 
 
 async def _agent_external_credentials_repo() -> AgentExternalCredentialRepository:
@@ -901,6 +930,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # preserve just above.
     if "self_revision_requires_approval" not in data:
         data["self_revision_requires_approval"] = existing.self_revision_requires_approval
+    # M27 F2 DD2: the notes switch is set by its own immediate-post control;
+    # an agent save that omits it must not reset it.
+    if "notes_enabled" not in data:
+        data["notes_enabled"] = existing.notes_enabled
     # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
     # — mirrors the `self_revision_requires_approval` preserve immediately
     # above. An explicit `kb_ids: []` is NOT an omission and still clears
@@ -1279,6 +1312,228 @@ async def set_agent_approval_mode(name: str, body: _ApprovalModeBody) -> dict[st
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     return {"requires_approval": body.requires_approval}
+
+
+# ── Rules (M27 F1) ──────────────────────────────────────────────────────
+#
+# Operator-only: no agent-facing tool, MCP source or self-configuration
+# capability reaches these routes. All 404 for an unknown agent; a rule id of
+# another agent is a 404 too (every repository call is name-scoped).
+
+
+class _RuleCreateBody(BaseModel):
+    text: str
+    enabled: bool = True
+
+
+class _RuleUpdateBody(BaseModel):
+    text: str | None = None
+    enabled: bool | None = None
+
+
+class _RuleOrderBody(BaseModel):
+    ids: list[str]
+
+
+async def _rules_body(request: Request, model: type[BaseModel]) -> Any:
+    """Parse and validate a rules request body without echoing submitted text.
+
+    Taking the body as a typed parameter would let FastAPI's default 422 echo the
+    submitted ``input`` (the rule text); validating here reuses ``_validation_detail``.
+    """
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Request body must be JSON")
+    try:
+        return model.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
+
+
+def _rules_limits() -> dict[str, int]:
+    return {"rule_chars": RULE_MAX_CHARS, "total_chars": RULES_TOTAL_MAX_CHARS}
+
+
+@router.get("/agents/{name}/rules")
+async def list_agent_rules(name: str) -> dict[str, Any]:
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    rules = await repo.list_for_agent(name)
+    return {"rules": [r.model_dump() for r in rules], "limits": _rules_limits()}
+
+
+@router.post("/agents/{name}/rules", status_code=201)
+async def create_agent_rule(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleCreateBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rule = await repo.create(name, body.text, body.enabled)
+    except RuleLimitError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return rule.model_dump()
+
+
+@router.put("/agents/{name}/rules/order")
+async def reorder_agent_rules(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleOrderBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rules = await repo.reorder(name, body.ids)
+    except RuleOrderError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return {"rules": [r.model_dump() for r in rules], "limits": _rules_limits()}
+
+
+@router.put("/agents/{name}/rules/{rule_id}")
+async def update_agent_rule(name: str, rule_id: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleUpdateBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rule = await repo.update(name, rule_id, text=body.text, enabled=body.enabled)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+    except RuleLimitError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return rule.model_dump()
+
+
+@router.delete("/agents/{name}/rules/{rule_id}")
+async def delete_agent_rule(name: str, rule_id: str) -> dict[str, str]:
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        await repo.delete(name, rule_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+    return {"status": "ok"}
+
+
+# ── Notes (M27 F2) ──────────────────────────────────────────────────────
+#
+# Operator-only (the agent's own tools are Leg 2). All 404 for an unknown
+# agent (including the synthesized `default`, which has no stored row, hence
+# no notes); another agent's note id is a 404 too. A 422 never echoes note
+# text. Operator edits and deletes are allowed while notes are off: the
+# switch governs the agent, not the operator.
+
+
+class _NotesSettingsBody(BaseModel):
+    enabled: StrictBool
+
+
+class _NoteUpdateBody(BaseModel):
+    text: str
+
+
+def _notes_limits() -> dict[str, int]:
+    return {
+        "note_chars": NOTE_MAX_CHARS,
+        "total_chars": NOTES_TOTAL_MAX_CHARS,
+        "writes_per_turn": NOTE_WRITES_PER_TURN,
+    }
+
+
+async def _session_notes_map(name: str, session_id: str | None) -> dict[int, str] | None:
+    """The notes the open chat's CURRENT system prompt carries, or None.
+
+    Reads the live web session's ``agent.messages[0]`` when it is loaded, else
+    the persisted row's first message. None when there is nothing to compare:
+    no/unknown session, another agent's session, or a prompt with no notes block.
+    """
+    if not session_id:
+        return None
+    from the_one.db.codec import decode_messages
+    from the_one.interfaces.web.app import _sessions
+
+    text: str | None = None
+    live = _sessions.get(session_id)
+    if live is not None and getattr(live, "agent", None) is not None:
+        if (live.agent_name or "default") != name:
+            return None
+        msgs = getattr(live.agent, "messages", None)
+        if msgs and isinstance(msgs[0].content, str):
+            text = msgs[0].content
+    if text is None:
+        try:
+            row = await (await _chat_repo()).get(session_id)
+        except KeyError:
+            return None
+        if (row.agent_name or "default") != name:
+            return None
+        msgs = decode_messages(row.messages)
+        if not msgs or not isinstance(msgs[0].content, str):
+            return None
+        text = msgs[0].content
+    return parse_notes_block(text)
+
+
+@router.get("/agents/{name}/notes")
+async def list_agent_notes(name: str, session_id: str | None = None) -> dict[str, Any]:
+    _store, config = await _load_agent_or_404(name)
+    repo = await _agent_notes_repo()
+    notes = await repo.list_for_agent(name)
+    in_prompt = await _session_notes_map(name, session_id)
+    rows = []
+    for n in notes:
+        row = n.model_dump(exclude={"agent_name"})
+        row["pending"] = in_prompt is not None and in_prompt.get(n.number) != render_note_line_text(
+            n
+        )
+        rows.append(row)
+    return {
+        "enabled": config.notes_enabled,
+        "notes": rows,
+        "pending_known": in_prompt is not None,
+        "limits": _notes_limits(),
+        "usage": {"total_chars": sum(len(n.text) for n in notes)},
+    }
+
+
+@router.put("/agents/{name}/notes/settings")
+async def set_agent_notes_settings(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _NotesSettingsBody)
+    store = await _agent_store()
+    try:
+        await store.set_notes_enabled(name, body.enabled)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    return {"enabled": body.enabled}
+
+
+@router.put("/agents/{name}/notes/{note_id}")
+async def update_agent_note(name: str, note_id: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _NoteUpdateBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_notes_repo()
+    try:
+        note, _changed = await repo.update_by_operator(name, note_id, body.text)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Note not found: {note_id}")
+    except (NoteLimitError, NoteDuplicateError) as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return note.model_dump(exclude={"agent_name"})
+
+
+@router.delete("/agents/{name}/notes/{note_id}")
+async def delete_agent_note(name: str, note_id: str) -> dict[str, str]:
+    await _load_agent_or_404(name)
+    repo = await _agent_notes_repo()
+    try:
+        await repo.delete(name, note_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Note not found: {note_id}")
+    return {"status": "ok"}
+
+
+@router.delete("/agents/{name}/notes")
+async def clear_agent_notes(name: str) -> dict[str, int]:
+    await _load_agent_or_404(name)
+    repo = await _agent_notes_repo()
+    return {"deleted": await repo.clear(name)}
 
 
 @router.get("/agents/{name}/self-configuration/revisions")

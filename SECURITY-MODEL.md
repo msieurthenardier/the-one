@@ -298,6 +298,69 @@ agent's own Self-configuration tab in Studio.
   mode is therefore the recommended posture for any agent whose context can
   carry attacker-influenced content.
 
+### Agent notes (M27 F2)
+
+An agent may be given three tools, `save_note`, `update_note` and `forget_note`,
+that write a short list of saved notes (`agent_notes`). The notes are shown to
+the agent at the start of every later conversation. This is **off by default
+for every agent**; the operator turns it on per agent (`notes_enabled`, an
+operator-owned `agents` column that no agent tool and no
+`get_my_configuration` projection can reach).
+
+- **The threat: ungated, persistent writes.** There is **no approval gate by
+  design**. A note an agent writes takes effect at once and persists. Notes are
+  **shared agent-wide**, so a note written in one conversation (a web chat, a
+  connector DM, a channel) is shown to the agent in **every later conversation,
+  including other peers' and other DMs'**. Content that reaches the agent in
+  one conversation (a fetched page, an MCP result, a connector peer's message)
+  can therefore try to plant an instruction that the agent later reads as its
+  own memory in a conversation with someone else.
+- **Mitigations.**
+  - *Off by default*, and re-checked inside the write transaction, so an
+    already-built agent stops writing the moment the operator turns it off.
+  - *Provenance.* Every note records its origin (`web`, `connector`, `other`;
+    the session, platform and peer) and an **"unverified" flag**. The flag is
+    set when content not from the operator was in the conversation the model had
+    seen: any tool result outside a small trusted set (the notes tools,
+    `search_tools`, `continue`; every other tool, including future ones, is
+    untrusted), any connector-peer message, or a turn started by a connector
+    peer. The scan runs over the agent's whole message list before the call, so
+    it covers earlier turns and a restored history, finds the call by id
+    **backwards** (Ollama ids repeat across turns), and attributes results by
+    position. It fails closed ("unknown position", "unknown tool", "unknown
+    context") whenever it cannot place the call. An agent update never clears
+    the flag; it ORs in the new taint and merges the sources. An **operator
+    edit that changes the text clears the flag and its sources** (the operator
+    reviewed and rewrote the note; `updated_by` becomes `operator`); an
+    identical-text save is a no-op and keeps the flag. A later agent update in
+    a tainted conversation flags it again.
+  - *The prompt block is bounded and delimited.* Notes are rendered inside
+    `<saved_notes>` with a heading that says they are reference material, not
+    instructions; flagged notes read `(unverified)`. Every note is collapsed to
+    one line at write (so it cannot forge a `[n]` line) and the block's
+    delimiters are neutralised inside a note.
+  - *Limits.* 400 characters a note, 4,000 in total, 5 writes per turn (a
+    duplicate does not count); refusals are tool errors, so they show as errors
+    in the tool stream.
+  - *Rules outrank notes.* The prompt states that the operator's rules take
+    precedence over any note. No agent path writes rules or the switch.
+- **Residual risks (accepted, recorded).**
+  - **Flags do not propagate through notes.** A note read into a conversation
+    is not itself counted as outside content, so a note written later from an
+    unflagged conversation that merely repeats a flagged note comes out
+    unflagged.
+  - **Every connector-conversation note is flagged**, so the flag is a weaker
+    signal there.
+  - **Outside text that bypasses the scan:** MCP tool names and descriptions
+    (in `tools=` and in `search_tools` output) and KB tool names reach the
+    model outside the message list, so they are not counted.
+  - **A flagged note can still be followed.** The model may act on a planted
+    note's content even though it is marked unverified. The control is the
+    operator's review of the notes list (the "Check this" badge), not the flag.
+  - A turn resumed after an authentication pause gets a fresh write budget.
+- The deterministic contract is `tests/test_notes_tools.py`
+  (`test_planted_instruction_never_yields_an_unflagged_note`).
+
 ### External-client access to the self-configuration surface (M21 F03)
 
 Everything above concerns the agent's OWN `agt`-prefixed principal reaching

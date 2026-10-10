@@ -1237,6 +1237,14 @@ class TestAgentFactoryMCPIntegration:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=AsyncMock(list_for_agent=AsyncMock(return_value=[])),
+            ),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")
@@ -1317,6 +1325,14 @@ class TestAgentFactoryMCPIntegration:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=AsyncMock(list_for_agent=AsyncMock(return_value=[])),
+            ),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
             patch("the_one.agent.factory._build_source_index", new_callable=AsyncMock),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")

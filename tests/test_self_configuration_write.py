@@ -26,9 +26,13 @@ import pytest
 from cryptography.fernet import Fernet
 
 from tests._schema_template import connect_template_db
-from the_one.agent.config import AgentConfig
+from the_one.agent.config import BASE_PROMPT, AgentConfig, compose_system_prompt
 from the_one.agent.core import Agent
-from the_one.db.repositories import AgentRevisionRepository, SQLiteAgentStore
+from the_one.db.repositories import (
+    AgentRevisionRepository,
+    AgentRuleRepository,
+    SQLiteAgentStore,
+)
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import Session, _process_and_broadcast, _resume_paused_session
@@ -62,6 +66,12 @@ def wired(db, monkeypatch):
     conn, encryptor = db
     monkeypatch.setattr(surface, "get_connection", AsyncMock(return_value=conn))
     monkeypatch.setattr(surface, "get_encryptor", lambda *_a, **_kw: encryptor)
+    # M27 F1: ``apply_pending_revision`` reads the agent's rules through the
+    # lazily imported ``the_one.db.connection.get_connection`` (never
+    # ``surface.get_connection``); point it at the same isolated DB.
+    monkeypatch.setattr(
+        "the_one.db.connection.get_connection", AsyncMock(return_value=conn), raising=True
+    )
     return conn, encryptor
 
 
@@ -232,7 +242,7 @@ class TestAC7InputBounds:
             await surface.update_my_system_prompt(ctx=None, text="", apply="next_turn")
 
         fake_agent = _FakeLiveAgent("unchanged")
-        assert pending.apply_pending_revision("a6", fake_agent) is False
+        assert await pending.apply_pending_revision("a6", fake_agent) is False
 
 
 async def _row_updated_at(conn: aiosqlite.Connection, name: str) -> str:
@@ -264,7 +274,7 @@ class TestAC5NextSessionDoesNotDefer:
 
         fake_agent = _FakeLiveAgent("orig")
         # No pending entry was ever recorded for next_session — apply is a no-op.
-        assert pending.apply_pending_revision("a7", fake_agent) is False
+        assert await pending.apply_pending_revision("a7", fake_agent) is False
         assert fake_agent.system_prompt == "orig"
 
         # But a rebuilt agent (a fresh load) sees the new value — the store
@@ -289,7 +299,7 @@ class TestAC6DescriptionNeverTouchesMessages:
 
         fake_agent = _FakeLiveAgent("prompt")
         original_messages = list(fake_agent.messages)
-        applied = pending.apply_pending_revision("a8", fake_agent)
+        applied = await pending.apply_pending_revision("a8", fake_agent)
 
         assert applied is True
         assert fake_agent.messages == original_messages
@@ -380,6 +390,10 @@ class TestAC3MidTurnNonApplication:
         conn, encryptor = wired
         store = SQLiteAgentStore(conn, encryptor)
         await _seed_agent(store, name="turn-agent", system_prompt="OLD PROMPT")
+        rules_repo = AgentRuleRepository(conn)
+        await rules_repo.create("turn-agent", "Always answer in French.")
+        off = await rules_repo.create("turn-agent", "Never mention cats.", enabled=False)
+        assert off.enabled is False
 
         reg = ToolRegistry()
         reg.register(_RevisingTool("turn-agent"))
@@ -423,16 +437,23 @@ class TestAC3MidTurnNonApplication:
         # the deferred revision applies, and the NEXT request would carry
         # the new prompt, with history intact (no wipe).
         history_len_before_settle = len(agent.messages)
-        applied = pending.apply_pending_revision("turn-agent", agent)
+        applied = await pending.apply_pending_revision("turn-agent", agent)
         assert applied is True
-        assert agent.system_prompt == "NEW PROMPT"
-        assert agent.messages[0].content == "NEW PROMPT"
+        # Known Issue 2 closed (M27 F1): the recomposed prompt keeps the base
+        # prompt and carries the enabled rules (not the disabled one).
+        expected = compose_system_prompt(
+            BASE_PROMPT, "NEW PROMPT", rules=["Always answer in French."]
+        )
+        assert expected.startswith(BASE_PROMPT)
+        assert agent.system_prompt == expected
+        assert agent.messages[0].content == expected
+        assert "Never mention cats." not in agent.system_prompt
         assert len(agent.messages) == history_len_before_settle  # no wipe
 
         # A subsequent step's first request now carries the new prompt.
         llm.responses.append(Message.assistant("ack"))
         _ = [m async for m in agent.step("thanks")]
-        assert llm.calls[-1]["messages"][0].content == "NEW PROMPT"
+        assert llm.calls[-1]["messages"][0].content == expected
 
 
 # ── AC4 — the hook runs at the non-paused settle only, once ──────────────
@@ -498,18 +519,23 @@ def _stub_broadcast_and_persist(monkeypatch):
     monkeypatch.setattr(web_app, "_send_to_session", AsyncMock(return_value=None))
 
 
+# M27 F1: a settled ``next_turn`` revision is recomposed as base + persona
+# (+ the agent's enabled rules), never the raw persona (Known Issue 2).
+_NEW = compose_system_prompt(BASE_PROMPT, "NEW")
+
+
 class TestAC4HookRunsAtNonPausedSettleOnly:
-    async def test_non_paused_turn_applies_the_revision(self) -> None:
+    async def test_non_paused_turn_applies_the_revision(self, isolated_db) -> None:
         agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
         session = Session(id="cs-1", agent=agent, created="2026-08-24T00:00:00+00:00")
         pending.record("default", system_prompt="NEW")
 
         await _process_and_broadcast(session, "hi")
 
-        assert agent.system_prompt == "NEW"
-        assert agent.messages[0].content == "NEW"
+        assert agent.system_prompt == _NEW
+        assert agent.messages[0].content == _NEW
 
-    async def test_paused_turn_does_not_apply(self) -> None:
+    async def test_paused_turn_does_not_apply(self, isolated_db) -> None:
         agent = _StubAgent(
             step_messages=[
                 Message.assistant("", tool_calls=[ToolCall(id="tc_pause", name="x", arguments={})]),
@@ -525,10 +551,10 @@ class TestAC4HookRunsAtNonPausedSettleOnly:
         assert agent.system_prompt == "OLD"
         assert agent.messages[0].content == "OLD"
         # The entry is still pending — a later non-paused settle will apply it.
-        assert pending.apply_pending_revision("default", agent) is True
-        assert agent.system_prompt == "NEW"
+        assert await pending.apply_pending_revision("default", agent) is True
+        assert agent.system_prompt == _NEW
 
-    async def test_resume_that_settles_applies_the_revision(self) -> None:
+    async def test_resume_that_settles_applies_the_revision(self, isolated_db) -> None:
         agent = _StubAgent(
             deferred_tool_calls=[ToolCall(id="tc_pause", name="x", arguments={})],
             resume_messages=[Message.assistant("resumed and done")],
@@ -539,10 +565,10 @@ class TestAC4HookRunsAtNonPausedSettleOnly:
 
         await _resume_paused_session(session)
 
-        assert agent.system_prompt == "NEW"
-        assert agent.messages[0].content == "NEW"
+        assert agent.system_prompt == _NEW
+        assert agent.messages[0].content == _NEW
 
-    async def test_resume_that_re_pauses_does_not_apply(self) -> None:
+    async def test_resume_that_re_pauses_does_not_apply(self, isolated_db) -> None:
         agent = _StubAgent(
             deferred_tool_calls=[ToolCall(id="tc_pause2", name="x", arguments={})],
             resume_messages=[_pause_message()],
@@ -556,21 +582,21 @@ class TestAC4HookRunsAtNonPausedSettleOnly:
         assert agent.system_prompt == "OLD"
         assert agent.messages[0].content == "OLD"
 
-    async def test_entry_consumed_second_settle_is_a_no_op(self) -> None:
+    async def test_entry_consumed_second_settle_is_a_no_op(self, isolated_db) -> None:
         agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
         session = Session(id="cs-5", agent=agent, created="2026-08-24T00:00:00+00:00")
         pending.record("default", system_prompt="NEW")
 
         await _process_and_broadcast(session, "hi")
-        assert agent.system_prompt == "NEW"
+        assert agent.system_prompt == _NEW
 
         # A second, unrelated non-paused turn must NOT re-apply (no entry left).
         agent._step_messages = [Message.assistant("again")]
         await _process_and_broadcast(session, "hi again")
-        assert agent.system_prompt == "NEW"
-        assert agent.messages[0].content == "NEW"
+        assert agent.system_prompt == _NEW
+        assert agent.messages[0].content == _NEW
 
-    async def test_default_agent_none_normalizes_like_a_named_agent(self) -> None:
+    async def test_default_agent_none_normalizes_like_a_named_agent(self, isolated_db) -> None:
         """Session.agent_name is None for the default agent; the settle
         sites must normalize via `or "default"` — a skip-on-None guard
         would silently degrade next_turn to next_session for single-agent
@@ -582,7 +608,95 @@ class TestAC4HookRunsAtNonPausedSettleOnly:
 
         await _process_and_broadcast(session, "hi")
 
-        assert agent.system_prompt == "NEW"
+        assert agent.system_prompt == _NEW
+
+
+class TestRulesAtSettle:
+    """M27 F1 (AC12, AC13): the settle hook composes rules and survives a
+    failed rules read."""
+
+    async def test_settle_applies_base_persona_and_enabled_rules(self, isolated_db) -> None:
+        from the_one.db.connection import get_connection
+
+        conn = await get_connection()
+        enc = Encryptor(Fernet.generate_key(), key_path=isolated_db.parent / "k.key")
+        store = SQLiteAgentStore(conn, enc)
+        await store.save(AgentConfig(name="default"))
+        repo = AgentRuleRepository(conn)
+        await repo.create("default", "First.")
+        await repo.create("default", "Hidden.", enabled=False)
+        await repo.create("default", "Second.")
+
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-r1", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        await _process_and_broadcast(session, "hi")
+
+        expected = compose_system_prompt(BASE_PROMPT, "NEW", rules=["First.", "Second."])
+        assert agent.system_prompt == expected
+        assert agent.messages[0].content == expected
+        assert agent.system_prompt.startswith(BASE_PROMPT)
+        assert "Hidden." not in agent.system_prompt
+
+    async def test_settle_recompose_keeps_the_notes_block(self, isolated_db) -> None:
+        """M27 F2 (AC11): the next_turn recompose goes through build_system_prompt,
+        so the notes block (and the precedence sentence) survives it."""
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import AgentNoteRepository
+
+        conn = await get_connection()
+        enc = Encryptor(Fernet.generate_key(), key_path=isolated_db.parent / "k2.key")
+        store = SQLiteAgentStore(conn, enc)
+        await store.save(AgentConfig(name="default"))
+        await store.set_notes_enabled("default", True)
+        await AgentRuleRepository(conn).create("default", "Rule.")
+        await AgentNoteRepository(conn).create(
+            "default",
+            "Kept note.",
+            untrusted=True,
+            sources=["fetch_url"],
+            origin_kind="web",
+            origin_session_id=None,
+            origin_label=None,
+            origin_platform=None,
+            origin_peer_id=None,
+            origin_peer_name=None,
+        )
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-n1", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        await _process_and_broadcast(session, "hi")
+
+        from the_one.agent.config import RenderedNote
+
+        expected = compose_system_prompt(
+            BASE_PROMPT, "NEW", rules=["Rule."], notes=[RenderedNote(1, "Kept note.", True)]
+        )
+        assert agent.system_prompt == expected
+        assert "[1] (unverified) Kept note." in agent.messages[0].content
+
+    async def test_failed_rules_read_falls_back_and_turn_still_sends_done(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        async def _boom(self, *a, **kw):
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr(AgentRuleRepository, "list_for_agent", _boom)
+        send = AsyncMock(return_value=None)
+        monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+        monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
+        monkeypatch.setattr(web_app, "_send_to_session", send)
+
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-r2", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == _NEW  # base + persona, no rules
+        assert agent.messages[0].content == _NEW
+        assert any(c.args[1] == {"type": "done"} for c in send.call_args_list)
+        # The entry was consumed despite the failure.
+        assert await pending.apply_pending_revision("default", agent) is False
 
 
 # ── LD7 — fixed prefixed tool names and JS/Python slug parity ────────────

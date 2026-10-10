@@ -869,6 +869,14 @@ async def test_real_impl_in_factory_wiring() -> None:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch(
+            "the_one.db.repositories.AgentRuleRepository",
+            return_value=AsyncMock(list_for_agent=AsyncMock(return_value=[])),
+        ),
+        patch(
+            "the_one.db.repositories.AgentNoteRepository",
+            return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -919,6 +927,14 @@ async def test_real_impl_per_agent_filter_applied_at_registry_level() -> None:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch(
+            "the_one.db.repositories.AgentRuleRepository",
+            return_value=AsyncMock(list_for_agent=AsyncMock(return_value=[])),
+        ),
+        patch(
+            "the_one.db.repositories.AgentNoteRepository",
+            return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")

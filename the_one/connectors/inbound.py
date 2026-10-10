@@ -20,7 +20,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from the_one.agent._context import current_chat_session_id
+from the_one.agent._context import (
+    TurnContext,
+    TurnPeer,
+    current_chat_session_id,
+    current_turn,
+)
 from the_one.agent.factory import (
     AgentNotFoundError,
     ProviderNotConfiguredError,
@@ -449,6 +454,18 @@ async def dispatch_inbound(
 
         pre_step_len = len(agent.messages)
         token = current_chat_session_id.set(session_row.id)
+        # M27 F2 DD5: the peer whose message starts this turn (notes taint/origin).
+        turn_token = current_turn.set(
+            TurnContext(
+                peer=TurnPeer(
+                    platform=envelope.platform,
+                    connector_id=connector_id,
+                    peer_id=envelope.peer_id,
+                    peer_name=envelope.peer_name,
+                ),
+                session_id=session_row.id,
+            )
+        )
         try:
             async for _ in agent.step(envelope.text):
                 pass
@@ -461,4 +478,5 @@ async def dispatch_inbound(
         except Exception:
             logger.exception("dispatch_inbound: agent.step failed for session %s", session_row.id)
         finally:
+            current_turn.reset(turn_token)
             current_chat_session_id.reset(token)

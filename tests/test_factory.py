@@ -10,7 +10,9 @@ import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
+    BASE_PROMPT,
     AgentConfig,
+    compose_system_prompt,
 )
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
@@ -104,6 +106,14 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+def _no_rules_repo() -> AsyncMock:
+    """Stand-in ``AgentRuleRepository`` for factories built over an
+    ``AsyncMock`` connection (M27 F1): the agent has no stored rules."""
+    repo = AsyncMock()
+    repo.list_for_agent = AsyncMock(return_value=[])
+    return repo
+
+
 @pytest.fixture
 def factory(store: InMemoryStore) -> AgentFactory:
     mock_repo = AsyncMock()
@@ -127,6 +137,11 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
+        patch(
+            "the_one.db.repositories.AgentNoteRepository",
+            return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -155,6 +170,11 @@ def builtin_factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
+        patch(
+            "the_one.db.repositories.AgentNoteRepository",
+            return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -181,7 +201,7 @@ class TestDefaultAgent:
         factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
         # Use _default_config directly since create() will fail without provider
         config = factory._default_config()
-        assert config.get_system_prompt() != ""
+        assert compose_system_prompt(BASE_PROMPT, config.system_prompt) != ""
 
 
 class TestNamedAgent:
@@ -521,6 +541,14 @@ class TestResolverWiring:
                 "the_one.db.repositories.ToolConfigRepository",
                 return_value=mock_tool_repo,
             ),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=_no_rules_repo(),
+            ),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")
@@ -583,6 +611,14 @@ class TestResolverWiring:
                 "the_one.db.repositories.ToolConfigRepository",
                 return_value=mock_tool_repo,
             ),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=_no_rules_repo(),
+            ),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")
@@ -615,6 +651,82 @@ class TestAgentNamePlumbing:
             assert tool._agent_name == "test-agent", (
                 f"tool {tool.name} got _agent_name={tool._agent_name!r}"
             )
+
+
+class TestNotesToolWiring:
+    """Mission 27 F2 L2 (DD3/DD5): the notes tools are registered outside the
+    built-in whitelist filter, seeded into the baseline, bound to their Agent,
+    and absent when the switch is off."""
+
+    NOTES = ["save_note", "update_note", "forget_note"]
+
+    async def test_notes_on_registers_seeds_and_binds_all_three(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        await store.save(
+            AgentConfig(
+                name="n-on",
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                notes_enabled=True,
+            )
+        )
+        agent = await factory.create("n-on")
+        for n in self.NOTES:
+            assert n in agent.tools.tool_names
+            assert n in agent._loaded_tool_names
+            assert n in agent._seed_tool_names
+            tool = agent.tools.get(n)
+            assert tool._agent is agent  # type: ignore[attr-defined]
+            assert tool._agent_name == "n-on"
+        assert {s["name"] for s in agent._loaded_schemas} >= set(self.NOTES)
+
+    async def test_notes_survive_a_narrow_builtin_whitelist(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        await store.save(
+            AgentConfig(
+                name="n-narrow",
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                enabled_tools=["tool_a"],
+                disabled_tools=["save_note"],
+                notes_enabled=True,
+            )
+        )
+        agent = await factory.create("n-narrow")
+        for n in self.NOTES:
+            assert n in agent.tools.tool_names
+            assert n in agent._loaded_tool_names
+        assert "tool_b" not in agent.tools.tool_names
+
+    async def test_notes_off_has_none_of_them(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        await store.save(
+            AgentConfig(name="n-off", provider_config_id="test-provider", llm_model="stub-model")
+        )
+        agent = await factory.create("n-off")
+        for n in self.NOTES:
+            assert n not in agent.tools.tool_names
+            assert n not in agent._loaded_tool_names
+        assert not {s["name"] for s in agent._loaded_schemas} & set(self.NOTES)
+
+    async def test_reset_keeps_the_seeded_notes_tools(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        await store.save(
+            AgentConfig(
+                name="n-reset",
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                notes_enabled=True,
+            )
+        )
+        agent = await factory.create("n-reset")
+        agent.reset()
+        for n in self.NOTES:
+            assert n in agent._loaded_tool_names
 
 
 class TestListAgents:
@@ -667,6 +779,11 @@ class TestPlanProviderConstruction:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
         )
 
     async def _create(self, store: InMemoryStore, get_provider_patch, provider_config=None):
@@ -851,6 +968,11 @@ class TestNativeApiWiring:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")

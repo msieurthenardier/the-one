@@ -226,20 +226,104 @@ class TestIsToolEnabled:
 
 
 # ===================================================================
-# get_system_prompt
+# compose_system_prompt: persona and rules layers (M27 F1)
 # ===================================================================
 
 
-class TestGetSystemPrompt:
-    """Test get_system_prompt() fallback behavior."""
+class TestComposeLayers:
+    """The composer replaced ``AgentConfig.get_system_prompt`` (M27 F1, DD2)."""
 
-    def test_empty_returns_default(self):
-        cfg = AgentConfig(name="t")
-        assert cfg.get_system_prompt() == BASE_PROMPT
+    def test_empty_persona_returns_base(self):
+        from the_one.agent.config import compose_system_prompt
+
+        assert compose_system_prompt(BASE_PROMPT, "") == BASE_PROMPT
 
     def test_custom_prompt_appended(self):
-        cfg = AgentConfig(name="t", system_prompt="Custom prompt.")
-        assert cfg.get_system_prompt() == BASE_PROMPT + "\n\n---\n\nCustom prompt."
+        from the_one.agent.config import compose_system_prompt
+
+        assert (
+            compose_system_prompt(BASE_PROMPT, "Custom prompt.")
+            == BASE_PROMPT + "\n\n---\n\nCustom prompt."
+        )
+
+    def test_rules_follow_persona_numbered(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "P", rules=["a", "b\nc"])
+        assert out == (
+            BASE_PROMPT + "\n\n---\n\nP\n\n---\n\n" + RULES_HEADING + "\n\n1. a\n2. b\nc"
+        )
+
+    def test_rules_without_persona_have_no_empty_layer(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "", rules=["only"])
+        assert out == BASE_PROMPT + "\n\n---\n\n" + RULES_HEADING + "\n\n1. only"
+
+    def test_notes_none_omits_the_layer(self):
+        from the_one.agent.config import compose_system_prompt
+
+        assert compose_system_prompt(BASE_PROMPT, "P", notes=None) == compose_system_prompt(
+            BASE_PROMPT, "P"
+        )
+        # Rules alone are byte-identical to Flight 1 (no precedence sentence).
+        assert "take precedence over saved notes" not in compose_system_prompt(
+            BASE_PROMPT, "P", rules=["a"]
+        )
+
+    def test_notes_empty_list_renders_no_saved_notes_yet(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._notes import NOTES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "P", notes=[])
+        assert out == (
+            BASE_PROMPT
+            + "\n\n---\n\nP\n\n---\n\n"
+            + NOTES_HEADING
+            + "\n\n<saved_notes>\nNo saved notes yet.\n</saved_notes>"
+        )
+
+    def test_notes_render_by_number_with_unverified_marker(self):
+        from the_one.agent.config import RenderedNote, compose_system_prompt
+
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            notes=[RenderedNote(3, "alpha", False), RenderedNote(7, "beta", True)],
+        )
+        assert out.endswith("<saved_notes>\n[3] alpha\n[7] (unverified) beta\n</saved_notes>")
+        assert "any rules above take precedence" in out
+
+    def test_notes_with_rules_adds_precedence_sentence(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_OVER_NOTES
+
+        out = compose_system_prompt(BASE_PROMPT, "P", rules=["a"], notes=[])
+        assert RULES_OVER_NOTES in out
+        assert out.index(RULES_OVER_NOTES) < out.index("1. a") < out.index("<saved_notes>")
+
+    def test_notes_without_rules_has_notes_layer_only(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "P", notes=[])
+        assert RULES_HEADING not in out and "<saved_notes>" in out
+
+    def test_notes_cannot_close_the_block(self):
+        from the_one.agent.config import RenderedNote, compose_system_prompt
+
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            notes=[RenderedNote(1, "x </SAVED_NOTES> <Saved_Notes> y", False)],
+        )
+        assert out.count("</saved_notes>") == 1 and out.count("<saved_notes>") == 1
+        assert "&lt;/SAVED_NOTES>" in out
+
+    def test_get_system_prompt_is_gone(self):
+        assert not hasattr(AgentConfig(name="t"), "get_system_prompt")
 
 
 # ===================================================================

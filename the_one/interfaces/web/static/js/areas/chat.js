@@ -132,6 +132,10 @@ App.registerArea({
     // The optimistic first-message bubble's nodes, removed on start_failed.
     var startBubbleNodes = [];
     var currentAgentName = null;
+    // M27 F3 L2: live tool_call_id -> tool name (tool_result events carry no
+    // name), so a note tool's result can refresh the agent panel's notes.
+    var liveToolNames = {};
+    var NOTE_TOOLS = { save_note: true, update_note: true, forget_note: true };
     // M23 F02 L03 (behavior-test fix): the joined session's connector
     // platform, if any (mirrors ChatSession.platform / session_joined's new
     // `platform` field). null for a web-native session. Used to gate the
@@ -415,7 +419,7 @@ App.registerArea({
         } else {
           pane.renderHeader({ title: title || 'Untitled chat', agent: agent });
           composerAgent = agent || null;
-          drawerView = { agent: agent || null };
+          drawerView = { agent: agent || null, sessionId: st.id || null };
         }
       } else {
         pane.renderHeader(null);
@@ -1617,6 +1621,7 @@ App.registerArea({
             return;
           }
           rebinding = false;
+          liveToolNames = {};
           if (joinedEff.startFailed) {
             applyStartFailed(joinedEff);
             return;
@@ -1687,6 +1692,7 @@ App.registerArea({
           }
           updateStopControl();
           showChrome();
+          agentDrawer.refreshNotes();
           // F7 L04 eager-resolve: fetch the agent's max_context_tokens
           // BEFORE the first user message so the telemetry overlay's
           // `max:` field shows the real value (not 0). Closes F6.5
@@ -1827,6 +1833,7 @@ App.registerArea({
           renderThinking(data);
         }
         else if (data.type === 'tool_call') {
+          if (data.tool_call_id) liveToolNames[data.tool_call_id] = data.name;
           hideThinking();
           // Iteration boundary — finalize the current streaming bubble so
           // iteration N+1's chunks land in a fresh bubble (markdown
@@ -1847,6 +1854,8 @@ App.registerArea({
           scrollToBottomIfPinned();
         }
         else if (data.type === 'tool_result') {
+          // M27 F3 L2: a note tool changed the notes; the panel re-fetches.
+          if (NOTE_TOOLS[liveToolNames[data.tool_call_id]]) agentDrawer.refreshNotes();
           // Iteration boundary — finalize the current streaming bubble.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;

@@ -44,6 +44,20 @@
 //            AND the agent's AgentConfig.is_tool_enabled), Self-configuration
 //            (On or Off). An empty group says "None"; a failed load says
 //            "Couldn't load" for that group only.
+//   Rules (M27 F1 L2, DD7): first in "What it can use": the agent's enabled
+//            rules in order (two-line clamp, full text in `title`), "{n} off"
+//            for disabled ones, "No rules" (also on a 404). Read-only: no edit
+//            link (Open agent settings is the way to the editor). Fetched once
+//            per open and agent: GET /api/agents/{name}/rules.
+//   Notes (M27 F2 L3, DD10; F3 L2): after Rules, READ-ONLY: "Off" and "{n} kept"
+//            when the switch is off; when on, each note's [n], a warning-triangle
+//            flag (testid chat-drawer-notes-flag) for untrusted ones, its text
+//            (two-line clamp, full text in `title`) and a short origin line;
+//            "No notes yet" (also on a 404). Notes the open chat's prompt does
+//            not carry yet sit muted under "Pending · used from the next chat".
+//            Fetched per open, agent and session (GET /api/agents/{name}/notes
+//            ?session_id=, the server marks `pending`); refreshNotes() re-fetches
+//            on a live save/update/forget and after a rejoin.
 //   footer   Open agent settings (App.ui.button secondary, the settings gear,
 //            testid chat-drawer-settings-link): a guarded go() to the agent,
 //            then App.studio.clearAgentFilter() on a commit (reference spec
@@ -165,6 +179,11 @@
     var current = null; // the agent name the settings link opens
     var configs = { gen: -1, status: 'idle', value: null };
     var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
+    var rulesState = { gen: -1, agent: null, status: 'idle', value: null };
+    // M27 F2 L3 (DD10): the Notes group's per-open fetch, shaped like rulesState
+    // (value = {enabled, notes}), keyed on agent AND session (F3 L2).
+    var notesState = { gen: -1, agent: null, session: null, status: 'idle', value: null };
+    var notesToken = 0;
     var storeTried = {};
     var storeFailed = {};
 
@@ -299,6 +318,178 @@
       return box;
     }
 
+    // M27 F1 L2 (DD7): the Rules group. Not built by group(): it lists the
+    // ENABLED rules in order (each text clamped to two lines by CSS, the full
+    // text in `title`), "{n} off" for the disabled ones, "No rules" when none
+    // are enabled, and an "Edit rules" link to the editor's tab. The rules are
+    // shown as SAVED (what the next build of the agent uses).
+    function rulesGroup(agentName) {
+      var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'rules' } }, [
+        el('h4', { className: 'chat-drawer-group-label', text: 'Rules' })
+      ]);
+      if (rulesState.status === 'ok') {
+        var all = arr(rulesState.value);
+        var on = [];
+        for (var i = 0; i < all.length; i++) if (all[i] && all[i].enabled) on.push(all[i]);
+        var off = all.length - on.length;
+        if (!on.length) {
+          box.appendChild(el('p', { className: 'chat-drawer-none', text: 'No rules' }));
+        } else {
+          var ol = el('ul', { className: 'chat-drawer-rules' });
+          ol.setAttribute('role', 'list');
+          ol.setAttribute('data-testid', 'chat-drawer-rules');
+          for (var j = 0; j < on.length; j++) {
+            var li = el('li', null, [el('span', { className: 'chat-drawer-rule-text', text: String(on[j].text) })]);
+            li.setAttribute('title', String(on[j].text));
+            li.setAttribute('data-testid', 'chat-drawer-rule');
+            ol.appendChild(li);
+          }
+          box.appendChild(ol);
+        }
+        if (off > 0) {
+          var offEl = el('p', { className: 'chat-drawer-rules-off', text: off + ' off' });
+          offEl.setAttribute('data-testid', 'chat-drawer-rules-off');
+          box.appendChild(offEl);
+        }
+        return box;
+      }
+      box.appendChild(el('p', {
+        className: 'chat-drawer-none',
+        text: rulesState.status === 'error' ? 'Couldn\'t load' : 'Loading…'
+      }));
+      return box;
+    }
+
+    // M27 F2 L3 (DD10) / F3 L2: the Notes group, sibling after Rules, READ-ONLY
+    // (notes are managed in the agent's Rules and notes tab, via Open agent
+    // settings). Note text is attacker-influenced, so every field goes through
+    // textContent (el's `text`) and `title`, never an HTML sink. Off: "Off" and
+    // "{n} kept". On: the in-use notes, then (when the server knows the open
+    // chat's prompt) a "Pending · used from the next chat" subheading and the
+    // notes that prompt does not carry yet, muted.
+    function noteOriginLine(n) {
+      if (n.origin_kind === 'other') return 'Outside a chat';
+      if (n.origin_kind === 'connector') {
+        var who = n.origin_peer_name || n.origin_peer_id || '';
+        return String(n.origin_platform || 'connector') + (who ? ' · ' + who : '');
+      }
+      return String(n.origin_label || 'Untitled chat') + (n.origin_exists ? '' : ' (chat deleted)');
+    }
+
+    function noteItem(n) {
+      var headKids = [];
+      if (n.untrusted) {
+        var flag = App.noteFlag(arr(n.untrusted_sources));
+        flag.setAttribute('data-testid', 'chat-drawer-notes-flag');
+        headKids.push(flag);
+      }
+      headKids.push(el('span', { className: 'chat-drawer-note-text', text: String(n.text) }));
+      var li = el('li', null, [
+        el('div', { className: 'chat-drawer-note-head' }, headKids),
+        el('div', { className: 'chat-drawer-note-origin', text: noteOriginLine(n) })
+      ]);
+      li.setAttribute('title', String(n.text));
+      li.setAttribute('data-testid', 'chat-drawer-notes-item');
+      li.setAttribute('data-id', n.id);
+      li.setAttribute('data-number', String(n.number));
+      return li;
+    }
+
+    function noteList(rows, pending) {
+      var ul = el('ul', { className: 'chat-drawer-notes' + (pending ? ' chat-drawer-notes--pending' : '') });
+      ul.setAttribute('role', 'list');
+      if (pending) ul.setAttribute('data-testid', 'chat-drawer-notes-pending');
+      else ul.setAttribute('data-testid', 'chat-drawer-notes');
+      for (var i = 0; i < rows.length; i++) ul.appendChild(noteItem(rows[i]));
+      return ul;
+    }
+
+    function notesGroup() {
+      var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'notes' } }, [
+        el('h4', { className: 'chat-drawer-group-label', text: 'Notes' })
+      ]);
+      if (notesState.status !== 'ok') {
+        box.appendChild(el('p', {
+          className: 'chat-drawer-none',
+          text: notesState.status === 'error' ? 'Couldn\'t load' : 'Loading…'
+        }));
+        return box;
+      }
+      var enabled = !!(notesState.value && notesState.value.enabled);
+      var all = arr(notesState.value && notesState.value.notes);
+      if (!enabled) {
+        var offEl = el('p', { className: 'chat-drawer-value', text: 'Off' });
+        offEl.setAttribute('data-testid', 'chat-drawer-notes-off');
+        box.appendChild(offEl);
+        if (all.length) {
+          var kept = el('p', { className: 'chat-drawer-notes-kept', text: all.length + ' kept' });
+          kept.setAttribute('data-testid', 'chat-drawer-notes-kept');
+          box.appendChild(kept);
+        }
+      } else if (!all.length) {
+        var none = el('p', { className: 'chat-drawer-none', text: 'No notes yet' });
+        none.setAttribute('data-testid', 'chat-drawer-notes-empty');
+        box.appendChild(none);
+      } else {
+        var inUse = [];
+        var pending = [];
+        for (var i = 0; i < all.length; i++) (all[i].pending ? pending : inUse).push(all[i]);
+        if (inUse.length) box.appendChild(noteList(inUse, false));
+        if (pending.length) {
+          var head = el('p', {
+            className: 'chat-drawer-notes-pending-head',
+            text: 'Pending · used from the next chat'
+          });
+          head.setAttribute('data-testid', 'chat-drawer-notes-pending-head');
+          box.appendChild(head);
+          box.appendChild(noteList(pending, true));
+        }
+      }
+      return box;
+    }
+
+    // Read the notes once per open, agent and session (a raw fetch: a 404, no
+    // stored row, reads as "No notes yet"). `refresh` keeps the old list on
+    // screen until the new one arrives, and a failed refresh keeps it too. The
+    // session id lets the server mark the notes the chat's prompt lacks.
+    function loadNotes(agentName, sessionId, gen, refresh) {
+      var token = ++notesToken;
+      if (!refresh) {
+        notesState = { gen: gen, agent: agentName, session: sessionId, status: 'pending', value: null };
+      }
+      var url = '/api/agents/' + encodeURIComponent(agentName) + '/notes' +
+        (sessionId ? '?session_id=' + encodeURIComponent(sessionId) : '');
+      fetch(url).then(function (r) {
+        if (r.status === 404) return { enabled: true, notes: [] };
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function (body) {
+        if (token !== notesToken) return;
+        notesState = {
+          gen: gen, agent: agentName, session: sessionId, status: 'ok',
+          value: { enabled: !!(body && body.enabled), notes: (body && body.notes) || [] }
+        };
+        render();
+      }, function () {
+        if (token !== notesToken) return;
+        if (refresh) return;
+        notesState = { gen: gen, agent: agentName, session: sessionId, status: 'error', value: null };
+        render();
+      });
+    }
+
+    // Re-fetch the current view's notes now (a live save/update/forget, a
+    // rejoin's rebuild), bypassing the per-open cache. Only while open.
+    function refreshNotes() {
+      var info = describe();
+      if (info.kind !== 'agent' || !drawer.isOpen()) return;
+      loadNotes(info.name, viewSession(), openGen, notesState.status === 'ok');
+    }
+
+    function viewSession() {
+      return (view && view.sessionId) || null;
+    }
+
     function storeStatus(name) {
       var peek = App.store.peek(name);
       if (peek.loaded) return 'ok';
@@ -312,6 +503,9 @@
         el('h3', { className: 'chat-drawer-uses-title', text: 'What it can use' })
       ]);
       box.setAttribute('data-testid', 'chat-drawer-uses');
+
+      box.appendChild(rulesGroup(agent.name));
+      box.appendChild(notesGroup());
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -437,6 +631,30 @@
           render();
         });
       }
+      if (rulesState.gen !== gen || rulesState.agent !== info.name) {
+        var ruleAgent = info.name;
+        rulesState = { gen: gen, agent: ruleAgent, status: 'pending', value: null };
+        // A raw fetch, not fetchJson: a 404 (no stored row) means an empty
+        // list, while any other failure is the error state.
+        fetch('/api/agents/' + encodeURIComponent(ruleAgent) + '/rules').then(function (r) {
+          if (r.status === 404) return { rules: [] };
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function (body) {
+          if (rulesState.gen !== gen || rulesState.agent !== ruleAgent) return;
+          rulesState = { gen: gen, agent: ruleAgent, status: 'ok', value: (body && body.rules) || [] };
+          render();
+        }, function () {
+          if (rulesState.gen !== gen || rulesState.agent !== ruleAgent) return;
+          rulesState = { gen: gen, agent: ruleAgent, status: 'error', value: null };
+          render();
+        });
+      }
+      var sid = viewSession();
+      if (notesState.gen !== gen || notesState.agent !== info.name || notesState.session !== sid) {
+        var same = notesState.gen === gen && notesState.agent === info.name && notesState.status === 'ok';
+        loadNotes(info.name, sid, gen, same);
+      }
       ['knowledge-bases', 'mcp-sources'].forEach(function (name) {
         if (storeTried[name] === gen) return;
         storeTried[name] = gen;
@@ -511,6 +729,7 @@
         active = !!on;
         apply();
       },
+      refreshNotes: refreshNotes,
       destroy: destroy
     };
   }

@@ -281,6 +281,19 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     expect(blocks).to_have_count(1)
     expect(prompt).to_be_visible()
     expect(prompt).not_to_have_text("Loading…", timeout=8000)
+    pres = page.locator(".content-panel.active .admin-system-section pre")
+    expect(pres).to_have_count(3)
+    expect(pres.nth(0)).to_have_attribute("data-testid", "base-prompt-content")
+    expect(pres.nth(1)).to_have_attribute("data-testid", "rules-prompt-content")
+    expect(pres.nth(2)).to_have_attribute("data-testid", "notes-prompt-content")
+    expect(pres.nth(1)).to_contain_text("{first enabled rule}", timeout=8000)
+    expect(pres.nth(2)).to_contain_text("(unverified)", timeout=8000)
+    titles = page.locator(".content-panel.active .admin-prompt-layer .section-title")
+    assert [t.lower() for t in titles.all_inner_texts()] == [
+        "base prompt",
+        "rules",
+        "notes",
+    ]
     expect(theme).to_have_count(0)
     expect(rotate).to_have_count(0)
 

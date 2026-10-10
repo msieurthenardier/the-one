@@ -257,7 +257,7 @@ def test_tab_strip_and_columns_fit_at_1024(
         f"lastRight={out['lastRight']:.1f} mainRight={out['mainRight']:.1f} "
         f"aside={out['asideW']} main={out['mainW']}"
     )
-    assert out["tabs"] == 5, out
+    assert out["tabs"] == 6, out
     assert out["scrollW"] <= out["clientW"], out
     assert out["lastRight"] <= out["mainRight"], out
     assert len(set(round(t) for t in out["tabTops"])) == 1, out  # one row: no wrap

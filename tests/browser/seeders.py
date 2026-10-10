@@ -310,3 +310,82 @@ def seed_session(
     )
     assert r.status_code == 201, f"seed_session failed: {r.status_code} {r.text}"
     return r.json()["id"]
+
+
+def enable_notes(base_url: str, agent_name: str, enabled: bool = True) -> None:
+    """Flip an agent's notes switch through ``PUT /api/agents/{name}/notes/settings``."""
+    r = httpx.put(
+        f"{base_url}/api/agents/{agent_name}/notes/settings",
+        json={"enabled": enabled},
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code == 200, f"enable_notes failed: {r.status_code} {r.text}"
+
+
+def seed_note(
+    data_dir,
+    agent_name: str,
+    text: str,
+    *,
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    origin_kind: str = "web",
+    session_id: str | None = None,
+    label: str | None = None,
+    platform: str | None = None,
+    peer_id: str | None = None,
+    peer_name: str | None = None,
+    updated_by: str = "agent",
+    created_at: str = "2026-01-01T10:00:00+00:00",
+    updated_at: str | None = None,
+) -> str:
+    """INSERT one ``agent_notes`` row by sync sqlite3 against the instance's database.
+
+    Notes can only be written by the agent (there is no operator create route),
+    so a browser test that needs a note with a chosen origin, taint or age seeds
+    it directly, the way the self-configuration history tests seed revisions.
+    The number is the agent's ``notes_next_number`` counter, bumped here. Pass
+    the instance's ``data_dir`` (the ``app_with_data_dir`` fixture).
+    """
+    import sqlite3
+    import uuid
+
+    note_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        row = conn.execute(
+            "SELECT notes_next_number FROM agents WHERE name = ?", (agent_name,)
+        ).fetchone()
+        assert row is not None, f"seed_note: no agent {agent_name!r}"
+        number = row[0]
+        conn.execute(
+            "INSERT INTO agent_notes (id, agent_name, number, text, untrusted, untrusted_sources,"
+            " origin_kind, origin_session_id, origin_label, origin_platform, origin_peer_id,"
+            " origin_peer_name, created_at, updated_at, updated_by)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                note_id,
+                agent_name,
+                number,
+                text,
+                1 if untrusted else 0,
+                json.dumps(sources or []),
+                origin_kind,
+                session_id,
+                label,
+                platform,
+                peer_id,
+                peer_name,
+                created_at,
+                updated_at or created_at,
+                updated_by,
+            ),
+        )
+        conn.execute(
+            "UPDATE agents SET notes_next_number = ? WHERE name = ?", (number + 1, agent_name)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return note_id

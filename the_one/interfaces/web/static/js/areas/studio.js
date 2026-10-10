@@ -245,7 +245,7 @@ App.registerArea({
           pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
           tab = 'mcps';
         }
-        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools' || tab === 'self-configuration') {
+        if (tab === 'general' || tab === 'rules-and-notes' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools' || tab === 'self-configuration') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -1907,6 +1907,45 @@ App.registerArea({
       return App.api.fetchJson('/api/mcp-sources?include_agent_surfaces=1');
     }
 
+    // M27 F1 L2 -- rules network calls (DD8). fetchJson surfaces a 422's
+    // `detail` as the Error message, which the tab shows inline.
+    function rulesUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/rules' + (suffix || '');
+    }
+    function rulesJson(method, url, body) {
+      var opts = { method: method };
+      if (body !== undefined) {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body);
+      }
+      return App.api.fetchJson(url, opts);
+    }
+    function fetchRules(name) { return App.api.fetchJson(rulesUrl(name)); }
+    function createRule(name, text) { return rulesJson('POST', rulesUrl(name), { text: text }); }
+    function updateRule(name, id, patch) {
+      return rulesJson('PUT', rulesUrl(name, '/' + encodeURIComponent(id)), patch);
+    }
+    function deleteRule(name, id) {
+      return rulesJson('DELETE', rulesUrl(name, '/' + encodeURIComponent(id)));
+    }
+    function reorderRules(name, ids) { return rulesJson('PUT', rulesUrl(name, '/order'), { ids: ids }); }
+
+    // M27 F2 L3 -- notes network calls (DD11). The same fetchJson contract.
+    function notesUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/notes' + (suffix || '');
+    }
+    function fetchNotes(name) { return App.api.fetchJson(notesUrl(name)); }
+    function setNotesEnabled(name, enabled) {
+      return rulesJson('PUT', notesUrl(name, '/settings'), { enabled: !!enabled });
+    }
+    function updateNote(name, id, text) {
+      return rulesJson('PUT', notesUrl(name, '/' + encodeURIComponent(id)), { text: text });
+    }
+    function deleteNote(name, id) {
+      return rulesJson('DELETE', notesUrl(name, '/' + encodeURIComponent(id)));
+    }
+    function clearNotes(name) { return rulesJson('DELETE', notesUrl(name)); }
+
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
     function fetchSelfConfigurationStatus(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
@@ -2811,6 +2850,17 @@ App.registerArea({
           self._pendingMcpAgentSourceId = null;
           writeUrl_();
         },
+        // M27 F1 L2 -- Rules and notes tab network calls.
+        fetchRules: fetchRules,
+        createRule: createRule,
+        updateRule: updateRule,
+        deleteRule: deleteRule,
+        reorderRules: reorderRules,
+        fetchNotes: fetchNotes,
+        setNotesEnabled: setNotesEnabled,
+        updateNote: updateNote,
+        deleteNote: deleteNote,
+        clearNotes: clearNotes,
         // M21 F01 L02 — Self-configuration tab network calls.
         fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,
         onEnableSelfConfiguration: enableSelfConfiguration,

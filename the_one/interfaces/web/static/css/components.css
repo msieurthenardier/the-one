@@ -2041,3 +2041,13 @@
   .u-flex { display: flex !important; }
   .u-block { display: block !important; }
 }
+
+/* M27 F3 L2: the warning-triangle flag on an untrusted note (App.noteFlag),
+   shared by the chat agent panel and the Rules and notes tab. */
+.note-flag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--status-warning);
+}
+.note-flag svg { width: 14px; height: 14px; }

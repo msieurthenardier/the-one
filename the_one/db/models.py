@@ -317,6 +317,47 @@ class ConnectorDirectoryEntry(BaseModel):
     last_seen: str
 
 
+class AgentRule(BaseModel):
+    """A row in ``agent_rules`` (Mission 27 F1): one operator-authored rule.
+
+    ``position`` is 0-based and dense (``0..n-1``) per agent.
+    """
+
+    id: str
+    agent_name: str
+    text: str
+    enabled: bool
+    position: int
+    created_at: str
+    updated_at: str
+
+
+class AgentNote(BaseModel):
+    """A row in ``agent_notes`` (Mission 27 F2): one saved note.
+
+    ``untrusted_sources`` is the decoded JSON list. The listing query also
+    fills ``origin_label`` with the display label (live chat title while the
+    chat exists, else the stored label) and ``origin_exists``.
+    """
+
+    id: str
+    agent_name: str
+    number: int
+    text: str
+    untrusted: bool = False
+    untrusted_sources: list[str] = []
+    origin_kind: str
+    origin_session_id: str | None = None
+    origin_label: str | None = None
+    origin_exists: bool = False
+    origin_platform: str | None = None
+    origin_peer_id: str | None = None
+    origin_peer_name: str | None = None
+    created_at: str
+    updated_at: str
+    updated_by: str
+
+
 class AgentRevision(BaseModel):
     """A row in the ``agent_revisions`` revision log (M21 F02).
 
