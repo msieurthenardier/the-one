@@ -3346,7 +3346,8 @@ App.registerArea({
     // pre-rewrite entry straight back. `self._selectedAgent` is `null` in
     // create-mode (AC-9): a new agent has no stored entries, so this
     // returns `[]` rather than crashing Save.
-    var UNGATED_TOOL_PREFIXES = ['mcp__', 'kb__'];
+    var UNGATED_TOOL_PREFIXES =
+      (window.App.toolCategories && window.App.toolCategories.ungatedPrefixes) || [];
     function _storedUngatedDisabledNames() {
       var stored = (self._selectedAgent && self._selectedAgent.disabled_tools) || [];
       var result = [];

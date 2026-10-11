@@ -9,6 +9,13 @@
      even behind the rail). */
   body { font-family: var(--font-family-sans); background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
+  /* === Hidden attribute ===
+     One global rule (squawk 0178): an author `display` in any layer can no
+     longer defeat `hidden`. `!important` reverses layer order, so this
+     base-layer declaration beats every non-important rule in every layer.
+     Do not add per-component `[hidden] { display: none }` copies. */
+  [hidden]:not([hidden="until-found"]) { display: none !important; }
+
   /* === Links ===
      A low-specificity default: with no global link colour, any bare <a>
      (the provider page's "Agents" link, an empty-state link, a chat
@@ -44,8 +51,7 @@
     padding-top: 10px;
   }
   /* The router hides the aside on a destination with no sidebar content; the
-     author display above would otherwise defeat [hidden]. */
-  #app-sidebar[hidden] { display: none; }
+     global [hidden] rule above keeps it out of the row. */
 
   /* === Agent drawer slot (M25 F4 L6, DD7) === */
   /* <aside id="chat-drawer"> is a static sibling AFTER <main> in the shell
@@ -55,7 +61,6 @@
      [hidden] re-assert as #app-sidebar's, for the slot before the chat area
      fills it; once filled, .ui-drawer[hidden] (components layer, which a
      base-layer rule cannot beat) keeps a hidden drawer out of the row. */
-  #chat-drawer[hidden] { display: none; }
   /* The router stamps the destination on the aside (applyShell). Chats,
      Agents and Library host a list column (--list-w, 300px), Settings its nav
      (--settings-nav-w): fixed widths at every supported width, down to the

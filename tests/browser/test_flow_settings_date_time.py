@@ -270,6 +270,22 @@ def test_a_merged_zone_is_found_by_name_and_stored_as_chosen(
         expect(chosen).to_contain_text("Selected: Oslo Europe/Oslo · ")
 
 
+def test_a_stored_alias_item_carries_the_check_and_is_active(
+    tmp_path: Path, browser: Browser
+) -> None:
+    with session(tmp_path, browser, server_tz="Europe/Berlin", browser_tz="Europe/Oslo") as (
+        base,
+        page,
+    ):
+        put_settings(base, {"mode": "zone", "zone": "Europe/Oslo"})
+        open_page(page, base)
+        tid(page, "date-time-search").fill("oslo")
+        item = page.locator('[data-testid="date-time-zone-row"][data-zone="Europe/Oslo"]')
+        expect(item).to_have_count(1)
+        expect(item).to_have_attribute("aria-selected", "true")
+        expect(item.locator("svg")).to_have_count(1)
+
+
 def test_tool_turned_off_changes_the_preview(tmp_path: Path, browser: Browser) -> None:
     with session(tmp_path, browser, server_tz=CHICAGO) as (base, page):
         seed_tool_config(base, "current_time", enabled=False)

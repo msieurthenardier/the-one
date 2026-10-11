@@ -186,3 +186,83 @@ def test_zone_from_settings_branches(tpage: Page) -> None:
         None,
         None,
     ]
+
+
+def test_zone_from_settings_prefers_offset_minutes(tpage: Page) -> None:
+    got = tpage.evaluate(
+        """() => {
+          const z = App.time.zoneFromSettings;
+          return [
+            z({effective: {zone: null, canonical: null, offset: 'wording changed', offset_minutes: 330}}),
+            z({effective: {zone: null, canonical: null, offset: 'UTC+01:00', offset_minutes: -420}}),
+            z({effective: {zone: null, canonical: null, offset_minutes: 0}}),
+            z({effective: {zone: null, canonical: null, offset: 'UTC+05:30', offset_minutes: 'x'}}),
+          ];
+        }"""
+    )
+    assert got == ["+05:30", "-07:00", "+00:00", "+05:30"]
+
+
+def test_invalid_zone_with_a_fallback_offset_follows_the_offset(tpage: Page) -> None:
+    got = tpage.evaluate(
+        """() => {
+          const warns = [];
+          const orig = console.warn;
+          console.warn = (...a) => warns.push(a.join(' '));
+          App.time.setZone('Mars/Olympus_Mons', 330);
+          console.warn = orig;
+          const d = new Date(Date.UTC(2026, 5, 15, 12, 0));
+          const p = App.time.parts(d);
+          const first = App.time.zone();
+          App.time.applySettings({effective: {zone: 'Mars/Olympus_Mons', canonical: null,
+                                              offset: 'UTC-07:00', offset_minutes: -420}});
+          return {zone: first, hour: p.hour, minute: p.minute, warns: warns.length,
+                  after: App.time.zone()};
+        }"""
+    )
+    assert got["zone"] == "+05:30" and got["hour"] == 17 and got["minute"] == 30
+    assert got["warns"] == 1 and got["after"] == "-07:00"
+
+
+def test_owner_scoped_listeners_are_pruned_on_subscribe(tpage: Page) -> None:
+    got = tpage.evaluate(
+        """() => {
+          const calls = [];
+          const owners = [];
+          for (let i = 0; i < 5; i++) {
+            const el = document.createElement('div');
+            document.body.appendChild(el);
+            owners.push(el);
+            App.time.onChange(() => calls.push('o' + i), el);
+          }
+          const plain = [];
+          App.time.onChange((k) => plain.push(k));
+          const before = App.time._listenerCount();
+          owners.forEach((el) => el.remove());
+          App.time.onChange(() => {});
+          const after = App.time._listenerCount();
+          App.time.setZone('Asia/Kolkata');
+          return {before, after, calls, plain};
+        }"""
+    )
+    assert got["before"] == 6
+    assert got["after"] == 2  # the ownerless one and the new one; all five owners pruned
+    assert got["calls"] == []
+    assert got["plain"] == ["Asia/Kolkata"]
+
+
+def test_owner_listener_fires_while_connected_and_prunes_on_fire(tpage: Page) -> None:
+    got = tpage.evaluate(
+        """() => {
+          const el = document.createElement('div');
+          document.body.appendChild(el);
+          const calls = [];
+          App.time.onChange((k) => calls.push(k), el);
+          App.time.setZone('Asia/Kolkata');
+          el.remove();
+          App.time.setZone('Pacific/Pago_Pago');
+          return {calls, count: App.time._listenerCount()};
+        }"""
+    )
+    assert got["calls"] == ["Asia/Kolkata"]
+    assert got["count"] == 0

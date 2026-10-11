@@ -76,7 +76,8 @@ _last_reload: float | None = None
 
 
 @functools.lru_cache(maxsize=1)
-def _parse_tzdata_zi() -> tuple[tuple[str, ...], frozenset[str]]:
+def _parse_tzdata_zi() -> tuple[tuple[str, ...], frozenset[str], dict[str, str]]:
+    """Parse ``tzdata.zi`` once: (sorted canonical names, every name, link -> canonical)."""
     text = (
         importlib.resources.files("tzdata")
         .joinpath("zoneinfo")
@@ -84,40 +85,27 @@ def _parse_tzdata_zi() -> tuple[tuple[str, ...], frozenset[str]]:
         .read_text(encoding="utf-8")
     )
     canonical: set[str] = set()
-    links: set[str] = set()
+    raw: dict[str, str] = {}
     for line in text.splitlines():
         parts = line.split()
         if len(parts) >= 2 and parts[0] == "Z":
             canonical.add(parts[1])
         elif len(parts) >= 3 and parts[0] == "L":
-            links.add(parts[2])
-    return tuple(sorted(canonical)), frozenset(canonical | links)
-
-
-@functools.lru_cache(maxsize=1)
-def zone_links() -> dict[str, str]:
-    """Link alias -> canonical zone name (``L <target> <alias>`` lines), chains resolved."""
-    text = (
-        importlib.resources.files("tzdata")
-        .joinpath("zoneinfo")
-        .joinpath("tzdata.zi")
-        .read_text(encoding="utf-8")
-    )
-    raw: dict[str, str] = {}
-    for line in text.splitlines():
-        parts = line.split()
-        if len(parts) >= 3 and parts[0] == "L":
             raw[parts[2]] = parts[1]
-    canonical = set(_parse_tzdata_zi()[0])
-    out: dict[str, str] = {}
+    links: dict[str, str] = {}
     for alias, target in raw.items():
         seen = {alias}
         while target not in canonical and target in raw and target not in seen:
             seen.add(target)
             target = raw[target]
         if target in canonical:
-            out[alias] = target
-    return out
+            links[alias] = target
+    return tuple(sorted(canonical)), frozenset(canonical | set(raw)), links
+
+
+def zone_links() -> dict[str, str]:
+    """Link alias -> canonical zone name (``L <target> <alias>`` lines), chains resolved."""
+    return _parse_tzdata_zi()[2]
 
 
 def canonical_name(key: Any) -> str | None:
@@ -274,6 +262,13 @@ def offset_label(local: datetime) -> str:
     return f"UTC{sign}{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+def offset_minutes(now: datetime, eff: EffectiveZone) -> int:
+    """The zone's UTC offset in whole minutes at *now* (``330``, ``-420``): the machine
+    form of :func:`offset_label`, so a client never parses the display label."""
+    delta = now.astimezone(eff.tzinfo).utcoffset() or timedelta(0)
+    return int(delta.total_seconds()) // 60
+
+
 def zone_label(eff: EffectiveZone, local: datetime) -> str:
     return eff.key if eff.key else f"system time zone, {offset_label(local)}"
 
@@ -281,7 +276,10 @@ def zone_label(eff: EffectiveZone, local: datetime) -> str:
 _NUMERIC_ABBREVIATION = re.compile(r"^[+-]\d{2,4}$")
 
 
-def _abbreviation(local: datetime) -> str:
+def abbreviation(local: datetime) -> str:
+    """The zone abbreviation, or "" when numeric (``+14``) or a ``UTC±…`` default.
+
+    The one rule behind the tool text and both API fields."""
     name = local.tzname()
     if not name or name.startswith("UTC+") or name.startswith("UTC-"):
         return ""
@@ -301,7 +299,7 @@ def _long_date(local: datetime) -> str:
 
 def tool_lines(now: datetime, eff: EffectiveZone) -> list[str]:
     local = now.astimezone(eff.tzinfo)
-    abbr = _abbreviation(local)
+    abbr = abbreviation(local)
     abbr_part = f" {abbr}" if abbr else ""
     return [
         f"{local.isoformat(timespec='seconds')} ({zone_label(eff, local)})",
@@ -350,7 +348,7 @@ def zone_rows(at: datetime) -> list[dict[str, str]]:
                 "region": region,
                 "city": city,
                 "offset": offset_label(local),
-                "abbreviation": local.tzname() or "",
+                "abbreviation": abbreviation(local),
             }
         )
     rows.sort(key=lambda r: (r["region"], r["city"]))

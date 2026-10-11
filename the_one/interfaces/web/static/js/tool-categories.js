@@ -18,6 +18,8 @@
 //               toolCategories -> tools-tab.js)
 //   categoryOf  {tool: 'filesystem', ...}: tool -> slug (the Settings ›
 //               Built-in tools tabs, badges and the tool editor's subtitle)
+//   ungatedPrefixes  ['mcp__', 'kb__']: name prefixes the whitelist never gates
+//               (server: UNGATED_TOOL_PREFIXES)
 //   whitelistExempt  ['current_time']: built-ins the `enabled_tools` whitelist
 //               never gates (M28; server: WHITELIST_EXEMPT_TOOLS)
 // The agent drawer's "What it can use" groups the agent's built-ins by
@@ -44,6 +46,11 @@
   // pins the two together). Consumers that mirror the whitelist logic read this.
   var whitelistExempt = Object.freeze(['current_time']);
 
+  // Name prefixes exempt from the `enabled_tools` whitelist (mirrors
+  // the_one/agent/config.py::UNGATED_TOOL_PREFIXES; pinned by
+  // tests/test_tool_categories.py).
+  var ungatedPrefixes = Object.freeze(['mcp__', 'kb__']);
+
   var order = [];
   var labels = {};
   var byCategory = {};
@@ -61,6 +68,7 @@
     labels: Object.freeze(labels),
     byCategory: Object.freeze(byCategory),
     categoryOf: Object.freeze(categoryOf),
-    whitelistExempt: whitelistExempt
+    whitelistExempt: whitelistExempt,
+    ungatedPrefixes: ungatedPrefixes
   });
 })();

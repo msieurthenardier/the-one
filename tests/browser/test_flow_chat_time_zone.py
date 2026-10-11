@@ -149,6 +149,11 @@ def test_list_attribution_and_notes_follow_the_operator_zone(
     page.locator('[data-testid="tab-general"]').click()
     page.locator('[data-testid="tab-rules-and-notes"]').click()
     expect(page.locator('[data-testid="notes-row-time"]')).to_have_text("Jun 15", timeout=8000)
+    # Squawk 0176: repeated tab switches must not accumulate listeners.
+    for _ in range(4):
+        page.locator('[data-testid="tab-general"]').click()
+        page.locator('[data-testid="tab-rules-and-notes"]').click()
+    expect(page.locator('[data-testid="notes-row-time"]')).to_have_text("Jun 15", timeout=8000)
     page.evaluate(
         """() => {
           window.__adds = 0;
@@ -160,6 +165,12 @@ def test_list_attribution_and_notes_follow_the_operator_zone(
     page.evaluate(f"() => App.time.setZone('{PAGO}')")
     expect(page.locator('[data-testid="notes-row-time"]')).to_have_text("Jun 14", timeout=8000)
     assert page.evaluate("() => window.__adds") == 1
+    # Detached mounts were pruned on the zone change: the page holds a bounded count.
+    before = page.evaluate("() => App.time._listenerCount()")
+    for _ in range(3):
+        page.locator('[data-testid="tab-general"]').click()
+        page.locator('[data-testid="tab-rules-and-notes"]').click()
+    assert page.evaluate("() => App.time._listenerCount()") <= before + 1
     assert page.errors == []  # type: ignore[attr-defined]
 
 

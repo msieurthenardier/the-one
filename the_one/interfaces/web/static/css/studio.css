@@ -160,7 +160,6 @@
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
-  .area-studio .mcp-connection-actions .mcp-tools-last-updated[hidden] { display: none; }
   .area-studio .mcp-tools-status { font-size: var(--font-size-body); color: var(--fg-secondary); margin-bottom: 12px; }
   /* F4 L7: LED lives in the connection-actions row, adjacent to Refresh
      connection. Vertically center against the buttons (which are taller). */
@@ -523,7 +522,6 @@
   .area-studio .mcp-source-tile-tools {
     padding-top: 4px;
   }
-  .area-studio .mcp-source-tile-tools[hidden] { display: none; }
 
   /* === Agent-editor Tools tab — CATEGORY TILES =============================
      Built-in tool categories (Filesystem / Execution / Web / …) render as
@@ -609,7 +607,6 @@
     gap: 6px;
     padding-top: 4px;
   }
-  .area-studio .tools-category-tile-tools[hidden] { display: none; }
   /* Per-tool tile = single <details> element. Summary IS the row 1 face
      (checkbox-label + Overrides affordance, right-justified). Body sits
      inside the same chrome and reveals on toggle. Legacy
@@ -823,7 +820,6 @@
     color: var(--status-danger);
     margin: 4px 0 8px;
   }
-  .area-studio .self-configuration-error[hidden] { display: none; }
   /* Cross-render action-announcement + focus target (see the `pendingAction`
      comment in self-configuration-tab.js). Reserves a line so the layout
      doesn't jump when a message appears after an action. */
@@ -844,7 +840,6 @@
     color: var(--fg-secondary);
     margin-bottom: 8px;
   }
-  .area-studio .self-configuration-pending-count[hidden] { display: none; }
 
   /* Small caption-style label above a read-only value block ("Current" /
      "Proposed" / "Base" / "Proposed" on a queue card, "Current value now"
@@ -908,7 +903,6 @@
     padding-top: 8px;
     border-top: 1px dashed var(--border);
   }
-  .area-studio .revision-stale[hidden] { display: none; }
   .area-studio .revision-stale-warning { margin: 0; }
 
   /* Revision-history entries (chronological log) -------------------------- */
@@ -1046,14 +1040,12 @@
     min-width: 160px;
   }
   .area-studio .self-configuration-external-grant-btn { flex-shrink: 0; }
-  .area-studio .self-configuration-external-grant-hint[hidden] { display: none; }
 
   /* Copy-once secret reveal — a warning banner holding the one-time token,
      a copy affordance, the surface URL, and a dismiss control. */
   .area-studio .self-configuration-external-token-reveal {
     margin: 8px 0 12px;
   }
-  .area-studio .self-configuration-external-token-reveal[hidden] { display: none; }
   .area-studio .self-configuration-external-token-warning {
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
@@ -1168,7 +1160,6 @@
      the mcp-*[hidden] rules above) since a later, more specific `display`
      rule elsewhere in the layer could otherwise beat the UA
      `[hidden]{display:none}` default. */
-  .area-studio .connector-setup-steps[hidden] { display: none; }
   .area-studio .connector-setup-steps-list {
     margin: 0 0 8px;
     padding-left: 20px;
@@ -1287,9 +1278,6 @@
      without this the hint sits flush against the indexer-state line.
      Same `--space-*` scale as `.kb-folders-list` below. */
   .area-studio .kb-reindex-hint { margin-top: var(--space-3); }
-  .area-studio .kb-search-degraded[hidden],
-  .area-studio .kb-chunks-panel[hidden],
-  .area-studio .kb-source-panel[hidden] { display: none; }
 
   /* === Studio Knowledge section — restyle to the MCP editor's shape
      (M24 F06 L06) ===
@@ -1384,7 +1372,6 @@
     padding: 4px;
     z-index: 20;
   }
-  .area-studio .kb-item-menu[hidden] { display: none; }
   .area-studio .kb-item-menu-item {
     display: block;
     width: 100%;
@@ -1513,7 +1500,6 @@
   color: var(--status-danger);
   margin: 4px 0 8px;
 }
-.area-studio .rules-error[hidden] { display: none; }
 .area-studio .rules-empty,
 .area-studio .rules-loading {
   margin: 0 0 var(--space-3);
@@ -1589,7 +1575,6 @@
   color: var(--fg-secondary);
   line-height: var(--line-height-normal);
 }
-.area-studio .notes-off-message[hidden] { display: none; }
 .area-studio .notes-bar {
   display: flex;
   align-items: center;
@@ -1633,4 +1618,3 @@
 .area-studio .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
 .area-studio .notes-row-origin-link { text-decoration: underline; }
 .area-studio .notes-row-edited { color: var(--fg-secondary); }
-.area-studio .notes-bar [hidden] { display: none; }

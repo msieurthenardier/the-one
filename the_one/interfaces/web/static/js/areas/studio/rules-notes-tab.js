@@ -807,11 +807,10 @@
     }
 
     // "When" labels follow the operator zone (M28 F2 L1). This tab has no teardown
-    // hook, so the listener unsubscribes itself once its list is no longer in the page.
-    var offZone = App.time.onChange(function () {
-      if (!listWrap.isConnected) { offZone(); return; }
+    // hook, so the listener is owner-scoped: App.time drops it once listWrap leaves the page.
+    App.time.onChange(function () {
       if (!editingId) renderList();
-    });
+    }, listWrap);
 
     function load() {
       var mine = ++gen;

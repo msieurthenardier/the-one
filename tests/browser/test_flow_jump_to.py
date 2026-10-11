@@ -103,6 +103,12 @@ def _jump(page: Page, query: str, kind: str, item_id: str) -> None:
     """Open the palette with Ctrl K, type *query*, move the active row to the
     (kind, id) row with the arrow keys, and press Enter."""
     _open_with_keys(page)
+    # Cold data (AC11): open() force-fetches the chats AFTER the palette shows, and
+    # a refresh moves the active row to the new first row unless the user had moved
+    # off it. Wait for that load, or a late chat row (a seeded chat titled "New chat"
+    # matches the query "new chat") takes the active row after the arrow-key
+    # selection and Enter picks it (squawk 0168).
+    page.wait_for_function("() => App.store.peek('sessions').loaded", timeout=8000)
     page.locator(INPUT).fill(query)
     row = page.locator(f'{RESULT}[data-kind="{kind}"][data-id="{item_id}"]')
     expect(row).to_be_visible()

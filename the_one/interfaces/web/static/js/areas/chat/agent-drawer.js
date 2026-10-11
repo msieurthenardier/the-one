@@ -92,7 +92,7 @@
   var PUSH_QUERY = '(min-width: 1280px)';
   // AgentConfig's UNGATED_TOOL_PREFIXES: exempt from the enabled_tools
   // whitelist (it gates built-ins only); disabled_tools is universal.
-  var UNGATED_PREFIXES = ['mcp__', 'kb__'];
+  var UNGATED_PREFIXES = (window.App.toolCategories && window.App.toolCategories.ungatedPrefixes) || [];
   var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'sessions'];
 
   function el(tag, attrs, children) {

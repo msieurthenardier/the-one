@@ -269,7 +269,10 @@ def test_prime_supersedes_a_racing_older_get(app_with_agent: SeededApp, page: Pa
         "App.store.subscribe('sessions', v => window.__events.push(v.map(r => r.id))); "
         "window.__p1 = App.store.get('sessions', {force: true}); }"
     )
-    page.wait_for_function("() => true")
+    for _ in range(100):  # wait on the capture itself, not on a no-op predicate
+        if held:
+            break
+        page.wait_for_timeout(50)
     assert len(held) == 1
     after = page.evaluate(
         f"async () => {{ App.store.prime('sessions', {PRIMED}); "

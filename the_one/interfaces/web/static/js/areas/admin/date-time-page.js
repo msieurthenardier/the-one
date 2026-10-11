@@ -39,12 +39,7 @@
   }
 
   function browserZone() {
-    try {
-      var z = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return typeof z === 'string' && z ? z : null;
-    } catch (e) {
-      return null;
-    }
+    return App.time.browserZone();
   }
 
   function jsonOpts(method, body) {
@@ -91,9 +86,9 @@
     }
 
     function metaFor(row) {
+      // The server already returns '' for a numeric or UTC-offset abbreviation.
       var abbr = row.abbreviation || '';
-      if (!abbr || /^[+\-−]?\d/.test(abbr)) return row.offset;
-      return row.offset + ' · ' + abbr;
+      return abbr ? row.offset + ' · ' + abbr : row.offset;
     }
 
     // 0 = no match, 1 = the city starts with the query, 2 = another match: a
@@ -178,7 +173,7 @@
             description: alias + ' · same clock as ' + target,
             meta: trow.offset,
             metaMono: true,
-            lead: checkLead(false),
+            lead: checkLead(alias === storedZone()),
             dataset: { zone: alias }
           });
         }
@@ -218,7 +213,14 @@
       var enabled = s.tool_enabled !== false;
       nodes.previewPrompt.textContent = enabled ? p.prompt : p.prompt_without_tool;
       nodes.promptMuted.hidden = enabled;
-      nodes.previewClock.textContent = (p.clock || '') + ' in the Chats list and on messages';
+      // Drawn client-side with the app's own formatter, so the claim that it matches the Chats
+      // list and message times is true by construction (squawk 0182). p.clock stays in the API.
+      var clock = p.clock || '';
+      try {
+        window.App.time.applySettings(s);
+        clock = window.App.time.formatClock(new Date());
+      } catch (err) { /* keep the server's text */ }
+      nodes.previewClock.textContent = clock + ' in the Chats list and on messages';
     }
 
     function patchHint() {
@@ -254,6 +256,10 @@
     }
 
     function syncActive() {
+      // An alias item exists only while its canonical row is out of the results, so at
+      // most one of the two targets is present; setActive ignores an absent id.
+      var z = storedZone();
+      if (z && state.links[z]) list.setActive('alias:' + z);
       var id = storedCanonical();
       if (id) list.setActive(id);
     }
@@ -298,7 +304,7 @@
     function finish(g, r) {
       if (g !== GEN) return false;
       if (root.isConnected && built) applySettings(r);
-      window.App.time.setZone(window.App.time.zoneFromSettings(r));
+      window.App.time.applySettings(r);
       return true;
     }
 
@@ -330,7 +336,7 @@
           nodes.status.textContent = 'Saved. Agents now use ' +
             (r.mode === 'zone' && r.zone ? r.zone : 'the system time zone') + '.';
         }
-        window.App.time.setZone(window.App.time.zoneFromSettings(r));
+        window.App.time.applySettings(r);
       }, function (err) {
         if (g !== GEN) return;
         if (root.isConnected && built) showError(err.message);
@@ -490,7 +496,7 @@
         build();
         applySettings(r);
       }
-      window.App.time.setZone(window.App.time.zoneFromSettings(r));
+      window.App.time.applySettings(r);
     }, function (err) {
       if (g0 !== GEN || !root.isConnected) return;
       loading.hidden = true;

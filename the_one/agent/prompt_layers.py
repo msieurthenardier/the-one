@@ -30,8 +30,11 @@ async def time_tool_available(registry: Any, llm: Any) -> bool:
     """Whether the date layer should name ``current_time`` (M28 F1, DD5).
 
     False when the registry is missing/broken or lacks the tool; otherwise the
-    provider's ``supports_tools()`` answer, failing OPEN (True) on timeout or
-    any provider error, as the agent loop does. Never raises.
+    provider's ``supports_tools()`` answer, failing CLOSED (False) on timeout or
+    any provider error (squawk 0182). This predicate only chooses the prompt's
+    WORDING, which must be true under every fallback: if the turn-time probe
+    later says the model has no tools, a date line naming ``current_time``
+    would be false. The tool stays registered and seeded either way. Never raises.
     """
     try:
         if registry is None:
@@ -45,8 +48,8 @@ async def time_tool_available(registry: Any, llm: Any) -> bool:
             return bool(
                 await asyncio.wait_for(llm.supports_tools(), timeout=SUPPORTS_TOOLS_TIMEOUT_S)
             )
-        except Exception:  # noqa: BLE001 - fail open, including TimeoutError
-            return True
+        except Exception:  # noqa: BLE001 - fail closed (wording), including TimeoutError
+            return False
     except Exception:  # noqa: BLE001 - the helper never raises
         return False
 

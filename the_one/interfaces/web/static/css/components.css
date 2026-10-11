@@ -652,9 +652,6 @@
     white-space: nowrap;
     border: 0;
   }
-  .ui-list-pane-body[hidden],
-  .ui-list-pane-group[hidden],
-  .ui-list-pane-empty[hidden] { display: none; }
   /* The section 3 group label, shared with App.ui.navGroups. */
   .ui-list-pane-caption,
   .ui-nav-groups-caption {
@@ -951,7 +948,6 @@
     flex-direction: column;
     gap: 2px;
   }
-  .ui-menu[hidden] { display: none; }
   .ui-menu:focus { outline: none; }
   .ui-menu-align-start { left: 0; }
   .ui-menu-align-end { right: 0; }
@@ -1000,8 +996,6 @@
     flex-direction: column;
     gap: 2px;
   }
-  .ui-search-list-listbox[hidden],
-  .ui-search-list-empty[hidden] { display: none; }
   .ui-search-list-group { display: flex; flex-direction: column; gap: 2px; }
   .ui-search-list-caption {
     padding: var(--space-3) 12px var(--space-1);
@@ -1292,7 +1286,6 @@
     flex: 1;
     overflow-y: auto;
   }
-  .tabpanel[hidden] { display: none; }
 
   /* === Editor header (canonical entity-name + description block) === */
   /* Used above the agent editor's tablist (F5 leg 03) and any future
@@ -1541,7 +1534,6 @@
     background: linear-gradient(to right, var(--accent-translucent), transparent);
     color: var(--accent);
   }
-  .banner[hidden] { display: none; }
 
   /* Legacy class .action-blocked-message — retained so existing JS query
      selectors (provider-editor.js:379) keep working. Compose .banner +
@@ -1836,9 +1828,6 @@
     border-left: 1px solid var(--border);
     color: var(--fg);
   }
-  .ui-drawer[hidden],
-  .ui-drawer-header[hidden],
-  .ui-drawer-footer[hidden] { display: none; }
   .ui-drawer--overlay {
     position: absolute;
     top: 0;
