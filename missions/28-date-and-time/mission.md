@@ -1,6 +1,6 @@
 # Mission: Agents Know the Date and Time
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
