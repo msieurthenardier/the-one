@@ -1,6 +1,6 @@
 # Flight: The Date and Time Page
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Agents Know the Date and Time](../../mission.md)
 
 ## Contributing to Criteria
