@@ -142,6 +142,16 @@ teardown can wedge on orphaned tasks; `--timeout` prevents single-test hangs
 from eating the whole budget. Scope iterations to the test file(s) you're
 changing; run the broader suite once at leg-end.
 
+A bare browser test file path (`tests/browser/<file>`) needs `-m browser` passed
+through to `scripts/run-tests.sh`; without it the `addopts` marker filter deselects
+every test and nothing is verified. On this WSL host every browser run and gate also
+needs `THE_ONE_TEST_NETNS=1` (Mission 28 finding: without it the gate shows scattered
+`wait_settled` timeouts).
+
+Gate-flake triage: re-run any failure in isolation; a known squawk flake that passes
+in isolation is recorded and accepted; anything else is a regression until an
+isolated re-run clears it.
+
 A change under `the_one/interfaces/web/static/` must also run the static JS/CSS
 guards — `tests/test_ui_guards.py`, `tests/test_token_definitions.py` and
 `tests/test_design_tokens_a11y.py` — not only a browser lane (squawk 0106).
@@ -178,6 +188,11 @@ implemented in this flight. Evaluate against:
    (`tests/test_ui_guards.py`, `tests/test_token_definitions.py`,
    `tests/test_design_tokens_a11y.py`) were run and pass (squawk 0106).
 5. Artifacts — flight log updated for every leg, leg statuses correct
+
+When running browser tests yourself, pass `-m browser` with a bare browser file
+path to `scripts/run-tests.sh` (else every test is deselected and nothing is
+verified), and on this WSL host set `THE_ONE_TEST_NETNS=1` for every browser run and
+gate (Mission 28 finding).
 
 Signal [HANDOFF:confirmed] if all changes are satisfactory.
 If issues found, list them with severity (blocking/non-blocking) and specific

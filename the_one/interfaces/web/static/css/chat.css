@@ -38,7 +38,6 @@
   /* Chrome wraps the header, the new-chat state, the messages and the
      composer; toggled with the welcome via `hidden`. */
   .area-chat .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
-  .area-chat .chat-chrome[hidden] { display: none; }
   /* M25 F4 L4b (reference spec 5.2): the chat header. 48px (the board's
      --topbar-h, which the app does not define), a hairline under it, the
      title an h1 (the page's one h1 while a chat is open) at 13px/600 with
@@ -55,7 +54,6 @@
     border-bottom: 1px solid var(--border);
     min-width: 0;
   }
-  .area-chat .chat-header[hidden] { display: none; }
   .area-chat .chat-header-title {
     margin: 0;
     min-width: 0;
@@ -79,7 +77,6 @@
      renders it unsquared at 42x32). The ghost button's display would defeat
      [hidden] (no chat view, no toggle). */
   .area-chat .chat-header .chat-drawer-toggle { margin-left: auto; flex-shrink: 0; }
-  .area-chat .chat-header .chat-drawer-toggle[hidden] { display: none; }
   /* Below 1280px the open drawer overlays the chat pane from the top (z-index
      10), header included, and the reference draws no close control inside
      it: the toggle stays ABOVE the overlay, so a pointer user can always
@@ -107,7 +104,6 @@
     min-width: 0;
     flex: 1 1 auto;
   }
-  .chat-drawer-head [hidden] { display: none; }
   .chat-drawer-name {
     margin: 0;
     min-width: 0;
@@ -254,8 +250,6 @@
     justify-content: center;
     padding: 24px;
   }
-  .area-chat .chat-new-state[hidden],
-  .area-chat .chat-new-state [hidden] { display: none; }
   .area-chat .chat-new-state-inner {
     width: 100%;
     max-width: 480px;
@@ -586,7 +580,6 @@
      the wrapper's own 24px side padding is that inset, so the readout's right
      edge still sits 24px from the pane's. */
   .area-chat .composer-telemetry { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-  .area-chat .composer-telemetry[hidden] { display: none; }
   .area-chat .chat-attachments { flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
   /* The box (5.5). Its textarea has `outline: none`, so the focus indicator
      moves here (A25): the app's pinned ring on :focus-within, shown while the
@@ -650,7 +643,6 @@
      pinned-focus via the primitive. Re-assert [hidden] because the
      primitive's display:inline-flex overrides the UA [hidden]{display:none} —
      the JS toggles `hidden` via isCurrentBusy(). */
-  .area-chat .composer-toolbar .btn-muted-destructive[hidden] { display: none; }
   /* F09-04: pending-queued chip — a CLIENT-HELD message waiting for the
      running turn to finish (it is NOT sent to the backend until the prior
      turn's `done`). Pinned in its own region directly above the composer box
@@ -659,7 +651,6 @@
      telemetry readout is in the flow since M25 F4 L5, so the region no longer
      needs to stack above it. */
   .area-chat .pending-queued-region { margin: 0 0 8px; }
-  .area-chat .pending-queued-region[hidden] { display: none; }
   .area-chat .pending-queued-chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-radius: 8px; border: 1px dashed var(--border); background: var(--surface-elevated); color: var(--fg-muted); opacity: 0.95; }
   .area-chat .pending-queued-chip .pending-queued-label { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); flex-shrink: 0; }
   .area-chat .pending-queued-chip .pending-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
@@ -669,7 +660,6 @@
 
   /* === Chat Area: Welcome canvas === */
   .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }
-  .area-chat .chat-welcome[hidden] { display: none; }
   .area-chat .chat-welcome-inner { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
   .area-chat .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
   .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
@@ -677,7 +667,6 @@
      retired agent list (.chat-welcome-list, .chat-welcome-item) took its
      rules with it; the agent picker replaces it. */
   .area-chat .chat-welcome-actions { display: flex; }
-  .area-chat .chat-welcome-actions[hidden] { display: none; }
   /* Setup-incomplete guidance line — inline links deep-link to Settings / Studio. */
   .area-chat .chat-welcome-guidance { margin: 0; padding: 4px 0; color: var(--fg-secondary); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s ease; }

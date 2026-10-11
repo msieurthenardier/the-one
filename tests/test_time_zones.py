@@ -296,6 +296,13 @@ class TestZoneLinks:
         assert tz.canonical_name(5) is None
 
 
+class TestSingleParse:
+    def test_views_share_one_parse(self) -> None:
+        tz._parse_tzdata_zi.cache_clear()
+        tz.canonical_zones(), tz.zone_names(), tz.zone_links()
+        assert tz._parse_tzdata_zi.cache_info().misses == 1
+
+
 class TestZoneRows:
     def test_kolkata_row(self) -> None:
         rows = {r["zone"]: r for r in tz.zone_rows(NOW)}
@@ -306,6 +313,12 @@ class TestZoneRows:
             "offset": "UTC+05:30",
             "abbreviation": "IST",
         }
+
+    def test_numeric_abbreviations_are_empty(self) -> None:
+        rows = {r["zone"]: r for r in tz.zone_rows(NOW)}
+        assert rows["Pacific/Kiritimati"]["abbreviation"] == ""
+        assert rows["Asia/Kathmandu"]["abbreviation"] == ""
+        assert rows["Asia/Kolkata"]["abbreviation"] == "IST"
 
     def test_exclusions_and_utc(self) -> None:
         rows = {r["zone"]: r for r in tz.zone_rows(NOW)}

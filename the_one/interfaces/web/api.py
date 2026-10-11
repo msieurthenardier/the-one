@@ -117,6 +117,18 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/api")
 
+
+async def _read_json(request: Request) -> Any:
+    """Parse the request body as JSON; a malformed body is a 422, never a 500.
+
+    The detail is one plain sentence and never echoes the body.
+    """
+    try:
+        return await request.json()
+    except ValueError:  # json.JSONDecodeError and UnicodeDecodeError both subclass it
+        raise HTTPException(status_code=422, detail="Request body is not valid JSON.") from None
+
+
 logger = logging.getLogger(__name__)
 """Module-level logger.
 
@@ -591,7 +603,7 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     cls = _TOOL_CLASSES.get(name)
     if cls is None:
         raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
-    data = await request.json()
+    data = await _read_json(request)
     repo = await _tool_config_repo()
     try:
         existing = await repo.get(name)
@@ -853,7 +865,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     """
     from the_one.agent.config import AgentConfig
 
-    data = await request.json()
+    data = await _read_json(request)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -910,7 +922,7 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         existing = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    data = await request.json()
+    data = await _read_json(request)
     data["name"] = name  # Ensure name matches path
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
@@ -996,7 +1008,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     """
     from the_one.agent.config import AgentConfig
 
-    data = await request.json()
+    data = await _read_json(request)
     new_name = (data.get("new_name") or "").strip()
     if not new_name:
         raise HTTPException(status_code=422, detail="new_name is required")
@@ -1746,7 +1758,7 @@ async def get_knowledge_base(kb_id: str) -> dict[str, Any]:
 
 @router.post("/knowledge-bases", status_code=201)
 async def create_knowledge_base(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
@@ -1770,7 +1782,7 @@ async def create_knowledge_base(request: Request) -> dict[str, Any]:
 
 @router.put("/knowledge-bases/{kb_id}")
 async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     data["id"] = kb_id
     repo = await _kb_repo()
     try:
@@ -1930,7 +1942,7 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
 
-    data = await request.json()
+    data = await _read_json(request)
     data["kb_id"] = kb_id
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
@@ -2418,7 +2430,8 @@ async def _time_settings_response(setting: time_zones.TimeZoneSetting) -> dict[s
             "canonical": time_zones.canonical_name(eff.key),
             "label": time_zones.zone_label(eff, local),
             "offset": time_zones.offset_label(local),
-            "abbreviation": local.tzname() or "",
+            "offset_minutes": time_zones.offset_minutes(now, eff),
+            "abbreviation": time_zones.abbreviation(local),
         },
         "tool_enabled": tool_enabled,
         "preview": {
@@ -2510,7 +2523,7 @@ async def get_knowledge_settings() -> dict[str, Any]:
 
 @router.put("/knowledge-settings")
 async def update_knowledge_settings(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if not isinstance(data, dict) or set(data) - {"embedding", "chunking", "monitoring"}:
         raise HTTPException(
             status_code=422,
@@ -2947,7 +2960,7 @@ async def get_mcp_source(source_id: str) -> dict[str, Any]:
 
 @router.post("/mcp-sources", status_code=201)
 async def create_mcp_source(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
@@ -2992,7 +3005,7 @@ def _reject_reserved_surface_name(source: MCPSource) -> None:
 
 @router.put("/mcp-sources/{source_id}")
 async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     data["id"] = source_id
     repo = await _mcp_repo()
     try:
@@ -3898,7 +3911,7 @@ async def get_connector(connector_id: str) -> dict[str, Any]:
 
 @router.post("/connectors", status_code=201)
 async def create_connector(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     # Edge Case: a masked sentinel on CREATE is rejected — there is no
@@ -3936,7 +3949,7 @@ async def create_connector(request: Request) -> dict[str, Any]:
 
 @router.put("/connectors/{connector_id}")
 async def update_connector(connector_id: str, request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     data["id"] = connector_id
     repo = await _connector_repo()
     try:
@@ -4129,7 +4142,7 @@ async def stub_test_inbound(request: Request) -> dict[str, Any]:
         )
     from the_one.connectors.stub import StubPlugin
 
-    body = await request.json()
+    body = await _read_json(request)
     envelope = InboundEnvelope(
         platform="stub",
         connector_id=body["connector_id"],
@@ -4202,7 +4215,7 @@ async def discord_test_sever(request: Request) -> dict[str, Any]:
             status_code=403,
             detail="test-seam endpoint requires dev_mode + THE_ONE_DISCORD_TEST_ENDPOINT=1",
         )
-    body = await request.json()
+    body = await _read_json(request)
     connector_id = body["connector_id"]
 
     repo = await _connector_repo()
@@ -4585,7 +4598,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     from the_one.mcp._pool import _evict_all_for_source
     from the_one.mcp.oauth import build_oauth_provider_for_source
 
-    data = await request.json()
+    data = await _read_json(request)
     source_id = data.get("source_id")
     chat_session_id = data.get("chat_session_id")
     tool_call_id = data.get("tool_call_id")
@@ -4699,7 +4712,7 @@ async def get_chat_session(session_id: str) -> dict[str, Any]:
 
 @router.post("/chat/sessions", status_code=201)
 async def create_chat_session(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
@@ -4714,7 +4727,7 @@ async def create_chat_session(request: Request) -> dict[str, Any]:
 
 @router.put("/chat/sessions/{session_id}")
 async def update_chat_session(session_id: str, request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     data["id"] = session_id
     repo = await _chat_repo()
     try:
@@ -5028,7 +5041,7 @@ async def get_provider(provider_id: str) -> dict[str, Any]:
 
 @router.post("/providers", status_code=201)
 async def create_provider(request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     if data.get("type") == "mock" and not settings.dev_mode:
         raise HTTPException(
             status_code=400,
@@ -5059,7 +5072,7 @@ async def create_provider(request: Request) -> dict[str, Any]:
 
 @router.put("/providers/{provider_id}")
 async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
-    data = await request.json()
+    data = await _read_json(request)
     data["id"] = provider_id
     repo = await _provider_repo()
     try:
@@ -5221,7 +5234,7 @@ async def submit_provider_oauth_code(provider_id: str, request: Request) -> dict
     # the delete handler; popping again here is harmless).
     await _get_plan_provider_or_raise(provider_id)
 
-    data = await request.json()
+    data = await _read_json(request)
     pasted = data.get("code") if isinstance(data, dict) else None
     if not isinstance(pasted, str) or not pasted.strip():
         raise HTTPException(status_code=422, detail="Body must include a non-empty 'code'.")
@@ -5607,7 +5620,7 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
 @router.post("/providers/{provider_id}/models/pull")
 async def pull_model(provider_id: str, request: Request) -> StreamingResponse:
     base_url = await _get_ollama_base_url(provider_id)
-    data = await request.json()
+    data = await _read_json(request)
     model = data.get("model", "").strip()
     if not model:
         raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
@@ -5625,7 +5638,7 @@ async def pull_model(provider_id: str, request: Request) -> StreamingResponse:
 @router.post("/providers/{provider_id}/models/delete")
 async def delete_model(provider_id: str, request: Request) -> dict[str, str]:
     base_url = await _get_ollama_base_url(provider_id)
-    data = await request.json()
+    data = await _read_json(request)
     model = data.get("model", "").strip()
     if not model:
         raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
@@ -5639,7 +5652,7 @@ async def delete_model(provider_id: str, request: Request) -> dict[str, str]:
 @router.post("/providers/{provider_id}/models/load")
 async def load_model(provider_id: str, request: Request) -> dict[str, str]:
     base_url = await _get_ollama_base_url(provider_id)
-    data = await request.json()
+    data = await _read_json(request)
     model = data.get("model", "").strip()
     if not model:
         raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
@@ -5665,7 +5678,7 @@ async def load_model(provider_id: str, request: Request) -> dict[str, str]:
 @router.post("/providers/{provider_id}/models/unload")
 async def unload_model(provider_id: str, request: Request) -> dict[str, str]:
     base_url = await _get_ollama_base_url(provider_id)
-    data = await request.json()
+    data = await _read_json(request)
     model = data.get("model", "").strip()
     if not model:
         raise HTTPException(status_code=400, detail="Missing or empty 'model' field")

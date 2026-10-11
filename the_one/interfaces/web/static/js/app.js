@@ -207,7 +207,7 @@
         if (!r.ok) throw new Error('time-settings ' + r.status);
         return r.json();
       })
-      .then(function (s) { App.time.setZone(App.time.zoneFromSettings(s)); })
+      .then(function (s) { App.time.applySettings(s); })
       .catch(function () { /* keep the browser-local zone */ });
     var bootTimer = null;
     var settingsOrTimeout = Promise.race([

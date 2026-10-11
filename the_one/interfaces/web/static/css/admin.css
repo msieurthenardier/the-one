@@ -676,7 +676,6 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .area-admin .tool-test-output[hidden] { display: none; }
 
   /* F6 HAT addition — editable Test-input field paired with the Test
      connection button. Pre-filled with the per-tool default fixture
@@ -725,7 +724,6 @@
     color: var(--status-danger);
     font-size: var(--font-size-body-sm);
   }
-  .area-admin .editor-error-banner[hidden] { display: none; }
   .area-admin .editor-error-banner svg {
     flex-shrink: 0;
     width: 16px;
@@ -918,5 +916,4 @@
   }
   .area-admin .date-time-page .date-time-note { margin: var(--space-4) 0 0; }
   /* Last, so no display rule above can show a hidden node. */
-  .area-admin .date-time-page [hidden] { display: none; }
 }

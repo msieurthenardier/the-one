@@ -1,6 +1,6 @@
 # Squawk 0172: Lift the `tzdata<2026.5` cap
 
-**Status**: open
+**Status**: deferred
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-11
@@ -21,3 +21,9 @@ Logged from the Mission 28 flight debriefs.
 
 ## Sign-Off
 *(written at completion)*
+
+## Disposition
+**Deferred**: the cap exists because tzdata 2026.5 (uploaded 2026-10-03) was
+under the 14-day soak window. It is still under it on 2026-10-11. Revisit
+**on or after 2026-10-17**: remove the `<2026.5` bound, re-lock, check that
+`the-one doctor` reports `time zones: OK`, and complete this squawk.

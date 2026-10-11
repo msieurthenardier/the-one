@@ -54,6 +54,7 @@ class TestGet:
             "canonical": "America/Los_Angeles",
             "label": "America/Los_Angeles",
             "offset": "UTC-07:00",
+            "offset_minutes": -420,
             "abbreviation": "PDT",
         }
         assert body["tool_enabled"] is True
@@ -162,6 +163,15 @@ class TestZones:
         rows = {r["zone"]: r for r in body["zones"]}
         assert rows["Asia/Kolkata"]["offset"] == "UTC+05:30"
         assert rows["America/Los_Angeles"]["abbreviation"] == "PDT"
+        assert rows["Pacific/Kiritimati"]["abbreviation"] == ""
+        assert rows["Asia/Kathmandu"]["abbreviation"] == ""
+
+    async def test_effective_numeric_abbreviation_is_empty(self, client: AsyncClient) -> None:
+        r = await client.put(
+            "/api/time-settings", json={"mode": "zone", "zone": "Pacific/Kiritimati"}
+        )
+        assert r.status_code == 200
+        assert r.json()["effective"]["abbreviation"] == ""
 
 
 class TestCanonical:
@@ -179,6 +189,27 @@ class TestCanonical:
         monkeypatch.setattr(time_zones, "detect_system_zone", lambda: None)
         eff = (await client.get("/api/time-settings")).json()["effective"]
         assert eff["zone"] is None and eff["canonical"] is None
+
+    async def test_offset_minutes_positive_half_hour(self, client: AsyncClient) -> None:
+        await client.put("/api/time-settings", json={"mode": "zone", "zone": "Asia/Kolkata"})
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["offset_minutes"] == 330 and eff["offset"] == "UTC+05:30"
+
+    async def test_offset_minutes_negative(self, client: AsyncClient) -> None:
+        await client.put("/api/time-settings", json={"mode": "zone", "zone": "America/Denver"})
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["offset_minutes"] == -360 and eff["offset"] == "UTC-06:00"
+
+    async def test_offset_minutes_unnamed_system_zone(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(time_zones, "detect_system_zone", lambda: None)
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["zone"] is None
+        assert isinstance(eff["offset_minutes"], int)
+        sign = -1 if eff["offset"].startswith("UTC-") else 1
+        hh, mm = eff["offset"][4:].split(":")
+        assert eff["offset_minutes"] == sign * (int(hh) * 60 + int(mm))
 
     async def test_system_zone_detected_as_alias(self, client: AsyncClient, monkeypatch) -> None:
         monkeypatch.setattr(time_zones, "detect_system_zone", lambda: "Asia/Calcutta")

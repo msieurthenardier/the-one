@@ -1,10 +1,10 @@
 # Squawk 0171: `test_store.py` prime-supersedes test is timing-sensitive under parallel load
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-11
-**Completed**: —
+**Completed**: 2026-10-11
 
 ## Report
 `tests/browser/test_store.py::test_prime_supersedes_a_racing_older_get`
@@ -23,12 +23,15 @@ before the handler fires. It passed in isolation and in 3 whole-file runs
   `() => true`.
 
 ## Corrective Action
-*(written at completion)*
+Test-only fix in `tests/browser/test_store.py::test_prime_supersedes_a_racing_older_get`: replaced `page.wait_for_function("() => true")` with a bounded poll (100 x 50 ms, `page.wait_for_timeout`) on `held` until the route handler has captured the request, before `assert len(held) == 1`. No product change.
 
 ## Verification
+`tests/browser/test_store.py` run 5 times via `run-tests.sh -m browser` (THE_ONE_TEST_NETNS=1): 21 passed each time. `--lane routing`: 182 passed; `--lane shared`: 249 passed.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet), batch review of the 2026-10-11 squawk turnaround
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-10-11` commit on `squawk/turnaround-2026-10-11`. The final gate passed: unit 5946 passed and 14 skipped; `PARALLEL_RESULT rc=0 total=977s lanes=8 failed=-`, every lane within budget.
 
 ## Disposition
 **Deferred**: a test-only timing fix, outside Mission 28's scope. Revisit

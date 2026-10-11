@@ -30,7 +30,21 @@
     };
   }
 
-  function setZone(k) {
+  // The fixed-offset key ("+05:30") for whole minutes east of UTC, or null if not an integer.
+  function offsetKey(minutes) {
+    if (typeof minutes !== 'number' || !isFinite(minutes) || Math.floor(minutes) !== minutes) {
+      return null;
+    }
+    var abs = Math.abs(minutes);
+    var hh = Math.floor(abs / 60);
+    var mm = abs % 60;
+    return (minutes < 0 ? '-' : '+') + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+
+  // setZone(key[, fallbackOffsetMinutes]): when the engine's Intl rejects an IANA key and the
+  // server's fixed offset is known, the zone becomes that offset key (so the app still agrees
+  // with the server); with no fallback it falls back to the browser zone, as before.
+  function setZone(k, fallbackOffsetMinutes) {
     var next = (typeof k === 'string' && k) ? k : null;
     var nextFmt = null;
     var nextOffset = null;
@@ -40,31 +54,57 @@
         nextFmt = b.fmt;
         nextOffset = b.offsetMs;
       } catch (e) {
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn('App.time: unknown time zone "' + next + '"; using the browser zone');
+        var fb = offsetKey(fallbackOffsetMinutes);
+        var fbBuilt = null;
+        if (fb) {
+          try { fbBuilt = build(fb); } catch (e3) { fbBuilt = null; }
         }
-        next = null;
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('App.time: unknown time zone "' + next + '"; using ' +
+            (fbBuilt ? 'the server offset ' + fb : 'the browser zone'));
+        }
+        if (fbBuilt) {
+          next = fb;
+          nextFmt = fbBuilt.fmt;
+          nextOffset = fbBuilt.offsetMs;
+        } else {
+          next = null;
+        }
       }
     }
     if (next === key) return;
     key = next;
     fmt = nextFmt;
     offsetMs = nextOffset;
+    prune();
     var fns = listeners.slice();
     for (var i = 0; i < fns.length; i++) {
-      try { fns[i](key); } catch (e2) { /* a listener must not break the others */ }
+      try { fns[i].fn(key); } catch (e2) { /* a listener must not break the others */ }
     }
   }
 
   function zone() { return key; }
 
-  function onChange(fn) {
-    listeners.push(fn);
+  // Drop listeners whose owner element has left the page.
+  function prune() {
+    listeners = listeners.filter(function (l) { return !l.owner || l.owner.isConnected; });
+  }
+
+  // onChange(fn[, ownerEl]) returns an unsubscribe. With an owner element the listener is
+  // also dropped automatically once the owner is no longer connected: every subscribe and
+  // every zone change prunes, so a view with no teardown hook cannot accumulate listeners.
+  function onChange(fn, owner) {
+    prune();
+    var entry = { fn: fn, owner: owner || null };
+    listeners.push(entry);
     return function () {
-      var i = listeners.indexOf(fn);
+      var i = listeners.indexOf(entry);
       if (i >= 0) listeners.splice(i, 1);
     };
   }
+
+  // Test-only read: the number of live listeners.
+  function listenerCount() { return listeners.length; }
 
   // {year, month (0-11), day, weekday (0-6, Sunday 0), hour (0-23), minute} in the zone.
   function parts(d) {
@@ -108,30 +148,66 @@
     return Date.UTC(p.year, p.month, p.day) / 86400000;
   }
 
+  // The server's fixed offset in whole minutes from a GET /api/time-settings body: the machine
+  // field effective.offset_minutes, or (an older server without it) the "UTC+05:30" label.
+  function offsetMinutesFromSettings(s) {
+    try {
+      var e = s && s.effective;
+      if (!e || typeof e !== 'object') return null;
+      if (typeof e.offset_minutes === 'number' && isFinite(e.offset_minutes) &&
+          Math.floor(e.offset_minutes) === e.offset_minutes) {
+        return e.offset_minutes;
+      }
+      var m = typeof e.offset === 'string' && /^UTC([+-])(\d{2}):(\d{2})$/.exec(e.offset);
+      if (!m) return null;
+      return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Apply a GET/PUT /api/time-settings body: the zone, with the server offset as the fallback
+  // for an engine that rejects the zone name.
+  function applySettings(s) {
+    setZone(zoneFromSettings(s), offsetMinutesFromSettings(s));
+  }
+
   // The zone key from a GET /api/time-settings body. Prefers the canonical name, so it can
-  // differ from a stored alias; an unnamed system zone with a "UTC+05:30" offset gives
-  // "+05:30"; anything else (or a malformed body) gives null.
+  // differ from a stored alias; an unnamed system zone gives its fixed-offset key ("+05:30",
+  // from effective.offset_minutes); anything else (or a malformed body) gives null.
   function zoneFromSettings(s) {
     try {
       var e = s && s.effective;
       if (!e || typeof e !== 'object') return null;
       if (typeof e.canonical === 'string' && e.canonical) return e.canonical;
       if (typeof e.zone === 'string' && e.zone) return e.zone;
-      var m = typeof e.offset === 'string' && /^UTC([+-]\d{2}:\d{2})$/.exec(e.offset);
-      return m ? m[1] : null;
+      return offsetKey(offsetMinutesFromSettings(s));
     } catch (err) {
+      return null;
+    }
+  }
+
+  // The browser's own IANA zone, or null (the only place Intl is read bare).
+  function browserZone() {
+    try {
+      var z = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return typeof z === 'string' && z ? z : null;
+    } catch (e) {
       return null;
     }
   }
 
   window.App = window.App || {};
   window.App.time = {
+    browserZone: browserZone,
     setZone: setZone,
     zone: zone,
     parts: parts,
     formatClock: formatClock,
     dayNumber: dayNumber,
     onChange: onChange,
-    zoneFromSettings: zoneFromSettings
+    _listenerCount: listenerCount,
+    zoneFromSettings: zoneFromSettings,
+    applySettings: applySettings
   };
 })();

@@ -74,6 +74,19 @@ def test_whitelist_exempt_matches_the_server_constant() -> None:
     assert sorted(re.findall(r"'([a-z_]+)'", m.group(1))) == sorted(WHITELIST_EXEMPT_TOOLS)
 
 
+def test_ungated_prefixes_match_the_server_constant() -> None:
+    from the_one.agent.config import UNGATED_TOOL_PREFIXES
+
+    m = re.search(r"var ungatedPrefixes = Object\.freeze\(\[([^\]]*)\]\)", TABLE_JS.read_text())
+    assert m, "ungatedPrefixes not found in tool-categories.js"
+    assert sorted(re.findall(r"'([a-z_]+)'", m.group(1))) == sorted(UNGATED_TOOL_PREFIXES)
+
+
+def test_no_client_literal_copies_of_the_ungated_prefixes() -> None:
+    for rel in ("areas/studio.js", "areas/chat/agent-drawer.js"):
+        assert "'mcp__', 'kb__'" not in (TABLE_JS.parent / rel).read_text(), rel
+
+
 def test_the_guard_catches_a_missing_and_a_stale_tool() -> None:
     """Falsification of the completeness guard: a table missing a built-in, or
     naming a non-built-in, is caught (so a green run means a complete table)."""

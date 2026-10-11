@@ -474,9 +474,9 @@ async def test_time_tool_available_matrix(monkeypatch) -> None:
     assert absent.calls == 0
     assert await time_tool_available(_reg(), _LLM(True)) is True
     assert await time_tool_available(_reg(), _LLM(False)) is False
-    assert await time_tool_available(_reg(), _LLM("raise")) is True
-    assert await time_tool_available(_reg(), _LLM("hang")) is True
-    assert await time_tool_available(_reg(), None) is True
+    assert await time_tool_available(_reg(), _LLM("raise")) is False
+    assert await time_tool_available(_reg(), _LLM("hang")) is False
+    assert await time_tool_available(_reg(), None) is False
     assert await time_tool_available(None, _LLM(True)) is False
 
     class Broken:
