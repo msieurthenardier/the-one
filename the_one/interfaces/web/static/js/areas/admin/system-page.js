@@ -71,19 +71,36 @@
     rules.setAttribute('data-testid', 'rules-prompt-content');
     var notes = promptPre();
     notes.setAttribute('data-testid', 'notes-prompt-content');
+    var dateWith = promptPre();
+    dateWith.setAttribute('data-testid', 'date-prompt-content');
+    var dateWithout = promptPre();
+    dateWithout.setAttribute('data-testid', 'date-prompt-content-without-tool');
+    // The Date layer has two wordings; each pre gets a small caption (plain
+    // text, not a .section-title, so the layer-title list stays four).
+    var dateLayer = el('div', { className: 'admin-prompt-layer' }, [
+      el('div', { className: 'section-title', text: 'Date' }),
+      text('Added last to every agent\u2019s prompt, with the date in your time zone. ' +
+        'The first wording is used when the agent has the current_time tool; ' +
+        'the second when it doesn\u2019t.'),
+      text('With the time tool'),
+      dateWith,
+      text('Without it'),
+      dateWithout
+    ]);
     renderPage(container, 'Prompts', null, [
       text('Every agent\u2019s system prompt is assembled from these layers, in this order, ' +
         'separated by ---: the base prompt, the agent\u2019s own system prompt (set on its General tab), ' +
-        'then rules and notes. They are read-only and only change via code releases. ' +
+        'then rules, notes and the date. They are read-only and only change via code releases. ' +
         'The Rules and Notes layers below show placeholder content.'),
       promptLayer('Base prompt', null, base),
       promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.', rules),
-      promptLayer('Notes', 'Added last when the agent keeps notes.', notes)
+      promptLayer('Notes', 'Added after the rules when the agent keeps notes.', notes),
+      dateLayer
     ]);
-    fetchPrompts(base, rules, notes);
+    fetchPrompts(base, rules, notes, dateWith, dateWithout);
   }
 
-  function fetchPrompts(baseEl, rulesEl, notesEl) {
+  function fetchPrompts(baseEl, rulesEl, notesEl, dateWithEl, dateWithoutEl) {
     function fill(pre, value, fallback) {
       pre.textContent = typeof value === 'string' ? value : fallback;
     }
@@ -93,9 +110,13 @@
         fill(baseEl, data.base_prompt, '(base prompt unavailable)');
         fill(rulesEl, data.rules_prompt_example, '(unavailable)');
         fill(notesEl, data.notes_prompt_example, '(unavailable)');
+        fill(dateWithEl, data.date_prompt_example, '(unavailable)');
+        fill(dateWithoutEl, data.date_prompt_example_without_tool, '(unavailable)');
       })
       .catch(function () {
-        [baseEl, rulesEl, notesEl].forEach(function (p) { p.textContent = '(failed to load)'; });
+        [baseEl, rulesEl, notesEl, dateWithEl, dateWithoutEl].forEach(function (p) {
+          p.textContent = '(failed to load)';
+        });
       });
   }
 

@@ -346,7 +346,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     _open_pending(page, base, agent, 1440, 900)
     expect(page.locator(USES).locator("h3")).to_have_text("What it can use")
     expect(_group(page, "self-configuration").locator("p")).to_have_text("On", timeout=8000)
-    expect(_group(page, "tools").locator("li")).to_have_count(4, timeout=8000)
+    expect(_group(page, "tools").locator("li")).to_have_count(5, timeout=8000)
     assert _group_items(page, "knowledge") == ["Team wiki"]
     assert _group_items(page, "mcp") == ["Cold server", "GitHub 12 tools"]
     assert _group_items(page, "tools") == [
@@ -354,6 +354,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
         "Execution 4 of 6",  # shell and python_exec are off for this agent
         "Web 3 of 4",  # web_search
         "Connectors 3 of 3",  # find_platform_destination included (AC9)
+        "Time 1 of 1",  # current_time (M28)
     ]
     labels = page.locator(f"{USES} h4").all_inner_texts()
     assert labels == [
@@ -372,8 +373,9 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     expect(_group(page, "self-configuration").locator("p")).to_have_text("Off", timeout=8000)
     expect(_group(page, "knowledge").locator("p")).to_have_text("None")
     expect(_group(page, "mcp").locator("p")).to_have_text("None")
-    expect(_group(page, "tools").locator("li")).to_have_count(1)
-    assert _group_items(page, "tools") == ["Filesystem 1 of 9"]
+    expect(_group(page, "tools").locator("li")).to_have_count(2)
+    # current_time is exempt from the whitelist (M28), so it stays.
+    assert _group_items(page, "tools") == ["Filesystem 1 of 9", "Time 1 of 1"]
 
 
 def test_a_failed_load_shows_couldnt_load_for_that_group_only(
@@ -406,7 +408,7 @@ def test_one_tools_fetch_per_open(app_with_agent: SeededApp, page: Page) -> None
     )
     _open_pending(page, app_with_agent.base_url, app_with_agent.agent_name, 1440, 900)
     expect(_group(page, "self-configuration").locator("p")).to_have_text("Off", timeout=8000)
-    expect(_group(page, "tools").locator("li")).to_have_count(4)
+    expect(_group(page, "tools").locator("li")).to_have_count(5)
     page.wait_for_timeout(300)
     assert len(seen) == 2, seen
     page.evaluate("() => App.store.prime('sessions', App.store.peek('sessions').value || [])")
@@ -430,11 +432,15 @@ def test_client_is_tool_enabled_matches_agent_config(app_with_agent: SeededApp, 
         {"enabled_tools": [], "disabled_tools": []},
         {"enabled_tools": ["read_file", "shell"], "disabled_tools": ["shell"]},
         {"enabled_tools": ["read_file"], "disabled_tools": ["kb__wiki__search"]},
+        {"enabled_tools": ["read_file"], "disabled_tools": []},
+        {"enabled_tools": None, "disabled_tools": ["current_time"]},
+        {"enabled_tools": ["read_file"], "disabled_tools": ["current_time"]},
     ]
     names = [
         "read_file",
         "shell",
         "web_search",
+        "current_time",
         "mcp__gh__issues",
         "kb__wiki__search",
         "kb__other__search",
@@ -1022,3 +1028,15 @@ def test_notes_group_empty_404_and_error(notes_app: tuple[SeededApp, Path], page
     page.reload()
     _chats.start_chat(page, agent)
     expect(_group(page, "notes").locator("p")).to_have_text("Couldn't load", timeout=8000)
+
+
+def test_a_globally_disabled_current_time_has_no_time_line(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    base = app_with_provider.base_url
+    seed_tool_config(base, "current_time", enabled=False)
+    agent = _agent(base, {"name": "Clockless", "provider_config_id": app_with_provider.provider_id})
+    _open_pending(page, base, agent, 1440, 900)
+    expect(_group(page, "tools").locator("li").first).to_be_visible(timeout=8000)
+    items = _group_items(page, "tools")
+    assert not any(i.startswith("Time") for i in items), items

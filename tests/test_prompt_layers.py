@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from conftest import FakeLLM
+from conftest import FakeLLM, expected_date_layer
 
 from tests._schema_template import connect_template_db
 from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT, AgentConfig, compose_system_prompt
@@ -134,7 +134,7 @@ async def test_reorder_requires_exact_permutation_and_is_atomic(repo) -> None:
 # ── build_system_prompt ──────────────────────────────────────────────────
 
 
-async def test_build_uses_only_enabled_rules_in_position_order(conn, repo) -> None:
+async def test_build_uses_only_enabled_rules_in_position_order(conn, repo, frozen_clock) -> None:
     first = await repo.create("alpha", "First.")
     await repo.create("alpha", "Off.", enabled=False)
     await repo.create("alpha", "Last.")
@@ -142,23 +142,29 @@ async def test_build_uses_only_enabled_rules_in_position_order(conn, repo) -> No
 
     out = await build_system_prompt("alpha", "I am alpha.", conn=conn)
 
-    assert out == compose_system_prompt(BASE_PROMPT, "I am alpha.", rules=["Last.", "First."])
+    assert out == compose_system_prompt(
+        BASE_PROMPT,
+        "I am alpha.",
+        rules=["Last.", "First."],
+        date_line=expected_date_layer(False),
+    )
     assert "Off." not in out
     assert first.text in out
 
 
-async def test_build_without_rows_or_rules_is_base_plus_persona(conn) -> None:
+async def test_build_without_rows_or_rules_is_base_plus_persona(conn, frozen_clock) -> None:
+    date = expected_date_layer(False)
     assert await build_system_prompt("ghost", "P", conn=conn) == compose_system_prompt(
-        BASE_PROMPT, "P"
+        BASE_PROMPT, "P", date_line=date
     )
-    assert await build_system_prompt("alpha", "", conn=conn) == BASE_PROMPT
+    assert await build_system_prompt("alpha", "", conn=conn) == BASE_PROMPT + "\n\n---\n\n" + date
 
 
-async def test_build_defaults_to_the_process_connection(conn, repo) -> None:
+async def test_build_defaults_to_the_process_connection(conn, repo, frozen_clock) -> None:
     await repo.create("alpha", "From the singleton.")
     with patch("the_one.db.connection.get_connection", AsyncMock(return_value=conn)):
         out = await build_system_prompt("alpha", "P")
-    assert out.endswith("1. From the singleton.")
+    assert out.endswith("1. From the singleton.\n\n---\n\n" + expected_date_layer(False))
     assert RULES_HEADING in out
 
 
@@ -184,14 +190,19 @@ async def factory(conn, tmp_path):
         yield AgentFactory(store=store)
 
 
-async def test_factory_build_orders_persona_then_enabled_rules(factory, repo) -> None:
+async def test_factory_build_orders_persona_then_enabled_rules(factory, repo, frozen_clock) -> None:
     await repo.create("alpha", "Rule A.")
     await repo.create("alpha", "Rule off.", enabled=False)
     await repo.create("alpha", "Rule B.")
 
     agent = await factory.create("alpha")
 
-    expected = compose_system_prompt(BASE_PROMPT, "I am alpha.", rules=["Rule A.", "Rule B."])
+    expected = compose_system_prompt(
+        BASE_PROMPT,
+        "I am alpha.",
+        rules=["Rule A.", "Rule B."],
+        date_line=expected_date_layer(True),
+    )
     assert agent.system_prompt == expected
     assert agent.messages[0].content == expected
     assert "Rule off." not in agent.messages[0].content
@@ -275,19 +286,21 @@ async def _notes_on(conn, name="alpha", *texts, untrusted=False):
     return repo
 
 
-async def test_build_notes_off_loads_nothing_even_with_stored_notes(conn) -> None:
+async def test_build_notes_off_loads_nothing_even_with_stored_notes(conn, frozen_clock) -> None:
     repo = await _notes_on(conn, "alpha", "stored")
     await SQLiteAgentStore(conn).set_notes_enabled("alpha", False)
     out = await build_system_prompt("alpha", "P", conn=conn)
-    assert out == compose_system_prompt(BASE_PROMPT, "P")
+    assert out == compose_system_prompt(BASE_PROMPT, "P", date_line=expected_date_layer(False))
     assert "saved_notes" not in out
     assert len(await repo.list_for_agent("alpha")) == 1  # off loses nothing
 
 
-async def test_build_notes_on_empty_and_with_notes(conn) -> None:
+async def test_build_notes_on_empty_and_with_notes(conn, frozen_clock) -> None:
     await _notes_on(conn, "alpha")
     out = await build_system_prompt("alpha", "P", conn=conn)
-    assert out == compose_system_prompt(BASE_PROMPT, "P", notes=[])
+    assert out == compose_system_prompt(
+        BASE_PROMPT, "P", notes=[], date_line=expected_date_layer(False)
+    )
     assert "No saved notes yet." in out
 
     from the_one.agent.config import RenderedNote
@@ -301,6 +314,7 @@ async def test_build_notes_on_empty_and_with_notes(conn) -> None:
         BASE_PROMPT,
         "P",
         notes=[RenderedNote(1, "first", False), RenderedNote(2, "second", True)],
+        date_line=expected_date_layer(False),
     )
     assert "[2] (unverified) second" in out
 
@@ -369,3 +383,174 @@ def test_info_prompt_examples_match_composed_prompt():
     assert data["rules_prompt_example"] in full
     assert data["notes_prompt_example"] in full
     assert "(unverified)" in data["notes_prompt_example"]
+
+
+# ── M28 F1 L2: the date layer and time_tool_available ─────────────────────
+
+from the_one import time_zones as _tz  # noqa: E402
+from the_one.agent import prompt_layers as _pl  # noqa: E402
+from the_one.agent.prompt_layers import time_tool_available  # noqa: E402
+from the_one.db._notes import parse_notes_block  # noqa: E402
+from the_one.tools.base import ToolRegistry  # noqa: E402
+from the_one.tools.time_tool import CurrentTimeTool  # noqa: E402
+
+WITH_TOOL = (
+    "Today is Saturday, October 10, 2026 (America/Los_Angeles). This date is as of when "
+    "this conversation was last loaded. For the current date and time, call current_time."
+)
+WITHOUT_TOOL = (
+    "Today is Saturday, October 10, 2026 (America/Los_Angeles), as of when this "
+    "conversation was last loaded."
+)
+
+
+async def test_date_layer_last_with_exact_wordings(conn, frozen_clock) -> None:
+    await AgentRuleRepository(conn).create("alpha", "Be brief.")
+    on = await build_system_prompt("alpha", "I am alpha.", conn=conn, tool_available=True)
+    off = await build_system_prompt("alpha", "I am alpha.", conn=conn)
+    assert on.endswith("\n\n---\n\n" + WITH_TOOL)
+    assert off.endswith("\n\n---\n\n" + WITHOUT_TOOL)
+    assert "Be brief." in on
+
+
+async def test_date_layer_follows_stored_zone(conn, frozen_clock) -> None:
+    await _tz.save_setting(conn, _tz.TimeZoneSetting(mode="zone", zone="Asia/Kolkata"))
+    out = await build_system_prompt("alpha", "p", conn=conn)
+    assert out.endswith(
+        "Today is Sunday, October 11, 2026 (Asia/Kolkata), as of when this "
+        "conversation was last loaded."
+    )
+
+
+async def test_date_layer_failure_omits_it_and_keeps_rules(
+    conn, frozen_clock, monkeypatch, caplog
+) -> None:
+    await AgentRuleRepository(conn).create("alpha", "Be brief.")
+
+    async def boom(c=None):
+        raise RuntimeError("nope")
+
+    monkeypatch.setattr(_tz, "load_effective_zone", boom)
+    with caplog.at_level("WARNING"):
+        out = await build_system_prompt("alpha", "p", conn=conn)
+    assert "Be brief." in out and "Today is" not in out
+    assert any("date layer" in r.message for r in caplog.records)
+
+
+async def test_notes_block_parses_with_date_layer_after(conn, frozen_clock) -> None:
+    await SQLiteAgentStore(conn).set_notes_enabled("alpha", True)
+    out = await build_system_prompt("alpha", "p", conn=conn, tool_available=True)
+    assert parse_notes_block(out) == {}
+    assert out.endswith(WITH_TOOL)
+
+
+class _LLM:
+    def __init__(self, behaviour):
+        self.behaviour = behaviour
+        self.calls = 0
+
+    async def supports_tools(self):
+        self.calls += 1
+        if self.behaviour == "raise":
+            raise RuntimeError("x")
+        if self.behaviour == "hang":
+            import asyncio
+
+            await asyncio.sleep(10)
+        return self.behaviour
+
+
+def _reg(with_tool=True) -> ToolRegistry:
+    r = ToolRegistry()
+    if with_tool:
+        r.register(CurrentTimeTool())
+    return r
+
+
+async def test_time_tool_available_matrix(monkeypatch) -> None:
+    monkeypatch.setattr(_pl, "SUPPORTS_TOOLS_TIMEOUT_S", 0.05)
+    absent = _LLM(True)
+    assert await time_tool_available(_reg(False), absent) is False
+    assert absent.calls == 0
+    assert await time_tool_available(_reg(), _LLM(True)) is True
+    assert await time_tool_available(_reg(), _LLM(False)) is False
+    assert await time_tool_available(_reg(), _LLM("raise")) is True
+    assert await time_tool_available(_reg(), _LLM("hang")) is True
+    assert await time_tool_available(_reg(), None) is True
+    assert await time_tool_available(None, _LLM(True)) is False
+
+    class Broken:
+        @property
+        def tool_names(self):
+            raise RuntimeError("x")
+
+    assert await time_tool_available(Broken(), _LLM(True)) is False
+
+
+# ── M28 F1 L2: the factory seeds current_time and appends the date layer ──
+
+
+class _NoToolsLLM(FakeLLM):
+    async def supports_tools(self) -> bool:
+        return False
+
+
+async def _save(conn, **kw) -> None:
+    await SQLiteAgentStore(conn).save(AgentConfig(provider_config_id="prov-1", **kw))
+
+
+async def test_default_agent_seeds_current_time_and_ends_with_tool_line(
+    factory, conn, frozen_clock
+) -> None:
+    await _save(conn, name="gamma")
+    agent = await factory.create("gamma")
+    assert "current_time" in agent.tools.tool_names
+    assert "current_time" in {s["name"] for s in agent._loaded_schemas}
+    assert agent.system_prompt.endswith("\n\n---\n\n" + WITH_TOOL)
+
+
+async def test_trimmed_whitelist_keeps_current_time(factory, conn, frozen_clock) -> None:
+    await _save(conn, name="gamma", enabled_tools=["read_file"])
+    agent = await factory.create("gamma")
+    assert "current_time" in agent.tools.tool_names
+    assert "current_time" in {s["name"] for s in agent._loaded_schemas}
+    assert "shell" not in agent.tools.tool_names
+    await _save(conn, name="delta", enabled_tools=[])
+    empty = await factory.create("delta")
+    assert [n for n in empty.tools.tool_names if n != "search_tools"] == ["current_time"]
+
+
+async def test_agent_disabled_current_time_is_absent_and_unmentioned(
+    factory, conn, frozen_clock
+) -> None:
+    await _save(conn, name="gamma", disabled_tools=["current_time"])
+    agent = await factory.create("gamma")
+    assert "current_time" not in agent.tools.tool_names
+    assert "current_time" not in {s["name"] for s in agent._loaded_schemas}
+    assert agent.system_prompt.endswith("\n\n---\n\n" + WITHOUT_TOOL)
+    assert "current_time" not in agent.system_prompt
+
+
+async def test_operator_disabled_current_time_is_absent(
+    factory, conn, tmp_path, frozen_clock
+) -> None:
+    from the_one.db.repositories import ToolConfigRepository
+
+    await ToolConfigRepository(conn, get_encryptor(tmp_path)).upsert(
+        "current_time", {}, enabled=False
+    )
+    await _save(conn, name="gamma")
+    agent = await factory.create("gamma")
+    assert "current_time" not in agent.tools.tool_names
+    assert "current_time" not in {s["name"] for s in agent._loaded_schemas}
+    assert agent.system_prompt.endswith(WITHOUT_TOOL)
+
+
+async def test_chat_only_provider_gets_tool_free_wording(factory, conn, frozen_clock) -> None:
+    await _save(conn, name="gamma")
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: _NoToolsLLM([])):
+        agent = await factory.create("gamma")
+    assert agent.system_prompt.endswith("\n\n---\n\n" + WITHOUT_TOOL)
+    degraded = agent._build_degraded_messages()[0].content
+    assert WITHOUT_TOOL in degraded
+    assert "current_time" not in degraded

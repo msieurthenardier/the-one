@@ -130,6 +130,9 @@ jobs:
           # Window-chrome probe (M25 F5 L3, DD8). Same by-name rule. The
           # windows-2022 runner (build 20348) reports "dark mode only".
           grep -q "window chrome: OK" doctor.out
+          # Time-zones probe (M28 F1 L1, DD9). Same by-name rule; proves the
+          # tzdata zone files survived the freeze.
+          grep -q "time zones: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

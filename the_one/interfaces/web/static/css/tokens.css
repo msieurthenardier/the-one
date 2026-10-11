@@ -173,6 +173,8 @@
        (large AA margin at 7.84:1 white-on-fill, so no per-theme tune
        needed the way filesystem/execution/web got). */
     --badge-connectors: #0b5394;  /* steel blue */
+    /* time (M28) — theme-stable; white ink on deep forest green (~6.5:1). */
+    --badge-time: #2e6b3f;        /* deep forest green */
 
     /* per-badge ink (M17 F3 L4) — theme-STABLE (chosen by fill luminance,
        and fills are theme-stable enough that one ink clears AA in both
@@ -191,6 +193,7 @@
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;
     --badge-ink-connectors: #ffffff;
+    --badge-ink-time: #ffffff;
 
     /* nav rail — ladder-native (no palette island): rail is a plain
        surface with accent reserved for the active state. */
@@ -322,6 +325,8 @@
     /* connectors (squawk 0032) — theme-stable, same value as the dark
        block (see that block's rationale comment). */
     --badge-connectors: #0b5394;
+    /* time (M28) — theme-stable, same value as the dark block. */
+    --badge-time: #2e6b3f;
 
     /* per-badge ink (M17 F3 L4) — theme-stable; identical to the dark block.
        Light fills → dark ink (#101114), dark fills → white ink (#ffffff).
@@ -338,6 +343,7 @@
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;
     --badge-ink-connectors: #ffffff;
+    --badge-ink-time: #ffffff;
 
     /* nav rail — ladder-native: the light theme's dark-navy palette island
        is RETIRED (v3 design decision); light rail in light theme. */

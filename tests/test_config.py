@@ -426,3 +426,26 @@ class TestChatHistoryRetentionDaysField:
         """-5 is below the lower bound and raises ValidationError."""
         with pytest.raises(pydantic.ValidationError):
             AgentConfig(name="x", chat_history_retention_days=-5)
+
+
+class TestWhitelistExempt:
+    """M28 F1 L2 (DD6): current_time is exempt from the enabled_tools whitelist."""
+
+    def test_exempt_with_trimmed_and_empty_whitelist(self):
+        assert AgentConfig(name="x", enabled_tools=["read_file"]).is_tool_enabled("current_time")
+        assert AgentConfig(name="x", enabled_tools=[]).is_tool_enabled("current_time")
+
+    def test_disabled_tools_still_wins(self):
+        cfg = AgentConfig(name="x", enabled_tools=["current_time"], disabled_tools=["current_time"])
+        assert cfg.is_tool_enabled("current_time") is False
+
+    def test_other_builtins_unchanged(self):
+        cfg = AgentConfig(name="x", enabled_tools=[])
+        assert cfg.is_tool_enabled("shell") is False
+
+    def test_compose_date_line_is_last_and_none_is_identical(self):
+        from the_one.agent.config import compose_system_prompt
+
+        base = compose_system_prompt("B", "P", rules=["r"])
+        assert compose_system_prompt("B", "P", rules=["r"], date_line=None) == base
+        assert compose_system_prompt("B", "P", rules=["r"], date_line="X") == base + "\n\n---\n\nX"

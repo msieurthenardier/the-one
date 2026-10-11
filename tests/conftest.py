@@ -429,3 +429,46 @@ def _reset_window_chrome_state():
     chrome.reset()
     yield
     chrome.reset()
+
+
+@pytest.fixture
+def frozen_clock(request, monkeypatch):
+    """Freeze the time-zone module's clock and system zone (M28 F1 L1).
+
+    Patches ``the_one.time_zones.utcnow`` and ``detect_system_zone`` (the module
+    seams; code calls them through the module namespace) and yields the instant.
+    Parametrise with ``request.param``: a datetime, an ISO-8601 string, or a
+    ``(instant, system_zone)`` pair. Defaults: 2026-10-10T22:45:12Z and
+    ``America/Los_Angeles``.
+    """
+    from datetime import datetime, timezone
+
+    from the_one import time_zones
+
+    instant: Any = datetime(2026, 10, 10, 22, 45, 12, tzinfo=timezone.utc)
+    system_zone: str | None = "America/Los_Angeles"
+    param = getattr(request, "param", None)
+    if isinstance(param, tuple):
+        instant, system_zone = param
+    elif param is not None:
+        instant = param
+    if isinstance(instant, str):
+        instant = datetime.fromisoformat(instant.replace("Z", "+00:00"))
+    monkeypatch.setattr(time_zones, "utcnow", lambda: instant)
+    monkeypatch.setattr(time_zones, "detect_system_zone", lambda: system_zone)
+    return instant
+
+
+def expected_date_layer(tool_available: bool) -> str:
+    """The date layer for the ``frozen_clock`` defaults (2026-10-10T22:45:12Z,
+    America/Los_Angeles), built through the real formatter."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from the_one import time_zones
+
+    return time_zones.date_line(
+        datetime(2026, 10, 10, 22, 45, 12, tzinfo=timezone.utc),
+        time_zones.EffectiveZone("America/Los_Angeles", ZoneInfo("America/Los_Angeles")),
+        tool_available=tool_available,
+    )

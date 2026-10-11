@@ -1911,6 +1911,7 @@
   .badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
   .badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
   .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
+  .badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
   .badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
   .badge--approved {

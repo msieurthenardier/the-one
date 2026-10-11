@@ -331,6 +331,7 @@ TOOL_TABS: dict[str, str] = {
     "web_search": "web",
     "send_to_platform_channel": "connectors",
     "fetch_channel_history": "connectors",
+    "current_time": "time",
 }
 
 

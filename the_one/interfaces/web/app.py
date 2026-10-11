@@ -2615,12 +2615,19 @@ async def info() -> dict[str, Any]:
     from the_one.agent.config import RenderedNote
     from the_one.db._notes import render_notes_block
     from the_one.db._rules import render_rules_block
+    from the_one.time_zones import render_date_line
 
     # The rules and notes layers are rendered by the same functions that build a
     # real prompt, from placeholder content, so the Prompts page cannot drift.
     return {
         "version": __version__,
         "base_prompt": BASE_PROMPT,
+        "date_prompt_example": render_date_line(
+            "{today's date}", "{time zone}", tool_available=True
+        ),
+        "date_prompt_example_without_tool": render_date_line(
+            "{today's date}", "{time zone}", tool_available=False
+        ),
         "rules_prompt_example": render_rules_block(
             ["{first enabled rule}", "{second enabled rule}"], notes_present=True
         ),

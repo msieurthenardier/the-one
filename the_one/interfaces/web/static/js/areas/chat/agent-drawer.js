@@ -131,6 +131,8 @@
     for (var i = 0; i < UNGATED_PREFIXES.length; i++) {
       if (String(name).indexOf(UNGATED_PREFIXES[i]) === 0) ungated = true;
     }
+    var exempt = (window.App.toolCategories && window.App.toolCategories.whitelistExempt) || [];
+    if (exempt.indexOf(name) !== -1) ungated = true;
     var whitelist = agent ? agent.enabled_tools : null;
     if (!ungated && whitelist !== null && whitelist !== undefined && arr(whitelist).indexOf(name) === -1) {
       return false;

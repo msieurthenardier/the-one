@@ -315,6 +315,8 @@
   /* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
      for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
   .area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
+  /* time (M28) — the current_time tool's category. */
+  .area-admin .admin-tool-badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */

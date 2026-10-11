@@ -960,8 +960,10 @@ async def test_real_impl_per_agent_filter_applied_at_registry_level() -> None:
     new_schemas = loaded_schemas[initial_count:]
     loaded_names = {s["name"] for s in new_schemas}
     assert loaded_names == {"read_file", "write_file"}
-    assert "Found 2 tools:" in result
-    assert "built-in: " in result
+    # current_time (M28) is exempt from the whitelist and already seeded, but
+    # SearchTools still lists it as a match; it is not re-loaded (dedupe above).
+    assert "Found 3 tools:" in result
+    assert "built-in: read_file, write_file, current_time" in result
 
 
 async def test_no_cache_source_logged_and_skipped(caplog: Any) -> None:

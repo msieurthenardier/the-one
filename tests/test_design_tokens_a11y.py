@@ -1192,6 +1192,7 @@ _TOKEN_BADGE_KINDS = (
     "openai",
     "openai-compatible",
     "openrouter",
+    "time",
     "unknown",
     "web",
 )
@@ -1343,6 +1344,8 @@ _BADGE_INK_PAIRS = (
     ("web", "badge_web", "badge_ink_web"),
     # connectors (squawk 0032) — admin Tools grid category badge.
     ("connectors", "badge_connectors", "badge_ink_connectors"),
+    # time (M28) — Built-in tools grid category badge.
+    ("time", "badge_time", "badge_ink_time"),
 )
 
 

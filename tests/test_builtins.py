@@ -51,7 +51,8 @@ class TestBuiltinToolProviderL3:
         provider = BuiltinToolProvider()
         zero_arg = provider.get_tools()
         explicit_none = provider.get_tools(tool_configs=None, agent_overrides=None)
-        # Same shape: 22 tools (Mission 23 Flight 1 removed the five
+        # Same shape: 23 tools (M28 F1 L2 appended current_time; Mission 23
+        # Flight 1 removed the five
         # connector tools — send_to_platform_channel + the four M11 F7
         # L10 channel-context tools — along with the connector package;
         # Flight 2 Leg 1 re-attaches two of them — send_to_platform_channel
@@ -61,15 +62,15 @@ class TestBuiltinToolProviderL3:
         # registration seam, not a design change), same names, in the
         # same order.
         assert [t.name for t in zero_arg] == [t.name for t in explicit_none]
-        assert len(zero_arg) == 22
+        assert len(zero_arg) == 23
 
     def test_empty_dicts_go_through_factory_path(self) -> None:
         # Both args are non-None empty dicts → factory path. Each tool's
-        # Config resolves to the empty default; result still has 22 tools
+        # Config resolves to the empty default; result still has 23 tools
         # (Mission 23 Flight 4 Leg 3 added find_platform_destination).
         provider = BuiltinToolProvider()
         tools = provider.get_tools({}, {})
-        assert len(tools) == 22
+        assert len(tools) == 23
         names = {t.name for t in tools}
         assert names == {
             "shell",
@@ -94,6 +95,7 @@ class TestBuiltinToolProviderL3:
             "send_to_platform_channel",
             "fetch_channel_history",
             "find_platform_destination",
+            "current_time",
         }
 
     def test_per_agent_isolation_factory_path(self) -> None:
@@ -120,7 +122,7 @@ class TestBuiltinToolProviderL3:
         # enabled_tools/disabled_tools strip semantic.
         provider = BuiltinToolProvider()
         tools = provider.get_tools(None, {"nonexistent_tool": {"foo": "bar"}})
-        assert len(tools) == 22
+        assert len(tools) == 23
         names = {t.name for t in tools}
         assert "nonexistent_tool" not in names
 

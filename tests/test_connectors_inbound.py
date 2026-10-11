@@ -558,7 +558,9 @@ async def test_directory_upsert_survives_a_later_agent_step_failure(
     assert entry.display_name == "Alice"
 
 
-async def test_connector_session_system_message_carries_enabled_rules(conn_repo, chat_repo) -> None:
+async def test_connector_session_system_message_carries_enabled_rules(
+    conn_repo, chat_repo, frozen_clock
+) -> None:
     """M27 F1 (AC20, connector half): a real ``AgentFactory`` builds the
     connector agent; the persisted session's system message (element 0) is
     base + persona + the agent's enabled rules in order, no disabled rule."""
@@ -595,7 +597,14 @@ async def test_connector_session_system_message_carries_enabled_rules(conn_repo,
     assert len(sessions) == 1
     stored = await chat_repo.get(sessions[0].id)
     system = decode_messages(stored.messages)[0]
-    expected = compose_system_prompt(BASE_PROMPT, "Be brief.", rules=["Rule A.", "Rule B."])
+    from conftest import expected_date_layer
+
+    expected = compose_system_prompt(
+        BASE_PROMPT,
+        "Be brief.",
+        rules=["Rule A.", "Rule B."],
+        date_line=expected_date_layer(True),
+    )
     assert system.role == Role.SYSTEM
     assert system.content == expected
     assert "Rule hidden." not in system.content

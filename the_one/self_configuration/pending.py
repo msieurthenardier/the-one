@@ -24,7 +24,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from the_one.agent.config import BASE_PROMPT, compose_system_prompt
-from the_one.agent.prompt_layers import build_system_prompt
+from the_one.agent.prompt_layers import build_system_prompt, time_tool_available
 from the_one.llm.base import Message
 
 if TYPE_CHECKING:
@@ -103,7 +103,15 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
         # (Known Issue 2). A failed rules read must not break the turn that
         # is about to send ``done``: fall back to base + persona.
         try:
-            composed = await build_system_prompt(agent_name, system_prompt)
+            tool_available = await time_tool_available(
+                getattr(agent, "tools", None), getattr(agent, "llm", None)
+            )
+        except Exception:  # noqa: BLE001 - must never break the turn
+            tool_available = False
+        try:
+            composed = await build_system_prompt(
+                agent_name, system_prompt, tool_available=tool_available
+            )
         except Exception:
             logger.warning(
                 "self-configuration: could not load rules for agent %r at settle; "

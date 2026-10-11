@@ -28,6 +28,7 @@ from the_one.tools.sessions import (
     ShellSessionStartTool,
 )
 from the_one.tools.shell import ShellTool
+from the_one.tools.time_tool import CurrentTimeTool
 from the_one.tools.web import (
     DownloadFileTool,
     FetchUrlTool,
@@ -75,6 +76,11 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     # the tool is inert (never reachable, never carve-out-seedable) until
     # it is entered here.
     "find_platform_destination": FindPlatformDestinationTool,
+    # Mission 28 F1 L2 (DD1): the current-time tool, appended last (empty default
+    # Config, so it cannot change which tool resolves FilesystemConfig). It is
+    # exempt from the `enabled_tools` whitelist (WHITELIST_EXEMPT_TOOLS) and
+    # seeded into every agent's baseline by AgentFactory.
+    "current_time": CurrentTimeTool,
 }
 
 # M14 F4 L7 — ordering-is-policy assertion. The cross-config resolution loop in

@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -22,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, StrictBool, ValidationError
 
-from the_one import __version__
+from the_one import __version__, time_zones
 from the_one.api_credential import LocalApiCredential
 from the_one.config import settings
 from the_one.connectors import registry as connector_registry
@@ -2386,6 +2387,95 @@ _KNOWLEDGE_SETTINGS_NOTES = [
     "Monitoring changes (the watcher on/off switch and the reconciliation "
     "interval) apply immediately.",
 ]
+
+
+# ── Time-zone setting (M28 F1 L1) ─────────────────────────────────────────
+
+
+async def _time_settings_response(setting: time_zones.TimeZoneSetting) -> dict[str, Any]:
+    eff = time_zones.resolve(setting)
+    now = time_zones.utcnow()
+    local = now.astimezone(eff.tzinfo)
+    system_name = time_zones.detect_system_zone()
+    try:
+        system_local = now.astimezone(ZoneInfo(system_name)) if system_name else now.astimezone()
+    except Exception:  # noqa: BLE001
+        system_local = now.astimezone()
+    try:
+        row = await (await _tool_config_repo()).get(time_zones.CURRENT_TIME_TOOL_NAME)
+        tool_enabled = bool(row.enabled)
+    except KeyError:
+        tool_enabled = True
+    return {
+        "mode": setting.mode,
+        "zone": setting.zone,
+        "system": {
+            "zone": system_name,
+            "offset": time_zones.offset_label(system_local),
+        },
+        "effective": {
+            "zone": eff.key,
+            "label": time_zones.zone_label(eff, local),
+            "offset": time_zones.offset_label(local),
+            "abbreviation": local.tzname() or "",
+        },
+        "tool_enabled": tool_enabled,
+        "preview": {
+            "tool": "\n".join(time_zones.tool_lines(now, eff)),
+            "prompt": time_zones.date_line(now, eff, tool_available=True),
+            "prompt_without_tool": time_zones.date_line(now, eff, tool_available=False),
+            "clock": time_zones.clock_text(now, eff),
+        },
+    }
+
+
+def _time_settings_error(e: ValidationError, body: dict[str, Any]) -> str:
+    """One plain sentence for a rejected time-zone body (never a list)."""
+    errors = e.errors()
+    for err in errors:
+        if err["loc"] == ("mode",):
+            return "mode must be 'system' or 'zone'."
+    for err in errors:
+        if err["loc"] == ("zone",):
+            raw = body.get("zone")
+            shown = raw[:64] if isinstance(raw, str) else ""
+            if shown:
+                return f"Unknown time zone '{shown}'. Use an IANA name such as Asia/Tokyo."
+            return "Unknown time zone. Use an IANA name such as Asia/Tokyo."
+    for err in errors:
+        if err["type"] == "value_error" and time_zones.ERR_ZONE_REQUIRED in str(err.get("msg", "")):
+            return "Choose a time zone when mode is 'zone'."
+    return "Body may contain only 'mode' and 'zone'."
+
+
+@router.get("/time-settings")
+async def get_time_settings() -> dict[str, Any]:
+    conn = await get_connection()
+    return await _time_settings_response(await time_zones.load_setting(conn))
+
+
+@router.put("/time-settings")
+async def update_time_settings(request: Request) -> dict[str, Any]:
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001 — malformed JSON is a client error, not a 500
+        raise HTTPException(status_code=422, detail="Body must be a JSON object.")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object.")
+    if set(data) - {"mode", "zone"}:
+        raise HTTPException(status_code=422, detail="Body may contain only 'mode' and 'zone'.")
+    try:
+        setting = time_zones.TimeZoneSetting.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=_time_settings_error(e, data))
+    conn = await get_connection()
+    await time_zones.save_setting(conn, setting)
+    return await _time_settings_response(setting)
+
+
+@router.get("/time-zones")
+async def get_time_zones() -> dict[str, Any]:
+    return {"zones": time_zones.zone_rows(time_zones.utcnow())}
 
 
 async def _knowledge_settings_conn():
