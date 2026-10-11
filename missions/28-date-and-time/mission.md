@@ -180,14 +180,15 @@ Facts about the codebase that shape the design (verified at `afa7855`):
   - Settings › Prompts shows this layer in its assembly position, in both
     wordings.
   *Evidence: behavior test 8/8 (tests/behavior/agent-tells-the-time/runs/2026-10-11-01-02-39.md); `tests/test_prompt_layers.py` and `tests/test_factory.py` cover the date layer on every build, tool-aware.*
-- [ ] **The operator sets the zone once, and it holds.**
+- [x] **The operator sets the zone once, and it holds.**
   - The operator can choose the system time zone (the default) or any named
     zone.
   - The choice survives a restart.
   - It applies to the time tool, the prompt's date and the times the app shows.
   - An unknown zone is refused.
   - A legacy alias that someone stores still resolves.
-- [ ] **The operator sees what agents see.**
+  *Evidence: `tests/browser/test_flow_settings_date_time.py` (pick, persist across reload, unknown zone refused, alias names) with the Flight 1 server tests; final gate green.*
+- [x] **The operator sees what agents see.**
   - The Date and time page shows the zone detected on the machine running
     the-one.
   - It shows the zone in effect.
@@ -195,12 +196,15 @@ Facts about the codebase that shape the design (verified at `afa7855`):
   - All three update as soon as the choice changes.
   - The page says when a change reaches the tool (at once) and when it reaches
     an open conversation (when it is next opened).
-- [ ] **A browser/server mismatch is caught.**
+  *Evidence: `tests/browser/test_flow_settings_date_time.py` (detected zone, zone in effect, What agents see preview updating on change, timing note); final gate green.*
+- [x] **A browser/server mismatch is caught.**
   - When the browser's zone differs from the zone in effect, the page says so.
   - The page offers a one-step fix that adopts the browser's zone.
-- [ ] **The app and its agents agree on the time.** Clock times the app shows
+  *Evidence: `tests/browser/test_flow_settings_date_time.py` (mismatch hint and one-step adopt-browser-zone fix); final gate green.*
+- [x] **The app and its agents agree on the time.** Clock times the app shows
       (the Chats list, messages and every other `formatClock` site) follow the
       operator's zone, not the browser's.
+  *Evidence: `tests/browser/test_flow_chat_time_zone.py` (Chats list and messages follow the operator zone, not the browser's) and `tests/browser/test_ui_time_contract.py`; final gate green (unit 5932 passed, 8 browser lanes rc=0).*
 - [x] **Named zones work on every supported platform.** That includes the
       packaged Windows desktop app.
   - A named zone resolves there.
@@ -359,7 +363,7 @@ Facts about the codebase that shape the design (verified at `afa7855`):
   - A behavior test of a live agent telling the time, web and connector.
   - Boundary: the operator sees a working server-side result (agents answering
     correctly, and the API set by hand) before the page is built on it.
-- [ ] **Flight 2: The Date and time page.**
+- [x] **Flight 2: The Date and time page.**
   - The Settings › General › Date and time page from the approved canvas:
     - the system and chosen-zone radio buttons;
     - the inline zone chooser, searchable by city, zone name or offset and

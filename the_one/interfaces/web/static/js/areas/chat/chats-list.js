@@ -16,7 +16,7 @@
 //   day 30 and older          Older         time Sep 12
 //   missing or invalid        Older         time ''
 // Day 7 goes to Last 30 days, so a weekday label is never ambiguous with
-// today's weekday. Times are formatted by hand (never toLocaleString; the clock
+// today's weekday. Times are formatted by hand (never the locale formatters; the clock
 // is App.time.formatClock), so
 // every engine and locale draws the same English labels.
 //
@@ -57,10 +57,6 @@
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  function startOfDay(d) {
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  }
-
   // The row's activity date (updated_at, else created_at), or null.
   function dateOf(row) {
     var ts = row && (row.updated_at || row.created_at);
@@ -69,10 +65,9 @@
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // Whole local calendar days from d's day to now's day (rounded, so a DST
-  // day of 23 or 25 hours still counts as one).
+  // Whole calendar days, in the operator's zone, from d's day to now's day.
   function daysAgo(d, now) {
-    return Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+    return window.App.time.dayNumber(now) - window.App.time.dayNumber(d);
   }
 
   function bucketOf(d, now) {
@@ -88,8 +83,9 @@
   function timeOf(d, bucket) {
     if (!d) return '';
     if (bucket === 'today') return window.App.time.formatClock(d);
-    if (bucket === 'yesterday' || bucket === 'last7') return WEEKDAYS[d.getDay()];
-    return MONTHS[d.getMonth()] + ' ' + d.getDate();
+    if (bucket === 'yesterday' || bucket === 'last7') return WEEKDAYS[window.App.time.parts(d).weekday];
+    var p = window.App.time.parts(d);
+    return MONTHS[p.month] + ' ' + p.day;
   }
 
   function bucketFor(row, now) {

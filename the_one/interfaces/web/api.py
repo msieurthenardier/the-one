@@ -2415,6 +2415,7 @@ async def _time_settings_response(setting: time_zones.TimeZoneSetting) -> dict[s
         },
         "effective": {
             "zone": eff.key,
+            "canonical": time_zones.canonical_name(eff.key),
             "label": time_zones.zone_label(eff, local),
             "offset": time_zones.offset_label(local),
             "abbreviation": local.tzname() or "",
@@ -2475,7 +2476,10 @@ async def update_time_settings(request: Request) -> dict[str, Any]:
 
 @router.get("/time-zones")
 async def get_time_zones() -> dict[str, Any]:
-    return {"zones": time_zones.zone_rows(time_zones.utcnow())}
+    return {
+        "zones": time_zones.zone_rows(time_zones.utcnow()),
+        "links": time_zones.zone_links(),
+    }
 
 
 async def _knowledge_settings_conn():

@@ -63,6 +63,8 @@ The app has four destinations, always there in the rail: Chats, Agents, Library 
 
 ### Agents
 
+Agents know today's date and can check the time in the time zone you pick under Settings.
+
 Each agent has a provider, a model and a system prompt, plus tabs for Rules and notes, Knowledge, MCPs, Built-in Tools and Self-configuration. Its Chat button starts a conversation with it.
 
 <details>
@@ -91,7 +93,7 @@ Knowledge bases, MCP servers and connectors live here, ready to hand to your age
 
 ### Settings
 
-Settings holds your Providers, the defaults every agent starts from under Built-in tools (path allowlist, timeouts, sandbox network, web search engine), and Knowledge indexing for all knowledge bases. Appearance switches between light, dark and auto, Prompts shows the built-in prompt layers, and Encryption can rotate the key that protects your stored secrets.
+Settings holds your Providers, the defaults every agent starts from under Built-in tools (path allowlist, timeouts, sandbox network, web search engine), and Knowledge indexing for all knowledge bases. Appearance switches between light, dark and auto, Date and time picks the time zone agents and the app use, Prompts shows the built-in prompt layers, and Encryption can rotate the key that protects your stored secrets.
 
 ### Anywhere
 

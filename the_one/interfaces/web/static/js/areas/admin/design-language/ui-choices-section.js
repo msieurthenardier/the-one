@@ -5,7 +5,8 @@
   window.App.admin.designLanguage = window.App.admin.designLanguage || {};
 
   // App.ui.checkbox (unchecked, checked, indeterminate, disabled) and
-  // App.ui.toggle (off, on, disabled).
+  // App.ui.toggle (off, on, disabled) and App.ui.radioGroup (option cards
+  // with descriptions and a slot).
   function render(host) {
     var d = App.admin.designLanguage.uiDemo;
     var ui = App.ui;
@@ -24,6 +25,20 @@
       pane.appendChild(ui.toggle({ label: 'With a hint', hint: 'Hint under the label.' }).el);
       pane.appendChild(ui.toggle({ label: 'Disabled', disabled: true }).el);
       pane.appendChild(ui.toggle({ label: 'Disabled on', checked: true, disabled: true }).el);
+    });
+    d.demo(host, 'radioGroup', function (pane) {
+      var group = ui.radioGroup({
+        legend: 'Time zone source',
+        value: 'system',
+        options: [
+          { value: 'system', label: 'Use the system zone', description: 'Follows this computer.' },
+          { value: 'choose', label: 'Choose a zone', description: 'Pick one from the list.' }
+        ]
+      });
+      group.optionEl('choose').appendChild(
+        App.ui.util.el('div', { className: 'field-hint', text: 'A slot for extra content.' })
+      );
+      pane.appendChild(group.el);
     });
   }
 

@@ -94,6 +94,41 @@ def _parse_tzdata_zi() -> tuple[tuple[str, ...], frozenset[str]]:
     return tuple(sorted(canonical)), frozenset(canonical | links)
 
 
+@functools.lru_cache(maxsize=1)
+def zone_links() -> dict[str, str]:
+    """Link alias -> canonical zone name (``L <target> <alias>`` lines), chains resolved."""
+    text = (
+        importlib.resources.files("tzdata")
+        .joinpath("zoneinfo")
+        .joinpath("tzdata.zi")
+        .read_text(encoding="utf-8")
+    )
+    raw: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == "L":
+            raw[parts[2]] = parts[1]
+    canonical = set(_parse_tzdata_zi()[0])
+    out: dict[str, str] = {}
+    for alias, target in raw.items():
+        seen = {alias}
+        while target not in canonical and target in raw and target not in seen:
+            seen.add(target)
+            target = raw[target]
+        if target in canonical:
+            out[alias] = target
+    return out
+
+
+def canonical_name(key: Any) -> str | None:
+    """The canonical zone for a zone or link name; None for unknown or non-string input."""
+    if not isinstance(key, str):
+        return None
+    if key in _parse_tzdata_zi()[0]:
+        return key
+    return zone_links().get(key)
+
+
 def canonical_zones() -> list[str]:
     """Sorted canonical (``Z``) zone names from tzdata."""
     return list(_parse_tzdata_zi()[0])
@@ -298,7 +333,7 @@ def zone_rows(at: datetime) -> list[dict[str, str]]:
     """Picker rows for the canonical zones, sorted by region then city."""
     rows: list[dict[str, str]] = []
     for name in canonical_zones():
-        if name == "Factory" or (name.startswith("Etc/") and name != "Etc/UTC"):
+        if name == "Factory" or "/" not in name or (name.startswith("Etc/") and name != "Etc/UTC"):
             continue
         try:
             local = at.astimezone(ZoneInfo(name))

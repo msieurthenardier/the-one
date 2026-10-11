@@ -276,6 +276,26 @@ class TestFormatters:
             locale.setlocale(locale.LC_TIME, old)
 
 
+class TestZoneLinks:
+    def test_named_links(self) -> None:
+        links = tz.zone_links()
+        assert links["Asia/Calcutta"] == "Asia/Kolkata"
+        assert links["UTC"] == "Etc/UTC"
+        assert links["US/Pacific"] == "America/Los_Angeles"
+        assert links["Europe/Oslo"] in tz.canonical_zones()
+
+    def test_every_target_is_canonical(self) -> None:
+        canon = set(tz.canonical_zones())
+        assert all(v in canon for v in tz.zone_links().values())
+
+    def test_canonical_name(self) -> None:
+        assert tz.canonical_name("Asia/Kolkata") == "Asia/Kolkata"
+        assert tz.canonical_name("Asia/Calcutta") == "Asia/Kolkata"
+        assert tz.canonical_name("Mars/Olympus_Mons") is None
+        assert tz.canonical_name(None) is None
+        assert tz.canonical_name(5) is None
+
+
 class TestZoneRows:
     def test_kolkata_row(self) -> None:
         rows = {r["zone"]: r for r in tz.zone_rows(NOW)}
@@ -289,7 +309,9 @@ class TestZoneRows:
 
     def test_exclusions_and_utc(self) -> None:
         rows = {r["zone"]: r for r in tz.zone_rows(NOW)}
-        assert "Factory" not in rows
+        for name in ("Factory", "CST6CDT", "EST5EDT", "MST7MDT", "PST8PDT"):
+            assert name not in rows
+            assert name in tz.zone_names()
         assert not [z for z in rows if z.startswith("Etc/") and z != "Etc/UTC"]
         assert (rows["Etc/UTC"]["region"], rows["Etc/UTC"]["city"]) == ("UTC", "UTC")
         assert rows["Etc/UTC"]["abbreviation"] == "UTC"

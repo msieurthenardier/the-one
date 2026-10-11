@@ -32,6 +32,28 @@ from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
+
+@pytest.fixture(autouse=True)
+def _pin_operator_zone(request: pytest.FixtureRequest, page: Page) -> None:
+    """Make the operator zone the browser's own zone, by construction (M28 F2 L1).
+
+    The list now buckets and labels in the operator's zone; the stamps below are computed
+    in the browser's local zone. Pinning the operator zone to the browser's resolved zone
+    keeps them agreeing whatever the host's tzlocal name is, and exercises the
+    operator-zone path. Only tests that seed times (``app_with_agent``) need it."""
+    if "app_with_agent" not in request.fixturenames:
+        return
+    base = request.getfixturevalue("app_with_agent").base_url
+    zone = page.evaluate("() => Intl.DateTimeFormat().resolvedOptions().timeZone")
+    r = httpx.put(
+        f"{base}/api/time-settings",
+        json={"mode": "zone", "zone": zone},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 200, r.text
+
+
 LIST = '[data-testid="chats-list"]'
 WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -434,12 +456,13 @@ def test_chats_column_is_300px_with_a_full_width_new_chat(
 
 
 def test_clock_formatter_edges(app_with_agent: SeededApp, page: Page) -> None:
-    """``App.time.formatClock`` (DD14): local 12-hour ``h:mm AM/PM``, no leading
-    zero on the hour, at midnight, noon and the minutes around them."""
-    _nav.goto(page, app_with_agent.base_url, "chats")
+    """``App.time.formatClock`` (DD14): 12-hour ``h:mm AM/PM``, no leading zero on
+    the hour, at midnight, noon and the minutes around them. Browser-local here
+    (``setZone(null)``, only after the boot has settled)."""
+    _nav.goto_settled(page, app_with_agent.base_url, "chats")
     got = page.evaluate(
-        """() => [[0, 0], [0, 5], [9, 7], [11, 59], [12, 0], [12, 59], [13, 0],
-                  [15, 45], [23, 59]]
+        """() => App.time.setZone(null) || [[0, 0], [0, 5], [9, 7], [11, 59], [12, 0],
+                  [12, 59], [13, 0], [15, 45], [23, 59]]
           .map(([h, m]) => App.time.formatClock(new Date(2026, 5, 15, h, m, 30)))"""
     )
     assert got == [

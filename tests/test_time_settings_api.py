@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
+from the_one import time_zones
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 
@@ -50,6 +51,7 @@ class TestGet:
         assert body["system"] == {"zone": "America/Los_Angeles", "offset": "UTC-07:00"}
         assert body["effective"] == {
             "zone": "America/Los_Angeles",
+            "canonical": "America/Los_Angeles",
             "label": "America/Los_Angeles",
             "offset": "UTC-07:00",
             "abbreviation": "PDT",
@@ -155,10 +157,33 @@ class TestPut:
 class TestZones:
     async def test_zone_rows(self, client: AsyncClient) -> None:
         body = (await client.get("/api/time-zones")).json()
-        assert set(body) == {"zones"}
+        assert set(body) == {"zones", "links"}
+        assert body["links"] == time_zones.zone_links()
         rows = {r["zone"]: r for r in body["zones"]}
         assert rows["Asia/Kolkata"]["offset"] == "UTC+05:30"
         assert rows["America/Los_Angeles"]["abbreviation"] == "PDT"
+
+
+class TestCanonical:
+    async def test_stored_alias(self, client: AsyncClient) -> None:
+        await client.put("/api/time-settings", json={"mode": "zone", "zone": "Asia/Calcutta"})
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["zone"] == "Asia/Calcutta" and eff["canonical"] == "Asia/Kolkata"
+
+    async def test_canonical_zone(self, client: AsyncClient) -> None:
+        await client.put("/api/time-settings", json={"mode": "zone", "zone": "Asia/Kolkata"})
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["zone"] == eff["canonical"] == "Asia/Kolkata"
+
+    async def test_unnamed_system_zone(self, client: AsyncClient, monkeypatch) -> None:
+        monkeypatch.setattr(time_zones, "detect_system_zone", lambda: None)
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["zone"] is None and eff["canonical"] is None
+
+    async def test_system_zone_detected_as_alias(self, client: AsyncClient, monkeypatch) -> None:
+        monkeypatch.setattr(time_zones, "detect_system_zone", lambda: "Asia/Calcutta")
+        eff = (await client.get("/api/time-settings")).json()["effective"]
+        assert eff["zone"] == "Asia/Calcutta" and eff["canonical"] == "Asia/Kolkata"
 
 
 @pytest.fixture

@@ -43,7 +43,7 @@ DIALOG = '[data-testid="confirm-dialog-overlay"]'
 
 # Reference spec section 8.1, in order. Developer is dev-mode only.
 GROUPS = [
-    ("General", ["appearance", "prompts", "encryption"]),
+    ("General", ["appearance", "date-and-time", "prompts", "encryption"]),
     ("Models", ["providers"]),
     ("Defaults for agents", ["tools", "knowledge-indexing"]),
     ("Developer", ["design-language"]),

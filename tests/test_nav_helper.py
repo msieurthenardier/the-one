@@ -44,6 +44,7 @@ DD2_ROWS = [
     ("library/connectors/c1", "#studio/connectors/c1"),
     ("settings", "#admin"),
     ("settings/appearance", "#admin/appearance"),
+    ("settings/date-and-time", "#admin/date-and-time"),
     ("settings/prompts", "#admin/prompts"),
     ("settings/encryption", "#admin/encryption"),
     ("settings/providers", "#admin/providers"),

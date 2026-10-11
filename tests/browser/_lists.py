@@ -245,6 +245,7 @@ def close_item(page: Page, timeout: float = 8000) -> None:
 # The Settings pages in nav order, by route section, with their page titles.
 SETTINGS_PAGE_TITLES: dict[str, str] = {
     "appearance": "Appearance",
+    "date-and-time": "Date and time",
     "prompts": "Prompts",
     "encryption": "Encryption",
     "providers": "Providers",

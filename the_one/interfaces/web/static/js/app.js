@@ -198,7 +198,23 @@
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. settings' category list).
-    fetch('/api/config')
+    // The operator's time zone loads in parallel with /api/config and gates the router
+    // for at most 2 seconds (M28 F2 L1): the chain never rejects (r.ok check plus its own
+    // catch), a failure leaves the zone unset (browser-local), and a late response still
+    // applies through setZone, which re-renders subscribers.
+    var settingsChain = fetch('/api/time-settings')
+      .then(function (r) {
+        if (!r.ok) throw new Error('time-settings ' + r.status);
+        return r.json();
+      })
+      .then(function (s) { App.time.setZone(App.time.zoneFromSettings(s)); })
+      .catch(function () { /* keep the browser-local zone */ });
+    var bootTimer = null;
+    var settingsOrTimeout = Promise.race([
+      settingsChain.then(function () { if (bootTimer !== null) clearTimeout(bootTimer); }),
+      new Promise(function (resolve) { bootTimer = setTimeout(resolve, 2000); })
+    ]);
+    var configChain = fetch('/api/config')
       .then(function (r) { return r.json(); })
       .then(function (config) {
         // Defensive default: a malformed 200 (null body, truncated JSON
@@ -211,7 +227,8 @@
         // Failed fetch must not break boot. Defaults to non-dev,
         // unknown-version so dev-mode-gated features stay off.
         window.App.config = { dev_mode: false, version: 'unknown' };
-      })
+      });
+    Promise.all([configChain, settingsOrTimeout])
       .then(function () {
         App.router.start({
           mountArea: mountArea,

@@ -55,9 +55,10 @@ Paths below are relative to `the_one/interfaces/web/static/`.
 |---|---|---|---|---|
 | Checkbox (`.checkbox-primary`) | `js/ui/choice.js`; hand-built in `js/areas/studio/tools-tab.js`, `knowledge-tab.js`, `mcps-tab.js`, provider and tool editors | library: App.ui.checkbox | Flights 2-3 chrome; editors next mission | Squawk 0094: the KB attach checkbox in `knowledge-tab.js` is not reachable by role |
 | Toggle, library (`input[role=switch]`) | `js/ui/choice.js` | library: App.ui.toggle | Replaces both legacy toggles as their surfaces migrate | None |
+| Radio group (native: fieldset of option cards, each a native radio with an optional description and a content slot) | `js/ui/choice.js`; CSS `.ui-radio-*` in `css/components.css` | library: App.ui.radioGroup | The Date and time page's "system / choose a zone" choice (M28 F2 L3); the theme radio group migrates to it later | None |
 | Legacy toggle 1: iOS switch (`.tool-enable-switch` + `-track`) | HTML strings and DOM in `tools-grid.js`, `tools-editor.js`, `provider-editor.js`, `knowledge-settings-page.js`, `connector-editor.js`, `self-configuration-tab.js`; CSS in `css/admin.css` | not yet defined | Admin and Studio editors, next mission | Two DOM templates with different anchoring (`--corner` modifier) |
 | Legacy toggle 2: studio pill (`.tool-toggle` hidden input + `.tool-switch`) | `js/areas/studio/tools-tab.js`; `css/studio.css` | not yet defined | Studio tools tab, next mission | `.area-studio .tool-toggle { display: none }` (`css/studio.css:64`) removes the native input from the keyboard order |
-| Radio group (theme: Light / Dark / Auto) | `App.theme.renderToggle` in `js/theme.js` | not yet defined | Settings surface, Flight 2 | None recorded |
+| Radio group (theme: Light / Dark / Auto) | `App.theme.renderToggle` in `js/theme.js` | not yet defined | Settings surface, Flight 2 | None recorded; theme toggle migrates to App.ui.radioGroup later |
 
 ## Feedback and status
 

@@ -103,9 +103,8 @@
     return el;
   }
 
-  // Format an ISO timestamp as a LOCAL 12-hour clock time ("3:45 PM", DD14).
-  // Returns "" for falsy or invalid input. A time-zone setting and a time tool
-  // are GitHub issue #223.
+  // Format an ISO timestamp as a 12-hour operator-zone clock time ("3:45 PM", DD14).
+  // Returns "" for falsy or invalid input.
   function fmtTs(ts) {
     if (!ts) return '';
     var d = new Date(ts);
@@ -127,6 +126,7 @@
       var tsEl = document.createElement('span');
       tsEl.className = 'msg-attribution-ts';
       tsEl.textContent = formatted;
+      tsEl.setAttribute('data-ts', String(ts));
       el.appendChild(tsEl);
     }
     return el;

@@ -33,6 +33,7 @@ Route table (new scheme -> legacy hash)::
     library/connectors/{id}        -> #studio/connectors/{id}
     settings                       -> #admin           (app redirects to #settings/appearance)
     settings/appearance            -> #admin/appearance
+    settings/date-and-time         -> #admin/date-and-time
     settings/prompts               -> #admin/prompts
     settings/encryption            -> #admin/encryption
     settings/providers[/~new|/{id}]-> #admin/providers[/new|/{id}]
@@ -207,7 +208,7 @@ def legacy_hash(route: str) -> str:
         if not rest:
             return "#admin"
         sec, tail = rest[0], rest[1:]
-        if sec in ("appearance", "prompts", "encryption"):
+        if sec in ("appearance", "date-and-time", "prompts", "encryption"):
             return "#" + _join(["admin", sec, *tail])
         if sec == "providers":
             tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]

@@ -186,6 +186,7 @@
     });
   }
 
+  window.App.admin.renderPage = renderPage;
   window.App.admin.renderAppearancePage = renderAppearancePage;
   window.App.admin.renderPromptsPage = renderPromptsPage;
   window.App.admin.renderEncryptionPage = renderEncryptionPage;

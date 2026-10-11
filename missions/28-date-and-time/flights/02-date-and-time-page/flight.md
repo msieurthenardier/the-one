@@ -1,16 +1,16 @@
 # Flight: The Date and Time Page
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Agents Know the Date and Time](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **The operator sets the zone once, and it holds.** This flight adds the UI,
+- [x] **The operator sets the zone once, and it holds.** This flight adds the UI,
       and the app's displayed times follow the setting. Flight 1 built the
       server side.
-- [ ] **The operator sees what agents see.**
-- [ ] **A browser/server mismatch is caught.**
-- [ ] **The app and its agents agree on the time.**
+- [x] **The operator sees what agents see.**
+- [x] **A browser/server mismatch is caught.**
+- [x] **The app and its agents agree on the time.**
 
 ---
 
@@ -401,7 +401,7 @@ Flight 1's API).**
       (with `effective.zone`, `system`, `preview`, `tool_enabled`) and
       `GET /api/time-zones` (rows with `zone, region, city, offset,
       abbreviation`).
-- [ ] Flight 1 landed and committed. Flight 2 branches from
+- [x] Flight 1 landed and committed. Flight 2 branches from
       `flight/01-agents-know-the-time`.
 - [x] Playwright 1.58 is pinned, so `timezone_id` and `page.clock` are
       available (verified by the Architect).
@@ -417,7 +417,7 @@ Flight 1's API).**
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete (below; spot-checked by two Architect passes)
-- [ ] Prerequisites verified (Flight 1 commit pending)
+- [x] Prerequisites verified (Flight 1 committed)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -539,9 +539,9 @@ Verified against the working tree (Flight 1 uncommitted on top of `afa7855`):
 
 ### Checkpoints
 
-- [ ] Leg 1: `make gate` green (WebKit).
-- [ ] Leg 2a: the contracts lane green (WebKit), plus the static guards.
-- [ ] Leg 2b: `make gate` green with `THE_ONE_REQUIRE_WEBKIT=1`.
+- [x] Leg 1: `make gate` green (WebKit).
+- [x] Leg 2a: the contracts lane green (WebKit), plus the static guards.
+- [x] Leg 2b: `make gate` green with `THE_ONE_REQUIRE_WEBKIT=1`.
 
 ### Adaptation Criteria
 
@@ -564,12 +564,12 @@ Verified against the working tree (Flight 1 uncommitted on top of `afa7855`):
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `time-zone-client-core`: the server canonical-name additions (DD6), the
+- [x] `time-zone-client-core`: the server canonical-name additions (DD6), the
       zone-aware `App.time`, the bounded boot fetch, the callers re-rendering
       on change, the existing time tests pinned, and the new tests.
-- [ ] `radio-group-control`: `App.ui.radioGroup` with its demo, inventory row
+- [x] `radio-group-control`: `App.ui.radioGroup` with its demo, inventory row
       and contract tests.
-- [ ] `date-and-time-page`: the page and routing, the pinned Settings lists,
+- [x] `date-and-time-page`: the page and routing, the pinned Settings lists,
       the flow tests, the lane budget, the docs, and the full gate.
 
 No HAT leg. The operator reviews at the mission PR.
@@ -580,10 +580,10 @@ No HAT leg. The operator reviews at the mission PR.
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged (the mission PR)
-- [ ] Tests passing (`make gate`, WebKit)
-- [ ] Documentation updated
+- [x] Tests passing (`make gate`, WebKit)
+- [x] Documentation updated
 
 ### Verification
 
