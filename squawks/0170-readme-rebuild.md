@@ -1,10 +1,10 @@
 # Squawk 0170: README misdescribes the system and undersells it
 
-**Status**: in-progress
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-10
-**Completed**: —
+**Completed**: 2026-10-10
 
 ## Report
 `README.md` is the project's front door. It is inaccurate in places and flat
@@ -76,4 +76,6 @@ The operator made two changes mid-squawk (2026-10-10):
   `?? squawks/0170-readme-rebuild.md`.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: independent Reviewer agent (Sonnet; crew default is Haiku, raised because the README makes security claims). Developer ran on Opus (crew default Sonnet) because the deliverable is prose.
+**Verdict**: confirmed on re-review, after the first review found four false claims, all fixed.
+**Commit**: 00e61a2, plus this sign-off (PR #264)
