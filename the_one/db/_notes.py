@@ -146,7 +146,7 @@ def parse_notes_block(system_text: str) -> dict[int, str] | None:
     Returns ``{number: rendered remainder}`` (the text after ``[n] ``, exactly
     as rendered, ``(unverified) `` marker included), ``{}`` for the empty
     block, and ``None`` when the prompt has no notes block (notes were off at
-    build). Anchored on the LAST open tag: notes are the final prompt layer.
+    build). Anchored on the LAST open tag: a trailing date layer (M28) may follow the notes block.
     """
     start = system_text.rfind(_NOTES_OPEN)
     if start == -1:

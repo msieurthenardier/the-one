@@ -18,6 +18,7 @@
     'openai',
     'openai-compatible',
     'openrouter',
+    'time',
     'unknown',
     'web'
   ];

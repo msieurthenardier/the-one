@@ -23,6 +23,12 @@ dependencies = [
     # uses. `uv.lock` already pins 1.1.1 with Windows/macOS/Linux wheels —
     # this declaration changes no resolved version.
     "watchfiles>=1.0",
+    # M28 F1 L1 (DD8): the operator time-zone setting. tzdata is the IANA zone
+    # database as a package (Windows has none; the zone-name set is read from its
+    # tzdata.zi); tzlocal detects the host's zone name. tzdata is capped below
+    # 2026.5 (uploaded 2026-10-03, under the 14-day soak); lift the cap later.
+    "tzdata>=2025.2,<2026.5",
+    "tzlocal>=5.3",
     "websockets>=13.0",
     "jinja2>=3.1",
     "aiosqlite>=0.20",

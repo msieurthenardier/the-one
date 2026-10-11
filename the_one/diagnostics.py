@@ -509,6 +509,69 @@ def _probe_fts5() -> ProbeResult:
     )
 
 
+# ── Time-zone probe (M28 F1 L1, DD9) ────────────────────────────────────────
+#
+# Unconditional on every host. Windows has no system zone database, so the
+# tzdata package must survive the freeze (its data files and the zone resource
+# packages); this loads a zone straight from the package (not through the host)
+# and proves the zone data and the formatters produce the exact strings the
+# agent will be told. Detection of the host zone never affects ok.
+
+
+def _probe_time_zones() -> ProbeResult:
+    """Prove the bundled zone data and the date formatters. Never raises."""
+    name = "time zones"
+    try:
+        import importlib.resources
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        import tzdata
+
+        from the_one import time_zones
+
+        zones = time_zones.canonical_zones()
+        if len(zones) <= 300:
+            return ProbeResult(name, False, f"only {len(zones)} zones found, expected over 300")
+        if time_zones.is_known_zone("localtime"):
+            return ProbeResult(name, False, "'localtime' was accepted as a zone name")
+
+        with (
+            importlib.resources.files("tzdata.zoneinfo.America")
+            .joinpath("Los_Angeles")
+            .open("rb") as fh
+        ):
+            la = ZoneInfo.from_file(fh)
+        for iso, hour, off in (
+            ("2026-01-15T20:00:00+00:00", 12, "-08:00"),
+            ("2026-07-15T19:00:00+00:00", 12, "-07:00"),
+        ):
+            local = datetime.fromisoformat(iso).astimezone(la)
+            got_off = local.isoformat()[-6:]
+            if local.hour != hour or got_off != off:
+                return ProbeResult(
+                    name, False, f"{iso} converted to {local.isoformat()}, expected {hour}:00 {off}"
+                )
+
+        eff = time_zones.EffectiveZone("America/Los_Angeles", la)
+        winter = datetime(2026, 1, 15, 20, 0, 0, tzinfo=timezone.utc)
+        line2 = time_zones.tool_lines(winter, eff)[1]
+        expected2 = "Thursday, January 15, 2026, 12:00 PM PST (UTC-08:00)"
+        if line2 != expected2:
+            return ProbeResult(name, False, f"tool line was {line2!r}, expected {expected2!r}")
+        prefix = "Today is Thursday, January 15, 2026 (America/Los_Angeles)."
+        dl = time_zones.date_line(winter, eff, tool_available=True)
+        if not dl.startswith(prefix):
+            return ProbeResult(name, False, f"date line was {dl!r}")
+
+        system = time_zones.detect_system_zone() or "none detected"
+        detail = f"{len(zones)} zones (tzdata {tzdata.IANA_VERSION}); system zone: {system}"
+        return ProbeResult(name, True, detail.encode("ascii", "replace").decode("ascii"))
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        detail = f"{exc.__class__.__name__}: {exc}"
+        return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
+
+
 # ── Embedding-model probe (M24 F01 L02, DD-1/DD-2/DD-5/DD-6/DD-7) ───────────
 #
 # The bundled float16 `potion-retrieval-32M` weights (the_one/embeddings/data/)
@@ -881,17 +944,21 @@ def run_doctor(out=None) -> int:
     """Run all diagnostics, print a structured report, return an exit code.
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
-    shell, llm providers, model catalog, usearch, fts5, embedding
-    model, file watcher and window chrome — and non-zero otherwise. Of those **ten**, four
-    are frozen-only (desktop shell, llm providers, model catalog, usearch): on
-    a dev host they downgrade a failure to an informational ``skipped`` line
-    rather than failing the run. The other six — child spawn, python
-    interpreter, **fts5**, **embedding model**, **file watcher**'s import
-    check and **window chrome** (skipped off Windows) — gate
-    unconditionally; file watcher is the one hybrid gate (Flight 4 DD-9):
+    shell, llm providers, model catalog, usearch, fts5, embedding model, file
+    watcher, window chrome and time zones — and non-zero otherwise. Of those
+    **eleven**, four are frozen-only (desktop shell, llm providers, model
+    catalog, usearch): on a dev host they downgrade a failure to an
+    informational ``skipped`` line rather than failing the run. The other
+    seven — child spawn, python interpreter, **fts5**, **embedding model**,
+    **file watcher**'s import check, **window chrome** (skipped off Windows)
+    and **time zones** — gate unconditionally; file watcher is the one hybrid
+    gate (Flight 4 DD-9):
     its import half gates unconditionally, on every host, but its
     native round-trip half gates only when frozen, downgrading through the
     same ``_vector_probe_outcome`` helper the four frozen-only gates use.
+    time zones (M28 F1 DD9) gates unconditionally: Windows has no zone
+    database of its own, so the tzdata package's data files must be bundled
+    in the freeze, and the gate also checks the exact date-line strings.
     fts5 gates unconditionally per DD-11 (a mission constraint in every
     build, not an optional extra). The embedding gate is unconditional by
     design (M24 F01 DD-7): model2vec is a base dependency and the weights are
@@ -958,6 +1025,10 @@ def run_doctor(out=None) -> int:
     # Window-chrome gate (M25 F5 L3, DD8): unconditional; skipped off Windows.
     # Both CI lanes grep this name verbatim.
     window_chrome = _probe_window_chrome()
+    # Time-zone gate (M28 F1 L1, DD9): unconditional on every host; proves the
+    # tzdata package survived the freeze and the date formatters' exact output.
+    # Both CI lanes grep this name verbatim.
+    time_zone_probe = _probe_time_zones()
     gates = [
         spawn,
         interp,
@@ -969,6 +1040,7 @@ def run_doctor(out=None) -> int:
         embedding_model,
         file_watcher,
         window_chrome,
+        time_zone_probe,
     ]
 
     for res in gates:

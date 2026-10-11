@@ -8,7 +8,7 @@ App.registerArea({
   // three, each with its own route (#settings/appearance|prompts|encryption).
   // Their area subs equal their route sections. The legacy `general` and
   // `system` subs map to the first of them.
-  GENERAL_SUBS: ['appearance', 'prompts', 'encryption'],
+  GENERAL_SUBS: ['appearance', 'date-and-time', 'prompts', 'encryption'],
 
   serializeState: function () {
     if (this.GENERAL_SUBS.indexOf(this._currentCategory) !== -1) return this._currentCategory;
@@ -325,6 +325,7 @@ App.registerArea({
     // The General pages (system-page.js): each renders only its own block.
     var GENERAL_RENDERERS = {
       appearance: 'renderAppearancePage',
+      'date-and-time': 'renderDateTimePage',
       prompts: 'renderPromptsPage',
       encryption: 'renderEncryptionPage'
     };

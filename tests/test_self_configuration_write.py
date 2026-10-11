@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock
 
 import aiosqlite
 import pytest
+from conftest import expected_date_layer
 from cryptography.fernet import Fernet
 
 from tests._schema_template import connect_template_db
@@ -442,7 +443,10 @@ class TestAC3MidTurnNonApplication:
         # Known Issue 2 closed (M27 F1): the recomposed prompt keeps the base
         # prompt and carries the enabled rules (not the disabled one).
         expected = compose_system_prompt(
-            BASE_PROMPT, "NEW PROMPT", rules=["Always answer in French."]
+            BASE_PROMPT,
+            "NEW PROMPT",
+            rules=["Always answer in French."],
+            date_line=expected_date_layer(False),
         )
         assert expected.startswith(BASE_PROMPT)
         assert agent.system_prompt == expected
@@ -480,7 +484,12 @@ class _StubAgent:
         class _LLMShim:
             max_context_tokens = 128_000
 
+            async def supports_tools(self):
+                return True
+
         self.llm = _LLMShim()
+        # Empty registry: current_time is absent, so the date layer omits the tool.
+        self.tools = ToolRegistry()
 
     async def step(self, user_input, on_chunk=None, on_usage=None):  # noqa: ARG002
         for m in self._step_messages:
@@ -513,6 +522,12 @@ def _pause_message() -> Message:
 
 
 @pytest.fixture(autouse=True)
+def _clock(frozen_clock):
+    """Every settle composes a date layer; pin it (M28 F1 L2)."""
+    return frozen_clock
+
+
+@pytest.fixture(autouse=True)
 def _stub_broadcast_and_persist(monkeypatch):
     monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
     monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
@@ -521,7 +536,7 @@ def _stub_broadcast_and_persist(monkeypatch):
 
 # M27 F1: a settled ``next_turn`` revision is recomposed as base + persona
 # (+ the agent's enabled rules), never the raw persona (Known Issue 2).
-_NEW = compose_system_prompt(BASE_PROMPT, "NEW")
+_NEW = compose_system_prompt(BASE_PROMPT, "NEW", date_line=expected_date_layer(False))
 
 
 class TestAC4HookRunsAtNonPausedSettleOnly:
@@ -632,7 +647,12 @@ class TestRulesAtSettle:
         pending.record("default", system_prompt="NEW")
         await _process_and_broadcast(session, "hi")
 
-        expected = compose_system_prompt(BASE_PROMPT, "NEW", rules=["First.", "Second."])
+        expected = compose_system_prompt(
+            BASE_PROMPT,
+            "NEW",
+            rules=["First.", "Second."],
+            date_line=expected_date_layer(False),
+        )
         assert agent.system_prompt == expected
         assert agent.messages[0].content == expected
         assert agent.system_prompt.startswith(BASE_PROMPT)
@@ -670,7 +690,11 @@ class TestRulesAtSettle:
         from the_one.agent.config import RenderedNote
 
         expected = compose_system_prompt(
-            BASE_PROMPT, "NEW", rules=["Rule."], notes=[RenderedNote(1, "Kept note.", True)]
+            BASE_PROMPT,
+            "NEW",
+            rules=["Rule."],
+            notes=[RenderedNote(1, "Kept note.", True)],
+            date_line=expected_date_layer(False),
         )
         assert agent.system_prompt == expected
         assert "[1] (unverified) Kept note." in agent.messages[0].content
@@ -692,8 +716,9 @@ class TestRulesAtSettle:
         pending.record("default", system_prompt="NEW")
         await _process_and_broadcast(session, "hi")
 
-        assert agent.system_prompt == _NEW  # base + persona, no rules
-        assert agent.messages[0].content == _NEW
+        # base + persona only: the fallback is date-free by design (M28 F1 DD4).
+        assert agent.system_prompt == compose_system_prompt(BASE_PROMPT, "NEW")
+        assert agent.messages[0].content == agent.system_prompt
         assert any(c.args[1] == {"type": "done"} for c in send.call_args_list)
         # The entry was consumed despite the failure.
         assert await pending.apply_pending_revision("default", agent) is False
@@ -1134,3 +1159,32 @@ class TestProjectionOmitsApprovalMode:
         projection = await surface.get_my_configuration(ctx=None)
         assert "self_revision_requires_approval" not in projection
         assert not any("approval" in k.lower() for k in projection)
+
+
+class TestSettleDateLayerToolWording:
+    """M28 F1 L2 (AC13): the settle keeps the with-tool wording when the live
+    agent's registry holds ``current_time``."""
+
+    async def test_registry_with_current_time_keeps_the_tool_wording(self, isolated_db) -> None:
+        from the_one.tools.time_tool import CurrentTimeTool
+
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        agent.tools.register(CurrentTimeTool())
+        session = Session(id="cs-t1", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == compose_system_prompt(
+            BASE_PROMPT, "NEW", date_line=expected_date_layer(True)
+        )
+
+    async def test_missing_registry_counts_as_tool_absent(self, isolated_db) -> None:
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        del agent.tools
+        session = Session(id="cs-t2", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == _NEW

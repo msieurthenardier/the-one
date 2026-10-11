@@ -431,7 +431,7 @@ async def test_doctor_warns_missing_send_tool_then_clean_once_enabled(
     client: AsyncClient, stub_gate
 ) -> None:
     registry.register_for_test("stub", StubPlugin())
-    # `enabled_tools=[]` (empty whitelist) blocks all built-in tools,
+    # `enabled_tools=[]` (empty whitelist) blocks all built-in tools but current_time (M28),
     # including the send tool — `enabled_tools=None` (the plain-create
     # default) would NOT block it, since that whitelist is opt-in-only
     # when unset. See `AgentConfig.is_tool_enabled`'s docstring.

@@ -48,6 +48,7 @@ DESCRIPTION = '[data-field="description"]'
 PLACEHOLDER = "Jump to an agent, chat, library item or setting"
 SETTINGS_PAGES = [
     ("appearance", "Appearance", "Settings · General"),
+    ("date-and-time", "Date and time", "Settings · General"),
     ("prompts", "Prompts", "Settings · General"),
     ("encryption", "Encryption", "Settings · General"),
     ("providers", "Providers", "Settings"),
@@ -667,7 +668,8 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
     expect(page.locator(RESULT)).to_have_count(2)
     assert [r[1] for r in _rows(page)] == ["tools", "knowledge-indexing"]
     inp.fill("settings")
-    expect(page.locator(RESULT)).to_have_count(7)
+    # Eight pages now, and the palette shows at most 8 matches.
+    expect(page.locator(RESULT)).to_have_count(8)
     assert [[r[1], r[2], r[3]] for r in _rows(page)] == [list(p) for p in SETTINGS_PAGES]
     inp.fill("default agent")
     expect(page.locator(RESULT)).to_have_count(1)
@@ -692,8 +694,9 @@ def test_an_empty_install_lists_new_chat_and_the_settings_pages(app_clean: str, 
     _open_with_keys(page)
     expect(page.locator(RESULT)).to_have_count(8)
     page.wait_for_timeout(300)  # every collection has resolved (empty)
+    # New chat plus the first seven pages: the empty mix is capped at 8.
     assert _rows(page) == [["action", "new-chat", "New chat…", "Action"]] + [
-        ["settings", s, label, where] for s, label, where in SETTINGS_PAGES
+        ["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:7]
     ]
 
 
@@ -724,7 +727,7 @@ def test_design_language_is_not_a_candidate_without_dev_mode(app_clean: str, pag
     expect(page.locator(RESULT)).to_have_count(0)
     expect(page.locator(f"{PALETTE} [role=status]")).to_have_text('No matches for "design".')
     page.locator(INPUT).fill("settings")
-    expect(page.locator(RESULT)).to_have_count(6)
+    expect(page.locator(RESULT)).to_have_count(7)
 
 
 # ── Opening a result (AC10) ──────────────────────────────────────────────────

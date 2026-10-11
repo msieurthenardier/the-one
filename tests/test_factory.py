@@ -1095,15 +1095,19 @@ class TestSendToolCarveOut:
         )
 
         disabled_agent = await builtin_factory.create("disabled-agent")
-        assert disabled_agent._compute_visible_schemas() == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
+        # current_time (M28) is not in the carve-out pair's disabled list.
+        disabled_schemas = disabled_agent._compute_visible_schemas()
+        assert disabled_schemas[:2] == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
+        assert [s["name"] for s in disabled_schemas[2:]] == ["current_time"]
 
         enabled_agent = await builtin_factory.create("enabled-agent")
         schemas = enabled_agent._compute_visible_schemas()
         assert schemas[:2] == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
-        assert len(schemas) == 4
+        assert len(schemas) == 5
         assert {s["name"] for s in schemas[2:]} == {
             SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
             FIND_PLATFORM_DESTINATION_TOOL_NAME,
+            "current_time",
         }
 
     async def test_no_search_needed_first_llm_call(
@@ -1140,7 +1144,7 @@ class TestSendToolCarveOut:
             AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
         )
         agent = await builtin_factory.create("enabled-agent")
-        assert len(agent._loaded_schemas) == 2  # just the pair seed, pre-search
+        assert len(agent._loaded_schemas) == 3  # pair + current_time seed, pre-search
 
         search_tool = agent.tools.get("search_tools")
         await search_tool.execute(query="")  # empty query returns every schema
@@ -1148,6 +1152,7 @@ class TestSendToolCarveOut:
         schema_names = [s["name"] for s in agent._loaded_schemas]
         assert schema_names.count(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME) == 1
         assert schema_names.count(FIND_PLATFORM_DESTINATION_TOOL_NAME) == 1
+        assert schema_names.count("current_time") == 1
         # Length parity is the other half of "no duplicate entry": the name
         # set and the schema list must stay in lockstep.
         assert len(agent._loaded_tool_names) == len(agent._loaded_schemas)

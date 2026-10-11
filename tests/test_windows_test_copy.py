@@ -437,11 +437,12 @@ def test_scrub_env_removes_inherited_and_sets_cdp_only_on_request() -> None:
 def test_parse_doctor() -> None:
     out = (
         "the-one doctor\n  child spawn: OK — x\n  usearch: OK — y\n  fts5: OK — z\n"
-        "  embedding model: OK — m\n  file watcher: OK — w\n  window chrome: OK — c\n\n"
+        "  embedding model: OK — m\n  file watcher: OK — w\n  window chrome: OK — c\n"
+        "  time zones: OK — t\n\n"
         "  runtimes:\n    node: 1\n\nRESULT: PASS\n"
     )
     r = h.parse_doctor(out, 0)
-    assert r["gate_count"] == 6 and r["result_line"] == "RESULT: PASS"
+    assert r["gate_count"] == 7 and r["result_line"] == "RESULT: PASS"
     assert all(r["needles"].values())
     assert not h.parse_doctor("RESULT: FAIL", 1)["needles"]["fts5: OK"]
 

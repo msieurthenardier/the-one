@@ -24,6 +24,7 @@
 
   var PAGES = [
     { section: 'appearance', label: 'Appearance', group: 'General', devOnly: false },
+    { section: 'date-and-time', label: 'Date and time', group: 'General', devOnly: false },
     { section: 'prompts', label: 'Prompts', group: 'General', devOnly: false },
     { section: 'encryption', label: 'Encryption', group: 'General', devOnly: false },
     { section: 'providers', label: 'Providers', group: 'Models', devOnly: false },

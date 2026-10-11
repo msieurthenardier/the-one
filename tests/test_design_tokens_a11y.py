@@ -1192,6 +1192,7 @@ _TOKEN_BADGE_KINDS = (
     "openai",
     "openai-compatible",
     "openrouter",
+    "time",
     "unknown",
     "web",
 )
@@ -1343,6 +1344,8 @@ _BADGE_INK_PAIRS = (
     ("web", "badge_web", "badge_ink_web"),
     # connectors (squawk 0032) — admin Tools grid category badge.
     ("connectors", "badge_connectors", "badge_ink_connectors"),
+    # time (M28) — Built-in tools grid category badge.
+    ("time", "badge_time", "badge_ink_time"),
 )
 
 
@@ -1550,3 +1553,27 @@ def test_sc2_every_fg_role_token_is_gated_or_exempt() -> None:
             "tests/browser/design_tokens.py) OR add it to _CONTRAST_EXEMPT with "
             "a rationale:\n" + "\n".join(failures)
         )
+
+
+# ---------------------------------------------------------------------------
+# App.ui.radioGroup option cards (M28 F2 L2) — both themes, 4.5:1
+# ---------------------------------------------------------------------------
+# The checked card paints --accent-translucent over --surface; its description
+# (--fg-secondary: --fg-muted fails on the dark checked fill) and label (--fg)
+# sit on that composite. The unchecked card is plain --surface.
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("fg_key", ("fg", "fg_secondary"))
+def test_radio_card_text_on_checked_fill_passes_body_aa(theme: str, fg_key: str) -> None:
+    palette = _palette(theme)
+    fill = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette["surface"])
+    ratio = contrast_ratio(palette[fg_key], fill)
+    assert ratio >= 4.5, f"{theme} radio card {fg_key} on checked fill = {ratio:.2f}:1"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_radio_card_description_on_surface_passes_body_aa(theme: str) -> None:
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["fg_secondary"], palette["surface"])
+    assert ratio >= 4.5, f"{theme} radio description on surface = {ratio:.2f}:1"

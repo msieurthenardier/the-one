@@ -4,8 +4,8 @@ Covers the L2 admin Tools grid surface (HAT-refined into category tabs):
 
 - Page-title is "Built-in tools" (HAT inline fix #5; sentence case since M25
   F3 leg 5a).
-- 4 category tabs render in declaration order (Filesystem / Execution /
-  Web / Connectors); Filesystem selected by default. Connectors added by
+- 5 category tabs render in declaration order (Filesystem / Execution /
+  Web / Connectors / Time); Filesystem selected by default. Connectors added by
   squawk 0032 (mirrors squawk 0028's studio.js Connectors category).
 - Tab click switches the visible panel (active panel shows tiles, others
   hidden via the App.tabs helper's [hidden] attr).
@@ -40,8 +40,8 @@ def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> Non
 
     Python tab was removed from the admin tools grid (Leg 02 / later — the
     Python tools moved to the Execution category or were regrouped), then
-    Connectors was added by squawk 0032. The current 4 tabs are:
-    Filesystem, Execution, Web, Connectors.
+    Connectors was added by squawk 0032. The current 5 tabs are:
+    Filesystem, Execution, Web, Connectors, Time (M28).
     """
     _nav.goto(page, app_clean, "settings/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
@@ -50,11 +50,12 @@ def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> Non
     expect(tablist).to_be_visible()
 
     tabs = tablist.locator('[role="tab"]')
-    expect(tabs).to_have_count(4)
+    expect(tabs).to_have_count(5)
     expect(tabs.nth(0)).to_have_text("Filesystem")
     expect(tabs.nth(1)).to_have_text("Execution")
     expect(tabs.nth(2)).to_have_text("Web")
     expect(tabs.nth(3)).to_have_text("Connectors")
+    expect(tabs.nth(4)).to_have_text("Time")
 
     # Filesystem selected by default; its panel is the visible one.
     expect(page.locator('[data-testid="tab-filesystem"]')).to_have_attribute(
@@ -86,7 +87,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
-    """All four panels' tile counts: 9/6/4/3 = 22 tools total (M25 F4 L6: the
+    """All five panels' tile counts: 9/6/4/3/1 = 23 tools total (M25 F4 L6: the
     shared table, `tool-categories.js`, puts M23 F4 L3's
     `find_platform_destination` under Connectors; no copy had it, so it showed
     in no tab)."""
@@ -98,6 +99,7 @@ def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: P
         "execution": 6,
         "web": 4,
         "connectors": 3,
+        "time": 1,
     }
     for cat, count in expected.items():
         page.locator(f'[data-testid="tab-{cat}"]').click()

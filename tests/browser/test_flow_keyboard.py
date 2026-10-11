@@ -200,6 +200,7 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
 # keyboard coverage stays, the behaviour under test changes with it.
 _SETTINGS_NAV_ORDER = (
     "appearance",
+    "date-and-time",
     "prompts",
     "encryption",
     "providers",

@@ -315,6 +315,8 @@
   /* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
      for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
   .area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
+  /* time (M28) — the current_time tool's category. */
+  .area-admin .admin-tool-badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
@@ -831,4 +833,90 @@
     text-underline-offset: 3px;
   }
 
+  /* ── Date and time page (M28 F2 L3, flight DD4) ─────────────────────
+     Tokens only. The chooser lives in the zone option's slot. */
+  .area-admin .date-time-page .section-title:first-of-type { margin-top: 20px; }
+  .area-admin .date-time-page .date-time-mismatch {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .area-admin .date-time-page .date-time-mismatch-text { flex: 1; min-width: 0; }
+  .area-admin .date-time-page .date-time-mismatch .btn { flex: none; }
+  .area-admin .date-time-page .ui-radio-slot { margin-top: var(--space-3); }
+  .area-admin .date-time-page .date-time-chosen {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-admin .date-time-page .date-time-chosen strong { color: var(--fg); }
+  .area-admin .date-time-page .ui-search-list-listbox {
+    max-height: 252px;
+    overflow-y: auto;
+  }
+  .area-admin .date-time-page .ui-search-list-description {
+    font-family: var(--font-family-mono);
+  }
+  .area-admin .date-time-page .ui-search-list-lead,
+  .area-admin .date-time-page .date-time-lead-spacer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+  }
+  .area-admin .date-time-page .ui-search-list-lead svg { width: 16px; height: 16px; }
+  /* An unfocused list shows no active row: the first option is always active
+     after a refresh, and would otherwise read as the chosen zone. */
+  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
+    background: transparent;
+    border-color: transparent;
+  }
+  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] .ui-search-list-meta {
+    color: var(--fg-muted);
+  }
+  @media (forced-colors: active) {
+    .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
+      border-color: Canvas;
+    }
+  }
+  .area-admin .date-time-page .date-time-status {
+    min-height: 20px;
+    margin: var(--space-3) 0 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--status-success);
+  }
+  .area-admin .date-time-page .date-time-error { margin: var(--space-3) 0 0; font-size: var(--font-size-body-sm); }
+  .area-admin .date-time-page .date-time-preview { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-admin .date-time-page .date-time-preview-row { display: flex; flex-direction: column; gap: var(--space-1); }
+  .area-admin .date-time-page .date-time-preview dt {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  .area-admin .date-time-page .date-time-preview dd {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+  }
+  .area-admin .date-time-page .date-time-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+  }
+  .area-admin .date-time-page .date-time-muted {
+    display: block;
+    margin-top: var(--space-1);
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  .area-admin .date-time-page .date-time-note { margin: var(--space-4) 0 0; }
+  /* Last, so no display rule above can show a hidden node. */
+  .area-admin .date-time-page [hidden] { display: none; }
 }

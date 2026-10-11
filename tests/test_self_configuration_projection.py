@@ -299,3 +299,27 @@ class TestDescribeMyCapabilities:
             "tools": [],
             "tools_known": False,
         }
+
+
+class TestCurrentTimeInCapabilities:
+    """M28 F1 L2 (AC7): current_time survives a trimmed whitelist, not a disable."""
+
+    async def test_trimmed_agent_lists_current_time(self, db) -> None:
+        conn, encryptor = db
+        config = AgentConfig(name="trimmed", enabled_tools=["read_file"])
+        result = await build_describe_my_capabilities(
+            config,
+            tool_config_repo=ToolConfigRepository(conn, encryptor),
+            mcp_repo=MCPSourceRepository(conn, encryptor),
+        )
+        assert {t["name"] for t in result["builtin_tools"]} == {"read_file", "current_time"}
+
+    async def test_disabled_agent_excludes_current_time(self, db) -> None:
+        conn, encryptor = db
+        config = AgentConfig(name="off", disabled_tools=["current_time"])
+        result = await build_describe_my_capabilities(
+            config,
+            tool_config_repo=ToolConfigRepository(conn, encryptor),
+            mcp_repo=MCPSourceRepository(conn, encryptor),
+        )
+        assert "current_time" not in {t["name"] for t in result["builtin_tools"]}

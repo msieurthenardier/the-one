@@ -97,6 +97,7 @@ NEEDLES = (
     "embedding model: OK",
     "file watcher: OK",
     "window chrome: OK",
+    "time zones: OK",
 )
 
 

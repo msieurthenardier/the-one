@@ -166,6 +166,10 @@ multi-user isolation would need to revisit this (see "Future Work" below).
   values for non-localhost hosts at all three create/update/test endpoints
   (HTTP 422). `mock` and `ollama` provider types are skipped.
 
+### Time-zone routes (M28 F1 L1)
+
+`GET`/`PUT /api/time-settings` and `GET /api/time-zones` sit behind the same local-API credential gate as every other route. The zone string in a PUT is validated against the fixed name set read from the tzdata package (`the_one/time_zones.py::is_known_zone`) and is never used as a filesystem path or passed to a loader unvalidated, so `localtime`, `posixrules` and `../` forms are refused with a 422 whose detail echoes at most 64 characters of the offending value.
+
 ### Self-configuration surface (M21 F01 L02)
 
 An agent may be given a loopback MCP source through which it can read its

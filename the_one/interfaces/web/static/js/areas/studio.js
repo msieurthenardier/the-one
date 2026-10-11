@@ -3405,14 +3405,22 @@ App.registerArea({
       var toggles = editorEl.querySelectorAll('input[type="checkbox"][data-tool]');
       var enabledNames = [];
       var disabledNames = [];
+      var exemptOffNames = [];
       var allOn = true;
-      var allOff = true;
+      var exemptNames = (window.App.toolCategories && window.App.toolCategories.whitelistExempt) || [];
       for (var t = 0; t < toggles.length; t++) {
+        var toggleName = toggles[t].dataset.tool;
+        if (exemptNames.indexOf(toggleName) >= 0) {
+          // M28 DD6: a whitelist-exempt tool (current_time) never enters the
+          // branch choice or enabled_tools; unchecked, it goes to
+          // disabled_tools in every branch.
+          if (!toggles[t].checked) exemptOffNames.push(toggleName);
+          continue;
+        }
         if (toggles[t].checked) {
-          enabledNames.push(toggles[t].dataset.tool);
-          allOff = false;
+          enabledNames.push(toggleName);
         } else {
-          disabledNames.push(toggles[t].dataset.tool);
+          disabledNames.push(toggleName);
           allOn = false;
         }
       }
@@ -3423,7 +3431,7 @@ App.registerArea({
       // flicker, since this value feeds dirty-tracking via getFormSnapshot.
       if (allOn) {
         data.enabled_tools = null;
-        data.disabled_tools = [].concat(_storedUngatedDisabledNames());
+        data.disabled_tools = exemptOffNames.concat(_storedUngatedDisabledNames());
       } else if (enabledNames.length <= disabledNames.length) {
         // enabled_tools is a BUILT-IN-only whitelist by backend contract
         // (AgentConfig.is_tool_enabled, F09-08): the backend does not gate
@@ -3431,10 +3439,10 @@ App.registerArea({
         // mcp_overrides. Do NOT inject `mcp__` names here; that would
         // reintroduce the coupling that silently stripped MCP tools.
         data.enabled_tools = enabledNames;
-        data.disabled_tools = [].concat(_storedUngatedDisabledNames());
+        data.disabled_tools = exemptOffNames.concat(_storedUngatedDisabledNames());
       } else {
         data.enabled_tools = null;
-        data.disabled_tools = disabledNames.concat(_storedUngatedDisabledNames());
+        data.disabled_tools = disabledNames.concat(exemptOffNames, _storedUngatedDisabledNames());
       }
 
       // Connections (chips) — Tools tab does not currently render chips

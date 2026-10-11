@@ -91,7 +91,7 @@ def _open_override_panel(page: Page, tool: str) -> None:
 
 @pytest.mark.browser
 def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page: Page) -> None:
-    """Tools tab shows the four category tiles with 22 tool tiles total.
+    """Tools tab shows the five category tiles with 23 tool tiles total.
 
     Guards the same intent as the pre-rebrand "19 tool rows" test: every
     built-in tool is represented exactly once in the Tools tab. Squawk 0028
@@ -104,12 +104,12 @@ def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page
     _open_tools_tab(app_with_agent, page)
     tiles = page.locator(".tools-category-tile")
     expect(tiles.first).to_be_visible()
-    expect(tiles).to_have_count(4)
-    for category in ("Filesystem", "Execution", "Web", "Connectors"):
+    expect(tiles).to_have_count(5)
+    for category in ("Filesystem", "Execution", "Web", "Connectors", "Time"):
         expect(page.locator(f'.tools-category-tile[data-category="{category}"]')).to_be_visible()
     # Tool tiles are built up-front (hidden until category expand) — count
     # attached, not visible.
-    expect(page.locator("details.tool-tile")).to_have_count(22)
+    expect(page.locator("details.tool-tile")).to_have_count(23)
 
 
 @pytest.mark.browser

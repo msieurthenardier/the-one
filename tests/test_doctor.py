@@ -864,7 +864,7 @@ class TestProbeFileWatcher:
         assert result.ok is False
         assert "import OK; round-trip:" in result.detail
 
-    def test_gates_list_has_ten_names_ending_with_window_chrome(self) -> None:
+    def test_gates_list_has_eleven_names_ending_with_time_zones(self) -> None:
         """The full gate line-up, in order, both CI lanes' needle depends on
         being present and last."""
         buf = io.StringIO()
@@ -882,6 +882,7 @@ class TestProbeFileWatcher:
             "embedding model",
             "file watcher",
             "window chrome",
+            "time zones",
         ]
 
     def test_source_names_every_dd0_knob(self) -> None:
@@ -983,3 +984,42 @@ class TestWindowChromeProbe:
             assert diagnostics._probe_window_chrome().detail.isascii()
         self._fake_windows(monkeypatch, 1, missing=True)
         assert diagnostics._probe_window_chrome().detail.isascii()
+
+
+class TestTimeZonesProbe:
+    """M28 F1 L1 (DD9): the unconditional `time zones` gate."""
+
+    def test_ok_and_ascii(self) -> None:
+        r = diagnostics._probe_time_zones()
+        assert (r.name, r.ok) == ("time zones", True)
+        assert r.detail.isascii()
+        assert "zones (tzdata " in r.detail and "system zone: " in r.detail
+
+    def test_short_zone_list_fails(self, monkeypatch) -> None:
+        from the_one import time_zones
+
+        monkeypatch.setattr(time_zones, "canonical_zones", lambda: ["UTC"])
+        r = diagnostics._probe_time_zones()
+        assert r.ok is False and "only 1 zones" in r.detail
+
+    def test_never_raises(self, monkeypatch) -> None:
+        from the_one import time_zones
+
+        def boom():
+            raise RuntimeError("zone data gone")
+
+        monkeypatch.setattr(time_zones, "canonical_zones", boom)
+        r = diagnostics._probe_time_zones()
+        assert r.ok is False and "RuntimeError" in r.detail
+
+    def test_detection_failure_does_not_affect_ok(self, monkeypatch) -> None:
+        from the_one import time_zones
+
+        monkeypatch.setattr(time_zones, "detect_system_zone", lambda: None)
+        r = diagnostics._probe_time_zones()
+        assert r.ok is True and "none detected" in r.detail
+
+    def test_line_present_in_output_by_name(self) -> None:
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "time zones: OK" in buf.getvalue()

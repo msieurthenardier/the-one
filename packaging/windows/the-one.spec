@@ -210,6 +210,22 @@ embedding_datas = collect_data_files("the_one", includes=["embeddings/data/**/*"
 # them. Keeping PyInstaller current is the contract; only hand-roll if a build
 # proves a hook gap.
 
+# IANA zone data and host-zone detection (M28 F1 L1, DD8/DD9). Windows ships no
+# zone database, so the operator time-zone setting reads the `tzdata` package:
+#   * the zone files and tzdata.zi are reached through importlib.resources by
+#     string (`tzdata.zoneinfo.America`, "Los_Angeles"), which PyInstaller's
+#     module graph never sees, so the data must be collected explicitly;
+#   * collect_data_files skips .py files, and tzdata's zoneinfo directories are
+#     packages (each has an __init__.py that importlib.resources needs), so
+#     collect_submodules("tzdata") is added to the hidden imports as well;
+#   * tzlocal picks its backend by platform at import (tzlocal.win32 on Windows,
+#     imported lazily), so its submodules are collected too.
+# The frozen `the-one.exe doctor` `time zones` gate is the judge: it loads a
+# zone straight from the package and checks the exact formatted strings.
+tzdata_datas = collect_data_files("tzdata")
+tzdata_hidden = collect_submodules("tzdata")
+tzlocal_hidden = collect_submodules("tzlocal")
+
 hiddenimports = [
     # winpty pure-Python submodules — binaries come from collect_dynamic_libs
     # above; the import name itself must be declared explicitly.
@@ -262,12 +278,15 @@ hiddenimports = [
     *uvicorn_hidden,
     *mcp_hidden,
     *pystray_hidden,
+    *tzdata_hidden,
+    *tzlocal_hidden,
 ]
 
 datas = [
     *static_datas,
     *seed_datas,
     *embedding_datas,
+    *tzdata_datas,
     *uvicorn_datas,
 ]
 

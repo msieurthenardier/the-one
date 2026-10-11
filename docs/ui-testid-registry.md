@@ -64,6 +64,22 @@ caught — but it cannot see where the attribute is emitted.
 | `base-prompt-content` | admin | The Prompts page's read-only base prompt (`#settings/prompts`; on the single General page until M25 F3 L5a) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
+| `date-prompt-content` | admin | The Prompts page's read-only date-layer wording for an agent with the `current_time` tool (M28 F1 L3) |
+| `date-prompt-content-without-tool` | admin | The Prompts page's read-only date-layer wording for an agent without the tool (M28 F1 L3) |
+| `date-time-chosen` | admin | The chosen-zone line under "Choose a time zone" on the Date and time page (M28 F2 L3) |
+| `date-time-error` | admin | A failed save's server message on the Date and time page (M28 F2 L3) |
+| `date-time-mismatch` | admin | The browser-zone mismatch hint on the Date and time page (M28 F2 L3) |
+| `date-time-mode` | admin | The system / chosen-zone radio group on the Date and time page (M28 F2 L3) |
+| `date-time-mode-system` | admin | The "Use the system time zone" radio (M28 F2 L3) |
+| `date-time-mode-zone` | admin | The "Choose a time zone" radio (M28 F2 L3) |
+| `date-time-preview-clock` | admin | What agents see: the app clock line (M28 F2 L3) |
+| `date-time-preview-prompt` | admin | What agents see: the new-chat date line (M28 F2 L3) |
+| `date-time-preview-tool` | admin | What agents see: the time tool's first line (M28 F2 L3) |
+| `date-time-search` | admin | The zone chooser's search input (M28 F2 L3) |
+| `date-time-status` | admin | The "Saved." status line on the Date and time page (M28 F2 L3) |
+| `date-time-use-browser` | admin | The "Use {browser zone}" button in the mismatch hint (M28 F2 L3) |
+| `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
+| `time-tool-note` | studio | The agent Tools tab's note on the `current_time` tool row: always available, even with a limited tool list (M28 F1 L3) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |

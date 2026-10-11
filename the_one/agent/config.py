@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from the_one.time_zones import CURRENT_TIME_TOOL_NAME
+
 # Flight 5 Leg 1, DD-6: prefixes exempt from the `enabled_tools` built-in
 # whitelist (`str.startswith` accepts a tuple). Generalized from a single
 # hardcoded `"mcp__"` carve-out so a knowledge-base tool (`kb__…`, Flight 5
@@ -15,6 +17,11 @@ from pydantic import BaseModel, Field
 # narrowed in Studio — `disabled_tools` still applies to both prefixes
 # UNIVERSALLY, checked after this gate in `is_tool_enabled` below.
 UNGATED_TOOL_PREFIXES = ("mcp__", "kb__")
+
+# Mission 28 F1 L2 (DD6): built-in names also exempt from the `enabled_tools`
+# whitelist. `current_time` must reach every agent, so an empty or trimmed
+# whitelist no longer blocks *every* built-in. `disabled_tools` still applies.
+WHITELIST_EXEMPT_TOOLS: frozenset[str] = frozenset({CURRENT_TIME_TOOL_NAME})
 
 BASE_PROMPT = """\
 You are an AI agent with access to a set of tools. Use them to accomplish what the \
@@ -96,6 +103,7 @@ def compose_system_prompt(
     *,
     rules: Sequence[str] = (),
     notes: Sequence[RenderedNote] | None = None,
+    date_line: str | None = None,
 ) -> str:
     """Compose the agent's system prompt from its layers.
 
@@ -112,6 +120,9 @@ def compose_system_prompt(
 
     With ``rules`` empty and ``notes`` ``None`` the output is byte-identical to the
     pre-Mission-27 ``{base}\\n\\n---\\n\\n{persona}`` shape.
+
+    ``date_line`` (M28 F1, DD4), when not ``None``, is appended as the LAST
+    layer after a "---" separator (so notes are no longer the final layer).
     """
     parts = [base]
     if persona:
@@ -128,6 +139,9 @@ def compose_system_prompt(
 
         parts.append("---")
         parts.append(render_notes_block(notes))
+    if date_line is not None:
+        parts.append("---")
+        parts.append(date_line)
     return "\n\n".join(parts)
 
 
@@ -215,12 +229,18 @@ class AgentConfig(BaseModel):
         here stops that; ``disabled_tools`` stays a UNIVERSAL explicit
         blacklist (an ungated-prefix name listed there is still disabled).
 
-        ``enabled_tools == []`` (empty whitelist) blocks all **built-in**
-        tools but does NOT block MCP or knowledge-base tools, consistent
+        Names in :data:`WHITELIST_EXEMPT_TOOLS` (``current_time``, M28) are
+        exempt from the whitelist too; ``disabled_tools`` still disables them.
+
+        ``enabled_tools == []`` (empty whitelist) blocks all built-in tools
+        **except** those in ``WHITELIST_EXEMPT_TOOLS``, and does NOT block MCP or
+        knowledge-base tools, consistent
         with the decouple (their enablement is governed by
         ``mcp_overrides`` / attachment, not this whitelist).
         """
-        is_ungated = tool_name.startswith(UNGATED_TOOL_PREFIXES)
+        is_ungated = (
+            tool_name.startswith(UNGATED_TOOL_PREFIXES) or tool_name in WHITELIST_EXEMPT_TOOLS
+        )
         if (
             not is_ungated
             and self.enabled_tools is not None

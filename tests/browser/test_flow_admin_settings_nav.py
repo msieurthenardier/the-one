@@ -43,7 +43,7 @@ DIALOG = '[data-testid="confirm-dialog-overlay"]'
 
 # Reference spec section 8.1, in order. Developer is dev-mode only.
 GROUPS = [
-    ("General", ["appearance", "prompts", "encryption"]),
+    ("General", ["appearance", "date-and-time", "prompts", "encryption"]),
     ("Models", ["providers"]),
     ("Defaults for agents", ["tools", "knowledge-indexing"]),
     ("Developer", ["design-language"]),
@@ -282,10 +282,16 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     expect(prompt).to_be_visible()
     expect(prompt).not_to_have_text("Loading…", timeout=8000)
     pres = page.locator(".content-panel.active .admin-system-section pre")
-    expect(pres).to_have_count(3)
+    expect(pres).to_have_count(5)
     expect(pres.nth(0)).to_have_attribute("data-testid", "base-prompt-content")
     expect(pres.nth(1)).to_have_attribute("data-testid", "rules-prompt-content")
     expect(pres.nth(2)).to_have_attribute("data-testid", "notes-prompt-content")
+    expect(pres.nth(3)).to_have_attribute("data-testid", "date-prompt-content")
+    expect(pres.nth(4)).to_have_attribute("data-testid", "date-prompt-content-without-tool")
+    expect(pres.nth(3)).to_contain_text("{today's date}", timeout=8000)
+    expect(pres.nth(3)).to_contain_text("current_time")
+    expect(pres.nth(4)).to_contain_text("{today's date}", timeout=8000)
+    expect(pres.nth(4)).not_to_contain_text("current_time")
     expect(pres.nth(1)).to_contain_text("{first enabled rule}", timeout=8000)
     expect(pres.nth(2)).to_contain_text("(unverified)", timeout=8000)
     titles = page.locator(".content-panel.active .admin-prompt-layer .section-title")
@@ -293,6 +299,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         "base prompt",
         "rules",
         "notes",
+        "date",
     ]
     expect(theme).to_have_count(0)
     expect(rotate).to_have_count(0)

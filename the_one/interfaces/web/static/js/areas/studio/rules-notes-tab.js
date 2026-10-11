@@ -539,12 +539,12 @@
     var d = parseWhen(iso);
     if (!d) return '';
     var now = new Date();
-    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() &&
-        d.getDate() === now.getDate()) {
+    if (App.time.dayNumber(d) === App.time.dayNumber(now)) {
       return App.time.formatClock(d);
     }
-    var out = MONTHS[d.getMonth()] + ' ' + d.getDate();
-    if (d.getFullYear() !== now.getFullYear()) out += ', ' + d.getFullYear();
+    var p = App.time.parts(d);
+    var out = MONTHS[p.month] + ' ' + p.day;
+    if (p.year !== App.time.parts(now).year) out += ', ' + p.year;
     return out;
   }
 
@@ -805,6 +805,13 @@
       for (var i = 0; i < notes.length; i++) ul.appendChild(buildRow(notes[i]));
       listWrap.appendChild(ul);
     }
+
+    // "When" labels follow the operator zone (M28 F2 L1). This tab has no teardown
+    // hook, so the listener unsubscribes itself once its list is no longer in the page.
+    var offZone = App.time.onChange(function () {
+      if (!listWrap.isConnected) { offZone(); return; }
+      if (!editingId) renderList();
+    });
 
     function load() {
       var mine = ++gen;

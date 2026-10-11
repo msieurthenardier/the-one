@@ -87,6 +87,7 @@
     // App.settingsPages' sections (and `devOnly`), in order: a static test
     // pins it (tests/test_settings_pages_static.py, M25 F4 L7).
     { dest: 'settings', area: 'admin', route: 'appearance', sub: 'appearance', create: false },
+    { dest: 'settings', area: 'admin', route: 'date-and-time', sub: 'date-and-time', create: false },
     { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },
     { dest: 'settings', area: 'admin', route: 'encryption', sub: 'encryption', create: false },
     { dest: 'settings', area: 'admin', route: 'providers', sub: 'providers', create: true },

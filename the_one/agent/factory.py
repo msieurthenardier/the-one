@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
-from the_one.agent.prompt_layers import build_system_prompt
+from the_one.agent.prompt_layers import build_system_prompt, time_tool_available
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
+from the_one.time_zones import CURRENT_TIME_TOOL_NAME
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import Tool, ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
@@ -525,6 +526,7 @@ class AgentFactory:
         for seed_tool_name in (
             SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
             FIND_PLATFORM_DESTINATION_TOOL_NAME,
+            CURRENT_TIME_TOOL_NAME,
         ):
             if seed_tool_name in registry.tool_names:
                 seed_tool = registry.get(seed_tool_name)
@@ -539,7 +541,10 @@ class AgentFactory:
             loaded_tool_names.add(notes_tool.name)
 
         # 3. Resolve system prompt
-        system_prompt = await build_system_prompt(config.name, config.system_prompt, conn=conn)
+        tool_available = await time_tool_available(registry, llm)
+        system_prompt = await build_system_prompt(
+            config.name, config.system_prompt, conn=conn, tool_available=tool_available
+        )
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's

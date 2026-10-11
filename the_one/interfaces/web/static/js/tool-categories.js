@@ -10,7 +10,7 @@
 // uncategorised (it would show in no Settings tab and no Tools-tab tile).
 //
 // The derived shapes, all frozen (read-only, shared by every consumer):
-//   order       ['filesystem', 'execution', 'web', 'connectors']: the
+//   order       ['filesystem', 'execution', 'web', 'connectors', 'time']: the
 //               category slugs in tab order
 //   labels      {slug: 'Filesystem', ...}: the display names
 //   byCategory  {'Filesystem': [tool, ...], ...}: label -> tool names, in
@@ -18,6 +18,8 @@
 //               toolCategories -> tools-tab.js)
 //   categoryOf  {tool: 'filesystem', ...}: tool -> slug (the Settings ›
 //               Built-in tools tabs, badges and the tool editor's subtitle)
+//   whitelistExempt  ['current_time']: built-ins the `enabled_tools` whitelist
+//               never gates (M28; server: WHITELIST_EXEMPT_TOOLS)
 // The agent drawer's "What it can use" groups the agent's built-ins by
 // byCategory too. Loaded before studio.js and admin/tools-*.js.
 (function () {
@@ -32,8 +34,15 @@
     // (Flight 2; squawks 0028 and 0032) and the destination lookup (Flight 4
     // Leg 3). Distinct from the Library's Connectors group (connector
     // configs): this is a built-in tool category.
-    { id: 'connectors', label: 'Connectors', tools: ['send_to_platform_channel', 'fetch_channel_history', 'find_platform_destination'] }
+    { id: 'connectors', label: 'Connectors', tools: ['send_to_platform_channel', 'fetch_channel_history', 'find_platform_destination'] },
+    // Mission 28 F1: the current-time tool, in its own category (appended last).
+    { id: 'time', label: 'Time', tools: ['current_time'] }
   ];
+
+  // Built-ins exempt from the agent's `enabled_tools` whitelist (mirrors
+  // the_one/agent/config.py::WHITELIST_EXEMPT_TOOLS; tests/test_tool_categories.py
+  // pins the two together). Consumers that mirror the whitelist logic read this.
+  var whitelistExempt = Object.freeze(['current_time']);
 
   var order = [];
   var labels = {};
@@ -51,6 +60,7 @@
     order: Object.freeze(order),
     labels: Object.freeze(labels),
     byCategory: Object.freeze(byCategory),
-    categoryOf: Object.freeze(categoryOf)
+    categoryOf: Object.freeze(categoryOf),
+    whitelistExempt: whitelistExempt
   });
 })();

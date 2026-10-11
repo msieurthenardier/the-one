@@ -62,7 +62,16 @@ def test_categories_and_labels_in_tab_order() -> None:
         ("execution", "Execution"),
         ("web", "Web"),
         ("connectors", "Connectors"),
+        ("time", "Time"),
     ]
+
+
+def test_whitelist_exempt_matches_the_server_constant() -> None:
+    from the_one.agent.config import WHITELIST_EXEMPT_TOOLS
+
+    m = re.search(r"var whitelistExempt = Object\.freeze\(\[([^\]]*)\]\)", TABLE_JS.read_text())
+    assert m, "whitelistExempt not found in tool-categories.js"
+    assert sorted(re.findall(r"'([a-z_]+)'", m.group(1))) == sorted(WHITELIST_EXEMPT_TOOLS)
 
 
 def test_the_guard_catches_a_missing_and_a_stale_tool() -> None:

@@ -55,9 +55,14 @@
     // Compute enabled set for the agent (mirrors pre-leg-03 logic).
     var cfg = agent || { enabled_tools: null, disabled_tools: [] };
     var enabledSet = {};
+    var whitelistExempt = (window.App.toolCategories && window.App.toolCategories.whitelistExempt) || [];
     for (var i = 0; i < allTools.length; i++) {
       var tn = allTools[i].name;
-      if (cfg.enabled_tools !== null && cfg.enabled_tools !== undefined) {
+      if (whitelistExempt.indexOf(tn) >= 0) {
+        // Exempt from the enabled_tools whitelist (mirrors
+        // AgentConfig.is_tool_enabled); only disabled_tools applies.
+        enabledSet[tn] = (cfg.disabled_tools || []).indexOf(tn) < 0;
+      } else if (cfg.enabled_tools !== null && cfg.enabled_tools !== undefined) {
         enabledSet[tn] = cfg.enabled_tools.indexOf(tn) >= 0;
       } else {
         enabledSet[tn] = (cfg.disabled_tools || []).indexOf(tn) < 0;
@@ -257,6 +262,17 @@
               descSpan.textContent = ' — ' + truncated;
               descSpan.title = descText;
               textWrap.appendChild(descSpan);
+            }
+
+            if (whitelistExempt.indexOf(tName) >= 0) {
+              // M28 DD6: the whitelist never gates this tool; say so.
+              var timeNote = document.createElement('span');
+              timeNote.className = 'mcp-tool-description';
+              timeNote.setAttribute('data-testid', 'time-tool-note');
+              timeNote.textContent =
+                'Always available to the agent from the start of every conversation, ' +
+                'even if you limit its other tools. Untick to remove it from this agent.';
+              textWrap.appendChild(timeNote);
             }
 
             face.appendChild(textWrap);

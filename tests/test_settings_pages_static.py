@@ -44,9 +44,10 @@ def _code(path: Path) -> str:
     return "\n".join(out)
 
 
-def test_the_table_is_the_seven_settings_pages_in_nav_order() -> None:
+def test_the_table_is_the_eight_settings_pages_in_nav_order() -> None:
     assert table() == [
         ("appearance", "Appearance", "General", False),
+        ("date-and-time", "Date and time", "General", False),
         ("prompts", "Prompts", "General", False),
         ("encryption", "Encryption", "General", False),
         ("providers", "Providers", "Models", False),

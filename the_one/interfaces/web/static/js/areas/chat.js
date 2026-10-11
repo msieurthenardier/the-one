@@ -500,6 +500,16 @@ App.registerArea({
     // WebSocket and the DOM), so this subscription lives as long as the page
     // and is never unsubscribed.
     App.store.subscribe('sessions', function () { renderChatsList(); renderPane(); });
+    // Clock times and day groups follow the operator's time zone (M28 F2 L1): re-label the
+    // list and every message timestamp in place when it changes. Never released.
+    App.time.onChange(function () {
+      renderChatsList();
+      var stamps = document.querySelectorAll('.msg-attribution-ts[data-ts]');
+      for (var i = 0; i < stamps.length; i++) {
+        var d = new Date(stamps[i].getAttribute('data-ts'));
+        if (!isNaN(d.getTime())) stamps[i].textContent = App.time.formatClock(d);
+      }
+    });
     renderChatsList();
     // The new-chat state reads the agent's model, description and provider
     // type from these two stores: re-render when either loads. Never
