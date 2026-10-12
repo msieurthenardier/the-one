@@ -3,7 +3,7 @@
 **Flight**: [Claude Plan (Token) provider](flight.md)
 
 ## Summary
-Sortie 03, **landed** 2026-10-12 (branch `sortie/03-claude-plan-token`; leg 1 `d243eef`, leg 2 live verification PASS 7/7). Squawks logged: 0193, 0194 (deferred). Debrief pending (`/mission-control:flight-debrief sortie 03`); the operator revokes the test token at completion. Charter agreed with the operator 2026-10-12: two separate provider types (not one type with an auth-mode switch); `anthropic-plan` keeps its slug, relabelled "Claude Plan (OAuth)"; the new type `anthropic-plan-token` is "Claude Plan (Token)"; the editor shows an "expires around" line (operator: include it). The operator will supply a real `setup-token` token for live verification and revoke it at sortie completion; it never enters a tracked file.
+Sortie 03, **completed** 2026-10-12 (debriefed; branch `sortie/03-claude-plan-token`, PR #271; leg 1 `d243eef`, leg 2 live verification PASS 7/7). Squawks logged: 0193, 0194 (flight), 0195, 0196, 0197 (debrief), all deferred. The operator revokes the test token. Charter agreed with the operator 2026-10-12: two separate provider types (not one type with an auth-mode switch); `anthropic-plan` keeps its slug, relabelled "Claude Plan (OAuth)"; the new type `anthropic-plan-token` is "Claude Plan (Token)"; the editor shows an "expires around" line (operator: include it). The operator will supply a real `setup-token` token for live verification and revoke it at sortie completion; it never enters a tracked file.
 
 ---
 
@@ -61,3 +61,4 @@ Resolution: all applied. DD11 rewritten as "pin by the resolved type". Flight Di
 
 **Status**: completed (leg 2).
 - 2026-10-12: flight landed. Branch pushed; PR #271 opened ready for review (both legs complete). [COMPLETE:flight]
+- 2026-10-12: debrief written (`flight-debrief.md`; Developer and Architect interviews; full suite re-run: unit 6019 passed / 12 skipped 194.8 s; gate `rc=0 total=1023s`, no flakes, `agents` lane 506/510 s). Squawks 0195-0197 logged from the debrief. Operator: plan-provider default model noted as a known limitation, no follow-up. Status → completed. Maintenance not due (2 sorties since the 2026-10-08 inspection).

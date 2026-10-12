@@ -1,6 +1,6 @@
 # Sortie: Claude Plan (Token) provider
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
