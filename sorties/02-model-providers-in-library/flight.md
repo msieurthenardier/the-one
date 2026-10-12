@@ -1,6 +1,6 @@
 # Sortie: Model providers in Library
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -11,10 +11,10 @@ Model providers live in Library as a fourth group, "Model providers", listed and
 Operator request (2026-10-11): providers are things agents use, like the other Library items, not app-wide preferences.
 
 ### Success Criteria
-- [ ] Library's list shows a "Model providers" group, first (above Knowledge bases), whose rows (type badge, "used by" agents) open the provider editor in the detail pane at `#library/providers[/~new|/{id}]`.
-- [ ] `#library` is Library's own route, showing the start page with a Model providers card first; the start page, breadcrumbs, router and docs no longer present it as the knowledge section; the Add menu and the Jump to palette create and reach providers through the Library routes.
-- [ ] The Settings nav has no Models group, and `#settings/providers…` is no longer a route (old links are dropped, not redirected).
-- [ ] Unit tests and every browser lane pass, with the provider tests reaching providers through the Library routes and helpers; no `settings/providers` route remains in tests.
+- [x] Library's list shows a "Model providers" group, first (above Knowledge bases), whose rows (type badge, "used by" agents) open the provider editor in the detail pane at `#library/providers[/~new|/{id}]`.
+- [x] `#library` is Library's own route, showing the start page with a Model providers card first; the start page, breadcrumbs, router and docs no longer present it as the knowledge section; the Add menu and the Jump to palette create and reach providers through the Library routes.
+- [x] The Settings nav has no Models group, and `#settings/providers…` is no longer a route (old links are dropped, not redirected).
+- [x] Unit tests and every browser lane pass, with the provider tests reaching providers through the Library routes and helpers; no `settings/providers` route remains in tests.
 
 ### Constraints
 - No backend or API change: `/api/providers`, the `__MASKED__` key contract and the `anthropic-plan` OAuth sign-in work unchanged from the new location.
