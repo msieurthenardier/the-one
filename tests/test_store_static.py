@@ -234,7 +234,7 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
 
 
 def test_oauth_and_provider_mutations_invalidate_providers() -> None:
-    src = _src("areas/admin/provider-editor.js")
+    src = _src("areas/studio/provider-editor.js")
     assert src.count("App.store.invalidate('providers')") >= 4  # code, reset, save, delete
 
 
@@ -312,7 +312,7 @@ INVALIDATION_ROWS = (
         ("connectors",),
     ),
     (  # provider: create and save (invalidated before the save-create sync)
-        "areas/admin/provider-editor.js",
+        "areas/studio/provider-editor.js",
         "var method = isEdit ? 'PUT' : 'POST';",
         "callbacks.onSaveSuccess(updated, !isEdit)",
         ("providers",),
@@ -340,12 +340,18 @@ def test_each_mutation_invalidates_its_collections() -> None:
 
 
 def test_save_syncs_pass_the_item_name_hint() -> None:
-    assert "App.router.sync('admin', self.serializeState(), { name: updated.name })" in _src(
+    # The Settings admin area has no create-then-sync editor any more (providers
+    # moved to Library, sortie 02); the provider save-create sync lives in the
+    # section module, beside the connector one in studio.js.
+    assert "App.router.sync('admin', self.serializeState(), { name: updated.name })" not in _src(
         "areas/admin.js"
     )
     assert "App.router.sync('studio', self.serializeState(), { name: updated.name })" in _src(
         "areas/studio.js"
     )
+    providers = _src("areas/studio/providers-section.js")
+    window = _window(providers, "App.router.sync('studio', 'providers/' +", ");")
+    assert "{ name: updated.name }" in window
 
 
 # ── router (DD8) ─────────────────────────────────────────────────────────

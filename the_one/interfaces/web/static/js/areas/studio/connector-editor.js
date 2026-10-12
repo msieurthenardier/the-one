@@ -23,8 +23,8 @@
 // which the guard's own rule classifies as static (exempt), not dynamic.
 //
 // M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
-// breadcrumb "Library / Connectors" (its group a link to
-// `#library/connectors`) and the unsaved caption at the start of
+// breadcrumb "Library / Connectors" ("Library" a link to
+// `#library`, the group plain text) and the unsaved caption at the start of
 // `.form-actions`, whose text follows the editor's dirty reports.
 //
 // Mission 23 Flight 3 Leg 2 (DD-6): `config.enabled` is now a persisted
@@ -235,17 +235,18 @@
     // ── Header ────────────────────────────────────────────────────────
     // M25 F3 L4b (DD2): the breadcrumb "Library / Connectors" is the first
     // child of .editor-header-text (built here, during construction), in edit
-    // and create modes. Its group segment links to the section root: with Back
+    // and create modes. Its "Library" segment links to `#library` (DD3): with Back
     // retired it is the visible way to close the item. studio.js routes the
     // click (the router's guard asks once about a dirty editor) and focuses
     // the item's row after the close (DD8).
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
-    var crumb = _el('div', { className: 'editor-breadcrumb', text: 'Library / ' });
-    var crumbLink = _el('a', { className: 'editor-breadcrumb-link', text: 'Connectors' });
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library', section: 'connectors' }));
+    var crumb = _el('div', { className: 'editor-breadcrumb' });
+    var crumbLink = _el('a', { className: 'editor-breadcrumb-link', text: 'Library' });
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library' }));
     crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
     crumb.appendChild(crumbLink);
+    crumb.appendChild(document.createTextNode(' / Connectors'));
     headerText.appendChild(crumb);
     var connTitle = _el('h1', {
       className: 'editor-title',

@@ -22,17 +22,15 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_admin_picker_click_from_providers_redirects_to_appearance(
-    app_clean: str, page: Page
-) -> None:
-    """Going to bare ``#settings`` while already in Settings (from /providers)
+def test_admin_picker_click_from_tools_redirects_to_appearance(app_clean: str, page: Page) -> None:
+    """Going to bare ``#settings`` while already in Settings (from /tools)
     must land on the root page, ``#settings/appearance``, not strand the URL.
 
     Regression test for the F6 HAT bug: same-area sub-change skipped the
     serialize-replace block, leaving the URL at the bare destination.
     """
-    _nav.goto(page, app_clean, "settings/providers")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=8000)
+    _nav.goto(page, app_clean, "settings/tools")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=8000)
     _nav.set_route(page, "settings")
     expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
     _nav.expect_route(page, "settings/appearance")
@@ -41,7 +39,7 @@ def test_admin_picker_click_from_providers_redirects_to_appearance(
 
 @pytest.mark.browser
 def test_admin_settings_nav_renders_the_stable_pages(app_clean: str, page: Page) -> None:
-    """The nav's six always-present pages (Design language is dev-mode only).
+    """The nav's five always-present pages (Design language is dev-mode only).
 
     MCP Servers was originally an admin section (M07 F1 L5) but was relocated
     to Studio (now the Library) post-F2 retrofit (admin = system settings,
@@ -50,30 +48,32 @@ def test_admin_settings_nav_renders_the_stable_pages(app_clean: str, page: Page)
     _nav.goto(page, app_clean, "settings/appearance")
     nav = _lists.settings_nav(page)
     expect(nav).to_be_visible(timeout=5000)
-    for section in ("appearance", "prompts", "encryption", "providers", "tools"):
+    for section in ("appearance", "prompts", "encryption", "tools"):
         expect(_lists.settings_nav_link(page, section)).to_have_text(
             _lists.SETTINGS_PAGE_TITLES[section]
         )
     expect(_lists.settings_nav_link(page, "knowledge-indexing")).to_have_text("Knowledge indexing")
     expect(nav.get_by_role("link", name="MCP servers", exact=False)).to_have_count(0)
+    # Providers moved to Library (sortie 02): no Providers page, no Models group.
+    expect(nav.get_by_role("link", name="Providers", exact=False)).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_admin_settings_nav_click_changes_url(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "settings/appearance")
     expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
-    _lists.open_settings_page(page, "providers")
-    _lists.expect_settings_selected(page, "providers")
+    _lists.open_settings_page(page, "tools")
+    _lists.expect_settings_selected(page, "tools")
 
 
 @pytest.mark.browser
 def test_admin_refresh_preserves_section(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=8000)
+    _nav.goto(page, app_clean, "settings/tools")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=8000)
     page.reload()
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=8000)
-    _nav.expect_route(page, "settings/providers")
-    _lists.expect_settings_selected(page, "providers")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=8000)
+    _nav.expect_route(page, "settings/tools")
+    _lists.expect_settings_selected(page, "tools")
 
 
 @pytest.mark.browser
@@ -81,10 +81,10 @@ def test_admin_settings_nav_enter_on_a_focused_link(app_clean: str, page: Page) 
     """A focused nav link activates on Enter (a plain link: no roving tabindex)."""
     _nav.goto(page, app_clean, "settings/appearance")
     expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
-    providers = _lists.settings_nav_link(page, "providers")
-    providers.focus()
-    expect(providers).to_be_focused()
+    tools = _lists.settings_nav_link(page, "tools")
+    tools.focus()
+    expect(tools).to_be_focused()
     page.keyboard.press("Enter")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=5000)
-    _nav.expect_route(page, "settings/providers")
-    _lists.expect_settings_selected(page, "providers")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    _lists.expect_settings_selected(page, "tools")

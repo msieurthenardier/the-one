@@ -27,7 +27,7 @@ from playwright.sync_api import Page, expect
 
 def _open_create_form(page: Page, base: str) -> None:
     """The connector create form, through the Library list's Add menu."""
-    _nav.goto_settled(page, base, "library/connectors")
+    _nav.goto_settled(page, base, "library")
     _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
@@ -36,8 +36,8 @@ def _open_create_form(page: Page, base: str) -> None:
 def test_studio_connectors_empty_inventory_shows_empty_state(app_clean: str, page: Page) -> None:
     """No connectors: the group's empty line and the section root's empty state,
     whose action opens the create form (the grid's CTA is retired)."""
-    _nav.goto_settled(page, app_clean, "library/connectors")
-    empty = _lists.library_empty_state(page, "connectors")
+    _nav.goto_settled(page, app_clean, "library")
+    empty = _lists.library_start(page)
     expect(empty).to_be_visible(timeout=8000)
     expect(empty).to_contain_text("Links to chat platforms such as Discord")
     expect(
@@ -45,7 +45,7 @@ def test_studio_connectors_empty_inventory_shows_empty_state(app_clean: str, pag
             '[data-testid="library-list"] .ui-list-pane-group-empty', has_text="No connectors yet."
         )
     ).to_be_visible()
-    page.locator('[data-testid="library-empty-connectors-add"]').click()
+    page.locator('[data-testid="library-start-connectors-add"]').click()
     _nav.expect_route(page, "library/connectors/~new")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
@@ -142,7 +142,7 @@ def test_studio_connector_status_led_reflects_doctor_result_on_open(
     # Re-open fresh from the list — the clearest "opening an existing
     # connector" trigger, independent of the post-save auto-transition.
     _lists.close_item(page)
-    _nav.expect_route(page, "library/connectors")
+    _nav.expect_route(page, "library")
     _lists.open_item(page, "library/connectors", "LED Test Connector")
 
     led = page.locator('[data-testid="connector-status-led"]')
@@ -172,7 +172,7 @@ def test_studio_connector_enabled_checkbox_default_checked_and_persists(
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
 
     _lists.close_item(page)
-    _nav.expect_route(page, "library/connectors")
+    _nav.expect_route(page, "library")
     _lists.open_item(page, "library/connectors", "Enabled Default Connector")
     expect(page.locator('[data-field="enabled"]')).to_be_checked(timeout=8000)
 
@@ -194,7 +194,7 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
     expect(page.locator('[data-field="enabled"]')).not_to_be_checked()
 
     _lists.close_item(page)
-    _nav.expect_route(page, "library/connectors")
+    _nav.expect_route(page, "library")
     _lists.open_item(page, "library/connectors", "Disabled Connector")
     expect(page.locator('[data-field="enabled"]')).not_to_be_checked(timeout=8000)
 
@@ -310,7 +310,7 @@ def test_connector_rename_updates_the_editor_title(app_clean: str, page: Page) -
     from browser.seeders import seed_connector
 
     seed_connector(app_clean, "Before rename")
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/connectors", "Before rename")
     title = page.locator(".editor-title")
     expect(title).to_have_text("Before rename", timeout=8000)

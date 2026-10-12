@@ -93,6 +93,8 @@ ROUND_TRIP_SPECS = [
     {"destination": "agents", "id": "~new", "tab": "knowledge"},
     {"destination": "agents", "id": "x", "tab": "mcps", "sub": "src/1 é"},
     {"destination": "agents", "id": "!'()*", "tab": "self-configuration"},
+    {"destination": "library", "section": "providers", "create": True},
+    {"destination": "library", "section": "providers", "id": "p/é!'()*~"},
     {"destination": "library", "section": "knowledge"},
     {"destination": "library", "section": "knowledge", "id": "kb 1"},
     {"destination": "library", "section": "knowledge", "create": True},
@@ -105,8 +107,6 @@ ROUND_TRIP_SPECS = [
     {"destination": "settings", "section": "date-and-time"},
     {"destination": "settings", "section": "prompts"},
     {"destination": "settings", "section": "encryption"},
-    {"destination": "settings", "section": "providers", "create": True},
-    {"destination": "settings", "section": "providers", "id": "p/é!'()*~"},
     {"destination": "settings", "section": "tools", "id": "web search"},
     {"destination": "settings", "section": "knowledge-indexing"},
     {"destination": "settings", "section": "design-language"},
@@ -187,7 +187,7 @@ def test_leading_tilde_is_escaped_on_output(app_clean: str, page: Page) -> None:
         """() => ({
             href: App.router.href({destination: 'agents', id: '~new'}),
             hrefTab: App.router.href({destination: 'agents', id: '~new', tab: 'tools'}),
-            create: App.router.href({destination: 'settings', section: 'providers', create: true}),
+            create: App.router.href({destination: 'library', section: 'providers', create: true}),
             agentCreate: App.router.href({destination: 'agents', create: true}),
             // The agents create sub (M25 F3 L3) is exactly `agents/~new`, unescaped;
             // a longer raw-`~` sub is an agent path and keeps the escape.
@@ -206,13 +206,13 @@ def test_leading_tilde_is_escaped_on_output(app_clean: str, page: Page) -> None:
             kbCreateSub: App.router.resolve('#library/knowledge/~new').sub,
             connCreateSub: App.router.resolve('#library/connectors/~new').sub,
             connItemSub: App.router.resolve('#library/connectors/abc').sub,
-            provNew: App.router.routeFor('admin', 'providers/new'),
+            provNew: App.router.routeFor('studio', 'providers/new'),
             agentNewName: App.router.routeFor('studio', 'agents/new/general'),
         })"""
     )
     assert out["href"] == "#agents/%7Enew"
     assert out["hrefTab"] == "#agents/%7Enew/tools"
-    assert out["create"] == "#settings/providers/~new"
+    assert out["create"] == "#library/providers/~new"
     assert out["agentCreate"] == "#agents/~new"
     assert out["fromAreaCreate"] == "agents/~new"
     assert out["parseCreate"] == {"destination": "agents", "create": True}
@@ -227,7 +227,7 @@ def test_leading_tilde_is_escaped_on_output(app_clean: str, page: Page) -> None:
     assert out["kbCreateSub"] == "knowledge/new"
     assert out["connCreateSub"] == "connectors/new"
     assert out["connItemSub"] == "connectors/abc"
-    assert out["provNew"] == "settings/providers/~new"
+    assert out["provNew"] == "library/providers/~new"
     assert out["agentNewName"] == "agents/new/general"  # "new" is a legal agent name
 
 
@@ -245,13 +245,18 @@ REDIRECT_ROWS = [
     ("#studio/agents/new", "agents/new"),  # an agent NAMED "new", not the create segment
     ("#studio/agents/new/general", "agents/new/general"),
     ("#studio/tools", "agents"),
-    ("#studio/knowledge", "library/knowledge"),
+    # A bare Library section is an alias for the Library root (the start page).
+    # `#studio/providers[/…]` still maps to Library's providers (accepted, DD8).
+    ("#studio/providers", "library"),
+    ("#studio/providers/new", "library/providers/~new"),
+    ("#studio/providers/p1", "library/providers/p1"),
+    ("#studio/knowledge", "library"),
     ("#studio/knowledge/kb1", "library/knowledge/kb1"),
     ("#studio/knowledge/new", "library/knowledge/~new"),
-    ("#studio/mcp-sources", "library/mcp"),
+    ("#studio/mcp-sources", "library"),
     ("#studio/mcp-sources/new", "library/mcp/~new"),
     ("#studio/mcp-sources/src1", "library/mcp/src1"),
-    ("#studio/connectors", "library/connectors"),
+    ("#studio/connectors", "library"),
     ("#studio/connectors/new", "library/connectors/~new"),
     ("#studio/connectors/c1", "library/connectors/c1"),
     # M25 F3 L5a: the former General page is three; its legacy forms go to the
@@ -261,14 +266,13 @@ REDIRECT_ROWS = [
     ("#admin/general/x", "settings/appearance"),
     ("#admin/system", "settings/appearance"),
     ("#admin/system/x", "settings/appearance"),
-    ("#admin/providers", "settings/providers"),
-    ("#admin/providers/new", "settings/providers/~new"),
-    ("#admin/providers/p1", "settings/providers/p1"),
     ("#admin/tools", "settings/tools"),
     ("#admin/tools/web_search", "settings/tools/web_search"),
     ("#admin/knowledge", "settings/knowledge-indexing"),
-    # current-scheme redirects
-    ("#library", "library/knowledge"),
+    # current-scheme redirects: the bare Library section aliases fold to `library`
+    ("#library/knowledge", "library"),
+    ("#library/mcp", "library"),
+    ("#library/connectors", "library"),
     ("#settings", "settings/appearance"),
 ]
 
@@ -326,15 +330,47 @@ def test_redirect_rows_on_boot(app_clean: str, page: Page) -> None:
     assert not failures, "redirect rows failed:\n" + "\n".join(failures)
 
 
+def test_library_root_is_a_route_of_its_own(app_clean: str, page: Page) -> None:
+    """`#library` is Library's own route (the start page), not a redirect: it
+    boots as itself with no history write, and the bare section aliases fold to
+    it (redirected), while item and create routes are unchanged."""
+    _boot(page, app_clean, "#library")
+    assert page.evaluate("App.router.current().route") == "library"
+    assert page.evaluate("location.hash") == "#library"
+    assert page.evaluate("App.router.resolve('#library')") == {
+        "kind": "route",
+        "route": "library",
+        "destination": "library",
+        "area": "studio",
+        "sub": "library",
+        "redirected": False,
+    }
+    for alias in ("#library/knowledge", "#library/mcp", "#library/connectors"):
+        got = page.evaluate("h => App.router.resolve(h)", alias)
+        assert (got["route"], got["sub"], got["redirected"]) == ("library", "library", True), alias
+    for item, sub in (
+        ("#library/mcp/~new", "mcp-sources/new"),
+        ("#library/connectors/c1", "connectors/c1"),
+        ("#library/knowledge/kb1", "knowledge/kb1"),
+    ):
+        got = page.evaluate("h => App.router.resolve(h)", item)
+        assert (got["sub"], got["redirected"]) == (sub, False), item
+    assert page.evaluate("App.router.href({destination: 'library'})") == "#library"
+    assert page.evaluate("App.router.lastRoute('library')") == "library"
+    assert page.evaluate("App.router.routeFor('studio', 'library')") == "library"
+    # The bare sections are never produced as an href or as a sync target's URL.
+    assert page.evaluate("App.router.root('library')") == "library"
+
+
 def test_redirect_on_traversal_replaces(app_clean: str, page: Page) -> None:
     """A legacy hash arriving after boot (typed) is rewritten in place."""
     _boot(page, app_clean, "#settings/appearance")
     before = page.evaluate("history.length")
-    page.evaluate("location.hash = '#admin/providers'")
-    _nav.expect_route(page, "settings/providers")
+    page.evaluate("location.hash = '#admin/tools'")
+    _nav.expect_route(page, "settings/tools")
     # One entry for the typed navigation, rewritten in place (no second one).
     assert page.evaluate("history.length") == before + 1
-    assert page.evaluate("location.hash") == "#settings/providers"
+    assert page.evaluate("location.hash") == "#settings/tools"
     # Back goes to the previous route, not to a bounce through the legacy form.
     page.go_back()
     _nav.expect_route(page, "settings/appearance")
@@ -369,7 +405,10 @@ PARITY_CORPUS = [h for h, _ in REDIRECT_ROWS] + [
     "#agents",
     "#agents/~new",
     "#agents/foo/general",
+    "#library",
     "#library/knowledge",
+    "#library/mcp",
+    "#library/connectors",
     "#library/knowledge/~new",
     "#library/mcp/~new",
     "#library/connectors/~new",
@@ -378,7 +417,8 @@ PARITY_CORPUS = [h for h, _ in REDIRECT_ROWS] + [
     "#settings/date-and-time",
     "#settings/prompts",
     "#settings/encryption",
-    "#settings/providers/~new",
+    "#library/providers/~new",
+    "#studio/providers/new",
     "#settings/knowledge-indexing",
 ]
 
@@ -405,13 +445,13 @@ def test_unknown_or_empty_hash_at_boot_goes_to_chats(app_clean: str, page: Page,
 
 
 def test_unknown_hash_after_boot_restores_current_route(app_clean: str, page: Page) -> None:
-    _boot(page, app_clean, "#settings/providers")
-    _nav.expect_route(page, "settings/providers")
+    _boot(page, app_clean, "#settings/tools")
+    _nav.expect_route(page, "settings/tools")
     page.evaluate("location.hash = '#installation'")  # e.g. an agent-authored anchor
-    page.wait_for_function("location.hash === '#settings/providers'")
+    page.wait_for_function("location.hash === '#settings/tools'")
     page.evaluate("location.hash = ''")
-    page.wait_for_function("location.hash === '#settings/providers'")
-    assert page.evaluate("App.router.current().route") == "settings/providers"
+    page.wait_for_function("location.hash === '#settings/tools'")
+    assert page.evaluate("App.router.current().route") == "settings/tools"
 
 
 def test_element_id_fragment_is_never_routed(app_clean: str, page: Page) -> None:
@@ -424,9 +464,9 @@ def test_element_id_fragment_is_never_routed(app_clean: str, page: Page) -> None
     assert page.evaluate("App.router.current().route") == "settings/appearance"
     assert page.evaluate("App.router.isDeciding()") is False
     # A sync fired while the element fragment is present is kept.
-    assert page.evaluate("App.router.sync('admin', 'providers')") is True
-    assert page.evaluate("App.router.current().route") == "settings/providers"
-    assert page.evaluate("location.hash") == "#settings/providers"
+    assert page.evaluate("App.router.sync('admin', 'tools')") is True
+    assert page.evaluate("App.router.current().route") == "settings/tools"
+    assert page.evaluate("location.hash") == "#settings/tools"
 
 
 def test_returning_from_element_fragment_is_a_noop(app_clean: str, page: Page) -> None:
@@ -524,16 +564,16 @@ def test_go_commit_sequence(app_clean: str, page: Page) -> None:
     expect(_nav.destination_panel(page, "agents")).to_be_visible()
     page.evaluate(_SPY_JS)
     before = page.evaluate("history.length")
-    assert page.evaluate("App.router.go('settings/providers')") is True
+    assert page.evaluate("App.router.go('settings/tools')") is True
 
     log = page.evaluate("window.__seq")
     steps = [e["step"] for e in log]
     assert steps[0] == "guard" and log[0]["hash"] == "#agents"  # URL not yet written
     hyd = next(e for e in log if e["step"] == "hydrate")
-    assert hyd["sub"] == "providers"
-    assert hyd["hash"] == "#settings/providers"  # 3. URL written before hydrate
-    assert hyd["current"] == "settings/providers"  # 4. current committed
-    assert hyd["lastRoute"] == "settings/providers"  # 4. lastRoute committed
+    assert hyd["sub"] == "tools"
+    assert hyd["hash"] == "#settings/tools"  # 3. URL written before hydrate
+    assert hyd["current"] == "settings/tools"  # 4. current committed
+    assert hyd["lastRoute"] == "settings/tools"  # 4. lastRoute committed
     assert hyd["aside"] == "Settings" and hyd["asideHidden"] is False  # 5. shell
     assert hyd["panel"] == "settings"  # 6. mountArea
     # 8. the post-hydrate canonicalisation (serializeState -> sync) follows the hydrate
@@ -542,11 +582,11 @@ def test_go_commit_sequence(app_clean: str, page: Page) -> None:
 
 
 def test_go_to_current_route_replaces_and_hydrates(app_clean: str, page: Page) -> None:
-    _nav.goto_settled(page, app_clean, "settings/providers")
+    _nav.goto_settled(page, app_clean, "settings/tools")
     expect(_nav.destination_panel(page, "settings")).to_be_visible()
     page.evaluate(_SPY_JS)
     before = page.evaluate("history.length")
-    assert page.evaluate("App.router.go('settings/providers')") is True
+    assert page.evaluate("App.router.go('settings/tools')") is True
     assert page.evaluate("history.length") == before  # replaced, not pushed
     assert any(e["step"] == "hydrate" for e in page.evaluate("window.__seq"))  # not skipped
 
@@ -603,7 +643,7 @@ def test_sync_dropped_when_location_differs_from_router(app_clean: str, page: Pa
     _boot(page, app_clean, "#settings/appearance")
     # A URL the router has not committed (e.g. a traversal that has not landed).
     page.evaluate("history.replaceState(history.state, '', '#settings/tools')")
-    assert page.evaluate("App.router.sync('admin', 'providers')") is False
+    assert page.evaluate("App.router.sync('admin', 'tools')") is False
     assert page.evaluate("location.hash") == "#settings/tools"
 
 
@@ -649,7 +689,7 @@ def test_every_write_stamps_a_seq_and_replace_keeps_it(app_clean: str, page: Pag
     assert isinstance(s0, int)
     page.evaluate("App.router.sync('admin', 'tools')")  # replace keeps the seq
     assert page.evaluate("history.state.seq") == s0
-    page.evaluate("App.router.go('settings/providers')")  # push -> +1
+    page.evaluate("App.router.go('settings/prompts')")  # push -> +1
     assert page.evaluate("history.state.seq") == s0 + 1
     page.reload()  # boot adopts the surviving seq
     page.wait_for_function("() => !!(window.App && App.router && App.router.current())")
@@ -658,27 +698,27 @@ def test_every_write_stamps_a_seq_and_replace_keeps_it(app_clean: str, page: Pag
 
 def test_stay_after_back_reverts_with_history_go(app_clean: str, page: Page) -> None:
     _boot(page, app_clean, "#settings/appearance")
-    page.evaluate("App.router.go('settings/providers')")
+    page.evaluate("App.router.go('settings/tools')")
     seq = page.evaluate("history.state.seq")
     length = page.evaluate("history.length")
     _hold_guard(page)
     page.go_back()
     page.wait_for_function("window.__held !== null")
     assert page.evaluate("App.router.isDeciding()") is True
-    assert page.evaluate("App.router.current().route") == "settings/providers"
+    assert page.evaluate("App.router.current().route") == "settings/tools"
     page.evaluate("window.__held.abort()")
     _release(page)
-    page.wait_for_function("location.hash === '#settings/providers'")
+    page.wait_for_function("location.hash === '#settings/tools'")
     assert page.evaluate("history.state.seq") == seq  # back on the very same entry
     assert page.evaluate("history.length") == length  # nothing pushed
     assert page.evaluate("App.router.isDeciding()") is False
     # the revert's own popstate was a no-op: no hydrate to settings/appearance
-    assert page.evaluate("App.router.current().route") == "settings/providers"
+    assert page.evaluate("App.router.current().route") == "settings/tools"
 
 
 def test_continue_after_back_does_not_push_and_hydrates_latest(app_clean: str, page: Page) -> None:
     _boot(page, app_clean, "#settings/appearance")
-    page.evaluate("App.router.go('settings/providers')")
+    page.evaluate("App.router.go('settings/tools')")
     length = page.evaluate("history.length")
     _hold_guard(page)
     page.go_back()
@@ -698,7 +738,7 @@ def test_stay_after_typed_url_repushes_current_route(app_clean: str, page: Page)
     _boot(page, app_clean, "#settings/appearance")
     length = page.evaluate("history.length")
     _hold_guard(page)
-    page.evaluate("location.hash = '#settings/providers'")
+    page.evaluate("location.hash = '#settings/tools'")
     page.wait_for_function("window.__held !== null")
     _release(page)
     page.evaluate("window.__held.abort()")
@@ -711,7 +751,7 @@ def test_stay_after_typed_url_repushes_current_route(app_clean: str, page: Page)
 
 def test_traversal_with_nonrouter_dialog_open_reverts_as_stay(app_clean: str, page: Page) -> None:
     _boot(page, app_clean, "#settings/appearance")
-    page.evaluate("App.router.go('settings/providers')")
+    page.evaluate("App.router.go('settings/tools')")
     seq = page.evaluate("history.state.seq")
     page.evaluate(
         "App.confirmDialog({ title: 'Other', message: 'unrelated', "
@@ -719,12 +759,12 @@ def test_traversal_with_nonrouter_dialog_open_reverts_as_stay(app_clean: str, pa
     )
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible()
     page.go_back()
-    page.wait_for_function("location.hash === '#settings/providers'")
+    page.wait_for_function("location.hash === '#settings/tools'")
     assert page.evaluate("history.state.seq") == seq
     # the open dialog stays in charge
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible()
     assert page.evaluate("App.router.isDeciding()") is False
-    assert page.evaluate("App.router.current().route") == "settings/providers"
+    assert page.evaluate("App.router.current().route") == "settings/tools"
 
 
 def test_go_with_dialog_open_resolves_stay_and_syncs_continue(app_clean: str, page: Page) -> None:
@@ -745,7 +785,7 @@ def test_concurrent_gos_join_and_latest_target_wins(app_clean: str, page: Page) 
     page.evaluate(
         """() => {
           window.__r = [];
-          App.router.go('settings/providers').then(v => window.__r.push(['a', v]));
+          App.router.go('settings/tools').then(v => window.__r.push(['a', v]));
           App.router.go('library/mcp').then(v => window.__r.push(['b', v]));
           App.router.go('chats').then(v => window.__r.push(['c', v]));
         }"""
@@ -767,10 +807,58 @@ def test_hashchange_back_to_previous_sub_after_sync_is_honoured(app_clean: str, 
     same-route no-op. The router's current route now updates on every write."""
     _boot(page, app_clean, "#settings/knowledge-indexing")
     expect(page.locator(".page-title")).to_have_text("Knowledge indexing", timeout=8000)
-    page.evaluate("App.router.sync('admin', 'providers')")  # the area changes its own sub
-    _nav.expect_route(page, "settings/providers")
-    assert page.evaluate("App.router.current().route") == "settings/providers"
+    page.evaluate("App.router.sync('admin', 'tools')")  # the area changes its own sub
+    _nav.expect_route(page, "settings/tools")
+    assert page.evaluate("App.router.current().route") == "settings/tools"
     # a hashchange back to the previous sub must be honoured
     page.evaluate("location.hash = '#settings/knowledge-indexing'")
     page.wait_for_function("App.router.current().route === 'settings/knowledge-indexing'")
     expect(page.locator(".page-title")).to_have_text("Knowledge indexing", timeout=8000)
+
+
+# ── Providers left Settings (sortie 02, DD8): their old routes are unknown ───
+
+# `#settings/providers[/…]` and `#admin/providers[/…]` are dropped, not redirected
+# (the operator's decision): they resolve as unknown routes.
+DROPPED_PROVIDER_HASHES = [
+    "#settings/providers",
+    "#settings/providers/~new",
+    "#settings/providers/abc",
+    "#admin/providers",
+    "#admin/providers/new",
+    "#admin/providers/abc",
+]
+
+
+def test_old_settings_provider_routes_resolve_as_unknown(app_clean: str, page: Page) -> None:
+    _boot(page, app_clean)
+    got = page.evaluate("hs => hs.map(h => App.router.resolve(h).kind)", DROPPED_PROVIDER_HASHES)
+    assert got == ["unknown"] * len(DROPPED_PROVIDER_HASHES), got
+    # Nothing in the Settings page table or the rail route knows the section.
+    assert page.evaluate("App.settingsPages.some(p => p.section === 'providers')") is False
+    # `#studio/providers[/…]` is the accepted exception: it maps to Library (DD8).
+    assert page.evaluate("App.router.resolve('#studio/providers/p1').route") == (
+        "library/providers/p1"
+    )
+
+
+@pytest.mark.parametrize("raw", ["#settings/providers", "#admin/providers/abc"])
+def test_old_provider_route_at_boot_lands_on_chats(app_clean: str, page: Page, raw: str) -> None:
+    """A bookmarked old link: the boot treats the non-route hash as unknown."""
+    writes = _boot_recorded(page, app_clean, raw)
+    assert writes[0]["kind"] == "replaceState" and writes[0]["url"] == "#chats", writes
+    assert page.evaluate("App.router.current().destination") == "chats"
+
+
+def test_old_provider_route_is_refused_in_app(app_clean: str, page: Page) -> None:
+    """In-app: ``go()`` resolves false for it (nothing moves), and a typed hash
+    restores the current route."""
+    _boot(page, app_clean, "#settings/appearance")
+    before = page.evaluate("history.length")
+    assert page.evaluate("App.router.go('settings/providers')") is False
+    assert page.evaluate("App.router.go('settings/providers/~new')") is False
+    assert page.evaluate("history.length") == before
+    assert page.evaluate("App.router.current().route") == "settings/appearance"
+    page.evaluate("location.hash = '#settings/providers/abc'")
+    page.wait_for_function("location.hash === '#settings/appearance'")
+    assert page.evaluate("App.router.current().route") == "settings/appearance"

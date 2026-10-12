@@ -14,7 +14,7 @@
      min-content (mandatory for overflow-y: auto to actually clip rather than
      propagate up the flex chain). */
   .area-admin .admin-content { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-  /* Admin's provider-editor mounts .editor-section blocks as direct children
+  /* Admin's editors (tools, knowledge indexing) mount .editor-section blocks as direct children
      of .admin-content — no .tabpanel wrapper (no tabs). Studio gets its
      20px horizontal gutter from .tabpanel; admin needs the same gutter
      applied to .editor-section directly to align with .editor-header's
@@ -108,12 +108,11 @@
   }
 
   /* === Settings item pages (M25 F3 L5b; flight DD7, reference spec 4 and 8.2) ===
-     Providers and Built-in tools: the page header, then .settings-list (the
-     table or the tool list), then .settings-item (the open item's editor),
-     in one scrolling page (.admin-content). The list and the editor share
-     the section 4 content inset (0 32px) and 880px maximum width. With no
-     item open, the list section takes the page's remaining height, so the
-     zero-providers empty state centres in it. */
+     Built-in tools: the page header, then .settings-list (the tool list),
+     then .settings-item (the open item's editor), in one scrolling page
+     (.admin-content). The list and the editor share the section 4 content
+     inset (0 32px) and 880px maximum width. With no item open, the list
+     section takes the page's remaining height. */
   .area-admin .settings-list { flex: none; display: flex; flex-direction: column; padding: 0 32px; max-width: 880px; }
   .area-admin .settings-list:has(+ .settings-item:empty) { flex: 1; padding-bottom: 40px; }
   .area-admin .settings-item { flex: none; }
@@ -134,49 +133,22 @@
   /* Intro copy (section 8.2): 12px --fg-muted on the page's --bg. */
   .area-admin .settings-intro { margin: 0 0 16px; font-size: var(--font-size-body-sm); color: var(--fg-muted); }
 
-  /* === Provider tiles (L7: tiles, by operator decision at the Flight 3
-     checkpoint, matching Built-in tools; reference spec 8.2 drew a table) ===
-     The tile is not a click target (its NAME is the item link), so it drops
-     the shared pointer cursor and hover wash like .tool-tile; the open
-     provider's tile keeps the selected wash (.entity-tile.active). No bottom
-     padding reserve: that is the tool toggle's corner and stays tools-only. */
-  .area-admin .provider-tile { position: relative; cursor: default; }
-  .area-admin .provider-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
-  /* The badge is App.ui.badge's own element (quiet, lowercase, per-type ink
-     from .badge--{kind}); this class only places it in the corner. */
   /* DD3 (squawk 0116): the name and the badge share a flex title row, so the
      badge is in the flow beside the name and can never overlap it: the name
      takes the free width and ellipsizes, the badge keeps its own. */
   .area-admin .tile-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .area-admin .tile-title-row .entity-tile-name { flex: 1 1 auto; min-width: 0; }
-  .area-admin .tile-title-row .provider-tile-badge,
   .area-admin .tile-title-row .admin-tool-badge { position: static; flex: none; }
-  /* The name link (tool and provider tiles): the tile's title ink (it keeps
+  /* The name link (tool tiles): the tile's title ink (it keeps
      .entity-tile-name's size, weight and ellipsis), it takes the title row's free width,
      underlined on hover, with the standard accent ring on keyboard focus. */
-  .area-admin .tool-tile-link,
-  .area-admin .provider-tile-link {
+  .area-admin .tool-tile-link {
     color: var(--fg);
     text-decoration: none;
     border-radius: var(--radius-sm);
   }
-  .area-admin .tool-tile-link:hover,
-  .area-admin .provider-tile-link:hover { text-decoration: underline; }
-  .area-admin .tool-tile-link:focus-visible,
-  .area-admin .provider-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* Base URL and "Used by": single lines in --fg-secondary (gated AA on the
-     tile surface and on the active wash; --fg-muted is not). */
-  .area-admin .provider-tile-url,
-  .area-admin .provider-tile-used {
-    display: block;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* === Provider List === */
+  .area-admin .tool-tile-link:hover { text-decoration: underline; }
+  .area-admin .tool-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Quiet vocabulary (M17 F6 L1, SC1): the v2 mono + UPPERCASE + letter-spaced
      eyebrow is retired. Because the shared `.entity-tile-badge` base
      (components.css) still declares mono/uppercase/letter-spacing and this
@@ -185,80 +157,6 @@
      declarations. Per-type ink stays on the `--badge-ink-*`-gated
      `.admin-provider-badge--{type}` modifiers below. */
   .area-admin .admin-provider-badge { font-family: var(--font-family-sans); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: none; letter-spacing: normal; }
-  .area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
-
-  /* === Form-control focus rings === */
-  .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* Focus ring for the Ollama icon-only pull-cancel button (still per-area
-     since it's a special icon-only affordance). Other Ollama-lifecycle
-     buttons (Pull Model, Pull, Load, Unload, Delete) now compose canonical
-     .btn-outlined-primary / .btn-filled-primary / .btn-muted-destructive which
-     provide their own focus-visible. */
-  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  /* === Provider Form === */
-  /* The .admin-provider-form / .admin-pf-cancel / .admin-pf-password-wrap /
-     .admin-pf-eye / .admin-pf-actions / .admin-pf-error / .admin-pf-test /
-     .admin-pf-test-result / .admin-pf-testing / .admin-pf-test-ok /
-     .admin-pf-test-fail rules were deleted in F6 leg 03. The editor markup
-     now uses canonical .editor-header / .form-actions / .editor-section /
-     .api-key-wrap / .api-key-eye / .test-result / .test-result-pending /
-     .test-result-ok / .test-result-fail (components.css), and the action
-     cluster composes onto .btn-outlined-primary / .btn-filled-primary +
-     .save-btn / .cancel-btn / .back-btn / .test-provider-btn. */
-
-  /* === Model List === */
-  .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
-  .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
-     header, so it does not take the `.section-title` eyebrow-with-rule recipe
-     (sans, body-sm, weight 500, --fg-secondary). */
-  .area-admin .admin-pf-models-title { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); }
-  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
-  /* DD10: plain information, not options - no hover, no cursor, a muted separator. */
-  .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); cursor: default; }
-  .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
-  .area-admin .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
-
-  /* === Ollama Lifecycle Panel === */
-  .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
-  .area-admin .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
-  .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
-  .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
-  /* .admin-pf-model-dot retired (Flight 3 Leg 04): Ollama lifecycle panel
-     now emits the canonical .indicator-led primitive directly at the
-     loaded (.indicator-led--success) and unloaded (.indicator-led--idle)
-     markup sites. */
-  .area-admin .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
-  .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  /* admin-pf-model-btn retained as a JS hook only — styling comes from
-     canonical .btn-outlined-primary / .btn-muted-destructive + .btn-sm. */
-  .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
-  /* Capability chips — surfaced on each Ollama model row + reused by Studio
-     under the model selector. Positive capabilities use the canonical grey
-     .chip; .cap-chip-no-tools uses the danger palette so the absence of
-     tool support stands out at a glance. */
-  .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; }
-  .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
-
-  /* === Pull UI === */
-  .area-admin .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
-  .area-admin .admin-pf-pull-name { flex: 1; }
-  .area-admin .admin-pf-pull-go { padding: 6px 14px; font-size: var(--font-size-caption); }
-  .area-admin .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
-  .area-admin .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
-  .area-admin .admin-pf-pull-text { position: relative; font-size: var(--font-size-caption); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; flex: 1; }
-  .area-admin .admin-pf-pull-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
-  .area-admin .admin-pf-pull-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
-  .area-admin .admin-pf-pull-cancel svg { width: 12px; height: 12px; display: block; }
-  .area-admin .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
-  .area-admin .admin-pf-pull-size:not(.test-result-warning) { color: var(--fg-secondary); }
-  .area-admin .admin-pf-pull-size:empty { padding: 0; }
-  .area-admin .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
-
   /* === Provider Type Badges === */
   /* Per-badge ink (M17 F3 L4): each modifier overrides the base
      `.admin-provider-badge { color: var(--fg-on-accent) }` with a fill-tuned
@@ -273,20 +171,6 @@
   .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
   .area-admin .admin-provider-badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
   .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
-
-  /* === Anthropic plan sign-in section (M19 F01 L03) === */
-  /* Save-gated OAuth sign-in UX in the provider editor. Layout only —
-     buttons/inputs/LED reuse the canonical primitives (btn-*, .field-input,
-     .indicator-led, .banner). */
-  .area-admin .plan-signin-body { display: flex; flex-direction: column; gap: var(--space-3); }
-  .area-admin .plan-signin-desc { margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: var(--line-height-normal); }
-  .area-admin .plan-signin-actions { display: flex; align-items: center; gap: var(--space-3); }
-  .area-admin .plan-signin-hint { font-size: var(--font-size-caption); color: var(--fg-muted); }
-  .area-admin .plan-connected-row { display: flex; align-items: center; gap: var(--space-3); }
-  .area-admin .plan-connected-text { font-size: var(--font-size-body-sm); color: var(--fg); }
-  .area-admin .plan-signin-url-row, .area-admin .plan-code-row { display: flex; align-items: center; gap: var(--space-2); }
-  .area-admin .plan-signin-url-row .field-input, .area-admin .plan-code-row .field-input { flex: 1; min-width: 0; }
-  .area-admin .plan-signin-url { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); }
 
   /* === Tool Category Badges (F6 leg 02) === */
   /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced

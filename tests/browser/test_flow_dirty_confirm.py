@@ -191,7 +191,7 @@ def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, pa
     _nav.open_destination(page, "library")
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible()
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible()
 
 
 @pytest.mark.browser

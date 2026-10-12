@@ -37,7 +37,7 @@ Smoke test for the Studio web UI. Verifies that the application loads, that core
 | 3 | Open the Discord Constellation connector account editor. | The editor opens with the account's name visible in a header. Multiple editor tabs are visible (the test does not assert exact tab labels — only that an editor with tabs has loaded). |
 
 > **M25 F3:** Step 2's "connector account tile" is not renamed. Connectors are now rows in
-> the Library list's Connectors group (`connector-card`, `#library/connectors`), but the
+> the Library list's Connectors group (`connector-card`, `#library`), but the
 > Connector Accounts surface and its account editor this archived spec walks were already
 > removed (Mission 23 Connector Reset; see the archive note), so there is no current
 > equivalent to map the step onto. Left for the Flight Director.

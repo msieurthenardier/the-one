@@ -104,13 +104,13 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/admin/knowledge-settings-page.js": [
         'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
     ],
-    "areas/admin/provider-editor.js": [
+    "areas/studio/provider-editor.js": [
         "container.innerHTML = html;",
         "eyeBtn.innerHTML = window.App.icon('eye-off');",
         "eyeBtn.innerHTML = window.App.icon('eye');",
         "resultEl.innerHTML = '<span class=\"test-result-fail\">' + window.App.escapeHtml(e",
     ],
-    "areas/admin/provider-models.js": [
+    "areas/studio/provider-models.js": [
         "modelsEl.innerHTML = '<div class=\"admin-pf-models-header\">' + '<button class=\"bt",
         "listEl.innerHTML = html;",
         "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",

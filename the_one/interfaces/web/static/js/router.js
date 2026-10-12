@@ -7,16 +7,21 @@
 //   chats         chat     chats[/{sessionId}]           [sessions/{id}]
 //                          chats/~new/{agent}            new/{agent}
 //   agents        studio   agents[/~new|/{name}[/{tab}[/..]]]  agents[/~new|/...]
-//   library       studio   library/knowledge[/~new|/{kbId}] knowledge[/new|/{kbId}]
+//   library       studio   library                       library  (the start page)
+//                          library/providers[/~new|/{id}] providers[/new|/{id}]
+//                          library/knowledge[/~new|/{kbId}] knowledge[/new|/{kbId}]
 //                          library/mcp[/~new|/{id}]      mcp-sources[/new|/{id}]
 //                          library/connectors[/~new|/{id}] connectors[/new|/{id}]
 //   settings      admin    settings/appearance           appearance
 //                          settings/prompts              prompts
 //                          settings/encryption           encryption
-//                          settings/providers[/~new|/{id}] providers[/new|/{id}]
 //                          settings/tools[/{name}]       tools[/{name}]
 //                          settings/knowledge-indexing   knowledge
 //                          settings/design-language      design-language  (dev mode)
+//
+// `#library` is Library's own route (the start page). A bare section URL
+// (`library/providers`, `library/knowledge`, `library/mcp`, `library/connectors`: no id, no `~new`)
+// is an alias that redirects to it, like `settings/general`; nothing produces one.
 //
 // `settings/general` (the pre-M25-F3-L5a single General page) is an alias that
 // redirects to `settings/appearance`, dropping any further segments; the legacy
@@ -69,7 +74,7 @@
   var DESTINATIONS = [
     { id: 'chats', label: 'Chats', area: 'chat', iconKey: 'chat', root: 'chats', sidebar: true },
     { id: 'agents', label: 'Agents', area: 'studio', iconKey: 'studio', root: 'agents', sidebar: true },
-    { id: 'library', label: 'Library', area: 'studio', iconKey: 'database', root: 'library/knowledge', sidebar: true },
+    { id: 'library', label: 'Library', area: 'studio', iconKey: 'database', root: 'library', sidebar: true },
     { id: 'settings', label: 'Settings', area: 'admin', iconKey: 'admin', root: 'settings/appearance', sidebar: true }
   ];
 
@@ -79,6 +84,7 @@
   // (M25 F3 L4a: knowledge bases and connectors joined MCP). An item whose id
   // is exactly `new` is unreachable at its item route there (accepted risk).
   var SECTIONS = [
+    { dest: 'library', area: 'studio', route: 'providers', sub: 'providers', create: true },
     { dest: 'library', area: 'studio', route: 'knowledge', sub: 'knowledge', create: true },
     { dest: 'library', area: 'studio', route: 'mcp', sub: 'mcp-sources', create: true },
     { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: true },
@@ -90,7 +96,6 @@
     { dest: 'settings', area: 'admin', route: 'date-and-time', sub: 'date-and-time', create: false },
     { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },
     { dest: 'settings', area: 'admin', route: 'encryption', sub: 'encryption', create: false },
-    { dest: 'settings', area: 'admin', route: 'providers', sub: 'providers', create: true },
     { dest: 'settings', area: 'admin', route: 'tools', sub: 'tools', create: false },
     { dest: 'settings', area: 'admin', route: 'knowledge-indexing', sub: 'knowledge', create: false },
     { dest: 'settings', area: 'admin', route: 'design-language', sub: 'design-language', create: false, dev: true }
@@ -232,6 +237,7 @@
     }
     if (areaId === 'studio') {
       if (!segs.length) return null;
+      if (segs[0] === 'library' && segs.length === 1) return 'library';
       if (segs[0] === 'agents') {
         // The create sub (DD8): exactly `agents/~new`, emitted unescaped. Any
         // longer sub is an agent path, whose leading `~` is escaped below.
@@ -326,12 +332,25 @@
       route = segs.join('/');
       return mk(route, dest, route, redirected);
     }
+    if (head === 'library') {
+      // Library's own route (the start page), and the bare-section aliases
+      // that fold to it (no id, no `~new`; any Library row in SECTIONS).
+      if (segs.length === 1) return mk('library', dest, 'library', redirected);
+      if (segs.length === 2) {
+        for (var li = 0; li < SECTIONS.length; li++) {
+          if (SECTIONS[li].dest === 'library' && SECTIONS[li].route === segs[1]) {
+            return mk('library', dest, 'library', true);
+          }
+        }
+      }
+    }
     // `settings/general[/..]` is the alias for the first General page.
     if (head === 'settings' && segs[1] === 'general') {
       segs = splitRoute(GENERAL_ALIAS_TARGET);
       redirected = true;
     }
-    // library / settings: a bare destination redirects to its root section.
+    // settings: a bare destination redirects to its root section (Library, like
+    // Agents, is a route of its own, handled above).
     if (segs.length === 1) {
       var rootTarget = resolve(dest.root);
       rootTarget.redirected = true;
@@ -421,12 +440,18 @@
   // (settings-pages.js, loaded before this file; M25 F4 L7, AC9), merged in
   // lazily by sectionLabel() on the first describeRoute, so the Settings page
   // names live in that one table.
-  var SECTION_LABELS = {
-    knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors'
+  // The Library labels are destination-keyed (LIBRARY_LABELS), apart from the
+  // route-keyed Settings labels in SECTION_LABELS.
+  var LIBRARY_LABELS = {
+    providers: 'Model providers', knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors'
   };
+  var SECTION_LABELS = {};
   var settingsLabelsMerged = false;
 
-  function sectionLabel(section) {
+  function sectionLabel(section, destination) {
+    if (destination === 'library') {
+      return Object.prototype.hasOwnProperty.call(LIBRARY_LABELS, section) ? LIBRARY_LABELS[section] : section;
+    }
     if (!settingsLabelsMerged) {
       var pages = window.App && window.App.settingsPages;
       if (pages && pages.length) {
@@ -447,7 +472,7 @@
   // is the fallback when the collection is not loaded yet (a cold deep link)
   // or does not hold the id -- never the raw id.
   var ITEM_COLLECTIONS = {
-    'settings/providers': { collection: 'providers', noun: 'Provider' },
+    'library/providers': { collection: 'providers', noun: 'Model provider' },
     'library/knowledge': { collection: 'knowledge-bases', noun: 'Knowledge base' },
     'library/mcp': { collection: 'mcp-sources', noun: 'MCP server' },
     'library/connectors': { collection: 'connectors', noun: 'Connector' }
@@ -502,7 +527,7 @@
       return { parts: ['Chats', 'New chat with ' + who], key: 'chats//' + RESERVED_NEW + '/' + enc(p.agent || '') };
     }
     var parts = [destById(p.destination).label];
-    if (p.section) parts.push(sectionLabel(p.section));
+    if (p.section) parts.push(sectionLabel(p.section, p.destination));
     var key = [p.destination, p.section || '',
       p.create ? RESERVED_NEW : (p.id ? enc(p.id) : '')].join('/');
     var item = null;

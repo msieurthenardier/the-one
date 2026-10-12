@@ -22,7 +22,7 @@ from playwright.sync_api import Page, expect
 _DEST = {"studio": "agents", "admin": "settings"}
 
 # Per-area setup helpers — these abstract over the differences between
-# admin's provider-editor entry path and studio's agent-editor entry path
+# admin's tool-editor entry path and studio's agent-editor entry path
 # so the parametrized tests can run the same body for both.
 
 
@@ -46,16 +46,12 @@ def _setup_studio_editor(page: Page, app: SeededApp) -> None:
 
 
 def _setup_admin_editor(page: Page, app: SeededApp) -> None:
-    """Deep-link directly to admin provider editor — avoids tile-click
-    ordering nondeterminism. Mirrors test_flow_provider_dirty_confirm.py:30's
-    direct-hash-route pattern."""
-    _nav.goto(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
+    """Deep-link directly to the admin tool editor (Built-in tools, the Settings
+    area's remaining item editor since providers moved to Library, sortie 02)."""
+    _nav.goto(page, app.base_url, "settings/tools/web_search")
     # Wait for the Settings nav to mount (signals admin area init complete).
     expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
-    # The provider-editor's Name field (#pf-name) is the canonical
-    # always-rendered signal — it appears for every provider type. Admin
-    # uses ID selectors; studio's agent-editor uses data-field selectors.
-    expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
+    expect(page.locator('[data-field="search_backend"]')).to_be_visible(timeout=8000)
 
 
 def _dirty_studio_form(page: Page) -> None:
@@ -66,14 +62,9 @@ def _dirty_studio_form(page: Page) -> None:
 
 
 def _dirty_admin_form(page: Page) -> None:
-    """Type into the admin provider-editor's Name field. Same selector as
-    test_flow_provider_dirty_confirm.py:36's `name_input = page.locator("#pf-name")`
-    — always-rendered text input on every provider type. (Admin's
-    provider editor uses ID selectors; studio's tabbed agent editor uses
-    data-field selectors. Both patterns coexist in the codebase.)"""
-    name_field = page.locator("#pf-name")
-    name_field.click()
-    name_field.fill("dirty edit " + str(id(page))[:6])
+    """Change the tool editor's search backend (a select), marking the form dirty."""
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_be_enabled()
 
 
 # Parametrize across both areas. Each parametrize entry pairs a name with
@@ -94,7 +85,7 @@ AREA_MATRIX = [
     pytest.param(
         "admin",
         "app_with_provider",
-        # admin setup needs the provider_id for the direct deep-link
+        # admin setup deep-links to the tool editor
         lambda page, app: _setup_admin_editor(page, app),
         _dirty_admin_form,
         "studio",

@@ -107,34 +107,6 @@ def _watch_requests(page: Page) -> list[str]:
     return seen
 
 
-def _arm_providers_grid_watch(page: Page) -> None:
-    """Flag ``window.__tableEmptied`` if the Providers grid ever loses its tiles
-    (or shows a "Loading" line), and mark every current tile node so a rebuild
-    is visible (``_providers_rows_kept``). M25 F3 L5b/L7: the grid stays above
-    the open provider; selection is applied in place."""
-    page.evaluate(
-        """() => { window.__tableEmptied = false;
-          const list = document.querySelector('.area-admin .settings-list');
-          document.querySelectorAll('.provider-tile-grid [role="listitem"]').forEach(
-            (t) => { t.__kept = true; });
-          new MutationObserver(() => {
-            const g = list.querySelector('.provider-tile-grid');
-            if (!g || !g.querySelector('[role="listitem"]')
-                || /Loading/.test(list.textContent || '')) {
-              window.__tableEmptied = true;
-            }
-          }).observe(list, {childList: true, subtree: true}); }"""
-    )
-
-
-def _providers_rows_kept(page: Page) -> bool:
-    return page.evaluate(
-        "() => { const t = [...document.querySelectorAll("
-        "'.provider-tile-grid [role=\"listitem\"]')];"
-        " return t.length > 0 && t.every((n) => n.__kept === true); }"
-    )
-
-
 def _arm_list_emptied_observer(page: Page, testid: str) -> None:
     """Flag ``window.__listEmptied`` if the list pane's body ever loses its rows
     or hides (a list flash). Lists replace the grids (M25 F3 L3/L4a)."""
@@ -193,20 +165,20 @@ def test_provider_items_push(app_with_provider: SeededApp, page: Page) -> None:
     base = app_with_provider.base_url
     first = app_with_provider.provider_id
     second = seed_mock_provider(base, name="second-provider")
-    _nav.goto_settled(page, base, "settings/providers")
-    page.locator(f'[data-testid="provider-card"][data-id="{first}"]').click()
+    _nav.goto_settled(page, base, "library")
+    page.locator(f'[data-testid="provider-card"][href$="/{first}"]').click()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, f"settings/providers/{_nav.seg(first)}")
+    _nav.expect_route(page, f"library/providers/{_nav.seg(first)}")
 
-    _go(page, f"settings/providers/{_nav.seg(second)}")
-    _nav.expect_route(page, f"settings/providers/{_nav.seg(second)}")
+    _go(page, f"library/providers/{_nav.seg(second)}")
+    _nav.expect_route(page, f"library/providers/{_nav.seg(second)}")
     expect(page.locator("#pf-name")).to_have_value("second-provider", timeout=8000)
 
     page.go_back()
-    _nav.expect_route(page, f"settings/providers/{_nav.seg(first)}")
+    _nav.expect_route(page, f"library/providers/{_nav.seg(first)}")
     expect(page.locator("#pf-name")).to_have_value("mock", timeout=8000)
     page.go_back()
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
     expect(page.locator("#pf-name")).to_have_count(0)
     expect(page.locator('[data-testid="provider-card"]').first).to_be_visible()
 
@@ -214,7 +186,7 @@ def test_provider_items_push(app_with_provider: SeededApp, page: Page) -> None:
 def test_kb_items_push(app_clean: str, page: Page) -> None:
     k1 = _post(app_clean, "/api/knowledge-bases", {"name": "KB One"})["id"]
     k2 = _post(app_clean, "/api/knowledge-bases", {"name": "KB Two"})["id"]
-    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/knowledge", "KB One")
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, f"library/knowledge/{_nav.seg(k1)}")
@@ -227,8 +199,8 @@ def test_kb_items_push(app_clean: str, page: Page) -> None:
     _nav.expect_route(page, f"library/knowledge/{_nav.seg(k1)}")
     expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("KB One", timeout=8000)
     page.go_back()
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
 
 
 def test_mcp_items_push(app_clean: str, page: Page) -> None:
@@ -238,7 +210,7 @@ def test_mcp_items_push(app_clean: str, page: Page) -> None:
     s2 = _post(
         app_clean, "/api/mcp-sources", {"name": "two", "type": "stdio", "config": {"command": "y"}}
     )["id"]
-    _nav.goto_settled(page, app_clean, "library/mcp")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/mcp", "one")
     expect(page.locator('[data-field="name"]')).to_have_value("one", timeout=8000)
     _nav.expect_route(page, f"library/mcp/{_nav.seg(s1)}")
@@ -251,8 +223,8 @@ def test_mcp_items_push(app_clean: str, page: Page) -> None:
     _nav.expect_route(page, f"library/mcp/{_nav.seg(s1)}")
     expect(page.locator('[data-field="name"]')).to_have_value("one", timeout=8000)
     page.go_back()
-    _nav.expect_route(page, "library/mcp")
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
 
 
@@ -276,18 +248,18 @@ def test_tool_items_push(app_clean: str, page: Page) -> None:
 
 def test_provider_breadcrumb_clean_closes_editor(app_with_provider: SeededApp, page: Page) -> None:
     """Renamed from the Back-button test (M25 F3 L5b retired the Settings
-    Backs): the breadcrumb's "Providers" link closes the editor; the table
+    Backs): the breadcrumb's "Library" link closes the editor; the list
     stays, and focus lands on the closed provider's row (DD8)."""
     base = app_with_provider.base_url
-    _nav.goto_settled(page, base, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
+    _nav.goto_settled(page, base, f"library/providers/{_nav.seg(app_with_provider.provider_id)}")
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
     _lists.close_item(page)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=8000)
     expect(page.locator('[data-testid="provider-card"]').first).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "settings/providers")
-    _wait_area_false(page, "admin", "a._dirty")
+    _nav.expect_route(page, "library")
+    _wait_area_false(page, "studio", "a._dirty")
     expect(page.locator(DIALOG)).to_have_count(0)
-    expect(_lists.list_row(page, "settings/providers", "mock")).to_be_focused()
+    expect(_lists.list_row(page, "library/providers", "mock")).to_be_focused()
     # The close was a push: the browser Back re-opens the provider (DD4).
     page.go_back()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
@@ -305,9 +277,9 @@ def test_mcp_breadcrumb_clean_closes_editor(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_have_count(0, timeout=8000)
     # M25 F3 L4b (AC2): the breadcrumb's "MCP servers" link (Back is retired)
     # returns to the section root's empty state, beside the list.
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     _wait_area_false(page, "studio", "a._dirty")
     expect(page.locator(DIALOG)).to_have_count(0)
 
@@ -326,14 +298,14 @@ def test_connector_editor_closed_by_breadcrumb_to_the_section_root(
         "/api/connectors",
         {"name": "Closable", "type": "discord", "config": {"enabled": False}, "secrets": {}},
     )["id"]
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/connectors", "Closable")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, f"library/connectors/{_nav.seg(cid)}")
     _lists.close_item(page)
     expect(page.locator('[data-testid="save-connector-btn"]')).to_have_count(0, timeout=8000)
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/connectors")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
     _wait_area_false(page, "studio", "a._dirty")
     expect(page.locator(DIALOG)).to_have_count(0)
     # The close was a push: the browser Back re-opens the connector.
@@ -349,8 +321,8 @@ def test_kb_breadcrumb_clean_closes_detail(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, f"library/knowledge/{_nav.seg(kb)}")
     expect(page.locator('[data-testid="kb-name-input"]')).to_be_visible(timeout=8000)
     _lists.close_item(page)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
     row = _lists.list_row(page, "library/knowledge", "Closed KB")
     expect(row).to_be_visible()
     expect(row).to_be_focused(timeout=8000)
@@ -392,7 +364,7 @@ def test_dirty_provider_breadcrumb_prompts_once_and_continue_closes(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     base = app_with_provider.base_url
-    _nav.goto_settled(page, base, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
+    _nav.goto_settled(page, base, f"library/providers/{_nav.seg(app_with_provider.provider_id)}")
     name = page.locator("#pf-name")
     expect(name).to_be_visible(timeout=8000)
     name.fill("dirty-edit")
@@ -407,8 +379,8 @@ def test_dirty_provider_breadcrumb_prompts_once_and_continue_closes(
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=8000)
-    _nav.expect_route(page, "settings/providers")
-    _wait_area_false(page, "admin", "a._dirty")
+    _nav.expect_route(page, "library")
+    _wait_area_false(page, "studio", "a._dirty")
 
 
 def test_dirty_mcp_breadcrumb_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
@@ -425,9 +397,9 @@ def test_dirty_mcp_breadcrumb_prompts_once_and_continue_closes(app_clean: str, p
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     _wait_area_false(page, "studio", "a._dirty")
 
 
@@ -441,8 +413,8 @@ def test_dirty_kb_breadcrumb_prompts_once_and_continue_closes(app_clean: str, pa
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
     _wait_area_false(page, "studio", "a._dirty")
 
 
@@ -517,7 +489,7 @@ def test_agent_create_route_and_connector_breadcrumb_each_ask_once(
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
     assert _area(page, "studio", "a._createMode") is True
 
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library")
     _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-field="name"]').first.fill("conn")
@@ -525,8 +497,8 @@ def test_agent_create_route_and_connector_breadcrumb_each_ask_once(
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/connectors")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
     _wait_area_false(page, "studio", "a._dirty")
 
     # The Add menu from a dirty connector form: one router prompt, Stay keeps it.
@@ -568,30 +540,29 @@ def test_agent_row_open_no_refetch_no_flash(app_with_agent: SeededApp, page: Pag
 
 
 def test_provider_open_no_refetch_no_flash(app_with_provider: SeededApp, page: Page) -> None:
-    """Opening a provider from its tile's name link refetches no list and never
-    rebuilds or empties the grid (M25 F3 L5b/L7: the grid stays above the
-    editor; the tile is selected in place)."""
+    """Opening a provider from its Library row refetches no list and never
+    empties the list (the list stays beside the editor; the row is selected in
+    place). Re-derived for Library (sortie 02): the open itself reads nothing."""
     base = app_with_provider.base_url
-    _nav.goto_settled(page, base, "settings/providers")
-    card = page.locator('[data-testid="provider-card"]').first
-    expect(card).to_be_visible(timeout=8000)
+    _nav.goto_settled(page, base, "library")
+    row = _lists.list_row(page, "library/providers", "mock")
+    expect(row).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_providers_grid_watch(page)
-    card.click()
+    _arm_list_emptied_observer(page, "library-list")
+    row.click()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
     _nav.wait_settled(page)
     assert "GET /api/providers" not in seen, seen
-    assert page.evaluate("window.__tableEmptied") is False
-    assert _providers_rows_kept(page)
-    _lists.expect_selected(page, "settings/providers", "mock")
+    assert page.evaluate("window.__listEmptied") is False
+    _lists.expect_selected(page, "library/providers", "mock")
 
 
 def test_mcp_open_no_refetch_no_flash(app_clean: str, page: Page) -> None:
     """Opening an MCP server from its Library row refetches no list and never
     empties the list (M25 F3 L4a: the list stays beside the editor)."""
     _post(app_clean, "/api/mcp-sources", {"name": "m", "type": "stdio", "config": {"command": "x"}})
-    _nav.goto_settled(page, app_clean, "library/mcp")
+    _nav.goto_settled(page, app_clean, "library")
     row = _lists.list_row(page, "library/mcp", "m")
     expect(row).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
@@ -610,7 +581,7 @@ def test_kb_open_no_list_refetch_no_list_flash(app_clean: str, page: Page) -> No
     "Loading knowledge base" placeholder) are inherent. Only the no-flash-of-
     the-LIST part is asserted: the list is not refetched and never empties."""
     _post(app_clean, "/api/knowledge-bases", {"name": "Cached KB"})
-    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _nav.goto_settled(page, app_clean, "library")
     row = _lists.list_row(page, "library/knowledge", "Cached KB")
     expect(row).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
@@ -634,21 +605,19 @@ def test_dead_provider_id_on_forward_heals_to_root(
         "/api/providers",
         {"name": "doomed", "type": "mock", "base_url": "", "config": {}},
     )["id"]
-    _nav.goto_settled(page, base, "settings/providers")
-    _go(page, f"settings/providers/{_nav.seg(doomed)}")
+    _nav.goto_settled(page, base, "library")
+    _go(page, f"library/providers/{_nav.seg(doomed)}")
     expect(page.locator("#pf-name")).to_have_value("doomed", timeout=8000)
     page.go_back()
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
     expect(page.locator("#pf-name")).to_have_count(0)
     _delete(base, f"/api/providers/{doomed}")
 
     page.go_forward()
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
     expect(page.locator("#pf-name")).to_have_count(0)
     expect(page.locator('[data-testid="provider-card"]').first).to_be_visible(timeout=8000)
-    _wait_area_none(page, "admin", "a._pendingProviderId")
-    _wait_area_none(page, "admin", "a._pendingFormMode")
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
 
 
 def test_dead_mcp_source_on_forward_heals_to_root(app_clean: str, page: Page) -> None:
@@ -660,21 +629,21 @@ def test_dead_mcp_source_on_forward_heals_to_root(app_clean: str, page: Page) ->
     _post(
         app_clean, "/api/mcp-sources", {"name": "keep", "type": "stdio", "config": {"command": "y"}}
     )
-    _nav.goto_settled(page, app_clean, "library/mcp")
+    _nav.goto_settled(page, app_clean, "library")
     _go(page, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-field="name"]')).to_have_value("doomed", timeout=8000)
     page.go_back()
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     _delete(app_clean, f"/api/mcp-sources/{sid}")
 
     page.go_forward()
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator('[data-field="name"]')).to_have_count(0)
     _wait_area_none(page, "studio", "a._pendingMcpSourceId")
     _wait_area_none(page, "studio", "a._pendingMcpSourceFormMode")
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
 
 
 def test_unknown_tool_name_heals_to_tools_root(app_clean: str, page: Page) -> None:
@@ -693,8 +662,8 @@ def test_dead_agent_and_kb_ids_heal_to_root(app_with_agent: SeededApp, page: Pag
     _wait_area_none(page, "studio", "a._pendingSelectName")
 
     _nav.goto_settled(page, base, "library/knowledge/ghost")
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     _wait_area_none(page, "studio", "a._selectedKbId")
 
 
@@ -769,7 +738,7 @@ def test_in_app_links_use_new_scheme_hrefs(app_clean: str, page: Page) -> None:
     hrefs = page.locator(".chat-welcome-link").evaluate_all(
         "els => els.map(e => e.getAttribute('href'))"
     )
-    assert hrefs and all(h.startswith(("#settings/", "#agents")) for h in hrefs), hrefs
+    assert hrefs and all(h.startswith(("#library/", "#agents")) for h in hrefs), hrefs
 
 
 def test_knowledge_tab_and_mcps_tab_empty_links_use_new_scheme(
@@ -778,10 +747,10 @@ def test_knowledge_tab_and_mcps_tab_empty_links_use_new_scheme(
     base = app_with_agent.base_url
     _nav.goto_settled(page, base, f"agents/{_nav.seg(app_with_agent.agent_name)}/knowledge")
     link = page.locator('[data-testid="agent-knowledge-empty-state"] a')
-    expect(link).to_have_attribute("href", "#library/knowledge", timeout=8000)
+    expect(link).to_have_attribute("href", "#library", timeout=8000)
     page.locator('[data-testid="tab-mcps"]').click()
     link = page.locator('[data-testid="mcp-empty-state"] a')
-    expect(link).to_have_attribute("href", "#library/mcp", timeout=8000)
+    expect(link).to_have_attribute("href", "#library", timeout=8000)
 
 
 def test_mcp_tab_focus_follows_the_url_for_the_same_agent(

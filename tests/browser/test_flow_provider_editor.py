@@ -12,7 +12,7 @@ import re
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
@@ -73,9 +73,9 @@ def test_editor_renders_canonical_header_in_edit_mode(
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
-    expect(page.locator(".area-admin .editor-header")).to_be_visible(timeout=8000)
+    expect(page.locator(".editor-header")).to_be_visible(timeout=8000)
     expect(page.locator(".editor-title")).to_have_text("mock")
     # Subtitle includes provider type. base_url for mock is empty string so we
     # only assert the type token is present.
@@ -84,8 +84,8 @@ def test_editor_renders_canonical_header_in_edit_mode(
 
 @pytest.mark.browser
 def test_editor_renders_canonical_header_in_create_mode(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     # Create mode omits the subtitle paragraph entirely.
     expect(page.locator(".editor-subtitle")).to_have_count(0)
 
@@ -99,7 +99,7 @@ def test_header_rerenders_title_and_subtitle_on_edit_save(app_clean: str, page: 
     header-desync fix (both fields are editable; a Name-only re-render would
     leave the subtitle stale by the identical mechanism)."""
     provider_id = _seed_openai_compatible_provider(app_clean)
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("compat-orig", timeout=8000)
     expect(page.locator(".editor-subtitle")).to_contain_text("orig.example.com")
     # Edit both the Name (drives the H1) and the Base URL (drives the subtitle).
@@ -122,7 +122,7 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     # Back is retired (M25 F3 L5b): the cluster opens with the unsaved caption.
     expect(page.locator(".form-actions .cancel-btn")).to_be_visible(timeout=8000)
@@ -136,7 +136,7 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
 
 @pytest.mark.browser
 def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
+    _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".form-actions .cancel-btn")).to_be_visible(timeout=8000)
     expect(page.locator(".form-actions .back-btn")).to_have_count(0)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
@@ -153,7 +153,7 @@ def test_save_and_cancel_disabled_when_clean(app_with_provider: SeededApp, page:
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     expect(page.locator(".save-btn")).to_be_disabled()
@@ -165,7 +165,7 @@ def test_save_and_cancel_enabled_when_dirty(app_with_provider: SeededApp, page: 
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     page.locator("#pf-name").fill("mock-edited")
@@ -178,7 +178,7 @@ def test_cancel_reverts_in_edit_mode(app_with_provider: SeededApp, page: Page) -
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     page.locator("#pf-name").fill("mock-edited")
@@ -190,40 +190,40 @@ def test_cancel_reverts_in_edit_mode(app_with_provider: SeededApp, page: Page) -
 
 
 @pytest.mark.browser
-def test_create_cancel_navigates_to_grid_when_dirty(app_clean: str, page: Page) -> None:
-    """Cancel on a dirty create form discards it and returns to the page root
-    (replace, no dialog); with no row to return to, focus goes to "Add
-    provider" (M25 F3 L5b, DD8)."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+def test_create_cancel_navigates_to_library_when_dirty(app_clean: str, page: Page) -> None:
+    """Cancel on a dirty create form discards it and returns to the Library root
+    (replace, no dialog); with no row to return to, focus goes to the list's
+    Add menu (M25 F3 L5b, DD8)."""
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-name").fill("typed-name")
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
     expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
-    expect(page.locator(".area-admin .page-title")).to_have_text("Providers")
-    _nav.expect_route(page, "settings/providers")
-    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
+    expect(page.locator('[data-testid="library-add-btn"]')).to_be_focused()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_header_has_breadcrumb_and_no_back(app_with_provider: SeededApp, page: Page) -> None:
     """Replaces the Back-always-enabled test (M25 F3 L5b retired Back): the
-    header's breadcrumb reads "Settings / Providers", its "Providers" segment
-    links to the page root, and no Back control exists."""
+    header's breadcrumb reads "Library / Model providers", its "Library" segment
+    links to the Library root, and no Back control exists."""
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     crumb = page.locator(".editor-header-text > .editor-breadcrumb:first-child")
-    expect(crumb).to_have_text("Settings / Providers", timeout=8000)
+    expect(crumb).to_have_text("Library / Model providers", timeout=8000)
     link = crumb.locator('[data-testid="editor-breadcrumb-link"]')
-    expect(link).to_have_text("Providers")
-    expect(link).to_have_attribute("href", _nav.href("settings/providers"))
+    expect(link).to_have_text("Library")
+    expect(link).to_have_attribute("href", _nav.href("library"))
     expect(page.locator(".back-btn")).to_have_count(0)
-    # An h2 since the flight-end review: the Settings page header owns the one h1.
-    expect(page.locator("h2.editor-title")).to_have_attribute("tabindex", "-1")
+    # The title is the pane's one h1 (Library chrome).
+    expect(page.locator("h1.editor-title")).to_have_attribute("tabindex", "-1")
     expect(page.locator(".content-panel.active h1")).to_have_count(1)
 
 
@@ -235,7 +235,7 @@ def test_danger_zone_renders_in_edit_mode(app_with_provider: SeededApp, page: Pa
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
     expect(page.locator(".section-title.danger-zone-title")).to_have_text("Danger Zone")
@@ -244,8 +244,8 @@ def test_danger_zone_renders_in_edit_mode(app_with_provider: SeededApp, page: Pa
 
 @pytest.mark.browser
 def test_danger_zone_omitted_in_create_mode(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     expect(page.locator(".editor-section.danger-zone")).to_have_count(0)
 
 
@@ -254,7 +254,7 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
@@ -263,13 +263,13 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
-    # Second click actually deletes: back to the page root; the table had one
-    # row, so focus goes to "Add provider" (M25 F3 L5b, DD8).
+    # Second click actually deletes: back to the Library root; the list had one
+    # provider row, so focus goes to the Add menu (M25 F3 L5b, DD8).
     delete_btn.click()
     expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
-    _nav.expect_route(page, "settings/providers")
-    expect(page.locator('[data-testid="providers-empty"]')).to_be_visible()
-    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible()
+    expect(page.locator('[data-testid="library-add-btn"]')).to_be_focused()
 
 
 @pytest.mark.browser
@@ -282,7 +282,7 @@ def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Pa
     refinement.
     """
     _nav.goto(
-        page, app_with_agent.base_url, f"settings/providers/{_nav.seg(app_with_agent.provider_id)}"
+        page, app_with_agent.base_url, f"library/providers/{_nav.seg(app_with_agent.provider_id)}"
     )
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
@@ -309,7 +309,7 @@ def test_delete_confirm_lapse_is_visually_distinct(
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
@@ -322,7 +322,7 @@ def test_delete_confirm_lapse_is_visually_distinct(
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     expect(delete_btn).to_contain_text("Delete Provider")
     # Never committed: still on the editor, provider still there.
-    _nav.expect_route(page, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
+    _nav.expect_route(page, f"library/providers/{_nav.seg(app_with_provider.provider_id)}")
 
 
 @pytest.mark.browser
@@ -340,7 +340,7 @@ def test_delete_confirm_lapse_via_fail_open_path_is_visually_distinct(
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
@@ -359,8 +359,8 @@ def test_delete_confirm_lapse_via_fail_open_path_is_visually_distinct(
 
 @pytest.mark.browser
 def test_test_button_omitted_in_create_mode(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     expect(page.locator('[data-testid="test-connection-btn"]')).to_have_count(0)
 
 
@@ -369,7 +369,7 @@ def test_test_button_visible_in_edit_mode(app_with_provider: SeededApp, page: Pa
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible(timeout=8000)
 
@@ -379,7 +379,7 @@ def test_test_result_uses_canonical_class(app_with_provider: SeededApp, page: Pa
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     test_btn = page.locator('[data-testid="test-connection-btn"]')
     expect(test_btn).to_be_visible(timeout=8000)
@@ -394,8 +394,8 @@ def test_test_result_uses_canonical_class(app_with_provider: SeededApp, page: Pa
 @pytest.mark.browser
 def test_api_key_eye_toggle(app_clean: str, page: Page) -> None:
     """Open the create editor, switch type to openai (api-key field shown), toggle eye."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
     api_key = page.locator("#pf-api-key")
     expect(api_key).to_have_attribute("type", "password")
@@ -413,8 +413,8 @@ def test_api_key_eye_toggle(app_clean: str, page: Page) -> None:
 def test_num_ctx_field_shown_for_ollama_with_default_prefill(app_clean: str, page: Page) -> None:
     """Selecting the ollama type reveals a required Context Window field
     pre-filled with the default window (32768)."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("ollama")
     num_ctx = page.locator("#pf-num-ctx")
     expect(num_ctx).to_be_visible()
@@ -427,8 +427,8 @@ def test_num_ctx_field_shown_for_ollama_with_default_prefill(app_clean: str, pag
 
 @pytest.mark.browser
 def test_num_ctx_field_hidden_for_non_ollama(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
     expect(page.locator(".admin-pf-num-ctx")).to_have_class(re.compile(r"\bis-hidden\b"))
 
@@ -438,8 +438,8 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
     """The description is a focusable info-icon button (title= tooltip) with a
     visually-hidden span wired via aria-describedby — mirrors the
     field-info-icon pattern used by the tools editor."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("ollama")
     desc = (
         "A larger window allows longer conversations but will slow down on "
@@ -462,8 +462,8 @@ def test_thinking_toggle_shown_for_anthropic_unchecked_by_default(
 ) -> None:
     """Selecting the anthropic type reveals an Extended-thinking checkbox,
     unchecked by default (off-by-default: operator opts in)."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic")
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).to_be_visible()
@@ -474,8 +474,8 @@ def test_thinking_toggle_shown_for_anthropic_unchecked_by_default(
 
 @pytest.mark.browser
 def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
     expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(re.compile(r"\bis-hidden\b"))
 
@@ -485,8 +485,8 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     """The description is a focusable info-icon button (title= tooltip) with a
     visually-hidden span wired via aria-describedby — mirrors the num_ctx
     field-info-icon a11y idiom."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic")
     desc = (
         "When on, a model reasons step-by-step before answering "
@@ -509,7 +509,7 @@ def test_thinking_toggle_flips_save_from_disabled_to_enabled(app_clean: str, pag
     [high] checkbox-aware getFormSnapshot patch — fails loudly if the snapshot
     ignores .checked."""
     provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).to_be_visible()
@@ -527,7 +527,7 @@ def test_thinking_toggle_saves_and_reopens_checked(app_clean: str, page: Page) -
     """Toggle on + Save + reload → the checkbox re-renders checked (edit-load
     reflects the stored config.thinking_enabled)."""
     provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).not_to_be_checked()
@@ -537,7 +537,7 @@ def test_thinking_toggle_saves_and_reopens_checked(app_clean: str, page: Page) -
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
     # Reload the editor from scratch → the stored value must round-trip.
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     expect(page.locator("#pf-thinking-enabled")).to_be_checked()
 
@@ -547,7 +547,7 @@ def test_thinking_toggle_cancel_reverts(app_clean: str, page: Page) -> None:
     """Cancel after toggling reverts the checkbox to its snapshot state
     (checkbox-aware Cancel-revert patch)."""
     provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).not_to_be_checked()
@@ -576,7 +576,7 @@ def test_models_help_agents_link_uses_accent_colour(
     _nav.goto(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     link = page.locator('[data-testid="provider-models-agents-link"]')
     expect(link).to_be_visible(timeout=8000)

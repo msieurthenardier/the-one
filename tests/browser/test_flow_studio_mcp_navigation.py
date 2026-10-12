@@ -46,7 +46,9 @@ def test_library_list_has_the_mcp_group_and_no_section_nav(app_clean: str, page:
     library = page.locator('[data-testid="library-list"]')
     expect(library).to_be_visible(timeout=5000)
     captions = library.locator(".ui-list-pane-caption")
-    expect(captions).to_have_text(["Knowledge bases", "MCP servers", "Connectors"])
+    expect(captions).to_have_text(
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+    )
     expect(page.locator(".area-studio .section-nav")).to_have_count(0)
     expect(page.get_by_role("navigation", name="Library sections")).to_have_count(0)
 
@@ -54,7 +56,7 @@ def test_library_list_has_the_mcp_group_and_no_section_nav(app_clean: str, page:
 @pytest.mark.browser
 def test_mcp_row_opens_its_editor_beside_the_list(app_clean: str, page: Page) -> None:
     _seed_mcp(app_clean, "nav-mcp")
-    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/mcp", "nav-mcp")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
     _lists.expect_selected(page, "library/mcp", "nav-mcp")
@@ -64,8 +66,8 @@ def test_mcp_row_opens_its_editor_beside_the_list(app_clean: str, page: Page) ->
 @pytest.mark.browser
 def test_studio_direct_load_mcp_sources(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")  # legacy URL on purpose (AC6)
-    _nav.expect_route(page, "library/mcp", timeout=8000)
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
@@ -84,11 +86,11 @@ def test_studio_direct_load_mcp_sources_new_renders_editor(app_clean: str, page:
 
 @pytest.mark.browser
 def test_studio_refresh_preserves_mcp_sources_section(app_clean: str, page: Page) -> None:
-    _nav.goto_settled(page, app_clean, "library/mcp")
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    _nav.goto_settled(page, app_clean, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     page.reload()
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -97,11 +99,11 @@ def test_studio_mcp_sources_empty_inventory_shows_group_line_and_add(
 ) -> None:
     """Empty mcp_sources table: the group shows its empty line, and the section
     root's empty-state action opens the create form."""
-    _nav.goto_settled(page, app_clean, "library/mcp")
+    _nav.goto_settled(page, app_clean, "library")
     library = page.locator('[data-testid="library-list"]')
     expect(
         library.locator(".ui-list-pane-group-empty", has_text="No MCP servers yet.")
     ).to_be_visible(timeout=8000)
-    page.locator('[data-testid="library-empty-mcp-add"]').click()
+    page.locator('[data-testid="library-start-mcp-add"]').click()
     _nav.expect_route(page, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)

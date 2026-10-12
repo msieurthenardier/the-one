@@ -29,7 +29,7 @@
 // Candidates, in this order (DD10, A17): agents A-Z; chats newest first
 // (`sessions` by updated_at, stable; an empty title reads "Untitled chat"; the
 // agent is the stored agent_name, "Default agent" for none); the New chat…
-// action; knowledge bases, MCP servers and connectors (each A-Z); the Settings
+// action; model providers, knowledge bases, MCP servers and connectors (each A-Z); the Settings
 // pages in nav order (App.settingsPages; a devOnly page only in dev mode).
 // Rows (testid `jump-to-result`, data-kind / data-id) show the label and the
 // "where" text (`meta`, not mono). Matching is a case-insensitive substring
@@ -59,8 +59,9 @@
   var CAP = 8;
   var RECENT_CHATS = 3;
   var RECENT_AGENTS = 4;
-  var COLLECTIONS = ['agents', 'sessions', 'knowledge-bases', 'mcp-sources', 'connectors'];
+  var COLLECTIONS = ['agents', 'sessions', 'providers', 'knowledge-bases', 'mcp-sources', 'connectors'];
   var LIBRARY = [
+    { kind: 'provider', collection: 'providers', section: 'providers', where: 'Library · Model provider' },
     { kind: 'knowledge-base', collection: 'knowledge-bases', section: 'knowledge', where: 'Library · Knowledge base' },
     { kind: 'mcp-server', collection: 'mcp-sources', section: 'mcp', where: 'Library · MCP server' },
     { kind: 'connector', collection: 'connectors', section: 'connectors', where: 'Library · Connector' }
@@ -119,7 +120,7 @@
   }
 
   function settingsWhere(page) {
-    return page.section === 'providers' ? 'Settings' : 'Settings · ' + page.group;
+    return 'Settings · ' + page.group;
   }
 
   // Every candidate, in board order: {kind, key, label, where, section?}.

@@ -156,11 +156,11 @@ def test_clean_go_commits_in_the_same_tick(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "agents")
     route = page.evaluate(
         """() => {
-          App.router.go('settings/providers');
+          App.router.go('settings/tools');
           return App.router.current().route;  // read synchronously, no await
         }"""
     )
-    assert route == "settings/providers"
+    assert route == "settings/tools"
 
 
 def test_go_while_inline_nav_dialog_pending_resolves_stay_and_does_not_join(
@@ -174,7 +174,7 @@ def test_go_while_inline_nav_dialog_pending_resolves_stay_and_does_not_join(
     router adapter, so this pins ``nav.js``'s non-router path directly (it is
     now test-only): a dirty source (a dirty connector create form) makes the
     dialog open, and the test is the caller."""
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.library_add(page, "connectors")
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
@@ -283,7 +283,7 @@ def test_legacy_hash_link_in_content_redirects_and_is_guarded(
     page.locator("#probe-link").click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
-    _nav.expect_route(page, "library/mcp")  # the legacy href redirected
+    _nav.expect_route(page, "library")  # the legacy href redirected
     _no_second_dialog(page)
 
 
@@ -292,7 +292,7 @@ def test_connector_breadcrumb_goes_through_app_nav(app_clean: str, page: Page) -
     section root -- since L4b its breadcrumb's "Connectors" link (Back is
     retired) -- so a dirty form asks once through the router's App.nav guard
     (the inline App.nav.confirmLeave gate is gone)."""
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.library_add(page, "connectors")
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
@@ -311,8 +311,8 @@ def test_connector_breadcrumb_goes_through_app_nav(app_clean: str, page: Page) -
     _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/connectors")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
     expect(name).to_have_count(0)
     assert _is_dirty(page) is False
     _no_second_dialog(page)
@@ -355,8 +355,8 @@ def _setup_agent(app: SeededApp, page: Page):
 def _setup_provider(app: SeededApp, page: Page):
     return {
         "base": app.base_url,
-        "list": "settings/providers",
-        "item": f"settings/providers/{_nav.seg(app.provider_id)}",
+        "list": "library",
+        "item": f"library/providers/{_nav.seg(app.provider_id)}",
         "field": "#pf-name",
     }
 
@@ -459,7 +459,7 @@ def test_route_link_uses_go_with_anchor_opener_even_with_icon_child(
     app_clean: str, page: Page
 ) -> None:
     _nav.goto_settled(page, app_clean, "agents")
-    page.evaluate(_ANCHOR_JS, ["probe", _nav.href("settings/providers"), {}])
+    page.evaluate(_ANCHOR_JS, ["probe", _nav.href("settings/tools"), {}])
     length = page.evaluate("history.length")
     page.evaluate(
         """() => {
@@ -472,7 +472,7 @@ def test_route_link_uses_go_with_anchor_opener_even_with_icon_child(
         }"""
     )
     page.locator("#probe .probe-icon").click()  # the click lands on the child
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "settings/tools")
     assert page.evaluate("window.__opener") == "probe"
     assert page.evaluate("history.length") == length + 1
 
@@ -481,7 +481,7 @@ def test_interceptor_skips_modified_nonprimary_target_download_and_element_links
     app_clean: str, page: Page
 ) -> None:
     _nav.goto_settled(page, app_clean, "agents")
-    href = _nav.href("settings/providers")
+    href = _nav.href("settings/tools")
     page.evaluate(_ANCHOR_JS, ["plain", href, {}])
     page.evaluate(_ANCHOR_JS, ["blank", href, {"target": "_blank"}])
     page.evaluate(_ANCHOR_JS, ["dl", href, {"download": ""}])
@@ -515,7 +515,7 @@ def test_interceptor_skips_modified_nonprimary_target_download_and_element_links
     # Only the plain primary click was claimed (and it navigated).
     assert out["plain"] is True
     assert [out[k] for k in ("ctrl", "meta", "shift", "middle", "blank", "dl")] == [False] * 6
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "settings/tools")
 
     hash_before = page.evaluate("location.hash")
     length = page.evaluate("history.length")
@@ -539,9 +539,7 @@ def test_chat_message_links_bare_unknown_and_route(app_clean: str, page: Page) -
         config={
             "response": {
                 "content": (
-                    "[bare](#) [frag](#installation) [route]("
-                    + _nav.href("settings/providers")
-                    + ")"
+                    "[bare](#) [frag](#installation) [route](" + _nav.href("settings/tools") + ")"
                 )
             }
         },
@@ -564,7 +562,7 @@ def test_chat_message_links_bare_unknown_and_route(app_clean: str, page: Page) -
     assert page.evaluate("[location.hash, history.length]") == [hash_before, length]
 
     bubble.locator("a", has_text="route").click()
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "settings/tools")
 
 
 # ── AC6: focus (both engines) ────────────────────────────────────────────────
@@ -685,7 +683,7 @@ def test_no_phantom_after_provider_save_and_delete(
     _nav.goto_settled(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     name = page.locator("#pf-name")
     expect(name).to_be_visible(timeout=8000)
@@ -716,7 +714,7 @@ def test_stale_dirty_flag_with_no_editor_raises_neither_guard_nor_beforeunload(
         }"""
     )
     assert prevented is False
-    assert page.evaluate("App.router.go('settings/providers')") is True
+    assert page.evaluate("App.router.go('settings/tools')") is True
     _no_second_dialog(page)
 
 
@@ -729,7 +727,7 @@ def test_discard_during_inflight_provider_save_does_not_resurrect_the_editor(
         f"**/api/providers/{pid}",
         lambda route: held.append(route) if route.request.method == "PUT" else route.continue_(),
     )
-    _nav.goto_settled(page, app_with_provider.base_url, f"settings/providers/{_nav.seg(pid)}")
+    _nav.goto_settled(page, app_with_provider.base_url, f"library/providers/{_nav.seg(pid)}")
     name = page.locator("#pf-name")
     expect(name).to_be_visible(timeout=8000)
     name.fill("inflight")
@@ -753,7 +751,8 @@ def test_discard_during_inflight_provider_save_does_not_resurrect_the_editor(
         held[0].continue_()
     page.wait_for_timeout(300)  # negative window: nothing may re-mount
     expect(page.locator("#pf-name")).to_have_count(0)
-    assert page.evaluate("App.areas.find(a => a.id === 'admin')._providerFormMode") is None
+    # ...and the route stays where the leave went (no sync back to the provider).
+    assert page.evaluate("App.router.current().route") == "settings/appearance"
     assert _is_dirty(page) is False
 
 

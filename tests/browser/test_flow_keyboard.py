@@ -203,7 +203,6 @@ _SETTINGS_NAV_ORDER = (
     "date-and-time",
     "prompts",
     "encryption",
-    "providers",
     "tools",
     "knowledge-indexing",
     "design-language",  # the browser lanes run in dev mode
@@ -245,12 +244,12 @@ def test_settings_nav_enter_navigates_and_moves_aria_current(app_clean: str, pag
     _nav.goto(page, app_clean, "settings/appearance")
     _lists.expect_settings_selected(page, "appearance")
 
-    providers = _lists.settings_nav_link(page, "providers")
-    providers.focus()
+    tools = _lists.settings_nav_link(page, "tools")
+    tools.focus()
     page.keyboard.press("Enter")
-    _nav.expect_route(page, "settings/providers")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=5000)
-    _lists.expect_settings_selected(page, "providers")
+    _nav.expect_route(page, "settings/tools")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=5000)
+    _lists.expect_settings_selected(page, "tools")
 
     appearance = _lists.settings_nav_link(page, "appearance")
     appearance.focus()

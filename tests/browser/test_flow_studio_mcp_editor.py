@@ -87,7 +87,7 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
     # Close to the section root through the breadcrumb's "MCP servers" link
     # (M25 F3 L4b retired Back).
     _lists.close_item(page)
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
     expect(_lists.list_row(page, "library/mcp", "github-mcp")).to_be_visible()
 
 
@@ -190,8 +190,8 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
     # Second click commits.
     delete_btn.click()
     # Land on the section root; the row is gone.
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
     expect(page.locator('[data-testid="mcp-source-card"]')).to_have_count(0)
     assert _list_sources(app_clean) == []
 
@@ -213,7 +213,7 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     delete_btn.click()
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
     assert _list_sources(app_clean) == []
 
 

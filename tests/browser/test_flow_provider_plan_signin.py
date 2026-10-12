@@ -43,7 +43,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _lists, _nav, _providers
 from browser._credential_registry import auth_headers_for
 from cryptography.fernet import Fernet
 from playwright.sync_api import Page, expect
@@ -103,12 +103,6 @@ def _seed_plan_tokens(data_dir: Path, provider_id: str) -> None:
         conn.close()
 
 
-def _block_claude_ai(page: Page) -> None:
-    """Abort any request to claude.ai (consent popup navigation) —
-    context-level so popup windows are covered too."""
-    page.context.route("https://claude.ai/**", lambda route: route.abort())
-
-
 def _stub_models(page: Page, provider_id: str) -> None:
     """Stub the frontend's GET /models fetch so the backend never attempts a
     live ``models.list()`` with a seeded fake bearer token."""
@@ -135,9 +129,9 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     original disabled-until-saved gate): clicking it with a name filled
     auto-saves the provider through the exact Create path, transitions the
     editor to edit mode, and immediately enters the awaiting-code state."""
-    _block_claude_ai(page)
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _providers.block_claude_ai(page)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     # Picker label follows the parenthetical precedent.
     expect(page.locator('#pf-type option[value="anthropic-plan"]')).to_have_text("Anthropic (Plan)")
     page.locator("#pf-type").select_option("anthropic-plan")
@@ -187,8 +181,8 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
     """Clicking the create-mode sign-in affordance with an empty Name shows
     the editor's normal inline validation, saves nothing, and does NOT
     enter the awaiting-code state."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic-plan")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible()
@@ -198,7 +192,7 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
     expect(page.locator(".editor-error")).to_have_text("Name is required.")
     # No awaiting-code UI, still create mode, and NO provider created.
     expect(page.locator('[data-testid="plan-signin-consent"]')).to_have_count(0)
-    expect(page.locator(".editor-title")).to_have_text("New Provider")
+    expect(page.locator(".editor-title")).to_have_text("New model provider")
     assert (
         httpx.get(
             f"{app_clean}/api/providers", timeout=5.0, headers=auth_headers_for(app_clean)
@@ -211,8 +205,8 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
 def test_plan_section_hides_when_type_switched_away(app_clean: str, page: Page) -> None:
     """Type switched away from anthropic-plan mid-create: the plan section
     hides via the existing is-hidden toggle pattern (leg edge case)."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic-plan")
     expect(page.locator(".admin-pf-plan-signin")).not_to_have_class(re.compile(r"\bis-hidden\b"))
     page.locator("#pf-type").select_option("openai")
@@ -233,9 +227,9 @@ def test_create_save_enables_signin_and_click_shows_consent_ui(app_clean: str, p
     the authorize URL as copyable text, an Open button, and the code paste
     field with its confirm control. Popup blocking (or the abort here)
     degrades to the copyable URL without error."""
-    _block_claude_ai(page)
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _providers.block_claude_ai(page)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-name").fill("My Plan")
     page.locator("#pf-type").select_option("anthropic-plan")
     save_btn = page.locator(".save-btn")
@@ -286,7 +280,7 @@ def test_code_submit_success_shows_connected_state_without_dirty_trap(
     assert masked["oauth_active"] is False
     masked["oauth_active"] = True
 
-    _block_claude_ai(page)
+    _providers.block_claude_ai(page)
     page.route(
         f"**/api/providers/{provider_id}/oauth/code",
         lambda route: route.fulfill(
@@ -294,7 +288,7 @@ def test_code_submit_success_shows_connected_state_without_dirty_trap(
         ),
     )
 
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible(timeout=8000)
     signin_btn.click()
@@ -330,8 +324,8 @@ def test_code_submit_error_renders_inline_and_field_remains_usable(
     state mismatches the pending flow is rejected with 400 BEFORE any
     exchange, so no network leaves the box."""
     provider_id = _seed_plan_provider(app_clean)
-    _block_claude_ai(page)
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _providers.block_claude_ai(page)
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible(timeout=8000)
     signin_btn.click()
@@ -382,7 +376,7 @@ def test_seeded_tokens_render_connected_state_and_stubbed_reauth_message(
         ),
     )
 
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     # Connected state renders from oauth_active (standing affordance present).
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="plan-reauth-btn"]')).to_be_visible()
@@ -408,9 +402,9 @@ def test_reauthenticate_runs_consent_flow_over_connected_state(
     provider_id = _seed_plan_provider(base_url)
     _seed_plan_tokens(data_dir, provider_id)
     _stub_models(page, provider_id)
-    _block_claude_ai(page)
+    _providers.block_claude_ai(page)
 
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     reauth_btn = page.locator('[data-testid="plan-reauth-btn"]')
     expect(reauth_btn).to_be_visible(timeout=8000)
     reauth_btn.click()
@@ -440,7 +434,7 @@ def test_reset_returns_to_signin_state_and_survives_reload(
     _seed_plan_tokens(data_dir, provider_id)
     _stub_models(page, provider_id)
 
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     reset_btn = page.locator('[data-testid="plan-reset-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
     # Two-step inline confirm (canonical destructive-confirm helper).
@@ -462,7 +456,7 @@ def test_reset_returns_to_signin_state_and_survives_reload(
         is False
     )
     # Respected after reload too.
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator('[data-testid="plan-signin-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_have_count(0)
 
@@ -480,7 +474,7 @@ def test_plan_reset_confirm_lapse_is_visually_distinct(
     _seed_plan_tokens(data_dir, provider_id)
     _stub_models(page, provider_id)
 
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     reset_btn = page.locator('[data-testid="plan-reset-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
     expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -522,7 +516,7 @@ def test_legacy_anthropic_provider_renders_no_plan_ui(app_clean: str, page: Page
     )
     assert r.status_code == 201, r.text
     provider_id = r.json()["id"]
-    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude API", timeout=8000)
     expect(page.locator(".admin-pf-plan-signin")).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator(".admin-pf-api-key")).not_to_have_class(re.compile(r"\bis-hidden\b"))

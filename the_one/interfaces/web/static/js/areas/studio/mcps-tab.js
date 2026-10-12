@@ -59,7 +59,7 @@
     div.setAttribute('data-testid', 'mcp-empty-state');
     div.appendChild(document.createTextNode('No MCP sources registered yet. '));
     var addLink = document.createElement('a');
-    addLink.href = App.router.href({ destination: 'library', section: 'mcp' });
+    addLink.href = App.router.href({ destination: 'library' });
     addLink.textContent = 'Add one in the Library.';
     div.appendChild(addLink);
     panel.appendChild(div);

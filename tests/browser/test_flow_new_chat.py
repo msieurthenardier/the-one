@@ -47,11 +47,10 @@ def _welcome_link(route: str) -> str:
 
 @pytest.mark.browser
 def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
-    """No providers and no agents → guidance points to Settings AND Agents.
+    """No providers and no agents → guidance points to Library AND Agents.
 
-    Link updated from '#admin' → '#admin/providers' per the chore commit 717cfa5
-    (UI cleanups + Ollama tool-capability handling); its text 'LLM Settings' became
-    'Settings' with the rail (M25 F2 L6).
+    The provider link goes to the create form of Library's Model providers group
+    (``#library/providers/~new``, sortie 02, DD6); it was Settings › Providers.
     """
     page.goto(app_clean)
     welcome = _chats.welcome(page)
@@ -64,9 +63,9 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     expect(_chats.empty_new_button(page)).to_have_count(0)
 
     # Both deep-links present.
-    settings_link = page.locator(_welcome_link("settings/providers"))
+    library_link = page.locator(_welcome_link("library/providers/~new"))
     studio_link = page.locator(_welcome_link("agents"))
-    expect(settings_link).to_have_text("Settings")
+    expect(library_link).to_have_text("Library")
     expect(studio_link).to_have_text("Agents")
 
 
@@ -81,7 +80,7 @@ def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, p
     expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
     expect(_chats.empty_new_button(page)).to_have_count(0)
     expect(page.locator(_welcome_link("agents"))).to_have_text("Agents")
-    expect(page.locator(_welcome_link("settings"))).to_have_count(0)
+    expect(page.locator(_welcome_link("library/providers/~new"))).to_have_count(0)
 
 
 @pytest.mark.browser

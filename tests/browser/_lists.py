@@ -11,8 +11,9 @@ rather than every test that opens an item:
   open (its route, or the editor title where the item has no route yet).
 
 *dest* names a list as a new-scheme route (see ``_nav``): ``"chats"``, ``"agents"``,
-``"library/knowledge"``, ``"library/mcp"``, ``"library/connectors"``,
-``"settings/providers"`` or ``"settings/tools"``.  Rows are found through the
+``"library/providers"``, ``"library/knowledge"``, ``"library/mcp"``,
+``"library/connectors"`` or ``"settings/tools"``.  ``library/providers`` is scoped
+under ``library-list`` (providers have one host since sortie 02).  Rows are found through the
 testids every surface keeps (``agent-item``, ``knowledge-base-card``,
 ``mcp-source-card``, ``connector-card``, ``provider-card``, ``tool-card``) and
 matched by a non-badge element whose text is exactly *name*, so "Agent" never
@@ -37,10 +38,10 @@ Library row has an item route (connectors included):
 * ``expect_selected(page, "library/knowledge", name)`` (or ``library/mcp``,
   ``library/connectors``) -- as for agents;
 * ``library_add(page, kind)`` -- open the Add menu, choose *kind*
-  (``"knowledge"``, ``"mcp"`` or ``"connectors"``) and wait for its create
+  (``"providers"``, ``"knowledge"``, ``"mcp"`` or ``"connectors"``) and wait for its create
   route ``#library/<kind>/~new``;
-* ``library_empty_state(page, kind)`` -- the detail pane's start page at that
-  section root (``library-empty-<kind>``; it holds all three types' blocks).
+* ``library_start(page)`` -- the detail pane's start page at the Library root
+  (``library-start``; it holds all four types' blocks).
 
 Leg 4b retired the Library editors' Back controls (leg 3 retired the agent
 editor's): every Agents and Library item header carries a breadcrumb whose last
@@ -55,7 +56,7 @@ segment links to its root ("Agents" -> ``#agents``, "Knowledge bases" ->
 
 Settings (leg 5a) is a grouped nav of plain links (``App.ui.navGroups``, testid
 ``settings-nav``) beside the page; its items are ``settings-nav-{section}``, one
-per page (``SETTINGS_PAGES``: the three General pages, Providers, Built-in tools,
+per page (``SETTINGS_PAGES``: the four General pages, Built-in tools,
 Knowledge indexing and, in dev mode, Design language):
 
 * ``settings_nav(page)`` -- the ``<nav aria-label="Settings">``;
@@ -68,23 +69,18 @@ Knowledge indexing and, in dev mode, Design language):
   ``aria-current="page"`` item;
 * ``settings_page_title(page)`` -- the open Settings page's ``h1``.
 
-Settings item pages (leg 5b) keep their list visible: opening a provider or a
-built-in tool renders its editor in an item section BELOW the list
-(``.settings-item``), and the editor header's breadcrumb ("Settings /
-Providers", "Settings / Built-in tools") closes it (``close_item``). The
-Providers list is a tile grid (like Built-in tools, by the Flight 3 checkpoint
-decision) whose tile NAME is the item link (``provider-card``, on that link); a
-tool tile keeps ``tool-card`` but only its tool NAME is a link (the tile is no click
-target, its toggle never navigates):
+Settings item pages (leg 5b; Built-in tools only since sortie 02) keep their
+list visible: opening a built-in tool renders its editor in an item section
+BELOW the list (``.settings-item``), and the editor header's breadcrumb
+("Settings / Built-in tools") closes it (``close_item``). A tool tile keeps
+``tool-card`` but only its tool NAME is a link (the tile is no click target,
+its toggle never navigates):
 
-* ``list_row(page, "settings/providers", name)`` -- the provider's name link;
-  ``list_row(page, "settings/tools", name)`` -- the tool's tile;
+* ``list_row(page, "settings/tools", name)`` -- the tool's tile;
 * ``item_link(page, dest, name)`` -- the row's item link (the row itself for
   every list but the tools, whose link is the tile's name);
 * ``open_item`` clicks that link; ``expect_selected`` checks ``aria-current``
   on it;
-* ``providers_list(page)`` -- the Providers tile grid (``role=list``,
-  ``aria-label="Providers"``), one ``role=listitem`` tile per provider;
 * ``settings_item(page)`` -- the page's item section (the open editor);
 * ``open_tool(page, name)`` -- select the tool's category tab, then open it;
 * ``tool_toggle(page, name)`` -- the tool tile's enable switch.
@@ -118,17 +114,15 @@ class _List(NamedTuple):
     # The row's item link, as a selector inside the row; None: the row IS the
     # link (it carries aria-current="page" when its item is open).
     link: str | None = None
-    # True: the row element's own text is the name (a provider's name link).
-    self_named: bool = False
 
 
 LISTS: dict[str, _List] = {
     "chats": _List('[data-testid="chat-row"][data-id]', True),
     "agents": _List('[data-testid="agent-item"]', True),
+    "library/providers": _List('[data-testid="library-list"] [data-testid="provider-card"]', True),
     "library/knowledge": _List('[data-testid="knowledge-base-card"]', True),
     "library/mcp": _List('[data-testid="mcp-source-card"]', True),
     "library/connectors": _List('[data-testid="connector-card"]', True),
-    "settings/providers": _List('[data-testid="provider-card"]', True, self_named=True),
     "settings/tools": _List('[data-testid="tool-card"]', True, link="a"),
 }
 
@@ -148,8 +142,6 @@ def list_row(page: Page, dest: str, name: str) -> Locator:
     spec = _list(dest)
     name_el = page.get_by_text(name, exact=True).and_(page.locator(":not([class*=badge])"))
     rows = page.locator(spec.row)
-    if spec.self_named:
-        return rows.and_(name_el)
     return rows.filter(has=name_el)
 
 
@@ -201,7 +193,16 @@ def agents_empty_state(page: Page) -> Locator:
     return page.locator('[data-testid="agent-select-empty"], [data-testid="agent-empty"]')
 
 
-LIBRARY_KINDS = ("knowledge", "mcp", "connectors")
+LIBRARY_KINDS = ("providers", "knowledge", "mcp", "connectors")
+
+# The Add menu item per kind (an unknown kind raises in ``_kind``, never falls
+# back to the connector).
+LIBRARY_ADD_ITEMS = {
+    "providers": "library-add-provider",
+    "knowledge": "library-add-knowledge",
+    "mcp": "library-add-mcp",
+    "connectors": "library-add-connector",
+}
 
 
 def _kind(kind: str) -> str:
@@ -212,18 +213,15 @@ def _kind(kind: str) -> str:
 
 def library_add(page: Page, kind: str, timeout: float = 8000) -> None:
     """Open the Library list's Add menu, choose *kind*, and wait for its create route."""
-    _kind(kind)
-    item_testid = {"knowledge": "library-add-knowledge", "mcp": "library-add-mcp"}.get(
-        kind, "library-add-connector"
-    )
+    item_testid = LIBRARY_ADD_ITEMS[_kind(kind)]
     page.locator('[data-testid="library-add-btn"]').click()
     page.locator(f'[data-testid="{item_testid}"]').click()
     _nav.expect_route(page, f"library/{kind}/~new", timeout=timeout)
 
 
-def library_empty_state(page: Page, kind: str) -> Locator:
-    """The Library start page at the *kind* section root (all three blocks)."""
-    return page.locator(f'[data-testid="library-empty-{_kind(kind)}"]')
+def library_start(page: Page) -> Locator:
+    """The Library start page (``#library``, the one root: a card per group, providers first)."""
+    return page.locator('[data-testid="library-start"]')
 
 
 def breadcrumb_link(page: Page) -> Locator:
@@ -248,7 +246,6 @@ SETTINGS_PAGE_TITLES: dict[str, str] = {
     "date-and-time": "Date and time",
     "prompts": "Prompts",
     "encryption": "Encryption",
-    "providers": "Providers",
     "tools": "Built-in tools",
     "knowledge-indexing": "Knowledge indexing",
     "design-language": "Design language",
@@ -268,7 +265,7 @@ def settings_nav(page: Page) -> Locator:
 
 
 def settings_nav_link(page: Page, section: str) -> Locator:
-    """The Settings nav link of page *section* (a route section, e.g. ``"providers"``)."""
+    """The Settings nav link of page *section* (a route section, e.g. ``"tools"``)."""
     return page.locator(f'[data-testid="settings-nav-{_section(section)}"]')
 
 
@@ -334,12 +331,6 @@ TOOL_TABS: dict[str, str] = {
     "fetch_channel_history": "connectors",
     "current_time": "time",
 }
-
-
-def providers_list(page: Page) -> Locator:
-    """The Providers page's tile grid (``role=list``, ``aria-label="Providers"``),
-    scoped inside ``.settings-list``; its children are ``role=listitem`` tiles."""
-    return page.locator(".area-admin .settings-list").get_by_role("list", name="Providers")
 
 
 def settings_item(page: Page) -> Locator:

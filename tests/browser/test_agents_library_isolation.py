@@ -116,7 +116,7 @@ def test_agents_library_walk_keeps_one_list_and_the_right_detail(
 
     # Library: open the knowledge base (an item) -- in-app, no reload.
     _nav.open_destination(page, "library")
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
     _lists.open_item(page, "library/knowledge", "Walk KB")
     _nav.expect_route(page, f"library/knowledge/{_nav.seg(kb)}")
     expect(page.locator(".studio-section-content .editor-title")).to_have_text(
@@ -201,17 +201,17 @@ def test_switch_to_library_while_the_first_agents_load_is_in_flight(
     st = _studio(page)
     assert st["pending"] == a and st["agent"] is None, st
     _nav.open_destination(page, "library")
-    _nav.expect_route(page, "library/knowledge")
-    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible(timeout=8000)
 
     hold.release()
     _nav.wait_settled(page)
     _expect_library_host(page)
     st = _studio(page)
-    assert st["agent"] is None and st["pending"] is None and st["section"] == "knowledge", st
+    assert st["agent"] is None and st["pending"] is None and st["section"] == "library", st
     expect(page.locator(".studio-editor")).to_be_hidden()
     expect(page.locator(".studio-editor .editor-title")).to_have_count(0)
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
     # Back on Agents the list renders from the landed load, nothing selected
     # but the restored route's agent.
@@ -232,13 +232,13 @@ def test_switch_to_library_while_an_agent_open_is_in_flight(
     _lists.list_row(page, "agents", a).click()
     hold.wait_held()
     _nav.open_destination(page, "library")
-    _nav.expect_route(page, "library/knowledge")
-    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible(timeout=8000)
 
     hold.release()
     _nav.wait_settled(page)
     st = _studio(page)
-    assert st["agent"] is None and st["section"] == "knowledge", st
+    assert st["agent"] is None and st["section"] == "library", st
     expect(page.locator(".studio-editor")).to_be_hidden()
     expect(page.locator(".studio-editor .editor-title")).to_have_count(0)
     _expect_library_host(page)
@@ -320,7 +320,7 @@ def test_library_sections_share_one_pane_and_agents_swaps_it(
         "/api/mcp-sources",
         {"name": "pane-mcp", "type": "stdio", "config": {"command": "x"}, "secrets": {}},
     )
-    _nav.goto_settled(page, base, "library/knowledge")
+    _nav.goto_settled(page, base, "library")
     _expect_library_host(page, [])
     page.evaluate(
         "() => { window.__libPane = document.querySelector('[data-testid=\"library-list\"]'); }"

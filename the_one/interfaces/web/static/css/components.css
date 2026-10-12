@@ -590,6 +590,14 @@
   .chip-remove:hover, .chip-remove:focus-visible { background-color: var(--status-danger-bg-soft); }
   .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
+  /* Capability chips (moved from admin.css, sortie 02): surfaced on each Ollama
+     model row in the provider editor and reused by the agent editor under the
+     model selector. Positive capabilities use the canonical grey .chip;
+     .cap-chip-no-tools uses the danger palette so the absence of tool support
+     stands out at a glance. After .chip: same specificity, later source wins. */
+  .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; }
+  .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
 
   /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
      A navigation list: <section> > header (h2, optional count, actions),

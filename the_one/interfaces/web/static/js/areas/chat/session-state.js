@@ -54,7 +54,7 @@
   // Degraded session_joined statuses -> the reason a start could not use them.
   var DEGRADED_REASONS = {
     agent_deleted: 'This agent has been deleted.',
-    provider_missing: "This agent's provider is missing. Add a provider in Settings to continue."
+    provider_missing: "This agent's provider is missing. Add a model provider in Library to continue."
   };
 
   function isOk(frame) {

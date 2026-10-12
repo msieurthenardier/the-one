@@ -1443,7 +1443,7 @@ App.registerArea({
     function setSessionHealth(status) {
       var msg = null;
       if (status === 'agent_deleted') msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
-      else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a provider in Settings to continue this conversation.";
+      else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a model provider in Library to continue this conversation.";
       if (msg) {
         if (!sessionBannerEl) {
           sessionBannerEl = document.createElement('div');

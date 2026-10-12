@@ -10,7 +10,7 @@ The store gains ``knowledge-bases``, ``mcp-sources`` (the plain list shape) and
   delete, MCP delete, connector create);
 * AC3 -- the Library list request counts per activation (M25 F3 L4a: the
   Library list's fetch policy -- pane creation and studio activate force-get
-  the three collections, a move between Library sections fetches nothing);
+  the four collections, a move between Library sections fetches nothing);
 * AC4 -- the pure ``App.usage`` helpers over fixed arrays.
 """
 
@@ -76,13 +76,15 @@ class _Counter:
         page.on("request", self._on_request)
 
     def reset(self) -> None:
-        self.kb = self.mcp = self.mcp_surfaces = self.conn = 0
+        self.providers = self.kb = self.mcp = self.mcp_surfaces = self.conn = 0
 
     def _on_request(self, req) -> None:
         if req.method != "GET":
             return
         path, query = _list_path(req.url)
-        if path.endswith("/api/knowledge-bases"):
+        if path.endswith("/api/providers"):
+            self.providers += 1
+        elif path.endswith("/api/knowledge-bases"):
             self.kb += 1
         elif path.endswith("/api/mcp-sources"):
             if "include_agent_surfaces" in query:
@@ -92,8 +94,8 @@ class _Counter:
         elif path.endswith("/api/connectors"):
             self.conn += 1
 
-    def snapshot(self) -> tuple[int, int, int]:
-        return (self.kb, self.mcp, self.conn)
+    def snapshot(self) -> tuple[int, int, int, int]:
+        return (self.providers, self.kb, self.mcp, self.conn)
 
 
 # ── AC1 -- store API per collection ──────────────────────────────────────
@@ -134,7 +136,7 @@ def test_force_joins_an_in_flight_request(app_with_agent: SeededApp, page: Page,
         name,
     )
     assert res == [1, 1, 1]
-    idx = COLLECTIONS.index(name)
+    idx = COLLECTIONS.index(name) + 1  # the snapshot leads with providers
     assert counter.snapshot()[idx] == 1, counter.snapshot()
 
 
@@ -244,10 +246,10 @@ def _reload_at(page: Page, route: str) -> None:
     _nav.expect_route(page, route)
 
 
-def _measure(page: Page, base: str) -> dict[str, tuple[int, int, int]]:
-    """(knowledge-bases, mcp-sources plain, connectors) GETs per step."""
+def _measure(page: Page, base: str) -> dict[str, tuple[int, int, int, int]]:
+    """(providers, knowledge-bases, mcp-sources plain, connectors) GETs per step."""
     counter = _Counter(page)
-    out: dict[str, tuple[int, int, int]] = {}
+    out: dict[str, tuple[int, int, int, int]] = {}
 
     def step(label: str, action, before=None) -> None:
         if before is not None:
@@ -292,19 +294,19 @@ def _measure(page: Page, base: str) -> dict[str, tuple[int, int, int]]:
 
 
 # The Library list's fetch policy (M25 F3 L4a, design review H3; DD9's
-# freshness bound), as (knowledge-bases, mcp-sources plain, connectors) GETs per
-# step:
+# freshness bound), as (providers, knowledge-bases, mcp-sources plain,
+# connectors) GETs per step (providers joined as the first group in sortie 02):
 #   - pane creation (entering Library from Chats or Agents, a cold boot onto a
-#     Library route) force-gets the three: (1, 1, 1);
+#     Library route) force-gets the four: (1, 1, 1, 1);
 #   - studio activate on a Library route (the pane survived the trip to Chats)
-#     force-gets the three: (1, 1, 1);
-#   - a move between Library sections fetches nothing: (0, 0, 0).
+#     force-gets the four: (1, 1, 1, 1);
+#   - a move between Library sections fetches nothing: (0, 0, 0, 0).
 # Leg 2's per-section loads (each section fetched its own list on its first
 # move, e.g. "Knowledge -> MCP (first)" was (0, 1, 0)) are gone: the one list
-# holds all three groups.
-PANE = (1, 1, 1)
-MOVE = (0, 0, 0)
-EXPECTED: dict[str, tuple[int, int, int]] = {
+# holds all the groups.
+PANE = (1, 1, 1, 1)
+MOVE = (0, 0, 0, 0)
+EXPECTED: dict[str, tuple[int, int, int, int]] = {
     "Chats -> Library (first Studio activation, Knowledge)": PANE,
     "Knowledge -> MCP (first)": MOVE,
     "MCP -> Connectors (first)": MOVE,
@@ -330,7 +332,10 @@ def test_library_list_request_counts(app_with_agent: SeededApp, page: Page) -> N
     _seed_library(app_with_agent)
     got = _measure(page, app_with_agent.base_url)
     for label, counts in got.items():
-        print(f"COUNTS | {label} | kb={counts[0]} mcp={counts[1]} conn={counts[2]}")
+        print(
+            f"COUNTS | {label} | providers={counts[0]} kb={counts[1]} "
+            f"mcp={counts[2]} conn={counts[3]}"
+        )
     assert set(got) == set(EXPECTED)
     assert len(got) == 16
     for label, counts in got.items():
@@ -391,7 +396,7 @@ def test_kb_delete_invalidates_knowledge_bases(app_with_agent: SeededApp, page: 
     page.evaluate(SPY)
     delete.click()
     delete.click()
-    _nav.expect_route(page, "library/knowledge", timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
     assert {"knowledge-bases", "agents"} <= set(_invalidated(page))
     assert page.evaluate("async () => (await App.store.get('knowledge-bases')).length") == 0
     expect(page.locator('[data-testid="knowledge-base-card"]')).to_have_count(0)
@@ -408,7 +413,7 @@ def test_mcp_delete_invalidates_mcp_sources(app_with_agent: SeededApp, page: Pag
     page.evaluate(SPY)
     delete.click()
     delete.click()
-    _nav.expect_route(page, "library/mcp", timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
     assert {"mcp-sources", "agents"} <= set(_invalidated(page))
     assert page.evaluate("async () => (await App.store.get('mcp-sources')).length") == 0
     expect(page.locator('[data-testid="mcp-source-card"]')).to_have_count(0)

@@ -32,7 +32,13 @@ DD2_ROWS = [
     ("agents/foo/general", "#studio/agents/foo/general"),
     ("agents/foo/mcps/src1", "#studio/agents/foo/mcps/src1"),
     ("agents/foo/self-configuration", "#studio/agents/foo/self-configuration"),
+    # A bare Library section (and `library`, whose legacy form is the same
+    # alias) folds to `library`: the legacy hash is the alias, the round trip
+    # lands on the root (model-providers sortie, DD2).
     ("library", "#studio/knowledge"),
+    ("library/providers", "#studio/providers"),
+    ("library/providers/~new", "#studio/providers/new"),
+    ("library/providers/p1", "#studio/providers/p1"),
     ("library/knowledge", "#studio/knowledge"),
     ("library/knowledge/kb1", "#studio/knowledge/kb1"),
     ("library/knowledge/~new", "#studio/knowledge/new"),
@@ -47,9 +53,6 @@ DD2_ROWS = [
     ("settings/date-and-time", "#admin/date-and-time"),
     ("settings/prompts", "#admin/prompts"),
     ("settings/encryption", "#admin/encryption"),
-    ("settings/providers", "#admin/providers"),
-    ("settings/providers/~new", "#admin/providers/new"),
-    ("settings/providers/p1", "#admin/providers/p1"),
     ("settings/tools", "#admin/tools"),
     ("settings/tools/web_search", "#admin/tools/web_search"),
     ("settings/knowledge-indexing", "#admin/knowledge"),
@@ -68,13 +71,19 @@ def test_round_trip_is_canonical(route, legacy):
 
 
 def test_new_hash_is_hash_plus_route():
-    assert _nav.new_hash("settings/providers/~new") == "#settings/providers/~new"
+    assert _nav.new_hash("library/providers/~new") == "#library/providers/~new"
     assert _nav.new_hash("chats") == "#chats"
 
 
 def test_canonical_folds_default_redirects():
     assert _nav.canonical("settings") == "settings/appearance"
-    assert _nav.canonical("library") == "library/knowledge"
+    assert _nav.canonical("library") == "library"
+    # A bare Library section is the app's alias for the root; an item or a
+    # create route is not folded.
+    for section in ("knowledge", "mcp", "connectors", "providers"):
+        assert _nav.canonical(f"library/{section}") == "library"
+        assert _nav.canonical(f"library/{section}/x") == f"library/{section}/x"
+        assert _nav.canonical(f"library/{section}/~new") == f"library/{section}/~new"
     assert _nav.canonical("agents") == "agents"
     # the observed legacy defaults map to the same canonical route
     assert _nav.route_from_hash("#studio") == _nav.route_from_hash("#studio/agents") == "agents"
@@ -128,8 +137,16 @@ def test_per_segment_comparison():
     assert _nav.route_from_hash("#studio/agents/My Agent") == "agents/My%20Agent"
 
 
-def test_new_scoping_only_for_providers_and_library():
-    assert _nav.legacy_hash("settings/providers/~new") == "#admin/providers/new"
+def test_settings_providers_is_an_unknown_route():
+    """Sortie 02 (DD8): Settings no longer has a Providers page, so the helper
+    maps no ``settings/providers`` route (the app resolves it as unknown)."""
+    for route in ("settings/providers", "settings/providers/~new", "settings/providers/p1"):
+        with pytest.raises(ValueError):
+            _nav.legacy_hash(route)
+
+
+def test_new_scoping_only_for_library():
+    assert _nav.legacy_hash("library/providers/~new") == "#studio/providers/new"
     assert _nav.legacy_hash("library/mcp/~new") == "#studio/mcp-sources/new"
     # M25 F3 L4a: knowledge bases and connectors are creatable too.
     assert _nav.legacy_hash("library/knowledge/~new") == "#studio/knowledge/new"
@@ -140,7 +157,7 @@ def test_new_scoping_only_for_providers_and_library():
     assert _nav.legacy_hash("agents/new/general") == "#studio/agents/new/general"
     assert _nav.route_from_hash("#studio/agents/new/general") == "agents/new/general"
     assert _nav.route_from_hash("#studio/mcp-sources/new") == "library/mcp/~new"
-    assert _nav.route_from_hash("#admin/providers/new") == "settings/providers/~new"
+    assert _nav.route_from_hash("#studio/providers/new") == "library/providers/~new"
     # An id that is literally "new" under a different section is not rewritten.
     assert _nav.legacy_hash("settings/tools/new") == "#admin/tools/new"
     # An agent named "~new" is encoded, so it never equals the reserved segment.
@@ -162,10 +179,10 @@ def test_seg_encoding_matches_encode_uri_component():
 
 
 def test_scheme_switch(monkeypatch):
-    assert _nav.hash_for("settings/providers/~new") == "#admin/providers/new"
+    assert _nav.hash_for("library/providers/~new") == "#studio/providers/new"
     assert _nav.href("agents") == "#studio"
     monkeypatch.setattr(_nav, "SCHEME", "new")
-    assert _nav.hash_for("settings/providers/~new") == "#settings/providers/~new"
+    assert _nav.hash_for("library/providers/~new") == "#library/providers/~new"
     assert _nav.href("agents") == "#agents"
     assert _nav.route_from_hash("#settings") == "settings/appearance"
     assert _nav.route_from_hash("#library/mcp/~new") == "library/mcp/~new"
@@ -178,12 +195,12 @@ def test_goto_builds_absolute_url_and_passes_kwargs():
         def goto(self, url, **kw):
             calls.append((url, kw))
 
-    _nav.goto(FakePage(), "http://127.0.0.1:9/", "settings/providers/~new", wait_until="commit")
-    assert calls == [("http://127.0.0.1:9/#admin/providers/new", {"wait_until": "commit"})]
+    _nav.goto(FakePage(), "http://127.0.0.1:9/", "library/providers/~new", wait_until="commit")
+    assert calls == [("http://127.0.0.1:9/#studio/providers/new", {"wait_until": "commit"})]
 
 
 def test_legacy_url_tests_are_well_formed():
-    assert len(_nav.LEGACY_URL_TESTS) >= 7
+    assert len(_nav.LEGACY_URL_TESTS) >= 6
     for ident in _nav.LEGACY_URL_TESTS:
         assert re.fullmatch(r"test_\w+\.py::test_\w+", ident), ident
         assert ident in _nav.__doc__, f"{ident} missing from _nav.py docstring"
@@ -273,7 +290,7 @@ def test_guard_self_test():
     assert len(find_violations(bad_goto, "test_x.py", legacy)) == 1
     listed = 'def test_listed(page, b):\n    page.goto(f"{b}#studio/agents")\n'
     assert find_violations(listed, "test_x.py", legacy) == []
-    sibling = listed + '\n\ndef test_unlisted(page, b):\n    page.goto(f"{b}#admin/providers")\n'
+    sibling = listed + '\n\ndef test_unlisted(page, b):\n    page.goto(f"{b}#admin/tools")\n'
     assert len(find_violations(sibling, "test_x.py", legacy)) == 1
     bad_top = 'def test_a(page):\n    page.click(".app-picker-button")\n'
     assert len(find_violations(bad_top, "test_x.py", legacy)) == 1
@@ -312,6 +329,50 @@ def test_no_raw_route_hashes_in_browser_tests():
     assert not violations, "raw route hashes / top-bar selectors outside _nav.py:\n" + "\n".join(
         violations
     )
+
+
+# ── No `settings/providers` route literals (model-providers sortie, DD8, leg 2) ──
+
+# Settings no longer has a Providers page (its routes are unknown), so no browser
+# test or helper may name the route as a string literal.  Docstrings and comments
+# are exempt (as with the guards above), and so are the router's own contract
+# tests (``ROUTER_CONTRACT_GLOB``), which pin that the route is unknown.
+_SETTINGS_PROVIDERS_RE = re.compile(r"settings/providers")
+
+
+def find_settings_providers_literals(source: str, filename: str) -> list[str]:
+    if fnmatch.fnmatch(filename, ROUTER_CONTRACT_GLOB):
+        return []
+    tree = ast.parse(source)
+    skip = _docstring_nodes(tree)
+    return [
+        f"{filename}:{node.lineno}: {node.value[:80]!r}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in skip
+        and _SETTINGS_PROVIDERS_RE.search(node.value)
+    ]
+
+
+def test_no_settings_providers_route_in_browser_tests():
+    violations: list[str] = []
+    for path in sorted(BROWSER_DIR.glob("*.py")):
+        violations += find_settings_providers_literals(path.read_text(), path.name)
+    assert not violations, "`settings/providers` route literals:\n" + "\n".join(violations)
+
+
+def test_settings_providers_guard_self_test():
+    bad = 'def test_a(page):\n    _nav.goto(page, base, "settings/providers/~new")\n'
+    assert len(find_settings_providers_literals(bad, "test_x.py")) == 1
+    ok_doc = 'def test_a(page):\n    """Used to open settings/providers."""\n    pass\n'
+    assert find_settings_providers_literals(ok_doc, "test_x.py") == []
+    comment = "def test_a(page):\n    # settings/providers is gone\n    pass\n"
+    assert find_settings_providers_literals(comment, "test_x.py") == []
+    assert find_settings_providers_literals(bad, "test_router_core.py") == []
+    assert len(find_settings_providers_literals(bad, "test_routerish.py")) == 1
+    ok = 'def test_a(page):\n    _nav.goto(page, base, "library/providers/~new")\n'
+    assert find_settings_providers_literals(ok, "test_x.py") == []
 
 
 # ── Retired-selector guard (M25 F3 L1, DD11; unconditional since L6) ─────
@@ -375,6 +436,20 @@ RETIRED_SELECTORS = (
     # Flight 4 leg 5: the composer's old single-line row (its controls keep
     # their testids inside the new ``.composer-box``).
     "input-area",
+    # Model-providers sortie (DD6, DD8): the Library start page's testids were
+    # renamed (`library-start`, `library-start-{group}-add`) when `#library`
+    # became the one root; a prefix, so every `library-empty-*` id is fenced.
+    "library-empty-",
+    # Model-providers sortie, leg 2 (DD8): Settings no longer hosts providers.
+    # ``providers-empty`` covers ``providers-empty-add``; ``settings-nav-providers``
+    # is fenced here only (``settings-nav-`` stays a live registry prefix, so it
+    # is not in the Retired table); ``provider-tile`` is the retired tile class
+    # (``provider-tile-link`` and friends). ``providers-list`` is deliberately
+    # NOT fenced: it would catch future ``providers-list-*`` ids.
+    "new-provider-btn",
+    "providers-empty",
+    "settings-nav-providers",
+    "provider-tile",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix
@@ -584,3 +659,43 @@ def test_retired_selectors_cover_the_registry_retired_table():
     revived = sorted(set(retired) & set(literals + manual))
     revived += sorted(r for r in retired for p in prefixes if r.startswith(p))
     assert not revived, f"retired testids registered as live again: {revived}"
+
+
+# ── No bare-section producers (model-providers sortie, DD2) ──────────────────
+
+_STATIC_JS = (
+    Path(__file__).resolve().parents[1] / "the_one" / "interfaces" / "web" / "static" / "js"
+)
+_LIBRARY_HREF_RE = re.compile(r"href\(\s*\{[^{}]*?destination:\s*'library'[^{}]*?\}", re.S)
+_BARE_SYNC_RE = re.compile(
+    r"sync\(\s*'studio'\s*,\s*'(?:knowledge|mcp-sources|connectors|providers)'\s*[,)]"
+)
+
+
+def test_no_bare_library_section_producers_in_static_js():
+    """`#library` is the only Library root and a bare `library/{section}` is an
+    alias nothing may produce: no `href({destination: 'library', section: X})`
+    without an id or `create`, and no `sync('studio', '<section>')` with a bare
+    section sub (a bare sync writes the URL without hydrating)."""
+    offenders: list[str] = []
+    for path in sorted(_STATIC_JS.rglob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        for m in _LIBRARY_HREF_RE.finditer(text):
+            spec = m.group(0)
+            if "section" in spec and "id:" not in spec and "create" not in spec:
+                offenders.append(f"{path.relative_to(_STATIC_JS)}: {' '.join(spec.split())}")
+        for m in _BARE_SYNC_RE.finditer(text):
+            offenders.append(f"{path.relative_to(_STATIC_JS)}: {m.group(0)}")
+    assert not offenders, "bare Library section producers:\n" + "\n".join(offenders)
+
+
+def test_bare_library_section_check_detects_a_producer():
+    """The check's own regexes: a bare section href and a bare sync match, an
+    item or create href and a Settings section href do not."""
+    bad = "App.router.href({ destination: 'library', section: 'mcp' })"
+    assert _LIBRARY_HREF_RE.search(bad) and "id:" not in bad
+    assert _BARE_SYNC_RE.search("App.router.sync('studio', 'connectors');")
+    assert not _BARE_SYNC_RE.search("App.router.sync('studio', 'connectors/' + id, {})")
+    assert not _BARE_SYNC_RE.search("App.router.sync('studio', 'agents')")
+    ok = "href({ destination: 'library', section: g.route, id: row.id })"
+    assert "id:" in _LIBRARY_HREF_RE.search(ok).group(0)

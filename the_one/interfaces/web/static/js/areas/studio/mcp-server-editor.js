@@ -22,7 +22,7 @@
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
 //              onListStale }
 // M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
-// breadcrumb "Library / MCP servers" (its group a link to `#library/mcp`)
+// breadcrumb "Library / MCP servers" ("Library" a link to `#library`, the group plain text)
 // and the unsaved caption, whose text follows every onDirtyChange report.
 // onListStale (M25 F3 L4a) fires after each 'mcp-sources' invalidation that
 // is not a save or delete: a connect success (the manual Refresh, the
@@ -714,21 +714,21 @@
 
     // The breadcrumb (M25 F3 DD2): "Library / MCP servers", inserted with DOM
     // APIs after the markup is in place (this editor is string-built), as the
-    // first child of .editor-header-text, in edit and create modes. Its group
-    // segment links to the section root (the DD2 refinement, leg 4b): with
+    // first child of .editor-header-text, in edit and create modes. Its "Library"
+    // segment links to `#library` (DD3; the group is plain text): with
     // Back retired it is the visible way to close the item. studio.js routes
     // the click (the router's guard asks once about a dirty editor) and
     // focuses the item's row after the close (DD8).
     var headerText = container.querySelector('.editor-header-text');
     var crumb = document.createElement('div');
     crumb.className = 'editor-breadcrumb';
-    crumb.appendChild(document.createTextNode('Library / '));
     var crumbLink = document.createElement('a');
     crumbLink.className = 'editor-breadcrumb-link';
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library', section: 'mcp' }));
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library' }));
     crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
-    crumbLink.textContent = 'MCP servers';
+    crumbLink.textContent = 'Library';
     crumb.appendChild(crumbLink);
+    crumb.appendChild(document.createTextNode(' / MCP servers'));
     headerText.insertBefore(crumb, headerText.firstChild);
 
     mountChipListEditors(container, source);

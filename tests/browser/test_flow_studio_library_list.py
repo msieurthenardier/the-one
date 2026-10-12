@@ -166,14 +166,18 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
     )
     expect(lib.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(lib.locator(".ui-list-pane-caption")).to_have_text(
-        ["Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
     )
     # No filter and no count on the Library list.
     expect(lib.locator("input[type=search]")).to_have_count(0)
     expect(lib.locator(".ui-list-pane-total")).to_have_count(0)
     # The meta waits for the agents list; it then reads the seeded attachments.
-    expect(_rows(page).nth(0).locator(".ui-list-pane-meta")).to_have_text("2 agents", timeout=8000)
-    assert _row_texts(page) == [
+    expect(_rows(page).nth(1).locator(".ui-list-pane-meta")).to_have_text("2 agents", timeout=8000)
+    texts = _row_texts(page)
+    # The first group is the seeded mock provider, with its type badge and the
+    # count of the agents that use it (every seeded agent does).
+    assert texts[0][0] == "mock" and re.fullmatch(r"\d+ agents?", texts[0][1]), texts
+    assert texts[1:] == [
         ["Alpha KB", "2 agents"],
         ["Zeta KB", "0 agents"],
         ["alpha-mcp", "3 tools · 1 agent"],
@@ -182,6 +186,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
     ]
     # Rows are links to their item routes, with the kept card testids.
     for name, dest, testid in (
+        ("mock", "library/providers", "provider-card"),
         ("Alpha KB", "library/knowledge", "knowledge-base-card"),
         ("alpha-mcp", "library/mcp", "mcp-source-card"),
         ("Team chat", "library/connectors", "connector-card"),
@@ -189,7 +194,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
         row = _lists.list_row(page, dest, name)
         expect(row).to_have_attribute("data-testid", testid)
         assert (row.get_attribute("href") or "").startswith(_nav.href(dest) + "/")
-    # Icons: aria-hidden SVGs, one per type (database, server, plug).
+    # Icons: aria-hidden SVGs, one per type (sparkles, database, server, plug).
     icons = page.evaluate(
         """(sel) => Array.from(document.querySelectorAll(sel + ' .ui-list-pane-row')).map((r) => {
             const svg = r.querySelector('.ui-list-pane-icon svg');
@@ -197,7 +202,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
         LIST,
     )
     assert all(i and i["hidden"] == "true" for i in icons), icons
-    assert len({icons[0]["shape"], icons[2]["shape"], icons[4]["shape"]}) == 3, icons
+    assert len({icons[i]["shape"] for i in (0, 1, 3, 5)}) == 4, icons
     # The meta is part of the row's accessible name (visible text in the link).
     expect(page.get_by_role("link", name="alpha-mcp 3 tools · 1 agent")).to_have_count(1)
     # No section nav.
@@ -211,7 +216,7 @@ def test_group_empty_lines(app_with_agent: SeededApp, page: Page) -> None:
     _ready(page, base, "library/knowledge")
     lines = page.locator(f"{LIST} .ui-list-pane-group-empty")
     expect(lines).to_have_text(["No MCP servers yet.", "No connectors yet."])
-    expect(_rows(page)).to_have_count(1)
+    expect(_rows(page)).to_have_count(2)  # the seeded provider and "Only KB"
 
 
 def test_agent_counts_never_read_zero_while_agents_load(
@@ -223,10 +228,11 @@ def test_agent_counts_never_read_zero_while_agents_load(
     base = app_with_agent.base_url
     _seed_full(app_with_agent)
     hold = _Hold(page, re.compile(r".*/api/agents$"))
-    _nav.goto(page, base, "library/knowledge")
+    _nav.goto(page, base, "library")
     hold.wait_held()
-    expect(_rows(page)).to_have_count(5, timeout=8000)
+    expect(_rows(page)).to_have_count(6, timeout=8000)
     assert _row_texts(page) == [
+        ["mock", ""],
         ["Alpha KB", ""],
         ["Zeta KB", ""],
         ["alpha-mcp", "3 tools"],
@@ -236,10 +242,10 @@ def test_agent_counts_never_read_zero_while_agents_load(
     heights = "(sel) => Array.from(document.querySelectorAll(sel + ' .ui-list-pane-row')).map((r) => r.getBoundingClientRect().height)"
     before = page.evaluate(heights, LIST)
     hold.release()
-    expect(_rows(page).nth(0).locator(".ui-list-pane-meta")).to_have_text("2 agents", timeout=8000)
-    expect(_rows(page).nth(4).locator(".ui-list-pane-meta")).to_have_text("2 agents")
+    expect(_rows(page).nth(1).locator(".ui-list-pane-meta")).to_have_text("2 agents", timeout=8000)
+    expect(_rows(page).nth(5).locator(".ui-list-pane-meta")).to_have_text("2 agents")
     after = page.evaluate(heights, LIST)
-    assert len(before) == len(after) == 5
+    assert len(before) == len(after) == 6
     assert all(abs(a - b) <= 0.5 for a, b in zip(before, after, strict=True)), (before, after)
     # The reserved line is not part of any row's accessible name.
     expect(page.get_by_role("link", name="Alpha KB 2 agents")).to_have_count(1)
@@ -257,7 +263,8 @@ def test_add_menu_is_not_clipped(app_clean: str, page: Page, viewport: tuple[int
     out = page.evaluate(
         """() => {
           const aside = document.getElementById('app-sidebar').getBoundingClientRect();
-          return ['library-add-knowledge', 'library-add-mcp', 'library-add-connector'].map((tid) => {
+          return ['library-add-provider', 'library-add-knowledge', 'library-add-mcp',
+                  'library-add-connector'].map((tid) => {
             const el = document.querySelector(`[data-testid="${tid}"]`);
             const r = el.getBoundingClientRect();
             const inside = r.left >= aside.left - 0.5 && r.right <= aside.right + 0.5 &&
@@ -280,7 +287,9 @@ def test_add_menu_is_not_clipped(app_clean: str, page: Page, viewport: tuple[int
         .find("ui-menu-align-end")
         != -1
     )
-    expect(page.get_by_role("menuitem")).to_have_text(["Knowledge base", "MCP server", "Connector"])
+    expect(page.get_by_role("menuitem")).to_have_text(
+        ["Model provider", "Knowledge base", "MCP server", "Connector"]
+    )
 
 
 def test_add_menu_items_open_their_create_routes(app_with_agent: SeededApp, page: Page) -> None:
@@ -374,9 +383,9 @@ def test_delete_each_type_replaces_to_the_root_and_moves_focus(
     _lists.open_item(page, "library/knowledge", "Alpha KB")
     before = page.evaluate("history.length")
     _confirm_delete(page, "delete-knowledge-base-btn")
-    _nav.expect_route(page, "library/knowledge", timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
     expect(_lists.list_row(page, "library/knowledge", "Alpha KB")).to_have_count(0, timeout=8000)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
+    expect(_lists.library_start(page)).to_be_visible()
     page.wait_for_function(
         "() => document.activeElement && document.activeElement.closest('.ui-list-pane-row')"
     )
@@ -386,7 +395,7 @@ def test_delete_each_type_replaces_to_the_root_and_moves_focus(
     # MCP server: the last of its group -> the next row is in the next group.
     _lists.open_item(page, "library/mcp", "zeta-mcp")
     _confirm_delete(page, "delete-mcp-source-btn")
-    _nav.expect_route(page, "library/mcp", timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
     expect(_lists.list_row(page, "library/mcp", "zeta-mcp")).to_have_count(0, timeout=8000)
     page.wait_for_function(
         "() => document.activeElement && document.activeElement.closest('.ui-list-pane-row')"
@@ -396,7 +405,7 @@ def test_delete_each_type_replaces_to_the_root_and_moves_focus(
     # Connector: the last row of the list -> the previous row.
     _lists.open_item(page, "library/connectors", "Team chat")
     _confirm_delete(page, "delete-connector-btn")
-    _nav.expect_route(page, "library/connectors", timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
     expect(_lists.list_row(page, "library/connectors", "Team chat")).to_have_count(0, timeout=8000)
     page.wait_for_function(
         "() => document.activeElement && document.activeElement.closest('.ui-list-pane-row')"
@@ -510,8 +519,8 @@ def test_kb_create_cancel_returns_to_the_root(app_with_agent: SeededApp, page: P
     page.wait_for_function("() => App.nav.isDirty()")
     page.locator('[data-testid="kb-create-cancel-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(0)
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible()
     assert page.evaluate("App.nav.isDirty()") is False
     assert page.evaluate("history.length") == before + 1  # the Add push, then a replace
     # Focus: the first row of the knowledge-base group.
@@ -531,7 +540,7 @@ def test_connector_cold_deep_link_selects_its_row_without_flash(
     page.add_init_script(
         """(() => { window.__emptyFlash = false;
           new MutationObserver(() => {
-            if (document.querySelector('[data-testid^="library-empty-"]')) window.__emptyFlash = true;
+            if (document.querySelector('[data-testid="library-start"]')) window.__emptyFlash = true;
           }).observe(document, {childList: true, subtree: true}); })();"""
     )
     _nav.goto_settled(page, app_with_agent.base_url, f"library/connectors/{_nav.seg(ids['conn'])}")
@@ -544,8 +553,8 @@ def test_connector_cold_deep_link_selects_its_row_without_flash(
 def test_connector_dead_id_heals_to_the_root(app_with_agent: SeededApp, page: Page) -> None:
     _seed_full(app_with_agent)
     _nav.goto_settled(page, app_with_agent.base_url, "library/connectors/no-such-connector")
-    _nav.expect_route(page, "library/connectors", timeout=8000)
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library", timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     page.wait_for_function(
         "() => { const s = App.areas.find((a) => a.id === 'studio');"
         " return s._pendingConnectorId === null && s._pendingConnectorFormMode === null; }"
@@ -599,8 +608,8 @@ def test_connector_cancel_reverts_in_edit_and_returns_on_create(
     page.locator('[data-field="name"]').fill("Abandoned")
     page.locator('[data-testid="cancel-connector-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(0)
-    _nav.expect_route(page, "library/connectors")
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible()
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible()
     page.wait_for_function(
         "() => document.activeElement && document.activeElement.closest('.ui-list-pane-row')"
     )
@@ -634,7 +643,7 @@ def test_section_root_empty_state(
     app_with_agent: SeededApp, page: Page, kind: str, copy: str, probe: str
 ) -> None:
     _ready(page, app_with_agent.base_url, f"library/{kind}")
-    empty = _lists.library_empty_state(page, kind)
+    empty = _lists.library_start(page)
     expect(empty).to_be_visible(timeout=8000)
     expect(empty).to_contain_text(copy)
     # No grid markup in the detail pane (AC6). A NEGATIVE check on the retired
@@ -646,74 +655,29 @@ def test_section_root_empty_state(
         ".studio-section-content .page-header"
     )
     assert page.evaluate("sel => document.querySelectorAll(sel).length", grid_markup) == 0
-    page.locator(f'[data-testid="library-empty-{kind}-add"]').click()
+    page.locator(f'[data-testid="library-start-{kind}-add"]').click()
     _nav.expect_route(page, f"library/{kind}/~new")
     expect(page.locator(probe)).to_be_visible(timeout=8000)
 
 
-def test_section_root_scrolls_its_group_into_view(app_with_agent: SeededApp, page: Page) -> None:
+def test_library_root_leaves_the_list_scrolled_to_the_top(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """There is one root and no per-section group scroll (DD2): the `scroll to
+    group at a section root` branch is gone. A cold `#library`, a bare section
+    alias and a return to the root all leave the list at the top."""
     base = app_with_agent.base_url
     for i in range(24):
         seed_knowledge_base(base, f"KB {i:02d}")
     seed_mcp_source(base, "far-mcp")
     seed_connector(base, "Far connector")
-
-    def group_in_view(label: str) -> bool:
-        return page.evaluate(
-            """(label) => { const pane = document.querySelector('[data-testid="library-list"]');
-              const body = pane.querySelector('.ui-list-pane-body').getBoundingClientRect();
-              const cap = Array.from(pane.querySelectorAll('.ui-list-pane-caption')).find((n) => n.textContent === label);
-              const r = cap.getBoundingClientRect();
-              return r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5; }""",
-            label,
-        )
-
-    # A cold boot on the MCP root: the group is scrolled in after the gated
-    # first fill (the groups did not exist at the hydrate).
-    _ready(page, base, "library/mcp")
-    page.wait_for_function(
-        "() => document.querySelector('[data-testid=\"library-list\"] .ui-list-pane-body').scrollTop > 0"
-    )
-    assert group_in_view("MCP servers")
-    # A move to the Connectors root scrolls that group in; Knowledge goes back up.
-    page.evaluate("r => App.router.go(r)", _nav.href("library/connectors"))
-    _nav.expect_route(page, "library/connectors")
-    page.wait_for_function("() => true")
-    assert group_in_view("Connectors")
-    page.evaluate("r => App.router.go(r)", _nav.href("library/knowledge"))
-    _nav.expect_route(page, "library/knowledge")
-    assert group_in_view("Knowledge bases")
-    assert (
-        page.evaluate(
-            "() => document.querySelector('[data-testid=\"library-list\"] .ui-list-pane-body').scrollTop"
-        )
-        == 0
-    )
-
-
-def test_group_scroll_survives_late_agent_counts(app_with_agent: SeededApp, page: Page) -> None:
-    """The lane-found failure, made deterministic: on a cold ``#library/mcp`` the
-    group scroll is clamped at the body's maximum; the agent counts arriving
-    AFTER it must not push the MCP group back out of view (rows keep their
-    reserved meta line, so nothing above the group grows)."""
-    base = app_with_agent.base_url
-    for i in range(24):
-        seed_knowledge_base(base, f"KB {i:02d}")
-    seed_mcp_source(base, "far-mcp")
-    seed_connector(base, "Far connector")
-    hold = _Hold(page, re.compile(r".*/api/agents$"))
-    _nav.goto(page, base, "library/mcp")
-    hold.wait_held()
     body = '[data-testid="library-list"] .ui-list-pane-body'
-    page.wait_for_function(f"() => document.querySelector('{body}').scrollTop > 0", timeout=8000)
-    in_view = """(label) => { const pane = document.querySelector('[data-testid="library-list"]');
-      const b = pane.querySelector('.ui-list-pane-body').getBoundingClientRect();
-      const cap = Array.from(pane.querySelectorAll('.ui-list-pane-caption')).find((n) => n.textContent === label);
-      const r = cap.getBoundingClientRect(); return r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5; }"""
-    assert page.evaluate(in_view, "MCP servers")
-    hold.release()
-    expect(_rows(page).nth(0).locator(".ui-list-pane-meta")).to_have_text("0 agents", timeout=8000)
-    assert page.evaluate(in_view, "MCP servers")
+    for route in ("library", "library/mcp"):  # the second is the alias
+        _ready(page, base, route)
+        expect(_rows(page).first).to_be_visible(timeout=8000)
+        page.wait_for_timeout(300)
+        _nav.expect_route(page, "library")
+        assert page.evaluate(f"() => document.querySelector('{body}').scrollTop") == 0, route
 
 
 @pytest.mark.parametrize("kind", ["knowledge", "mcp"])
@@ -725,7 +689,7 @@ def test_cold_item_link_never_flashes_the_empty_state(
     page.add_init_script(
         """(() => { window.__emptyFlash = false;
           new MutationObserver(() => {
-            if (document.querySelector('[data-testid^="library-empty-"]')) window.__emptyFlash = true;
+            if (document.querySelector('[data-testid="library-start"]')) window.__emptyFlash = true;
           }).observe(document, {childList: true, subtree: true}); })();"""
     )
     _nav.goto_settled(page, app_with_agent.base_url, f"library/{kind}/{_nav.seg(item)}")
@@ -749,7 +713,7 @@ def test_no_empty_line_flash_before_data_arrives(app_with_agent: SeededApp, page
     state: no group reads "No ... yet." before the data says so."""
     seed_knowledge_base(app_with_agent.base_url, "Held KB")
     hold = _Hold(page, re.compile(r".*/api/mcp-sources$"))
-    _nav.goto(page, app_with_agent.base_url, "library/knowledge")
+    _nav.goto(page, app_with_agent.base_url, "library")
     hold.wait_held()
     lib = page.locator(LIST)
     expect(lib).to_be_visible(timeout=8000)
@@ -776,7 +740,7 @@ def test_a_failed_collection_reads_couldnt_load(app_with_agent: SeededApp, page:
             route.continue_()
 
     page.route(re.compile(r".*/api/connectors$"), fail)
-    _nav.goto_settled(page, app_with_agent.base_url, "library/knowledge")
+    _nav.goto_settled(page, app_with_agent.base_url, "library")
     lib = page.locator(LIST)
     expect(
         lib.locator(".ui-list-pane-group-empty", has_text="Couldn’t load connectors.")
@@ -815,7 +779,7 @@ def test_a_failed_refresh_keeps_the_last_good_rows(app_with_agent: SeededApp, pa
 # ── Leg 4b: the editors' chrome (DD2, DD8) ──────────────────────────────────
 #
 # Every Library item header carries the breadcrumb "Library / {Group}" whose
-# group segment links to the section root (``editor-breadcrumb-link``; Back is
+# "Library" segment links to ``#library`` (``editor-breadcrumb-link``; Back is
 # retired), and the stable "Unsaved changes" caption. Creating each type opens
 # the item without tearing its editor down.
 
@@ -839,7 +803,7 @@ def _crumb(page: Page) -> dict | None:
           const f = t && t.firstElementChild; const a = f && f.querySelector('a');
           return f && {cls: f.className, text: f.textContent, link: a && a.textContent,
             href: a && a.getAttribute('href'), testid: a && a.getAttribute('data-testid'),
-            linkLast: !!a && f.lastChild === a, h1: pane.querySelectorAll('h1').length,
+            linkFirst: !!a && f.firstChild === a, h1: pane.querySelectorAll('h1').length,
             underline: a && getComputedStyle(a).textDecorationLine,
             back: pane.querySelectorAll('.back-btn').length}; }"""
     )
@@ -849,10 +813,10 @@ def _expected_crumb(kind: str) -> dict:
     return {
         "cls": "editor-breadcrumb",
         "text": "Library / " + CRUMB[kind],
-        "link": CRUMB[kind],
-        "href": _nav.href(f"library/{kind}"),
+        "link": "Library",
+        "href": _nav.href("library"),
         "testid": "editor-breadcrumb-link",
-        "linkLast": True,
+        "linkFirst": True,
         "h1": 1,
         "underline": "underline",  # at rest, not colour alone (the flight-end review)
         "back": 0,
@@ -900,7 +864,7 @@ def test_each_editor_shows_its_breadcrumb_in_edit_and_create_modes(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     """The first child of ``.editor-header-text``: "Library / {Group}" with the
-    group a link to the section root (DOM-built, ``App.router.href``); one h1 in
+    "Library" a link to ``#library`` (DOM-built, ``App.router.href``); one h1 in
     the pane and no Back, in edit mode and on each ``~new`` form."""
     _seed_full(app_with_agent)
     _ready(page, app_with_agent.base_url, "library/knowledge")
@@ -948,8 +912,8 @@ def test_breadcrumb_link_closes_the_item_and_focuses_its_row(
     expect(page.locator(TITLE)).to_have_text(ITEM[kind], timeout=8000)
     before = page.evaluate("history.length")
     _lists.close_item(page)
-    _nav.expect_route(page, f"library/{kind}")
-    expect(_lists.library_empty_state(page, kind)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator(DIALOG)).to_have_count(0)
     expect(_lists.list_row(page, f"library/{kind}", ITEM[kind])).to_be_focused(timeout=8000)
     expect(page.locator(f'{LIST} [aria-current="page"]')).to_have_count(0)
@@ -981,8 +945,8 @@ def test_breadcrumb_link_on_a_dirty_editor_asks_once(app_with_agent: SeededApp, 
     _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
-    _nav.expect_route(page, "library/mcp")
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(_lists.list_row(page, "library/mcp", "alpha-mcp")).to_be_focused(timeout=8000)
     _asked_once(page)
     assert page.evaluate("App.nav.isDirty()") is False
@@ -1007,8 +971,8 @@ def test_kb_create_form_breadcrumb_link_returns_to_the_root(
     _lists.library_add(page, "knowledge")
     expect(page.locator(TITLE)).to_have_text(NEW_TITLE["knowledge"], timeout=8000)
     _lists.close_item(page)
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator(DIALOG)).to_have_count(0)
     expect(_lists.list_row(page, "library/knowledge", "First KB")).to_be_focused(timeout=8000)
 
@@ -1025,8 +989,8 @@ def test_kb_create_form_breadcrumb_link_returns_to_the_root(
     _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(_lists.list_row(page, "library/knowledge", "First KB")).to_be_focused(timeout=8000)
     _asked_once(page)
     assert page.evaluate("App.nav.isDirty()") is False
@@ -1099,7 +1063,7 @@ def test_unsaved_indicator_on_the_knowledge_base_create_form(
     field.fill("Typed again")
     _expect_unsaved(page, "Unsaved changes")
     page.locator('[data-testid="kb-create-cancel-btn"]').click()
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator(UNSAVED)).to_have_count(0)
     # Save (Create): the new knowledge base opens, clean.
     _lists.library_add(page, "knowledge")
@@ -1222,8 +1186,8 @@ def test_cancel_on_a_pristine_create_form_abandons_it(
     assert page.evaluate("App.nav.isDirty()") is False
     before = page.evaluate("history.length")
     cancel.click()
-    _nav.expect_route(page, f"library/{kind}")
-    expect(_lists.library_empty_state(page, kind)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
     expect(page.locator(TITLE)).to_have_count(0)
     _lists.expect_none_selected(page, f"library/{kind}")
     if with_row:
@@ -1254,7 +1218,7 @@ def test_mcp_create_form_cancel_stays_enabled_when_the_form_is_clean_again(
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_disabled()
     expect(cancel).to_be_enabled()
     cancel.click()
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     expect(page.locator(TITLE)).to_have_count(0, timeout=8000)
     expect(page.locator("dialog[open]")).to_have_count(0)
 

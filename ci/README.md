@@ -32,8 +32,8 @@ All five CI tasks run in parallel (`in_parallel`, `fail_fast: false`) as a singl
 job. The browser task is a single task that runs `scripts/run-tests.sh --parallel 1`:
 every canonical browser lane, one after another (no lane list lives in CI, so it cannot
 drift from the local lanes; `tests/test_run_tests_lanes.py` pins that). Its CI time is
-**unmeasured until the first post-merge build**; locally the eight lanes sum to about
-2240 s sequential. On Concourse the full browser suite runs on **every push to `main`** — the
+**unmeasured until the first post-merge build**; locally the first eight lanes sum to about
+2240 s sequential (a ninth lane, `providers`, joined in sortie 02). On Concourse the full browser suite runs on **every push to `main`** — the
 path-filter that rationed it on GitHub Actions (minutes cost) is gone (DD5). None of
 these five lanes run on GitHub Actions PR triggers — `pr-lint.yml` (lint + pip-audit
 only) is the only pre-merge GH Actions gate; the heavy lanes stay post-merge on

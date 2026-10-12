@@ -50,12 +50,15 @@ def test_agents_root_has_one_hidden_h1_and_editor_title_replaces_it(
 @pytest.mark.browser
 @pytest.mark.parametrize("section", ["knowledge", "mcp", "connectors"])
 def test_library_roots_have_one_hidden_h1(app_clean: str, page: Page, section: str) -> None:
-    """Zero items in every group: the h1 sits beside the empty state."""
+    """Zero items in every group: the h1 sits beside the empty state. Each bare
+    section URL is an alias of the one Library root (alias-proving)."""
     _nav.goto(page, app_clean, f"library/{section}")
+    _nav.expect_route(page, "library")
+    assert page.evaluate("location.hash") == _nav.href("library")
     expect(page.locator('[data-testid="root-heading"]')).to_have_text("Library", timeout=8000)
     assert _h1_texts(page) == ["Library"]
     # The start page's blocks are h2s (DD15): one per type.
-    expect(page.locator(f'[data-testid="library-empty-{section}"] h2')).to_have_count(3)
+    expect(page.locator('[data-testid="library-start"] h2')).to_have_count(4)
 
 
 @pytest.mark.browser
@@ -80,6 +83,7 @@ def test_tools_tab_category_master_toggles_are_named(app_with_agent: SeededApp, 
 # ── Leg 4c (DD15): the start pages ─────────────────────────────────────────
 
 LIBRARY_ORDER = [
+    ("providers", "Model providers"),
     ("knowledge", "Knowledge bases"),
     ("mcp", "MCP servers"),
     ("connectors", "Connectors"),
@@ -111,24 +115,24 @@ def test_agents_start_page_with_no_agents(app_with_provider: SeededApp, page: Pa
     _nav.expect_route(page, "agents/~new")
 
 
-def _expect_library_page(page: Page, section: str) -> None:
-    root = page.locator(f'[data-testid="library-empty-{section}"]')
+def _expect_library_page(page: Page) -> None:
+    root = page.locator('[data-testid="library-start"]')
     expect(root).to_be_visible(timeout=8000)
     assert _h1_texts(page) == ["Library"]
     expect(root.locator("h1")).to_have_count(0)
     expect(root.locator("h2")).to_have_text([label for _, label in LIBRARY_ORDER])
     for kind, _ in LIBRARY_ORDER:
-        expect(root.locator(f'[data-testid="library-empty-{kind}-add"]')).to_be_visible()
+        expect(root.locator(f'[data-testid="library-start-{kind}-add"]')).to_be_visible()
 
 
 @pytest.mark.browser
 @pytest.mark.parametrize("section", ["knowledge", "mcp", "connectors"])
 def test_library_start_page_at_every_root(app_clean: str, page: Page, section: str) -> None:
-    _nav.goto(page, app_clean, f"library/{section}")
-    _expect_library_page(page, section)
+    _nav.goto(page, app_clean, f"library/{section}")  # a bare section aliases the root
+    _expect_library_page(page)
     # An Add button other than the route's own opens its own create route.
     other = "connectors" if section != "connectors" else "knowledge"
-    page.locator(f'[data-testid="library-empty-{other}-add"]').click()
+    page.locator(f'[data-testid="library-start-{other}-add"]').click()
     _nav.expect_route(page, f"library/{other}/~new")
 
 
@@ -151,5 +155,5 @@ def test_start_pages_do_not_overflow_at_1024(app_with_agent: SeededApp, page: Pa
 def test_library_start_page_survives_failed_collection_loads(app_clean: str, page: Page) -> None:
     for coll in ("knowledge-bases", "mcp-sources", "connectors"):
         page.route(f"**/api/{coll}", lambda route: route.fulfill(status=500, body="{}"))
-    _nav.goto(page, app_clean, "library/mcp")
-    _expect_library_page(page, "mcp")
+    _nav.goto(page, app_clean, "library")
+    _expect_library_page(page)

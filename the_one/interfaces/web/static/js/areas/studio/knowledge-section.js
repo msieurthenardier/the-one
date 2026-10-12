@@ -176,18 +176,19 @@
   }
 
   // The item header's breadcrumb (M25 F3 DD2): "Library / Knowledge bases",
-  // the first child of .editor-header-text, built with DOM APIs. Its group
-  // segment links to the section root (the DD2 refinement, leg 4b): with Back
+  // the first child of .editor-header-text, built with DOM APIs. Its "Library"
+  // segment links to `#library` (DD3; the group is plain text): with Back
   // retired it is the visible way to close the item. studio.js routes the
   // click (the router's guard asks once about a dirty form) and focuses the
   // item's row after the close (DD8). Both forms build it on every mount, so
   // the detail view's Save re-mount re-adds it.
   function _breadcrumb() {
-    var crumb = _el('div', { className: 'editor-breadcrumb', text: 'Library / ' });
-    var link = _el('a', { className: 'editor-breadcrumb-link', text: 'Knowledge bases' });
-    link.setAttribute('href', window.App.router.href({ destination: 'library', section: 'knowledge' }));
+    var crumb = _el('div', { className: 'editor-breadcrumb' });
+    var link = _el('a', { className: 'editor-breadcrumb-link', text: 'Library' });
+    link.setAttribute('href', window.App.router.href({ destination: 'library' }));
     link.setAttribute('data-testid', 'editor-breadcrumb-link');
     crumb.appendChild(link);
+    crumb.appendChild(document.createTextNode(' / Knowledge bases'));
     return crumb;
   }
 
@@ -320,8 +321,8 @@
   //
   // `#library/knowledge/~new`: the create form in the detail pane, beside the
   // Library list (the grid and its inline form are retired). Its own header
-  // (DD2): the breadcrumb "Library / Knowledge bases" (the group a link to
-  // the section root since L4b) and the pane's only `h1`, "New knowledge
+  // (DD2): the breadcrumb "Library / Knowledge bases" ("Library" a link to
+  // `#library`, the group plain text) and the pane's only `h1`, "New knowledge
   // base"; the unsaved caption, Cancel and Create in `.form-actions`. The M24
   // contract is kept: Create stays enabled, an empty name shows "Name is
   // required." with no request, and the 43-code-point hint (DD-16).
@@ -462,7 +463,7 @@
     // remount) + the unsaved caption/Cancel/Save, mirroring
     // `mcp-server-editor.js`'s header. No edit button. M25 F3 L4b retired
     // Back (DD2): the breadcrumb's "Knowledge bases" link closes the item to
-    // the section root, through the router's leave guard.
+    // the Library root, through the router's leave guard.
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
     headerText.appendChild(_breadcrumb());

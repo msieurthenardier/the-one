@@ -1,10 +1,10 @@
-// App.admin.renderProviderEditor — provider-editor scaffold (F6 leg 03).
+// App.studio.renderProviderEditor — provider-editor scaffold (F6 leg 03).
 //
 // Builds the editor surface mirroring studio's agent-editor (F5 leg 03):
 //   <div class="editor-header">
 //     <div class="editor-header-text">
-//       <div class="editor-breadcrumb">Settings / <a href="#settings/providers">Providers</a></div>
-//       <h2 class="editor-title" tabindex="-1">{name | "New Provider"}</h2>
+//       <div class="editor-breadcrumb"><a href="#library">Library</a> / Model providers</div>
+//       <h1 class="editor-title" tabindex="-1">{name | "New model provider"}</h1>
 //       <p class="editor-subtitle">{type · base_url}</p>  (edit only)
 //     </div>
 //     <div class="form-actions">
@@ -32,13 +32,16 @@
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange, getTypeDefaults }
 //
-// M25 F3 L5b (flight DD2/DD7): the editor mounts in the Providers page's item
-// section, below the table. Back is retired: the breadcrumb (inserted after
-// innerHTML, its "Providers" segment a link to #settings/providers) is the
-// visible way to close the item, routed by admin.js. The title is an h2 (the
-// Settings page header owns the page's one h1; flight-end review) and carries
-// tabindex="-1" so admin.js can move focus to it when an intent opens the
-// item. The unsaved caption is a stable span at the start of .form-actions
+// Sortie 02 (providers in Library): the editor lives in areas/studio/ and has
+// one host, the Library detail pane (studio's providers-section.js). Library
+// editor chrome: the pane's one h1 as the title, the "Library / Model
+// providers" breadcrumb (Library is the link to #library), and no "Provider
+// created" flash (the create re-mounts the editor, as the connector
+// convention).
+//
+// The breadcrumb (inserted after innerHTML) is the visible way to close the
+// item, routed by studio.js. The title carries tabindex="-1" so studio.js can
+// move focus to it when an intent opens the item. The unsaved caption is a stable span at the start of .form-actions
 // whose text checkDirty sets or clears (the same value it reports through
 // onDirtyChange, which feeds the App.nav dirty source).
 //
@@ -48,20 +51,21 @@
 (function () {
   'use strict';
   window.App = window.App || {};
-  window.App.admin = window.App.admin || {};
+  window.App.studio = window.App.studio || {};
 
   function renderProviderEditor(container, provider, providerTypes, callbacks) {
     callbacks = callbacks || {};
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var isCreate = !provider;
-    var name = isCreate ? 'New Provider' : (provider.name || '');
+    var name = isCreate ? 'New model provider' : (provider.name || '');
+    var titleTag = 'h1';
 
     // ── Header HTML ─────────────────────────────────────────────────
     var html = '';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
-    html += '<h2 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h2>';
+    html += '<' + titleTag + ' class="editor-title" tabindex="-1">' + escapeHtml(name) + '</' + titleTag + '>';
     if (!isCreate) {
       var subtitleParts = [escapeHtml(provider.type)];
       if (provider.base_url) subtitleParts.push(escapeHtml(provider.base_url));
@@ -127,23 +131,24 @@
 
     container.innerHTML = html;
 
-    // The breadcrumb (M25 F3 DD2): "Settings / Providers", inserted with DOM
-    // APIs after the markup is in place (this editor is string-built), as the
-    // first child of .editor-header-text, in edit and create modes. Its
-    // "Providers" segment links to the page root (the DD2 refinement): with
-    // Back retired it is the visible way to close the item. admin.js routes
-    // the click (the router's guard asks once about a dirty editor) and
-    // focuses the item's row after the close (DD8).
+    // The breadcrumb (M25 F3 DD2): "Library / Model providers", inserted with
+    // DOM APIs after the markup is in place (this editor is string-built), as
+    // the first child of .editor-header-text, in edit and create modes. Its
+    // "Library" segment links to #library: with Back retired it is the visible
+    // way to close the item. studio.js routes the click (the router's guard
+    // asks once about a dirty editor) and focuses the item's row after the
+    // close (DD8).
     var headerText = container.querySelector('.editor-header-text');
     var crumb = document.createElement('div');
     crumb.className = 'editor-breadcrumb';
-    crumb.appendChild(document.createTextNode('Settings / '));
     var crumbLink = document.createElement('a');
     crumbLink.className = 'editor-breadcrumb-link';
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'settings', section: 'providers' }));
     crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
-    crumbLink.textContent = 'Providers';
+    // "Library / Model providers": Library is the link to #library (DD3).
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library' }));
+    crumbLink.textContent = 'Library';
     crumb.appendChild(crumbLink);
+    crumb.appendChild(document.createTextNode(' / Model providers'));
     headerText.insertBefore(crumb, headerText.firstChild);
 
     // DD10: the Models list is information, not a picker. Its one line of help
@@ -162,10 +167,10 @@
 
     // Mount the Models panel synchronously in edit mode (mirrors agent-editor's
     // synchronous General-tab mount so tests find selectors immediately).
-    if (!isCreate && window.App.admin.renderProviderModels) {
+    if (!isCreate && window.App.studio.renderProviderModels) {
       var modelsHost = container.querySelector('.provider-models');
       if (modelsHost) {
-        window.App.admin.renderProviderModels(modelsHost, provider);
+        window.App.studio.renderProviderModels(modelsHost, provider);
       }
     }
   }
@@ -285,7 +290,7 @@
     // config dict (config.reasoning_effort), same pattern as num_ctx. Shown for
     // reasoning-capable provider types (anthropic, anthropic-plan, openai,
     // openrouter, ollama, openai-compatible — see
-    // TYPE_DEFAULTS.showReasoningEffort in admin.js).
+    // TYPE_DEFAULTS.showReasoningEffort in providers-section.js).
     // Optional: the empty "Provider default" option means omit the key
     // entirely (server-side _coerce_effort('') -> None), so an operator who
     // never touches this field gets prior behavior unchanged.
@@ -342,6 +347,9 @@
   // of a provider just created by a sign-in-initiated auto-save. Consumed
   // (and cleared) by the next edit-mode wirePlanSignIn mount for that id.
   var pendingAutoSignInId = null;
+  // providers-section.js's reset() clears the hand-off, so an abandoned
+  // create-to-edit cannot fire a sign-in on a later mount (sortie 02, DD4).
+  window.App.studio.clearProviderSignInHandoff = function () { pendingAutoSignInId = null; };
 
   function renderPlanSignInShell(provider, callbacks) {
     var isCreate = !provider;
@@ -844,7 +852,8 @@
       })
         .then(function (updated) {
           App.store.invalidate('providers');
-          window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
+          // A flash across the create re-mount is dropped (DD7).
+          if (isEdit) window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
           if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
           // Create re-mounts the editor in edit mode asynchronously (the
           // orchestrator's `ready` promise): park the restore for that mount.
@@ -918,8 +927,8 @@
               resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection successful');
               var modelsHost = container.querySelector('.provider-models');
-              if (modelsHost && window.App.admin.renderProviderModels) {
-                window.App.admin.renderProviderModels(modelsHost, provider);
+              if (modelsHost && window.App.studio.renderProviderModels) {
+                window.App.studio.renderProviderModels(modelsHost, provider);
               }
             } else if (result.status === 'warning') {
               // Reachable but non-functional (e.g., openrouter with no key).
@@ -929,8 +938,8 @@
               resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection reachable, action required', true);
               var modelsHost2 = container.querySelector('.provider-models');
-              if (modelsHost2 && window.App.admin.renderProviderModels) {
-                window.App.admin.renderProviderModels(modelsHost2, provider);
+              if (modelsHost2 && window.App.studio.renderProviderModels) {
+                window.App.studio.renderProviderModels(modelsHost2, provider);
               }
             } else if (result.status === 'reauth_required') {
               // anthropic-plan only (M19 F01 L03): renewal is no longer
@@ -1152,5 +1161,5 @@
     return payload;
   }
 
-  window.App.admin.renderProviderEditor = renderProviderEditor;
+  window.App.studio.renderProviderEditor = renderProviderEditor;
 })();

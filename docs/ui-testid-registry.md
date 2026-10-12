@@ -138,12 +138,12 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
-| `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's last segment, a link to its root: "Agents" -> `#agents` (agent editor), "Knowledge bases" -> `#library/knowledge` (knowledge-base detail and `~new` form), "MCP servers" -> `#library/mcp`, "Connectors" -> `#library/connectors`; studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings (L5b): "Settings / Providers" -> `#settings/providers` (provider editor, edit and `~new`), "Settings / Built-in tools" -> `#settings/tools` (tool editor); admin routes it the same way (focus: the closed provider's or tool's name link, "Add provider" after a `~new` form) |
+| `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's link to its root: "Agents" -> `#agents` (agent editor); on a Library editor (knowledge-base detail and `~new` form, MCP server, connector) the header reads `Library / {Group}` and "Library" is the link, to `#library` (the group is plain text; model providers: `Library / Model providers`, sortie 02, DD3); studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings: "Settings / Built-in tools" -> `#settings/tools` (tool editor; admin routes it the same way, focus: the closed tool's name link). Settings has no provider editor since sortie 02 leg 2 |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
 | `jump-to` | shell | The jump-to palette `<dialog>` (`js/jump-to.js`, `App.jumpTo`): an `App.ui.modal` chooser named by `ariaLabel` "Jump to" (no title, no header row), 600 wide at top 96, dismissible, built fresh on every open from Ctrl K (Meta K on macOS) or the rail's `rail-jump-to` (M25 F4 L7, DD9, DD10) |
 | `jump-to-close` | shell | The palette's "Esc" button at the end of its input bar (accessible name "Close (Esc)"; built by the palette in its body, it calls the modal's `close()`; focus returns to the opener) (M25 F4 L7) |
 | `jump-to-input` | shell | The palette's search input (visually hidden label "Jump to", placeholder "Jump to an agent, chat, library item or setting"; the `searchList` `inputTestid`, focused on open) (M25 F4 L7) |
-| `jump-to-result` | shell | One palette result (`role=option`, `data-kind` = `agent`, `chat`, `action`, `knowledge-base`, `mcp-server`, `connector` or `settings`, `data-id` = the agent name, session id, `new-chat`, item id or Settings route section; the `searchList` `rowTestid`); at most 8 (M25 F4 L7) |
+| `jump-to-result` | shell | One palette result (`role=option`, `data-kind` = `agent`, `chat`, `action`, `provider`, `knowledge-base`, `mcp-server`, `connector` or `settings`, `data-id` = the agent name, session id, `new-chat`, item id or Settings route section; the `searchList` `rowTestid`); at most 8 (M25 F4 L7) |
 | `kb-chunk-count` | studio | Knowledge detail view status summary — chunk count (M24 F06 L01) |
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
 | `kb-chunks-panel` | studio | Knowledge detail view — an item's chunks, opened on demand (DD-8, M24 F06 L01) |
@@ -211,8 +211,10 @@ caught — but it cannot see where the attribute is emitted.
 | `kv-add-row-btn` | studio | |
 | `library-add-btn` | studio | Library list title-row "Add" (`App.ui.menu` trigger, small outlined, plus icon; the menu opens with `align: 'end'`) (M25 F3 L4a, DD5) |
 | `library-add-connector` | studio | Library Add menu item "Connector" -> `#library/connectors/~new` (M25 F3 L4a) |
+| `library-add-provider` | studio | Library Add menu item "Model provider" (the first item) -> `#library/providers/~new` (sortie 02, DD6) |
 | `library-add-knowledge` | studio | Library Add menu item "Knowledge base" -> `#library/knowledge/~new` (M25 F3 L4a) |
 | `library-add-mcp` | studio | Library Add menu item "MCP server" -> `#library/mcp/~new` (M25 F3 L4a) |
+| `library-start` | studio | The Library start page (`#library`, the one Library root: a card per group, each with a `library-start-{group}-add` button) (model-providers sortie, DD6; it replaced `library-empty-{group}`) |
 | `library-list` | studio | Library list column root, the grouped `App.ui.listPane` `<section>` in the aside (M25 F3 L4a, DD5) |
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
@@ -242,7 +244,6 @@ caught — but it cannot see where the attribute is emitted.
 | `model-capabilities` | studio | |
 | `model-ctx-chip` | studio | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3); since M25 F3 L3 the Agents list's title-row "New" (`App.ui.button`, small outlined, plus icon) -> `#agents/~new` |
-| `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button; since M25 F3 L5a the Providers page header's "Add provider" (`App.ui.button`, outlined, plus icon) |
 | `notes-applies-note` | studio | the Notes section's "Changes apply…" line (M27 F2 L3) |
 | `notes-clear-all` | studio | Notes **Clear all** (opens the confirm dialog; hidden when there are no notes) (M27 F2 L3) |
 | `notes-create-mode` | studio | create-mode notice "Save the agent first to let it keep notes." (M27 F2 L3) |
@@ -287,9 +288,7 @@ caught — but it cannot see where the attribute is emitted.
 | `plan-signin-open-btn` | admin | anthropic-plan sign-in: gesture-context popup opener |
 | `plan-signin-url` | admin | anthropic-plan sign-in: copyable authorize URL (readonly input) |
 | `plan-test-reauth` | admin | provider /test result: distinct reauth_required message span |
-| `provider-card` | admin | The provider tile's name link (`<a class="provider-tile-link" href="#settings/providers/{id}" data-id>`, `aria-current="page"` on the open provider's; the tile carries `.active`); one per provider tile. Table-row link in L5b, tile name link since L7 (operator checkpoint decision) |
-| `providers-empty` | admin | Providers page empty state (`App.ui.emptyState`, pane size, "No providers yet.") at zero providers (M25 F3 L5b) |
-| `providers-empty-add` | admin | Its "Add provider" action (opens `#settings/providers/~new`; the page header's `new-provider-btn` stays the unified CTA) (M25 F3 L5b) |
+| `provider-card` | studio | A Library list row in the first group, "Model providers" (`<a href="#library/providers/{id}">` with the name, a type badge and "{n} agents" meta; the list pane marks the open one selected). Sortie 02: the Settings tile's name link (an `admin` row) retired with the Providers page |
 | `purge-history-btn` | studio | |
 | `rail-jump-to` | shell | The rail footer's **Jump to** control (`App.ui.button` ghost icon-only, the `search` icon, 44px, `aria-label="Jump to (Ctrl K)"` with `aria-keyshortcuts="Control+K"`, or "Jump to (⌘ K)" / `Meta+K` on macOS), set by `js/app.js` through `App.ui.rail`'s `footer`; a click opens the palette (`jump-to`) with it as the opener (M25 F4 L7, DD9). A literal beside the `rail-` destination family |
 | `reset-mcp-connection-btn` | studio | |
@@ -391,7 +390,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
 | `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
-| `library-empty-` | studio | Library start page (title, intro and one card per type) at a section root, suffixed with the group (`library-empty-knowledge`, `library-empty-mcp`, `library-empty-connectors`), and its action that opens the section's `~new` (`library-empty-{group}-add`) (M25 F3 L4a, DD5) |
+| `library-start-` | studio | The Library start page's per-group Add button, suffixed with the group and `-add` (`library-start-providers-add` (first), `library-start-knowledge-add`, `library-start-mcp-add`, `library-start-connectors-add`); each opens the group's `~new` form (model-providers sortie, DD6; it replaced the `library-empty-{group}` family) |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |
@@ -407,7 +406,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
-| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-providers`, `-tools`, `-knowledge-indexing`, and `-design-language` in dev mode); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
+| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`, and `-design-language` in dev mode); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin | |
 | `ui-demo-drawer-` | admin | Design language reference page — the `App.ui.drawer` demo's `<aside>`s, suffixed `{theme}-{push|overlay}` (`ui-demo-drawer-dark-push`, …) (M25 F4 L6) |
 | `ui-demo-drawer-toggle-` | admin | The drawer demo's ghost icon-only toggles (`aria-pressed`, `aria-controls` the demo drawer), suffixed `{theme}-{push|overlay}` (M25 F4 L6) |
@@ -462,8 +461,11 @@ again. A retired id cannot come back.
 | `chat-drawer-notes-status` | chat | M27 F3 L2 (HAT decision, overrides #230) — no delete arm to announce |
 | `chat-drawer-rules-edit-link` | chat | M27 F3 L2 (HAT decision, overrides #230) — Open agent settings (`chat-drawer-settings-link`) is the way to the editor |
 | `notes-row-check` | studio | M27 F3 L2 — the "Check this" badge is the warning-triangle flag `notes-row-flag` |
-| `entity-tile` | studio, admin | M25 F3 (the tile grids are replaced by the list panes). The testid is retired, but the `entity-tile*` CSS classes are deliberately kept: they are live on the Built-in tools tiles (`areas/admin/tools-grid.js`) and the Providers tiles (`areas/admin/providers-list.js`), so the classes' presence is not a sign the testid still exists |
+| `entity-tile` | studio, admin | M25 F3 (the tile grids are replaced by the list panes). The testid is retired, but the `entity-tile*` CSS classes are deliberately kept: they are live on the Built-in tools tiles (`areas/admin/tools-grid.js`), so the classes' presence is not a sign the testid still exists |
+| `library-empty-` | studio | Model-providers sortie (DD6, DD8) — the Library start page's testids were renamed with `#library` becoming the one root: the page is `library-start` and each card's Add button `library-start-{group}-add`. A prefix, fenced as such: every `library-empty-*` id is gone |
 | `new-chat-btn` | chat | M25 F4 L4b (DD3, DD6) — the chat header's hover-expanding "New Chat" (a new chat with the current agent) is retired with `h2.session-agent-badge`; the Chats list's New chat (`chats-new-btn`) and the new-chat state's "Pick a different agent" (`chat-pick-different-btn`) open the agent picker |
 | `new-connector-btn` | studio | M25 F3 L4a (DD5) — the Connectors grid is retired; the Library list's Add menu (`library-add-connector`) replaces it |
 | `new-knowledge-base-btn` | studio | M25 F3 L4a (DD5) — the Knowledge grid and its inline create form are retired; the Library list's Add menu (`library-add-knowledge`) opens the `~new` form |
 | `new-mcp-source-btn` | studio | M25 F3 L4a (DD5) — the MCP Servers grid is retired; the Library list's Add menu (`library-add-mcp`) replaces it |
+| `new-provider-btn` | admin | Model-providers sortie (DD8) — the Settings Providers page is gone; providers are created from the Library Add menu (`library-add-provider`) and the start-page card (`library-start-providers-add`) |
+| `providers-empty` | admin | Model-providers sortie (DD8) — the Settings Providers page and its empty state are gone. A prefix, so it also covers `providers-empty-add`; the Library start page's Model providers card replaces it |

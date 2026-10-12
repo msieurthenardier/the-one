@@ -13,7 +13,8 @@ Asserts:
 - ``provider-editor.js`` renders a ``reasoning_effort`` ``<select>`` with
   ``data-field="config.reasoning_effort"`` and the three effort options
   (``low``/``medium``/``high``) plus the empty "Provider default" option.
-- ``admin.js`` gates the field via ``TYPE_DEFAULTS[...].showReasoningEffort``
+- ``providers-section.js`` (the only home of ``TYPE_DEFAULTS`` since the Settings
+  Providers page retired, sortie 02) gates the field via ``TYPE_DEFAULTS[...].showReasoningEffort``
   for the five reasoning-capable provider types (anthropic, openai,
   openrouter, ollama, openai-compatible) and leaves ``mock`` without the flag.
 """
@@ -22,8 +23,8 @@ from __future__ import annotations
 
 from tests._ui_guard_helpers import JS_DIR
 
-PROVIDER_EDITOR_JS = JS_DIR / "areas" / "admin" / "provider-editor.js"
-ADMIN_JS = JS_DIR / "areas" / "admin.js"
+PROVIDER_EDITOR_JS = JS_DIR / "areas" / "studio" / "provider-editor.js"
+PROVIDERS_SECTION_JS = JS_DIR / "areas" / "studio" / "providers-section.js"
 
 REASONING_CAPABLE_TYPES = (
     "anthropic",
@@ -151,9 +152,9 @@ def test_provider_editor_seeds_config_from_existing_provider_before_field_blocks
 
 
 def test_admin_type_defaults_gate_reasoning_effort_for_capable_types() -> None:
-    """admin.js TYPE_DEFAULTS must carry showReasoningEffort: true for every
+    """providers-section.js TYPE_DEFAULTS must carry showReasoningEffort: true for every
     reasoning-capable provider type, and must NOT add it to mock."""
-    src = ADMIN_JS.read_text()
+    src = PROVIDERS_SECTION_JS.read_text()
 
     start = src.index("var TYPE_DEFAULTS")
     end = src.index("};", start) + 2
@@ -164,13 +165,13 @@ def test_admin_type_defaults_gate_reasoning_effort_for_capable_types() -> None:
         type_end = type_defaults_block.index("}", type_start)
         entry = type_defaults_block[type_start:type_end]
         assert "showReasoningEffort: true" in entry, (
-            f"admin.js TYPE_DEFAULTS['{provider_type}'] is missing showReasoningEffort: true"
+            f"providers-section.js TYPE_DEFAULTS['{provider_type}'] lacks showReasoningEffort: true"
         )
 
     mock_start = type_defaults_block.index("'mock'")
     mock_end = type_defaults_block.index("}", mock_start)
     mock_entry = type_defaults_block[mock_start:mock_end]
     assert "showReasoningEffort" not in mock_entry, (
-        "admin.js TYPE_DEFAULTS['mock'] should not carry showReasoningEffort "
+        "providers-section.js TYPE_DEFAULTS['mock'] should not carry showReasoningEffort "
         "(mock is not a reasoning-capable provider type)"
     )

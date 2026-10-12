@@ -47,12 +47,12 @@ def test_provider_editor_section_titles_and_danger_zone(
 ) -> None:
     page.emulate_media(color_scheme=scheme)
     _nav.goto(
-        page, app_with_provider.base_url, f"settings/providers/{app_with_provider.provider_id}"
+        page, app_with_provider.base_url, f"library/providers/{app_with_provider.provider_id}"
     )
-    sections = page.locator(".settings-item .editor-section")
+    sections = page.locator(".editor-section")
     expect(sections.first).to_be_visible(timeout=8000)
     page.evaluate(
-        "() => { document.querySelectorAll('.settings-item .editor-section > .section-title')"
+        "() => { document.querySelectorAll('.editor-section > .section-title')"
         ".forEach((n, i) => n.setAttribute('data-probe', 'st' + i)); }"
     )
     first = page.evaluate(PROBE_JS, '[data-probe="st0"]')
@@ -60,15 +60,14 @@ def test_provider_editor_section_titles_and_danger_zone(
     assert first["margin"].startswith("0px 0px 10px"), first  # :first-child
     # The danger-zone title: text and rule in --status-danger.
     page.evaluate(
-        "() => document.querySelector('.settings-item .danger-zone-title')"
-        ".setAttribute('data-probe', 'dz')"
+        "() => document.querySelector('.danger-zone-title').setAttribute('data-probe', 'dz')"
     )
     dz = page.evaluate(PROBE_JS, '[data-probe="dz"]')
     _assert_eyebrow(dz, pal, "status_danger")
     assert dz["rule"]["bg"] == _rgb(pal["status_danger"]), dz
     # D2: a section that opens with a title shows no divider.
     borders = page.evaluate(
-        "() => Array.from(document.querySelectorAll('.settings-item .editor-section'))"
+        "() => Array.from(document.querySelectorAll('.editor-section'))"
         ".map((s) => getComputedStyle(s).borderTopWidth)"
     )
     assert len(borders) >= 2 and all(b == "0px" for b in borders), borders
@@ -108,7 +107,7 @@ def test_tools_editor_title_row_rule_runs_past_the_icon(app_clean: str, page: Pa
     assert out["fontSize"] == "10px" and out["transform"] == "uppercase", out
     # A Built-in tools section header (the Prompt title) has the same recipe.
     page.evaluate(
-        "() => document.querySelector('.settings-item .editor-section > .section-title')"
+        "() => document.querySelector('.editor-section > .section-title')"
         ".setAttribute('data-probe', 'tt')"
     )
     _assert_eyebrow(page.evaluate(PROBE_JS, '[data-probe="tt"]'), DARK)

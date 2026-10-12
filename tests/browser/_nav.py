@@ -1,7 +1,7 @@
 """Central navigation helper for browser tests (M25 F2 leg 1).
 
 Browser tests state routes in the NEW scheme (flight 02 DD1), without the
-leading ``#``: ``"settings/providers/~new"``, ``"agents/My%20Agent/tools"``,
+leading ``#``: ``"library/providers/~new"``, ``"agents/My%20Agent/tools"``,
 ``"library/mcp/abc"``, ``"chats"``.  This module maps them to whatever the app
 serves, so the shell/router rewrites are a one-line flip in here rather than a
 60-file edit:
@@ -36,14 +36,13 @@ Route table (new scheme -> legacy hash)::
     settings/date-and-time         -> #admin/date-and-time
     settings/prompts               -> #admin/prompts
     settings/encryption            -> #admin/encryption
-    settings/providers[/~new|/{id}]-> #admin/providers[/new|/{id}]
     settings/tools[/{name}]        -> #admin/tools[/...]
     settings/knowledge-indexing    -> #admin/knowledge
     settings/design-language       -> #admin/design-language
 
 ``~new`` is the reserved create segment (DD1) and is rewritten to ``/new`` ONLY
-for providers and the three Library sections (knowledge bases, MCP sources and,
-since M25 F3 leg 4a, connectors); ``agents/new/general`` is an agent NAMED
+for the four Library sections (providers, knowledge bases, MCP sources and
+connectors); ``agents/new/general`` is an agent NAMED
 "new" and passes through untouched.
 
 Canonicalisation (``canonical``) folds the app's own default redirects, so
@@ -84,7 +83,6 @@ lets use raw route hashes:
 * test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists
 * test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution
 * test_flow_hash_routing.py::test_studio_knowledge_section_persists_on_refresh
-* test_flow_provider_grid.py::test_unknown_provider_id_falls_back_to_grid
 * test_flow_studio_mcp_navigation.py::test_studio_direct_load_mcp_sources
 """
 
@@ -106,12 +104,14 @@ LEGACY_URL_TESTS: frozenset[str] = frozenset(
         "test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists",
         "test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution",
         "test_flow_hash_routing.py::test_studio_knowledge_section_persists_on_refresh",
-        "test_flow_provider_grid.py::test_unknown_provider_id_falls_back_to_grid",
         "test_flow_studio_mcp_navigation.py::test_studio_direct_load_mcp_sources",
     }
 )
 
 DESTINATIONS = ("chats", "agents", "library", "settings")
+
+# Library's group sections: a bare ``library/<section>`` is an alias for ``library``.
+LIBRARY_SECTIONS = ("knowledge", "mcp", "connectors", "providers")
 
 _RESERVED_NEW = "~new"
 
@@ -156,8 +156,10 @@ def canonical(route: str) -> str:
     if not s:
         return ""
     head = s[0]
-    if head == "library" and len(s) == 1:
-        return "library/knowledge"
+    if head == "library" and (len(s) == 1 or (len(s) == 2 and s[1] in LIBRARY_SECTIONS)):
+        # Library's own route is the start page; a bare section URL is the
+        # app's alias for it (no id, no ``~new``).
+        return "library"
     if head == "settings" and len(s) == 1:
         return "settings/appearance"
     if head == "chats" and s[1:] == [_RESERVED_NEW]:
@@ -197,6 +199,8 @@ def legacy_hash(route: str) -> str:
             return "#studio/knowledge"
         sec, tail = rest[0], rest[1:]
         tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]
+        if sec == "providers":
+            return "#" + _join(["studio", "providers", *tail])
         if sec == "knowledge":
             return "#" + _join(["studio", "knowledge", *tail])
         if sec == "mcp":
@@ -210,9 +214,6 @@ def legacy_hash(route: str) -> str:
         sec, tail = rest[0], rest[1:]
         if sec in ("appearance", "date-and-time", "prompts", "encryption"):
             return "#" + _join(["admin", sec, *tail])
-        if sec == "providers":
-            tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]
-            return "#" + _join(["admin", "providers", *tail])
         if sec == "tools":
             return "#" + _join(["admin", "tools", *tail])
         if sec == "knowledge-indexing":
@@ -240,6 +241,8 @@ def _from_legacy(hash_: str) -> str:
         if sec == "agents":
             return canonical(_join(["agents", *tail]))
         library_tail = [_RESERVED_NEW if (i == 0 and t == "new") else t for i, t in enumerate(tail)]
+        if sec == "providers":
+            return canonical(_join(["library", "providers", *library_tail]))
         if sec == "knowledge":
             return canonical(_join(["library", "knowledge", *library_tail]))
         if sec == "mcp-sources":
@@ -253,9 +256,6 @@ def _from_legacy(hash_: str) -> str:
         sec, tail = rest[0], rest[1:]
         if sec in ("system", "general"):
             return "settings/appearance"
-        if sec == "providers":
-            tail = [_RESERVED_NEW if (i == 0 and t == "new") else t for i, t in enumerate(tail)]
-            return canonical(_join(["settings", "providers", *tail]))
         if sec == "knowledge":
             return "settings/knowledge-indexing"
         return canonical(_join(["settings", sec, *tail]))
