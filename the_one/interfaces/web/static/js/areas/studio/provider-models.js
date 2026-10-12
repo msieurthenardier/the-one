@@ -1,4 +1,4 @@
-// App.admin.renderProviderModels — provider-models panel (F6 leg 03).
+// App.studio.renderProviderModels — provider-models panel (F6 leg 03).
 //
 // Top-level dispatch on provider.type:
 //   - 'ollama'  → Ollama lifecycle UI (refresh / pull / list / unload / load /
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
   window.App = window.App || {};
-  window.App.admin = window.App.admin || {};
+  window.App.studio = window.App.studio || {};
 
   var escapeHtml = window.App.escapeHtml;
   var escapeAttr = window.App.escapeAttr;
@@ -42,7 +42,7 @@
   }
 
   // Exposed so Studio's model selector can reuse the same chip vocabulary.
-  window.App.admin.renderCapabilityChips = renderCapabilityChips;
+  window.App.studio.renderCapabilityChips = renderCapabilityChips;
 
   function renderProviderModels(container, provider) {
     if (!provider || !provider.id) return;
@@ -673,5 +673,5 @@
       });
   }
 
-  window.App.admin.renderProviderModels = renderProviderModels;
+  window.App.studio.renderProviderModels = renderProviderModels;
 })();

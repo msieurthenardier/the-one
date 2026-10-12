@@ -8,7 +8,7 @@
 
 ## Intent
 
-Verify that an operator can create an Anthropic individual-plan provider in Settings › Providers and complete authentication end-to-end by signing in with a real Anthropic Pro/Max account — no API key entered at any point — and that the resulting connection state is visible in the UI and the stored credentials never leak through the API. This needs a behavior test because the flow spans the real browser (Settings UI + Anthropic's hosted consent page), a human sign-in only the operator can perform, and the live token exchange against Anthropic's OAuth endpoints — none of which a unit test can observe. Cache is the default cold mode; step 5's hard reload is additionally a deliberate mutation-boundary cache defeat (do not remove it).
+Verify that an operator can create an Anthropic individual-plan provider in Library › Model providers and complete authentication end-to-end by signing in with a real Anthropic Pro/Max account — no API key entered at any point — and that the resulting connection state is visible in the UI and the stored credentials never leak through the API. This needs a behavior test because the flow spans the real browser (Settings UI + Anthropic's hosted consent page), a human sign-in only the operator can perform, and the live token exchange against Anthropic's OAuth endpoints — none of which a unit test can observe. Cache is the default cold mode; step 5's hard reload is additionally a deliberate mutation-boundary cache defeat (do not remove it).
 
 ## Preconditions
 
@@ -32,10 +32,10 @@ Verify that an operator can create an Anthropic individual-plan provider in Sett
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Click the rail's "Settings" link, then "Providers" in the Settings nav (`#settings/providers`). Click "Add provider" to create a new provider (the form opens below the Providers tiles): choose the Anthropic individual-plan type and name it "Plan Test". Do NOT save manually. | The editor shows the plan-provider form: a sign-in affordance is visible and enabled in create mode (no prior save required), and no API-key input is presented for this type. |
+| 1 | Click the rail's "Library" link, then "Add" and "Model provider" (`#library/providers/~new`) to create a new provider (the form opens in the detail pane beside the Library list): choose the Anthropic individual-plan type and name it "Plan Test". Do NOT save manually. | The editor shows the plan-provider form: a sign-in affordance is visible and enabled in create mode (no prior save required), and no API-key input is presented for this type. |
 | 2 | Click the sign-in affordance. | The provider auto-saves without error (the editor transitions to the saved/edit view for "Plan Test"), and the editor enters a waiting-for-code state: a code-paste field is visible, and the Anthropic authorization URL is available (consent popup opened and/or the URL shown as copyable text). Navigating to that URL in a browser tab reaches an Anthropic authorization page. |
 | 3 | Operator signs in / consents on the Anthropic page and copies the displayed code. Paste the code into the provider editor and confirm. (Operator performs the consent; Executor performs the paste if the operator hands over the code.) | The editor shows "Plan Test" as connected: the sign-in affordance is replaced by a connected indicator plus a reset/re-authenticate control. No error banner appears, and no unsaved-changes warning is pending. |
-| 4 | Hard-reload the Settings page and reopen "Plan Test". | The connected state persists after reload — the editor still shows the provider as connected. |
+| 4 | Hard-reload the Library page and reopen "Plan Test". | The connected state persists after reload — the editor still shows the provider as connected. |
 | 5 | Fetch the provider via the HTTP API (`GET /api/providers/{id}` for "Plan Test"). | Response is 200; it reports the connection as active (e.g. an `oauth_active`-style flag) and contains **no** access token, refresh token, or other credential material in any field. `[mixed-frame]` — the no-token-leak criterion is only observable at the API surface, not in the rendered UI. |
 | 6 | Click the provider's connection-test control in the editor. | The UI reports a successful connection test. |
 

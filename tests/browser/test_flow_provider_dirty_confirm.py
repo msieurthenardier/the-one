@@ -1,21 +1,21 @@
 """End-to-end flow tests: provider editor dirty-state + App.confirmDialog modal (F6 leg 04).
 
 Mirrors test_flow_dirty_confirm.py (F5 leg 04 studio dirty-confirm tests) for
-the provider editor's navigation gates (the breadcrumb's "Providers" link, the
-Settings nav, beforeunload). Since M25 F3 leg 5b the provider editor opens
-below the Providers tiles and Back is retired: the item header's breadcrumb
-link (``_lists.close_item``) is the close, routed through the same leave guard.
+the provider editor's navigation gates (the breadcrumb's "Library" link, a rail
+destination, beforeunload). The provider editor opens in the Library detail pane
+(sortie 02; it opened under the Settings tiles before) and Back is retired: the
+item header's breadcrumb link (``_lists.close_item``) is the close, routed
+through the same leave guard.
 
 Covers:
 
 - Breadcrumb-when-clean does not show dialog.
 - Breadcrumb-when-dirty shows dialog; cancel keeps editor; confirm closes it.
-- Settings-nav-link-when-clean does not show dialog.
-- Settings-nav-link-when-dirty shows dialog; cancel keeps editor; confirm
-  navigates (to Appearance: since M25 F3 leg 5a the nav is
-  ``App.ui.navGroups`` links, reached through ``_lists.settings_nav_link``).
-- A Settings nav link from the page root (no editor) does not show dialog even
-  after a prior dirty-then-discard cycle (orchestrator's mirror reset).
+- Rail-destination-when-clean does not show dialog.
+- Rail-destination-when-dirty shows dialog; cancel keeps editor; confirm
+  navigates (the rail's Settings goes to Appearance, ``_nav.open_destination``).
+- A rail destination from the Library root (no editor) does not show dialog even
+  after a prior dirty-then-discard cycle (the studio mirror reset).
 - Save resets dirty (a subsequent close has no dialog).
 - Cancel button resets dirty in edit mode (revert + close has no dialog).
 - Dialog Escape dismisses; Enter activates the focused Stay (M25 F2 L2, DD6);
@@ -43,7 +43,7 @@ _DIALOG_TIMEOUT = 8000
 
 def _open_editor(page: Page, app: SeededApp) -> None:
     """Navigate to the provider editor and wait for the Name input to mount."""
-    _nav.goto(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
+    _nav.goto(page, app.base_url, f"library/providers/{_nav.seg(app.provider_id)}")
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
 
 
@@ -64,8 +64,8 @@ def test_breadcrumb_when_clean_no_dialog(app_with_provider: SeededApp, page: Pag
     _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(_lists.providers_list(page)).to_be_visible()
-    _nav.expect_route(page, "settings/providers")
+    expect(_lists.list_row(page, "library/providers", "mock")).to_be_visible()
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -100,7 +100,7 @@ def test_breadcrumb_dialog_confirm_closes_the_editor(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """Confirm ('Continue') in the breadcrumb-dirty dialog closes the editor;
-    the tile grid stays."""
+    the list stays."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     _lists.close_item(page)
@@ -110,41 +110,39 @@ def test_breadcrumb_dialog_confirm_closes_the_editor(
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(_lists.providers_list(page)).to_be_visible()
-    _nav.expect_route(page, "settings/providers")
+    expect(_lists.list_row(page, "library/providers", "mock")).to_be_visible()
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
-def test_settings_nav_link_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """A Settings nav link click when the editor is clean does NOT open dialog."""
+def test_rail_destination_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
+    """A rail destination click when the editor is clean does NOT open dialog."""
     _open_editor(page, app_with_provider)
-    _lists.settings_nav_link(page, "appearance").click()
+    _nav.open_destination(page, "settings")
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     _nav.expect_route(page, "settings/appearance")
 
 
 @pytest.mark.browser
-def test_settings_nav_link_when_dirty_shows_dialog(
-    app_with_provider: SeededApp, page: Page
-) -> None:
-    """A Settings nav link click when the editor is dirty opens the modal."""
+def test_rail_destination_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) -> None:
+    """A rail destination click when the editor is dirty opens the modal."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    _lists.settings_nav_link(page, "appearance").click()
+    _nav.open_destination(page, "settings")
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
         timeout=_DIALOG_TIMEOUT
     )
 
 
 @pytest.mark.browser
-def test_settings_nav_link_dialog_cancel_keeps_editor(
+def test_rail_destination_dialog_cancel_keeps_editor(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """Stay on the Settings-nav-link dialog keeps the editor + hash."""
+    """Stay on the Rail-destination dialog keeps the editor + hash."""
     _open_editor(page, app_with_provider)
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    _lists.settings_nav_link(page, "appearance").click()
+    _nav.open_destination(page, "settings")
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
@@ -155,13 +153,13 @@ def test_settings_nav_link_dialog_cancel_keeps_editor(
 
 
 @pytest.mark.browser
-def test_settings_nav_link_dialog_confirm_navigates_to_appearance(
+def test_rail_destination_dialog_confirm_navigates_to_appearance(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """Continue on the Settings-nav-link dialog navigates to Appearance."""
+    """Continue on the Rail-destination dialog navigates to Appearance."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    _lists.settings_nav_link(page, "appearance").click()
+    _nav.open_destination(page, "settings")
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
@@ -171,19 +169,19 @@ def test_settings_nav_link_dialog_confirm_navigates_to_appearance(
 
 
 @pytest.mark.browser
-def test_settings_nav_link_from_grid_no_dialog_after_prior_discard(
+def test_rail_destination_from_root_no_dialog_after_prior_discard(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """After a breadcrumb-dirty discard closes the editor, a Settings nav link
-    from the page root does NOT show a dialog (the orchestrator mirror is reset
+    """After a breadcrumb-dirty discard closes the editor, a rail destination
+    from the Library root does NOT show a dialog (the orchestrator mirror is reset
     by the discard)."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     _lists.close_item(page)
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    # Now navigate from the page root to Appearance — no dialog: no editor.
-    _lists.settings_nav_link(page, "appearance").click()
+    # Now navigate from the Library root to Appearance — no dialog: no editor.
+    _nav.open_destination(page, "settings")
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     _nav.expect_route(page, "settings/appearance")
 
@@ -268,7 +266,7 @@ def test_dialog_tab_to_continue_then_enter_confirms(
     expect(page.locator('[data-testid="modal-confirm-btn"]')).to_be_focused()
     page.keyboard.press("Enter")
     expect(overlay).to_have_count(0)
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser

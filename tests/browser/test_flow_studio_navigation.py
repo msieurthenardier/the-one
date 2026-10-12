@@ -5,7 +5,7 @@ MCP servers / Connectors, testid ``library-list``) with an Add menu; the
 "Library sections" nav is retired. Agents is its own destination: its aside
 holds the agents list column instead (M25 F2 L3 (c); M25 F3 L3).
 
-- The list renders its title, intro, Add and the three groups in order
+- The list renders its title, intro, Add and the four groups in order
 - Exactly one list pane per destination; the section nav never renders
 - A bare ``library`` lands on Knowledge with its empty detail state
 - Roving tabindex over the rows (one tab stop: the selected row, else the first)
@@ -61,7 +61,7 @@ def _focused_label(page: Page) -> str | None:
 
 @pytest.mark.browser
 def test_library_list_renders_title_intro_add_and_groups(app_clean: str, page: Page) -> None:
-    """The Library list: title, intro, Add, then the three groups in order (DD5)."""
+    """The Library list: title, intro, Add, then the four groups in order (DD5, sortie 02)."""
     _nav.goto(page, app_clean, "library")
     _wait_library_ready(page)
 
@@ -72,7 +72,7 @@ def test_library_list_renders_title_intro_add_and_groups(app_clean: str, page: P
     )
     expect(library.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(library.locator(".ui-list-pane-caption")).to_have_text(
-        ["Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
     )
     # The aside is labelled by the destination; no section nav exists.
     expect(page.locator("#app-sidebar")).to_have_attribute("aria-label", "Library")
@@ -105,17 +105,14 @@ def test_agents_aside_shows_the_agents_list_not_the_library_list(
 
 
 @pytest.mark.browser
-def test_library_default_section_is_knowledge(app_clean: str, page: Page) -> None:
-    """Landing on bare `library` defaults to Knowledge: the route and the
-    Knowledge empty detail state.
-
-    The bare destination redirects to `library/knowledge` (replaceState).
-    """
+def test_library_root_is_the_start_page(app_clean: str, page: Page) -> None:
+    """Landing on bare `library` shows the Library start page at `#library`
+    (Library's own route: no redirect, no section selected)."""
     _nav.goto(page, app_clean, "library")
     _wait_library_ready(page)
 
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
-    assert page.evaluate("location.hash") == _nav.href("library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible()
+    assert page.evaluate("location.hash") == _nav.href("library")
     expect(page.locator('[data-testid="library-list"] [aria-current="page"]')).to_have_count(0)
 
 
@@ -141,7 +138,7 @@ def test_library_list_roving_tabindex(app_clean: str, page: Page) -> None:
 def test_library_click_knowledge_row(app_clean: str, page: Page) -> None:
     """Clicking a knowledge-base row opens its detail beside the list."""
     _seed(app_clean)
-    _nav.goto(page, app_clean, "library/mcp")
+    _nav.goto(page, app_clean, "library")
     _wait_library_ready(page)
 
     _lists.open_item(page, "library/knowledge", "Alpha notes")
@@ -196,7 +193,7 @@ def test_library_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     page.keyboard.press("End")
     assert _focused_label(page) == "Conn one"
 
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -233,13 +230,15 @@ def test_library_add_menu_keyboard(app_clean: str, page: Page) -> None:
         page.keyboard.press(key)
         expect(menu).to_be_visible()
         expect(trigger).to_have_attribute("aria-expanded", "true")
-        expect(page.locator('[data-testid="library-add-knowledge"]')).to_be_focused()
+        # Model provider is the menu's first item (sortie 02): it takes the focus.
+        expect(page.locator('[data-testid="library-add-provider"]')).to_be_focused()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()
         expect(trigger).to_be_focused()
 
     trigger.focus()
-    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")  # -> Model provider (first)
+    page.keyboard.press("ArrowDown")  # -> Knowledge base
     page.keyboard.press("ArrowDown")  # -> MCP server
     expect(page.locator('[data-testid="library-add-mcp"]')).to_be_focused()
     page.keyboard.press("Enter")
@@ -250,33 +249,33 @@ def test_library_add_menu_keyboard(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
     """Navigating to library/knowledge directly + refreshing returns to that section."""
-    _nav.goto(page, app_clean, "library/knowledge")
+    _nav.goto(page, app_clean, "library")
     _wait_library_ready(page)
 
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
 
     page.reload()
     _wait_library_ready(page)
 
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
 def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Page) -> None:
     """Navigating to library/mcp + refreshing returns to that section."""
-    _nav.goto(page, app_clean, "library/mcp")
+    _nav.goto(page, app_clean, "library")
     _wait_library_ready(page)
 
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
 
     page.reload()
     _wait_library_ready(page)
 
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -304,7 +303,7 @@ def test_agents_destination_restores_open_agent_after_library_trip(
 
     _nav.open_destination(page, "library")
     _wait_library_ready(page)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=3000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=3000)
 
     _nav.open_destination(page, "agents")
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
@@ -343,7 +342,7 @@ def test_studio_editor_hidden_on_knowledge_section(app_with_agent: SeededApp, pa
     """When Knowledge or MCP Servers is active, the studio-editor is hidden."""
     base_url = app_with_agent.base_url
 
-    _nav.goto(page, base_url, "library/knowledge")
+    _nav.goto(page, base_url, "library")
     _wait_library_ready(page)
 
     editor = page.locator(".studio-editor")

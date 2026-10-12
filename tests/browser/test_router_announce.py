@@ -72,16 +72,12 @@ def test_rail_navigation_announces_and_titles_each_destination(
     expect(page).to_have_title(f"Agents · {BRAND}")
 
     _nav.open_destination(page, "library")
-    expect(region).to_have_text("Library — Knowledge")
-    expect(page).to_have_title(f"Library — Knowledge · {BRAND}")
+    expect(region).to_have_text("Library")
+    expect(page).to_have_title(f"Library · {BRAND}")
 
     _nav.open_destination(page, "settings")
     expect(region).to_have_text("Settings — Appearance")
     expect(page).to_have_title(f"Settings — Appearance · {BRAND}")
-
-    _lists.settings_nav_link(page, "providers").click()
-    expect(region).to_have_text("Settings — Providers")
-    expect(page).to_have_title(f"Settings — Providers · {BRAND}")
 
     # The Built-in tools page announces its page-header label (M25 F3 L5a).
     _lists.settings_nav_link(page, "tools").click()
@@ -91,7 +87,7 @@ def test_rail_navigation_announces_and_titles_each_destination(
     _nav.open_destination(page, "chats")
     expect(region).to_have_text("Chats")
     expect(page).to_have_title(f"Chats · {BRAND}")
-    assert _writes(page) >= 6
+    assert _writes(page) >= 5
 
 
 def test_opening_an_item_announces_it_and_a_tab_switch_does_not(
@@ -201,7 +197,7 @@ def _seed_items(app: SeededApp) -> dict[str, tuple[str, str]]:
 
 # kind -> (section route, store collection, spoken prefix, type noun)
 KINDS = {
-    "provider": ("settings/providers", "providers", "Settings — Providers", "Provider"),
+    "provider": ("library/providers", "providers", "Library — Model providers", "Model provider"),
     "kb": ("library/knowledge", "knowledge-bases", "Library — Knowledge", "Knowledge base"),
     "mcp": ("library/mcp", "mcp-sources", "Library — MCP servers", "MCP server"),
     "connector": ("library/connectors", "connectors", "Library — Connectors", "Connector"),
@@ -267,7 +263,7 @@ def test_cold_item_routes_fall_back_to_the_type_noun(app_with_agent: SeededApp, 
 
 def test_unknown_item_id_falls_back_to_the_type_noun(app_with_agent: SeededApp, page: Page) -> None:
     _seed_items(app_with_agent)
-    _nav.goto_settled(page, app_with_agent.base_url, "library/mcp")
+    _nav.goto_settled(page, app_with_agent.base_url, "library")
     page.wait_for_function("() => App.store.peek('mcp-sources').loaded")
     title, spoken = _go_and_read(page, "library/mcp/no-such-source")
     assert spoken == "Library — MCP servers — MCP server"
@@ -280,17 +276,17 @@ def test_unknown_item_id_falls_back_to_the_type_noun(app_with_agent: SeededApp, 
 def test_provider_save_create_announces_the_new_provider(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    _nav.goto_settled(page, app_with_agent.base_url, "settings/providers")
-    _, spoken = _go_and_read(page, "settings/providers/~new")
-    assert spoken == "Settings — Providers — New"
+    _nav.goto_settled(page, app_with_agent.base_url, "library")
+    _, spoken = _go_and_read(page, "library/providers/~new")
+    assert spoken == "Library — Model providers — New"
     page.locator("#pf-name").fill("Created Provider")
     page.locator("#pf-type").select_option("mock")
     page.locator('[data-testid="save-provider-btn"]').click()
     _nav.wait_for_route_prefix(
-        page, "settings/providers/", not_equal="settings/providers/~new", timeout=8000
+        page, "library/providers/", not_equal="library/providers/~new", timeout=8000
     )
-    expect(page.locator(ANNOUNCER)).to_have_text("Settings — Providers — Created Provider")
-    expect(page).to_have_title(f"Settings — Providers — Created Provider · {BRAND}")
+    expect(page.locator(ANNOUNCER)).to_have_text("Library — Model providers — Created Provider")
+    expect(page).to_have_title(f"Library — Model providers — Created Provider · {BRAND}")
 
 
 def test_mcp_save_create_announces_the_server_and_follow_up_syncs_are_silent(
@@ -360,14 +356,14 @@ def test_other_syncs_never_announce(app_with_agent: SeededApp, page: Page) -> No
     _assert_silent(page)
 
     # Studio section syncs: same-key canonicalisation and a section change.
-    _go_and_read(page, "library/knowledge")
+    _go_and_read(page, "library")
     _seed_sentinel(page)
-    assert _sync(page, "studio", "knowledge") is True
-    assert _sync(page, "studio", "mcp-sources") is True
+    assert _sync(page, "studio", "library") is True
+    assert _sync(page, "studio", "mcp-sources") is True  # a bare section sub folds to the root
     _assert_silent(page)
 
     # From ~new: an item in ANOTHER section, and the section root.
-    for sub in (f"knowledge/{_nav.seg(kb['id'])}", "mcp-sources"):
+    for sub in (f"knowledge/{_nav.seg(kb['id'])}", "library"):
         _, spoken = _go_and_read(page, "library/mcp/~new")
         assert spoken == "Library — MCP servers — New"
         _seed_sentinel(page)

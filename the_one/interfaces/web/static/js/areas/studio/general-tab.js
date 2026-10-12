@@ -57,7 +57,7 @@
     html += '<div class="field-group"><label for="studio-provider">Provider</label>';
     html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
     if (!cfg.provider_config_id) {
-      html += '<option value="" disabled selected>No provider — configure in Admin</option>';
+      html += '<option value="" disabled selected>No provider — add one in Library</option>';
     }
     var providerFound = false;
     for (var p = 0; p < providers.length; p++) {

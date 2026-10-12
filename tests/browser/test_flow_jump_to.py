@@ -51,7 +51,6 @@ SETTINGS_PAGES = [
     ("date-and-time", "Date and time", "Settings · General"),
     ("prompts", "Prompts", "Settings · General"),
     ("encryption", "Encryption", "Settings · General"),
-    ("providers", "Providers", "Settings"),
     ("tools", "Built-in tools", "Settings · Defaults for agents"),
     ("knowledge-indexing", "Knowledge indexing", "Settings · Defaults for agents"),
     ("design-language", "Design language", "Settings · Developer"),
@@ -164,13 +163,14 @@ def _open_editor(page: Page, base: str, name: str) -> None:
 @pytest.fixture
 def world(app_with_agent: SeededApp) -> dict:
     """Two agents, five chats (two sharing a timestamp, one untitled with no
-    agent, one titled like an agent), a knowledge base, an MCP server and a
-    connector."""
+    agent, one titled like an agent), the mock model provider, a knowledge base,
+    an MCP server and a connector."""
     base, pid = app_with_agent.base_url, app_with_agent.provider_id
     seed_mock_agent(base, pid, name="Alpha")
     out = {
         "base": base,
         "agent": app_with_agent.agent_name,  # "test-agent"
+        "provider": app_with_agent.provider_id,
         "kb": seed_knowledge_base(base, "Team wiki"),
         "mcp": seed_mcp_source(base, "GitHub", tools=["a", "b"]),
         "connector": seed_connector(base, "Discord bot"),
@@ -509,6 +509,12 @@ def _agent_row(name: str) -> list:
     return ["agent", name, name, "Agent"]
 
 
+def _provider_row(provider_id: str, name: str = "mock") -> list:
+    """A model provider candidate: Library's first group (sortie 02), so it comes
+    before the knowledge bases in board order."""
+    return ["provider", provider_id, name, "Library · Model provider"]
+
+
 NEW_CHAT_ROW = ["action", "new-chat", "New chat…", "Action"]
 
 
@@ -615,7 +621,8 @@ def test_empty_query_with_no_sessions_is_new_chat_agents_then_the_board_order(
             _agent_row("Alpha"),
             _agent_row("Bravo"),
             _agent_row("test-agent"),
-            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:4]],
+            _provider_row(pid),
+            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:3]],
         ],
     )
     assert page.evaluate(_ACTIVE_JS) == ["action", "new-chat", "true"]
@@ -636,7 +643,8 @@ def test_empty_query_shows_a_deleted_agents_chat_but_not_the_agent(
             _chat_row(mine, "mine", "test-agent"),
             NEW_CHAT_ROW,
             _agent_row("test-agent"),
-            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:4]],
+            _provider_row(app_with_agent.provider_id),
+            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:3]],
         ],
     )
     assert not [r for r in _rows(page) if r[0] == "agent" and r[1] == "Ghost"]
@@ -654,8 +662,9 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
     ).to_be_visible()
     inp = page.locator(INPUT)
     inp.fill("library")
-    expect(page.locator(RESULT)).to_have_count(3)
+    expect(page.locator(RESULT)).to_have_count(4)
     assert _rows(page) == [
+        _provider_row(world["provider"]),
         ["knowledge-base", world["kb"], "Team wiki", "Library · Knowledge base"],
         ["mcp-server", world["mcp"], "GitHub", "Library · MCP server"],
         ["connector", world["connector"], "Discord bot", "Library · Connector"],
@@ -674,8 +683,8 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
     expect(page.locator(RESULT)).to_have_count(2)
     assert [r[1] for r in _rows(page)] == ["tools", "knowledge-indexing"]
     inp.fill("settings")
-    # Eight pages now, and the palette shows at most 8 matches.
-    expect(page.locator(RESULT)).to_have_count(8)
+    # Seven pages now (Providers moved to Library), under the 8-match cap.
+    expect(page.locator(RESULT)).to_have_count(len(SETTINGS_PAGES))
     assert [[r[1], r[2], r[3]] for r in _rows(page)] == [list(p) for p in SETTINGS_PAGES]
     inp.fill("default agent")
     expect(page.locator(RESULT)).to_have_count(1)
@@ -700,7 +709,7 @@ def test_an_empty_install_lists_new_chat_and_the_settings_pages(app_clean: str, 
     _open_with_keys(page)
     expect(page.locator(RESULT)).to_have_count(8)
     page.wait_for_timeout(300)  # every collection has resolved (empty)
-    # New chat plus the first seven pages: the empty mix is capped at 8.
+    # New chat plus all seven pages: the empty mix is capped at 8.
     assert _rows(page) == [["action", "new-chat", "New chat…", "Action"]] + [
         ["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:7]
     ]
@@ -733,7 +742,7 @@ def test_design_language_is_not_a_candidate_without_dev_mode(app_clean: str, pag
     expect(page.locator(RESULT)).to_have_count(0)
     expect(page.locator(f"{PALETTE} [role=status]")).to_have_text('No matches for "design".')
     page.locator(INPUT).fill("settings")
-    expect(page.locator(RESULT)).to_have_count(7)
+    expect(page.locator(RESULT)).to_have_count(len(SETTINGS_PAGES) - 1)
 
 
 # ── Opening a result (AC10) ──────────────────────────────────────────────────
@@ -778,9 +787,11 @@ def test_each_kind_opens_its_route(world: dict, page: Page) -> None:
     _jump(page, "knowledge indexing", "settings", "knowledge-indexing")
     _nav.expect_route(page, "settings/knowledge-indexing", timeout=8000)
     _lists.expect_settings_selected(page, "knowledge-indexing")
-    _jump(page, "providers", "settings", "providers")
-    _nav.expect_route(page, "settings/providers", timeout=8000)
-    _lists.expect_settings_selected(page, "providers")
+    # Providers live in Library: no Settings "Providers" page (sortie 02).
+    _open_with_keys(page)
+    page.locator(INPUT).fill("provider")
+    expect(page.locator(f'{RESULT}[data-kind="settings"]')).to_have_count(0)
+    page.keyboard.press("Escape")
     # No dialog was ever raised: nothing was dirty.
     expect(page.locator(DIALOG)).to_have_count(0)
 
@@ -874,8 +885,8 @@ def test_open_force_fetches_sessions_and_leaves_a_failed_collection_out(
     assert len(session_gets) == before + 1
     # The failed knowledge-bases read is left out; the other collections show.
     page.locator(INPUT).fill("library")
-    expect(page.locator(RESULT)).to_have_count(2)
-    assert [r[0] for r in _rows(page)] == ["mcp-server", "connector"]
+    expect(page.locator(RESULT)).to_have_count(3)
+    assert [r[0] for r in _rows(page)] == ["provider", "mcp-server", "connector"]
     page.locator(INPUT).fill("agent")
     assert [r[0] for r in _rows(page)][:2] == ["agent", "agent"]
     page.keyboard.press("Escape")
@@ -911,3 +922,22 @@ def test_a_closed_palette_is_never_refreshed(world: dict, page: Page) -> None:
     assert page.evaluate("() => window.__lb.children.length") == 0
     assert page.evaluate("() => App.jumpTo.isOpen()") is False
     assert errors == []
+
+
+def test_provider_query_lists_only_library_provider_rows(world: dict, page: Page) -> None:
+    """Sortie 02 (AC5): Settings has no Providers candidate; a "provider" query
+    reaches the model provider only through its Library row."""
+    _boot(page, world["base"], "chats")
+    _open_with_keys(page)
+    page.locator(INPUT).fill("provider")
+    page.wait_for_function("() => App.store.peek('sessions').loaded", timeout=8000)
+    expect(page.locator(f'{RESULT}[data-kind="settings"]')).to_have_count(0)
+    rows = page.evaluate(_ROWS_JS)
+    providers = [r for r in rows if r[0] == "provider"]
+    assert providers == [_provider_row(world["provider"])] or all(
+        r[3] == "Library · Model provider" for r in providers
+    ), rows
+    # The mock provider's own row (found by name) says where it lives.
+    page.locator(INPUT).fill("mock")
+    row = page.locator(f'{RESULT}[data-kind="provider"][data-id="{world["provider"]}"]')
+    expect(row).to_contain_text("Library · Model provider")

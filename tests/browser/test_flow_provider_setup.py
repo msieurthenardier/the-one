@@ -1,12 +1,15 @@
 """End-to-end flow test: first-start provider setup.
 
 Drives a real Chromium session through the empty-DB onboarding flow:
-- Welcome canvas guidance points to Settings + Agents (no providers yet)
-- Navigate to Settings → Providers
-- Add a mock provider via the form (the form opens below the Providers table)
+- Welcome canvas guidance points to Library + Agents (no providers yet; the
+  provider link moved from Settings to Library in sortie 02)
+- Navigate to Library and add a mock provider through the Add menu
 - Create keeps the editor open in edit mode; click Test Connection, see success
-- Verify it appears in the table with a mock badge (selected: it is open)
 - Navigate back to Chat, welcome guidance now points only to Agents
+
+(The Library list row, selection and badge checks live in
+``test_flow_provider_library.py``; the provider moved there from Settings in
+sortie 02.)
 """
 
 from __future__ import annotations
@@ -22,7 +25,8 @@ from playwright.sync_api import Page, expect
 # in-canvas `-empty` variant and a hidden-when-empty header button). M17 F3 L3
 # unified the CTA: the header button (data-testid="new-provider-btn") is
 # always visible with an icon + text label in BOTH empty and populated grid
-# states, and the `-empty` testid variants are retired.
+# states, and the `-empty` testid variants are retired. Sortie 02 moved the
+# create CTA to the Library Add menu (`library-add-provider`).
 
 
 @pytest.mark.browser
@@ -30,20 +34,17 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     base_url = app_clean
 
     # 1. Open app (defaults to #chat). Welcome canvas guidance shows the
-    #    full setup path: Settings + Agents.
+    #    full setup path: Library + Agents.
     page.goto(base_url)
     welcome_guidance = page.locator(".chat-welcome-guidance")
     expect(welcome_guidance).to_be_visible(timeout=5000)
-    expect(welcome_guidance).to_contain_text("Settings")
+    expect(welcome_guidance).to_contain_text("Library")
     expect(welcome_guidance).to_contain_text("Agents")
 
-    # 2. Navigate to Settings → Providers (the Settings nav link).
-    _nav.goto(page, base_url, "settings")
-    _lists.open_settings_page(page, "providers")
-
-    # 3. Click the unified header CTA (+ Add provider). It is visible even
-    #    with an empty DB (M17 F3 L3 CTA unification).
-    page.locator('[data-testid="new-provider-btn"]').click()
+    # 2. Navigate to Library and add a provider through the Add menu (visible
+    #    even with an empty DB).
+    _nav.goto(page, base_url, "library")
+    _lists.library_add(page, "providers")
 
     # 4-5. Fill name, select mock type (auto-hides base_url and api_key inputs).
     page.locator("#pf-name").fill("Mock Test")
@@ -64,22 +65,9 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     test_btn.click()
     expect(page.locator(".test-result")).to_contain_text("Mock", timeout=5000)
 
-    # 10. The new provider's row is in the table above the editor, selected
-    #     (it is the open item), with its mock type badge (M25 F3 leg 5b).
-    link = _lists.list_row(page, "settings/providers", "Mock Test")
-    expect(link).to_be_visible()
-    _lists.expect_selected(page, "settings/providers", "Mock Test")
-    row = _lists.providers_list(page).get_by_role("listitem").filter(has=link)
-    expect(row.locator(".badge")).to_have_text("mock")
-
-    # 11. Clean form (just tested, no edits): the breadcrumb closes it.
-    _lists.close_item(page)
-    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
-    expect(link).to_be_visible()
-
-    # 12. Navigate back to Chat. Welcome guidance now reflects the next setup
+    # 10. Navigate back to Chat. Welcome guidance now reflects the next setup
     #     gap (provider exists, agent does not).
     _nav.goto(page, base_url, "chats")
     expect(welcome_guidance).to_be_visible(timeout=5000)
     expect(welcome_guidance).to_contain_text("Agents")
-    expect(welcome_guidance).not_to_contain_text("Settings")
+    expect(welcome_guidance).not_to_contain_text("Library")

@@ -408,7 +408,7 @@ def test_chip_remove_danger_on_chip_fill_passes_body_aa(theme: str, bg_key: str)
 
 
 def test_cap_chip_no_tools_consumes_the_gated_danger_pair() -> None:
-    """`.cap-chip-no-tools` (admin.css) must paint `var(--status-danger)` text on
+    """`.cap-chip-no-tools` (components.css) must paint `var(--status-danger)` text on
     the `var(--status-danger-bg-soft)` fill — the EXACT pair already gated by
     ``test_danger_text_on_soft_fill_passes_body_aa`` above.
 
@@ -421,13 +421,13 @@ def test_cap_chip_no_tools_consumes_the_gated_danger_pair() -> None:
     import re
     from pathlib import Path
 
-    admin_css = (
-        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/admin.css"
+    components_css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/components.css"
     )
-    css = admin_css.read_text(encoding="utf-8")
+    css = components_css.read_text(encoding="utf-8")
     # Isolate the `.cap-chip-no-tools { ... }` declaration block.
     m = re.search(r"\.cap-chip-no-tools\s*\{([^}]*)\}", css)
-    assert m, ".cap-chip-no-tools rule not found in admin.css"
+    assert m, ".cap-chip-no-tools rule not found in components.css"
     body = m.group(1)
     assert "var(--status-danger-bg-soft)" in body, (
         ".cap-chip-no-tools must fill with var(--status-danger-bg-soft) (the "
@@ -931,11 +931,12 @@ _ACCENT_TRANSLUCENT_HOVER_ALPHA = {"dark": 0.16, "light": 0.13}
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_providers_tile_pairs_pass_body_aa(theme: str) -> None:
-    """M25 F3 L7: a Settings Providers tile paints the intro in --fg-muted on
-    --bg, the name in --fg and the base URL / "Used by" lines in --fg-secondary
-    on the tile's --surface, and, on the open provider's tile, the same inks on
-    the composited --accent-translucent-hover wash. The wash replaces --surface,
+def test_settings_tile_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F3 L7 (the Providers tiles retired in sortie 02; Built-in tools keeps
+    the same tile vocabulary): a Settings tile paints the intro in --fg-muted on
+    --bg, the name in --fg and the secondary lines in --fg-secondary on the
+    tile's --surface, and, on the open tile, the same inks on the composited
+    --accent-translucent-hover wash. The wash replaces --surface,
     so it is composited over both --bg and --surface (the worse ground gates).
     Tightest pair: --fg-secondary on the wash over --surface, 5.49:1 dark and
     6.01:1 light. Every pair clears body AA (4.5:1) in both themes. The badge
@@ -945,44 +946,35 @@ def test_providers_tile_pairs_pass_body_aa(theme: str) -> None:
     pairs = {
         "intro (fg_muted on bg)": (palette["fg_muted"], palette["bg"]),
         "name (fg on surface)": (palette["fg"], palette["surface"]),
-        "url / used by (fg_secondary on surface)": (palette["fg_secondary"], palette["surface"]),
+        "secondary line (fg_secondary on surface)": (palette["fg_secondary"], palette["surface"]),
     }
     for ground in ("bg", "surface"):
         wash = _alpha_composite(palette["accent"], alpha, palette[ground])
         pairs[f"active name (fg on wash over {ground})"] = (palette["fg"], wash)
-        pairs[f"active url / used by (fg_secondary on wash over {ground})"] = (
+        pairs[f"active secondary line (fg_secondary on wash over {ground})"] = (
             palette["fg_secondary"],
             wash,
         )
     for name, (ink, ground_color) in pairs.items():
         ratio = contrast_ratio(ink, ground_color)
-        assert ratio >= 4.5, f"{theme} providers tile {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+        assert ratio >= 4.5, f"{theme} settings tile {name} = {ratio:.2f}:1 (need >= 4.5:1)"
 
 
-def test_providers_tile_rules_consume_the_gated_pairs() -> None:
-    """The tile CSS (admin.css) paints exactly the pairs the test above gates,
-    the name link's focus ring is the standard 2px --accent ring, and the open
-    tile's wash is the shared .entity-tile.active token."""
+def test_settings_tool_tile_rules_consume_the_gated_pairs() -> None:
+    """The Built-in tools tile CSS (admin.css) paints exactly the pairs the test
+    above gates, the name link's focus ring is the standard 2px --accent ring,
+    and the open tile's wash is the shared .entity-tile.active token."""
     intro = " ".join(_rule_bodies("admin.css", ".area-admin .settings-intro"))
     assert "color: var(--fg-muted)" in intro, intro
-    link = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link"))
+    link = " ".join(_rule_bodies("admin.css", ".area-admin .tool-tile-link"))
     assert "color: var(--fg)" in link, link
     assert "calc(100%" not in link, link  # DD3: no badge reserve; the title row lays it out
     row = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row"))
     assert "display: flex" in row, row
     name = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row .entity-tile-name"))
     assert "flex: 1 1 auto" in name and "min-width: 0" in name, name
-    ring = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link:focus-visible"))
+    ring = " ".join(_rule_bodies("admin.css", ".area-admin .tool-tile-link:focus-visible"))
     assert "outline: 2px solid var(--accent)" in ring, ring
-    used = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-used"))
-    assert "color: var(--fg-secondary)" in used, used
-    url = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-url"))
-    assert "color: var(--fg-secondary)" in url, url
-    badge = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row .provider-tile-badge"))
-    assert "position: static" in badge and "flex: none" in badge, badge
-    assert "background" not in badge and "color" not in badge, badge
-    hover = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile:not(.active):hover"))
-    assert "background-color: var(--surface)" in hover, hover
     active = " ".join(_rule_bodies("components.css", ".entity-tile.active"))
     assert "background-color: var(--accent-translucent-hover)" in active, active
 
@@ -1161,8 +1153,7 @@ def test_forced_colors_keep_a_non_colour_selected_cue(
 ) -> None:
     """Flight-end review (WCAG 1.4.11): forced colours drop the selected wash and
     force the accent border, so each selected state names a system-colour cue
-    inside the file's forced-colors block (the providers rule in admin.css,
-    whose areas layer outranks a components-layer rule)."""
+    inside the file's forced-colors block (a components-layer rule)."""
     block = _forced_colors_rules(css_file)
     want = " ".join(selector.split())
     for m in _RULE_RE.finditer(block):
@@ -1474,7 +1465,7 @@ _CONTRAST_EXEMPT: dict[str, str] = {
         "rgba wash of the gated --accent hue (alphas 0.16 dark, 0.13 light); the "
         "open tile's fill (.entity-tile.active), replacing --surface. Composited-"
         "gated over both --bg and --surface at its consumer by "
-        "test_providers_tile_pairs_pass_body_aa."
+        "test_settings_tile_pairs_pass_body_aa."
     ),
     "--status-danger-bg-soft": (
         "rgba wash of the gated --status-danger hue; composited-gated by "

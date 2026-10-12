@@ -3,7 +3,7 @@
 **Slug**: `kb-studio-round-trip`
 **Status**: active *(re-authored five times; reverted to `draft` on 2026-09-21 to repair defects #7-#11, all of which held on the 2026-09-22 run. Returned to `active` on 2026-09-22 after that run scored **17 pass / 1 inconclusive / 0 fail** and the single inconclusive — a step 12->13 sequencing gap, **defect #15** — was fixed below. That fix's corrected sequence was itself executed during the run as step 13-bis and passed, so it ships verified rather than merely reasoned. See `runs/2026-09-22-01-05-35.md`.)*
 **Created**: 2026-09-17
-**Updated**: 2026-10-02 (M25 F3: "inventory" mapped onto the Library list and detail shell; see the note under Preconditions)
+**Updated**: 2026-10-11 (step 1: the Library root is `#library`; model-providers sortie); 2026-10-02 (M25 F3: "inventory" mapped onto the Library list and detail shell; see the note under Preconditions)
 **Last Run**: 2026-10-02-12-08-59 — **18/18 pass** (first run on the M25 F3 list-and-detail shell; step 10 judged on a SIGKILL re-run after a graceful-SIGTERM apparatus deviation — see the run log)
 
 ## Intent
@@ -189,7 +189,7 @@ threatens nothing downstream once it runs after Row 9's attach. (AC-1,
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open the Library destination's Knowledge section in the browser (rail "Library" → `#library/knowledge`). | The section renders a real inventory surface — a create affordance and either a list of knowledge bases or an empty state. The Flight 5 stub text ("Knowledge bases will be created and managed here in a future mission") is **absent**. |
+| 1 | Open the Library destination in the browser (rail "Library" → `#library`). | Library renders a real inventory surface — the Library list with its Knowledge bases group and Add menu, and the start page's "Add knowledge base" card (a create affordance), with either knowledge-base rows or the group's empty line. The Flight 5 stub text ("Knowledge bases will be created and managed here in a future mission") is **absent**. |
 | 2 | Create a knowledge base with a short name. Then attempt to create one with a name longer than 43 characters. After observing the length-hint behaviour, delete the over-long knowledge base. | The first is created and appears in the inventory. The second surfaces a length hint naming the limit — and, per DD-16, the hint is **advisory**: the second knowledge base **is** created and stays in the inventory until deleted. Assert both, so the decided behaviour is judged rather than the intuitive one. After the deletion action, the inventory shows only the first knowledge base — the cleanup actually removed it rather than merely being instructed to. |
 | 3 | Register the fixture folder on the new knowledge base. | The folder appears with a walk status. No error is shown. |
 | 4 | **SAFETY: name the instance's own scratch data directory itself — never `$HOME`, and not its parent.** Attempt to register that path as a second source. | Refused, and the message **says why** — that the application's own database and index live there. A bare "422" or "invalid path" is a fail. *(The data dir itself is the deterministic case: a parent that happens to be the filesystem root trips a different, earlier guard with different wording.)* |

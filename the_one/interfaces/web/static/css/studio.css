@@ -1618,3 +1618,58 @@
 .area-studio .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
 .area-studio .notes-row-origin-link { text-decoration: underline; }
 .area-studio .notes-row-edited { color: var(--fg-secondary); }
+
+@layer areas {
+  /* === Provider editor and model list in Library (sortie 02, DD7) === */
+  /* The provider editor's and model list's rules (originally admin.css, from
+     when Settings hosted providers). The `admin-pf-*` / `plan-*` class names
+     are accepted naming debt. `.cap-chip*` is unscoped, in components.css. */
+  .area-studio .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+  .area-studio .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .area-studio .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
+  .area-studio .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
+     header, so it does not take the `.section-title` eyebrow-with-rule recipe
+     (sans, body-sm, weight 500, --fg-secondary). */
+  .area-studio .admin-pf-models-title { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); }
+  .area-studio .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
+  /* DD10: plain information, not options - no hover, no cursor, a muted separator. */
+  .area-studio .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); cursor: default; }
+  .area-studio .admin-pf-model-item:last-child { border-bottom: none; }
+  .area-studio .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+
+  /* === Ollama Lifecycle Panel === */
+  .area-studio .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
+  .area-studio .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
+  .area-studio .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
+  .area-studio .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
+  .area-studio .admin-pf-model-row:last-child { border-bottom: none; }
+  .area-studio .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .area-studio .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
+  .area-studio .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  /* admin-pf-model-btn retained as a JS hook only — styling comes from
+     canonical .btn-outlined-primary / .btn-muted-destructive + .btn-sm. */
+  .area-studio .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
+  .area-studio .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+  .area-studio .admin-pf-pull-name { flex: 1; }
+  .area-studio .admin-pf-pull-go { padding: 6px 14px; font-size: var(--font-size-caption); }
+  .area-studio .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
+  .area-studio .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
+  .area-studio .admin-pf-pull-text { position: relative; font-size: var(--font-size-caption); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; flex: 1; }
+  .area-studio .admin-pf-pull-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
+  .area-studio .admin-pf-pull-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
+  .area-studio .admin-pf-pull-cancel svg { width: 12px; height: 12px; display: block; }
+  .area-studio .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
+  .area-studio .admin-pf-pull-size:not(.test-result-warning) { color: var(--fg-secondary); }
+  .area-studio .admin-pf-pull-size:empty { padding: 0; }
+  .area-studio .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
+  .area-studio .plan-signin-body { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-studio .plan-signin-desc { margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: var(--line-height-normal); }
+  .area-studio .plan-signin-actions { display: flex; align-items: center; gap: var(--space-3); }
+  .area-studio .plan-signin-hint { font-size: var(--font-size-caption); color: var(--fg-muted); }
+  .area-studio .plan-connected-row { display: flex; align-items: center; gap: var(--space-3); }
+  .area-studio .plan-connected-text { font-size: var(--font-size-body-sm); color: var(--fg); }
+  .area-studio .plan-signin-url-row, .area-studio .plan-code-row { display: flex; align-items: center; gap: var(--space-2); }
+  .area-studio .plan-signin-url-row .field-input, .area-studio .plan-code-row .field-input { flex: 1; min-width: 0; }
+  .area-studio .plan-signin-url { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); }
+}

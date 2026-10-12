@@ -93,7 +93,7 @@ def test_dirty_agent_rail_library_one_dialog(app_with_agent: SeededApp, page: Pa
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
 
 # ── (b): the same flow via browser Back ─────────────────────────────────────
@@ -129,7 +129,7 @@ def test_dirty_agent_browser_back_one_dialog(app_with_agent: SeededApp, page: Pa
     expect(page.locator('[data-testid="tab-general"]')).to_have_count(0)
     page.go_back()
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
 
 # ── (c): hash change to another agent while dirty -> Continue -> no 2nd dialog
@@ -233,7 +233,7 @@ def test_current_section_click_while_dirty_one_dialog_continue_closes_editor(
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_have_count(0, timeout=5000)
-    _nav.expect_route(page, "library/mcp")
+    _nav.expect_route(page, "library")
     assert _studio_state(page)["mcp"] is None
 
 
@@ -303,19 +303,19 @@ def test_clean_reclick_closes_mcp_editor(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
     _lists.close_item(page)
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_have_count(0, timeout=5000)
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible()
-    _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
     expect(page.locator(DIALOG)).to_have_count(0)
 
 
 def test_clean_reclick_closes_connector_editor(app_clean: str, page: Page) -> None:
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _lists.close_item(page)
     expect(page.locator('[data-testid="save-connector-btn"]')).to_have_count(0, timeout=5000)
-    expect(_lists.library_empty_state(page, "connectors")).to_be_visible()
-    _nav.expect_route(page, "library/connectors")
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
     expect(page.locator(DIALOG)).to_have_count(0)
     assert page.evaluate("App.areas.find(a => a.id === 'studio')._dirty") is False
 
@@ -326,25 +326,9 @@ def test_clean_reclick_closes_kb_detail(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
     _lists.close_item(page)
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0, timeout=5000)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
     assert _studio_state(page)["kb"] is None
-
-
-def test_clean_reclick_closes_provider_editor(app_with_provider: SeededApp, page: Page) -> None:
-    _nav.goto_settled(
-        page,
-        app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
-    )
-    expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
-    _lists.settings_nav_link(page, "providers").click()
-    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(page.locator(".page-title")).to_have_text("Providers")
-    _nav.expect_route(page, "settings/providers")
-    expect(page.locator(DIALOG)).to_have_count(0)
-    # The table stays; nothing is selected any more (M25 F3 leg 5b).
-    _lists.expect_none_selected(page, "settings/providers")
 
 
 def test_clean_reclick_closes_tool_editor(app_clean: str, page: Page) -> None:
@@ -360,17 +344,19 @@ def test_clean_reclick_closes_tool_editor(app_clean: str, page: Page) -> None:
 def test_clean_breadcrumb_closes_provider_and_tool_editors(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """M25 F3 leg 5b: the Settings item headers' breadcrumb links close the
-    item to the page root like the Library ones (no dialog when clean)."""
+    """M25 F3 leg 5b: the item headers' breadcrumb links close the item to its
+    root (no dialog when clean): the Library provider editor to ``#library``
+    (sortie 02: providers left Settings) and the Settings tool editor to its
+    page."""
     _nav.goto_settled(
         page,
         app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
-    expect(_lists.breadcrumb_link(page)).to_have_text("Providers", timeout=8000)
+    expect(_lists.breadcrumb_link(page)).to_have_text("Library", timeout=8000)
     _lists.close_item(page)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "library")
     expect(page.locator(DIALOG)).to_have_count(0)
     _nav.goto_settled(page, app_with_provider.base_url, "settings/tools/web_search")
     expect(_lists.breadcrumb_link(page)).to_have_text("Built-in tools", timeout=8000)
@@ -414,11 +400,11 @@ def test_agents_library_chats_library_does_not_leak_agent_state(
     assert st["agent"] is None, st
     assert st["mcp"] is None, st
     assert st["dirty"] is False, st
-    assert st["section"] == "knowledge", st
+    assert st["section"] == "library", st
     assert item_gets == [], f"an agent item was re-fetched: {item_gets}"
     expect(page.locator(DIALOG)).to_have_count(0)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
 
 
 def test_restore_to_deleted_item_heals_the_url(app_clean: str, page: Page) -> None:
@@ -438,6 +424,57 @@ def test_restore_to_deleted_item_heals_the_url(app_clean: str, page: Page) -> No
     assert r.status_code in (200, 204), r.text
 
     _nav.open_destination(page, "library")  # restores the dead item route
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)
+
+
+# ── A save resolving after a breadcrumb go does not move the URL back ────────
+
+
+def test_connector_save_resolving_after_breadcrumb_go_keeps_the_root(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """DD1: the Library root's hydrate closes the open item (closeOpenItem bumps
+    the editor generation), so a create-save that resolves AFTER the breadcrumb
+    went to `#library` fails its generation check: it cannot sync the URL back
+    to the new item, and the start page stays."""
+    _nav.goto_settled(page, app_with_agent.base_url, "library")
+    _lists.library_add(page, "connectors")
+    page.locator('[data-field="name"]').fill("Held connector")
+    page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
+    page.locator('[data-field="enabled"]').uncheck()
+
+    held: list = []
+
+    def handler(route) -> None:
+        if route.request.method == "POST":
+            held.append(route)  # keep it: not fulfilled until released
+        else:
+            route.continue_()
+
+    page.route("**/api/connectors**", handler)
+    page.locator('[data-testid="save-connector-btn"]').click()
+    page.wait_for_function("() => true")  # let the click dispatch
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "the create POST never reached the route handler"
+
+    # The breadcrumb goes to #library (the form is dirty: the guard asks once).
+    _lists.close_item(page)
+    expect(page.locator(DIALOG)).to_be_visible(timeout=5000)
+    page.locator(CONTINUE).click()
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+
+    # Release the save: the connector is created, but the URL must not move.
+    held[0].continue_()
+    page.unroute("**/api/connectors**", handler)
+    page.wait_for_timeout(800)
+    _nav.expect_route(page, "library")
+    assert page.evaluate("location.hash") == _nav.href("library")
+    expect(_lists.library_start(page)).to_be_visible()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_have_count(0)
+    assert _studio_state(page)["section"] == "library"

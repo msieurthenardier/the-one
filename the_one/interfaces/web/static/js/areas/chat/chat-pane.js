@@ -15,9 +15,8 @@
 //                         agents." and New chat (btn-filled-primary, testid
 //                         chat-empty-new-btn), which calls onNewChat(btn);
 //       setup incomplete  no prompt and no New chat: the guidance links
-//                         (.chat-welcome-link, router hrefs) to Settings ›
-//                         Providers and/or Agents, the copy unchanged from
-//                         welcome.js.
+//                         (.chat-welcome-link, router hrefs) to Library ›
+//                         Model providers (the create form) and/or Agents.
 //
 //   the chrome (div.chat-chrome)
 //     The header (header.chat-header, testid chat-header): an h1 (the chat's
@@ -67,7 +66,7 @@
     return App.ui.util.el(tag, attrs, children);
   }
 
-  // `href` is a router href (App.router.href), e.g. '#settings/providers'.
+  // `href` is a router href (App.router.href), e.g. '#library/providers/~new'.
   function welcomeLink(text, href) {
     return el('a', { className: 'chat-welcome-link', href: href, text: text });
   }
@@ -76,17 +75,17 @@
   // no agent only. Same copy and hrefs as the former welcome.js.
   function guidance(setup) {
     var p = el('p', { className: 'chat-welcome-guidance' });
-    var settings = App.router.href({ destination: 'settings', section: 'providers' });
+    var library = App.router.href({ destination: 'library', section: 'providers', create: true });
     var agents = App.router.href({ destination: 'agents' });
     if (!setup.hasProviders && !setup.hasAgents) {
-      p.appendChild(document.createTextNode('Add a provider in '));
-      p.appendChild(welcomeLink('Settings', settings));
+      p.appendChild(document.createTextNode('Add a model provider in '));
+      p.appendChild(welcomeLink('Library', library));
       p.appendChild(document.createTextNode(', then create an agent in '));
       p.appendChild(welcomeLink('Agents', agents));
       p.appendChild(document.createTextNode(' to start chatting.'));
     } else if (!setup.hasProviders) {
-      p.appendChild(document.createTextNode('Add a provider in '));
-      p.appendChild(welcomeLink('Settings', settings));
+      p.appendChild(document.createTextNode('Add a model provider in '));
+      p.appendChild(welcomeLink('Library', library));
       p.appendChild(document.createTextNode(' to start chatting.'));
     } else {
       p.appendChild(document.createTextNode('Create an agent in '));

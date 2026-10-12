@@ -44,17 +44,19 @@ def _code(path: Path) -> str:
     return "\n".join(out)
 
 
-def test_the_table_is_the_eight_settings_pages_in_nav_order() -> None:
+def test_the_table_is_the_seven_settings_pages_in_nav_order() -> None:
     assert table() == [
         ("appearance", "Appearance", "General", False),
         ("date-and-time", "Date and time", "General", False),
         ("prompts", "Prompts", "General", False),
         ("encryption", "Encryption", "General", False),
-        ("providers", "Providers", "Models", False),
         ("tools", "Built-in tools", "Defaults for agents", False),
         ("knowledge-indexing", "Knowledge indexing", "Defaults for agents", False),
         ("design-language", "Design language", "Developer", True),
     ]
+    # Providers moved to Library (sortie 02): no Providers page, no Models group.
+    assert "providers" not in [s for s, _, _, _ in table()]
+    assert "Models" not in {g for _, _, g, _ in table()}
     # Each group's pages are contiguous (the nav builds its groups in table order).
     groups = [g for _, _, g, _ in table()]
     seen: list[str] = []

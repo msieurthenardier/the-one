@@ -15,7 +15,7 @@ Verify that an agent bound to an authenticated Anthropic individual-plan provide
 - the-one dev instance is running on a **non-default port with a scratch data
   directory** and the web UI loads in a browser — never the operator's default `:8484`
   instance (see CLAUDE.md's "Behavior-test credential convention" safety rule).
-- An authenticated `anthropic-plan` provider exists and shows as connected in Settings › Providers (active probe: run this test only after `anthropic-plan-signin` passed in the same session, or the operator confirms the connected state in the editor immediately before the run).
+- An authenticated `anthropic-plan` provider exists and shows as connected in Library › Model providers (active probe: run this test only after `anthropic-plan-signin` passed in the same session, or the operator confirms the connected state in the editor immediately before the run).
 - An agent exists (or is created on the Agents destination at run time) bound to the plan provider with a current Claude model selected, with at least one built-in tool enabled that produces a deterministic, observable result. The operator names the chosen tool before the run (recorded in the run log); step 4's prompt targets that tool.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Reach it per CLAUDE.md's
   "Behavior-test credential convention" — a handoff-authenticated navigation for the

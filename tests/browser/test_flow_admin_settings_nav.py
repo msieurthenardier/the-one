@@ -12,16 +12,16 @@ Encryption); ``#settings/general`` (any suffix) is an alias for
 * AC1 -- nav structure: groups in order, links, ``aria-current`` (exactly one,
   following navigation and item routes), 28px items, the heading aligned with
   the item text (A3), 260px wide at 1440 and 1024 (A2), in Chromium AND WebKit;
-  three groups without dev mode;
+  two groups without dev mode and no Models group (providers moved to Library, sortie 02);
 * AC2 -- each link navigates; the three General pages each render one block and
   one ``h1`` with their existing controls; the theme flip on Appearance;
 * AC3 -- redirects: ``settings/general`` cold and in-app, its suffix dropped,
   the legacy hashes directly (no intermediate history write), ``lastRoute``
   never ``settings/general``, the rail's first-use href;
 * AC4 -- every Settings page has a page header with the board's label and no
-  second ``h1``, item pages included (an open provider, its ``~new`` form, an
-  open tool: the editor title is an ``h2``, the flight-end review);
-* the leave guard: a dirty provider editor plus a nav-link click asks once.
+  second ``h1``, item pages included (an open tool: the editor title is an
+  ``h2``, the flight-end review);
+* the leave guard: a dirty tool editor plus a nav-link click asks once.
 
 Falls in the ``settings`` lane (``test_flow_admin_*`` in ``scripts/run-tests.sh``).
 """
@@ -29,12 +29,10 @@ Falls in the ``settings`` lane (``test_flow_admin_*`` in ``scripts/run-tests.sh`
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 from browser import _lists, _nav
 from browser.conftest import credentialed_context
-from browser.seeders import SeededApp
 from playwright.sync_api import Page, Route, expect
 
 pytestmark = pytest.mark.browser
@@ -44,7 +42,6 @@ DIALOG = '[data-testid="confirm-dialog-overlay"]'
 # Reference spec section 8.1, in order. Developer is dev-mode only.
 GROUPS = [
     ("General", ["appearance", "date-and-time", "prompts", "encryption"]),
-    ("Models", ["providers"]),
     ("Defaults for agents", ["tools", "knowledge-indexing"]),
     ("Developer", ["design-language"]),
 ]
@@ -135,7 +132,7 @@ def test_settings_nav_groups_links_heading_and_mount(app_clean: str, page: Page)
         assert links.nth(k).get_attribute("role") is None
 
 
-def test_settings_nav_without_dev_mode_has_three_groups(app_clean: str, page: Page) -> None:
+def test_settings_nav_without_dev_mode_has_two_groups(app_clean: str, page: Page) -> None:
     """Dev mode off: the Developer group (Design language) is absent."""
 
     def no_dev_mode(route: Route) -> None:
@@ -149,8 +146,19 @@ def test_settings_nav_without_dev_mode_has_three_groups(app_clean: str, page: Pa
     expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
     assert page.evaluate("App.config.dev_mode") is False
     shape = page.evaluate(_NAV_SHAPE_JS)
-    assert shape["groups"] == _expected_links(GROUPS[:3]), shape["groups"]
+    assert shape["groups"] == _expected_links(GROUPS[:2]), shape["groups"]
     expect(page.locator('[data-testid="settings-nav-design-language"]')).to_have_count(0)
+
+
+def test_settings_nav_has_no_models_group_or_providers_link(app_clean: str, page: Page) -> None:
+    """Providers moved to Library (sortie 02): the former Models group and its
+    Providers link are gone (inverted from the test that asserted them)."""
+    _nav.goto(page, app_clean, "settings/appearance")
+    expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
+    nav = _lists.settings_nav(page)
+    expect(nav).not_to_contain_text("Models")
+    expect(nav.locator('a[href*="providers"]')).to_have_count(0)
+    expect(nav.get_by_role("link", name="Providers")).to_have_count(0)
 
 
 @pytest.mark.parametrize(("width", "height"), [(1440, 900), (1024, 768)])
@@ -183,16 +191,11 @@ def test_settings_nav_geometry_in_both_engines(
         context.close()
 
 
-def test_aria_current_follows_navigation_and_item_routes(
-    app_with_provider: SeededApp, page: Page
-) -> None:
-    base = app_with_provider.base_url
+def test_aria_current_follows_navigation_and_item_routes(app_clean: str, page: Page) -> None:
+    base = app_clean
     _nav.goto(page, base, "settings/appearance")
     _lists.expect_settings_selected(page, "appearance")
     # An item route marks its SECTION, never the item.
-    _nav.goto(page, base, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
-    expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
-    _lists.expect_settings_selected(page, "providers")
     _nav.goto(page, base, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     _lists.expect_settings_selected(page, "tools")
@@ -237,18 +240,14 @@ def _item_title_tag(page: Page) -> str | None:
 
 
 def test_settings_item_pages_keep_one_h1_with_an_h2_editor_title(
-    app_with_provider: SeededApp, page: Page
+    app_clean: str, page: Page
 ) -> None:
-    """Flight-end review (a): an open provider, the provider ``~new`` form and an
-    open tool keep the page header's ``h1`` as the page's only one; the item
-    editor's title is an ``h2`` (still the ``tabindex=-1`` focus target)."""
-    base = app_with_provider.base_url
+    """Flight-end review (a): an open tool keeps the page header's ``h1`` as the
+    page's only one; the item editor's title is an ``h2`` (still the
+    ``tabindex=-1`` focus target)."""
+    base = app_clean
     item = page.locator(".content-panel.active .settings-item .editor-title")
-    cases = (
-        (f"settings/providers/{_nav.seg(app_with_provider.provider_id)}", "Providers", "mock"),
-        ("settings/providers/~new", "Providers", "New Provider"),
-        ("settings/tools/web_search", "Built-in tools", "web_search"),
-    )
+    cases = (("settings/tools/web_search", "Built-in tools", "web_search"),)
     for route, page_title, editor_title in cases:
         _nav.goto(page, base, route)
         expect(item).to_have_text(editor_title, timeout=8000)
@@ -345,17 +344,6 @@ def test_theme_flip_works_on_appearance(app_clean: str, page: Page) -> None:
     expect(html).to_have_attribute("data-theme", "light")
 
 
-def test_providers_page_primary_action_is_add_provider(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/providers")
-    header = page.locator(".content-panel.active .page-header")
-    expect(header.locator(".page-title")).to_have_text("Providers", timeout=8000)
-    action = header.locator('[data-testid="new-provider-btn"]')
-    expect(action).to_have_text("Add provider")
-    expect(action).to_have_class(re.compile(r"\bbtn-outlined-primary\b"))
-    action.click()
-    _nav.expect_route(page, "settings/providers/~new")
-
-
 # ── AC3: redirects ───────────────────────────────────────────────────────────
 
 # Every history write, so a redirect can be shown to write its target directly.
@@ -409,8 +397,8 @@ def test_settings_general_redirects_in_app(app_clean: str, page: Page) -> None:
     """In-app: an intent (go) pushes Appearance itself; a typed hash is rewritten
     in place (one entry, the typed one); Back returns to where the user was."""
     page.add_init_script(_RECORD_WRITES_JS)
-    _nav.goto_settled(page, app_clean, "settings/providers")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=8000)
+    _nav.goto_settled(page, app_clean, "settings/tools")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=8000)
 
     before = page.evaluate("history.length")
     assert page.evaluate("App.router.go('settings/general/x')") is True
@@ -420,8 +408,8 @@ def test_settings_general_redirects_in_app(app_clean: str, page: Page) -> None:
     _assert_never_general(page)
 
     page.go_back()
-    _nav.expect_route(page, "settings/providers")
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    expect(_lists.settings_page_title(page)).to_have_text("Built-in tools", timeout=5000)
 
     # A typed hash: the browser makes the entry, the router rewrites it in place
     # (replaceState only, straight to the target).
@@ -435,7 +423,7 @@ def test_settings_general_redirects_in_app(app_clean: str, page: Page) -> None:
     ), writes
     _assert_never_general(page)
     page.go_back()
-    _nav.expect_route(page, "settings/providers")
+    _nav.expect_route(page, "settings/tools")
 
 
 def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page) -> None:
@@ -455,8 +443,8 @@ def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page) -> 
             assert writes[0] == expected, (legacy, writes)
             _assert_never_general(fresh)
             # A typed legacy hash after boot: rewritten in place, directly.
-            assert fresh.evaluate("App.router.go('settings/providers')") is True
-            expect(_lists.settings_page_title(fresh)).to_have_text("Providers", timeout=8000)
+            assert fresh.evaluate("App.router.go('settings/tools')") is True
+            expect(_lists.settings_page_title(fresh)).to_have_text("Built-in tools", timeout=8000)
             fresh.evaluate("h => { window.__writes = []; location.hash = h; }", "#admin/general")
             _nav.expect_route(fresh, "settings/appearance")
             expect(_lists.settings_page_title(fresh)).to_have_text("Appearance", timeout=5000)
@@ -497,19 +485,13 @@ def test_rail_first_use_and_last_route_are_appearance(app_clean: str, page: Page
 # ── The leave guard through the nav ─────────────────────────────────────────
 
 
-def test_dirty_provider_editor_and_a_nav_link_ask_once(
-    app_with_provider: SeededApp, page: Page
-) -> None:
-    _nav.goto_settled(
-        page,
-        app_with_provider.base_url,
-        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
-    )
-    name = page.locator("#pf-name")
-    expect(name).to_be_visible(timeout=8000)
+def test_dirty_tool_editor_and_a_nav_link_ask_once(app_clean: str, page: Page) -> None:
+    _nav.goto_settled(page, app_clean, "settings/tools/web_search")
+    backend = page.locator('[data-field="search_backend"]')
+    expect(backend).to_be_visible(timeout=8000)
     item_route = _nav.current_route(page)
-    name.fill("dirty-edit")
-    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_enabled()
+    backend.select_option("searxng")
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_be_enabled()
 
     link = _lists.settings_nav_link(page, "appearance")
     link.click()
@@ -518,8 +500,8 @@ def test_dirty_provider_editor_and_a_nav_link_ask_once(
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(0)
     _nav.expect_route(page, item_route)
-    expect(name).to_have_value("dirty-edit")
-    _lists.expect_settings_selected(page, "providers")
+    expect(backend).to_have_value("searxng")
+    _lists.expect_settings_selected(page, "tools")
 
     # Continue: one dialog only, then Appearance.
     link.click()

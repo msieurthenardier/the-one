@@ -118,9 +118,9 @@ def _goto_knowledge_grid(app_clean: str, page: Page) -> None:
     State-driven readiness (fetch activity quiet) rather than a fixed wait:
     under load the boot outlasted one once in the leg-1 lane run (same
     slow-boot class as the four fixed flakes)."""
-    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _nav.goto_settled(page, app_clean, "library")
     _wait_studio_ready(page)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
 
 
 def _wait_kb_open(page: Page, name: str) -> str:
@@ -153,14 +153,14 @@ def test_knowledge_grid_renders_real_inventory_no_stub(app_clean: str, page: Pag
     _goto_knowledge_grid(app_clean, page)
 
     library = page.locator('[data-testid="library-list"]')
-    expect(library.locator(".ui-list-pane-group-empty").first).to_have_text(
-        "No knowledge bases yet."
-    )
+    expect(
+        library.locator(".ui-list-pane-group-empty", has_text="No knowledge bases yet.")
+    ).to_have_count(1)
     expect(page.locator('[data-testid="library-add-btn"]')).to_be_visible()
-    expect(_lists.library_empty_state(page, "knowledge")).to_contain_text(
+    expect(_lists.library_start(page)).to_contain_text(
         "Folders of your documents that agents can search."
     )
-    page.locator('[data-testid="library-empty-knowledge-add"]').click()
+    page.locator('[data-testid="library-start-knowledge-add"]').click()
     _nav.expect_route(page, "library/knowledge/~new")
     expect(page.locator('[data-testid="kb-create-name-input"]')).to_be_focused()
     expect(page.get_by_text("in a future mission")).to_have_count(0)
@@ -235,8 +235,8 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     # once onDeleteSuccess has actually run (M25 F3 L4b retired Back, the
     # marker this used to wait on).
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0, timeout=5000)
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
-    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_start(page)).to_be_visible()
+    _nav.expect_route(page, "library")
     expect(page.locator('[data-testid="knowledge-base-card"]', has_text="Delete Me")).to_have_count(
         0
     )
@@ -259,7 +259,7 @@ def test_detail_view_routing_full_reload_and_back(app_clean: str, page: Page) ->
     _nav.expect_route(page, detail_route)
     _lists.close_item(page)
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -699,8 +699,8 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
     # Re-enter Knowledge (the rail's Library link goes to its root): mounts the
     # section root, not the previously-selected detail.
     _nav.open_destination(page, "library")
-    _nav.expect_route(page, "library/knowledge")
-    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
     expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)
 
     # Re-open the detail view (in-app click, not a fresh page.goto — a

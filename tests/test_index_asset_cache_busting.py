@@ -76,7 +76,10 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # design-language ui-drawer-section.js, to 80; Leg 7 adds settings-pages.js
     # and jump-to.js, to 82; M25 F6 L1b adds focus-after.js, to 83; squawk 0128 adds
     # time.js and mcp-error.js, to 85; M27 F1 L2 adds areas/studio/rules-notes-tab.js, to 86;
-    # M28 F2 L3 adds areas/admin/date-time-page.js, to 87.)
+    # M28 F2 L3 adds areas/admin/date-time-page.js, to 87; sortie 02 L1 adds
+    # areas/studio/providers-section.js, to 88; provider-editor.js and provider-models.js
+    # move from areas/admin/ to areas/studio/, still 88; sortie 02 L2 deletes
+    # areas/admin/providers-list.js with the Settings Providers page, to 87.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)

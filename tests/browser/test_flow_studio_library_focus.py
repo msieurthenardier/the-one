@@ -154,7 +154,7 @@ def test_connector_save_and_cancel(app_with_agent: SeededApp, page: Page) -> Non
 
 def test_connector_create_lands_on_the_new_title(app_with_agent: SeededApp, page: Page) -> None:
     base = app_with_agent.base_url
-    _nav.goto_settled(page, base, "library/connectors")
+    _nav.goto_settled(page, base, "library")
     _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-field="name"]').fill("created-conn")

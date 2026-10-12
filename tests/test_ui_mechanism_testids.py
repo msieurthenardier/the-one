@@ -65,7 +65,7 @@ def test_custom_element_call_site_ids_are_all_registry_visible(tmp_path) -> None
 ATTRS_KEY_SNIPPET = """
 var h = el('h1', {className: 'x', 'data-testid': 'root-heading', text: 'Library'});
 var d = el('div', {"data-testid": 'start-page-literal'});
-var p = el('div', {'data-testid': 'library-empty-' + group.id});
+var p = el('div', {'data-testid': 'library-start-' + group.id});
 """
 
 ATTRS_KEY_NEGATIVE_SNIPPET = """
@@ -79,7 +79,7 @@ var d = {'data-testid': someVar};
 def test_quoted_attrs_key_is_registry_visible(tmp_path) -> None:
     (literals, parametric, _), violations = _scan(tmp_path, "attrs", ATTRS_KEY_SNIPPET)
     assert set(literals) == {"root-heading", "start-page-literal"}
-    assert set(parametric) == {"library-empty-"}  # prefix only, never also a literal
+    assert set(parametric) == {"library-start-"}  # prefix only, never also a literal
     assert violations == []
 
 

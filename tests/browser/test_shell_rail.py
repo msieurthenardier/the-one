@@ -187,7 +187,7 @@ def test_shell_geometry_at_supported_widths(
     widths = {
         "chats": LIST_W,
         "agents": LIST_W,
-        "library/knowledge": LIST_W,
+        "library": LIST_W,
         "settings/appearance": SETTINGS_NAV_W,
     }
     for route, aside_w in widths.items():
@@ -314,7 +314,7 @@ def test_settings_nav_labels_and_chat_rows_do_not_clip_at_1024(
         headers=auth_headers_for(base),
         timeout=5,
     )
-    _boot(page, base, "library/knowledge")
+    _boot(page, base, "library")
     expect(page.locator('[data-testid="knowledge-base-card"]')).to_have_count(1, timeout=8000)
     lib = page.evaluate(
         """() => {
@@ -322,14 +322,14 @@ def test_settings_nav_labels_and_chat_rows_do_not_clip_at_1024(
           const pane = document.querySelector('[data-testid="library-list"]');
           const parts = pane.querySelectorAll(
             '.ui-list-pane-header, .ui-list-pane-intro, .ui-list-pane-caption, .ui-list-pane-row');
-          const label = pane.querySelector('.ui-list-pane-row .ui-list-pane-label');
+          const label = pane.querySelector('[data-testid="knowledge-base-card"] .ui-list-pane-label');
           const s = getComputedStyle(label);
           return {asideRight: aside.right, rights: Array.from(parts).map((n) => n.getBoundingClientRect().right),
                   n: parts.length, truncated: label.scrollWidth > label.clientWidth,
                   ellipsis: s.textOverflow === 'ellipsis' && s.overflow === 'hidden'};
         }"""
     )
-    assert lib["n"] >= 6, lib  # header, intro, three captions, one row
+    assert lib["n"] >= 7, lib  # header, intro, four captions, a provider row and the KB row
     assert all(r <= lib["asideRight"] + 0.5 for r in lib["rights"]), lib
     assert lib["truncated"] and lib["ellipsis"], lib
     # Chat session rows (the Chats list, M25 F4 L4a): a very long title
@@ -441,7 +441,7 @@ def test_rail_hrefs_follow_the_router_and_restore_the_last_item(
     assert _hrefs(page) == {
         "chats": _nav.href("chats"),
         "agents": _nav.href("agents"),
-        "library": _nav.href("library/knowledge"),
+        "library": _nav.href("library"),
         "settings": _nav.href("settings/appearance"),
     }
     expect(_rail(page, "chats")).to_have_attribute("aria-current", "page")
@@ -473,7 +473,7 @@ def test_clicking_the_current_destination_resets_to_its_root(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     base = app_with_agent.base_url
-    _boot(page, base, "settings/providers")
+    _boot(page, base, "settings/tools")
     assert _rail(page, "settings").get_attribute("href") == _nav.href("settings/appearance")
     _rail(page, "settings").click()
     _nav.expect_route(page, "settings/appearance")
@@ -486,7 +486,7 @@ def test_rail_links_are_real_fragment_links_that_pass_modifier_clicks_through(
     _boot(page, base, "library/mcp")
     # Library is current (root), Settings and the rest are at their routes: real
     # fragment hrefs a middle-click can open (the interceptor ignores modifiers).
-    assert _rail(page, "library").get_attribute("href") == _nav.href("library/knowledge")
+    assert _rail(page, "library").get_attribute("href") == _nav.href("library")
     for dest in DESTS:
         assert (_rail(page, dest).get_attribute("href") or "").startswith(_nav.href(dest))
     info = page.evaluate(
@@ -505,7 +505,7 @@ def test_rail_links_are_real_fragment_links_that_pass_modifier_clicks_through(
         }"""
     )
     assert info == [False, False, False, False]
-    _nav.expect_route(page, "library/mcp")  # nothing navigated
+    _nav.expect_route(page, "library")  # nothing navigated
 
 
 # ── Icons (AC5) ─────────────────────────────────────────────────────────────

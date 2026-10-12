@@ -237,18 +237,17 @@ def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme
     _assert_screenshot(page, f"studio-with-agent-{theme}")
 
 
-# ── Tests — Admin ─────────────────────────────────────────────────────────
+# ── Tests — Settings and Library providers ───────────────────────────────
 
 
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
-    """Settings → Providers, empty state (no providers seeded)."""
+    """Settings → Appearance (the Settings root page; providers moved to Library)."""
     page.set_viewport_size(VIEWPORT)
     _nav.goto(page, app_clean, "settings")
     _set_theme(page, theme)
-    _lists.settings_nav_link(page, "providers").click()
-    expect(page.locator('[data-testid="providers-empty"]')).to_be_visible(timeout=5000)
+    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-empty-{theme}")
 
@@ -256,11 +255,10 @@ def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_with_provider(app_with_provider: SeededApp, page: Page, theme: str) -> None:
-    """Settings → Providers with one mock provider row in the table."""
+    """Library with one mock provider row in the Model providers group."""
     page.set_viewport_size(VIEWPORT)
-    _nav.goto(page, app_with_provider.base_url, "settings")
+    _nav.goto(page, app_with_provider.base_url, "library")
     _set_theme(page, theme)
-    _lists.settings_nav_link(page, "providers").click()
     expect(page.locator('[data-testid="provider-card"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-with-provider-{theme}")

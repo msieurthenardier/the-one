@@ -17,7 +17,7 @@ from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
-TITLE = ".settings-item .editor-title"
+TITLE = ".editor-title"
 
 
 def _press(page: Page, testid: str) -> None:
@@ -28,7 +28,7 @@ def _press(page: Page, testid: str) -> None:
 
 
 def _open_provider(app: SeededApp, page: Page) -> None:
-    _nav.goto_settled(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
+    _nav.goto_settled(page, app.base_url, f"library/providers/{_nav.seg(app.provider_id)}")
     expect(page.locator('[data-testid="save-provider-btn"]')).to_be_visible(timeout=8000)
 
 
@@ -52,7 +52,7 @@ def test_provider_cancel_leaves_focus_on_the_title(
 
 
 def test_provider_create_leaves_focus_on_the_new_title(app_clean: str, page: Page) -> None:
-    _nav.goto_settled(page, app_clean, "settings/providers/~new")
+    _nav.goto_settled(page, app_clean, "library/providers/~new")
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
     page.locator("#pf-type").select_option("ollama")
     page.locator("#pf-name").fill("created-provider")

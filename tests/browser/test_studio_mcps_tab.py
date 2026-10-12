@@ -321,7 +321,7 @@ def test_empty_state_when_no_sources(app_clean: str, page: Page) -> None:
     # In-app links keep their legacy form until the item-history leg converts them;
     # either form reaches Library > MCP servers (the router redirects the legacy one).
     href = link.get_attribute("href")
-    assert href in (_nav.href("library/mcp"), _nav.legacy_hash("library/mcp")), href
+    assert href in (_nav.href("library"), _nav.legacy_hash("library")), href
 
 
 # ── Test 6: Hash routing — deep-link auto-expands details ─────────────────────

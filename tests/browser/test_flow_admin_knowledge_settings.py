@@ -54,8 +54,8 @@ def test_knowledge_category_reachable_on_full_page_load(app_clean: str, page: Pa
 def test_other_categories_still_route(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "settings/appearance")
     expect(page.locator(".page-title")).to_have_text("Appearance", timeout=8000)
-    _nav.goto(page, app_clean, "settings/providers")
-    expect(page.locator(".page-title")).to_have_text("Providers", timeout=8000)
+    _nav.goto(page, app_clean, "settings/prompts")
+    expect(page.locator(".page-title")).to_have_text("Prompts", timeout=8000)
     _nav.goto(page, app_clean, "settings/tools")
     expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=8000)
     _nav.goto(page, app_clean, "settings/knowledge-indexing")

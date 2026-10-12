@@ -70,16 +70,16 @@ def test_lists_helper_library(app_clean: str, page: Page) -> None:
         "/api/connectors",
         {"name": "Team chat", "type": "discord", "config": {"enabled": False}},
     )["id"]
-    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _nav.goto_settled(page, app_clean, "library")
     expect(_lists.list_row(page, "library/knowledge", "Design docs")).to_have_count(1, timeout=8000)
     _lists.open_item(page, "library/knowledge", "Design docs")
     _nav.expect_route(page, f"library/knowledge/{_nav.seg(kb)}")
 
-    _nav.goto_settled(page, app_clean, "library/mcp")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/mcp", "files")
     _nav.expect_route(page, f"library/mcp/{_nav.seg(src)}")
 
-    _nav.goto_settled(page, app_clean, "library/connectors")
+    _nav.goto_settled(page, app_clean, "library")
     _lists.open_item(page, "library/connectors", "Team chat")
     _nav.expect_route(page, f"library/connectors/{_nav.seg(conn)}")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible()
@@ -87,32 +87,32 @@ def test_lists_helper_library(app_clean: str, page: Page) -> None:
 
     # The leg 4a helpers: the section root's empty state and the Add menu.
     _nav.set_route(page, "library/mcp")
-    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
-    for kind in ("knowledge", "mcp", "connectors"):
+    expect(_lists.library_start(page)).to_be_visible(timeout=8000)
+    for kind in ("providers", "knowledge", "mcp", "connectors"):
         _lists.library_add(page, kind)
         _nav.expect_route(page, f"library/{kind}/~new")
     with pytest.raises(ValueError, match="unknown Library kind"):
         _lists.library_add(page, "library")
 
 
-def test_lists_helper_settings(app_with_provider: SeededApp, page: Page) -> None:
+def test_lists_helper_library_providers(app_with_provider: SeededApp, page: Page) -> None:
     base = app_with_provider.base_url
     other = seed_mock_provider(base, name="mock two")
-    _nav.goto_settled(page, base, "settings/providers")
-    expect(_lists.providers_list(page)).to_be_visible(timeout=8000)
+    _nav.goto_settled(page, base, "library")
     # Both rows carry a "mock" type badge; only one is NAMED "mock".
-    expect(_lists.list_row(page, "settings/providers", "mock")).to_have_count(1, timeout=8000)
-    _lists.expect_none_selected(page, "settings/providers")
-    _lists.open_item(page, "settings/providers", "mock two")
-    _nav.expect_route(page, f"settings/providers/{_nav.seg(other)}")
-    # The editor opens in the item section below the table (leg 5b), and the
-    # name link of the open provider is the one selected row.
-    expect(_lists.settings_item(page).locator("#pf-name")).to_have_value("mock two", timeout=8000)
-    _lists.expect_selected(page, "settings/providers", "mock two")
+    expect(_lists.list_row(page, "library/providers", "mock")).to_have_count(1, timeout=8000)
+    _lists.expect_none_selected(page, "library/providers")
+    _lists.open_item(page, "library/providers", "mock two")
+    _nav.expect_route(page, f"library/providers/{_nav.seg(other)}")
+    expect(page.locator("#pf-name")).to_have_value("mock two", timeout=8000)
+    _lists.expect_selected(page, "library/providers", "mock two")
     _lists.close_item(page)
-    _nav.expect_route(page, "settings/providers")
-    _lists.expect_none_selected(page, "settings/providers")
+    _nav.expect_route(page, "library")
+    _lists.expect_none_selected(page, "library/providers")
 
+
+def test_lists_helper_settings(app_with_provider: SeededApp, page: Page) -> None:
+    base = app_with_provider.base_url
     _nav.goto_settled(page, base, "settings/tools")
     first = page.locator('[data-testid="tool-card"]').first
     expect(first).to_be_visible(timeout=8000)

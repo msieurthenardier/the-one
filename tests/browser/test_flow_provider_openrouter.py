@@ -1,9 +1,9 @@
-"""Browser flow: admin → new openrouter provider → save → edit → round-trip.
+"""Browser flow: Library → new openrouter provider → save → edit → round-trip.
 
 Covers:
 - Selecting the openrouter type pre-fills base_url.
 - Saving a new openrouter provider transitions the editor to edit mode and
-  sets the URL to #admin/providers/{id}.
+  sets the URL to #library/providers/{id}.
 - Re-opening the saved provider in edit mode round-trips name + base_url.
 - The api_key field shows the masked sentinel on re-open.
 
@@ -22,8 +22,8 @@ from playwright.sync_api import Page, expect
 @pytest.mark.browser
 def test_openrouter_type_prefills_base_url(app_clean: str, page: Page) -> None:
     """Picking openrouter type pre-fills the Base URL to openrouter.ai/api/v1."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
 
     page.locator("#pf-type").select_option("openrouter")
 
@@ -37,8 +37,8 @@ def test_openrouter_type_prefills_base_url(app_clean: str, page: Page) -> None:
 def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
     """Create an openrouter provider, save, re-open and assert all fields
     round-tripped."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
 
     # 1. Select openrouter type — triggers base_url pre-fill.
     page.locator("#pf-type").select_option("openrouter")
@@ -57,10 +57,10 @@ def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
     # 4. After save, editor transitions to edit mode: title = provider name.
     expect(page.locator(".editor-title")).to_have_text("OR Test", timeout=5000)
     current_route = _nav.current_route(page)
-    assert current_route.startswith("settings/providers/"), (
-        f"expected settings/providers/<id>, got {current_route!r}"
+    assert current_route.startswith("library/providers/"), (
+        f"expected library/providers/<id>, got {current_route!r}"
     )
-    assert current_route != "settings/providers/~new", "route must not remain create after save"
+    assert current_route != "library/providers/~new", "route must not remain create after save"
 
     # 5. Test button is present in edit mode.
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible()
@@ -79,10 +79,10 @@ def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) -> None:
     """After saving, close the editor (its breadcrumb link) and re-open the
-    provider from its table row to confirm it is persisted and round-trips on
+    provider from its list row to confirm it is persisted and round-trips on
     a second open."""
-    _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
 
     page.locator("#pf-type").select_option("openrouter")
     expect(page.locator("#pf-base-url")).to_be_visible(timeout=3000)
@@ -93,18 +93,17 @@ def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) 
     page.locator('[data-testid="save-provider-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("OR Persisted", timeout=5000)
 
-    # Close the editor: the table stays (M25 F3 leg 5b).
+    # Close the editor (back to the Library root; the list stays).
     _lists.close_item(page)
     expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
 
-    # The row is in the table, with its openrouter type badge.
-    link = _lists.list_row(page, "settings/providers", "OR Persisted")
+    # The row is in the Library list, with its openrouter type badge.
+    link = _lists.list_row(page, "library/providers", "OR Persisted")
     expect(link).to_be_visible(timeout=5000)
-    row = _lists.providers_list(page).get_by_role("listitem").filter(has=link)
-    expect(row.locator(".badge")).to_contain_text("openrouter")
+    expect(link.locator(".badge")).to_contain_text("openrouter")
 
     # Click the name to re-open it in edit mode.
-    _lists.open_item(page, "settings/providers", "OR Persisted")
+    _lists.open_item(page, "library/providers", "OR Persisted")
     expect(page.locator(".editor-title")).to_have_text("OR Persisted", timeout=5000)
 
     # Round-trip assertions.

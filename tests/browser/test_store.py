@@ -359,21 +359,28 @@ def test_request_counts_per_activation(app_with_agent: SeededApp, page: Page) ->
     _nav.wait_settled(page)
     assert (len(agents), len(providers)) == (1, 1), (agents, providers)
 
-    # Agents <-> Library never re-activates the studio module: no re-reads.
+    # Agents <-> Library never re-activates the studio module: no agents
+    # re-read. The Library pane's creation force-gets its four collections
+    # (sortie 02: providers joined as the first group), so Library reads
+    # /api/providers once; going back to Agents reads nothing.
     agents.clear()
     providers.clear()
     _nav.open_destination(page, "library")
     _nav.wait_settled(page)
     _nav.open_destination(page, "agents")
     _nav.wait_settled(page)
-    assert (len(agents), len(providers)) == (0, 0), (agents, providers)
+    assert (len(agents), len(providers)) == (0, 1), (agents, providers)
 
     # Agents -> Chats (re-activation): one of each.
+    agents.clear()
+    providers.clear()
     _nav.open_destination(page, "chats")
     _nav.wait_settled(page)
     assert (len(agents), len(providers)) == (1, 1), (agents, providers)
 
-    # Settings -> Providers: one /api/providers.
+    # Settings (Appearance, then Built-in tools): no list read at all. Providers
+    # left Settings in sortie 02, and the admin area no longer subscribes to or
+    # fetches `providers` or `agents` (they only fed the Providers tiles).
     agents.clear()
     providers.clear()
     _nav.open_destination(page, "settings")
@@ -381,10 +388,10 @@ def test_request_counts_per_activation(app_with_agent: SeededApp, page: Page) ->
         "() => document.querySelectorAll('.content-panel.active[data-destination=settings]').length"
     )
     _nav.wait_settled(page)
-    _nav.set_route(page, "settings/providers")
-    _lists.providers_list(page).wait_for()
+    _nav.set_route(page, "settings/tools")
+    _lists.settings_page_title(page).wait_for()
     _nav.wait_settled(page)
-    assert len(providers) <= 1, providers
+    assert (len(agents), len(providers)) == (0, 0), (agents, providers)
 
 
 @pytest.mark.browser
@@ -394,15 +401,6 @@ def test_cold_boot_agents_one_read_each(app_with_agent: SeededApp, page: Page) -
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
     page.locator('[data-testid="agent-item"]').first.wait_for()
     assert (len(agents), len(providers)) == (1, 1), (agents, providers)
-
-
-@pytest.mark.browser
-def test_cold_boot_providers_one_read(app_with_agent: SeededApp, page: Page) -> None:
-    providers = _counter(page, "/api/providers")
-    _nav.goto_settled(page, app_with_agent.base_url, "settings/providers")
-    _lists.providers_list(page).wait_for()
-    _nav.wait_settled(page)
-    assert len(providers) == 1, providers
 
 
 # ── AC3 -- isolation and propagation ─────────────────────────────────────
@@ -511,7 +509,7 @@ def test_provider_save_and_delete_invalidate_providers(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     base = app_with_provider.base_url
-    _nav.goto_settled(page, base, f"settings/providers/{app_with_provider.provider_id}")
+    _nav.goto_settled(page, base, f"library/providers/{app_with_provider.provider_id}")
     page.locator('[data-testid="save-provider-btn"], .save-btn').first.wait_for()
     page.evaluate(SPY)
     page.locator('[data-field="name"]').first.fill("renamed-provider")

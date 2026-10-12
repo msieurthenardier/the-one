@@ -29,7 +29,7 @@ theme-coupled render regression in the editor surfaces.
   `GET http://localhost:8485/api/providers/types` returns a list that includes
   `{"value":"mock",...}`. If it does not, dev mode is off and the test cannot proceed.
 - **A `mock`-type LLM provider exists on 8485** (agent creation dead-ends on the disabled
-  "No provider — configure in Admin" option (literal UI text) — general-tab.js:56 — when none exists). This
+  "No provider — add one in Library" option (literal UI text) — general-tab.js:56 — when none exists). This
   is a **decay-prone fixture** — seed it immediately before the run and remove it after:
   - Seed: `POST http://localhost:8485/api/providers` with body
     `{"name":"Mock (studio-agent-crud)","type":"mock","base_url":"http://localhost","config":{"models":["mock-default"]}}`
@@ -84,7 +84,7 @@ the Executor reports it as observed (a stale list is a failure, not something to
 
 ## Out of Scope
 
-- Provider configuration / the Settings › Providers surface — the mock provider is a seeded
+- Provider configuration / the Library › Model providers surface — the mock provider is a seeded
   precondition, not under test here (covered by the system/provider browser lane).
 - The other agent-editor tabs' content (Knowledge stub, MCPs, Built-in Tools) — this flow
   only drives the General tab.

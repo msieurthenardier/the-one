@@ -18,6 +18,12 @@ App.registerArea({
   // ── Hash-routing serialize/hydrate ──────────────────────────────────
   //
   // serializeState branch order (explicit):
+  //   0. _activeSection === 'library' → 'library' (the Library root, the start
+  //      page: nothing open in any group; DD1 of the library-root sortie). A
+  //      group section with nothing open also returns 'library' (the bare
+  //      section subs are never produced; DD2).
+  //   0b. _activeSection === 'providers' → 'providers/new' | 'providers/<id>'
+  //      (the providers section module's serialize(), sortie 02) | 'library'
   //   1. _activeSection === 'knowledge' → 'knowledge/new' (the create form,
   //      checked FIRST; M25 F3 L4a) | 'knowledge/{kb_id}' | 'knowledge'
   //      (Flight 6 leg 1, L1-D1 — mirrors the mcp-sources deep-link shape)
@@ -45,10 +51,17 @@ App.registerArea({
       var enc = encodeURIComponent(name);
       return enc.charAt(0) === '~' ? '%7E' + enc.slice(1) : enc;
     }
+    // The Library root (DD1): the start page, nothing open in any group.
+    if (this._activeSection === 'library') return 'library';
+    // Providers (sortie 02): the section module owns the item state, so the sub
+    // is its serialize() (null at no item -> the root).
+    if (this._activeSection === 'providers') {
+      return (this._providersSection && this._providersSection.serialize()) || 'library';
+    }
     if (this._activeSection === 'knowledge') {
       if (this._kbCreateMode) return 'knowledge/new';
       if (this._selectedKbId) return 'knowledge/' + encodeURIComponent(this._selectedKbId);
-      return 'knowledge';
+      return 'library';
     }
     // M25 F3 L4a (DD8): connectors are deep-link-aware, on the mcp-sources
     // pattern below (Mission 23 Flight 2's URL-less DD-9 trade-off is gone).
@@ -63,7 +76,7 @@ App.registerArea({
       if (this._pendingConnectorId) {
         return 'connectors/' + encodeURIComponent(this._pendingConnectorId);
       }
-      return 'connectors';
+      return 'library';
     }
     if (this._activeSection === 'mcp-sources') {
       if (this._mcpSourceFormMode === 'add') return 'mcp-sources/new';
@@ -75,7 +88,7 @@ App.registerArea({
       if (this._pendingMcpSourceId) {
         return 'mcp-sources/' + encodeURIComponent(this._pendingMcpSourceId);
       }
-      return 'mcp-sources';
+      return 'library';
     }
     // The create form (DD8). An agent hydrate closes it (hydrateState), so it
     // never coexists with a pending selection.
@@ -106,11 +119,12 @@ App.registerArea({
   // hydrateState parses sub and drives the area to exactly that sub. It is
   // called by the router (App.router, commit-sequence step 7) with the AREA-level
   // sub of the destination being shown: `agents[/...]` (Agents destination) or
-  // `knowledge|mcp-sources|connectors[/...]` (Library). After hydrate returns,
+  // `library` | `providers|knowledge|mcp-sources|connectors/{new|id}` (Library: `library`
+  // is the root; a bare group sub is the router's alias for it). After hydrate returns,
   // the router calls serializeState and `sync`s the URL (idempotent), so
   // hydrate MUST NOT write the URL itself -- hence {writeUrl: false}.
   //
-  // Section-root subs ('agents', 'knowledge', 'mcp-sources', 'connectors')
+  // Section-root subs ('agents', 'library')
   // render EXACTLY the root: any open item or create form is closed
   // (closeOpenItem). Item subs open the item through the pending-* paths.
   // M25 F3 L4a: 'knowledge/new' (the knowledge-base create form) and
@@ -157,6 +171,8 @@ App.registerArea({
     var pendingMcpSourceFormMode_local = null;
     var pendingConnectorId_local = null;
     var pendingConnectorFormMode_local = null;
+    var pendingProviderId_local = null;
+    var pendingProviderMode_local = null;
     var createRoute = false;
     var kbCreateRoute = false;
     var kbCreateWasOpen = false;
@@ -168,9 +184,21 @@ App.registerArea({
       if (idx !== -1) rest = rest.slice(0, idx);
       return rest ? decodeURIComponent(rest) : null;
     }
-    if (sub === 'knowledge') {
-      section = 'knowledge';
+    if (sub === 'library' || sub === 'providers' || sub === 'knowledge' || sub === 'connectors' || sub === 'mcp-sources') {
+      // The Library root (DD1): the start page. Closing the open item bumps
+      // editorGen, so a save resolving after a breadcrumb go cannot move the
+      // URL back to the item. (A bare section sub is the router's alias for
+      // it and never arrives; treated as the root defensively.)
+      section = 'library';
       closeOpenItem();
+    } else if (sub === 'providers/new') {
+      // Matched BEFORE the item prefix (sortie 02): never a provider whose id is "new".
+      section = 'providers';
+      pendingProviderMode_local = 'add';
+    } else if (sub && sub.indexOf('providers/') === 0) {
+      section = 'providers';
+      pendingProviderMode_local = 'edit';
+      pendingProviderId_local = firstSeg(sub.slice('providers/'.length));
     } else if (sub === 'knowledge/new') {
       // The create form (M25 F3 L4a, DD8), matched BEFORE the item prefix so
       // it never reads as a knowledge base whose id is "new". It closes the
@@ -191,9 +219,6 @@ App.registerArea({
       if (this._kbCreateMode) closeOpenItem();
       this._kbFresh = fresh;  // read once by renderKnowledgeDetailView
       this._selectedKbId = firstSeg(sub.slice('knowledge/'.length));
-    } else if (sub === 'connectors') {
-      section = 'connectors';
-      closeOpenItem();
     } else if (sub === 'connectors/new') {
       // Matched BEFORE the item prefix (M25 F3 L4a, DD8).
       section = 'connectors';
@@ -202,9 +227,6 @@ App.registerArea({
       section = 'connectors';
       pendingConnectorFormMode_local = 'edit';
       pendingConnectorId_local = firstSeg(sub.slice('connectors/'.length));
-    } else if (sub === 'mcp-sources') {
-      section = 'mcp-sources';
-      closeOpenItem();
     } else if (sub === 'mcp-sources/new') {
       section = 'mcp-sources';
       pendingMcpSourceFormMode_local = 'add';
@@ -279,6 +301,7 @@ App.registerArea({
     this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
     this._pendingConnectorId = pendingConnectorId_local;
     this._pendingConnectorFormMode = pendingConnectorFormMode_local;
+    if (this._providersSection) this._providersSection.setPending(pendingProviderMode_local, pendingProviderId_local);
     // The MCPs tab's source focus: the URL's value (or none) replaces the
     // previous one, so `#agents/x/mcps/s2` while on s1 focuses s2.
     this._pendingMcpAgentSourceId = pendingMcpAgentSourceId;
@@ -305,6 +328,9 @@ App.registerArea({
           skipSectionRender = this._tryConsumePendingConnector(true);
         }
         if (!skipSectionRender && this._closeConnectorForm) this._closeConnectorForm();
+      } else if (section === 'providers' && pendingProviderMode_local && this._providersSection) {
+        if (!fresh) skipSectionRender = this._providersSection.consume(true);
+        if (!skipSectionRender) this._providersSection.reset();
       }
     }
     // The section change (and the outgoing section's cleanup) happens HERE,
@@ -501,21 +527,25 @@ App.registerArea({
 
     // ── The Library list column (M25 F3 L4a, DD5) ───────────────────────
     //
-    // One grouped App.ui.listPane (Knowledge bases, MCP servers, Connectors)
+    // One grouped App.ui.listPane (Model providers, Knowledge bases, MCP servers, Connectors)
     // with an Add menu; it replaces the Library section nav and the three
     // tile grids. Rows are links (`#library/{section}/{id}`), so App.nav
     // routes a row click through the router's leave guard.
     //
-    // Data. The four store subscriptions (registered once, below loadAll)
+    // Data. The five store subscriptions (registered once, below loadAll)
     // live for the page: they always feed the section caches (knowledgeBases,
-    // mcpSources, connectors -- which back find*, the pending consumes and
+    // mcpSources, connectors, providersCache -- which back find*, the pending consumes and
     // the knowledge detail's cache hit) and re-attempt pending consumes, and
     // they render the list only while the pane exists. Fetch policy (DD9's
-    // freshness bound): pane creation force-gets the three collections and
+    // freshness bound): pane creation force-gets the four collections and
     // plain-gets agents; studio activate on a Library section force-gets the
-    // three; a move between Library sections fetches nothing; a mutation's
+    // four; a move between Library sections fetches nothing; a mutation's
     // callback invalidates (the editor) and then reloadLibrary(name)s.
     var LIBRARY_GROUPS = [
+      { id: 'providers', section: 'providers', route: 'providers', collection: 'providers',
+        label: 'Model providers', emptyText: 'No model providers yet.',
+        failText: 'Couldn\u2019t load model providers.', icon: 'sparkles',
+        testid: 'provider-card', prefix: 'provider:' },
       { id: 'knowledge', section: 'knowledge', route: 'knowledge', collection: 'knowledge-bases',
         label: 'Knowledge bases', emptyText: 'No knowledge bases yet.',
         failText: 'Couldn\u2019t load knowledge bases.', icon: 'database',
@@ -531,6 +561,11 @@ App.registerArea({
     ];
     // The Library start page (DD15): one block per type, in LIBRARY_GROUPS order.
     var LIBRARY_EMPTY = {
+      providers: {
+        add: 'Add model provider',
+        text: 'The connection an agent uses to reach a model: an account or a server that runs ' +
+          'models, such as Anthropic, OpenAI or Ollama. Each agent picks one in its Model section.'
+      },
       knowledge: {
         add: 'Add knowledge base',
         text: 'Folders of your documents that agents can search. The app indexes the files and ' +
@@ -555,6 +590,8 @@ App.registerArea({
       'model from one of your providers, instructions that shape how it behaves, and the tools ' +
       'and knowledge it can use. Chat with an agent from Chats, or connect it to a chat ' +
       'platform with a connector.';
+    var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'anthropic-plan', 'mock', 'openrouter'];
+    var providersCache = null;  // the providers Library cache (store-fed); null until first load
     var libraryList = null;     // the Library App.ui.listPane while on Library
     var libraryAddMenu = null;  // its title-row Add menu (App.ui.menu)
     var libraryRendered = false; // the gated first setItems has run
@@ -562,8 +599,34 @@ App.registerArea({
     var libraryPaneSettled = {}; // collection -> this pane's get settled
     var libraryPaneFailed = {};  // collection -> this pane's get failed
 
+    // The Model providers group's detail pane (sortie 02, DD4): a section
+    // module that reaches studio only through this ctx. Studio keeps two views
+    // of providers, both fed from App.store's `providers` collection: the
+    // Agents list's gated `self._allProviders` (loadAll / the gated
+    // subscription below, unchanged) and the Library cache `providersCache`
+    // (the ungated subscription below).
+    var providersSection = App.studio.providersSection.create({
+      host: function () { return sectionContentEl; },
+      getDirty: function () { return dirty; },
+      setDirty: function (b) { dirty = !!b; },
+      editorGen: function () { return editorGen; },
+      bumpEditorGen: function () { editorGen += 1; },
+      isActive: function () { return self._activeSection === 'providers'; },
+      discardOpen: function () { discardOpen_(); },
+      reloadLibrary: function (name) { return reloadLibrary(name); },
+      syncLibrarySelection: function (force) { syncLibrarySelection(force); },
+      libraryRowIndex: function (id) { return libraryRowIndex(id); },
+      focusLibraryRowNear: function (idx) { focusLibraryRowNear(idx); },
+      focusLibraryGroupStart: function (id) { focusLibraryGroupStart(id); },
+      cache: function () { return providersCache; },
+      showRoot: function () { setActiveSection('library'); }
+    });
+    self._providersSection = providersSection;
+
+    // `library` is the root pseudo-section (DD1): the start page, no group.
     function isLibrarySection(section) {
-      return section === 'knowledge' || section === 'mcp-sources' || section === 'connectors';
+      return section === 'library' || section === 'providers' || section === 'knowledge' || section === 'mcp-sources' ||
+        section === 'connectors';
     }
 
     function libraryGroupFor(section) {
@@ -574,6 +637,7 @@ App.registerArea({
     }
 
     function libraryCache(collection) {
+      if (collection === 'providers') return providersCache;
       if (collection === 'knowledge-bases') return knowledgeBases;
       if (collection === 'mcp-sources') return mcpSources;
       if (collection === 'connectors') return connectors;
@@ -582,7 +646,8 @@ App.registerArea({
 
     // Only syncLibraryCache and the lifetime subscriptions write the caches.
     function setLibraryCache(collection, list) {
-      if (collection === 'knowledge-bases') knowledgeBases = list;
+      if (collection === 'providers') providersCache = list;
+      else if (collection === 'knowledge-bases') knowledgeBases = list;
       else if (collection === 'mcp-sources') mcpSources = list;
       else if (collection === 'connectors') connectors = list;
     }
@@ -614,6 +679,8 @@ App.registerArea({
     // loads); none at a section root or on a create form.
     function librarySelection() {
       var section = self._activeSection;
+      if (section === 'library') return null; // the root: nothing selected (DD1)
+      if (section === 'providers') return providersSection.selectionId();
       if (section === 'knowledge') {
         return !kbCreateMode && self._selectedKbId ? 'knowledge:' + self._selectedKbId : null;
       }
@@ -636,15 +703,10 @@ App.registerArea({
       return null;
     }
 
-    // True at a section root: nothing open, nothing pending, no create form.
+    // True at the Library root (DD1): the `library` pseudo-section, where
+    // nothing is open or pending in any group.
     function atLibraryRoot() {
-      var section = self._activeSection;
-      if (section === 'knowledge') return !kbCreateMode && !self._selectedKbId;
-      if (section === 'mcp-sources') {
-        return !mcpSourceFormMode && !self._pendingMcpSourceFormMode;
-      }
-      if (section === 'connectors') return !connectorFormMode && !pendingConnectorFormMode;
-      return false;
+      return self._activeSection === 'library';
     }
 
     // One row. The meta is a visible span inside the <a>, so it is part of the
@@ -656,11 +718,19 @@ App.registerArea({
     // shift would push a scrolled-in group back out of view.
     function libraryItem(group, row, agents) {
       var meta = [];
+      if (group.id === 'providers') {
+        // Explicit branch: any group that is not named falls through to the
+        // connector count below (sortie 02, DD5).
+        if (agents) {
+          var pn = App.usage.providerAgents(agents, row.id);
+          meta.push(plural(pn, 'agent', 'agents'));
+        }
+      }
       if (group.id === 'mcp') {
         var tools = App.usage.mcpToolCount(row);
         meta.push(tools === null ? 'Tools not loaded' : plural(tools, 'tool', 'tools'));
       }
-      if (agents) {
+      if (agents && group.id !== 'providers') {
         var n = group.id === 'knowledge' ? App.usage.kbAgents(agents, row.id)
           : group.id === 'mcp' ? App.usage.mcpAgents(agents, row.id)
             : App.usage.connectorAgents(row).length;
@@ -676,6 +746,13 @@ App.registerArea({
       // The row testid is the group's literal (LIBRARY_GROUPS, where the
       // registry guard sees it): the grids' card testids are kept on the rows.
       item.testid = group.testid;
+      if (group.id === 'providers') {
+        // The type badge; an unknown type uses the `unknown` kind.
+        item.badges = [{
+          text: row.type || 'unknown',
+          kind: KNOWN_BADGE_TYPES.indexOf(row.type) >= 0 ? row.type : 'unknown'
+        }];
+      }
       return item;
     }
 
@@ -697,9 +774,8 @@ App.registerArea({
 
     // The one builder of the Library list (leg 3's pattern): setItems, then
     // the selection. A no-op off Library (no pane) and while the first load is
-    // gated. `scroll` (a load or a navigation) brings the selected row -- or,
-    // at a section root, the section's group -- into view; the gated first
-    // fill does too. Store notifications pass nothing.
+    // gated. `scroll` (a load or a navigation) brings the selected row into
+    // view; the gated first fill does too. Store notifications pass nothing.
     function renderLibraryList(scroll) {
       if (!libraryList || !libraryGateOpen()) return;
       var first = !libraryRendered;
@@ -714,8 +790,8 @@ App.registerArea({
     }
 
     // The selected row into view (now, and once more when the web fonts are
-    // ready: leg 3's cold-load reflow), else at a section root its group (the
-    // same re-scroll).
+    // ready: leg 3's cold-load reflow). At the Library root there is nothing to
+    // scroll to: every root is the one start page (DD2).
     function scrollLibrary() {
       var pane = libraryList;
       if (!pane || !libraryRendered) return;
@@ -724,19 +800,6 @@ App.registerArea({
         if (document.fonts && document.fonts.ready) {
           document.fonts.ready.then(function () {
             if (libraryList === pane && librarySelection()) pane.scrollToSelected();
-          });
-        }
-        return;
-      }
-      if (atLibraryRoot()) {
-        var group = libraryGroupFor(self._activeSection);
-        if (!group) return;
-        pane.scrollToGroup(group.id);
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(function () {
-            if (libraryList === pane && atLibraryRoot() && libraryGroupFor(self._activeSection) === group) {
-              pane.scrollToGroup(group.id);
-            }
           });
         }
       }
@@ -751,7 +814,7 @@ App.registerArea({
     }
     self._syncLibrarySelection = syncLibrarySelection;
 
-    // Load the three Library collections for this pane (`force`: pane
+    // Load the four Library collections for this pane (`force`: pane
     // creation, studio activate) and the agents list (a plain get: it reuses
     // the cache Agents loaded). A failed get with no last-good value marks its
     // group "Couldn't load"; one with a value keeps the stale rows.
@@ -807,6 +870,7 @@ App.registerArea({
     }
 
     function libraryCreateOpen(route) {
+      if (route === 'providers') return providersSection.createOpen();
       if (route === 'knowledge') return self._activeSection === 'knowledge' && kbCreateMode;
       if (route === 'mcp') return self._activeSection === 'mcp-sources' && mcpSourceFormMode === 'add';
       if (route === 'connectors') return self._activeSection === 'connectors' && connectorFormMode === 'add';
@@ -814,6 +878,7 @@ App.registerArea({
     }
 
     function focusLibraryCreate(route) {
+      if (route === 'providers') { providersSection.focusCreate(); return; }
       var sel = route === 'knowledge' ? '[data-testid="kb-create-name-input"]' : '[data-field="name"]';
       var field = sectionContentEl.querySelector(sel);
       if (field) field.focus();
@@ -836,6 +901,8 @@ App.registerArea({
         // hidden: the popup opens toward the start edge so it stays inside.
         align: 'end',
         items: [
+          { label: 'Model provider', testid: 'library-add-provider',
+            onSelect: function () { goLibraryCreate('providers', libraryAddMenu && libraryAddMenu.trigger); } },
           { label: 'Knowledge base', testid: 'library-add-knowledge',
             onSelect: function () { goLibraryCreate('knowledge', libraryAddMenu && libraryAddMenu.trigger); } },
           { label: 'MCP server', testid: 'library-add-mcp',
@@ -927,7 +994,7 @@ App.registerArea({
     // The detail pane at a section root: a pane-size empty state whose action
     // opens that section's create form. Only built at a root (never while a
     // deep-link id is pending, so a cold item link never flashes it).
-    // DD11: a section root with no editor open has one visually hidden page
+    // DD11: a section root with no editor open has one visible page
     // `h1` ("Agents" / "Library"). It lives and dies with the root state: the
     // Library root's is built here beside the empty state (every section
     // render starts by clearing sectionContentEl); the Agents root's is
@@ -941,9 +1008,8 @@ App.registerArea({
       return h;
     }
 
-    function renderLibraryEmpty(section) {
-      var group = libraryGroupFor(section);
-      if (!group) return;
+    // The Library start page (the `library` root, DD1/DD6): one card per group.
+    function renderLibraryEmpty() {
       var el = App.ui.util.el;
       sectionContentEl.appendChild(buildRootHeading('Library'));
       var blocks = LIBRARY_GROUPS.map(function (g) {
@@ -958,14 +1024,14 @@ App.registerArea({
             variant: 'secondary',
             icon: 'plus',
             label: copy.add,
-            testid: 'library-empty-' + g.id + '-add',
+            testid: 'library-start-' + g.id + '-add',
             onClick: function (e) { goLibraryCreate(g.route, e && e.currentTarget); }
           })
         ]);
       });
       var page = el('div', { className: 'start-page' },
         [el('p', { className: 'start-page-text', text: LIBRARY_INTRO })].concat(blocks));
-      page.setAttribute('data-testid', 'library-empty-' + group.id);
+      page.setAttribute('data-testid', 'library-start');
       sectionContentEl.appendChild(page);
     }
 
@@ -1032,7 +1098,7 @@ App.registerArea({
         // branch.
         clearKnowledgePoll();
         knowledgeDetailHandle = null;
-        renderLibraryEmpty('knowledge');
+        renderLibraryEmpty();
       }
       syncLibrarySelection(false);
     }
@@ -1054,7 +1120,7 @@ App.registerArea({
         onDirtyChange: function (d) { if (kbGen === editorGen) dirty = d; },
         onCancel: function () {
           discardOpen_();
-          App.router.go(App.router.href({ destination: 'library', section: 'knowledge' }),
+          App.router.go(App.router.href({ destination: 'library' }),
             { replace: true, bypassGuard: true });
           focusLibraryGroupStart('knowledge');
         },
@@ -1092,7 +1158,7 @@ App.registerArea({
     // land on a dead KB. No leave guard -- the user did not ask to leave.
     function leaveKnowledgeDetail_() {
       discardOpen_(); // the detail is for a gone item: tear it down first
-      App.router.go(App.router.href({ destination: 'library', section: 'knowledge' }),
+      App.router.go(App.router.href({ destination: 'library' }),
         { replace: true, bypassGuard: true });
     }
 
@@ -1130,9 +1196,7 @@ App.registerArea({
           // detail LOAD that finds the item gone) and show the root.
           if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
           self._selectedKbId = null;
-          App.router.sync('studio', 'knowledge');
-          renderKnowledgeSection();
-          syncLibrarySelection(true);
+          setActiveSection('library');
         });
     }
 
@@ -1208,9 +1272,7 @@ App.registerArea({
         if (err && err.gone) {
           // Cached KB deleted meanwhile: same heal as a 404 on the detail GET.
           self._selectedKbId = null;
-          App.router.sync('studio', 'knowledge');
-          renderKnowledgeSection();
-          syncLibrarySelection(true);
+          setActiveSection('library');
           return;
         }
         sectionContentEl.innerHTML = '<div class="admin-loading">Failed to load knowledge base.</div>';
@@ -1328,7 +1390,7 @@ App.registerArea({
               // first row, else Add. Edit-mode Cancel reverts the form
               // in-place and never reaches this callback.
               discardOpen_();
-              App.router.go(App.router.href({ destination: 'library', section: 'mcp' }),
+              App.router.go(App.router.href({ destination: 'library' }),
                 { replace: true, bypassGuard: true });
               focusLibraryGroupStart('mcp-sources');
             },
@@ -1396,7 +1458,7 @@ App.registerArea({
               // section root; focus follows the reload.
               var rowIndex = libraryRowIndex('mcp:' + (editingMcpSource ? editingMcpSource.id : ''));
               discardOpen_();
-              App.router.go(App.router.href({ destination: 'library', section: 'mcp' }),
+              App.router.go(App.router.href({ destination: 'library' }),
                 { replace: true, bypassGuard: true });
               reloadLibrary('mcp-sources').then(function () { focusLibraryRowNear(rowIndex); });
             },
@@ -1418,7 +1480,7 @@ App.registerArea({
         syncLibrarySelection(false);
         return;
       }
-      renderLibraryEmpty('mcp-sources');
+      renderLibraryEmpty();
       syncLibrarySelection(false);
     }
 
@@ -1520,7 +1582,7 @@ App.registerArea({
                   return;
                 }
                 discardOpen_();
-                App.router.go(App.router.href({ destination: 'library', section: 'connectors' }),
+                App.router.go(App.router.href({ destination: 'library' }),
                   { replace: true, bypassGuard: true });
                 focusLibraryGroupStart('connectors');
               },
@@ -1546,7 +1608,7 @@ App.registerArea({
               onDeleteSuccess: function () {
                 var rowIndex = libraryRowIndex('connector:' + (editingConnector ? editingConnector.id : ''));
                 discardOpen_();
-                App.router.go(App.router.href({ destination: 'library', section: 'connectors' }),
+                App.router.go(App.router.href({ destination: 'library' }),
                   { replace: true, bypassGuard: true });
                 reloadLibrary('connectors').then(function () { focusLibraryRowNear(rowIndex); });
               },
@@ -1563,7 +1625,7 @@ App.registerArea({
         syncLibrarySelection(false);
         return;
       }
-      renderLibraryEmpty('connectors');
+      renderLibraryEmpty();
       syncLibrarySelection(false);
     }
 
@@ -1636,10 +1698,15 @@ App.registerArea({
         heal: function () {
           self._pendingMcpSourceId = null;
           self._pendingMcpSourceFormMode = null;
-          App.router.sync('studio', 'mcp-sources');
-          renderMcpSourcesSection();
-          syncLibrarySelection(true);
+          setActiveSection('library');
         }
+      },
+      'providers': {
+        collection: 'providers',
+        mode: function () { return providersSection.pendingMode(); },
+        id: function () { return providersSection.pendingId(); },
+        consume: providersSection.consume,
+        heal: providersSection.heal
       },
       'connectors': {
         collection: 'connectors',
@@ -1649,9 +1716,7 @@ App.registerArea({
         heal: function () {
           pendingConnectorId = null;
           pendingConnectorFormMode = null;
-          App.router.sync('studio', 'connectors');
-          renderConnectorsSection();
-          syncLibrarySelection(true);
+          setActiveSection('library');
         }
       }
     };
@@ -1716,6 +1781,7 @@ App.registerArea({
       editingMcpSource = null;
       connectorFormMode = null;
       editingConnector = null;
+      providersSection.reset();
       kbCreateMode = false;
       clearKnowledgePoll();
       knowledgeDetailHandle = null;
@@ -1762,7 +1828,9 @@ App.registerArea({
     }
 
     function focusClosedItem_(closing) {
-      if (self._activeSection !== closing.section) return; // the user moved on
+      // The user moved on: an Agents close must still be on Agents, a Library
+      // close at the Library root (DD1) with nothing open.
+      if (self._activeSection !== (closing.section === 'agents' ? 'agents' : 'library')) return;
       if (closing.section === 'agents') {
         if (!agentsList || self._selectedAgent || self._createMode) return;
         focusAgentRowNear(closing.rowId != null ? visibleIndexOf(closing.rowId) : 0);
@@ -1816,10 +1884,14 @@ App.registerArea({
         editingConnector = null;
         dirty = false;
       }
+      if (prevSection === 'providers' && section !== 'providers') {
+        providersSection.reset();
+        dirty = false;
+      }
       // Flight 6 leg 1 (L1-D2 site 1): leaving Knowledge for another
       // section stops the 5-second status poll AND clears the detail-view
       // selection (and the create form, M25 F3 L4a), so re-entering
-      // #library/knowledge mounts the section root — the
+      // an item mounts clean -- the
       // same contract the two blocks above already have. F6 L5 (L5-D3)
       // adds the dirty-mirror reset the mcp-sources/connectors blocks
       // above already carry — this site is reached directly by callers
@@ -1849,7 +1921,13 @@ App.registerArea({
       }
       agentsListHost.classList.toggle('is-hidden', section !== 'agents');
       libraryListHost.classList.toggle('is-hidden', section === 'agents');
-      if (section === 'knowledge') {
+      if (section === 'library') {
+        sectionContentEl.innerHTML = '';
+        renderLibraryEmpty();
+        syncLibrarySelection(false);
+      } else if (section === 'providers') {
+        providersSection.render();
+      } else if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
         renderMcpSourcesSection();
@@ -2312,11 +2390,18 @@ App.registerArea({
       self._allProviders = list;
       renderAgentList(); // the provider dots and names
     });
-    // The Library list's four subscriptions (M25 F3 L4a), registered once for
+    // The Library list's five subscriptions (M25 F3 L4a; providers, sortie 02), registered once for
     // the page's lifetime: they always feed the section caches and re-attempt
     // a pending MCP / connector consume (an intent whose item was not cached),
     // and they render the list only while the Library pane exists. A bare
     // notification never scrolls the list.
+    App.store.subscribe('providers', function (list) {
+      providersCache = list;
+      if (self._activeSection === 'providers' && providersSection.pendingMode() === 'edit') {
+        providersSection.consume(true);
+      }
+      renderLibraryList();
+    });
     App.store.subscribe('knowledge-bases', function (list) {
       knowledgeBases = list;
       renderLibraryList();
@@ -3104,7 +3189,7 @@ App.registerArea({
       var modelId = selectEl.value;
       var caps = modelCapsBy[modelId];
       var ctx = modelCtxBy[modelId];
-      var renderer = window.App.admin && window.App.admin.renderCapabilityChips;
+      var renderer = window.App.studio && window.App.studio.renderCapabilityChips;
       var capsHtml = (modelId && renderer && caps !== undefined && caps !== null)
         ? renderer(caps)
         : '';
@@ -3985,7 +4070,7 @@ App.registerArea({
         showLoadAllError(err, { nonDestructive: true });
       });
       // Studio activate on a Library section (the Library pane survived a trip
-      // to Chats or Settings): force-get the three Library collections, so a
+      // to Chats or Settings): force-get the four Library collections, so a
       // mutation made elsewhere shows within DD9's freshness bound (M25 F3
       // L4a; this replaces the MCP-only refetch). The hydrate that follows
       // joins these requests.
@@ -4013,6 +4098,7 @@ App.registerArea({
       return (self._activeSection === 'agents' && !!(self._selectedAgent || self._createMode)) ||
         (self._activeSection === 'mcp-sources' && !!mcpSourceFormMode) ||
         (self._activeSection === 'connectors' && !!connectorFormMode) ||
+        (self._activeSection === 'providers' && providersSection.editorOpen()) ||
         (self._activeSection === 'knowledge' && !!(self._selectedKbId || kbCreateMode));
     }
     App.nav.registerSource('studio', {

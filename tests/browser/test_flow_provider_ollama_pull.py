@@ -6,7 +6,7 @@ endpoints (``/api/providers/*/models``, ``/models/status``, ``/models/pull``) ar
 stubbed with ``page.route``; the search route is stubbed only for the "loading" case and
 the size route only for the 4xx case.
 
-Falls in the ``settings`` lane (``test_flow_provider_*``).
+Falls in the ``providers`` lane (``test_flow_provider_*``).
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def server(page: Page) -> Iterator[Server]:
 
 def open_panel(page: Page, app: tuple[str, str]) -> None:
     base_url, provider_id = app
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.get_by_test_id("admin-pf-pull-select")).to_be_enabled(timeout=15000)
 
 
@@ -178,7 +178,7 @@ def test_loading_response_keeps_select_disabled_then_the_list_appears(
 
     page.route("**/api/ollama-library/search", search)
     base_url, provider_id = pull_app
-    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
+    _nav.goto(page, base_url, f"library/providers/{_nav.seg(provider_id)}")
     expect(select(page)).to_be_disabled()
     expect(select(page).locator("option")).to_have_text(
         "Loading models and sizes. The first load takes a little while…", timeout=8000

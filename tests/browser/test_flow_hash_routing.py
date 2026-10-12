@@ -1,7 +1,7 @@
 """End-to-end flow tests: hash routing with area/sub persistence.
 
 Covers the #area/sub URL format introduced in leg 04:
-- Admin sub-page persists across browser refresh (#admin/providers)
+- Settings sub-page persists across browser refresh (#settings/tools)
 - Chat session persists across browser refresh (#chat/sessions/<id>)
 - Studio agent persists across browser refresh (#studio/agents/<name>)
 - history.length invariant: sub-page navigation uses replaceState, not pushState
@@ -22,7 +22,7 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Click Admin, click Providers — URL becomes #admin/providers, persists on refresh."""
+    """Click Settings, click Built-in tools — URL becomes #settings/tools, persists on refresh."""
     base_url = app_clean
 
     # 1. Open app (lands on #chat by default).
@@ -37,22 +37,22 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     #    General page since M25 F3 leg 5a).
     expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
 
-    # 4. Click the Providers link in the Settings nav.
-    _lists.settings_nav_link(page, "providers").click()
-    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
+    # 4. Click the Built-in tools link in the Settings nav.
+    _lists.settings_nav_link(page, "tools").click()
+    expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=5000)
 
-    # 5. URL should now be #admin/providers.
-    _nav.expect_route(page, "settings/providers")
+    # 5. URL should now be #settings/tools.
+    _nav.expect_route(page, "settings/tools")
 
     # 6. Refresh the page.
     page.reload()
 
-    # 7. After reload, app should land on admin/providers sub-page.
+    # 7. After reload, app should land on the tools sub-page.
     # Wait for admin area to activate.
-    expect(page.locator(".page-title")).to_have_text("Providers", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=8000)
 
-    # The Providers link is the Settings nav's selected item (aria-current="page").
-    _lists.expect_settings_selected(page, "providers")
+    # The Built-in tools link is the Settings nav's selected item (aria-current="page").
+    _lists.expect_settings_selected(page, "tools")
 
 
 @pytest.mark.browser
@@ -147,14 +147,14 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
 
     # M25 F3 L4a: the section root is the Knowledge empty state beside the list.
-    root = page.locator('[data-testid="library-empty-knowledge"]')
+    root = page.locator('[data-testid="library-start"]')
     expect(root).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/knowledge")
+    _nav.expect_route(page, "library")
 
     page.reload()
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
-    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible(timeout=5000)
-    _nav.expect_route(page, "library/knowledge")
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -167,13 +167,13 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     """
     base_url = app_clean
 
-    _nav.goto(page, base_url, "library/mcp")
-    expect(page.locator('[data-testid="library-empty-mcp"]')).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/mcp")
+    _nav.goto(page, base_url, "library")
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
 
     page.reload()
-    expect(page.locator('[data-testid="library-empty-mcp"]')).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/mcp")
+    expect(page.locator('[data-testid="library-start"]')).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library")
 
 
 @pytest.mark.browser
@@ -188,9 +188,9 @@ def test_hash_routing_settings_nav_pushes_history(app_clean: str, page: Page) ->
     Sequence:
       - Start on chats (baseline history.length = N)
       - Click rail Settings   (push, N+1)
-      - Click Providers          (push, N+2)
+      - Click Built-in tools     (push, N+2)
       - Click Appearance         (push, N+3)
-      - Back, Back, Back         -> providers, appearance, then chats
+      - Back, Back, Back         -> tools, appearance, then chats
     """
     base_url = app_clean
 
@@ -202,8 +202,8 @@ def test_hash_routing_settings_nav_pushes_history(app_clean: str, page: Page) ->
     expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
     assert page.evaluate("history.length") == baseline + 1
 
-    _lists.settings_nav_link(page, "providers").click()
-    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
+    _lists.settings_nav_link(page, "tools").click()
+    expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=5000)
     assert page.evaluate("history.length") == baseline + 2
 
     _lists.settings_nav_link(page, "appearance").click()
@@ -211,8 +211,8 @@ def test_hash_routing_settings_nav_pushes_history(app_clean: str, page: Page) ->
     assert page.evaluate("history.length") == baseline + 3
 
     page.go_back()
-    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
-    _nav.expect_route(page, "settings/providers")
+    expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=5000)
+    _nav.expect_route(page, "settings/tools")
     page.go_back()
     expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
     _nav.expect_route(page, "settings/appearance")

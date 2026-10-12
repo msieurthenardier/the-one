@@ -20,10 +20,10 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, agents, library, mcp, routing, settings, contracts and shared.
+# are chats, agents, library, mcp, routing, settings, providers, contracts and shared.
 # Aliases (kept for muscle memory and older docs):
-#   chat = chats, studio = agents + library + mcp, system = settings.
-# chats/agents/library/mcp/settings are basename-glob buckets or explicit file
+#   chat = chats, studio = agents + library + mcp, system = settings + providers.
+# chats/agents/library/mcp/settings/providers are basename-glob buckets or explicit file
 # lists over tests/browser/ (`agents` is the old studio globs MINUS the library
 # and mcp lists). `routing` (M26 F1 L4) holds the router / leave-guard / client
 # store files that used to be the long pole of `shared`. `contracts` (M25 F4 L1,
@@ -51,8 +51,8 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|agents|library|mcp|routing|settings|contracts|shared"
-CANON_LANES=(chats agents library mcp routing settings contracts shared)
+LANE_LIST="chats|agents|library|mcp|routing|settings|providers|contracts|shared"
+CANON_LANES=(chats agents library mcp routing settings providers contracts shared)
 
 # Per-lane wall-clock budgets in seconds (measured in the M26 F1 L4 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
@@ -62,7 +62,8 @@ declare -A BUDGET=(
   [library]=300
   [mcp]=360
   [routing]=600
-  [settings]=540
+  [settings]=300
+  [providers]=300
   [contracts]=270
   [shared]=300
 )
@@ -184,9 +185,11 @@ studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*
             'test_flow_agents_*' 'test_agents_*')
 # Routing (M26 F1 L4): the router, leave guard and client store files.
 routing_pat=('test_router_*' 'test_nav_guard*' 'test_store*')
-# Settings: the admin pages and the provider editor, plus the Settings item
-# pages' list/detail file (M25 F3 L5b).
-settings_pat=('test_flow_admin_*' 'test_flow_provider_*' 'test_flow_settings_*')
+# Settings: the admin pages, plus the Settings item pages' list/detail file
+# (M25 F3 L5b).
+settings_pat=('test_flow_admin_*' 'test_flow_settings_*')
+# Providers (sortie 02): the provider editor and the Library provider group.
+providers_pat=('test_flow_provider_*')
 # Contracts: the `App.ui` control-library contract files (M25 F4 L1,
 # squawk 0117). No other lane's glob matches `test_ui_*`.
 contracts_pat=('test_ui_*')
@@ -206,7 +209,9 @@ resolve_lane() {
     library)       mapfile -t lane_files < <(expand_lane "${library_pat[@]}" | sort -u) ;;
     mcp)           mapfile -t lane_files < <(expand_lane "${mcp_pat[@]}" | sort -u) ;;
     routing)       mapfile -t lane_files < <(expand_lane "${routing_pat[@]}" | sort -u) ;;
-    settings|system) mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" | sort -u) ;;
+    settings)      mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" | sort -u) ;;
+    providers)     mapfile -t lane_files < <(expand_lane "${providers_pat[@]}" | sort -u) ;;
+    system)        mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" "${providers_pat[@]}" | sort -u) ;;
     studio)        mapfile -t lane_files < <(expand_lane "${studio_pat[@]}" | sort -u) ;;
     contracts)     mapfile -t lane_files < <(expand_lane "${contracts_pat[@]}" | sort -u) ;;
     shared)
@@ -216,7 +221,7 @@ resolve_lane() {
       local _assigned _all f
       mapfile -t _assigned < <(
         expand_lane "${chats_pat[@]}" "${studio_pat[@]}" "${routing_pat[@]}" \
-                    "${settings_pat[@]}" "${contracts_pat[@]}" \
+                    "${settings_pat[@]}" "${providers_pat[@]}" "${contracts_pat[@]}" \
                     'test_visual_snapshots.py' | sort -u)
       mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)
       mapfile -t lane_files < <(comm -23 \

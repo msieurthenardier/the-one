@@ -27,7 +27,6 @@
     { section: 'date-and-time', label: 'Date and time', group: 'General', devOnly: false },
     { section: 'prompts', label: 'Prompts', group: 'General', devOnly: false },
     { section: 'encryption', label: 'Encryption', group: 'General', devOnly: false },
-    { section: 'providers', label: 'Providers', group: 'Models', devOnly: false },
     { section: 'tools', label: 'Built-in tools', group: 'Defaults for agents', devOnly: false },
     { section: 'knowledge-indexing', label: 'Knowledge indexing', group: 'Defaults for agents', devOnly: false },
     { section: 'design-language', label: 'Design language', group: 'Developer', devOnly: true }
