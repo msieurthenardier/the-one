@@ -60,3 +60,4 @@ Resolution: all applied. DD11 rewritten as "pin by the resolved type". Flight Di
   - **Feature idea for the debrief:** on a plan provider, the agent editor's default model is the first listed (`claude-haiku-5-5`), which the plan refuses; a new agent left on the default fails until its model is changed. A plan-aware default would be new behaviour (a sortie), not a fix.
 
 **Status**: completed (leg 2).
+- 2026-10-12: flight landed. Branch pushed; PR #271 opened ready for review (both legs complete). [COMPLETE:flight]
