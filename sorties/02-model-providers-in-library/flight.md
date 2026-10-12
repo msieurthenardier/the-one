@@ -1,6 +1,6 @@
 # Sortie: Model providers in Library
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -310,7 +310,7 @@ Settings still works unchanged through `host: 'settings'`.
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [ ] Code merged (PR open; merge is the operator's call)
 - [x] Tests passing (`make test-unit`; `make gate` with `THE_ONE_TEST_NETNS=1` and `THE_ONE_REQUIRE_WEBKIT=1`)
 - [x] Documentation updated (`agents.md`, `CLAUDE.md`, `docs/ui-testid-registry.md`, `docs/ui-control-inventory.md`, re-authored behavior specs)
 

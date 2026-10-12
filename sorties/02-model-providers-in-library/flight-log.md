@@ -3,7 +3,7 @@
 **Flight**: [Model providers in Library](flight.md)
 
 ## Summary
-Sortie 02, **ready** (created and approved 2026-10-11). Charter agreed with the operator: group label "Model providers", route slug `providers`, Library list rows (the Settings tile grid retires), old `#settings/providers` links dropped (no redirect), nothing provider-related left in Settings.
+Sortie 02, **landed** 2026-10-11 (`f88b5a0`; both legs completed; flight review passed in 3 cycles: the cycle-2 deep review caught a stale provider save/delete race, fixed with falsified tests). Squawks logged: 0187 (agent-rules focus test flake, deferred), 0188 (plan re-auth copy names "Administration", open). Debrief pending (`/mission-control:flight-debrief sortie 02`). Charter agreed with the operator: group label "Model providers", route slug `providers`, Library list rows (the Settings tile grid retires), old `#settings/providers` links dropped (no redirect), nothing provider-related left in Settings.
 
 ---
 
@@ -146,3 +146,4 @@ Cycle-1 findings confirmed resolved against the code. New: `hydrateState('librar
 - Falsification: with `stale()` reduced to the old `gen !== editorGen()` check, all three new tests FAILED (URL moved back to provider A / dirty cleared / B torn down); restored, all pass.
 - Verification: `make test-unit` 5953 passed, 12 skipped; ruff check and format clean; providers lane 102 passed; library lane 50 passed; routing lane 186 passed.
 - 2026-10-11: review cycle 3 (Sonnet): `[HANDOFF:confirmed]`, no issues. The guard covers every post-async callback, and the create-to-edit re-mount bumps `mountToken` only after its own stale check, so the create flow and the plan auto sign-in are intact. Gate note: the full nine-lane `--parallel 3` gate (rc=0, 928 s) predates fix rounds 1-2. After them, unit plus the providers, library and routing lanes were re-run green (by the fix Developer and the cycle-3 Reviewer). Fix rounds 1-2 touched only `providers-section.js`, provider tests, a `studio.js` comment, two unused `admin.js` locals and docs, all of which those lanes cover. Accepted without a second full gate. Both legs → completed. Commit Developer spawned.
+- 2026-10-11: `[COMPLETE:flight]`. Phase 3 checks: all legs completed, the flight log covers both legs, docs updated in-flight (`CLAUDE.md`, `agents.md`, `docs/ui-testid-registry.md`, `docs/ui-control-inventory.md`, behavior specs). Status → landed. Draft PR opened, then marked ready (landed).
