@@ -32,6 +32,7 @@ class LLMProviderConfig(BaseModel):
         "mock",
         "openrouter",
         "anthropic-plan",
+        "anthropic-plan-token",
     ]
     base_url: str
     api_key: str | None = None

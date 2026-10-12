@@ -32,4 +32,4 @@ def test_badge_kinds_match_css_modifiers() -> None:
 
 
 def test_badge_kind_count() -> None:
-    assert len(_factory_kinds()) == 15
+    assert len(_factory_kinds()) == 16

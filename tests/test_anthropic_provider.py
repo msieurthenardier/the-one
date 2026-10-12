@@ -1559,3 +1559,217 @@ async def test_stream_typeerror_unrelated_reraised(monkeypatch):
 
     assert ei.value is type_err
     assert len(rec.calls) == 1  # no retry
+
+
+# --------------------------------------------------------------------------
+# Sortie 03: anthropic-plan-token provider + plan error translation (DD1, DD10)
+# --------------------------------------------------------------------------
+
+import httpx  # noqa: E402
+
+_SYNTH_TOKEN = "sk-ant-oat01-test-synthetic"
+
+
+def _status_error(cls, status: int, body: Any, message: str = "boom"):
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return cls(message, response=httpx.Response(status, request=request), body=body)
+
+
+def _bare_429():
+    return _status_error(
+        anthropic.RateLimitError,
+        429,
+        {"type": "error", "error": {"type": "rate_limit_error", "message": "Error"}},
+    )
+
+
+def _token_provider(monkeypatch, token: str | None = _SYNTH_TOKEN, **kwargs):
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanTokenProvider
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    return AnthropicPlanTokenProvider(model="claude-test", access_token=token, **kwargs)
+
+
+def test_token_provider_registry_and_bearer_mode(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-must-not-leak")
+    from the_one.llm import get_provider
+    from the_one.llm.anthropic_plan_provider import (
+        AnthropicPlanProvider,
+        AnthropicPlanTokenProvider,
+    )
+
+    prov = get_provider("anthropic-plan-token", model="claude-test", access_token=_SYNTH_TOKEN)
+    assert isinstance(prov, AnthropicPlanTokenProvider)
+    assert isinstance(prov, AnthropicPlanProvider)
+    assert prov.name == "anthropic-plan-token"
+    assert prov.client.auth_token == _SYNTH_TOKEN
+    assert prov.client.api_key is None
+    assert prov.client.default_headers.get("anthropic-beta") == "oauth-2025-04-20"
+    assert "x-api-key" not in {k.lower() for k in prov.client.auth_headers}
+
+
+async def test_token_provider_never_consults_credential_source(monkeypatch):
+    prov = _token_provider(monkeypatch, provider_config_id="p1")
+
+    def _boom(_pid):
+        raise AssertionError("token type must not consult plan_credentials")
+
+    monkeypatch.setattr("the_one.llm.plan_credentials.get_credential_source", _boom)
+    await prov._before_request()
+
+
+@pytest.mark.parametrize("token", [None, ""])
+async def test_token_provider_missing_token_raises_before_http(monkeypatch, token):
+    from the_one.llm.anthropic_plan_provider import PlanTokenMissingError
+
+    prov = _token_provider(monkeypatch, token=token)
+    rec = _CreateRecorder()
+    monkeypatch.setattr(prov.client.messages, "create", rec)
+    with pytest.raises(PlanTokenMissingError, match="claude setup-token"):
+        await prov.complete(_user_msg())
+    assert rec.calls == []
+    with pytest.raises(PlanTokenMissingError):
+        [c async for c in prov.stream(_user_msg())]
+
+
+def test_plan_error_classes_are_plain_exceptions():
+    from the_one.llm.anthropic_plan_provider import (
+        PlanRequestRefusedError,
+        PlanTokenMissingError,
+        PlanTokenRejectedError,
+    )
+
+    for cls in (PlanTokenMissingError, PlanTokenRejectedError, PlanRequestRefusedError):
+        assert issubclass(cls, Exception)
+        assert not issubclass(cls, anthropic.APIStatusError)
+
+
+async def test_token_401_translated_in_complete_and_stream(monkeypatch):
+    from the_one.llm.anthropic_plan_provider import PlanTokenRejectedError
+
+    err = _status_error(anthropic.AuthenticationError, 401, {"error": {"message": "invalid"}})
+    prov = _token_provider(monkeypatch)
+    monkeypatch.setattr(prov.client.messages, "create", _CreateRecorder([err]))
+    with pytest.raises(PlanTokenRejectedError, match="claude setup-token") as ei:
+        await prov.complete(_user_msg())
+    assert ei.value.__cause__ is err
+
+    prov = _token_provider(monkeypatch)
+    rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=err)])
+    monkeypatch.setattr(prov.client.messages, "stream", rec)
+    with pytest.raises(PlanTokenRejectedError):
+        [c async for c in prov.stream(_user_msg())]
+
+
+async def test_token_403_passes_through(monkeypatch):
+    err = _status_error(anthropic.PermissionDeniedError, 403, {"error": {"message": "nope"}})
+    prov = _token_provider(monkeypatch)
+    monkeypatch.setattr(prov.client.messages, "create", _CreateRecorder([err]))
+    with pytest.raises(anthropic.PermissionDeniedError):
+        await prov.complete(_user_msg())
+
+
+@pytest.mark.parametrize("kind", ["oauth", "token"])
+async def test_bare_error_429_translated_for_both_plan_types(monkeypatch, kind):
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider, PlanRequestRefusedError
+
+    if kind == "oauth":
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        prov = AnthropicPlanProvider(model="claude-test", access_token="oauth-tok")
+    else:
+        prov = _token_provider(monkeypatch)
+    err = _bare_429()
+    monkeypatch.setattr(prov.client.messages, "create", _CreateRecorder([err]))
+    with pytest.raises(PlanRequestRefusedError) as ei:
+        await prov.complete(_user_msg())
+    text = str(ei.value)
+    assert text.startswith("Your Claude plan didn't allow this request to claude-test.")
+    assert "older Haiku models are the most likely to work" in text
+    assert ei.value.__cause__ is err
+
+    rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=_bare_429())])
+    monkeypatch.setattr(prov.client.messages, "stream", rec)
+    with pytest.raises(PlanRequestRefusedError):
+        [c async for c in prov.stream(_user_msg())]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": {"type": "rate_limit_error", "message": "Rate limit exceeded"}},
+        "Error",
+        None,
+        {"error": "Error"},
+        {"message": "Error"},
+    ],
+)
+async def test_other_429_bodies_pass_through(monkeypatch, body):
+    prov = _token_provider(monkeypatch)
+    err = _status_error(anthropic.RateLimitError, 429, body)
+    monkeypatch.setattr(prov.client.messages, "create", _CreateRecorder([err]))
+    with pytest.raises(anthropic.RateLimitError) as ei:
+        await prov.complete(_user_msg())
+    assert ei.value is err
+
+
+class _MidStreamFailCM(_StreamCM):
+    """Yields one text chunk, then raises the supplied error."""
+
+    def __init__(self, error: BaseException) -> None:
+        super().__init__(["partial"], None)
+        self._error = error
+
+    @property
+    def text_stream(self):
+        error = self._error
+
+        async def _gen():
+            yield "partial"
+            raise error
+
+        return _gen()
+
+
+async def test_429_after_first_chunk_is_not_translated(monkeypatch):
+    prov = _token_provider(monkeypatch)
+    err = _bare_429()
+    rec = _StreamRecorder([lambda: _MidStreamFailCM(err)])
+    monkeypatch.setattr(prov.client.messages, "stream", rec)
+    got = []
+    with pytest.raises(anthropic.RateLimitError):
+        async for chunk in prov.stream(_user_msg()):
+            got.append(chunk)
+    assert got and got[0].content == "partial"
+
+
+async def test_stream_wrapper_aclose_closes_inner_generator(monkeypatch):
+    closed: list[bool] = []
+
+    async def _inner(self, *a, **k):
+        try:
+            yield "one"
+            yield "two"
+        finally:
+            closed.append(True)
+
+    from the_one.llm.anthropic_provider import AnthropicProvider as _Parent
+
+    monkeypatch.setattr(_Parent, "stream", _inner)
+    prov = _token_provider(monkeypatch)
+    gen = prov.stream(_user_msg())
+    assert await gen.__anext__() == "one"
+    await gen.aclose()
+    assert closed == [True]
+
+
+def test_plan_wrappers_keep_parent_signature():
+    import inspect
+
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    for name in ("complete", "stream"):
+        mine = inspect.signature(getattr(AnthropicPlanProvider, name))
+        parent = inspect.signature(getattr(AnthropicProvider, name))
+        assert list(mine.parameters) == list(parent.parameters)
+        assert inspect.isasyncgenfunction(AnthropicPlanProvider.stream)

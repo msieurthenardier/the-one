@@ -160,6 +160,7 @@
        kin to but distinct from the purple API-key badge. Dark ink clears
        body AA (5.76:1) in both themes. */
     --badge-anthropic-plan: #cc785c;
+    --badge-anthropic-plan-token: #cc785c;
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
@@ -186,6 +187,7 @@
     --badge-ink-openai: #101114;
     --badge-ink-anthropic: #ffffff;
     --badge-ink-anthropic-plan: #101114;
+    --badge-ink-anthropic-plan-token: #101114;
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
@@ -311,6 +313,7 @@
     /* anthropic-plan — brand-stable terracotta, same hex as dark (see the
        dark block's rationale comment). */
     --badge-anthropic-plan: #cc785c;
+    --badge-anthropic-plan-token: #cc785c;
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
@@ -336,6 +339,7 @@
     --badge-ink-openai: #101114;
     --badge-ink-anthropic: #ffffff;
     --badge-ink-anthropic-plan: #101114;
+    --badge-ink-anthropic-plan-token: #101114;
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;

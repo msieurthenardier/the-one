@@ -30,6 +30,7 @@ from tests.fixtures.scripted_transport import (
     CannedTurn,
     make_anthropic,
     make_anthropic_plan,
+    make_anthropic_plan_token,
     make_mock,
     make_ollama,
     make_openai,
@@ -93,6 +94,10 @@ def _anthropic_plan_factory(turns, monkeypatch, *, streaming=False):
     return make_anthropic_plan(turns, streaming=streaming)
 
 
+def _anthropic_plan_token_factory(turns, monkeypatch, *, streaming=False):
+    return make_anthropic_plan_token(turns, streaming=streaming)
+
+
 def _openai_factory(turns, monkeypatch, *, streaming=False):
     return make_openai(turns, streaming=streaming)
 
@@ -108,6 +113,7 @@ def _mock_factory(turns, monkeypatch, *, streaming=False):
 PROVIDER_FACTORIES = [
     pytest.param(_anthropic_factory, id="anthropic"),
     pytest.param(_anthropic_plan_factory, id="anthropic-plan"),
+    pytest.param(_anthropic_plan_token_factory, id="anthropic-plan-token"),
     pytest.param(_openai_factory, id="openai"),
     pytest.param(_ollama_factory, id="ollama"),
     pytest.param(_mock_factory, id="mock"),

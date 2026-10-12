@@ -106,6 +106,7 @@ DARK: dict[str, str] = {
     "badge_anthropic": "#9b59b6",
     # anthropic-plan (M19 F01 L03) — brand terracotta; dark ink 5.76:1.
     "badge_anthropic_plan": "#cc785c",
+    "badge_anthropic_plan_token": "#cc785c",
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
@@ -123,6 +124,7 @@ DARK: dict[str, str] = {
     "badge_ink_openai": "#101114",
     "badge_ink_anthropic": "#ffffff",
     "badge_ink_anthropic_plan": "#101114",
+    "badge_ink_anthropic_plan_token": "#101114",
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",
@@ -193,6 +195,7 @@ LIGHT: dict[str, str] = {
     "badge_anthropic": "#9b59b6",
     # anthropic-plan — brand-stable terracotta (same hex as dark).
     "badge_anthropic_plan": "#cc785c",
+    "badge_anthropic_plan_token": "#cc785c",
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
@@ -209,6 +212,7 @@ LIGHT: dict[str, str] = {
     "badge_ink_openai": "#101114",
     "badge_ink_anthropic": "#ffffff",
     "badge_ink_anthropic_plan": "#101114",
+    "badge_ink_anthropic_plan_token": "#101114",
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",

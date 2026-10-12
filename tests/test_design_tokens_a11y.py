@@ -1175,6 +1175,7 @@ def test_badge_semantic_kinds_sit_on_the_gated_ladder(kind: str) -> None:
 _TOKEN_BADGE_KINDS = (
     "anthropic",
     "anthropic-plan",
+    "anthropic-plan-token",
     "connectors",
     "execution",
     "filesystem",
@@ -1327,6 +1328,7 @@ _BADGE_INK_PAIRS = (
     ("openai", "badge_openai", "badge_ink_openai"),
     ("anthropic", "badge_anthropic", "badge_ink_anthropic"),
     ("anthropic-plan", "badge_anthropic_plan", "badge_ink_anthropic_plan"),
+    ("anthropic-plan-token", "badge_anthropic_plan_token", "badge_ink_anthropic_plan_token"),
     ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
     ("mock", "badge_mock", "badge_ink_mock"),
     ("unknown", "badge_unknown", "badge_ink_unknown"),

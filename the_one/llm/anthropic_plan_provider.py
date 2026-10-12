@@ -27,15 +27,46 @@ neither a static token nor stored credentials raises the typed
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncIterator
 from typing import Any
 
 import anthropic
 
+from the_one.llm import anthropic_oauth
 from the_one.llm.anthropic_provider import AnthropicProvider
+from the_one.llm.base import Message, StreamChunk
 from the_one.llm.registry import register_provider
 
 # Beta flag Anthropic requires for consumer-OAuth (plan) bearer tokens.
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
+
+# A ``claude setup-token`` token lasts about a year; the editor shows
+# "expires around" = the server-stamped paste date + this many days.
+# Defined in ``anthropic_oauth`` (SDK-free, importable from the API layer).
+PLAN_TOKEN_LIFETIME_DAYS = anthropic_oauth.PLAN_TOKEN_LIFETIME_DAYS
+
+
+class PlanTokenMissingError(Exception):
+    """A token-type plan provider has no stored token."""
+
+
+class PlanTokenRejectedError(Exception):
+    """Anthropic answered 401 to a stored plan token."""
+
+
+class PlanRequestRefusedError(Exception):
+    """A plan refused a request with the bare ``429 "Error"`` block."""
+
+
+PLAN_TOKEN_REJECTED_MESSAGE = (
+    "The Claude Plan token was rejected; it may have expired or been revoked. "
+    "Run claude setup-token and paste the new token in Library > Model providers."
+)
+PLAN_TOKEN_MISSING_MESSAGE = (
+    "This Claude Plan (Token) provider has no token. Paste a token from "
+    "claude setup-token in Library > Model providers."
+)
 
 
 class AnthropicPlanProvider(AnthropicProvider):
@@ -111,5 +142,91 @@ class AnthropicPlanProvider(AnthropicProvider):
         source = get_credential_source(self.provider_config_id)
         self.client.auth_token = await source.get_access_token()
 
+    def _translate_plan_error(self, exc: anthropic.AnthropicError) -> Exception | None:
+        """Map a plan-specific SDK error to a clearer one, or ``None``.
+
+        Plans answer ``429 {"error": {"message": "Error"}}`` for models they
+        will not run for third-party apps. That bare text reads as a rate
+        limit; translate it. Matches on ``exc.body`` (never ``str(exc)``,
+        which is ``"Error code: 429 - {...}"``); any other 429 passes through.
+        """
+        if isinstance(exc, anthropic.RateLimitError):
+            body = exc.body
+            err = body.get("error") if isinstance(body, dict) else None
+            if isinstance(err, dict) and err.get("message") == "Error":
+                return PlanRequestRefusedError(
+                    f"Your Claude plan didn't allow this request to {self.model}. "
+                    "It may be a usage limit, or this model may not be available to "
+                    "plan tokens in third-party apps. Try another model; older Haiku "
+                    "models are the most likely to work."
+                )
+        return None
+
+    async def complete(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
+    ) -> Message:
+        try:
+            return await super().complete(
+                messages, tools, temperature, max_tokens, enable_thinking=enable_thinking
+            )
+        except anthropic.AnthropicError as exc:
+            translated = self._translate_plan_error(exc)
+            if translated is None:
+                raise
+            raise translated from exc
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        yielded = False
+        try:
+            async with contextlib.aclosing(
+                super().stream(
+                    messages, tools, temperature, max_tokens, enable_thinking=enable_thinking
+                )
+            ) as it:
+                async for chunk in it:
+                    yielded = True
+                    yield chunk
+        except anthropic.AnthropicError as exc:
+            if yielded:
+                raise
+            translated = self._translate_plan_error(exc)
+            if translated is None:
+                raise
+            raise translated from exc
+
+
+class AnthropicPlanTokenProvider(AnthropicPlanProvider):
+    """Plan provider fed by a pasted ``claude setup-token`` token.
+
+    Constructed with ``access_token=<stored api_key>``; never consults the
+    credential-source registry. Rejected tokens (401) get an actionable error.
+    """
+
+    name = "anthropic-plan-token"
+
+    async def _before_request(self) -> None:
+        if not self._access_token:
+            raise PlanTokenMissingError(PLAN_TOKEN_MISSING_MESSAGE)
+
+    def _translate_plan_error(self, exc: anthropic.AnthropicError) -> Exception | None:
+        if isinstance(exc, anthropic.AuthenticationError):
+            return PlanTokenRejectedError(PLAN_TOKEN_REJECTED_MESSAGE)
+        return super()._translate_plan_error(exc)
+
 
 register_provider("anthropic-plan", AnthropicPlanProvider)
+register_provider("anthropic-plan-token", AnthropicPlanTokenProvider)

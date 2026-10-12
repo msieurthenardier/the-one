@@ -123,7 +123,7 @@ def _stub_models(page: Page, provider_id: str) -> None:
 def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     app_clean: str, page: Page
 ) -> None:
-    """Selecting "Anthropic (Plan)" in create mode: no API-key input, no
+    """Selecting "Claude Plan (OAuth)" in create mode: no API-key input, no
     base-url input, thinking/reasoning surface present (parity with
     anthropic), and an ENABLED sign-in affordance (HAT fix — inverts the
     original disabled-until-saved gate): clicking it with a name filled
@@ -133,7 +133,9 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     # Picker label follows the parenthetical precedent.
-    expect(page.locator('#pf-type option[value="anthropic-plan"]')).to_have_text("Anthropic (Plan)")
+    expect(page.locator('#pf-type option[value="anthropic-plan"]')).to_have_text(
+        "Claude Plan (OAuth)"
+    )
     page.locator("#pf-type").select_option("anthropic-plan")
     # No API key, no base URL (default submitted invisibly).
     expect(page.locator(".admin-pf-api-key")).to_have_class(re.compile(r"\bis-hidden\b"))

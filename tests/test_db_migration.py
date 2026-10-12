@@ -4985,7 +4985,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 43
+        assert CURRENT_VERSION == 44
 
         await conn.close()
 
@@ -5341,7 +5341,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 43 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5487,7 +5487,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 43 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5573,4 +5573,134 @@ class TestSchemaV43:
         await store.delete("beta")
         async with conn.execute("SELECT COUNT(*) FROM agent_notes") as cur:
             assert (await cur.fetchone())[0] == 0
+        await conn.close()
+
+
+# ── v44 (Sortie 03, DD8): llm_providers CHECK admits anthropic-plan-token ──
+
+
+_V43_LLM_PROVIDERS_REBUILD = """\
+PRAGMA foreign_keys=OFF;
+DROP TABLE IF EXISTS llm_providers_old;
+CREATE TABLE llm_providers_old (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN
+        ('ollama','openai-compatible','openai','anthropic','mock','openrouter','anthropic-plan')),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{}',
+    secrets TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO llm_providers_old SELECT id, name, type, base_url, api_key, config, secrets,
+    created_at, updated_at FROM llm_providers;
+DROP TABLE llm_providers;
+ALTER TABLE llm_providers_old RENAME TO llm_providers;
+PRAGMA foreign_keys=ON;
+"""
+
+_SECRETS_BLOB = "gAAAAABmFAKE-ciphertext-bytes-must-survive=="
+
+
+class TestSchemaV44:
+    async def _v43_db(self, tmp_path):
+        """A database at v43: old CHECK, an OAuth plan row, an agent referencing it."""
+        conn = await _open(tmp_path / "v43.db")
+        await ensure_schema(conn)
+        await conn.executescript(_V43_LLM_PROVIDERS_REBUILD)
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url, api_key, config, secrets) "
+            "VALUES ('p-plan', 'Plan', 'anthropic-plan', 'https://api.anthropic.com', NULL, "
+            "'{}', ?)",
+            (_SECRETS_BLOB,),
+        )
+        await conn.execute("INSERT INTO agents (name, provider_config_id) VALUES ('a', 'p-plan')")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 44")
+        await conn.commit()
+        # Prove the old CHECK rejects the new type.
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) "
+                "VALUES ('x', 'X', 'anthropic-plan-token', 'u')"
+            )
+        return conn
+
+    async def test_current_version_is_44(self) -> None:
+        assert CURRENT_VERSION == 44
+
+    async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
+        conn = await self._v43_db(tmp_path)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 44
+        async with conn.execute(
+            "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
+        ) as cur:
+            rows = [tuple(r) for r in await cur.fetchall()]
+        assert rows == [
+            (
+                "p-plan",
+                "Plan",
+                "anthropic-plan",
+                "https://api.anthropic.com",
+                None,
+                "{}",
+                _SECRETS_BLOB,
+            )
+        ]
+        async with conn.execute("SELECT provider_config_id FROM agents WHERE name='a'") as cur:
+            assert (await cur.fetchone())[0] == "p-plan"
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url, api_key) "
+            "VALUES ('p-tok', 'Tok', 'anthropic-plan-token', 'https://api.anthropic.com', 'k')"
+        )
+        await conn.commit()
+        async with conn.execute("PRAGMA foreign_key_check") as cur:
+            assert await cur.fetchall() == []
+        await conn.close()
+
+    async def test_secrets_decrypt_after_migration(self, tmp_path) -> None:
+        from cryptography.fernet import Fernet
+
+        from the_one.db.repositories import LLMProviderRepository
+        from the_one.encryption import Encryptor
+
+        conn = await self._v43_db(tmp_path)
+        key = Fernet.generate_key()
+        enc = Encryptor(key, key_path=tmp_path / "k.key")
+        import json as _json
+
+        blob = enc.encrypt(_json.dumps({"access_token": "A", "refresh_token": "R"}))
+        await conn.execute("UPDATE llm_providers SET secrets = ? WHERE id = 'p-plan'", (blob,))
+        await conn.commit()
+        await ensure_schema(conn)
+        row = await LLMProviderRepository(conn, enc).get("p-plan")
+        assert row.secrets == {"access_token": "A", "refresh_token": "R"}
+        await conn.close()
+
+    async def test_fresh_database_admits_the_type(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh44.db")
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) "
+            "VALUES ('t', 'T', 'anthropic-plan-token', 'u')"
+        )
+        await conn.commit()
+        await conn.close()
+
+    async def test_rerun_after_crash_between_create_and_rename_is_idempotent(
+        self, tmp_path
+    ) -> None:
+        conn = await self._v43_db(tmp_path)
+        # Simulate the crash: a stale llm_providers_new left behind.
+        await conn.execute("CREATE TABLE llm_providers_new (id TEXT)")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT secrets FROM llm_providers WHERE id='p-plan'") as cur:
+            assert (await cur.fetchone())[0] == _SECRETS_BLOB
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 44") as cur:
+            assert (await cur.fetchone())[0] == 1
         await conn.close()

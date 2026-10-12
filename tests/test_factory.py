@@ -834,6 +834,43 @@ class TestPlanProviderConstruction:
         assert agent.llm.provider_config_id == "plan-prov"
         assert agent.llm.model == "claude-sonnet-4-6"
 
+    async def test_factory_token_type_gets_access_token_no_config_id(
+        self, store: InMemoryStore
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capturing_get_provider(name: str, **kwargs: Any) -> FakeLLM:
+            captured["name"] = name
+            captured["kwargs"] = kwargs
+            return FakeLLM(responses=[])
+
+        cfg = LLMProviderConfig(
+            id="tok-prov",
+            name="Claude Token",
+            type="anthropic-plan-token",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-oat01-test-synthetic",
+        )
+        await self._create(store, _capturing_get_provider, cfg)
+        assert captured["name"] == "anthropic-plan-token"
+        assert captured["kwargs"]["access_token"] == "sk-ant-oat01-test-synthetic"
+        assert "provider_config_id" not in captured["kwargs"]
+
+    async def test_factory_builds_real_token_provider(self, store: InMemoryStore) -> None:
+        from the_one.llm import get_provider as real_get_provider
+        from the_one.llm.anthropic_plan_provider import AnthropicPlanTokenProvider
+
+        cfg = LLMProviderConfig(
+            id="tok-prov",
+            name="Claude Token",
+            type="anthropic-plan-token",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-oat01-test-synthetic",
+        )
+        agent = await self._create(store, real_get_provider, cfg)
+        assert isinstance(agent.llm, AnthropicPlanTokenProvider)
+        assert agent.llm.client.auth_token == "sk-ant-oat01-test-synthetic"
+
     async def test_factory_non_plan_type_gets_no_provider_config_id(
         self, store: InMemoryStore
     ) -> None:

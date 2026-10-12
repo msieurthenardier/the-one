@@ -40,6 +40,11 @@ REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 
 SCOPE = "org:create_api_key user:profile user:inference"
 
+# A ``claude setup-token`` token lasts about a year (sortie 03 DD3). Lives here
+# (no ``anthropic`` import) so the API layer can read it without the SDK;
+# ``anthropic_plan_provider`` re-exports it beside ``OAUTH_BETA_HEADER``.
+PLAN_TOKEN_LIFETIME_DAYS = 365
+
 # The five OAuth-managed keys stored in ``llm_providers.secrets`` (DD-2).
 OAUTH_MANAGED_SECRET_KEYS: frozenset[str] = frozenset(
     {

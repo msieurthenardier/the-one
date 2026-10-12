@@ -1672,4 +1672,9 @@
   .area-studio .plan-signin-url-row, .area-studio .plan-code-row { display: flex; align-items: center; gap: var(--space-2); }
   .area-studio .plan-signin-url-row .field-input, .area-studio .plan-code-row .field-input { flex: 1; min-width: 0; }
   .area-studio .plan-signin-url { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); }
+
+  /* === Claude Plan (Token) expiry line (sortie 03 DD6) ===================
+     `.field-hint` supplies the muted caption; soon/past recolour it. */
+  .area-studio .token-expiry--soon { color: var(--status-warning); }
+  .area-studio .token-expiry--past { color: var(--status-danger); }
 }

@@ -142,7 +142,7 @@ sudo apt install gir1.2-webkit2-4.1   # older distros: gir1.2-webkit2-4.0
 ## Your first five minutes
 
 1. Open the app: `the-one app`, or GleepGlorp AI from the Start menu on Windows.
-2. Go to **Settings › Providers** and choose **Add provider**. For a fully local setup, pick Ollama: the address of a local Ollama is already filled in, no key is asked for, and once it's saved you can **Pull** a model from its page. Or pick a cloud provider and paste its key, or pick Anthropic (Plan) and **Sign in with Anthropic**.
+2. Go to **Library**, open the **Add** menu and choose **Model provider**. For a fully local setup, pick Ollama: the address of a local Ollama is already filled in, no key is asked for, and once it's saved you can **Pull** a model from its page. Or pick a cloud provider and paste its key, or pick Claude Plan (OAuth) and **Sign in with Anthropic**, or Claude Plan (Token) and paste a token from `claude setup-token`.
 3. Go to **Agents**, choose **New**, name it, pick the provider and a model, write a system prompt if you like, and choose **Create**.
 4. Go to **Chats**, choose **New chat**, pick your agent and say hello.
 
@@ -154,7 +154,8 @@ sudo apt install gir1.2-webkit2-4.1   # older distros: gir1.2-webkit2-4.0
 | OpenAI-Compatible | The server's address, plus a key if it asks for one | Any server that speaks the OpenAI API. |
 | OpenAI | An API key | |
 | Anthropic | An API key | Extended thinking can be switched on per provider. |
-| Anthropic (Plan) | A Claude Pro or Max subscription | Sign in with your Anthropic account; no API key. |
+| Claude Plan (OAuth) | A Claude Pro or Max subscription | Sign in with your Anthropic account; no API key. |
+| Claude Plan (Token) | A Claude Pro or Max subscription | Paste a token from `claude setup-token` (it lasts about a year; the editor shows roughly when it expires). Your plan may refuse some models; older Haiku models are the most likely to work. |
 | OpenRouter | An API key | Many vendors' models behind one key. |
 
 API keys and sign-in tokens are encrypted on disk, and Settings › Encryption can rotate the key that protects them.

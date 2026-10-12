@@ -8,6 +8,7 @@
   var BADGE_KINDS = [
     'anthropic',
     'anthropic-plan',
+    'anthropic-plan-token',
     'approved',
     'connectors',
     'dismissed',

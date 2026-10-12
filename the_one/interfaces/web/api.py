@@ -12,6 +12,7 @@ import os
 import re
 import time
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -4926,6 +4927,32 @@ def _mask_api_key(key: str | None) -> str | None:
 # every response. Mirrors the MCP ``_OAUTH_MANAGED_SECRET_KEYS`` contract.
 _PLAN_OAUTH_MANAGED_KEYS = anthropic_oauth.OAUTH_MANAGED_SECRET_KEYS
 
+# Server-stamped key in ``llm_providers.secrets`` for the
+# ``anthropic-plan-token`` type (sortie 03 DD3): when the pasted token was
+# set (``now_iso()``). Pinned from the stored row on every update, written
+# only by create / a changed token, never client-seedable, stripped from
+# every response (``_provider_response`` exposes ``token_set_at`` instead).
+_PLAN_TOKEN_MANAGED_KEYS = ("token_set_at",)
+
+_PLAN_TOKEN_TYPE = "anthropic-plan-token"
+_PLAN_TOKEN_MISSING_DETAIL = "Paste a token from claude setup-token."
+_PLAN_TOKEN_API_KEY_DETAIL = (
+    "That is an Anthropic API key. Use the Anthropic provider type for API keys; "
+    "Claude Plan (Token) takes a token from `claude setup-token`."
+)
+
+
+def _check_plan_token(api_key: str | None) -> None:
+    """DD2 / DD4: require a token and refuse an Anthropic API key (422).
+
+    Never echoes the submitted value.
+    """
+    if not api_key:
+        raise HTTPException(status_code=422, detail=_PLAN_TOKEN_MISSING_DETAIL)
+    if api_key.startswith("sk-ant-api"):
+        raise HTTPException(status_code=422, detail=_PLAN_TOKEN_API_KEY_DETAIL)
+
+
 # In-process pending PKCE state for /oauth/start → /oauth/code, keyed by
 # provider id. A repeated /start replaces the entry (the older consent
 # window's code becomes unexchangeable — acceptable; the error message
@@ -4945,9 +4972,27 @@ def _provider_response(provider: LLMProviderConfig) -> dict[str, Any]:
     # MCP's any-key rule, pinned by test) is stored. Always present, and
     # ``False`` for non-plan types (frontend ignores unknown fields).
     secrets_dict = data.pop("secrets", None) or {}
-    data["oauth_active"] = bool(
+    # Gated on the type: only ``anthropic-plan`` signs in through OAuth.
+    data["oauth_active"] = provider.type == "anthropic-plan" and bool(
         secrets_dict.get("access_token") and secrets_dict.get("refresh_token")
     )
+    # Token type (sortie 03 DD3): the server-stamped paste date and the
+    # derived "expires around" date; null for every other type.
+    token_set_at: str | None = None
+    token_expires_around: str | None = None
+    if provider.type == _PLAN_TOKEN_TYPE:
+        stamp = secrets_dict.get("token_set_at")
+        if isinstance(stamp, str) and stamp:
+            token_set_at = stamp
+            try:
+                set_dt = datetime.fromisoformat(stamp)
+                token_expires_around = (
+                    set_dt + timedelta(days=anthropic_oauth.PLAN_TOKEN_LIFETIME_DAYS)
+                ).isoformat()
+            except ValueError:
+                token_expires_around = None
+    data["token_set_at"] = token_set_at
+    data["token_expires_around"] = token_expires_around
     return data
 
 
@@ -5021,7 +5066,8 @@ async def list_provider_types() -> list[dict[str, str]]:
         {"value": "openai-compatible", "label": "OpenAI-Compatible"},
         {"value": "openai", "label": "OpenAI"},
         {"value": "anthropic", "label": "Anthropic"},
-        {"value": "anthropic-plan", "label": "Anthropic (Plan)"},
+        {"value": "anthropic-plan", "label": "Claude Plan (OAuth)"},
+        {"value": "anthropic-plan-token", "label": "Claude Plan (Token)"},
         {"value": "openrouter", "label": "OpenRouter"},
     ]
     if settings.dev_mode:
@@ -5059,6 +5105,11 @@ async def create_provider(request: Request) -> dict[str, Any]:
         # Squawks 0112 / 0081: a missing field is a 422. ``include_input=False``
         # keeps the submitted ``api_key`` out of the response.
         raise HTTPException(status_code=422, detail=_validation_detail(e))
+    # Token plan type (sortie 03 DD2-DD4): runs on the validated (stripped)
+    # key, then stamps when it was set. The stamp is server-owned.
+    if provider.type == _PLAN_TOKEN_TYPE:
+        _check_plan_token(provider.api_key)
+        provider = provider.model_copy(update={"secrets": {"token_set_at": now_iso()}})
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
@@ -5089,24 +5140,26 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
             detail="Mock provider type requires THE_ONE_DEV_MODE=true",
         )
 
+    # Sortie 03 DD2: did this request carry a freshly pasted key? Captured
+    # from the RAW body, before masked-key resolution erases the difference.
+    # A type change INTO the token type requires one.
+    raw_key = data.get("api_key")
+    fresh_key_supplied = (
+        isinstance(raw_key, str) and raw_key.strip() != "" and not _looks_masked(raw_key)
+    )
+
     # Detect masked API key and preserve existing stored key
     incoming_key = data.get("api_key")
     if _looks_masked(incoming_key):
         data["api_key"] = existing.api_key
 
-    # DD-2 update direction: OAuth-managed secret keys are pinned from the
-    # stored row — a PUT can neither overwrite nor seed them (only the
-    # /oauth/code exchange and the Leg-2 refresh path write them), and a
-    # PUT that omits ``secrets`` entirely preserves the stored token set.
-    # Mirrors the MCP source managed-keys preserve block above.
-    incoming_secrets = data.get("secrets")
-    resolved_secrets = dict(incoming_secrets) if isinstance(incoming_secrets, dict) else {}
-    for key in _PLAN_OAUTH_MANAGED_KEYS:
-        if key in existing.secrets:
-            resolved_secrets[key] = existing.secrets[key]
-        elif key in resolved_secrets:
-            del resolved_secrets[key]
-    data["secrets"] = resolved_secrets
+    # DD-2 / sortie 03 DD3, DD11: server-managed secret keys are never taken
+    # from the client. A dict is put into validation here; the real secrets
+    # (OAuth keys pinned from the stored row only for ``anthropic-plan``, the
+    # token stamp only for ``anthropic-plan-token``) are built below on the
+    # RESOLVED type, so a PUT can neither overwrite nor seed them and a PUT
+    # that omits ``secrets`` preserves them.
+    data["secrets"] = {}
 
     # ``model_copy(update=...)`` does NOT re-run field validators in
     # Pydantic v2, so a malformed PUT would silently bypass validation
@@ -5119,6 +5172,29 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         updated = LLMProviderConfig.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))
+
+    # Pin / force / check / stamp by the RESOLVED type (DD2-DD4, DD11).
+    resolved_secrets: dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
+    if updated.type == "anthropic-plan":
+        for key in _PLAN_OAUTH_MANAGED_KEYS:
+            if key in existing.secrets:
+                resolved_secrets[key] = existing.secrets[key]
+        # The OAuth type never uses ``api_key``; do not leave a token
+        # behind, invisible and unclearable, under a type that ignores it.
+        overrides["api_key"] = None
+    elif updated.type == _PLAN_TOKEN_TYPE:
+        entering = existing.type != _PLAN_TOKEN_TYPE
+        if entering and not fresh_key_supplied:
+            raise HTTPException(status_code=422, detail=_PLAN_TOKEN_MISSING_DETAIL)
+        _check_plan_token(updated.api_key)
+        stamp = existing.secrets.get("token_set_at") if not entering else None
+        if not stamp or updated.api_key != existing.api_key:
+            stamp = now_iso()
+        resolved_secrets["token_set_at"] = stamp
+    overrides["secrets"] = resolved_secrets
+    updated = updated.model_copy(update=overrides)
+
     # URL safety check on the RESOLVED base_url — i.e. after the
     # model_dump()|data round-trip above has merged any
     # ``__MASKED__``-preserved fields. This blocks the regression where a
@@ -5390,6 +5466,26 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                 return {"status": "ok", "detail": "Connected to Anthropic (plan)"}
             except anthropic.AnthropicError as e:
                 return {"status": "error", "detail": str(e)}
+        elif provider.type == _PLAN_TOKEN_TYPE:
+            import anthropic
+
+            from the_one.llm.anthropic_plan_provider import (
+                PLAN_TOKEN_MISSING_MESSAGE,
+                PLAN_TOKEN_REJECTED_MESSAGE,
+            )
+
+            # Check BEFORE building a client: with ``auth_token=None`` the SDK
+            # would fall back to ``ANTHROPIC_AUTH_TOKEN`` from the environment.
+            if not provider.api_key:
+                return {"status": "error", "detail": PLAN_TOKEN_MISSING_MESSAGE}
+            try:
+                client = _plan_bearer_client(anthropic, provider.api_key)
+                await client.models.list()
+                return {"status": "ok", "detail": "Connected to Anthropic (plan token)"}
+            except anthropic.AuthenticationError:
+                return {"status": "error", "detail": PLAN_TOKEN_REJECTED_MESSAGE}
+            except anthropic.AnthropicError as e:
+                return {"status": "error", "detail": str(e)}
         elif provider.type == "openrouter":
             from the_one.llm import openrouter_api
 
@@ -5610,6 +5706,39 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
                 {"id": model_id, "name": model_id, "context_length": window}
                 for model_id, window in sorted(models_for("anthropic").items())
             ]
+
+    elif provider.type == _PLAN_TOKEN_TYPE:
+        from the_one.llm.model_catalog import context_window_for, models_for
+
+        static_catalog = [
+            {"id": model_id, "name": model_id, "context_length": window}
+            for model_id, window in sorted(models_for("anthropic").items())
+        ]
+        # No token: serve the static catalog without building a client (the
+        # SDK would read ``ANTHROPIC_AUTH_TOKEN`` from the environment).
+        if not provider.api_key:
+            return static_catalog
+        try:
+            import anthropic
+
+            client = _plan_bearer_client(anthropic, provider.api_key)
+            response = await client.models.list()
+            return [
+                {
+                    "id": m.id,
+                    "name": getattr(m, "display_name", m.id),
+                    "context_length": context_window_for("anthropic", m.id),
+                }
+                for m in response.data
+            ]
+        except Exception:
+            logger.warning(
+                "anthropic-plan-token: live model listing failed for provider %r; "
+                "serving static catalog fallback",
+                provider_id,
+                exc_info=True,
+            )
+            return static_catalog
 
     return []
 

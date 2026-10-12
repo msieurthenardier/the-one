@@ -142,6 +142,15 @@
       (p.hour < 12 ? 'AM' : 'PM');
   }
 
+  var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  // "Oct 12, 2026": the calendar date in the operator zone (sortie 03, the provider token
+  // expiry line). Locale-neutral, like formatClock.
+  function formatDate(d) {
+    var p = parts(d);
+    return MONTH_NAMES[p.month] + ' ' + p.day + ', ' + p.year;
+  }
+
   // The calendar day in the zone as a whole number (days since 1970-01-01).
   function dayNumber(d) {
     var p = parts(d);
@@ -204,6 +213,7 @@
     zone: zone,
     parts: parts,
     formatClock: formatClock,
+    formatDate: formatDate,
     dayNumber: dayNumber,
     onChange: onChange,
     _listenerCount: listenerCount,

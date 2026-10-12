@@ -29,6 +29,7 @@ PROVIDERS_SECTION_JS = JS_DIR / "areas" / "studio" / "providers-section.js"
 REASONING_CAPABLE_TYPES = (
     "anthropic",
     "anthropic-plan",
+    "anthropic-plan-token",
     "openai",
     "openrouter",
     "ollama",

@@ -1900,6 +1900,7 @@
   }
   .badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
   .badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
+  .badge--anthropic-plan-token { background: var(--badge-anthropic-plan-token); color: var(--badge-ink-anthropic-plan-token); }
   .badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
   .badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
   .badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }

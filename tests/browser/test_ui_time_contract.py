@@ -93,6 +93,24 @@ def test_format_clock_at_midnight_and_noon(tpage: Page) -> None:
     assert got == ["12:00 AM", "12:00 PM", "11:59 AM", "11:59 PM"]
 
 
+def test_format_date_is_zone_aware_across_the_date_line(tpage: Page) -> None:
+    """One UTC instant near midnight reads as two different calendar dates in
+    two zones either side of the date line (sortie 03, the token expiry line)."""
+    got = tpage.evaluate(
+        """() => {
+          const d = new Date(Date.UTC(2026, 9, 12, 23, 30));  // 23:30Z on Oct 12
+          App.time.setZone('Pacific/Honolulu');   // UTC-10: Oct 12, 1:30 PM
+          const west = App.time.formatDate(d);
+          App.time.setZone('Pacific/Auckland');   // UTC+13: Oct 13, 12:30 PM
+          const east = App.time.formatDate(d);
+          App.time.setZone('+05:30');             // fixed offset: Oct 13, 5:00 AM
+          const offset = App.time.formatDate(d);
+          return [west, east, offset];
+        }"""
+    )
+    assert got == ["Oct 12, 2026", "Oct 13, 2026", "Oct 13, 2026"]
+
+
 @pytest.mark.parametrize("year,month,day", [(2026, 2, 8), (2026, 10, 1)])
 def test_day_number_across_a_us_dst_change(tpage: Page, year: int, month: int, day: int) -> None:
     got = tpage.evaluate(
