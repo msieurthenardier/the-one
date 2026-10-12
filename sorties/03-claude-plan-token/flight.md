@@ -1,6 +1,6 @@
 # Sortie: Claude Plan (Token) provider
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -11,10 +11,10 @@ An operator can add a "Claude Plan (Token)" model provider by pasting a token fr
 Claude can now mint one-year subscription tokens (`claude setup-token`). Today the only path to a subscription is the OAuth sign-in (popup or URL + code paste).
 
 ### Success Criteria
-- [ ] Library › Model providers' Add flow offers both "Claude Plan (OAuth)" and "Claude Plan (Token)"; creating a Token provider asks only for the token (no sign-in), and its editor shows when the token was added and when it expires around.
-- [ ] An agent on a Token provider completes a streamed chat turn against the live API using a real `setup-token` token.
-- [ ] The provider's Test and the model picker work with that token (Test reports ok; the picker lists models).
-- [ ] The token is stored encrypted and never returned unmasked by any API response; existing `anthropic-plan` providers and their OAuth tokens keep working through the schema migration.
+- [x] Library › Model providers' Add flow offers both "Claude Plan (OAuth)" and "Claude Plan (Token)"; creating a Token provider asks only for the token (no sign-in), and its editor shows when the token was added and when it expires around.
+- [x] An agent on a Token provider completes a streamed chat turn against the live API using a real `setup-token` token.
+- [x] The provider's Test and the model picker work with that token (Test reports ok; the picker lists models).
+- [x] The token is stored encrypted and never returned unmasked by any API response; existing `anthropic-plan` providers and their OAuth tokens keep working through the schema migration.
 
 ### Constraints
 - `anthropic-plan` keeps its slug; existing rows are not migrated or altered.
@@ -172,9 +172,9 @@ Tests in leg 1:
 
 ### Checkpoints
 - [x] DD5 premise recorded
-- [ ] v44 migration test green against a v43 database with OAuth secrets
-- [ ] `make test-unit` (expected 12 skipped) and the `providers`, `contracts` and `settings` lanes green; then the full gate. On this WSL host every browser lane and the gate run with `THE_ONE_TEST_NETNS=1` (and `THE_ONE_REQUIRE_WEBKIT=1` for `contracts`)
-- [ ] `anthropic-plan-token-chat` passes live
+- [x] v44 migration test green against a v43 database with OAuth secrets
+- [x] `make test-unit` (expected 12 skipped) and the `providers`, `contracts` and `settings` lanes green; then the full gate. On this WSL host every browser lane and the gate run with `THE_ONE_TEST_NETNS=1` (and `THE_ONE_REQUIRE_WEBKIT=1` for `contracts`)
+- [x] `anthropic-plan-token-chat` passes live
 
 ### Adaptation Criteria
 
@@ -191,17 +191,17 @@ Tests in leg 1:
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `plan-token-provider` - The `anthropic-plan-token` type end to end: registry and subclass, the plan error translation (DD1, DD10), factory, v44 migration, API create/update/test/models and `token_set_at`, editor token field and expiry line, labels and badge, unit and browser tests, docs (`the_one/agents.md` LLM layer, `CLAUDE.md` LLM-layer paragraph, `SECURITY-MODEL.md` credential storage, the testid registry)
-- [ ] `live-verification` - Run `anthropic-plan-token-chat` on a dev instance (port 8487, scratch data dir) with the operator's token, then a guided operator walk of the editor; fix what surfaces
+- [x] `live-verification` - Run `anthropic-plan-token-chat` on a dev instance (port 8487, scratch data dir) with the operator's token, then a guided operator walk of the editor; fix what surfaces
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 - [ ] Operator has revoked the test token
 
 ### Verification
