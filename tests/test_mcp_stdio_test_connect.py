@@ -6,7 +6,7 @@ Covers:
   - Successful stdio Test persists tools + capabilities + last_updated
     to config._cache (mirrors the http no-auth helper's persistence
     shape, minus auth_posture).
-  - Stdio Test against the in-repo FastMCP fixture returns the expected
+  - Stdio Test against the in-repo MCPServer fixture returns the expected
     [echo, add] tools end-to-end.
   - Caplog gate: 0 ``MCPClient.disconnect`` warnings across the stdio
     Test path (F6 baseline preservation; first stdio re-assertion since
@@ -446,19 +446,19 @@ async def test_stdio_test_connect_no_disconnect_warning(client_and_repo, caplog)
     )
 
 
-# ── Real-subprocess integration (FastMCP fixture) ────────────────────────
+# ── Real-subprocess integration (MCPServer fixture) ────────────────────────
 
 
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="stdio MCP fixture is POSIX-shell shaped; skip on Windows CI",
 )
-async def test_stdio_test_connect_against_fastmcp_fixture_returns_echo_add(
+async def test_stdio_test_connect_against_mcpserver_fixture_returns_echo_add(
     client_and_repo,
     monkeypatch: pytest.MonkeyPatch,
     caplog,
 ) -> None:
-    """End-to-end stdio Test against the in-repo FastMCP fixture.
+    """End-to-end stdio Test against the in-repo MCPServer fixture.
 
     Spawns ``python -m tests.fixtures.mcp.hello_server --stdio`` as the
     stdio MCP server, runs the Test path with the SANDBOX-DISABLED bypass
@@ -480,14 +480,14 @@ async def test_stdio_test_connect_against_fastmcp_fixture_returns_echo_add(
     # the in-repo tests.fixtures.mcp.hello_server.
     await _seed_stdio(
         repo,
-        "src-fastmcp-fixture",
+        "src-mcpserver-fixture",
         command=sys.executable,
         args=["-m", "tests.fixtures.mcp.hello_server", "--stdio"],
     )
 
     with caplog.at_level(logging.WARNING):
         resp = await client.post(
-            "/api/mcp-sources/src-fastmcp-fixture/test/connect",
+            "/api/mcp-sources/src-mcpserver-fixture/test/connect",
             timeout=30.0,
         )
 
@@ -496,11 +496,11 @@ async def test_stdio_test_connect_against_fastmcp_fixture_returns_echo_add(
     assert body["status"] == "ok", body
     tool_names = sorted(t["name"] for t in body["tools"])
     assert tool_names == ["add", "echo"], tool_names
-    # Capabilities present (FastMCP exposes 'tools' at minimum).
+    # Capabilities present (MCPServer exposes 'tools' at minimum).
     assert "tools" in body["capabilities"]
 
     # Cache populated.
-    stored = await repo.get("src-fastmcp-fixture")
+    stored = await repo.get("src-mcpserver-fixture")
     cache = stored.config["_cache"]
     assert sorted(t["name"] for t in cache["tools"]) == ["add", "echo"]
     assert cache["capabilities"] == body["capabilities"]

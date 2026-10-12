@@ -1,6 +1,6 @@
 # Flight: Port to the mcp 2.x SDK at parity
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
@@ -74,8 +74,10 @@ The transport passes `max_sse_event_size` from a the-one constant equal to the S
 **DD9 — OS trust store on the SDK path, documented.**
 `httpx2` verifies TLS against the operating system's trust store (via `truststore`) unless `SSL_CERT_FILE`/`SSL_CERT_DIR` is set; `httpx` (the rest of the app) uses certifi. Accepted by the operator (2026-10-12); `SECURITY-MODEL.md` gains a short entry naming the split and the override.
 
-**DD10 — Exact pins and soak caps.**
-`pyproject.toml`: `mcp==2.3.0` (pulls `mcp-types==2.3.0`; both uploaded 2026-10-02 22:06 UTC, soaked from **2026-10-16 22:06 UTC**), `httpx2>=2.10.0,<2.14` (2.13.1, uploaded 2026-09-23, pins `httpcore2==2.13.1`, both soaked), `truststore` floored at a soaked release (0.10.4, 2025-08), and `opentelemetry-api<1.45.1` (1.45.1 was uploaded 2026-10-06 and is unsoaked until 2026-10-20; 1.45.0, 2026-09-25, is soaked and depends only on `typing-extensions`). Each cap carries a comment in the style of the tzdata cap. `uv.lock` regenerated; `pip-audit` clean on the new packages. `sdk-port` re-checks upload dates on its start day and adds or lowers a cap for any package (including `truststore`) whose newest release is unsoaked, since the unlocked `.github/workflows/windows-installer.yml` resolve would otherwise pull it.
+**DD10 — Exact pins (soak waived by the operator, 2026-10-12).**
+> Original framing (planning): every new package capped at its newest release uploaded ≥14 days before the leg, `mcp` 2.3.0 not before 2026-10-16 22:06 UTC, `opentelemetry-api<1.45.1`. Superseded by the operator's soak waiver at flight start (flight log, Flight Director Notes).
+
+`pyproject.toml`: `mcp==2.3.0` (pulls `mcp-types==2.3.0`) and an explicit `httpx2>=2.10.0` floor (mcp 2.3.0's own requirement, made visible beside the other floors). No soak caps on `httpx2`, `httpcore2`, `truststore` or `opentelemetry-api`; the `mcp` pin's comment records the waiver. `uv.lock` regenerated; `pip-audit` clean on the new packages.
 
 **DD11 — Packaging and the live checks.**
 `packaging/windows/the-one.spec` collects `mcp_types`, `httpx2`, `httpcore2`, `truststore` and `opentelemetry` beside `mcp`, filters `mcp.server.fastmcp` out of the `mcp` submodule walk (its stub raises on import, like the existing `mcp.cli` filter at ~75), adds `copy_metadata("httpx2")` and `copy_metadata("httpcore2")` (both call `importlib.metadata.version()` at import time), and corrects its stale "pinned 1.27.0" comment. `the-one doctor` gains a twelfth gate, appended after `time zones`, printing `mcp sdk: OK`: it imports `mcp`, imports `the_one.self_configuration.surface`, and builds a `truststore` SSL context. It runs on every host (so `make test-unit`'s doctor tests import the surface). The fixed `gates` list in `the_one/diagnostics.py::run_doctor` (~1032) and its "eleven" docstring, `tests/test_doctor.py::test_gates_list_has_eleven_names_ending_with_time_zones` (renamed for twelve ending with `mcp sdk`; logged as a changed expectation), `CLAUDE.md`'s gate list, and the needle lists of both Windows lanes — `ci/tasks/windows-installer-build.yml` (~117; it already runs the frozen doctor as a build gate, ~97-119) and the break-glass `.github/workflows/windows-installer.yml` (~107-135) — all gain it, so an import failure only a frozen build shows can't pass silently. The live sign-in check follows `tests/HAT.md` Tier 2 against `https://mcp.cloudflare.com/mcp` on a dedicated dev instance; the OAuth redirect URI follows that instance's port (`the_one/mcp/oauth/provider_factory.py:121`), so dynamic client registration works there without touching 8484.
@@ -122,7 +124,7 @@ Verified against the worktree at `8193d5f` and the extracted `mcp` 2.3.0 / `mcp-
 | Python accepts `class X(ToolError, PermissionError)` / `class Y(ToolError, ValueError)` | verified (flight review, stand-in classes, Python 3.12) |
 
 ### Prerequisites
-- [ ] `mcp` 2.3.0 and `mcp-types` 2.3.0 clear the 14-day soak at **2026-10-16 22:06 UTC**; `sdk-port` does not start before then, and re-checks the other packages' upload dates on its start day (DD10).
+- [x] ~~`mcp` 2.3.0 and `mcp-types` 2.3.0 clear the 14-day soak at 2026-10-16 22:06 UTC~~ — soak waived by the operator, 2026-10-12 (DD10).
 - [x] Worktree `../the-one-sortie-03` on branch `mission/29-mcp-2x-protocol`, based on `8193d5f`; rebased onto main before execution if main moves.
 - [ ] A Cloudflare account for the operator (free tier) — for the `hat` leg. **Re-verified at the start of `hat`**, together with network access to `mcp.cloudflare.com` and the Windows `platform: windows` Concourse worker being up.
 - [x] The Windows installer-build CI lane exists and runs the frozen doctor (`ci/tasks/windows-installer-build.yml`).
@@ -151,11 +153,11 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 8. The `httpx` guard (DD4) is AST-based, so `import httpx2` is not flagged.
 
 ### Checkpoints
-- [ ] App imports and `make test-unit` is green on `mcp==2.3.0`
-- [ ] A real 401 fixture yields `MCPAuthRequired` with the `resource_metadata` URL on connect, `list_tools` and `call_tool`; a stale 401 from an earlier operation does not misfire
-- [ ] Provider-attached sign-in failure (mismatched issuer; token endpoint 400) surfaces as `MCPAuthRequired` end to end through `MCPClient.connect`; a sign-in that succeeds mid-operation followed by an ordinary JSON-RPC error does NOT yield `MCPAuthRequired`; stale-token recovery on Test connection observed
-- [ ] Issuer-advertising OAuth fixture: matching `iss` signs in; mismatched or missing `iss` fails plainly
-- [ ] Full browser suite (`make test-browser`: all lanes, including `shared` — the OAuth modal and callback tests — and `chats`) green; `requires_bwrap` set green
+- [x] App imports and `make test-unit` is green on `mcp==2.3.0`
+- [x] A real 401 fixture yields `MCPAuthRequired` with the `resource_metadata` URL on connect, `list_tools` and `call_tool`; a stale 401 from an earlier operation does not misfire
+- [x] Provider-attached sign-in failure (mismatched issuer; token endpoint 400) surfaces as `MCPAuthRequired` end to end through `MCPClient.connect`; a sign-in that succeeds mid-operation followed by an ordinary JSON-RPC error does NOT yield `MCPAuthRequired`; stale-token recovery on Test connection observed
+- [x] Issuer-advertising OAuth fixture: matching `iss` signs in; mismatched or missing `iss` fails plainly
+- [x] Full browser suite (`make test-browser`: all lanes, including `shared` — the OAuth modal and callback tests — and `chats`) green; `requires_bwrap` set green
 - [ ] Windows installer-build lane green (frozen doctor passes)
 - [ ] Live Cloudflare sign-in passes on a dev instance
 
@@ -164,7 +166,6 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 **Divert if**:
 - The SDK does not route requests through the provided client's hooks (DD1's premise fails) — re-plan sign-in detection (fallback candidate: run the bare probe before a no-provider connect).
 - The 2.x session's teardown reintroduces the cross-task cancel-scope deadlock in a way the existing `_safe_cleanup` mitigations don't contain.
-- An unsoaked transitive dependency is unavoidable at the leg's start date.
 
 **Acceptable variations**:
 - DD3's fallback (plain `ToolError` and three updated `ValueError` assertions), logged.
@@ -175,7 +176,8 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `sdk-port` - The atomic port to `mcp==2.3.0` at parity: DD1-DD12's code, tests and docs; `make test-unit`, the full browser suite (`make test-browser`) and the `requires_bwrap` set green. Not before 2026-10-16 22:06 UTC.
+- [x] `sdk-port` - The atomic port to `mcp==2.3.0` at parity: DD1-DD10 and DD12's code, tests and docs; `make test-unit`, the full browser suite (`make test-browser`) and the `requires_bwrap` set green. (Soak waived, DD10.)
+- [x] `packaging-and-doctor` - DD11: Windows packaging spec collection and metadata, the twelfth doctor gate `mcp sdk`, both Windows workflow needle lists, `tests/test_doctor.py`, `CLAUDE.md`'s gate list. *(Split out of `sdk-port` at leg design, 2026-10-12 — see flight log.)*
 - [ ] `hat` - Live checks with the operator on a dedicated dev instance (prerequisites re-verified first): the Cloudflare sign-in (`tests/HAT.md` Tier 2), a legacy stdio server connecting and running a tool, and the Windows installer-build lane with the new doctor gate; fixes as needed.
 
 ---
@@ -190,7 +192,7 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 
 ### Verification
 - `make test-unit` green, with the expected skip count; `make test-browser` (all lanes) green under `THE_ONE_TEST_NETNS=1`; `pytest -m requires_bwrap` green.
-- `pip-audit` clean; `uv.lock` resolves `mcp==2.3.0` and every new package to a soaked version.
+- `pip-audit` clean; `uv.lock` resolves `mcp==2.3.0` and its new dependencies.
 - Windows installer-build lane green, its doctor output including the new MCP gate line.
 - `hat` leg: the Cloudflare sign-in completes end to end and its tools run; an MCP editor Test on a handshake-era server shows the same protocol, server details and tools as before the port.
 - Flight log lists every test whose expected value changed, and every cache key that changed (DD5), with its reason.

@@ -449,7 +449,7 @@ async def test_phase_0_oauth_fall_through_preserves_phase_b(client_and_repo) -> 
             _stub_probe,
         ),
         patch(
-            "the_one.interfaces.web.api.httpx.AsyncClient",
+            "the_one.interfaces.web.api.httpx2.AsyncClient",
             _StubHttpxClient,
         ),
     ):

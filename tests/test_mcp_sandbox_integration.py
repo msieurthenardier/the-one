@@ -1,7 +1,7 @@
 """F3 L5a real-subprocess sandbox integration tests.
 
 Drives ``MCPClient.call_tool`` through the L4 sandbox-wrapped
-``connect_stdio`` path against a real bwrap-spawned FastMCP subprocess
+``connect_stdio`` path against a real bwrap-spawned MCPServer subprocess
 (``tests/fixtures/mcp/hello_server.py --stdio --with-naughty-tools``).
 Each test exercises one of the F3 sandbox invariants by calling a
 TEST-ONLY escape-attempt tool that the sandbox should refuse.
@@ -237,7 +237,7 @@ async def test_sandbox_refuses_fs_write_outside_writable_paths() -> None:
 
     Calls ``write_outside_sandbox(path="/etc/test_escape", content="x")``
     through the sandbox; expects ``MCPCallError`` (F2's translation of
-    FastMCP's ``isError=true`` envelope) with strerror text in the
+    MCPServer's ``isError=true`` envelope) with strerror text in the
     message. Python's OSError.__str__ uses strerror (e.g.,
     ``"Read-only file system"`` / ``"Permission denied"``) rather than
     symbolic names like EROFS / EACCES, so the substring match looks
@@ -315,7 +315,7 @@ async def test_sandbox_env_allowlist_invariant_with_home_override() -> None:
     async with MCPClient(source) as client:
         result = await client.call_tool("dump_env", {})
 
-    # FastMCP serializes dict[str, str] returns; the structured payload
+    # MCPServer serializes dict[str, str] returns; the structured payload
     # is the dict directly (no "result" wrapper for already-dict returns).
     assert result.structured is not None
     env_dict = result.structured
@@ -714,7 +714,7 @@ async def test_sandbox_without_naughty_tools_flag_omits_naughty_tools() -> None:
 def test_register_naughty_tools_in_process() -> None:
     """register_naughty_tools is opt-in; make_mcp_app() never auto-registers.
 
-    Pure-Python introspection on FastMCP's tool manager — no subprocess,
+    Pure-Python introspection on MCPServer's tool manager — no subprocess,
     no sandbox. Fast (<10ms) early signal for accidental
     autoregistration regressions before the slow integration tests
     run. Runs unconditionally (no bwrap requirement).

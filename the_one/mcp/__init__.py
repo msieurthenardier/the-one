@@ -12,14 +12,15 @@ See _PINNED_PROTOCOL_VERSION docstring for SDK upgrade procedure.
 _PINNED_PROTOCOL_VERSION = "2025-11-25"
 """The MCP spec revision pinned by F2.
 
-Matches mcp==1.27.0's mcp.types.LATEST_PROTOCOL_VERSION exactly. Verified at
-flight-design time via wheel inspection.
+Matches ``mcp.types.version.LATEST_HANDSHAKE_VERSION`` (mcp 2.x; its
+``LATEST_PROTOCOL_VERSION`` is now 2026-07-28, which Flight 2 adopts). Verified
+at flight-design time via wheel inspection.
 
 Upgrade procedure:
     1. Bump the mcp SDK pin in pyproject.toml.
     2. Run:
-           python -c "from mcp.types import LATEST_PROTOCOL_VERSION; \\
-                      print(LATEST_PROTOCOL_VERSION)"
+           python -c "from mcp.types.version import LATEST_HANDSHAKE_VERSION; \\
+                      print(LATEST_HANDSHAKE_VERSION)"
     3. Update this constant to match.
     4. Run integration tests against fresh fixture build:
            pytest tests/test_mcp_integration.py

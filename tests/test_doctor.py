@@ -864,7 +864,7 @@ class TestProbeFileWatcher:
         assert result.ok is False
         assert "import OK; round-trip:" in result.detail
 
-    def test_gates_list_has_eleven_names_ending_with_time_zones(self) -> None:
+    def test_gates_list_has_twelve_names_ending_with_mcp_sdk(self) -> None:
         """The full gate line-up, in order, both CI lanes' needle depends on
         being present and last."""
         buf = io.StringIO()
@@ -883,7 +883,29 @@ class TestProbeFileWatcher:
             "file watcher",
             "window chrome",
             "time zones",
+            "mcp sdk",
         ]
+
+    def test_mcp_sdk_probe_passes_with_version_detail(self) -> None:
+        from the_one.diagnostics import _probe_mcp_sdk
+
+        result = _probe_mcp_sdk()
+        assert result.name == "mcp sdk"
+        assert result.ok is True, result.detail
+        assert re.fullmatch(r"mcp \d+\.\d+\.\d+\S*, handshake \d{4}-\d{2}-\d{2}", result.detail)
+
+    def test_mcp_sdk_probe_failure_carries_reason(self, monkeypatch) -> None:
+        from the_one import diagnostics
+        from the_one.diagnostics import _probe_mcp_sdk
+
+        def _boom():
+            raise ImportError("simulated missing httpx2")
+
+        monkeypatch.setattr(diagnostics, "_import_mcp_sdk", _boom)
+        result = _probe_mcp_sdk()
+        assert result.ok is False
+        assert "simulated missing httpx2" in result.detail
+        assert result.detail.isascii()
 
     def test_source_names_every_dd0_knob(self) -> None:
         """Source-level guard (the ``_probe_usearch``/embedding-probe

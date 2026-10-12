@@ -21,20 +21,82 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Literal
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
-import httpx
+import httpx2
 from mcp import ClientSession
+from mcp.client.auth.utils import extract_field_from_www_auth
 from mcp.client.streamable_http import streamable_http_client
 
 from the_one.db.models import MCPSource
+from the_one.mcp._signin_record import (
+    _AUTH_RECORDS,
+    MAX_SSE_EVENT_BYTES,
+    AuthRecord,
+    auth_record_for,
+)
 from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
 
 __all__ = [
+    "MAX_SSE_EVENT_BYTES",
+    "AuthRecord",
     "_probe_auth_posture",
+    "auth_record_for",
     "build_request_headers",
     "connect_streamable_http",
 ]
+
+
+def _origin(url: "httpx2.URL") -> tuple[str, str, int | None]:
+    return (url.scheme, url.host, url.port)
+
+
+def _make_auth_hook(
+    endpoint_url: str, record: AuthRecord
+) -> Callable[["httpx2.Response"], Awaitable[None]]:
+    """Build the async, headers-only response hook that fills ``record``.
+
+    Scope: only responses to an MCP POST (method POST, same origin as the
+    endpoint, ``accept`` naming ``text/event-stream`` - the SDK's MCP POSTs
+    carry ``application/json, text/event-stream``; the OAuth flow's token / DCR
+    POSTs and discovery GETs do not). Never reads the body.
+    """
+    endpoint_origin = _origin(httpx2.URL(endpoint_url))
+
+    async def _hook(response: httpx2.Response) -> None:
+        request = response.request
+        if request.method != "POST":
+            return
+        if _origin(request.url) != endpoint_origin:
+            return
+        if "text/event-stream" not in request.headers.get("accept", ""):
+            return
+        record.seq += 1
+        record.last_status = response.status_code
+        record.last_resource_metadata = (
+            extract_field_from_www_auth(response, "resource_metadata")
+            if response.status_code == 401
+            else None
+        )
+
+    return _hook
+
+
+def _attach_hook(client: "httpx2.AsyncClient", hook: Any, stack: AsyncExitStack | None) -> Any:
+    """Append ``hook`` to ``client``'s response hooks; when ``stack`` is given,
+    remove exactly that hook on stack exit (a shared seam client outlives the
+    connection). Returns a remover for CM-style callers."""
+    client.event_hooks["response"].append(hook)
+
+    def _remove() -> None:
+        try:
+            client.event_hooks["response"].remove(hook)
+        except ValueError:
+            pass
+
+    if stack is not None:
+        stack.callback(_remove)
+    return _remove
 
 
 # Mirror of the SDK's ``create_mcp_http_client`` defaults (MCP_DEFAULT_TIMEOUT /
@@ -65,28 +127,28 @@ evicted. Goldfinch (``mcp-server.js``) does exactly this, which is how a flat
 
 
 # F5 L4: factory shape for the test seam — invoked with `headers` dict;
-# returns a pre-constructed `httpx.AsyncClient` (typically with `auth=`
+# returns a pre-constructed `httpx2.AsyncClient` (typically with `auth=`
 # attached at construction time). OAuth-enabled tests use this shape
 # because `auth=` MUST be set at httpx-client construction time and
 # cannot be added via post-construction header mutation.
-_HttpClientFactory = Callable[[dict[str, str]], httpx.AsyncClient]
+_HttpClientFactory = Callable[[dict[str, str]], httpx2.AsyncClient]
 
 
 # TEST-ONLY seam — integration test fixtures monkeypatch this to inject
-# an ASGI-transport httpx.AsyncClient so tests can run against the
-# in-process FastMCP fixture (no real network). Production code paths
+# an ASGI-transport httpx2.AsyncClient so tests can run against the
+# in-process MCPServer fixture (no real network). Production code paths
 # NEVER read or write this attribute outside `connect_streamable_http`.
 # Excluded from `__all__` AND underscore-prefixed; do not promote.
 #
 # F5 L4: extended type to also accept a factory callable
-# `Callable[[dict[str, str]], httpx.AsyncClient]`. The transport
+# `Callable[[dict[str, str]], httpx2.AsyncClient]`. The transport
 # detects the type at use-time:
-#   - pre-constructed `httpx.AsyncClient` → legacy path (mutate
+#   - pre-constructed `httpx2.AsyncClient` → legacy path (mutate
 #     headers post-construction).
 #   - factory callable → invoke with headers; factory owns construction
 #     (including `auth=` if needed by OAuth-enabled tests).
 #   - None → production path; transport constructs its own client.
-_test_http_client_override: httpx.AsyncClient | _HttpClientFactory | None = None
+_test_http_client_override: httpx2.AsyncClient | _HttpClientFactory | None = None
 
 
 def build_request_headers(source: MCPSource) -> dict[str, str]:
@@ -99,7 +161,7 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
     have non-string types (token_expires_at is a float; dcr_credentials is a
     dict) that would crash httpx with ``TypeError: Header value must be str
     or bytes``. The Authorization header is injected separately by the
-    SDK's OAuthClientProvider via ``httpx.AsyncClient(auth=provider, ...)``.
+    SDK's OAuthClientProvider via ``httpx2.AsyncClient(auth=provider, ...)``.
 
     Mirrors the env-var-assembly pattern in transports/stdio.py (L5).
 
@@ -150,7 +212,7 @@ async def _probe_auth_posture(
       metadata are still treated as ``"oauth"``) → ``"oauth"``.
     * Anything else (5xx, transport errors, timeouts) → ``"error"``.
 
-    Why a bare ``httpx.AsyncClient`` (and NOT the MCP SDK) is used here:
+    Why a bare ``httpx2.AsyncClient`` (and NOT the MCP SDK) is used here:
 
     * F9 L1 Anomaly A6 (Shape C resolution): engaging
       ``mcp.client.streamable_http`` for auth detection leaks an anyio
@@ -211,9 +273,9 @@ async def _probe_auth_posture(
         **(request_headers or {}),
     }
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
+        async with httpx2.AsyncClient(timeout=httpx2.Timeout(timeout)) as client:
             resp = await client.post(server_url, json=payload, headers=headers)
-    except (httpx.RequestError, asyncio.TimeoutError):
+    except (httpx2.RequestError, asyncio.TimeoutError):
         return "error"
     except Exception:
         # Defensive — anything else (URL parse errors, etc.) → "error".
@@ -227,9 +289,11 @@ async def _probe_auth_posture(
 
 
 def _build_production_httpx_kwargs(
-    headers: dict[str, str], auth_provider: httpx.Auth | None
+    headers: dict[str, str],
+    auth_provider: httpx2.Auth | None,
+    response_hook: Callable[..., Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    """Build the kwargs dict used to construct the production-path httpx.AsyncClient.
+    """Build the kwargs dict used to construct the production-path httpx2.AsyncClient.
 
     Extracted as a unit-testable helper (F5 L4: AC A2/A3/A4 unit-test
     this helper directly without entering streamable_http_client's
@@ -243,38 +307,46 @@ def _build_production_httpx_kwargs(
 
     The timeout MUST keep ``read`` separate from the general timeout — see
     ``_SSE_READ_TIMEOUT_SECONDS``.
+
+    No ``follow_redirects`` (Mission 29, DD12.1): the mcp 2.x transport follows
+    only same-origin, method-preserving redirects itself and never consults the
+    client's ``follow_redirects`` setting, so the old ``True`` was inert.
+
+    ``response_hook`` is the DD1 sign-in record hook, installed at construction.
     """
-    return {
+    kwargs: dict[str, Any] = {
         "headers": headers,
-        "follow_redirects": True,
-        "timeout": httpx.Timeout(_HTTP_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
+        "timeout": httpx2.Timeout(_HTTP_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
         "auth": auth_provider,  # None when no provider is supplied
     }
+    if response_hook is not None:
+        kwargs["event_hooks"] = {"response": [response_hook]}
+    return kwargs
 
 
 @asynccontextmanager
 async def connect_streamable_http(
     source: MCPSource,
     *,
-    http_client: httpx.AsyncClient | None = None,
+    http_client: httpx2.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
     # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
-    auth_provider: httpx.Auth | None = None,
+    auth_provider: httpx2.Auth | None = None,
 ) -> AsyncIterator[ClientSession]:
     """Open an entered ClientSession over streamable-http transport.
 
     Yields a fully-entered ClientSession (initialize() NOT called — the
     caller — typically MCPClient.connect — runs the handshake). The
-    session, transport, and (production-path-only) owned httpx client
+    session, transport, and (production-path-only) owned httpx2 client
     close in correct LIFO order on context exit.
 
     Headers from build_request_headers(source) are applied to the
     outgoing requests:
       - Production path (effective_client is None): the helper builds
-        an httpx.AsyncClient with headers set at construction.
+        an httpx2.AsyncClient with headers set at construction.
       - Test path (effective_client is not None — typically the L3
         ASGI fixture's client via the _test_http_client_override seam):
         the helper mutates effective_client.headers via dict.update()
@@ -283,67 +355,29 @@ async def connect_streamable_http(
       - Test factory path (effective_client is callable): invoke the
         factory with headers; factory owns construction (including
         `auth=`); F5 L4 OAuth-enabled tests use this path.
+
+    All three branches install the DD1 sign-in record hook; the seam client's
+    hook is removed on exit (the client is shared across connections).
     """
-    url: str = source.config["url"]
-    headers = build_request_headers(source)
-
-    # Test-injected client takes precedence ONLY when caller-supplied
-    # http_client is None. F4 warm-pool callers (when they land) will
-    # pass an explicit client and bypass the seam.
-    effective_client: httpx.AsyncClient | _HttpClientFactory | None = http_client
-    if effective_client is None:
-        effective_client = _test_http_client_override
-
-    # Type checks ordered: pre-constructed AsyncClient FIRST (it has a
-    # __call__-shaped attribute lookup quirk on some httpx versions —
-    # the explicit isinstance check disambiguates), THEN callable, THEN
-    # None.
-    if isinstance(effective_client, httpx.AsyncClient):
-        # Legacy test path: apply headers to the seam-injected client.
-        effective_client.headers.update(headers)
-        async with streamable_http_client(url, http_client=effective_client) as (
-            read,
-            write,
-            _get_session_id,
-        ):
-            async with ClientSession(read, write) as session:
-                yield session
-    elif callable(effective_client):
-        # F5 L4 factory test path: factory owns construction (incl. auth=).
-        fresh_client = effective_client(headers)
-        async with streamable_http_client(url, http_client=fresh_client) as (
-            read,
-            write,
-            _get_session_id,
-        ):
-            async with ClientSession(read, write) as session:
-                yield session
-    else:
-        # Production path: own the httpx lifecycle so headers + defaults
-        # are applied at client-construction time. Defaults mirror the
-        # SDK's create_mcp_http_client without depending on the private
-        # mcp.shared._httpx_utils module.
-        kwargs = _build_production_httpx_kwargs(headers, auth_provider)
-        async with httpx.AsyncClient(**kwargs) as owned_client:
-            async with streamable_http_client(url, http_client=owned_client) as (
-                read,
-                write,
-                _get_session_id,
-            ):
-                async with ClientSession(read, write) as session:
-                    yield session
+    session, stack = await _open_streamable_http_transport_stack(
+        source, http_client=http_client, auth_provider=auth_provider
+    )
+    try:
+        yield session
+    finally:
+        await stack.aclose()
 
 
 async def _open_streamable_http_transport_stack(
     source: MCPSource,
     *,
-    http_client: httpx.AsyncClient | None = None,
+    http_client: httpx2.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
     # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
-    auth_provider: httpx.Auth | None = None,
+    auth_provider: httpx2.Auth | None = None,
 ) -> tuple[ClientSession, AsyncExitStack]:
     """Open an entered ClientSession + return the AsyncExitStack that owns it.
 
@@ -356,43 +390,44 @@ async def _open_streamable_http_transport_stack(
     dispatcher's the-one-owned ``@asynccontextmanager`` wrapper layer.
     Empirical verification at F5 L6 HAT.
 
-    The existing ``connect_streamable_http`` ``@asynccontextmanager`` continues
-    to exist for back-compat with its 1 prior async-CM caller
-    (``tests/test_mcp_client.py::TestConnectStreamableHttpProduction``).
+    ``connect_streamable_http`` is now a thin ``@asynccontextmanager`` over this
+    helper, so there is ONE implementation of the three client branches (and of
+    the DD1 hook installation).
     """
     url: str = source.config["url"]
     headers = build_request_headers(source)
 
     # Test-injected client takes precedence ONLY when caller-supplied
     # http_client is None — mirrors the legacy CM's seam contract.
-    effective_client: httpx.AsyncClient | _HttpClientFactory | None = http_client
+    effective_client: httpx2.AsyncClient | _HttpClientFactory | None = http_client
     if effective_client is None:
         effective_client = _test_http_client_override
 
+    record = AuthRecord()
+    hook = _make_auth_hook(url, record)
+
     stack = AsyncExitStack()
     try:
-        if isinstance(effective_client, httpx.AsyncClient):
-            # Legacy test path: apply headers to the seam-injected client.
+        if isinstance(effective_client, httpx2.AsyncClient):
+            # Legacy test path: apply headers to the seam-injected client; the
+            # client is shared across connections, so the hook is removed on exit.
             effective_client.headers.update(headers)
-            read, write, _get_session_id = await stack.enter_async_context(
-                streamable_http_client(url, http_client=effective_client)
-            )
+            _attach_hook(effective_client, hook, stack)
+            client = effective_client
         elif callable(effective_client):
             # F5 L4 factory test path: factory owns construction (incl. auth=).
-            fresh_client = effective_client(headers)
-            read, write, _get_session_id = await stack.enter_async_context(
-                streamable_http_client(url, http_client=fresh_client)
-            )
+            client = effective_client(headers)
+            _attach_hook(client, hook, stack)
         else:
-            # Production path: own the httpx lifecycle so headers + defaults
-            # are applied at client-construction time. Defaults mirror the
-            # legacy CM's settings.
-            kwargs = _build_production_httpx_kwargs(headers, auth_provider)
-            owned_client = await stack.enter_async_context(httpx.AsyncClient(**kwargs))
-            read, write, _get_session_id = await stack.enter_async_context(
-                streamable_http_client(url, http_client=owned_client)
-            )
+            # Production path: own the httpx2 lifecycle so headers + defaults
+            # are applied at client-construction time.
+            kwargs = _build_production_httpx_kwargs(headers, auth_provider, hook)
+            client = await stack.enter_async_context(httpx2.AsyncClient(**kwargs))
+        read, write = await stack.enter_async_context(
+            streamable_http_client(url, http_client=client, max_sse_event_size=MAX_SSE_EVENT_BYTES)
+        )
         session = await stack.enter_async_context(ClientSession(read, write))
+        _AUTH_RECORDS[session] = record
         return session, stack
     except BaseException:
         await stack.aclose()

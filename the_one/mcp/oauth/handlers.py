@@ -53,6 +53,7 @@ from collections.abc import Awaitable, Callable
 from urllib.parse import parse_qs, urlsplit
 
 from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.shared.auth import AuthorizationCodeResult
 
 from the_one.mcp.oauth import _state
 
@@ -67,7 +68,7 @@ def make_oauth_handlers(
     consent_url_future: asyncio.Future[str] | None = None,
 ) -> tuple[
     Callable[[str], Awaitable[None]],
-    Callable[[], Awaitable[tuple[str, str | None]]],
+    Callable[[], Awaitable[AuthorizationCodeResult]],
 ]:
     """Construct a paired ``(redirect_handler, callback_handler)`` for one
     OAuth flow.
@@ -139,7 +140,7 @@ def make_oauth_handlers(
                 },
             )
 
-    async def callback_handler() -> tuple[str, str | None]:
+    async def callback_handler() -> AuthorizationCodeResult:
         """SDK-provided callback. Await state, then await code."""
         state = await state_box
         entry = _state.peek(state)

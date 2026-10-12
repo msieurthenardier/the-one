@@ -1,4 +1,4 @@
-"""MCPClient — async wrapper around mcp==1.27.0 SDK's ClientSession.
+"""MCPClient — async wrapper around the mcp 2.x SDK's ClientSession.
 
 L2 implements connect/disconnect lifecycle + handshake + capability negotiation.
 L4 wires streamable-http transport dispatch.
@@ -19,15 +19,19 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import anyio
-import httpx
+import httpx2
 from jsonschema import ValidationError
 from jsonschema import validate as jsonschema_validate
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
-from mcp.client.auth.utils import extract_field_from_www_auth
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 from the_one.db.models import MCPSource
 from the_one.mcp._arg_coerce import coerce_arguments
+from the_one.mcp._signin_record import (
+    MAX_SSE_EVENT_BYTES,
+    AuthRecord,
+    auth_record_for,
+)
 from the_one.mcp.errors import (
     MCPArgumentError,
     MCPAuthRequired,
@@ -58,32 +62,60 @@ _DEFAULT = object()
 _SESSION_TERMINATED_MESSAGE = "Session terminated"
 """The SDK's synthetic error message for "this session no longer exists".
 
-``mcp.client.streamable_http`` answers ANY 404 on a request-carrying POST by
-fabricating a JSON-RPC error with this exact message rather than surfacing a
-transport exception (``_send_session_terminated_error``). It means the server
-has forgotten our ``Mcp-Session-Id`` — a DEAD CONNECTION, not a tool that
-failed. Servers reach this state by their own session GC, a restart, or by
-treating a dropped SSE stream as a client disconnect.
+``mcp.client.streamable_http`` (2.x) answers a 404 on a request-carrying POST
+for which the server HAD issued an ``Mcp-Session-Id`` by fabricating a
+JSON-RPC ``INVALID_REQUEST`` error with this exact message (built inline in
+``StreamableHTTPTransport._handle_post_request``) rather than surfacing a
+transport exception. It means the server has forgotten our session — a DEAD
+CONNECTION, not a tool that failed. (A 404 with NO session id issued reads
+``METHOD_NOT_FOUND "Not Found"`` instead; for a stateless server that is its
+whole connection lifetime, so there is no self-heal there — Mission 29 DD12.3.)
+Servers reach this state by
+their own session GC, a restart, or by treating a dropped SSE stream as a client
+disconnect.
 
 Matching on the message is the only signal available: the 404 is swallowed
 inside the SDK and the accompanying code (32600) is generic.
 ``TestSessionTerminatedRecovery`` in ``tests/test_mcp_client.py`` pins the
-string against the SDK so a rename in a future SDK release fails loudly here
-rather than silently reverting the self-heal to the old
-wedge-until-manual-reset behaviour.
+string against the SDK (by driving a real 404 with a session id set) so a
+rename in a future SDK release fails loudly here rather than silently
+reverting the self-heal to the old wedge-until-manual-reset behaviour.
 """
 
 
-def _is_session_terminated(exc: McpError) -> bool:
+def _is_session_terminated(exc: MCPError) -> bool:
     """True when ``exc`` is the SDK's synthetic session-is-gone error."""
     return getattr(getattr(exc, "error", None), "message", None) == _SESSION_TERMINATED_MESSAGE
+
+
+_SSE_CAP_PREFIX = "SSE stream failed:"
+_SSE_CAP_MARKER = "byte limit"
+_SSE_CONNECTION_CLOSED = -32000
+_SSE_CAP_MESSAGE = (
+    f"MCP server sent a single event larger than the {MAX_SSE_EVENT_BYTES}-byte "
+    f"({MAX_SSE_EVENT_BYTES // (1024 * 1024)} MiB) limit"
+)
+
+
+def _is_sse_cap_error(exc: BaseException) -> bool:
+    """True when ``exc`` is the SDK's abandoned-request error for an SSE event
+    over ``max_sse_event_size`` (DD8): code -32000 (CONNECTION_CLOSED), message
+    starting ``SSE stream failed:`` and containing ``byte limit``. Any other
+    -32000 error (e.g. "SSE stream ended without a response") is not matched."""
+    if not isinstance(exc, MCPError):
+        return False
+    return (
+        exc.code == _SSE_CONNECTION_CLOSED
+        and exc.message.startswith(_SSE_CAP_PREFIX)
+        and _SSE_CAP_MARKER in exc.message
+    )
 
 
 @asynccontextmanager
 async def _transport_connect(
     source: MCPSource,
     *,
-    auth_provider: httpx.Auth | None = None,
+    auth_provider: httpx2.Auth | None = None,
 ) -> AsyncIterator["ClientSession"]:
     """Dispatch on source.type. Outward shape preserved for test contract.
 
@@ -160,7 +192,7 @@ class MCPClient:
         # construction (factory function that reads secrets["dcr_credentials"]
         # and instantiates OAuthClientProvider) is L6's scope. L4 only adds
         # the passthrough seam.
-        auth_provider: httpx.Auth | None = None,
+        auth_provider: httpx2.Auth | None = None,
     ) -> None:
         # Lazy read of constants from the_one.mcp keeps the read-at-call-time
         # invariant for any future test that monkeypatches the defaults.
@@ -174,7 +206,7 @@ class MCPClient:
         self.source: MCPSource = source
         self.timeout_seconds: int | float = timeout_seconds  # type: ignore[assignment]
         self.call_timeout_seconds: int | float = call_timeout_seconds  # type: ignore[assignment]
-        self._auth_provider: httpx.Auth | None = auth_provider
+        self._auth_provider: httpx2.Auth | None = auth_provider
 
         self._session: ClientSession | None = None
         self._capabilities: ServerCapabilities | None = None
@@ -224,7 +256,7 @@ class MCPClient:
     def server_capabilities(self) -> dict[str, Any]:
         if not self._is_alive or self._capabilities is None:
             raise MCPConnectionError("MCPClient is not connected; cannot read server_capabilities.")
-        return self._capabilities.model_dump(mode="json")
+        return self._capabilities.model_dump(mode="json", by_alias=True)
 
     @property
     def server_info(self) -> dict[str, Any] | None:
@@ -239,7 +271,7 @@ class MCPClient:
             raise MCPConnectionError("MCPClient is not connected; cannot read server_info.")
         if self._server_info is None:
             return None
-        return self._server_info.model_dump(mode="json", exclude_none=True)
+        return self._server_info.model_dump(mode="json", by_alias=True, exclude_none=True)
 
     @property
     def instructions(self) -> str | None:
@@ -285,6 +317,27 @@ class MCPClient:
         """
         self._is_alive = False
 
+    def _auth_required_since(
+        self, record: AuthRecord | None, baseline: int
+    ) -> MCPAuthRequired | None:
+        """DD1: an :class:`MCPAuthRequired` iff the most recent MCP-POST
+        response after ``baseline`` was a 401, else None.
+
+        ``record`` is the connection's :func:`auth_record_for` entry (None for a
+        patched transport). Never gated on an error code or message text: a 401
+        whose body is a JSON-RPC error reaches the caller as the server's own
+        ``MCPError`` code. The caller must read ``record`` BEFORE ``connect``'s
+        cleanup branches clear ``self._session``.
+        """
+        if record is None or record.seq <= baseline or record.last_status != 401:
+            return None
+        return MCPAuthRequired(
+            source_id=self.source.id,
+            source_name=self.source.name,
+            resource_metadata_url=record.last_resource_metadata,
+            consent_url=None,
+        )
+
     async def connect(self) -> None:
         """Run the MCP lifecycle handshake.
 
@@ -298,10 +351,11 @@ class MCPClient:
             MCPConnectionError: Already-connected guard; initialize timeout; transport-layer
                 non-401 failures; cleanup-deadlock recovery diagnostics. Catchall.
             MCPVersionMismatch: Server announces a protocolVersion outside the SDK's
-                SUPPORTED_PROTOCOL_VERSIONS set.
+                HANDSHAKE_PROTOCOL_VERSIONS set.
             MCPAuthRequired: SDK auth-flow exceptions (OAuthFlowError / OAuthTokenError) or
-                transport-level 401 walked out of a BaseExceptionGroup. resource_metadata_url
-                populated only on the WWW-Authenticate path.
+                a 401 as the last MCP-POST response of this connect (DD1: the transport's
+                response-hook record). resource_metadata_url populated only on the
+                WWW-Authenticate path.
             MCPCapabilityMissing: Server initialize result lacks the tools capability.
             SandboxError: Stdio transport only — bwrap rejected the spawn (writable_paths
                 invalid, EPERM on unshare, bwrap missing) before the target exec'd.
@@ -316,6 +370,10 @@ class MCPClient:
         pinned = the_one_mcp._PINNED_PROTOCOL_VERSION
 
         result: Any = None
+        # DD1: the connection's 401 record, read into a local the moment the
+        # session exists so the cleanup branches below (which clear
+        # ``self._session``) cannot lose it. A fresh record starts at seq 0.
+        auth_rec: AuthRecord | None = None
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 # Single-line construction-and-enter to make the "stack is
@@ -336,18 +394,18 @@ class MCPClient:
                         _transport_connect(self.source)
                     )
                 self._session = session
+                auth_rec = auth_record_for(session)
                 # F6.6 L1: nested innermost try wrapping ONLY session.initialize()
                 # so the SDK's auth-flow exceptions (OAuthFlowError,
                 # OAuthTokenError) are translated to MCPAuthRequired at the same
                 # structural level as the F6.5 L2 list_tools pattern. Python
                 # forbids mixing `except` and `except*` in one try block; the
                 # existing `except RuntimeError` clause for version-mismatch
-                # translation MUST stay at the outer try level. The 401-via-
-                # HTTPStatusError walk in the outer
-                # `except (Exception, BaseExceptionGroup)` block below is F6 A5
-                # work and remains the path for transport-layer 401s; F6.6 only
-                # adds the OAuth-exception path (which currently emerges from
-                # the SDK at a different layer than HTTPStatusError).
+                # translation MUST stay at the outer try level. The 401-record check in the outer
+                # `except (Exception, BaseExceptionGroup)` block below is the
+                # path for transport-layer 401s (mcp 2.x no longer raises
+                # HTTPStatusError; DD1 reads the transport's response-hook
+                # record instead); F6.6 only adds the OAuth-exception path.
                 try:
                     try:
                         result = await session.initialize()
@@ -374,7 +432,10 @@ class MCPClient:
                     observed = m.group(1) if m else str(e)
                     raise MCPVersionMismatch(pinned=pinned, observed=observed) from None
         except asyncio.TimeoutError:
+            auth_required = self._auth_required_since(auth_rec, 0)
             await self._cleanup_after_failed_connect()
+            if auth_required is not None:
+                raise auth_required from None
             raise MCPConnectionError(
                 f"MCP server did not respond within {self.timeout_seconds} "
                 f"seconds during initialize."
@@ -383,6 +444,14 @@ class MCPClient:
             await self._cleanup_after_failed_connect()
             raise
         except asyncio.CancelledError as e:
+            # DD1: in 2.3.0 an auth-flow failure raised inside the transport's
+            # task group can surface as a bare CancelledError; the 401 record
+            # (read BEFORE the session reference is dropped) is the signal.
+            auth_required = self._auth_required_since(auth_rec, 0)
+            if auth_required is not None:
+                self._transport_stack = None
+                self._session = None
+                raise auth_required from e
             # F6 A5: SDK's anyio task-group cleanup chain after a non-OAuth,
             # non-401 transport-level failure ends with the surrounding task
             # cancelled. (Post-F6.6 L1: OAuth-flow exceptions are now caught
@@ -460,69 +529,58 @@ class MCPClient:
                     self._transport_stack = None
                     self._session = None
 
-            if isinstance(e, BaseExceptionGroup):
-                http_subgroup = e.subgroup(httpx.HTTPStatusError)
-                if http_subgroup is not None:
-                    for sub in http_subgroup.exceptions:
-                        if (
-                            isinstance(sub, httpx.HTTPStatusError)
-                            and sub.response.status_code == 401
-                        ):
-                            await _safe_cleanup()
-                            rmd = extract_field_from_www_auth(sub.response, "resource_metadata")
-                            raise MCPAuthRequired(
-                                source_id=self.source.id,
-                                source_name=self.source.name,
-                                resource_metadata_url=rmd,
-                                consent_url=None,
-                            ) from None
+            # DD1: every failure after a request was sent consults the 401
+            # record first (MCPError of any code, BaseExceptionGroup, generic
+            # Exception) - never the error code or message text.
+            auth_required = self._auth_required_since(auth_rec, 0)
+            if auth_required is not None:
+                await _safe_cleanup()
+                raise auth_required from None
+            if _is_sse_cap_error(e):
+                await _safe_cleanup()
+                raise MCPConnectionError(f"MCP connect failed: {_SSE_CAP_MESSAGE}") from None
             await _safe_cleanup()
             raise MCPConnectionError(f"MCP connect failed: {type(e).__name__}: {e}") from e
 
         # F6 A6 fix (post-F2-debrief): align with the SDK's supported set
-        # rather than a single pinned revision. F2 chose strict-equality
-        # ``result.protocolVersion != pinned`` per mission constraint #59's
-        # "pin in code" framing — but the same constraint also says
-        # "capability-gate spec features so an interaction with a server
-        # announcing a different revision degrades rather than crashes."
-        # The strict-equality interpretation was too narrow: every MCP
-        # server in the wild that announces an older revision (Cloudflare
-        # at 2025-06-18, GitHub MCP at 2025-03-26, etc.) tripped the gate
-        # despite being in the SDK's SUPPORTED_PROTOCOL_VERSIONS set. F6
-        # Tier-2 HAT against Cloudflare Docs MCP surfaced this — the
-        # source connect failed at version-check before F5's lazy-OAuth
-        # flow could fire. Loosen to "in the SDK's supported set"; the
-        # PINNED constant remains as documentation/marker for the
-        # primary-targeted revision but no longer enforces equality.
-        from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+        # rather than a single pinned revision (strict equality was too narrow:
+        # servers announcing an older revision tripped the gate). Rebuilt on
+        # ``mcp.types.version.HANDSHAKE_PROTOCOL_VERSIONS`` (mcp 2.x; the
+        # ``mcp.shared.version`` module is gone). ``initialize()`` already
+        # raises RuntimeError for an unlisted version, so this is the
+        # defensive second gate. The PINNED constant remains documentation of
+        # the primary-targeted revision but no longer enforces equality.
+        from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
-        if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
+        # DD6: read the negotiated state from the session's properties, which
+        # are era-agnostic (Flight 2 swaps initialize() for negotiation and
+        # these reads stay).
+        negotiated = session.protocol_version
+        if negotiated not in HANDSHAKE_PROTOCOL_VERSIONS:
             await self._cleanup_after_failed_connect()
-            raise MCPVersionMismatch(pinned=pinned, observed=result.protocolVersion)
+            raise MCPVersionMismatch(pinned=pinned, observed=str(negotiated))
 
-        if result.capabilities.tools is None:
+        capabilities = session.server_capabilities
+        if capabilities is None or capabilities.tools is None:
             await self._cleanup_after_failed_connect()
             raise MCPCapabilityMissing("tools")
 
         # All checks pass — commit state. Ordering invariant: any path that
         # raised above must leave _is_alive=False (so test_connect_*_mismatch
         # observes the failed state correctly).
-        self._capabilities = result.capabilities
-        self._protocol_version = result.protocolVersion
+        self._capabilities = capabilities
+        self._protocol_version = negotiated
         # F4 L2 (M08): capture spec-optional serverInfo + instructions so the
         # agent-editor MCPs tab can surface server-declared identity/usage
         # prose without re-probing. Both default to None when omitted.
-        self._server_info = getattr(result, "serverInfo", None)
-        self._instructions = getattr(result, "instructions", None)
+        self._server_info = session.server_info
+        self._instructions = session.instructions
         # F4 L3 (M08): capture _meta alongside the other spec-optional
-        # initialize() fields. The underlying SDK type may expose it as
-        # ``meta`` or ``_meta`` depending on aliasing; getattr-fallback
-        # handles both. Defaults to None when omitted.
+        # initialize() fields (``InitializeResult.meta``, aliased ``_meta``).
+        # Defaults to None when omitted.
         meta_val = getattr(result, "meta", None)
-        if meta_val is None:
-            meta_val = getattr(result, "_meta", None)
         if meta_val is not None and hasattr(meta_val, "model_dump"):
-            meta_val = meta_val.model_dump(mode="json", exclude_none=True)
+            meta_val = meta_val.model_dump(mode="json", by_alias=True, exclude_none=True)
         self._meta = meta_val if isinstance(meta_val, dict) else None
         self._is_alive = True
         self._touch_activity()
@@ -617,28 +675,27 @@ class MCPClient:
             raise MCPConnectionError("MCPClient is not connected; cannot list tools.")
         self._touch_activity()
         # L6b: SDK error translation. UrlElicitationRequiredError IS a subclass
-        # of McpError (verified at L6b design review) — re-raise BEFORE the
-        # McpError clause or it gets silently swallowed into MCPConnectionError,
+        # of MCPError (verified at L6b design review) — re-raise BEFORE the
+        # MCPError clause or it gets silently swallowed into MCPConnectionError,
         # breaking F3+'s ability to surface URL elicitation prompts.
         #
-        # F6.5 L2: mirrors call_tool's F5 L4 (A8/A9) pattern. SDK auth-flow
-        # failures and no-provider 401 responses surface from inside the SDK's
-        # anyio TaskGroup wrapped as a BaseExceptionGroup (probe-confirmed at
-        # F5 L4). The two except* clauses sit inside asyncio.timeout BEFORE the
-        # outer except translations so OAuth-aware paths run first; non-OAuth
-        # failures translate exactly as before. The explicit `except
-        # MCPAuthRequired: raise` below is defensive — without it, a
-        # MCPAuthRequired raised by the inner except* block would propagate out
-        # of the try and be caught by the outer except McpError clause,
-        # silently rewrapping it as MCPConnectionError.
+        # F6.5 L2: SDK auth-flow failures surface from inside the SDK's anyio
+        # TaskGroup, possibly wrapped as a BaseExceptionGroup; the `except*`
+        # below sits inside asyncio.timeout BEFORE the outer translations. The
+        # explicit `except MCPAuthRequired: raise` is defensive - without it, a
+        # MCPAuthRequired raised by the inner block would be caught by a later
+        # clause and silently rewrapped.
+        #
+        # DD1: mcp 2.x no longer raises HTTPStatusError for a 401 (a POST 401
+        # becomes ``MCPError(INTERNAL_ERROR, "Server returned an error
+        # response")``), so the no-provider 401 is read from the transport's
+        # response-hook record: this operation's baseline is captured here and a
+        # failure is auth-required only if the most recent MCP-POST response
+        # since then was a 401.
+        auth_rec = auth_record_for(self._session)
+        baseline = auth_rec.seq if auth_rec is not None else 0
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                # The except*-group below catches OAuth/auth exceptions whether
-                # they bubble bare (test stubs) or wrapped in a
-                # BaseExceptionGroup from the SDK's anyio TaskGroup
-                # (production SDK path). `except*` matches both shapes.
-                # F6.5 L2 mirrors call_tool's F5 L4 (A8/A9) pattern — see
-                # client.py:555-603 for the original.
                 try:
                     result = await self._session.list_tools()
                 except* (OAuthFlowError, OAuthTokenError):
@@ -653,31 +710,10 @@ class MCPClient:
                         resource_metadata_url=None,
                         consent_url=None,
                     ) from None
-                except* httpx.HTTPStatusError as eg:
-                    # No-provider 401 path. The SDK's transport surfaces 401
-                    # as an ExceptionGroup wrapping HTTPStatusError. Walk the
-                    # group; translate 401 to MCPAuthRequired (parsing the
-                    # WWW-Authenticate `resource_metadata` field per RFC 9728
-                    # §5.1); re-raise other statuses for the outer except to
-                    # translate.
-                    auth_error: httpx.HTTPStatusError | None = None
-                    for sub in eg.exceptions:
-                        if (
-                            isinstance(sub, httpx.HTTPStatusError)
-                            and sub.response.status_code == 401
-                        ):
-                            auth_error = sub
-                            break
-                    if auth_error is not None:
-                        rmd = extract_field_from_www_auth(auth_error.response, "resource_metadata")
-                        raise MCPAuthRequired(
-                            source_id=self.source.id,
-                            source_name=self.source.name,
-                            resource_metadata_url=rmd,
-                            consent_url=None,
-                        ) from None
-                    raise eg.exceptions[0] from None
         except asyncio.TimeoutError:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
             raise MCPConnectionError(
                 f"MCP list_tools exceeded {self.timeout_seconds} seconds"
             ) from None
@@ -685,29 +721,49 @@ class MCPClient:
             raise
         except UrlElicitationRequiredError:
             raise
-        except McpError as e:
+        except MCPError as e:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
+            if _is_sse_cap_error(e):
+                # DD8: an oversized event is one bad response, not a dead
+                # connection - the session survives it.
+                raise MCPConnectionError(f"MCP list_tools failed: {_SSE_CAP_MESSAGE}") from None
             if _is_session_terminated(e):
                 self._mark_dead()
             raise MCPConnectionError(f"MCP list_tools failed: {e}") from None
-        except (httpx.HTTPError, anyio.ClosedResourceError) as e:
+        except (httpx2.HTTPError, anyio.ClosedResourceError) as e:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
             self._mark_dead()
             raise MCPConnectionError(
                 f"MCP transport error during list_tools: {type(e).__name__}: {e}"
             ) from None
+        except (Exception, BaseExceptionGroup, asyncio.CancelledError):
+            # Anything else after the request was sent: a 401 as the last
+            # response still means sign-in (a 2.3.0 auth-flow failure can reach
+            # here as a CancelledError); otherwise propagate unchanged.
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
+            raise
 
         tools: list[MCPTool] = []
         for tool in result.tools:
             # tool.annotations is a Pydantic ToolAnnotations object (or None);
             # .model_dump(mode="json") yields a stable JSON-serializable dict.
             annotations = (
-                tool.annotations.model_dump(mode="json") if tool.annotations is not None else None
+                tool.annotations.model_dump(mode="json", by_alias=True)
+                if tool.annotations is not None
+                else None
             )
             tools.append(
                 MCPTool(
                     name=tool.name,
                     description=tool.description or "",
-                    input_schema=tool.inputSchema or {},
-                    output_schema=tool.outputSchema,
+                    input_schema=tool.input_schema or {},
+                    output_schema=tool.output_schema,
                     annotations=annotations,
                 )
             )
@@ -723,7 +779,7 @@ class MCPClient:
         the tool name isn't in the cache. Validates `arguments` against the
         tool's JSON Schema (L6b) BEFORE wire call, raising MCPArgumentError on
         mismatch. Raises MCPCallError if the server returns isError=True or an
-        SDK McpError. Wraps timeout / transport errors as MCPConnectionError.
+        SDK MCPError. Wraps timeout / transport errors as MCPConnectionError.
         UrlElicitationRequiredError propagates unchanged (F3+ surfaces it).
 
         Raises:
@@ -732,7 +788,7 @@ class MCPClient:
                 the pool rebuilds the entry).
             MCPToolNotFoundError: if name isn't in the server's tool list.
             MCPArgumentError: if arguments fail JSON-Schema validation.
-            MCPCallError: if the server returned isError=True or McpError.
+            MCPCallError: if the server returned isError=True or MCPError.
             UrlElicitationRequiredError: propagated unchanged for F3+ flows.
         """
         if not self._is_alive or self._session is None:
@@ -763,24 +819,19 @@ class MCPClient:
                 raise MCPArgumentError(tool_name=name, validation_message=str(e)) from None
 
         # L6b: SDK error translation. UrlElicitationRequiredError IS a subclass
-        # of McpError (verified at L6b design review:
-        # `issubclass(UrlElicitationRequiredError, McpError) == True`) — the
-        # explicit re-raise MUST come BEFORE `except McpError` or URL
+        # of MCPError (`issubclass(UrlElicitationRequiredError, MCPError)`) — the
+        # explicit re-raise MUST come BEFORE `except MCPError` or URL
         # elicitation prompts get silently swallowed into MCPCallError.
         #
-        # F5 L4 (A8/A9): SDK auth-flow failures and no-provider 401 responses
-        # surface from inside the SDK's anyio TaskGroup wrapped as a
-        # BaseExceptionGroup (probe-confirmed 2026-05-07; see flight log
-        # "Stake-test probe results: A9 surface type = ExceptionGroup wrapping
-        # httpx.HTTPStatusError"). The two catches sit BEFORE the existing
-        # exception handling so OAuth-aware translation runs first; existing
-        # callers see no behavior change for non-401 / non-OAuth paths.
+        # F5 L4 (A8/A9): SDK auth-flow failures surface from inside the SDK's
+        # anyio TaskGroup (possibly as a BaseExceptionGroup). DD1: the
+        # no-provider 401 is read from the transport's response-hook record
+        # (mcp 2.x no longer raises HTTPStatusError), against a baseline
+        # captured immediately before the request is sent.
+        auth_rec = auth_record_for(self._session)
+        baseline = auth_rec.seq if auth_rec is not None else 0
         try:
             async with asyncio.timeout(self.call_timeout_seconds):
-                # The except*-group below catches OAuth/auth exceptions
-                # whether they bubble bare (test stubs) or wrapped in a
-                # BaseExceptionGroup from the SDK's anyio TaskGroup
-                # (production SDK path). `except*` matches both shapes.
                 try:
                     result = await self._session.call_tool(name, arguments)
                 except* (OAuthFlowError, OAuthTokenError):
@@ -794,37 +845,10 @@ class MCPClient:
                         resource_metadata_url=None,  # SDK exception doesn't carry it
                         consent_url=None,
                     ) from None
-                except* httpx.HTTPStatusError as eg:
-                    # F5 L4 (A9): no-provider 401 path. The SDK's
-                    # `_post_or_get_message` runs `response.raise_for_status()`
-                    # which surfaces here as an ExceptionGroup wrapping
-                    # HTTPStatusError. Walk the group; translate 401 to
-                    # MCPAuthRequired (parsing the WWW-Authenticate
-                    # `resource_metadata` field per RFC 9728 §5.1 + SDK
-                    # `extract_field_from_www_auth` helper); re-raise other
-                    # statuses for the outer except to translate.
-                    auth_error: httpx.HTTPStatusError | None = None
-                    for sub in eg.exceptions:
-                        if (
-                            isinstance(sub, httpx.HTTPStatusError)
-                            and sub.response.status_code == 401
-                        ):
-                            auth_error = sub
-                            break
-                    if auth_error is not None:
-                        rmd = extract_field_from_www_auth(auth_error.response, "resource_metadata")
-                        raise MCPAuthRequired(
-                            source_id=self.source.id,
-                            source_name=self.source.name,
-                            resource_metadata_url=rmd,
-                            consent_url=None,
-                        ) from None
-                    # Non-401 HTTP error → re-raise the group so the outer
-                    # block's httpx.HTTPError handler picks it up after
-                    # unwrapping (BaseExceptionGroup itself isn't an
-                    # httpx.HTTPError, so manually re-raise the inner).
-                    raise eg.exceptions[0] from None
         except asyncio.TimeoutError:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
             raise MCPConnectionError(
                 f"MCP tool call exceeded {self.call_timeout_seconds} seconds"
             ) from None
@@ -832,7 +856,10 @@ class MCPClient:
             raise
         except UrlElicitationRequiredError:
             raise
-        except McpError as e:
+        except MCPError as e:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
             # "Session terminated" is the server telling us our session is gone
             # (the SDK's synthetic answer to a 404) — a dead CONNECTION, not a
             # tool that returned an error. Reporting it as MCPCallError left
@@ -847,12 +874,25 @@ class MCPClient:
                     f"MCP session terminated by server during call to {name!r}; "
                     "the connection will be re-established on the next call."
                 ) from None
+            if _is_sse_cap_error(e):
+                # DD8: one oversized response; the connection is NOT marked dead.
+                raise MCPCallError(tool_name=name, server_message=_SSE_CAP_MESSAGE) from None
             raise MCPCallError(tool_name=name, server_message=str(e)) from None
-        except (httpx.HTTPError, anyio.ClosedResourceError) as e:
+        except (httpx2.HTTPError, anyio.ClosedResourceError) as e:
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
             self._mark_dead()
             raise MCPConnectionError(
                 f"MCP transport error during call_tool: {type(e).__name__}: {e}"
             ) from None
+        except (Exception, BaseExceptionGroup, asyncio.CancelledError):
+            # See list_tools: a trailing 401 still means sign-in; otherwise
+            # propagate unchanged.
+            auth_required = self._auth_required_since(auth_rec, baseline)
+            if auth_required is not None:
+                raise auth_required from None
+            raise
 
         # Flatten text content blocks; render placeholders for non-text blocks
         # so MCPToolResult.text reflects ALL blocks (text + placeholders) in
@@ -861,14 +901,18 @@ class MCPClient:
         joined_text_parts: list[str] = []
         raw_blocks: list[dict[str, Any]] = []
         for block in result.content:
-            raw_blocks.append(block.model_dump(mode="json"))
+            raw_blocks.append(block.model_dump(mode="json", by_alias=True))
             block_type = getattr(block, "type", None)
             if block_type == "text":
                 joined_text_parts.append(block.text)
             elif block_type == "image":
-                joined_text_parts.append(f"[image: {len(block.data)} bytes, mime={block.mimeType}]")
+                joined_text_parts.append(
+                    f"[image: {len(block.data)} bytes, mime={block.mime_type}]"
+                )
             elif block_type == "audio":
-                joined_text_parts.append(f"[audio: {len(block.data)} bytes, mime={block.mimeType}]")
+                joined_text_parts.append(
+                    f"[audio: {len(block.data)} bytes, mime={block.mime_type}]"
+                )
             elif block_type == "resource_link":
                 joined_text_parts.append(f"[resource_link: {block.uri}]")
             elif block_type == "resource":
@@ -878,10 +922,10 @@ class MCPClient:
             # Unknown block types: silently dropped (forward-compat).
         joined_text = "".join(joined_text_parts)
 
-        # SDK 1.27.0 typing: structuredContent is dict[str, Any] | None;
-        # isError is bool with default False. Pass-through is sufficient.
-        structured = result.structuredContent
-        is_error = bool(result.isError)
+        # mcp 2.x typing: structured_content is dict[str, Any] | None;
+        # is_error is bool with default False. Pass-through is sufficient.
+        structured = result.structured_content
+        is_error = bool(result.is_error)
 
         tool_result = MCPToolResult(
             text=joined_text,

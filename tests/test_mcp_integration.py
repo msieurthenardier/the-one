@@ -1,4 +1,4 @@
-"""F2 integration tests — real SDK round-trips against the in-repo FastMCP fixture.
+"""F2 integration tests — real SDK round-trips against the in-repo MCPServer fixture.
 
 L3: 2 smoke tests verifying both transports work via the bare SDK (no MCPClient).
 L4: adds MCPClient-flavored streamable-http tests.
@@ -24,7 +24,7 @@ class TestL3IntegrationSmoke:
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 init_result = await session.initialize()
-                assert init_result.protocolVersion == "2025-11-25"
+                assert init_result.protocol_version == "2025-11-25"
                 assert init_result.capabilities.tools is not None
 
                 tools_result = await session.list_tools()
@@ -32,7 +32,7 @@ class TestL3IntegrationSmoke:
                 assert {t.name for t in tools_result.tools} == {"echo", "add"}
 
                 echo_result = await session.call_tool("echo", {"message": "hi"})
-                assert echo_result.isError is False
+                assert echo_result.is_error is False
                 # SDK returns content blocks; first block should be text "hi"
                 assert echo_result.content[0].text == "hi"
 
@@ -41,11 +41,10 @@ class TestL3IntegrationSmoke:
         async with streamable_http_client(url, http_client=client) as (
             read,
             write,
-            _get_session_id,
         ):
             async with ClientSession(read, write) as session:
                 init_result = await session.initialize()
-                assert init_result.protocolVersion == "2025-11-25"
+                assert init_result.protocol_version == "2025-11-25"
                 assert init_result.capabilities.tools is not None
 
                 tools_result = await session.list_tools()
@@ -53,7 +52,7 @@ class TestL3IntegrationSmoke:
                 assert {t.name for t in tools_result.tools} == {"echo", "add"}
 
                 echo_result = await session.call_tool("echo", {"message": "hi"})
-                assert echo_result.isError is False
+                assert echo_result.is_error is False
                 assert echo_result.content[0].text == "hi"
 
 
@@ -141,7 +140,7 @@ class TestL5Stdio:
     """MCPClient end-to-end tests over the real stdio transport.
 
     Each test wrapped in `@pytest.mark.timeout(15)` so a hung subprocess
-    (broken pipe, missing PYTHONPATH typo, FastMCP deadlock) fails fast at
+    (broken pipe, missing PYTHONPATH typo, MCPServer deadlock) fails fast at
     15s instead of stalling the suite. Real cold-start is ~0.5-0.8s per L3
     measurements; 15s is well above the steady-state but tight enough to
     surface a wedge.
@@ -179,7 +178,7 @@ class TestL5Stdio:
     @pytest.mark.timeout(15)
     async def test_connect_with_extra_env_passes_through(self, mcp_fixture_stdio_params) -> None:
         # Extend the fixture's env with an extra plaintext key AND add a
-        # secret. FastMCP's hello fixture doesn't read these vars, but the
+        # secret. MCPServer's hello fixture doesn't read these vars, but the
         # round-trip proves the env is materialized without breaking spawn.
         params_dict = mcp_fixture_stdio_params
         extended_env = {**params_dict["env"], "MY_PLAIN": "hello"}
@@ -229,7 +228,7 @@ class TestL5Stdio:
 
 
 class TestL6aHappyPath:
-    """MCPClient.list_tools() + call_tool() end-to-end against the FastMCP fixture.
+    """MCPClient.list_tools() + call_tool() end-to-end against the MCPServer fixture.
 
     Mirrors L4/L5 transport tests but extends past `connect()` into the real
     tool-list and tool-call round-trips. Verifies the L6a projection:
@@ -343,7 +342,7 @@ class TestL6aHappyPath:
         try:
             result = await client.call_tool("add", {"a": 2, "b": 3})
             assert result.is_error is False
-            # FastMCP's @mcp.tool returns int 5; SDK projects structuredContent
+            # MCPServer's @mcp.tool returns int 5; SDK projects structuredContent
             # as {"result": 5} and coerces the text content block to "5"
             # (no trailing newline) — confirmed by in-container probe at L6a
             # implementation time.
@@ -354,7 +353,7 @@ class TestL6aHappyPath:
 
 
 class TestL6bInputValidationIntegration:
-    """L6b end-to-end input-validation tests against the FastMCP fixture.
+    """L6b end-to-end input-validation tests against the MCPServer fixture.
 
     Exercises jsonschema validation against the real `echo` tool's
     inputSchema (required `message` field). MCPArgumentError raised BEFORE

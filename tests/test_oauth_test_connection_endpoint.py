@@ -285,7 +285,7 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
             "the_one.mcp.transports.streamable_http._probe_auth_posture",
             _stub_probe,
         ),
-        patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient),
+        patch("the_one.interfaces.web.api.httpx2.AsyncClient", _StubHttpxClient),
     ):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
@@ -488,7 +488,7 @@ async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) ->
             "the_one.mcp.transports.streamable_http._probe_auth_posture",
             _stub_probe,
         ),
-        patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient),
+        patch("the_one.interfaces.web.api.httpx2.AsyncClient", _StubHttpxClient),
     ):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 

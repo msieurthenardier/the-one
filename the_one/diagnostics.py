@@ -572,6 +572,49 @@ def _probe_time_zones() -> ProbeResult:
         return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
 
 
+# ── MCP SDK probe (M29 F1 L2, DD11) ─────────────────────────────────────────
+#
+# Unconditional on every host. mcp 2.x pulls mcp_types, httpx2/httpcore2 (which
+# read their own dist metadata at import), truststore and opentelemetry; the
+# frozen build must carry all of them. This imports the SDK, its version module
+# and the app's self-configuration surface (import only: no app factory, no
+# session manager), then builds a truststore SSL context.
+
+
+def _import_mcp_sdk():
+    """Seam the tests monkeypatch to simulate an import failure.
+
+    Returns ``(mcp_version, handshake_revision)``.
+    """
+    import importlib.metadata
+
+    import mcp  # noqa: F401
+    import mcp.types.version as mcp_version
+
+    import the_one.self_configuration.surface  # noqa: F401
+
+    return importlib.metadata.version("mcp"), mcp_version.LATEST_HANDSHAKE_VERSION
+
+
+def _probe_mcp_sdk() -> ProbeResult:
+    """Prove the mcp 2.x import closure and the truststore context. Never raises."""
+    name = "mcp sdk"
+    try:
+        version, handshake = _import_mcp_sdk()
+        import ssl
+
+        import truststore
+
+        ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        if ctx is None:
+            return ProbeResult(name, False, "truststore returned no SSL context")
+        detail = f"mcp {version}, handshake {handshake}"
+        return ProbeResult(name, True, detail.encode("ascii", "replace").decode("ascii"))
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        detail = f"{exc.__class__.__name__}: {exc}"
+        return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
+
+
 # ── Embedding-model probe (M24 F01 L02, DD-1/DD-2/DD-5/DD-6/DD-7) ───────────
 #
 # The bundled float16 `potion-retrieval-32M` weights (the_one/embeddings/data/)
@@ -945,13 +988,13 @@ def run_doctor(out=None) -> int:
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
     shell, llm providers, model catalog, usearch, fts5, embedding model, file
-    watcher, window chrome and time zones — and non-zero otherwise. Of those
-    **eleven**, four are frozen-only (desktop shell, llm providers, model
+    watcher, window chrome, time zones and mcp sdk — and non-zero otherwise. Of those
+    **twelve**, four are frozen-only (desktop shell, llm providers, model
     catalog, usearch): on a dev host they downgrade a failure to an
     informational ``skipped`` line rather than failing the run. The other
-    seven — child spawn, python interpreter, **fts5**, **embedding model**,
+    eight — child spawn, python interpreter, **fts5**, **embedding model**,
     **file watcher**'s import check, **window chrome** (skipped off Windows)
-    and **time zones** — gate unconditionally; file watcher is the one hybrid
+    **time zones** and **mcp sdk** — gate unconditionally; file watcher is the one hybrid
     gate (Flight 4 DD-9):
     its import half gates unconditionally, on every host, but its
     native round-trip half gates only when frozen, downgrading through the
@@ -959,6 +1002,10 @@ def run_doctor(out=None) -> int:
     time zones (M28 F1 DD9) gates unconditionally: Windows has no zone
     database of its own, so the tzdata package's data files must be bundled
     in the freeze, and the gate also checks the exact date-line strings.
+    mcp sdk (M29 F1 L2, DD11) gates unconditionally: it imports mcp, mcp.types.version
+    and the self-configuration surface and builds a truststore SSL context, so a
+    frozen build missing the 2.x closure fails; the detail names the mcp version and
+    handshake revision.
     fts5 gates unconditionally per DD-11 (a mission constraint in every
     build, not an optional extra). The embedding gate is unconditional by
     design (M24 F01 DD-7): model2vec is a base dependency and the weights are
@@ -1029,6 +1076,9 @@ def run_doctor(out=None) -> int:
     # tzdata package survived the freeze and the date formatters' exact output.
     # Both CI lanes grep this name verbatim.
     time_zone_probe = _probe_time_zones()
+    # MCP SDK gate (M29 F1 L2, DD11): unconditional; proves the mcp 2.x import
+    # closure survived the freeze. Both CI lanes grep this name verbatim.
+    mcp_sdk_probe = _probe_mcp_sdk()
     gates = [
         spawn,
         interp,
@@ -1041,6 +1091,7 @@ def run_doctor(out=None) -> int:
         file_watcher,
         window_chrome,
         time_zone_probe,
+        mcp_sdk_probe,
     ]
 
     for res in gates:

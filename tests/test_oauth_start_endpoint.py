@@ -140,7 +140,7 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
     # Use start/stop on the patcher rather than ``with`` so the patch
     # remains active while the background task runs (the route schedules
     # _drive_flow on a Task that may execute after the response returns).
-    patcher = patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubAsyncClient)
+    patcher = patch("the_one.interfaces.web.api.httpx2.AsyncClient", _StubAsyncClient)
     patcher.start()
     try:
         resp = await c.post(

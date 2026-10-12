@@ -45,7 +45,8 @@ async def test_pending_registry_full_contract() -> None:
         _state.register("S1", source_id="x", tool_call_id=None, chat_session_id="c")
 
     assert _state.resolve("S1", "code-123", "S1") is True
-    assert await fut == ("code-123", "S1")
+    result = await fut
+    assert (result.code, result.state, result.iss) == ("code-123", "S1", None)
     # second resolve returns False (already popped)
     assert _state.resolve("S1", "x", "S1") is False
     # unknown state
@@ -63,8 +64,14 @@ async def test_pending_registry_full_contract() -> None:
     fut_b = _state.register("B", source_id="s", tool_call_id=None, chat_session_id="c")
     assert fut_a is not fut_b
     _state.resolve("A", "code-a", "A")
-    assert await fut_a == ("code-a", "A")
+    result_a = await fut_a
+    assert (result_a.code, result_a.state, result_a.iss) == ("code-a", "A", None)
     assert not fut_b.done()
+
+    # DD2: an RFC 9207 issuer rides the future when the callback route forwards it.
+    assert _state.resolve("B", "code-b", "B", "https://as.example") is True
+    result_b = await fut_b
+    assert (result_b.code, result_b.state, result_b.iss) == ("code-b", "B", "https://as.example")
 
 
 async def test_sweep_and_lifespan_lifecycle() -> None:

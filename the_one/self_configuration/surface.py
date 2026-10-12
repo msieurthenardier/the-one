@@ -1,29 +1,45 @@
-"""The self-configuration FastMCP server (LD4).
+"""The self-configuration MCPServer (LD4).
 
-One stateless FastMCP instance, mounted on the existing app at
-``constants.MOUNT_PATH``. Its ``session_manager.run()`` must be wrapped
-around the app's lifespan body by the caller (``the_one/interfaces/web/
-app.py``) — the SDK creates the session manager only once
-``streamable_http_app()`` has been called, and `run()` is once-per-instance
-(probe constraint 1).
+One stateless ``MCPServer`` instance (mcp 2.x; ``mcp.server.fastmcp`` is gone),
+mounted on the existing app at ``constants.MOUNT_PATH``. Its
+``session_manager.run()`` must be wrapped around the app's lifespan body by the
+caller (``the_one/interfaces/web/app.py``) — the SDK creates the session
+manager only once ``streamable_http_app()`` has been called, and `run()` is
+once-per-instance (probe constraint 1). :func:`build_app` is the ONE place the
+mounted app is built (``stateless_http=True, streamable_http_path="/"``): it
+runs ``streamable_http_app()`` at most once per module instance, and
+:func:`session_manager` reads the manager only after it has run.
 
 The two read tools (DD6) resolve the calling agent from the ASGI scope the
 credential gate stamped (``ctx.request_context.request.scope[CALLER_SCOPE_KEY]``
 — the SDK sets ``RequestContext.request`` to the Starlette request for HTTP
 transports). Any failure in that resolution — no caller stamped, credential
-orphaned, surface disabled for the resolved agent (DD9) — raises a plain
-exception with a one-line message; FastMCP's low-level server catches every
-exception escaping a tool call and converts it to an ``isError`` result
-(``mcp.server.lowlevel.server.Server.call_tool``'s ``except Exception as e:
-return self._make_error_result(str(e))``), so this never raises a stack
-into the transport.
+orphaned, surface disabled for the resolved agent (DD9) — raises one of the
+two refusal classes below with a one-line message. Under 2.x only a
+``ToolError`` keeps its text (``Error executing tool <name>: <msg>``); any
+other exception is reduced to ``Error executing tool <name>`` with no text
+(``mcp/server/mcpserver/tools/base.py``). The refusal classes therefore
+subclass ``ToolError`` AND the builtin the 1.x code raised, so the client text
+and in-process ``except PermissionError`` / ``except ValueError`` callers are
+unchanged. Always raise them with ONE argument (two args format as
+``[Errno ...]`` on the ``OSError`` base).
+
+Refusal-parity audit (Mission 29 F1): the tool bodies, ``manage``, ``pending``,
+``projection``, the revision repository and the agent store raise no other
+exception that was meant to reach a client. The only others are internal
+defences (``compare_and_set_field``'s ``illegal field`` ``ValueError``,
+unreachable behind the tool boundary) and ``KeyError`` for an agent deleted
+between the caller resolution and the tool's own reload (a race, text never
+meant for the client). Those now read ``Error executing tool <name>``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from starlette.applications import Starlette
 
 from the_one.config import settings
 from the_one.db.connection import get_connection
@@ -46,11 +62,36 @@ from the_one.self_configuration.projection import (
     build_get_my_configuration,
 )
 
-mcp = FastMCP(
-    "the-one self-configuration",
-    stateless_http=True,
-    streamable_http_path="/",
-)
+mcp = MCPServer("the-one self-configuration")
+
+
+class SelfConfigPermissionError(ToolError, PermissionError):
+    """A refusal of the caller itself (no/orphaned credential, surface
+    disabled). Raise with ONE argument."""
+
+
+class SelfConfigValueError(ToolError, ValueError):
+    """A refusal of the caller's input (LD5 bounds). Raise with ONE argument."""
+
+
+_app: Starlette | None = None
+
+
+def build_app() -> Starlette:
+    """Build (once per module instance) the Starlette app to mount at
+    ``MOUNT_PATH``. Both ``the_one/interfaces/web/app.py`` and the surface
+    test mount call this, so the transport options cannot drift."""
+    global _app
+    if _app is None:
+        _app = mcp.streamable_http_app(stateless_http=True, streamable_http_path="/")
+    return _app
+
+
+def session_manager() -> Any:
+    """The surface's session manager, read only after :func:`build_app` ran."""
+    build_app()
+    return mcp.session_manager
+
 
 # LD5: input bounds, not content policy. 64 KiB, measured on the UTF-8
 # encoded byte length (not `len(text)`, which counts code points) — no cap
@@ -70,15 +111,17 @@ async def _resolve_caller_and_agent(ctx: Context) -> tuple[Any, str]:
     reader of ``CALLER_SCOPE_KEY`` (the leg's Inputs note that no production
     code consulted it before this).
 
-    Raises a plain ``PermissionError`` with a one-line message on any
+    Raises ``SelfConfigPermissionError`` with a one-line message on any
     failure — never a stack trace (see module docstring).
     """
     request = ctx.request_context.request
     if request is None:
-        raise PermissionError("self-configuration: no request context (non-HTTP transport)")
+        raise SelfConfigPermissionError(
+            "self-configuration: no request context (non-HTTP transport)"
+        )
     caller = request.scope.get(CALLER_SCOPE_KEY)
     if caller is None:
-        raise PermissionError("self-configuration: no identified caller on this request")
+        raise SelfConfigPermissionError("self-configuration: no identified caller on this request")
 
     # M21 F03 L01 (DD1/DD9): route an EXTERNAL caller through the external
     # registry; every other caller (the agent's own `agt` credential) through
@@ -92,7 +135,7 @@ async def _resolve_caller_and_agent(ctx: Context) -> tuple[Any, str]:
     else:
         source_id = source_id_for(caller.identifier)
     if source_id is None:
-        raise PermissionError("self-configuration: credential is not registered")
+        raise SelfConfigPermissionError("self-configuration: credential is not registered")
 
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
@@ -100,20 +143,24 @@ async def _resolve_caller_and_agent(ctx: Context) -> tuple[Any, str]:
     try:
         row = await mcp_repo.get(source_id)
     except KeyError:
-        raise PermissionError("self-configuration: surface is disabled for this caller") from None
+        raise SelfConfigPermissionError(
+            "self-configuration: surface is disabled for this caller"
+        ) from None
 
     agent_name = manage.owner_of(row)
     if agent_name is None:
-        raise PermissionError("self-configuration: surface is disabled for this caller")
+        raise SelfConfigPermissionError("self-configuration: surface is disabled for this caller")
 
     agent_store = SQLiteAgentStore(conn, encryptor)
     try:
         config = await agent_store.load(agent_name)
     except KeyError:
-        raise PermissionError("self-configuration: surface is disabled for this caller") from None
+        raise SelfConfigPermissionError(
+            "self-configuration: surface is disabled for this caller"
+        ) from None
 
     if row.id not in config.mcp_source_ids:
-        raise PermissionError("self-configuration: surface is disabled for this caller")
+        raise SelfConfigPermissionError("self-configuration: surface is disabled for this caller")
 
     return caller, agent_name
 
@@ -188,17 +235,19 @@ async def describe_my_capabilities(ctx: Context) -> dict[str, Any]:
 
 
 def _validate_write_input(text: Any, apply: Any) -> None:
-    """LD5's input bounds. Raises a plain ``ValueError`` with a one-line
-    message on any violation — the module's ONE error mechanism (see module
-    docstring): FastMCP's low-level server converts any exception escaping
-    a tool call to an ``isError`` result, exactly as ``_calling_agent``'s
-    ``PermissionError`` already does. No second signalling path."""
+    """LD5's input bounds. Raises ``SelfConfigValueError`` (a ``ToolError``
+    and a ``ValueError``) with a one-line message on any violation — the
+    module's ONE error mechanism (see module docstring): the SDK turns a
+    ``ToolError`` into an ``isError`` result carrying its text. No second
+    signalling path."""
     if not isinstance(text, str) or not text:
-        raise ValueError("self-configuration: text must be a non-empty string")
+        raise SelfConfigValueError("self-configuration: text must be a non-empty string")
     if len(text.encode("utf-8")) > _MAX_TEXT_BYTES:
-        raise ValueError(f"self-configuration: text exceeds the {_MAX_TEXT_BYTES}-byte bound")
+        raise SelfConfigValueError(
+            f"self-configuration: text exceeds the {_MAX_TEXT_BYTES}-byte bound"
+        )
     if apply not in _APPLY_VALUES:
-        raise ValueError(
+        raise SelfConfigValueError(
             f"self-configuration: apply must be one of {sorted(_APPLY_VALUES)!r}, got {apply!r}"
         )
 
@@ -282,7 +331,7 @@ async def _apply_revision(
     # inducing ``stale`` result mirroring the pending branch's shape (before
     # any ``pending.record``, so a stale write leaves no in-memory deferral
     # either — leg Edge Cases). HTTP 409 stays exclusive to the operator
-    # approve endpoint (an HTTP request); this is a FastMCP tool result.
+    # approve endpoint (an HTTP request); this is an MCP tool result.
     applied = await agent_store.compare_and_set_field(agent_name, field, base_value, text)
     if not applied:
         current_value = getattr(await agent_store.load(agent_name), field)
@@ -392,4 +441,4 @@ def list_surface_tools() -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["mcp", "MOUNT_PATH", "list_surface_tools"]
+__all__ = ["mcp", "MOUNT_PATH", "build_app", "session_manager", "list_surface_tools"]

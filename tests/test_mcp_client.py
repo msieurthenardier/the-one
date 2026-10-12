@@ -17,11 +17,11 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
-import httpx
+import httpx2
 import pytest
+from mcp import types as mcp_types
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
-from mcp.types import ErrorData
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 from the_one.db.models import MCPSource
 from the_one.mcp import client as client_mod
@@ -41,18 +41,21 @@ from the_one.mcp.transports.streamable_http import build_request_headers
 
 class TestModuleSetup:
     def test_pinned_protocol_version_matches_sdk(self) -> None:
-        """Tripwire: F2's pinned constant must match the SDK's exported LATEST_PROTOCOL_VERSION.
+        """Tripwire: the pinned constant must match the SDK's LATEST_HANDSHAKE_VERSION.
 
-        When the SDK pin is bumped (per the upgrade procedure in the_one/mcp/__init__.py),
+        mcp 2.x's ``LATEST_PROTOCOL_VERSION`` is now the 2026-07-28 revision
+        (Flight 2 adopts it); the handshake era the client still negotiates
+        ends at ``mcp.types.version.LATEST_HANDSHAKE_VERSION``. When the SDK
+        pin is bumped (per the upgrade procedure in the_one/mcp/__init__.py),
         this test will fail loudly until the operator updates _PINNED_PROTOCOL_VERSION too.
         """
-        import mcp.types
+        from mcp.types.version import LATEST_HANDSHAKE_VERSION
 
         from the_one import mcp as the_one_mcp
 
-        assert the_one_mcp._PINNED_PROTOCOL_VERSION == mcp.types.LATEST_PROTOCOL_VERSION, (
+        assert the_one_mcp._PINNED_PROTOCOL_VERSION == LATEST_HANDSHAKE_VERSION, (
             f"PINNED ({the_one_mcp._PINNED_PROTOCOL_VERSION}) != "
-            f"SDK LATEST_PROTOCOL_VERSION ({mcp.types.LATEST_PROTOCOL_VERSION}). "
+            f"SDK LATEST_HANDSHAKE_VERSION ({LATEST_HANDSHAKE_VERSION}). "
             f"See the_one/mcp/__init__.py upgrade procedure."
         )
 
@@ -99,48 +102,46 @@ def _make_init_result(
     *,
     protocol_version: str = "2025-11-25",
     tools_present: bool = True,
-    capabilities_dump: dict | None = None,
     server_info_dump: dict | None = None,
     instructions: str | None = None,
     meta: dict | None = None,
-):
-    """Build a mock InitializeResult with the configured shape.
+) -> mcp_types.InitializeResult:
+    """Build a REAL ``mcp.types.InitializeResult`` (DD5: no camelCase MagicMocks).
 
-    The mock's `capabilities` exposes:
-      - `.tools`: a MagicMock (truthy) when tools_present, else None
-      - `.model_dump(mode='json')`: returns capabilities_dump (default {"tools": {}})
-
-    F4 L2 (M08): optional ``server_info_dump`` and ``instructions`` mirror
-    the spec-optional ``serverInfo`` / ``instructions`` fields on
-    ``InitializeResult``. When ``server_info_dump`` is None the mock
-    exposes ``serverInfo=None`` (matches a server that omits the field).
-    When supplied as a dict, the mock's ``model_dump(mode='json', ...)``
-    returns it, exercising MCPClient.server_info's exclude_none pass-through.
-
-    F4 L3 (M08): optional ``meta`` mirrors ``InitializeResult._meta`` — set
-    on both ``result.meta`` and ``result._meta`` so MCPClient's getattr
-    fallback finds it regardless of which name the SDK alias resolves to.
+    ``server_info_dump`` is a dict of ``Implementation`` fields (snake_case or
+    camelCase aliases both validate); None means the server omits ``serverInfo``
+    (the SDK type requires one, so a placeholder is stored on the result and
+    ``_set_init`` exposes ``session.server_info = None``).
     """
-    result = MagicMock()
-    result.protocolVersion = protocol_version
-    caps = MagicMock()
-    caps.tools = MagicMock() if tools_present else None
-    caps.model_dump = MagicMock(
-        return_value=(capabilities_dump if capabilities_dump is not None else {"tools": {}})
+    info = mcp_types.Implementation.model_validate(
+        server_info_dump
+        if server_info_dump is not None
+        else {"name": "placeholder", "version": "0"}
     )
-    result.capabilities = caps
-    if server_info_dump is None:
-        result.serverInfo = None
-    else:
-        si = MagicMock()
-        si.model_dump = MagicMock(return_value=server_info_dump)
-        result.serverInfo = si
-    result.instructions = instructions
-    # F4 L3 (M08): inject _meta into the mock. MCPClient prefers `meta`
-    # attribute, falling back to `_meta` — set both for compatibility.
-    result.meta = meta
-    result._meta = meta
+    result = mcp_types.InitializeResult(
+        protocol_version=protocol_version,
+        capabilities=mcp_types.ServerCapabilities(
+            tools=mcp_types.ToolsCapability() if tools_present else None
+        ),
+        server_info=info,
+        instructions=instructions,
+        _meta=meta,
+    )
+    result._omit_server_info = server_info_dump is None  # type: ignore[attr-defined]
     return result
+
+
+def _set_init(session, result: mcp_types.InitializeResult) -> None:
+    """Make a mock session behave like a handshaken 2.x ``ClientSession``:
+    ``initialize()`` returns ``result`` and the era-agnostic properties
+    ``MCPClient`` reads (DD6) mirror it."""
+    session.initialize = AsyncMock(return_value=result)
+    session.protocol_version = result.protocol_version
+    session.server_capabilities = result.capabilities
+    session.server_info = (
+        None if getattr(result, "_omit_server_info", False) else result.server_info
+    )
+    session.instructions = result.instructions
 
 
 @asynccontextmanager
@@ -175,7 +176,7 @@ async def _anyio_backed_transport_cm(session_mock):
 @pytest.fixture
 def mock_session():
     session = MagicMock()
-    session.initialize = AsyncMock(return_value=_make_init_result())
+    _set_init(session, _make_init_result())
     session.list_tools = AsyncMock()
     session.call_tool = AsyncMock()
     return session
@@ -215,88 +216,69 @@ def _make_tool(
     *,
     output_schema: dict | None = None,
     annotations: object | None = None,
-) -> MagicMock:
-    """Build a mock SDK Tool with the F2-relevant fields populated."""
-    tool = MagicMock()
-    tool.name = name
-    tool.description = description
-    tool.inputSchema = input_schema if input_schema is not None else {}
-    tool.outputSchema = output_schema
-    tool.annotations = annotations  # None or a Pydantic-like object with model_dump
-    return tool
+) -> mcp_types.Tool:
+    """Build a real SDK ``Tool`` (``model_construct`` only for an empty schema)."""
+    schema = input_schema if input_schema is not None else {}
+    if not schema:
+        # The SDK type requires a "type": "object" schema; an empty one (a
+        # server that sends none) has to bypass validation.
+        return mcp_types.Tool.model_construct(
+            name=name,
+            description=description,
+            input_schema=schema,
+            output_schema=output_schema,
+            annotations=annotations,
+        )
+    return mcp_types.Tool(
+        name=name,
+        description=description,
+        input_schema=schema,
+        output_schema=output_schema,
+        annotations=annotations,
+    )
 
 
-def _make_list_tools_result(tools: list[MagicMock]) -> MagicMock:
-    """Build a mock ListToolsResult with the supplied tools."""
-    result = MagicMock()
-    result.tools = tools
-    return result
+def _make_list_tools_result(tools: list[mcp_types.Tool]) -> mcp_types.ListToolsResult:
+    """Build a real ListToolsResult with the supplied tools."""
+    return mcp_types.ListToolsResult.model_construct(tools=tools)
 
 
-def _make_text_content(text: str) -> MagicMock:
-    """Build a mock TextContent block (type='text', text=..., model_dump'able)."""
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    block.model_dump = MagicMock(return_value={"type": "text", "text": text})
-    return block
+def _make_text_content(text: str) -> mcp_types.TextContent:
+    return mcp_types.TextContent(type="text", text=text)
 
 
 def _make_call_tool_result(
     *,
-    content: list[MagicMock],
+    content: list,
     structured: dict | None = None,
     is_error: bool = False,
-) -> MagicMock:
-    """Build a mock CallToolResult with the supplied content blocks."""
-    result = MagicMock()
-    result.content = content
-    result.structuredContent = structured
-    result.isError = is_error
-    return result
+) -> mcp_types.CallToolResult:
+    """Build a real CallToolResult with the supplied content blocks."""
+    return mcp_types.CallToolResult(
+        content=content, structured_content=structured, is_error=is_error
+    )
 
 
-# ─── L6b helpers (non-text content block mocks) ──────────────────────────────
+# ─── L6b helpers (non-text content blocks, real models) ─────────────────────
 
 
-def _make_image_content(data: str = "abc", mime: str = "image/png") -> MagicMock:
-    """Build a mock ImageContent block (type='image', data=base64-ish, mimeType)."""
-    block = MagicMock()
-    block.type = "image"
-    block.data = data
-    block.mimeType = mime
-    block.model_dump = MagicMock(return_value={"type": "image", "data": data, "mimeType": mime})
-    return block
+def _make_image_content(data: str = "abc", mime: str = "image/png") -> mcp_types.ImageContent:
+    return mcp_types.ImageContent(type="image", data=data, mime_type=mime)
 
 
-def _make_audio_content(data: str = "xyz", mime: str = "audio/wav") -> MagicMock:
-    """Build a mock AudioContent block (type='audio', data, mimeType)."""
-    block = MagicMock()
-    block.type = "audio"
-    block.data = data
-    block.mimeType = mime
-    block.model_dump = MagicMock(return_value={"type": "audio", "data": data, "mimeType": mime})
-    return block
+def _make_audio_content(data: str = "xyz", mime: str = "audio/wav") -> mcp_types.AudioContent:
+    return mcp_types.AudioContent(type="audio", data=data, mime_type=mime)
 
 
-def _make_resource_link_content(uri: str = "file:///x.txt") -> MagicMock:
-    """Build a mock ResourceLink block (type='resource_link', uri)."""
-    block = MagicMock()
-    block.type = "resource_link"
-    block.uri = uri
-    block.model_dump = MagicMock(return_value={"type": "resource_link", "uri": uri})
-    return block
+def _make_resource_link_content(uri: str = "file:///x.txt") -> mcp_types.ResourceLink:
+    return mcp_types.ResourceLink(type="resource_link", uri=uri, name="link")
 
 
-def _make_embedded_resource_content(uri: str = "resource://r") -> MagicMock:
-    """Build a mock EmbeddedResource block (type='resource', resource.uri)."""
-    block = MagicMock()
-    block.type = "resource"
-    inner = MagicMock()
-    inner.uri = uri
-    block.resource = inner
-    block.model_dump = MagicMock(return_value={"type": "resource", "resource": {"uri": uri}})
-    return block
+def _make_embedded_resource_content(uri: str = "resource://r") -> mcp_types.EmbeddedResource:
+    return mcp_types.EmbeddedResource(
+        type="resource",
+        resource=mcp_types.TextResourceContents(uri=uri, text="body"),
+    )
 
 
 # ─── L2 tests ────────────────────────────────────────────────────────────────
@@ -322,7 +304,10 @@ class TestMCPClientLifecycle:
             assert c.is_alive is True
             assert c.last_activity > 0.0
             assert c.negotiated_protocol_version == "2025-11-25"
-            assert c.server_capabilities == {"tools": {}}
+            caps = c.server_capabilities
+            assert caps["tools"] == {"listChanged": None}
+            # DD5: the dump is by alias (camelCase keys), not snake_case.
+            assert "extensions" in caps
             # F4 L2 (M08): defaults — server omits serverInfo and
             # instructions, so the public accessors return None rather
             # than raising. (The _is_alive guard still fires before the
@@ -349,15 +334,16 @@ class TestMCPClientLifecycle:
             (mirrors server_capabilities' guard)
           - disconnect clears the internal state so a reconnect repopulates
         """
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(
+        _set_init(
+            mock_session,
+            _make_init_result(
                 server_info_dump={
                     "name": "cloudflare-docs",
                     "title": "Cloudflare Docs MCP",
                     "version": "1.2.3",
                 },
                 instructions="Use search() before fetch() to discover doc pages.",
-            )
+            ),
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
@@ -396,7 +382,7 @@ class TestMCPClientLifecycle:
           - post-disconnect state cleared so a reconnect repopulates
         """
         meta_payload = {"vendor": "cloudflare", "build": "2025.10"}
-        mock_session.initialize = AsyncMock(return_value=_make_init_result(meta=meta_payload))
+        _set_init(mock_session, _make_init_result(meta=meta_payload))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
 
@@ -429,9 +415,7 @@ class TestMCPClientLifecycle:
         "capability-gate, don't crash" framing. The pinned constant
         remains as documentation/marker.
         """
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(protocol_version="2025-06-18")
-        )
+        _set_init(mock_session, _make_init_result(protocol_version="2025-06-18"))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
         # Pre-A6 this raised MCPVersionMismatch; post-A6 it succeeds.
@@ -445,9 +429,7 @@ class TestMCPClientLifecycle:
     ) -> None:
         """Server announcing a version NOT in SDK's SUPPORTED_PROTOCOL_VERSIONS
         raises MCPVersionMismatch. Locks the post-A6 check site."""
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(protocol_version="1999-01-01")
-        )
+        _set_init(mock_session, _make_init_result(protocol_version="1999-01-01"))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
         with pytest.raises(MCPVersionMismatch) as exc_info:
@@ -472,7 +454,7 @@ class TestMCPClientLifecycle:
 
     async def test_connect_capability_tools_missing(self, patch_transport, mock_session) -> None:
         """Server without tools capability raises MCPCapabilityMissing."""
-        mock_session.initialize = AsyncMock(return_value=_make_init_result(tools_present=False))
+        _set_init(mock_session, _make_init_result(tools_present=False))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
         with pytest.raises(MCPCapabilityMissing) as exc_info:
@@ -749,9 +731,7 @@ class TestMCPClientLifecycle:
         # SUPPORTED_PROTOCOL_VERSIONS, server's 2025-11-25 IS in that set,
         # connect() succeeds.
         monkeypatch.setattr("the_one.mcp._PINNED_PROTOCOL_VERSION", "2099-01-01")
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(protocol_version="2025-11-25")
-        )
+        _set_init(mock_session, _make_init_result(protocol_version="2025-11-25"))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1127,42 +1107,10 @@ class TestListToolsAndCallTool:
 
     # F6.5 L2: 401 / OAuth → MCPAuthRequired translation tests
 
-    async def test_list_tools_401_in_exception_group_raises_mcp_auth_required(
-        self, patch_transport, mock_session
-    ) -> None:
-        """list_tools translates a 401 HTTPStatusError (inside BaseExceptionGroup)
-        to MCPAuthRequired, parsing resource_metadata_url from WWW-Authenticate."""
-        patch_transport(mock_session)
-        response_401 = httpx.Response(
-            status_code=401,
-            headers={
-                "WWW-Authenticate": (
-                    'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"'
-                )
-            },
-            request=httpx.Request("POST", "https://example.com/mcp"),
-        )
-        inner = httpx.HTTPStatusError(
-            "401 Unauthorized",
-            request=response_401.request,
-            response=response_401,
-        )
-        eg = BaseExceptionGroup("test group", [inner])
-        mock_session.list_tools = AsyncMock(side_effect=eg)
-
-        c = MCPClient(_stdio_source())
-        await c.connect()
-        try:
-            with pytest.raises(MCPAuthRequired) as exc_info:
-                await c.list_tools()
-        finally:
-            await c.disconnect()
-
-        assert exc_info.value.source_id == c.source.id
-        assert exc_info.value.resource_metadata_url == (
-            "https://example.com/.well-known/oauth-protected-resource"
-        )
-        assert exc_info.value.consent_url is None
+    # The synthetic-HTTPStatusError 401 test that lived here (A9) is replaced by
+    # real-fixture tests in tests/test_mcp_signin_detection.py (DD1): mcp 2.x no
+    # longer raises HTTPStatusError, so the 401 is read from the transport's
+    # response-hook record against a real server.
 
     async def test_list_tools_oauth_flow_error_raises_mcp_auth_required(
         self, patch_transport, mock_session
@@ -1223,7 +1171,10 @@ class TestListToolsAndCallTool:
             await c.disconnect()
 
         assert result.text == "hi"
-        assert result.raw == [{"type": "text", "text": "hi"}]
+        # DD5: raw blocks dump by alias; the full real-model dump carries the
+        # optional ``annotations`` and ``_meta`` keys (2.x dumps ``_meta``
+        # where 1.x dumped ``meta``).
+        assert result.raw == [{"type": "text", "text": "hi", "annotations": None, "_meta": None}]
         assert result.structured is None
         assert result.is_error is False
 
@@ -1694,24 +1645,53 @@ class TestSessionTerminatedRecovery:
 
         We match on the message text because it is the only signal available —
         the 404 is swallowed inside the SDK and the accompanying code (32600)
-        is generic. If a future SDK renames the message, this fails loudly here
-        instead of silently reverting the self-heal.
+        is generic. mcp 2.x removed ``_send_session_terminated_error`` and
+        builds the error inline in ``StreamableHTTPTransport``, so this drives
+        a REAL 404 (with an ``Mcp-Session-Id`` already issued) through a real
+        ``ClientSession``. If a future SDK renames the message, this fails
+        loudly here instead of silently reverting the self-heal.
         """
-        from mcp.client.streamable_http import StreamableHTTPTransport
+        import json
+
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
 
         from the_one.mcp.client import _SESSION_TERMINATED_MESSAGE
 
-        captured: list[object] = []
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            if request.method != "POST":
+                return httpx2.Response(405)
+            body = json.loads(request.content)
+            method = body.get("method")
+            if method == "initialize":
+                return httpx2.Response(
+                    200,
+                    headers={"mcp-session-id": "abc"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": body["id"],
+                        "result": {
+                            "protocolVersion": "2025-11-25",
+                            "capabilities": {"tools": {}},
+                            "serverInfo": {"name": "s", "version": "1"},
+                        },
+                    },
+                )
+            if method == "notifications/initialized":
+                return httpx2.Response(202)
+            return httpx2.Response(404)
 
-        class _StubWriter:
-            async def send(self, item):
-                captured.append(item)
-
-        transport = StreamableHTTPTransport("http://127.0.0.1:1/mcp")
-        await transport._send_session_terminated_error(_StubWriter(), 1)
-
-        assert len(captured) == 1
-        assert captured[0].message.root.error.message == _SESSION_TERMINATED_MESSAGE
+        client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+        async with client:
+            async with streamable_http_client("http://127.0.0.1:1/mcp", http_client=client) as (
+                read,
+                write,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    with pytest.raises(MCPError) as exc_info:
+                        await session.list_tools()
+        assert exc_info.value.message == _SESSION_TERMINATED_MESSAGE
 
     async def test_call_tool_session_terminated_raises_connection_error(
         self, patch_transport, mock_session
@@ -1719,9 +1699,7 @@ class TestSessionTerminatedRecovery:
         """Not MCPCallError — the tool never ran; the session is gone."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
-        mock_session.call_tool = AsyncMock(
-            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
-        )
+        mock_session.call_tool = AsyncMock(side_effect=MCPError(32600, "Session terminated"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1736,9 +1714,7 @@ class TestSessionTerminatedRecovery:
         """``is_alive`` flips off so the pool evicts and rebuilds the entry."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
-        mock_session.call_tool = AsyncMock(
-            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
-        )
+        mock_session.call_tool = AsyncMock(side_effect=MCPError(32600, "Session terminated"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1756,7 +1732,7 @@ class TestSessionTerminatedRecovery:
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
-            side_effect=McpError(ErrorData(code=-32600, message="An object could not be cloned"))
+            side_effect=MCPError(-32600, "An object could not be cloned")
         )
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1773,7 +1749,7 @@ class TestSessionTerminatedRecovery:
         """A broken transport is equally unrecoverable — same self-heal path."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
-        mock_session.call_tool = AsyncMock(side_effect=httpx.HTTPError("boom"))
+        mock_session.call_tool = AsyncMock(side_effect=httpx2.HTTPError("boom"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1788,9 +1764,7 @@ class TestSessionTerminatedRecovery:
     ) -> None:
         """The agent-build path (cache miss) self-heals the same way."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
-        )
+        mock_session.list_tools = AsyncMock(side_effect=MCPError(32600, "Session terminated"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1804,8 +1778,8 @@ class TestSessionTerminatedRecovery:
 class TestCallToolErrorTranslation:
     """L6b unit tests for SDK error -> F2 wrapper-class translation.
 
-    Covers the matrix from leg §error-translation: timeout, McpError,
-    httpx.HTTPError, anyio.ClosedResourceError, and the critical
+    Covers the matrix from leg §error-translation: timeout, MCPError,
+    httpx2.HTTPError, anyio.ClosedResourceError, and the critical
     UrlElicitationRequiredError pass-through (subclass-ordering invariant).
     """
 
@@ -1841,12 +1815,10 @@ class TestCallToolErrorTranslation:
     async def test_call_tool_mcp_error_raises_mcp_call_error(
         self, patch_transport, mock_session
     ) -> None:
-        """McpError from the SDK wraps as MCPCallError carrying the message."""
+        """MCPError from the SDK wraps as MCPCallError carrying the message."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
-        mock_session.call_tool = AsyncMock(
-            side_effect=McpError(ErrorData(code=-32600, message="boom"))
-        )
+        mock_session.call_tool = AsyncMock(side_effect=MCPError(-32600, "boom"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1860,10 +1832,10 @@ class TestCallToolErrorTranslation:
     async def test_call_tool_httpx_error_raises_connection_error(
         self, patch_transport, mock_session
     ) -> None:
-        """httpx.HTTPError wraps as MCPConnectionError ('transport error')."""
+        """httpx2.HTTPError wraps as MCPConnectionError ('transport error')."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
-        mock_session.call_tool = AsyncMock(side_effect=httpx.HTTPError("boom"))
+        mock_session.call_tool = AsyncMock(side_effect=httpx2.HTTPError("boom"))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1894,9 +1866,9 @@ class TestCallToolErrorTranslation:
 
         Mechanical guard against accidental regression of the explicit
         `except UrlElicitationRequiredError: raise` clause ordered BEFORE
-        `except McpError`. Without that ordering, the prompt would be
+        `except MCPError`. Without that ordering, the prompt would be
         silently swallowed into MCPCallError (verified at L6b design review:
-        `issubclass(UrlElicitationRequiredError, McpError) == True`).
+        `issubclass(UrlElicitationRequiredError, MCPError) == True`).
         """
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
@@ -1959,7 +1931,7 @@ class TestBuildRequestHeaders:
 class TestConnectStreamableHttpProduction:
     """Verifies the production path of connect_streamable_http: when neither
     the caller nor the test seam supplies an http_client, the helper builds
-    its own httpx.AsyncClient with the assembled headers applied at
+    its own httpx2.AsyncClient with the assembled headers applied at
     construction time. Closes the gap that integration test #2 cannot
     assert (the test seam path uses a mutation pattern, not a constructor)."""
 
@@ -1969,17 +1941,17 @@ class TestConnectStreamableHttpProduction:
         from contextlib import asynccontextmanager
         from unittest.mock import MagicMock
 
-        import httpx
+        import httpx2
 
         from the_one.mcp.transports import streamable_http as sh
 
         # Capture the http_client argument the SDK receives.
-        captured: dict[str, httpx.AsyncClient] = {}
+        captured: dict[str, httpx2.AsyncClient] = {}
 
         @asynccontextmanager
         async def fake_streamable_http_client(url, *, http_client, **kwargs):
             captured["http_client"] = http_client
-            yield (MagicMock(), MagicMock(), lambda: None)
+            yield (MagicMock(), MagicMock())
 
         class FakeClientSession:
             def __init__(self, *args, **kwargs):
@@ -2008,7 +1980,7 @@ class TestConnectStreamableHttpProduction:
             pass
 
         assert "http_client" in captured
-        # httpx normalizes header keys to lowercase
+        # httpx2 normalizes header keys to lowercase
         assert captured["http_client"].headers.get("authorization") == "Bearer test-token"
 
 

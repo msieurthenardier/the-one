@@ -1,21 +1,21 @@
 """Unit tests for the streamable-http auth-posture probe (F9 L1 Shape C, A6).
 
 The probe (`the_one.mcp.transports.streamable_http._probe_auth_posture`) is a
-bare `httpx.AsyncClient` POST that bypasses the MCP SDK entirely. Tests use
-`httpx.MockTransport` so each scenario is hermetic — no real network.
+bare `httpx2.AsyncClient` POST that bypasses the MCP SDK entirely. Tests use
+`httpx2.MockTransport` so each scenario is hermetic — no real network.
 
 Coverage:
   - 200 OK → "no_auth"
   - 401 with WWW-Authenticate → "oauth"
   - 401 without WWW-Authenticate → "oauth" (broken-server tolerance)
   - 5xx → "error"
-  - Network failure (httpx.ConnectError) → "error"
+  - Network failure (httpx2.ConnectError) → "error"
   - Timeout → "error"
 """
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 import pytest
 
 from the_one.mcp.transports import streamable_http as transport_mod
@@ -23,23 +23,23 @@ from the_one.mcp.transports import streamable_http as transport_mod
 
 @pytest.fixture
 def patch_async_client(monkeypatch):
-    """Replace httpx.AsyncClient inside the transport module with a factory
-    that injects an arbitrary handler via httpx.MockTransport.
+    """Replace httpx2.AsyncClient inside the transport module with a factory
+    that injects an arbitrary handler via httpx2.MockTransport.
 
-    Tests pass a callable `handler(request) -> httpx.Response` (or raises)
+    Tests pass a callable `handler(request) -> httpx2.Response` (or raises)
     and the fixture wraps it so the probe's bare-client construction
     transparently routes through the mock transport.
     """
 
     def _install(handler):
-        original = httpx.AsyncClient
+        original = httpx2.AsyncClient
 
         class _PatchedAsyncClient(original):  # type: ignore[misc, valid-type]
             def __init__(self, *args, **kwargs):
-                kwargs["transport"] = httpx.MockTransport(handler)
+                kwargs["transport"] = httpx2.MockTransport(handler)
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(transport_mod.httpx, "AsyncClient", _PatchedAsyncClient)
+        monkeypatch.setattr(transport_mod.httpx2, "AsyncClient", _PatchedAsyncClient)
 
     return _install
 
@@ -48,12 +48,12 @@ async def test_probe_returns_no_auth_on_200(patch_async_client) -> None:
     """200 OK on initialize → server processed the handshake → 'no_auth'."""
     captured = {}
 
-    def _handler(request: httpx.Request) -> httpx.Response:
+    def _handler(request: httpx2.Request) -> httpx2.Response:
         captured["url"] = str(request.url)
         captured["accept"] = request.headers.get("accept")
         captured["content_type"] = request.headers.get("content-type")
         captured["authorization"] = request.headers.get("authorization")
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "jsonrpc": "2.0",
@@ -91,12 +91,12 @@ async def test_probe_forwards_operator_headers_static_bearer(
     """
     captured = {}
 
-    def _handler(request: httpx.Request) -> httpx.Response:
+    def _handler(request: httpx2.Request) -> httpx2.Response:
         captured["authorization"] = request.headers.get("authorization")
         captured["accept"] = request.headers.get("accept")
         if request.headers.get("authorization") != "Bearer s3cret":
-            return httpx.Response(401, json={"error": "unauthorized"})
-        return httpx.Response(
+            return httpx2.Response(401, json={"error": "unauthorized"})
+        return httpx2.Response(
             200,
             json={"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}},
         )
@@ -118,8 +118,8 @@ async def test_probe_oauth_when_operator_headers_insufficient(
     """If even the operator's headers don't satisfy the server (still 401),
     the verdict stays 'oauth' — genuine OAuth servers are unaffected."""
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"error": "unauthorized"})
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401, json={"error": "unauthorized"})
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture(
@@ -134,8 +134,8 @@ async def test_probe_returns_oauth_on_401_with_www_authenticate(
 ) -> None:
     """401 + WWW-Authenticate → server requires OAuth → 'oauth'."""
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             401,
             headers={
                 "WWW-Authenticate": (
@@ -160,8 +160,8 @@ async def test_probe_returns_oauth_on_401_without_www_authenticate(
     bare 401 is sufficient evidence that auth is required.
     """
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401)
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401)
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
@@ -171,8 +171,8 @@ async def test_probe_returns_oauth_on_401_without_www_authenticate(
 async def test_probe_returns_error_on_5xx(patch_async_client) -> None:
     """5xx → server error → 'error' (not no_auth, not oauth)."""
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="Internal server error")
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(500, text="Internal server error")
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
@@ -180,10 +180,10 @@ async def test_probe_returns_error_on_5xx(patch_async_client) -> None:
 
 
 async def test_probe_returns_error_on_network_failure(patch_async_client) -> None:
-    """httpx.ConnectError (DNS, TLS, refused) → 'error'."""
+    """httpx2.ConnectError (DNS, TLS, refused) → 'error'."""
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("Connection refused")
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused")
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
@@ -193,13 +193,13 @@ async def test_probe_returns_error_on_network_failure(patch_async_client) -> Non
 async def test_probe_returns_error_on_timeout(patch_async_client) -> None:
     """A request that exceeds the timeout surfaces as 'error'.
 
-    Modeled by the mock transport raising httpx.ReadTimeout — the probe's
-    except-clause covers httpx.RequestError (timeouts subclass it) and
+    Modeled by the mock transport raising httpx2.ReadTimeout — the probe's
+    except-clause covers httpx2.RequestError (timeouts subclass it) and
     asyncio.TimeoutError.
     """
 
-    def _handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("Read timeout", request=request)
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("Read timeout", request=request)
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture("https://example.com/mcp", timeout=0.1)

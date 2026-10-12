@@ -553,6 +553,47 @@ reconnecting on secrets decrypted before a rotation).
   responsible for fronting it with a reverse proxy that adds auth — that
   configuration is out of scope for this project.
 
+## MCP client transport: trust store, redirects and issuers (Mission 29)
+
+The MCP client runs on the `mcp` 2.x SDK, which is built on `httpx2` (a separate
+package from the `httpx` the rest of the app uses). Three security-relevant
+consequences, all deliberate:
+
+- **TLS trust store.** `httpx2` verifies TLS against the **operating system's
+  trust store** (through `truststore`), where `httpx` (web fetch, LLM SDKs, the
+  rest of the app) uses the bundled `certifi` roots. A root the OS trusts but
+  `certifi` does not (an enterprise CA, a locally installed development root)
+  therefore works for MCP servers and not for the rest of the app, and the
+  reverse. Setting `SSL_CERT_FILE` or `SSL_CERT_DIR` overrides the choice for
+  `httpx2` (it then uses that file or directory), the same variables operators
+  already use for other Python HTTP clients. Tests that touch TLS or trust
+  settings clear both variables explicitly. Accepted by the operator
+  (2026-10-12).
+- **Redirects.** The MCP path follows only same-origin, method-preserving
+  redirects (a POST follows 307/308 to the same scheme, host and port; the GET
+  stream follows any status to the same origin). A cross-origin redirect is not
+  followed and the request fails with a plain error naming the location, so a
+  server cannot bounce the client's credentials (the `Authorization` header, the
+  OAuth token) to a third origin by redirecting. The client's
+  `follow_redirects` setting is not consulted; the former `follow_redirects:
+  True` was dropped as inert.
+- **Authorization-server issuer binding (RFC 8414, RFC 9207).** Sign-in checks
+  that the authorization server's metadata names the issuer it was discovered
+  at, drops stored client credentials that were registered for a *different*
+  issuer (so another server is never handed this server's registration), and,
+  when the server advertises `authorization_response_iss_parameter_supported`,
+  requires the redirect's `iss` to equal the metadata issuer by simple string
+  comparison. `GET /api/oauth/callback` therefore forwards an optional `iss`
+  query parameter to the pending flow; it is validated by the SDK and never
+  used as an identifier or a path. A mismatch, or a missing `iss` when
+  advertised, fails the sign-in with the existing plain sign-in-required error.
+  Registrations stored by earlier versions record no issuer and are treated as
+  unbound.
+
+The one-megabyte cap on a single server-sent event (a tool result or listing
+larger than that fails with a plain error naming the limit) also bounds how much
+a hostile server can make the client buffer per event.
+
 ## Ollama library and registry fetches
 
 The Pull Model control makes outbound requests from the server to three URL shapes: `https://ollama.com/library` and `https://ollama.com/api/tags` (the catalog of pullable models; fixed URLs, redirects are followed, and the response is only parsed, never acted on: every name and tag it yields is validated before any manifest URL is built) and `https://registry.ollama.ai/v2/library/{name}/manifests/{tag}` (each entry's exact download size; fixed host, no redirects). The hosts are module constants; no part of any host or path is user-controlled. The model `name` and `tag` that reach a manifest URL, whether parsed from the library page or supplied to `GET /api/ollama-library/size?model=`, must first pass an anchored allowlist (`re.fullmatch`, the operator-supplied-identifier rule above: names `[a-z0-9][a-z0-9._-]{0,127}`, tags `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, a single path segment); a failing entry is dropped and logged, and the size route answers 422. Manifest requests do not follow redirects (a 3xx is treated as "size unknown"); the listing fetches do. Nothing is sent about the operator or their Ollama server, and the pull itself (`POST /api/providers/{id}/models/pull`) is unchanged. Sizes and the listing are cached on disk in `{data_dir}/ollama-sizes.json` (public catalog data, no secrets). See `the_one/agents.md` "Ollama pull catalog".

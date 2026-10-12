@@ -178,7 +178,7 @@ async def _self_configuration_session_scope() -> AsyncIterator[None]:
         yield
         return
     _self_configuration_session_manager_started = True
-    async with _self_configuration_surface.mcp.session_manager.run():
+    async with _self_configuration_surface.session_manager().run():
         yield
 
 
@@ -594,10 +594,11 @@ app.include_router(api_router)
 # M21 F01 L02 (DD1/LD4): the self-configuration MCP surface, mounted on the
 # existing app and port — no new port, no new listener. Mounted AFTER the
 # API router per leg Implementation Guidance #6. `streamable_http_app()`
-# must be called here (module load, not per-request) so `mcp.session_manager`
+# must run here (module load, not per-request) so the session manager
 # exists by the time `lifespan` above wraps `.run()` around its body — the
-# SDK creates the session manager lazily on first call to this method.
-app.mount(_SELF_CONFIGURATION_MOUNT_PATH, _self_configuration_surface.mcp.streamable_http_app())
+# SDK creates it lazily on first call. `surface.build_app()` is the one
+# factory (stateless_http + streamable_http_path), shared with the tests.
+app.mount(_SELF_CONFIGURATION_MOUNT_PATH, _self_configuration_surface.build_app())
 
 
 # ── State ─────────────────────────────────────────────────────────────────

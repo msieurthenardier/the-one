@@ -12,7 +12,7 @@ platform serves itself (DD1 in the flight spec). This package owns:
 - ``credentials`` — the per-agent ``agt``-prefixed credential shape and the
   in-memory registry + :class:`~the_one.api_credential.CredentialSource`
   that resolves it.
-- ``surface`` — the FastMCP server instance, its four tools (two read, two
+- ``surface`` — the MCPServer server instance, its four tools (two read, two
   write — added across Legs 2-3), and the caller → agent resolution (DD9's
   refusal).
 - ``projection`` — the two read projections as pure functions over

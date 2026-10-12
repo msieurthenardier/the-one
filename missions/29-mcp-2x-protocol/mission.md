@@ -23,8 +23,8 @@ This mission began as sortie planning (2026-10-11) and was escalated when code i
 - **Operator** (sole user): runs MCP servers locally (stdio) and remotely (HTTP, some behind OAuth); wants the newest servers to work at their newest revision without losing anything that works today.
 
 ## Constraints
-- 2026-07-28 support comes from the official `mcp` SDK, pinned exactly at 2.3.0 (operator decision). 2.3.0 was uploaded 2026-10-02 22:06 UTC and clears the project's 14-day soak at 2026-10-16 22:06 UTC; no code leg starts before then.
-- The 14-day soak applies to every new transitive package too (`mcp-types`, `httpx2`, `httpcore2`, `truststore`, `opentelemetry-api`): `pyproject.toml` carries floors or caps so no resolver — including the unlocked Windows installer workflow — pulls an unsoaked version.
+- 2026-07-28 support comes from the official `mcp` SDK, pinned exactly at 2.3.0 (operator decision). 2.3.0 was uploaded 2026-10-02 22:06 UTC; the operator waived the project's 14-day soak for this mission's new packages (2026-10-12).
+- ~~The 14-day soak applies to every new transitive package too~~ — waived by the operator for this mission (2026-10-12).
 - The client uses the SDK's automatic negotiation: try 2026-07-28 first, fall back to the initialize handshake (operator decision).
 - No weakening of the stdio sandbox, the frozen-runtime environment sanitisation, the credential gate, or OAuth token handling.
 - Only what the SDK requires moves to its HTTP client library (`httpx2`); the rest of the app stays on `httpx`, and no `httpx` exception handling remains on the SDK path.

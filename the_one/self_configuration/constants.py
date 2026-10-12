@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     # duck-types on the ``.config`` attribute instead.
     from the_one.db.models import MCPSource
 
-# Where the self-configuration FastMCP sub-app is mounted on the existing
+# Where the self-configuration MCPServer sub-app is mounted on the existing
 # app/port (DD1). No new port — see the flight's re-entrancy probe. LD4:
-# a real FastMCP instance is mounted here, stateless, with a trailing-slash
+# a real MCPServer instance is mounted here, stateless, with a trailing-slash
 # ``streamable_http_path="/"`` (probe constraint 5 — avoids Starlette's 307
 # on a bare-path POST).
 MOUNT_PATH = "/mcp/self-configuration"
