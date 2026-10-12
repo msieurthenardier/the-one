@@ -845,6 +845,18 @@ with the unsandboxed Windows posture.
   encrypted and masked over the API. `web_search`'s keyed-engine API keys
   (Brave/Google PSE/Tavily) are the first consumers. See
   `the_one/agents.md` "Tool config secrets storage".
+- **Claude Plan (Token) provider token** (sortie 03): a `claude setup-token`
+  token is a long-lived (about a year) subscription bearer credential, the
+  same class of credential as the `anthropic-plan` OAuth access token. It is
+  stored Fernet-encrypted in `llm_providers.api_key`, masked on every
+  response (the `***...{tail4}` shape, preserved by the `__MASKED__`
+  sentinel), covered by encryption-key rotation with the other provider
+  keys, and never returned unmasked; the API refuses an Anthropic API key
+  (`sk-ant-api…`) for the type without echoing the submitted value. The
+  token authenticates as the operator's subscription, so revoke it from the
+  Claude account when the provider is deleted or the token is no longer
+  wanted. The server-stamped `token_set_at` in `secrets` is not a secret and
+  is exposed read-only as `token_set_at`/`token_expires_around`.
 - **`__MASKED__` sentinel**: provider edit form preserves stored API keys
   when the operator hasn't touched the field. The same mask-shape +
   preserve-on-masked semantics apply to MCP, tool-config, and (again, as

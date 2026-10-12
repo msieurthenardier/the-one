@@ -30,6 +30,7 @@ def test_provider_types_tuple_has_expected_members() -> None:
         "mock",
         "openrouter",
         "anthropic-plan",
+        "anthropic-plan-token",
     }
 
 

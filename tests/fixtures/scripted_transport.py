@@ -232,6 +232,23 @@ def make_anthropic_plan(
     return _wire_anthropic(prov, turns, streaming=streaming)
 
 
+def make_anthropic_plan_token(
+    turns: list[CannedTurn], *, streaming: bool = False, config: dict | None = None
+) -> ScriptedProvider:
+    """Build an AnthropicPlanTokenProvider serving ``turns`` (sortie 03).
+
+    Synthetic token; no credential source and no provider_config_id.
+    """
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanTokenProvider
+
+    prov = AnthropicPlanTokenProvider(
+        model="claude-test",
+        access_token="sk-ant-oat01-test-conformance",
+        config=config,
+    )
+    return _wire_anthropic(prov, turns, streaming=streaming)
+
+
 def _wire_anthropic(prov: Any, turns: list[CannedTurn], *, streaming: bool) -> ScriptedProvider:
     """Attach the create/stream recorder queue to an Anthropic-family provider."""
     if streaming:

@@ -100,7 +100,8 @@
 
     // ── Anthropic Account section (M19 F01 L03) ─────────────────────
     // Rendered for ALL modes/types but hidden unless the selected type's
-    // TYPE_DEFAULTS carries showPlanSignIn (the anthropic-plan type) —
+    // TYPE_DEFAULTS carries showPlanSignIn (the anthropic-plan OAuth type only; the
+    // anthropic-plan-token type pastes a token instead and has no sign-in) —
     // same is-hidden toggle pattern as the base_url/api_key rows. The
     // body is populated by wirePlanSignIn; nothing inside carries a
     // data-field attribute (no-trap rule: the dirty snapshot selects
@@ -215,11 +216,17 @@
     // API Key (canonical .api-key-wrap + .api-key-eye)
     var apiKeyValue = isCreate ? '' : (provider.api_key || '');
     html += '<div class="field-group admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-api-key">API Key</label>';
+    // Label, placeholder and help line come from TYPE_DEFAULTS (sortie 03 DD6:
+    // the token type relabels this row "Token"); the type-change handler updates
+    // the same nodes with textContent/setAttribute.
+    html += '<label for="pf-api-key">' + escapeHtml(defaults.apiKeyLabel || 'API Key') + '</label>';
     html += '<div class="api-key-wrap">';
-    html += '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />';
+    html += '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="' + escapeAttr(defaults.apiKeyPlaceholder || 'sk-...') + '"' + (defaults.apiKeyHelp ? ' aria-describedby="pf-api-key-help"' : '') + ' />';
     html += '<button class="api-key-eye" type="button" title="Show/Hide" aria-label="Show password">' + window.App.icon('eye') + '</button>';
     html += '</div>';
+    html += '<p class="field-hint admin-pf-api-key-help" id="pf-api-key-help" data-testid="provider-api-key-help"' + (defaults.apiKeyHelp ? '' : ' hidden') + '>' + escapeHtml(defaults.apiKeyHelp || '') + '</p>';
+    // The token's added/expires line (edit mode); filled by renderTokenExpiry.
+    if (!isCreate) html += '<div class="admin-pf-token-expiry" hidden></div>';
     html += '</div>';
 
     // Context Window (config.num_ctx) — Ollama-only override (F09-05). Rides in
@@ -288,7 +295,8 @@
 
     // Reasoning effort (config.reasoning_effort) — F11-06. Rides the free-form
     // config dict (config.reasoning_effort), same pattern as num_ctx. Shown for
-    // reasoning-capable provider types (anthropic, anthropic-plan, openai,
+    // reasoning-capable provider types (anthropic, anthropic-plan,
+    // anthropic-plan-token, openai,
     // openrouter, ollama, openai-compatible — see
     // TYPE_DEFAULTS.showReasoningEffort in providers-section.js).
     // Optional: the empty "Provider default" option means omit the key
@@ -313,6 +321,53 @@
     html += '</div>';
 
     return html;
+  }
+
+  // ── Claude Plan (Token) expiry line (sortie 03 DD6) ───────────────────
+  var PLAN_TOKEN_TYPE = 'anthropic-plan-token';
+  var DAY_MS = 86400000;
+  var SOON_MS = 30 * DAY_MS;
+
+  /* Pure: the expiry line's state and wording from the server-stamped dates
+     (ISO strings) and a clock reading. `past` when now >= expires, `soon`
+     when expires - now <= 30 days, else `ok`. Dates are formatted in the
+     operator zone by App.time.formatDate. Returns null for unparseable dates. */
+  function planTokenExpiry(setAtIso, expiresIso, nowMs) {
+    var setMs = Date.parse(setAtIso);
+    var expiresMs = Date.parse(expiresIso);
+    if (isNaN(setMs) || isNaN(expiresMs)) return null;
+    var setText = window.App.time.formatDate(new Date(setMs));
+    var expiresText = window.App.time.formatDate(new Date(expiresMs));
+    if (nowMs >= expiresMs) {
+      return { state: 'past', text: 'This token may have expired (around ' + expiresText + '). Run claude setup-token and paste a new token.' };
+    }
+    if (expiresMs - nowMs <= SOON_MS) {
+      return { state: 'soon', text: 'Expires around ' + expiresText + '. Run claude setup-token and paste a new token.' };
+    }
+    return { state: 'ok', text: 'Token added ' + setText + ' \u00b7 expires around ' + expiresText };
+  }
+  window.App.studio.planTokenExpiry = planTokenExpiry;
+
+  /* Fill (or hide) the expiry line from the last saved provider row. Shown
+     only for a saved token-type row with a stamp while the type select still
+     reads the token type. DOM APIs only. */
+  function renderTokenExpiry(container, row, selectedType) {
+    var host = container.querySelector('.admin-pf-token-expiry');
+    if (!host) return;
+    host.textContent = '';
+    var info = null;
+    if (row && row.type === PLAN_TOKEN_TYPE && selectedType === PLAN_TOKEN_TYPE &&
+        row.token_set_at && row.token_expires_around) {
+      info = planTokenExpiry(row.token_set_at, row.token_expires_around, Date.now());
+    }
+    if (!info) { host.hidden = true; return; }
+    var line = document.createElement('p');
+    line.className = 'field-hint token-expiry token-expiry--' + info.state;
+    line.setAttribute('data-testid', 'provider-token-expiry');
+    line.setAttribute('data-state', info.state);
+    line.textContent = info.text;
+    host.appendChild(line);
+    host.hidden = false;
   }
 
   // ── Anthropic plan sign-in (M19 F01 L03) ──────────────────────────────
@@ -765,9 +820,35 @@
         if (reasoningEffortRow) reasoningEffortRow.classList.toggle('is-hidden', !defaults.showReasoningEffort);
         if (planSignInSection) planSignInSection.classList.toggle('is-hidden', !defaults.showPlanSignIn);
         baseUrlInput.value = defaults.base_url || '';
+        applyApiKeyCopy(defaults);
+        renderTokenExpiry(container, expiryRow, typeSelect.value);
         checkDirty();
       });
     }
+
+    /* The API-key row's label, placeholder and help line follow the selected
+       type (sortie 03 DD6). textContent / setAttribute only. */
+    function applyApiKeyCopy(defaults) {
+      var keyLabel = container.querySelector('label[for="pf-api-key"]');
+      var keyInput = container.querySelector('#pf-api-key');
+      var keyHelp = container.querySelector('#pf-api-key-help');
+      if (keyLabel) keyLabel.textContent = defaults.apiKeyLabel || 'API Key';
+      if (keyInput) {
+        keyInput.setAttribute('placeholder', defaults.apiKeyPlaceholder || 'sk-...');
+        if (defaults.apiKeyHelp) keyInput.setAttribute('aria-describedby', 'pf-api-key-help');
+        else keyInput.removeAttribute('aria-describedby');
+      }
+      if (keyHelp) {
+        keyHelp.textContent = defaults.apiKeyHelp || '';
+        keyHelp.hidden = !defaults.apiKeyHelp;
+      }
+    }
+
+    /* The expiry line renders from the last SAVED row (starts as the mounted
+       provider; an edit-mode Save replaces it with the PUT response, since
+       the editor does not re-mount). */
+    var expiryRow = provider || null;
+    if (typeSelect) renderTokenExpiry(container, expiryRow, typeSelect.value);
 
     /* Anthropic plan sign-in section (M19 F01 L03) — mounted for every
        editor instance; visibility is type-driven (above). Owns its own
@@ -879,6 +960,8 @@
               if (updated.base_url) subtitleParts.push(updated.base_url);
               subtitleEl.textContent = subtitleParts.join(' · ');
             }
+            expiryRow = updated;
+            renderTokenExpiry(container, expiryRow, updated.type);
             snapshot = getFormSnapshot(container);
             dirty = false;
             checkDirty();

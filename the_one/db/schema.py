@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 43
+CURRENT_VERSION = 44
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2739,3 +2739,45 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (43,))
         await conn.commit()
         version = 43
+
+    if version < 44:
+        # Sortie 03 (DD8) — rebuild llm_providers so the ``type`` CHECK admits
+        # 'anthropic-plan-token'. The v33 ceremony, except that v44 copies
+        # EVERY column including ``secrets`` (the encrypted OAuth token set
+        # must survive byte-for-byte). Idempotent: DROP ... IF EXISTS prelude,
+        # schema_version row last. Skipped when the table is absent.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_providers'"
+        ) as cursor:
+            llm_providers_present = (await cursor.fetchone()) is not None
+        if llm_providers_present:
+            await conn.executescript(f"""\
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS llm_providers_new;
+
+CREATE TABLE llm_providers_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{{}}',
+    secrets TEXT NOT NULL DEFAULT '{{}}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO llm_providers_new
+    (id, name, type, base_url, api_key, config, secrets, created_at, updated_at)
+    SELECT id, name, type, base_url, api_key, config, secrets, created_at, updated_at
+    FROM llm_providers;
+
+DROP TABLE llm_providers;
+ALTER TABLE llm_providers_new RENAME TO llm_providers;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (44,))
+        await conn.commit()
+        version = 44

@@ -81,7 +81,7 @@ point. `[a11y]` marks the disclosure accessibility check.
   from the thinking-off request, not replayed onto it) and no new thinking disclosure appears
   for that turn. Guards the DD8 strip-when-off replay contract that a fixtured test can only
   approximate.
-- **Plan provider (M19 F01):** input deltas — the agent uses an **Anthropic (Plan)**
+- **Plan provider (M19 F01):** input deltas — the agent uses an **Claude Plan (OAuth)**
   (`anthropic-plan`) provider that is connected (`oauth_active: true`, real Pro/Max sign-in)
   instead of the API-key provider; the "Anthropic API key stored" precondition is replaced by
   "the plan provider shows connected in Library › Model providers". Everything else (steps, observables,

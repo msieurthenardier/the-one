@@ -25,6 +25,7 @@ PROVIDER_TYPE_MAP = {
     "mock": "mock",
     "openrouter": "openrouter",
     "anthropic-plan": "anthropic-plan",
+    "anthropic-plan-token": "anthropic-plan-token",
 }
 
 assert set(PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES), (
@@ -55,6 +56,9 @@ def _try_load_builtin(name: str) -> None:
         "mock": lambda: __import__("the_one.llm.mock", fromlist=["_"]),
         "openrouter": lambda: __import__("the_one.llm.openrouter_provider", fromlist=["_"]),
         "anthropic-plan": lambda: __import__("the_one.llm.anthropic_plan_provider", fromlist=["_"]),
+        "anthropic-plan-token": lambda: __import__(
+            "the_one.llm.anthropic_plan_provider", fromlist=["_"]
+        ),
     }
     if name in loaders:
         try:
@@ -63,7 +67,11 @@ def _try_load_builtin(name: str) -> None:
             # OpenRouter rides the openai package — no separate [openrouter] extra.
             # anthropic-plan rides the anthropic package the same way — no
             # separate [anthropic-plan] extra exists.
-            extra_aliases = {"openrouter": "openai", "anthropic-plan": "anthropic"}
+            extra_aliases = {
+                "openrouter": "openai",
+                "anthropic-plan": "anthropic",
+                "anthropic-plan-token": "anthropic",
+            }
             extra = extra_aliases.get(name, name)
             raise ImportError(
                 f"Provider '{name}' requires extra dependencies. "

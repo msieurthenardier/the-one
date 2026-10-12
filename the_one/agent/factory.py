@@ -363,6 +363,10 @@ class AgentFactory:
         # so no other constructor receives an unexpected kwarg.
         if registry_name == "anthropic-plan":
             provider_kwargs["provider_config_id"] = provider_config.id
+        # Token plan type: the pasted setup-token (stored in ``api_key``) is
+        # the bearer. No credential source, so no provider_config_id.
+        elif registry_name == "anthropic-plan-token":
+            provider_kwargs["access_token"] = provider_config.api_key
 
         llm = get_provider(registry_name, **provider_kwargs)
 

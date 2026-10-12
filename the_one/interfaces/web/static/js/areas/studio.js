@@ -590,7 +590,7 @@ App.registerArea({
       'model from one of your providers, instructions that shape how it behaves, and the tools ' +
       'and knowledge it can use. Chat with an agent from Chats, or connect it to a chat ' +
       'platform with a connector.';
-    var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'anthropic-plan', 'mock', 'openrouter'];
+    var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'anthropic-plan', 'anthropic-plan-token', 'mock', 'openrouter'];
     var providersCache = null;  // the providers Library cache (store-fed); null until first load
     var libraryList = null;     // the Library App.ui.listPane while on Library
     var libraryAddMenu = null;  // its title-row Add menu (App.ui.menu)

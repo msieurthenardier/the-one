@@ -59,6 +59,12 @@
     // api-key input EVER, base_url hidden but force-submitted from this
     // default. showPlanSignIn drives the sign-in section's show/hide.
     'anthropic-plan': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: false, showThinkingEnabled: true, showReasoningEffort: true, showPlanSignIn: true },
+    // anthropic-plan-token (sortie 03 DD6): a token pasted from `claude setup-token`
+    // instead of an OAuth sign-in. The token lives in the api_key column, so the
+    // field is the API-key row relabelled; no showPlanSignIn. apiKeyHelp must
+    // contain no closing brace (tests/test_admin_reasoning_effort_field.py reads a
+    // TYPE_DEFAULTS entry up to the next one).
+    'anthropic-plan-token': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true, showThinkingEnabled: true, showReasoningEffort: true, apiKeyLabel: 'Token', apiKeyPlaceholder: 'sk-ant-oat01-…', apiKeyHelp: 'Run claude setup-token in a terminal and paste the token it prints. It lasts about a year.' },
     'mock': { base_url: '', showBaseUrl: false, showApiKey: false },
     'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true, showReasoningEffort: true }
   };

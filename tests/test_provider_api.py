@@ -2820,7 +2820,7 @@ class TestEnsureV1:
 class TestProviderTypesEndpoint:
     """Tests for GET /api/providers/types (dev-mode-aware list)."""
 
-    async def test_returns_6_types_when_dev_mode_off(self, client: AsyncClient) -> None:
+    async def test_returns_7_types_when_dev_mode_off(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = False
             resp = await client.get("/api/providers/types")
@@ -2834,6 +2834,7 @@ class TestProviderTypesEndpoint:
             "openai",
             "anthropic",
             "anthropic-plan",
+            "anthropic-plan-token",
             "openrouter",
         }
         # Each entry has the expected shape
@@ -2847,9 +2848,12 @@ class TestProviderTypesEndpoint:
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         labels = {t["value"]: t["label"] for t in resp.json()}
-        assert labels["anthropic-plan"] == "Anthropic (Plan)"
+        assert labels["anthropic-plan"] == "Claude Plan (OAuth)"
+        assert labels["anthropic-plan-token"] == "Claude Plan (Token)"
+        values = [t["value"] for t in resp.json()]
+        assert values.index("anthropic-plan-token") == values.index("anthropic-plan") + 1
 
-    async def test_returns_7_types_when_dev_mode_on(self, client: AsyncClient) -> None:
+    async def test_returns_8_types_when_dev_mode_on(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = True
             resp = await client.get("/api/providers/types")
@@ -2858,7 +2862,8 @@ class TestProviderTypesEndpoint:
         assert "mock" in values
         assert "openrouter" in values
         assert "anthropic-plan" in values
-        assert len(values) == 7
+        assert "anthropic-plan-token" in values
+        assert len(values) == 8
 
     async def test_types_route_does_not_collide_with_id_route(self, client: AsyncClient) -> None:
         """Regression: /providers/types must be registered before /providers/{id}.
@@ -3987,3 +3992,368 @@ class TestCreateProviderValidation:
         )
         assert resp.status_code == 422
         assert secret not in resp.text
+
+
+# ── anthropic-plan-token (sortie 03 DD2-DD5, DD11) ───────────────────────
+
+_TOKEN = "sk-ant-oat01-test-synthetic-token-value"
+_OLD_STAMP = "2025-01-02T03:04:05+00:00"
+
+_TOKEN_PROVIDER_BODY = {
+    "name": "Claude Token",
+    "type": "anthropic-plan-token",
+    "base_url": "https://api.anthropic.com",
+    "api_key": _TOKEN,
+}
+
+
+async def _make_token_provider(env, **overrides) -> str:
+    resp = await env.client.post("/api/providers", json={**_TOKEN_PROVIDER_BODY, **overrides})
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def _put(env, provider_id: str, **fields):
+    row = (await env.client.get(f"/api/providers/{provider_id}")).json()
+    body = {k: row[k] for k in ("name", "type", "base_url", "api_key", "config")}
+    body.update(fields)
+    body = {k: v for k, v in body.items() if v is not _OMIT}
+    return await env.client.put(f"/api/providers/{provider_id}", json=body)
+
+
+_OMIT = object()
+
+
+async def _stored_row(env, provider_id: str):
+    return await _plan_repo(env).get(provider_id)
+
+
+async def _backdate_stamp(env, provider_id: str) -> None:
+    repo = _plan_repo(env)
+    row = await repo.get(provider_id)
+    await repo.update(row.model_copy(update={"secrets": {"token_set_at": _OLD_STAMP}}))
+
+
+class TestPlanTokenCreate:
+    async def test_create_without_token_is_422(self, plan_env) -> None:
+        body = {k: v for k, v in _TOKEN_PROVIDER_BODY.items() if k != "api_key"}
+        resp = await plan_env.client.post("/api/providers", json=body)
+        assert resp.status_code == 422
+        assert "setup-token" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("key", ["", "   "])
+    async def test_create_with_blank_token_is_422(self, plan_env, key) -> None:
+        resp = await plan_env.client.post(
+            "/api/providers", json={**_TOKEN_PROVIDER_BODY, "api_key": key}
+        )
+        assert resp.status_code == 422
+
+    async def test_create_with_api_key_is_422_and_never_echoes(self, plan_env) -> None:
+        secret = "sk-ant-api03-test-synthetic-api-key"
+        resp = await plan_env.client.post(
+            "/api/providers", json={**_TOKEN_PROVIDER_BODY, "api_key": secret}
+        )
+        assert resp.status_code == 422
+        assert "Anthropic API key" in resp.json()["detail"]
+        assert secret not in resp.text
+
+    async def test_create_stamps_and_never_returns_token(self, plan_env) -> None:
+        from datetime import datetime, timedelta
+
+        resp = await plan_env.client.post("/api/providers", json=_TOKEN_PROVIDER_BODY)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert _TOKEN not in resp.text
+        assert body["api_key"].startswith("***")
+        assert "secrets" not in body
+        assert body["oauth_active"] is False
+        set_at = datetime.fromisoformat(body["token_set_at"])
+        assert datetime.fromisoformat(body["token_expires_around"]) == set_at + timedelta(days=365)
+        stored = await _stored_row(plan_env, body["id"])
+        assert stored.api_key == _TOKEN
+        assert stored.secrets == {"token_set_at": body["token_set_at"]}
+
+    async def test_create_ignores_client_sent_stamp(self, plan_env) -> None:
+        resp = await plan_env.client.post(
+            "/api/providers",
+            json={**_TOKEN_PROVIDER_BODY, "secrets": {"token_set_at": _OLD_STAMP}},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["token_set_at"] != _OLD_STAMP
+
+    async def test_create_strips_whitespace(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env, api_key=f"  {_TOKEN}\n")
+        assert (await _stored_row(plan_env, pid)).api_key == _TOKEN
+
+
+class TestPlanTokenUpdate:
+    async def test_put_omitting_key_and_secrets_keeps_both(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        await _backdate_stamp(plan_env, pid)
+        resp = await _put(plan_env, pid, api_key=_OMIT, name="Renamed")
+        assert resp.status_code == 200, resp.text
+        stored = await _stored_row(plan_env, pid)
+        assert stored.api_key == _TOKEN
+        assert stored.secrets == {"token_set_at": _OLD_STAMP}
+        assert resp.json()["token_set_at"] == _OLD_STAMP
+
+    async def test_masked_put_keeps_token_and_stamp(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        await _backdate_stamp(plan_env, pid)
+        resp = await _put(plan_env, pid, api_key="__MASKED__")
+        assert resp.status_code == 200
+        stored = await _stored_row(plan_env, pid)
+        assert (stored.api_key, stored.secrets["token_set_at"]) == (_TOKEN, _OLD_STAMP)
+        # The echoed mask shape also preserves.
+        mask = (await plan_env.client.get(f"/api/providers/{pid}")).json()["api_key"]
+        resp = await _put(plan_env, pid, api_key=mask)
+        assert resp.status_code == 200
+        assert (await _stored_row(plan_env, pid)).api_key == _TOKEN
+
+    async def test_changed_token_restamps(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        await _backdate_stamp(plan_env, pid)
+        new = "sk-ant-oat01-test-another-token"
+        resp = await _put(plan_env, pid, api_key=new)
+        assert resp.status_code == 200
+        stored = await _stored_row(plan_env, pid)
+        assert stored.api_key == new
+        assert stored.secrets["token_set_at"] != _OLD_STAMP
+        assert new not in resp.text
+
+    async def test_identical_repaste_with_whitespace_keeps_stamp(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        await _backdate_stamp(plan_env, pid)
+        resp = await _put(plan_env, pid, api_key=f"  {_TOKEN}\n")
+        assert resp.status_code == 200
+        assert (await _stored_row(plan_env, pid)).secrets["token_set_at"] == _OLD_STAMP
+
+    async def test_client_sent_stamp_never_seeds_or_overwrites(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        await _backdate_stamp(plan_env, pid)
+        resp = await _put(plan_env, pid, secrets={"token_set_at": "2030-01-01T00:00:00+00:00"})
+        assert resp.status_code == 200
+        assert (await _stored_row(plan_env, pid)).secrets["token_set_at"] == _OLD_STAMP
+
+    async def test_api_key_on_update_is_422_without_echo(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        secret = "sk-ant-api03-test-synthetic-api-key"
+        resp = await _put(plan_env, pid, api_key=secret)
+        assert resp.status_code == 422
+        assert secret not in resp.text
+        assert (await _stored_row(plan_env, pid)).api_key == _TOKEN
+
+    @pytest.mark.parametrize("value", [None, "", "   "])
+    async def test_explicit_null_or_empty_key_is_422(self, plan_env, value) -> None:
+        pid = await _make_token_provider(plan_env)
+        resp = await _put(plan_env, pid, api_key=value)
+        assert resp.status_code == 422
+        assert (await _stored_row(plan_env, pid)).api_key == _TOKEN
+
+
+class TestPlanTokenTypeChanges:
+    async def test_oauth_to_token_requires_fresh_token(self, plan_env) -> None:
+        pid = await _signed_in_plan_provider(plan_env)
+        for key in (_OMIT, "__MASKED__", None, ""):
+            resp = await _put(plan_env, pid, type="anthropic-plan-token", api_key=key)
+            assert resp.status_code == 422, key
+            assert "setup-token" in resp.json()["detail"]
+        assert (await _stored_row(plan_env, pid)).type == "anthropic-plan"
+
+    async def test_oauth_to_token_drops_oauth_keys_and_stamps(self, plan_env) -> None:
+        pid = await _signed_in_plan_provider(plan_env)
+        resp = await _put(plan_env, pid, type="anthropic-plan-token", api_key=_TOKEN)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["oauth_active"] is False
+        stored = await _stored_row(plan_env, pid)
+        assert set(stored.secrets) == {"token_set_at"}
+        assert body["token_set_at"] == stored.secrets["token_set_at"]
+
+    async def test_other_type_masked_key_never_becomes_a_token(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)  # create as token, then flip type
+        resp = await plan_env.client.post(
+            "/api/providers",
+            json={
+                "name": "Anth",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-api03-test-synthetic",
+            },
+        )
+        other = resp.json()["id"]
+        for key in (_OMIT, "__MASKED__"):
+            resp = await _put(plan_env, other, type="anthropic-plan-token", api_key=key)
+            assert resp.status_code == 422, key
+        assert (await _stored_row(plan_env, other)).type == "anthropic"
+        assert pid  # silence unused
+
+    async def test_token_to_oauth_clears_key_and_stamp(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        resp = await _put(plan_env, pid, type="anthropic-plan", api_key="__MASKED__")
+        assert resp.status_code == 200, resp.text
+        stored = await _stored_row(plan_env, pid)
+        assert stored.api_key is None
+        assert stored.secrets == {}
+        body = resp.json()
+        assert body["token_set_at"] is None and body["token_expires_around"] is None
+        assert body["oauth_active"] is False
+
+    async def test_token_to_anthropic_drops_stamp_keeps_key(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        resp = await _put(plan_env, pid, type="anthropic", api_key="__MASKED__")
+        assert resp.status_code == 200
+        stored = await _stored_row(plan_env, pid)
+        assert stored.api_key == _TOKEN
+        assert stored.secrets == {}
+        assert resp.json()["token_set_at"] is None
+
+    async def test_legacy_non_plan_row_loses_stale_oauth_keys(self, plan_env) -> None:
+        resp = await plan_env.client.post(
+            "/api/providers",
+            json={"name": "O", "type": "openai", "base_url": "https://api.openai.com/v1"},
+        )
+        pid = resp.json()["id"]
+        repo = _plan_repo(plan_env)
+        row = await repo.get(pid)
+        await repo.update(row.model_copy(update={"secrets": {"access_token": "stale"}}))
+        resp = await _put(plan_env, pid, name="Renamed")
+        assert resp.status_code == 200
+        assert (await _stored_row(plan_env, pid)).secrets == {}
+
+    async def test_oauth_row_keeps_oauth_keys_on_plain_update(self, plan_env) -> None:
+        pid = await _signed_in_plan_provider(plan_env)
+        resp = await _put(plan_env, pid, name="Renamed", api_key="whatever")
+        assert resp.status_code == 200
+        stored = await _stored_row(plan_env, pid)
+        assert stored.secrets["access_token"] == "sk-ant-oat01-planaccess"
+        assert stored.api_key is None  # forced for the OAuth type
+        assert resp.json()["oauth_active"] is True
+
+
+class TestPlanTokenResponses:
+    async def test_no_response_contains_the_token(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_TOKEN_PROVIDER_BODY)
+        pid = create.json()["id"]
+        update = await _put(plan_env, pid, name="Renamed")
+        listing = await plan_env.client.get("/api/providers")
+        one = await plan_env.client.get(f"/api/providers/{pid}")
+        for r in (create, update, listing, one):
+            assert _TOKEN not in r.text
+
+    async def test_token_fields_null_for_other_types(self, plan_env) -> None:
+        resp = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        body = resp.json()
+        assert body["token_set_at"] is None
+        assert body["token_expires_around"] is None
+
+    async def test_oauth_active_only_for_oauth_type(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        repo = _plan_repo(plan_env)
+        row = await repo.get(pid)
+        await repo.update(
+            row.model_copy(
+                update={"secrets": {"access_token": "a", "refresh_token": "r", "token_set_at": "x"}}
+            )
+        )
+        assert (await plan_env.client.get(f"/api/providers/{pid}")).json()["oauth_active"] is False
+
+
+def _token_mock_module(**overrides) -> MagicMock:
+    mod = _mock_anthropic_module()
+
+    class _AuthError(_StubAnthropicError):
+        pass
+
+    mod.AuthenticationError = _AuthError
+    for k, v in overrides.items():
+        setattr(mod, k, v)
+    return mod
+
+
+class TestPlanTokenConnectionTest:
+    async def test_ok(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        mod = _token_mock_module()
+        mod.AsyncAnthropic.return_value.models.list = AsyncMock(return_value=MagicMock(data=[]))
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        _, kwargs = mod.AsyncAnthropic.call_args
+        assert kwargs["auth_token"] == _TOKEN
+        assert kwargs["api_key"] is None
+        assert kwargs["default_headers"] == {"anthropic-beta": "oauth-2025-04-20"}
+
+    async def test_no_token_builds_no_client(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        repo = _plan_repo(plan_env)
+        row = await repo.get(pid)
+        await repo.update(row.model_copy(update={"api_key": None}))
+        mod = _token_mock_module()
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.post(f"/api/providers/{pid}/test")
+        body = resp.json()
+        assert body["status"] == "error"
+        assert "setup-token" in body["detail"]
+        mod.AsyncAnthropic.assert_not_called()
+
+    async def test_rejected_token(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        mod = _token_mock_module()
+        mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=mod.AuthenticationError("401")
+        )
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.post(f"/api/providers/{pid}/test")
+        body = resp.json()
+        assert body["status"] == "error"
+        assert "rejected" in body["detail"]
+        assert "401" not in body["detail"]
+
+    async def test_other_anthropic_error(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        mod = _token_mock_module()
+        mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=mod.AnthropicError("upstream down")
+        )
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.post(f"/api/providers/{pid}/test")
+        assert resp.json() == {"status": "error", "detail": "upstream down"}
+
+
+class TestPlanTokenModels:
+    async def test_live_listing(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        model_a = SimpleNamespace(id="claude-haiku-4-5", display_name="Claude Haiku 4.5")
+        mod = _token_mock_module()
+        mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[model_a])
+        )
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        assert [m["id"] for m in resp.json()] == ["claude-haiku-4-5"]
+        _, kwargs = mod.AsyncAnthropic.call_args
+        assert kwargs["auth_token"] == _TOKEN
+
+    async def test_failure_falls_back_to_static_catalog(self, plan_env) -> None:
+        from the_one.llm.model_catalog import models_for
+
+        pid = await _make_token_provider(plan_env)
+        mod = _token_mock_module()
+        mod.AsyncAnthropic.return_value.models.list = AsyncMock(side_effect=RuntimeError("x"))
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.get(f"/api/providers/{pid}/models")
+        assert [m["id"] for m in resp.json()] == sorted(models_for("anthropic"))
+
+    async def test_no_token_serves_catalog_without_building_a_client(self, plan_env) -> None:
+        pid = await _make_token_provider(plan_env)
+        repo = _plan_repo(plan_env)
+        row = await repo.get(pid)
+        await repo.update(row.model_copy(update={"api_key": None}))
+        mod = _token_mock_module()
+        with patch.dict(sys.modules, {"anthropic": mod}):
+            resp = await plan_env.client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200 and len(resp.json()) > 0
+        mod.AsyncAnthropic.assert_not_called()
