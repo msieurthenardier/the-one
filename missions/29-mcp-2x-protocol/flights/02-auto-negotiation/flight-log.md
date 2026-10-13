@@ -190,6 +190,14 @@ Operator review (2026-10-12): every item accepted as classified. A12 was narrowe
   - The crash-wiped `/tmp` scratch data dir: a HAT data dir under `/tmp` does not survive a WSL crash.
   - The 401 on discover then 400 on initialize slow path, from leg 3.
   - Squawk 0201, the browser-budget pressure.
+- **Methodology feedback from the operator (2026-10-13), for the debrief and an upstream Flight Control service report: write HAT instructions one step at a time, with each check placed inside the step it belongs to.**
+  - **What happened in H4.** The FD gave a numbered list of four steps and ended it with "tell me when you've pressed Test the second time." The operator worked through the steps one at a time and only read that request after finishing. Setting the source up also needed `Custom…` in the Command dropdown, which the instructions didn't say.
+  - **The operator's point.** A person doesn't read a whole list and hold it in their head. They do one step, switch to the app to do it, then come back. Each switch costs attention, so every step has to make sense on its own.
+  - **What HAT guidance should require:**
+    - Each step names the exact screen, control and value. Example: "In Command, choose **Custom…**, then enter …" rather than "Command: …".
+    - Each check sits inside the step it belongs to, numbered in order, at the moment the operator would make it. Example: "4. Press Test again. 5. Check it took about the same time as step 3." A check is never left in a closing paragraph.
+    - Any point where the FD wants a report back is its own step, right where it happens. Example: "6. Tell me now; I'll check the log before you go on."
+    - Plain wording, with no reasoning mixed into the actions. The reason for a step can go in one line after it.
 - **Flight landed (2026-10-13).** Flight status `landed`, and Flight 2 is checked off in `mission.md`. The flight debrief (`/mission-control:flight-debrief`) is next.
 
 ---
