@@ -199,21 +199,50 @@ jobs:
       # ASSETS are stored separately from Actions artifacts — they do NOT count against
       # the Actions artifact-storage quota — so this is the right home for the
       # distributable .exe. Runs only after the freeze + smoke + Inno build pass, so a
-      # red build never publishes a release. Idempotent: create the release if it
-      # doesn't exist (e.g. the tag was pushed before this workflow landed), then
-      # upload --clobber so a re-run replaces the asset.
+      # red build never publishes a release. Idempotent: a re-run replaces the asset
+      # (upload --clobber).
+      # Title and notes (squawk 0200): docs/releases/$TAG.md, if present, supplies them
+      # (first line "# <title>", the rest is the body; split by scripts/release_notes.py).
+      # No release yet -> create it with that title and body. A release that still has
+      # the generic "$TAG — Windows installer" title -> edit it to match the file. Any
+      # other existing title (hand-written) is left untouched. No notes file -> the old
+      # behaviour: create with the generic title and --generate-notes if missing. A
+      # missing file never fails a release, and neither does a malformed one: if the
+      # script rejects the file the step logs a ::warning:: and takes the no-file path.
+      # The title goes through a UTF-8 file (--title-out), never stdout, because the
+      # Windows runner encodes piped stdout as cp1252 and would mangle the em dash.
       - name: Publish GitHub Release with installer
         env:
           GH_TOKEN: ${{ github.token }}
+          PYTHONUTF8: "1"
         run: |
           set -eo pipefail
           VER=$(python -c "import the_one; print(the_one.__version__)")
           EXE="packaging/windows/Output/the-one-setup-$VER.exe"
           test -f "$EXE"
           TAG="${{ github.ref_name }}"
+          NOTES_SRC="docs/releases/$TAG.md"
+          GENERIC="$TAG — Windows installer"
+          TITLE=""
+          if [ -f "$NOTES_SRC" ]; then
+            NOTES_BODY="${RUNNER_TEMP:-.}/release-notes-body.md"
+            TITLE_FILE="${RUNNER_TEMP:-.}/release-notes-title.txt"
+            if python scripts/release_notes.py "$NOTES_SRC" --title-out "$TITLE_FILE" --body-out "$NOTES_BODY"; then
+              TITLE=$(tr -d '\r' < "$TITLE_FILE")
+            else
+              echo "::warning::$NOTES_SRC is malformed; falling back to the generic title and generated notes"
+            fi
+          fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --title "$TAG — Windows installer" \
-              --generate-notes
+            if [ -n "$TITLE" ]; then
+              gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_BODY"
+            else
+              gh release create "$TAG" --title "$GENERIC" --generate-notes
+            fi
+          elif [ -n "$TITLE" ]; then
+            CURRENT=$(gh release view "$TAG" --json name --jq .name | tr -d '\r')
+            if [ "$CURRENT" = "$GENERIC" ]; then
+              gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_BODY"
+            fi
           fi
           gh release upload "$TAG" "$EXE" --clobber
