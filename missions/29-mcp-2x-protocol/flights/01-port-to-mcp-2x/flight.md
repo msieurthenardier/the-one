@@ -1,6 +1,6 @@
 # Flight: Port to the mcp 2.x SDK at parity
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
@@ -186,7 +186,7 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged
 - [x] Tests passing
 - [x] Documentation updated
 

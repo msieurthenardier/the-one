@@ -3,7 +3,7 @@
 **Flight**: [Port to the mcp 2.x SDK at parity](flight.md)
 
 ## Summary
-Mission 29 Flight 1, **landed** 2026-10-12 (three legs: `sdk-port`, `packaging-and-doctor`, `hat`). Awaiting merge and debrief. Began as sortie planning (charter agreed 2026-10-11), escalated to Mission 29 on 2026-10-12 and re-homed here. Origin: a squawk attempt (not logged) that failed the squawk gate — the newer protocol needs the `mcp` 2.x SDK, a breaking upgrade with design decisions.
+Mission 29 Flight 1, **landed** 2026-10-12 (three legs: `sdk-port`, `packaging-and-doctor`, `hat`). Merged (`06e1e39`, PR #275) and debriefed 2026-10-12; **completed**. Began as sortie planning (charter agreed 2026-10-11), escalated to Mission 29 on 2026-10-12 and re-homed here. Origin: a squawk attempt (not logged) that failed the squawk gate — the newer protocol needs the `mcp` 2.x SDK, a breaking upgrade with design decisions.
 
 ---
 
