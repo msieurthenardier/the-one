@@ -200,6 +200,8 @@ Operator review (2026-10-12): every item accepted as classified. A12 was narrowe
     - Plain wording, with no reasoning mixed into the actions. The reason for a step can go in one line after it.
 - **Flight landed (2026-10-13).** Flight status `landed`, and Flight 2 is checked off in `mission.md`. The flight debrief (`/mission-control:flight-debrief`) is next.
 
+- **Debrief (2026-10-13).** See `flight-debrief.md`. Squawks 0202 and 0203 are open, and 0204 is deferred. The operator confirmed `completed`; PR #277 has not been merged yet.
+
 ---
 
 ## Leg Progress

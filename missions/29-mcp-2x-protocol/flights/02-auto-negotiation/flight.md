@@ -1,6 +1,6 @@
 # Flight: Automatic negotiation of protocol 2026-07-28
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
@@ -328,7 +328,7 @@ Three code legs and a HAT.
 - [x] Shared failure classifier and matrix; owner-task cancellation rule; override-safe stale-token clear; input-required plain error; doctor proves `httpcore2`; unit suite green
 - [x] Negotiation lands; `hello_server` and the self-configuration loopback report 2026-07-28; every older revision proven on a real fixture; every legacy-only fixture falls back; the second connect sends no discover
 - [x] Probe fall-through into sign-in; drivers' version header; full browser suite and `requires_bwrap` green
-- [ ] HAT H1-H5
+- [x] HAT H1-H5 (H3 skipped by operator decision)
 
 ### Adaptation Criteria
 
@@ -348,17 +348,17 @@ Three code legs and a HAT.
 - [x] `auto-negotiation-core` - The negotiation policy behind one seam; in-memory era memory; era-agnostic metadata with the serverInfo de-dup; the version gate; the constant rename and re-pinned tripwires; fixtures for every older revision; the structural latency tests.
 - [x] `auto-negotiation-api` - Web routes: the probe's fourth verdict and fall-through into sign-in, the flow drivers' version header, era clearing on update, delete and reset, and the negotiation docs; full browser and bwrap suites.
 - [x] `discover-401-signin` - *(added in flight, 2026-10-12)* A 401 on the discover probe means sign-in required: `negotiate` stops instead of falling back, so a sign-in-requiring server that speaks only 2026-07-28 gets a sign-in prompt. Also corrects the latency wording.
-- [ ] `hat` - With the operator on the 8492 dev instance: H1 Sonos on 2026-07-28 with a chat tool run, H2 Cloudflare sign-in plus a tool run, H3 live stale-token clear, H4 a real 1.x server, H5 Windows lane re-run.
+- [x] `hat` - With the operator on the 8492 dev instance: H1 Sonos on 2026-07-28 with a chat tool run, H2 Cloudflare sign-in plus a tool run, H3 live stale-token clear, H4 a real 1.x server, H5 Windows lane re-run.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` green in plain mode, with the skip count explained.
