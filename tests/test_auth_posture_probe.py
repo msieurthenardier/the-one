@@ -168,15 +168,29 @@ async def test_probe_returns_oauth_on_401_without_www_authenticate(
     assert verdict == "oauth"
 
 
-async def test_probe_returns_error_on_5xx(patch_async_client) -> None:
-    """5xx → server error → 'error' (not no_auth, not oauth)."""
+async def test_probe_returns_unexpected_status_on_5xx(patch_async_client) -> None:
+    """5xx → reachable but unclassifiable → 'unexpected_status' (DD9)."""
 
     def _handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(500, text="Internal server error")
 
     patch_async_client(_handler)
     verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
-    assert verdict == "error"
+    assert verdict == "unexpected_status"
+
+
+@pytest.mark.parametrize("status", [400, 404, 406, 415, 503])
+async def test_probe_returns_unexpected_status_on_other_http_status(
+    patch_async_client, status
+) -> None:
+    """Any HTTP status other than 200/401 is reachable-but-unclassified (DD9)."""
+
+    def _handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(status, text="nope")
+
+    patch_async_client(_handler)
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
+    assert verdict == "unexpected_status"
 
 
 async def test_probe_returns_error_on_network_failure(patch_async_client) -> None:

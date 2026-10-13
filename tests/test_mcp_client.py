@@ -40,24 +40,24 @@ from the_one.mcp.transports.streamable_http import build_request_headers
 
 
 class TestModuleSetup:
-    def test_pinned_protocol_version_matches_sdk(self) -> None:
-        """Tripwire: the pinned constant must match the SDK's LATEST_HANDSHAKE_VERSION.
+    def test_handshake_offer_version_matches_sdk(self) -> None:
+        """Tripwire: the offer constant tracks the SDK's newest handshake revision,
+        and the modern offer the negotiation policy sends is the SDK's too.
 
-        mcp 2.x's ``LATEST_PROTOCOL_VERSION`` is now the 2026-07-28 revision
-        (Flight 2 adopts it); the handshake era the client still negotiates
-        ends at ``mcp.types.version.LATEST_HANDSHAKE_VERSION``. When the SDK
-        pin is bumped (per the upgrade procedure in the_one/mcp/__init__.py),
-        this test will fail loudly until the operator updates _PINNED_PROTOCOL_VERSION too.
+        ``connect`` negotiates (``_negotiate.py``): modern ``server/discover`` at
+        ``LATEST_MODERN_VERSION`` first, then the handshake. A bump of the SDK pin
+        that moves either revision fails here until the operator reviews it.
         """
-        from mcp.types.version import LATEST_HANDSHAKE_VERSION
+        from mcp.types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
         from the_one import mcp as the_one_mcp
 
-        assert the_one_mcp._PINNED_PROTOCOL_VERSION == LATEST_HANDSHAKE_VERSION, (
-            f"PINNED ({the_one_mcp._PINNED_PROTOCOL_VERSION}) != "
+        assert the_one_mcp._HANDSHAKE_OFFER_VERSION == LATEST_HANDSHAKE_VERSION == "2025-11-25", (
+            f"offer ({the_one_mcp._HANDSHAKE_OFFER_VERSION}) != "
             f"SDK LATEST_HANDSHAKE_VERSION ({LATEST_HANDSHAKE_VERSION}). "
             f"See the_one/mcp/__init__.py upgrade procedure."
         )
+        assert LATEST_MODERN_VERSION == "2026-07-28"
 
     def test_timeout_constants_present(self) -> None:
         from the_one import mcp as the_one_mcp
@@ -136,6 +136,15 @@ def _set_init(session, result: mcp_types.InitializeResult) -> None:
     ``initialize()`` returns ``result`` and the era-agnostic properties
     ``MCPClient`` reads (DD6) mirror it."""
     session.initialize = AsyncMock(return_value=result)
+    # Mission 29 F2: connect negotiates. A bare mock's ``send_discover`` is not
+    # awaitable, so every mock session answers discover with "method not found" -
+    # the fast-fallback shape - and existing tests keep exercising the handshake.
+    session.send_discover = AsyncMock(
+        side_effect=MCPError(mcp_types.METHOD_NOT_FOUND, "Method not found")
+    )
+    session.adopt = MagicMock()
+    session.initialize_result = result
+    session.discover_result = None
     session.protocol_version = result.protocol_version
     session.server_capabilities = result.capabilities
     session.server_info = (
@@ -712,10 +721,10 @@ class TestMCPClientLifecycle:
         finally:
             await c.disconnect()
 
-    async def test_pinned_constant_no_longer_gates_connect(
+    async def test_offer_constant_no_longer_gates_connect(
         self, monkeypatch, patch_transport, mock_session
     ) -> None:
-        """F6 A6 inversion: ``_PINNED_PROTOCOL_VERSION`` is documentation/marker only.
+        """F6 A6 inversion: ``_HANDSHAKE_OFFER_VERSION`` is documentation/marker only.
 
         Pre-A6, F2's strict-equality gate read the PINNED constant at call time
         and rejected any non-equal version. Post-A6, the gate reads the SDK's
@@ -730,7 +739,7 @@ class TestMCPClientLifecycle:
         # strict equality fails). Post-A6, irrelevant — gate reads
         # SUPPORTED_PROTOCOL_VERSIONS, server's 2025-11-25 IS in that set,
         # connect() succeeds.
-        monkeypatch.setattr("the_one.mcp._PINNED_PROTOCOL_VERSION", "2099-01-01")
+        monkeypatch.setattr("the_one.mcp._HANDSHAKE_OFFER_VERSION", "2099-01-01")
         _set_init(mock_session, _make_init_result(protocol_version="2025-11-25"))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
@@ -981,6 +990,9 @@ class TestAsyncExitStackContract:
         # doesn't claim it; the catch-all wraps it as MCPConnectionError.
         bad_session = MagicMock()
         bad_session.initialize = AsyncMock(side_effect=ValueError("bad init"))
+        bad_session.send_discover = AsyncMock(
+            side_effect=MCPError(mcp_types.METHOD_NOT_FOUND, "Method not found")
+        )
         bad_session.list_tools = AsyncMock()
         bad_session.call_tool = AsyncMock()
         monkeypatch.setattr(
@@ -1380,7 +1392,9 @@ class TestCallToolInputValidation:
         try:
             original = {"x": "42"}
             await c.call_tool("t", original)
-            mock_session.call_tool.assert_awaited_once_with("t", {"x": 42})
+            mock_session.call_tool.assert_awaited_once_with(
+                "t", {"x": 42}, allow_input_required=True
+            )
             assert original == {"x": "42"}
         finally:
             await c.disconnect()

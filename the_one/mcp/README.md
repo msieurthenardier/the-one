@@ -46,7 +46,7 @@ depended on it. The underscore prefix + `__all__` exclusion + `# TEST-ONLY`
 tag together are the contract that distinguishes "internal mutable point" from
 "stable public surface."
 
-The `_DEFAULT` sentinel in §4 and the `_PINNED_PROTOCOL_VERSION` constant in
+The `_DEFAULT` sentinel in §4 and the `_HANDSHAKE_OFFER_VERSION` constant in
 §5 are NOT test seams (they are production internals exposed for monkeypatch);
 the test-seam contract above applies specifically to module-level attributes
 whose ONLY production-time value is `None` (or equivalent inert default) and
@@ -221,25 +221,25 @@ lazy-read branch reachable; replacing it with `None` would force eager
 evaluation of the default at function-definition time and break the
 monkeypatch contract.
 
-## §5. `_PINNED_PROTOCOL_VERSION` read-at-call-time invariant
+## §5. `_HANDSHAKE_OFFER_VERSION` read-at-call-time invariant
 
-`the_one/mcp/__init__.py` defines `_PINNED_PROTOCOL_VERSION = "2025-11-25"`.
+`the_one/mcp/__init__.py` defines `_HANDSHAKE_OFFER_VERSION = "2025-11-25"`.
 `MCPClient.connect()` reads it via:
 
 ```python
 from the_one import mcp as the_one_mcp
-pinned = the_one_mcp._PINNED_PROTOCOL_VERSION
+offer = the_one_mcp._HANDSHAKE_OFFER_VERSION
 ```
 
 This lazy import + attribute access keeps the read at call time, NOT at
 module import time.
-`monkeypatch.setattr(the_one.mcp, "_PINNED_PROTOCOL_VERSION", "...")` works
+`monkeypatch.setattr(the_one.mcp, "_HANDSHAKE_OFFER_VERSION", "...")` works
 for connects executed AFTER the patch, which is what the version-mismatch
 test relies on to drive `MCPVersionMismatch` without forcing the production
 code to ship a different pinned version.
 
 Do NOT refactor to a top-of-file
-`from the_one.mcp import _PINNED_PROTOCOL_VERSION` — the symbol would be
+`from the_one.mcp import _HANDSHAKE_OFFER_VERSION` — the symbol would be
 bound at module load and `monkeypatch.setattr` would have no effect, breaking
 the version-mismatch test. The same anti-pattern applies to any future
 module-level constant that tests must override at runtime: import the
@@ -247,17 +247,40 @@ package and read the attribute at call time, do NOT bind the name at module
 load.
 
 The version gate is **not** an equality check on the pinned constant:
-`MCPClient.connect()` accepts any revision in the SDK's
-`mcp.types.version.HANDSHAKE_PROTOCOL_VERSIONS` (loosened in M07 F6 A6, so a
-server announcing an older revision such as Cloudflare's 2025-06-18 still
-connects) and raises `MCPVersionMismatch` for one outside it. The pinned
-constant is `"2025-11-25"`, the handshake era's newest revision
-(`LATEST_HANDSHAKE_VERSION`); under mcp 2.x the SDK's `LATEST_PROTOCOL_VERSION`
-is the modern 2026-07-28 revision that Mission 29 Flight 2 adopts, which is why
-the tripwire test compares against `LATEST_HANDSHAKE_VERSION`. The negotiated
-revision and the server's capabilities, info and instructions are read from the
-`ClientSession` properties (`protocol_version`, `server_capabilities`,
+`MCPClient.connect()` negotiates (`the_one/mcp/_negotiate.py`, Mission 29 Flight 2):
+it tries `server/discover` at the SDK's `LATEST_MODERN_VERSION` (2026-07-28) and
+falls back to the `initialize` handshake. When the sign-in record shows a 401 on discover, it still tries the handshake (a gated-discover, public-`initialize` server keeps connecting) but, if that fails, raises `MCPAuthRequired` instead of a generic failure (the one departure from the SDK's `negotiate_auto`). It accepts any revision in the SDK's
+`HANDSHAKE_PROTOCOL_VERSIONS` plus `MODERN_PROTOCOL_VERSIONS` (the handshake set
+was loosened in M07 F6 A6, so a server announcing an older revision such as
+Cloudflare's 2025-06-18 still connects) and raises `MCPVersionMismatch` for one
+outside them. The constant is `"2025-11-25"`, the handshake era's newest revision
+(`LATEST_HANDSHAKE_VERSION`), and feeds only hand-built `initialize` payloads and
+the mismatch text; the tripwire tests compare it against `LATEST_HANDSHAKE_VERSION`.
+The negotiated revision and the server's capabilities, info and instructions are
+read from the `ClientSession` properties (`protocol_version`, `server_capabilities`,
 `server_info`, `instructions`), not from the `InitializeResult`.
+
+**Era memory and the Test route (Mission 29 Flight 2).** `the_one/mcp/_era.py` remembers,
+in memory only and per source id, the revision a source last negotiated. A remembered
+handshake revision skips `server/discover` and calls `initialize()` directly (falling back
+to the full policy in the same call if that fails without a 401). It is forgotten on a
+failed connect, a mid-use `-32022`, and on source update, delete and Reset connection. Test
+connection passes `fresh_negotiation=True` (always re-negotiate) and `record_era=False` when
+the form body changed the server under test (`type` or `config` differs from the saved row),
+so a what-if Test never poisons the saved source's era. A modern connection has no session
+id: its 404s read "Not Found" and never self-heal. The modern `serverInfo` carries
+`version: ''`. The 1 MiB SSE cap applies only to SSE responses (the handshake era in
+practice).
+
+The Test route's auth-posture probe (`_probe_auth_posture`, an `httpx2` POST) has four
+verdicts: `no_auth` (200), `oauth` (401), `unexpected_status` (any other HTTP status) and
+`error` (transport failure or timeout; fails fast). On `unexpected_status` the route runs the
+negotiating no-auth path, so a server that speaks only 2026-07-28 and 400s a bare
+`initialize` still connects; a 401 there persists `auth_posture: "oauth"` and starts sign-in.
+The two OAuth flow drivers send `MCP-Protocol-Version: <_HANDSHAKE_OFFER_VERSION>` with their
+`initialize` (a discover body with the modern header on that fall-through sign-in), which
+keeps the RFC 8707 `resource` parameter consistent with the SDK path. Details:
+`the_one/agents.md` "MCP F2 Client Foundation".
 
 ## §6. 2-layer flat-merge env-var assembly contract
 

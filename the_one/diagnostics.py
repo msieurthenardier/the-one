@@ -584,23 +584,35 @@ def _probe_time_zones() -> ProbeResult:
 def _import_mcp_sdk():
     """Seam the tests monkeypatch to simulate an import failure.
 
-    Returns ``(mcp_version, handshake_revision)``.
+    Imports the SDK and builds (then closes) a synchronous ``httpx2.Client``, which
+    loads the whole ``httpcore2`` closure (M29 F2 DD11: the modern era uses both
+    HTTP paths). Returns ``(mcp_version, handshake_revision, modern_revision,
+    httpcore2_version)``; a missing distribution raises, so the gate fails with
+    the reason rather than crashing.
     """
     import importlib.metadata
 
+    import httpx2
     import mcp  # noqa: F401
     import mcp.types.version as mcp_version
 
     import the_one.self_configuration.surface  # noqa: F401
 
-    return importlib.metadata.version("mcp"), mcp_version.LATEST_HANDSHAKE_VERSION
+    with httpx2.Client():
+        pass
+    return (
+        importlib.metadata.version("mcp"),
+        mcp_version.LATEST_HANDSHAKE_VERSION,
+        mcp_version.LATEST_MODERN_VERSION,
+        importlib.metadata.version("httpcore2"),
+    )
 
 
 def _probe_mcp_sdk() -> ProbeResult:
     """Prove the mcp 2.x import closure and the truststore context. Never raises."""
     name = "mcp sdk"
     try:
-        version, handshake = _import_mcp_sdk()
+        version, handshake, modern, httpcore2 = _import_mcp_sdk()
         import ssl
 
         import truststore
@@ -608,7 +620,7 @@ def _probe_mcp_sdk() -> ProbeResult:
         ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         if ctx is None:
             return ProbeResult(name, False, "truststore returned no SSL context")
-        detail = f"mcp {version}, handshake {handshake}"
+        detail = f"mcp {version}, handshake {handshake}, modern {modern}, httpcore2 {httpcore2}"
         return ProbeResult(name, True, detail.encode("ascii", "replace").decode("ascii"))
     except Exception as exc:  # noqa: BLE001 — report, never crash doctor
         detail = f"{exc.__class__.__name__}: {exc}"

@@ -29,6 +29,29 @@ from the_one.interfaces.web.api import router
 from the_one.mcp import _pool
 
 
+def _assert_stale_tokens_gone(stored: MCPSource) -> None:
+    """The three token keys are gone. ``dcr_credentials`` was cleared too, and
+    Phase B's fresh client registration then wrote a NEW record (the SDK's full
+    ``OAuthClientInformationFull`` dump, which the seeded 3-key record is not)."""
+    for key in ("access_token", "refresh_token", "token_expires_at"):
+        assert key not in stored.secrets, key
+    dcr = stored.secrets.get("dcr_credentials")
+    assert dcr is None or "application_type" in dcr, dcr
+
+
+def _stale_secrets() -> dict:
+    return {
+        "dcr_credentials": {
+            "client_id": "stub-client-1",
+            "redirect_uris": ["http://127.0.0.1:8484/api/oauth/callback"],
+            "token_endpoint_auth_method": "none",
+        },
+        "access_token": "expired-access-token",
+        "refresh_token": "revoked-refresh-token",
+        "token_expires_at": time.time() + 3600,
+    }
+
+
 @pytest.fixture(autouse=True)
 async def _clear_pool():
     await _pool._clear_for_test()
@@ -90,10 +113,48 @@ async def test_refresh_token_failure_recovers_into_a_fresh_sign_in(
         assert body["consent_url"].startswith(f"{stub.base_url}/authorize")
         # The refresh was really attempted and refused.
         # The recovery took the MCPAuthRequired fall-through (the 401 is the last
-        # MCP-POST status), so the stale secrets stay until the new sign-in
-        # overwrites them: Phase B's fresh flow does not need them gone.
+        # MCP-POST status) and cleared the four OAuth-managed secrets from the
+        # stored row (DD7), so the new sign-in starts from a fresh registration.
+        stored = await repo.get("src-stale")
+        _assert_stale_tokens_gone(stored)
         # Phase A presented the stale credential (answered 401) and Phase B's fresh
         # flow did too; no MCP request was ever authorized, no token exchange ran
         # (the consent step is the operator's).
         assert stub.mcp_requests
         assert all(authorized is False for _method, authorized in stub.mcp_requests)
+
+
+async def test_override_url_is_not_persisted_by_the_clear_and_phase_b_targets_it(
+    api_and_repo, monkeypatch
+) -> None:
+    """DD7: the clear re-reads the stored row, so a request-body override (an
+    unsaved URL) is never written back, yet Phase B signs in against the override."""
+    client, repo = api_and_repo
+    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 3)
+
+    with OAuthASStub() as stored_stub, OAuthASStub() as override_stub:
+        stored_config = {"url": f"{stored_stub.base_url}/mcp", "_cache": {"auth_posture": "oauth"}}
+        await repo.create(
+            MCPSource(
+                id="src-override",
+                name="override",
+                type="streamable-http",
+                config=dict(stored_config),
+                secrets=_stale_secrets(),
+            )
+        )
+        resp = await client.post(
+            "/api/mcp-sources/src-override/test/connect",
+            json={"config": {"url": f"{override_stub.base_url}/mcp"}},
+        )
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["status"] == "auth_required", body
+        # Phase B's consent flow targets the override URL.
+        assert body["consent_url"].startswith(f"{override_stub.base_url}/authorize")
+        assert stored_stub.mcp_requests == []
+        stored = await repo.get("src-override")
+        # The unsaved URL never reached the stored row...
+        assert stored.config == stored_config
+        # ...but the stale OAuth secrets did leave it.
+        _assert_stale_tokens_gone(stored)

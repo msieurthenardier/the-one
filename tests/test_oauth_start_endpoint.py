@@ -130,6 +130,7 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
         async def post(self, url, **kwargs):
             captured["url"] = url
             captured["payload"] = kwargs.get("json")
+            captured["headers"] = kwargs.get("headers")
 
             # Simulate flow success without actually invoking the SDK.
             class _Resp:
@@ -169,5 +170,57 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
         assert captured.get("url") == "https://api.example.com/mcp"
         payload = captured.get("payload")
         assert payload and payload.get("method") == "initialize"
+        # DD10: the handshake version header, and the payload reads the same constant.
+        from the_one import mcp as the_one_mcp
+
+        assert captured["headers"] == {"MCP-Protocol-Version": the_one_mcp._HANDSHAKE_OFFER_VERSION}
+        assert payload["params"]["protocolVersion"] == the_one_mcp._HANDSHAKE_OFFER_VERSION
     finally:
         patcher.stop()
+
+
+async def test_start_driver_reads_handshake_version_at_call_time(
+    client_and_repo, monkeypatch
+) -> None:
+    """DD10: ``_drive_flow`` reads ``_HANDSHAKE_OFFER_VERSION`` per call."""
+    c, repo = client_and_repo
+    src = await repo.get("src-start-1")
+    src.secrets["dcr_credentials"] = {
+        "client_id": "manual-cid-1",
+        "auth_endpoint": "https://example.com/authorize",
+        "token_endpoint": "https://example.com/token",
+    }
+    await repo.update(src)
+    monkeypatch.setattr("the_one.mcp._HANDSHAKE_OFFER_VERSION", "9999-01-01")
+    captured: dict = {}
+
+    class _StubAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured.update(kwargs)
+
+            class _Resp:
+                status_code = 200
+
+            return _Resp()
+
+    with patch("the_one.interfaces.web.api.httpx2.AsyncClient", _StubAsyncClient):
+        resp = await c.post(
+            "/api/oauth/start",
+            json={"source_id": "src-start-1", "chat_session_id": "cs-1", "tool_call_id": "tc-1"},
+        )
+        assert resp.status_code == 200, resp.text
+        for _ in range(50):
+            if captured:
+                break
+            await asyncio.sleep(0.02)
+    assert captured["headers"] == {"MCP-Protocol-Version": "9999-01-01"}
+    assert captured["json"]["params"]["protocolVersion"] == "9999-01-01"

@@ -29,6 +29,8 @@ so the original surface is unchanged. ``OAuthASStub(**config)`` accepts:
   - ``auth_required_methods`` - the set of JSON-RPC methods that need a bearer
     token (default: every method), so a test can make only ``tools/list`` 401
     and have the sign-in happen mid-operation (AC7c).
+  - ``always_401_methods`` - JSON-RPC methods answered 401 even WITH a valid
+    token (a sign-in the server never honours; discover-401-signin leg).
   - ``mcp_after_signin`` - what an authenticated ``tools/list`` answers:
     ``"ok"`` (an empty tool list) or ``"rpc_error"`` (an ordinary JSON-RPC
     error, AC7c).
@@ -95,6 +97,8 @@ class _OAuthASHandler(BaseHTTPRequestHandler):
         self.server.mcp_requests.append((method, authorized))
         needs_auth = self.server.cfg.get("auth_required_methods")
         if not authorized and (needs_auth is None or method in needs_auth):
+            return self._send_401(base)
+        if method in (self.server.cfg.get("always_401_methods") or ()):
             return self._send_401(base)
         rpc_id = rpc.get("id")
         if method == "initialize":

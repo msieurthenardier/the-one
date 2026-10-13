@@ -11,13 +11,13 @@ runs against a REAL HTTP server - the in-repo ``OAuthASStub`` over loopback or t
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 
 import httpx2
 import pytest
-from asgi_lifespan import LifespanManager
 
-from tests._mcp_signin_helpers import build_provider, http_source
+from tests._mcp_signin_helpers import build_provider, http_source, serve_asgi
 from tests.fixtures.mcp.asgi_401 import RESOURCE_METADATA, Auth401Wrapper
 from tests.fixtures.mcp.hello_server import make_http_app
 from tests.fixtures.oauth import OAuthASStub
@@ -44,15 +44,8 @@ async def _wrapped_asgi(monkeypatch, **wrapper_kwargs):
     """The hello_server ASGI app behind an ``Auth401Wrapper``, wired through the
     transport's test seam. Yields ``(wrapper, httpx2_client)``."""
     wrapper = Auth401Wrapper(make_http_app(), **wrapper_kwargs)
-    async with LifespanManager(wrapper):
-        client = httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=wrapper), base_url="http://localhost"
-        )
-        monkeypatch.setattr(sh, "_test_http_client_override", client)
-        try:
-            yield wrapper, client
-        finally:
-            await client.aclose()
+    async with serve_asgi(monkeypatch, wrapper) as client:
+        yield wrapper, client
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +54,12 @@ async def _wrapped_asgi(monkeypatch, **wrapper_kwargs):
 
 
 async def test_connect_401_yields_auth_required_with_resource_metadata(monkeypatch) -> None:
-    async with _wrapped_asgi(monkeypatch, fail_methods={"initialize"}) as (wrapper, _):
+    # Connect negotiates: discover first, then the handshake. Both 401, so the
+    # most recent MCP-POST response is a 401 (Mission 29 Flight 2).
+    async with _wrapped_asgi(monkeypatch, fail_methods={"server/discover", "initialize"}) as (
+        wrapper,
+        _,
+    ):
         c = MCPClient(_asgi_source())
         with pytest.raises(MCPAuthRequired) as exc_info:
             await c.connect()
@@ -69,6 +67,149 @@ async def test_connect_401_yields_auth_required_with_resource_metadata(monkeypat
     assert exc_info.value.resource_metadata_url == RESOURCE_METADATA
     assert exc_info.value.consent_url is None
     assert c.is_alive is False
+
+
+async def test_connect_discover_401_then_initialize_ok_connects_on_the_handshake(
+    monkeypatch,
+) -> None:
+    """A discover answered 401 is just a fast fallback; the handshake that
+    follows answers 200, so there is no sign-in error (baseline 0, last status 200)."""
+    async with _wrapped_asgi(monkeypatch, fail_methods={"server/discover"}) as (wrapper, _):
+        c = MCPClient(_asgi_source())
+        await c.connect()
+        try:
+            assert c.is_alive is True
+            assert c.negotiated_protocol_version == "2025-11-25"
+        finally:
+            await c.disconnect()
+
+
+class _Reject400:
+    """ASGI wrapper: answers one JSON-RPC method with HTTP 400 (``initialize``: a
+    server that speaks only 2026-07-28), everything else passes through."""
+
+    def __init__(self, app, method: str = "initialize") -> None:
+        self.app = app
+        self.reject = method
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        body = b""
+        more = True
+        while more:
+            message = await receive()
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+        try:
+            method = json.loads(body).get("method")
+        except (ValueError, AttributeError):
+            method = None
+        if method == self.reject:
+            payload = b'{"error": "unsupported"}'
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(payload)).encode()),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": payload})
+            return None
+        sent = False
+
+        async def replay():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        return await self.app(scope, replay, send)
+
+
+@asynccontextmanager
+async def _serve(monkeypatch, app):
+    async with serve_asgi(monkeypatch, app) as client:
+        yield client
+
+
+async def test_connect_discover_401_then_initialize_400_yields_auth_required(monkeypatch) -> None:
+    """Leg discover-401-signin (a): the 400 on initialize overwrites the record's
+    last status, so the deferred discover 401 is what names the sign-in need."""
+    wrapper = Auth401Wrapper(_Reject400(make_http_app()), fail_methods={"server/discover"})
+    async with _serve(monkeypatch, wrapper):
+        c = MCPClient(_asgi_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+    assert exc_info.value.source_id == "src-asgi"
+    assert exc_info.value.resource_metadata_url == RESOURCE_METADATA
+    assert exc_info.value.consent_url is None
+    assert ("server/discover", 401) in wrapper.seen
+
+
+async def test_connect_discover_401_with_json_rpc_32022_body_still_defers(monkeypatch) -> None:
+    """Resolution 2: the record, not the error code, decides - a 401 whose JSON-RPC
+    body carries a code (here the generic one the wrapper uses) is still a 401."""
+    wrapper = Auth401Wrapper(
+        _Reject400(make_http_app()),
+        fail_methods={"server/discover"},
+        json_rpc_body=True,
+    )
+    async with _serve(monkeypatch, wrapper):
+        c = MCPClient(_asgi_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+    assert exc_info.value.resource_metadata_url == RESOURCE_METADATA
+
+
+async def test_connect_discover_401_then_initialize_401_yields_auth_required(monkeypatch) -> None:
+    async with _wrapped_asgi(monkeypatch, fail_methods={"server/discover", "initialize"}) as (
+        _,
+        _c,
+    ):
+        c = MCPClient(_asgi_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+    assert exc_info.value.resource_metadata_url == RESOURCE_METADATA
+
+
+async def test_connect_discover_400_without_a_401_still_falls_back(monkeypatch) -> None:
+    """(c) A discover error with no 401 in the record falls back to the handshake."""
+    async with _serve(monkeypatch, _Reject400(make_http_app(), "server/discover")):
+        c = MCPClient(_asgi_source())
+        await c.connect()
+        try:
+            assert c.negotiated_protocol_version == "2025-11-25"
+        finally:
+            await c.disconnect()
+
+
+async def test_provider_attached_unresolved_discover_401_still_defers() -> None:
+    """Resolution 5: a discover the server keeps answering 401 even after sign-in
+    reaches negotiate as an MCPError with a 401 in the record; the handshake that
+    follows is honoured, so the connection stays on the handshake era."""
+    with OAuthASStub(always_401_methods={"server/discover"}) as stub:
+        provider, storage = build_provider(stub.base_url)
+        c = MCPClient(http_source(stub.base_url), auth_provider=provider, timeout_seconds=10)
+        await c.connect()
+        try:
+            assert c.negotiated_protocol_version == "2025-11-25"
+        finally:
+            await c.disconnect()
+        assert storage.tokens is not None
+
+
+async def test_provider_attached_unresolved_discover_and_initialize_401_is_auth_required() -> None:
+    with OAuthASStub(always_401_methods={"server/discover", "initialize"}) as stub:
+        provider, _ = build_provider(stub.base_url)
+        c = MCPClient(http_source(stub.base_url), auth_provider=provider, timeout_seconds=10)
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+    assert exc_info.value.consent_url is None
 
 
 async def test_list_tools_401_yields_auth_required_with_resource_metadata(monkeypatch) -> None:

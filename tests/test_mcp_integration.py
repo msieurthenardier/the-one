@@ -76,7 +76,7 @@ class TestL4StreamableHttp:
         await client.connect()
         try:
             assert client.is_alive
-            assert client.negotiated_protocol_version == "2025-11-25"
+            assert client.negotiated_protocol_version == "2026-07-28"
             caps = client.server_capabilities
             assert isinstance(caps["tools"], dict)
             assert "listChanged" in caps["tools"]
@@ -167,7 +167,7 @@ class TestL5Stdio:
         await client.connect()
         try:
             assert client.is_alive
-            assert client.negotiated_protocol_version == "2025-11-25"
+            assert client.negotiated_protocol_version == "2026-07-28"
             caps = client.server_capabilities
             assert isinstance(caps["tools"], dict)
             assert "listChanged" in caps["tools"]

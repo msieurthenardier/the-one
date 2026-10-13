@@ -1,6 +1,6 @@
 # Mission: MCP servers connect on the newest protocol
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 An MCP server that speaks the newest MCP protocol revision (2026-07-28) connects to the-one on that revision, and its editor says so; every server on an older revision keeps working exactly as it does today, sign-in included.
@@ -11,13 +11,13 @@ The operator's Sonos MCP server moved to protocol 2026-07-28. The-one's MCP clie
 This mission began as sortie planning (2026-10-11) and was escalated when code interrogation showed two separate clusters of design decisions: porting to the new SDK without changing behaviour (including a security-sensitive sign-in redesign), and negotiating the new protocol. The full interrogation is in Flight 1's flight log.
 
 ## Success Criteria
-- [ ] A server that supports 2026-07-28 connects on it: its MCP editor shows "protocol 2026-07-28", and its tools list and run from an agent's chat. *(behavior-test-backed: the operator's Sonos server)*
-- [ ] A server that supports only an older revision (2024-11-05 through 2025-11-25) still connects on its revision, and its tools list and run, over both local (stdio) and remote (streamable HTTP) transports — proven for every older revision on at least one transport and for the newest older revision (2025-11-25) on both — and after its first successful connection it connects with no added delay the operator would notice (under 1 second over today).
-- [ ] Signing in to a remote MCP server that requires OAuth still works end to end: the first connection prompts sign-in, the sign-in completes, and the server's tools run afterwards — including against an authorization server that requires the RFC 9207 issuer to be returned. *(behavior-test-backed: Cloudflare's MCP server; issuer check proven against the in-repo OAuth test server)*
-- [ ] An agent's self-configuration tools still work, and their refusals still read as a one-line reason.
-- [ ] When a server shares no protocol revision with the-one, or a tool asks for input the-one cannot provide, or a single streamed server event exceeds the size cap, the operator sees a plain one-line error — in the MCP editor's Test result and in the chat's tool result — instead of a crash.
-- [ ] The Windows packaged build still builds and `the-one doctor` passes in it (the Windows installer-build CI lane).
-- [ ] The unit suite and the full browser suite pass; existing tests change only for the SDK's new shapes, and every test whose expected value changes is listed with its reason in the flight log.
+- [x] A server that supports 2026-07-28 connects on it: its MCP editor shows "protocol 2026-07-28", and its tools list and run from an agent's chat. *(behavior-test-backed: the operator's Sonos server)*
+- [x] A server that supports only an older revision (2024-11-05 through 2025-11-25) still connects on its revision, and its tools list and run, over both local (stdio) and remote (streamable HTTP) transports — proven for every older revision on at least one transport and for the newest older revision (2025-11-25) on both — and after its first successful connection it connects with no added delay the operator would notice (under 1 second over today).
+- [x] Signing in to a remote MCP server that requires OAuth still works end to end: the first connection prompts sign-in, the sign-in completes, and the server's tools run afterwards — including against an authorization server that requires the RFC 9207 issuer to be returned. *(behavior-test-backed: Cloudflare's MCP server; issuer check proven against the in-repo OAuth test server)*
+- [x] An agent's self-configuration tools still work, and their refusals still read as a one-line reason.
+- [x] When a server shares no protocol revision with the-one, or a tool asks for input the-one cannot provide, or a single streamed server event exceeds the size cap, the operator sees a plain one-line error — in the MCP editor's Test result and in the chat's tool result — instead of a crash.
+- [x] The Windows packaged build still builds and `the-one doctor` passes in it (the Windows installer-build CI lane).
+- [x] The unit suite and the full browser suite pass; existing tests change only for the SDK's new shapes, and every test whose expected value changes is listed with its reason in the flight log.
 
 ## Stakeholders
 - **Operator** (sole user): runs MCP servers locally (stdio) and remotely (HTTP, some behind OAuth); wants the newest servers to work at their newest revision without losing anything that works today.
@@ -55,4 +55,4 @@ New MCP capabilities beyond tools — resources, prompts, subscriptions (includi
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
 - [x] Flight 1: Port to the `mcp` 2.x SDK at parity — every server connects exactly as before on the initialize handshake; the SDK-forced changes land (SDK HTTP path on its new client library, snake_case wire types with alias-preserving caches, era-agnostic reads of the negotiated revision and server metadata, sign-in detection redesign, RFC 9207 issuer through the OAuth callback, self-configuration and test servers on the new server API with one-line refusals preserved, soak floors, packaging collection and the Windows build lane); live sign-in check against Cloudflare.
-- [ ] Flight 2: Automatic negotiation of 2026-07-28 — try the newest revision, fall back to the handshake without a noticeable delay; the editor shows the negotiated revision; plain errors for no shared revision, input-required and oversized events; older-revision fixtures; HAT against the Sonos server and a re-run of the Cloudflare sign-in under negotiation.
+- [x] Flight 2: Automatic negotiation of 2026-07-28 — try the newest revision, fall back to the handshake without a noticeable delay; the editor shows the negotiated revision; plain errors for no shared revision, input-required and oversized events; older-revision fixtures; HAT against the Sonos server and a re-run of the Cloudflare sign-in under negotiation.

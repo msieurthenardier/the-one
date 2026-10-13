@@ -101,6 +101,7 @@ from the_one.knowledge.settings import (
 from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
+from the_one.mcp._era import forget_era
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
 from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
@@ -3105,6 +3106,8 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
     _reject_reserved_surface_name(updated)
     _validate_mcp_source_config(updated)
     await repo.update(updated)
+    # DD2: the row may now point at a different server — drop the remembered era.
+    forget_era(source_id)
     return _mcp_source_response(updated)
 
 
@@ -3183,6 +3186,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
             await _evict_all_for_source(source_id)
             with contextlib.suppress(KeyError):
                 await repo.delete(source_id)
+        forget_era(source_id)
         return {"status": "ok"}
 
     cfg = source.config or {}
@@ -3213,6 +3217,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     except KeyError:
         # Race: someone deleted the row between our get() and delete().
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+    forget_era(source_id)
 
     # Step 5: Best-effort cleanup post-delete. The helper has its own
     # 10s ceiling and swallows every exception — this await cannot
@@ -3282,11 +3287,41 @@ async def reset_mcp_connection(source_id: str) -> dict[str, str]:
     updated_source = source.model_copy(update={"secrets": new_secrets, "config": new_config})
     await _evict_all_for_source(source_id)
     await repo.update(updated_source)
+    forget_era(source_id)
     return {"status": "ok"}
 
 
+# Returned by ``_build_and_test_no_auth_mcp`` (only when ``from_fallthrough``) when
+# the negotiating SDK path hit a 401: the route then continues into Phase B.
+_SIGNIN_REQUIRED: Any = object()
+
+
+async def _persist_oauth_posture(repo: MCPSourceRepository, source_id: str) -> None:
+    """Persist ``_cache.auth_posture = "oauth"`` (best-effort).
+
+    Shared by Phase 0's probe-``oauth`` branch and DD9's fall-through when the
+    SDK path hits a 401, so a Phase B failure still leaves a definitive signal
+    for the pool worker.
+    """
+    try:
+        persisted = await repo.get(source_id)
+        persisted_config = dict(persisted.config or {})
+        persisted_cache = dict(persisted_config.get("_cache") or {})
+        persisted_cache["auth_posture"] = "oauth"
+        persisted_config["_cache"] = persisted_cache
+        await repo.update(persisted.model_copy(update={"config": persisted_config}))
+    except Exception:
+        # Best-effort; falling through to Phase B regardless.
+        pass
+
+
 async def _build_and_test_no_auth_mcp(
-    source: MCPSource, source_id: str, repo: MCPSourceRepository
+    source: MCPSource,
+    source_id: str,
+    repo: MCPSourceRepository,
+    *,
+    record_era: bool = True,
+    from_fallthrough: bool = False,
 ) -> dict[str, Any]:
     """Connect + list_tools against a no-auth streamable-http MCP source.
 
@@ -3304,6 +3339,12 @@ async def _build_and_test_no_auth_mcp(
         source: The (possibly body-overridden) MCPSource to test.
         source_id: The persisted source id used for cache writebacks.
         repo: The repo for cache persistence.
+        record_era: False when the Test used a body override (DD2): the
+            server under test is not the saved one, so its era is not
+            remembered.
+        from_fallthrough: True only when entered from the DD9 fall-through
+            (probe verdict ``unexpected_status``). A 401 then returns the
+            ``_SIGNIN_REQUIRED`` sentinel instead of the race-branch error.
 
     Returns:
         ``{status: "ok", tools, capabilities}`` on success, or
@@ -3318,7 +3359,9 @@ async def _build_and_test_no_auth_mcp(
     )
 
     try:
-        async with MCPClient(source=source, auth_provider=None) as client:
+        async with MCPClient(
+            source=source, auth_provider=None, fresh_negotiation=True, record_era=record_era
+        ) as client:
             tools = await client.list_tools()
             capabilities = client.server_capabilities
             # F4 L2 (M08): capture spec-optional serverInfo + instructions
@@ -3362,6 +3405,8 @@ async def _build_and_test_no_auth_mcp(
             "capabilities": capabilities,
         }
     except MCPAuthRequired as e:
+        if from_fallthrough:
+            return _SIGNIN_REQUIRED
         # Defensive: probe said no_auth but server now wants auth (race).
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
     except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing) as e:
@@ -3377,7 +3422,11 @@ async def _build_and_test_no_auth_mcp(
 
 
 async def _build_and_test_stdio_mcp(
-    source: MCPSource, source_id: str, repo: MCPSourceRepository
+    source: MCPSource,
+    source_id: str,
+    repo: MCPSourceRepository,
+    *,
+    record_era: bool = True,
 ) -> dict[str, Any]:
     """Connect + list_tools against a stdio MCP source.
 
@@ -3413,7 +3462,9 @@ async def _build_and_test_stdio_mcp(
     from the_one.platform.sandbox.errors import SandboxError
 
     try:
-        async with MCPClient(source=source, auth_provider=None) as client:
+        async with MCPClient(
+            source=source, auth_provider=None, fresh_negotiation=True, record_era=record_era
+        ) as client:
             tools = await client.list_tools()
             capabilities = client.server_capabilities
             # F4 L2 (M08): capture spec-optional serverInfo + instructions
@@ -3470,6 +3521,43 @@ async def _build_and_test_stdio_mcp(
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
 
+async def _clear_stale_oauth_secrets(
+    repo: MCPSourceRepository, source_id: str, source: MCPSource
+) -> MCPSource:
+    """Strip the four OAuth-managed secrets (stale tokens) before a fresh sign-in.
+
+    Re-reads the STORED row, strips only those keys and writes that row back, so
+    a request-body override (which may carry the operator's unsaved URL or
+    headers) is never persisted. Returns ``source`` (the possibly-overridden
+    in-memory shape Phase B needs, e.g. its ``config["url"]``) with the same keys
+    stripped from its secrets. The in-memory strip happens even if the re-read or
+    the write raises (a source deleted mid-Test raises ``KeyError``).
+    """
+    stripped_source = source.model_copy(
+        update={
+            "secrets": {
+                k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
+            }
+        }
+    )
+    try:
+        persisted = await repo.get(source_id)
+        await repo.update(
+            persisted.model_copy(
+                update={
+                    "secrets": {
+                        k: v
+                        for k, v in persisted.secrets.items()
+                        if k not in _OAUTH_MANAGED_SECRET_KEYS
+                    }
+                }
+            )
+        )
+    except Exception:
+        pass
+    return stripped_source
+
+
 @router.post("/mcp-sources/{source_id}/test/connect")
 async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any]:
     """Connect + list_tools probe; kicks OAuth flow if needed via popup-callback dance.
@@ -3500,7 +3588,12 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     from the_one.interfaces.web.app import _inflight_resume_tasks
     from the_one.mcp._pool import _evict_all_for_source
     from the_one.mcp.client import MCPClient
-    from the_one.mcp.errors import MCPAuthRequired, MCPConnectionError, MCPVersionMismatch
+    from the_one.mcp.errors import (
+        TOKEN_FAILURE_MARKERS,
+        MCPAuthRequired,
+        MCPConnectionError,
+        MCPVersionMismatch,
+    )
     from the_one.mcp.oauth import build_oauth_provider_for_source
 
     repo = await _mcp_repo()
@@ -3508,6 +3601,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         source = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+    persisted_source = source
     # F8 L4: optionally override the persisted source with operator's
     # in-flight form values. Mirrors the PUT endpoint's secrets-resolution
     # logic (per-key __MASKED__ → existing; OAUTH-managed → always
@@ -3557,12 +3651,25 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     del resolved_secrets[k]
             source = source.model_copy(update={"secrets": resolved_secrets})
 
+    # DD2: the editor sends its form body on every Test, so "an override was
+    # applied" means the server under test differs from the saved row (type or
+    # config, ignoring the `_cache`). Secrets are not compared: a changed
+    # credential does not change which server is under test. An override Test
+    # must not record the era against the saved source id.
+    def _config_sans_cache(src: MCPSource) -> dict[str, Any]:
+        return {k: v for k, v in (src.config or {}).items() if k != "_cache"}
+
+    override_applied = source.type != persisted_source.type or _config_sans_cache(
+        source
+    ) != _config_sans_cache(persisted_source)
+    record_era = not override_applied
+
     # F9 L2 D1: dispatch stdio sources to their dedicated transient-client
     # path. Stdio has no OAuth concept (no Phase 0 / Phase A / Phase B), so
     # the workflow is a straight connect → list_tools → cache → return.
     # Other unsupported transports continue to surface a clear error.
     if source.type == "stdio":
-        return await _build_and_test_stdio_mcp(source, source_id, repo)
+        return await _build_and_test_stdio_mcp(source, source_id, repo, record_era=record_era)
     if source.type != "streamable-http":
         return {
             "status": "error",
@@ -3581,13 +3688,14 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         build_request_headers,
     )
 
+    signin_via_discover = False
     cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
     has_live_tokens = bool(
         source.secrets.get("dcr_credentials") and source.secrets.get("access_token")
     )
 
     if cached_posture == "no_auth" and not has_live_tokens:
-        return await _build_and_test_no_auth_mcp(source, source_id, repo)
+        return await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
 
     # Re-probe both on a cold cache (None) AND on a cached "oauth" hint when
     # there are no live OAuth tokens. The latter re-validation matters because
@@ -3607,23 +3715,29 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             server_url, request_headers=build_request_headers(source)
         )
         if posture == "no_auth":
-            return await _build_and_test_no_auth_mcp(source, source_id, repo)
+            return await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
         if posture == "error":
             return {"status": "error", "error": "connection probe failed"}
-        # posture == "oauth": persist the hint BEFORE Phase B fires so a
-        # Phase B failure still leaves a definitive signal for the pool
-        # worker (rather than inferring auth-required from dcr_credentials
-        # presence). Then fall through to Phase B below.
-        try:
-            persisted = await repo.get(source_id)
-            persisted_config = dict(persisted.config or {})
-            persisted_cache = dict(persisted_config.get("_cache") or {})
-            persisted_cache["auth_posture"] = "oauth"
-            persisted_config["_cache"] = persisted_cache
-            await repo.update(persisted.model_copy(update={"config": persisted_config}))
-        except Exception:
-            # Best-effort; falling through to Phase B regardless.
-            pass
+        if posture == "unexpected_status":
+            # DD9: the server answered the probe's bare `initialize` with a
+            # status that is neither 200 nor 401 (e.g. 400 from a server that
+            # speaks only 2026-07-28). Let the negotiating SDK path decide.
+            result = await _build_and_test_no_auth_mcp(
+                source, source_id, repo, record_era=record_era, from_fallthrough=True
+            )
+            if result is not _SIGNIN_REQUIRED:
+                return result
+            # The SDK path hit a 401: persist `oauth` (as for a probe `oauth`)
+            # and sign in. The server already rejects `initialize`, so Phase B
+            # triggers sign-in with `server/discover` (DD10 amendment).
+            await _persist_oauth_posture(repo, source_id)
+            signin_via_discover = True
+        else:
+            # posture == "oauth": persist the hint BEFORE Phase B fires so a
+            # Phase B failure still leaves a definitive signal for the pool
+            # worker (rather than inferring auth-required from dcr_credentials
+            # presence). Then fall through to Phase B below.
+            await _persist_oauth_posture(repo, source_id)
 
     # Phase A: tokens present → build provider WITH consent_url_future=None
     # (test path doesn't kick the OAuth flow yet) and try connect + list_tools.
@@ -3641,7 +3755,12 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             consent_url_future=None,  # Phase A doesn't kick a flow
         )
         try:
-            async with MCPClient(source=source, auth_provider=provider_a) as client:
+            async with MCPClient(
+                source=source,
+                auth_provider=provider_a,
+                fresh_negotiation=True,
+                record_era=record_era,
+            ) as client:
                 tools = await client.list_tools()
                 capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
                 # F4 L2 (M08): server-declared identity + free-form prose, both
@@ -3699,6 +3818,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             # Token expired/revoked. Bust pool cache BEFORE Phase B builds
             # a fresh provider so the F4 cache doesn't hand out an MCPClient
             # with the stale auth_provider mid-refresh.
+            source = await _clear_stale_oauth_secrets(repo, source_id, source)
             await _evict_all_for_source(source_id)
             # fall through to Phase B
         except MCPConnectionError as e:
@@ -3717,24 +3837,9 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             # errors) — clearing tokens on those would destroy valid
             # OAuth sessions for an operator on a flaky link.
             err_msg = str(e).lower()
-            looks_like_token_failure = (
-                "did not respond" in err_msg or "cancelled during initialize" in err_msg
-            )
+            looks_like_token_failure = any(m in err_msg for m in TOKEN_FAILURE_MARKERS)
             if looks_like_token_failure:
-                try:
-                    cleared = source.model_copy(
-                        update={
-                            "secrets": {
-                                k: v
-                                for k, v in source.secrets.items()
-                                if k not in _OAUTH_MANAGED_SECRET_KEYS
-                            }
-                        }
-                    )
-                    await repo.update(cleared)
-                    source = cleared
-                except Exception:
-                    pass
+                source = await _clear_stale_oauth_secrets(repo, source_id, source)
                 await _evict_all_for_source(source_id)
                 # fall through to Phase B
             else:
@@ -3779,21 +3884,36 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 
     async def _drive_flow_test() -> None:
         """Hit the source URL with the provider attached; SDK runs auth flow."""
+        # Lazy import; both versions are read at call time (DD10).
+        from mcp.types.version import LATEST_MODERN_VERSION
+
+        from the_one import mcp as the_one_mcp
+
+        if signin_via_discover:
+            # DD10 amendment: entered from DD9's fall-through, so the server
+            # already rejected `initialize` — trigger sign-in with discover.
+            version = LATEST_MODERN_VERSION
+            body: dict[str, Any] = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": {},
+            }
+        else:
+            version = the_one_mcp._HANDSHAKE_OFFER_VERSION
+            body = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": version,
+                    "clientInfo": {"name": "the-one", "version": "0.1"},
+                    "capabilities": {},
+                },
+            }
         try:
             async with httpx2.AsyncClient(auth=provider, timeout=30.0) as client:
-                await client.post(
-                    server_url,
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "initialize",
-                        "params": {
-                            "protocolVersion": "2025-11-25",
-                            "clientInfo": {"name": "the-one", "version": "0.1"},
-                            "capabilities": {},
-                        },
-                    },
-                )
+                await client.post(server_url, json=body, headers={"MCP-Protocol-Version": version})
         except Exception as exc:
             if not consent_url_future.done():
                 consent_url_future.set_exception(
@@ -4648,6 +4768,11 @@ async def oauth_start(request: Request) -> dict[str, Any]:
                 # intercepts, runs PRM/OASM/DCR/auth, and the
                 # ``redirect_handler`` broadcasts ``auth_required`` with
                 # the real ``consent_url``.
+                # DD10: read the handshake offer at call time; the header makes
+                # the SDK's 401 handling include the RFC 8707 ``resource``.
+                from the_one import mcp as the_one_mcp
+
+                version = the_one_mcp._HANDSHAKE_OFFER_VERSION
                 await client.post(
                     server_url,
                     json={
@@ -4655,11 +4780,12 @@ async def oauth_start(request: Request) -> dict[str, Any]:
                         "id": 1,
                         "method": "initialize",
                         "params": {
-                            "protocolVersion": "2025-11-25",
+                            "protocolVersion": version,
                             "clientInfo": {"name": "the-one", "version": "0.1"},
                             "capabilities": {},
                         },
                     },
+                    headers={"MCP-Protocol-Version": version},
                 )
         except Exception as exc:
             # Best-effort: broadcast auth_failed so the chat UI clears the

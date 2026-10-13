@@ -16,6 +16,7 @@ from mcp.shared.exceptions import MCPError
 
 from tests.fixtures.mcp.hello_server import make_http_app, make_mcp_app
 from the_one.db.models import MCPSource
+from the_one.mcp import _era
 from the_one.mcp import client as client_mod
 from the_one.mcp.client import MCPClient, _is_sse_cap_error
 from the_one.mcp.errors import MCPCallError, MCPConnectionError
@@ -68,24 +69,24 @@ async def _asgi(monkeypatch, **app_kwargs):
 # ---------------------------------------------------------------------------
 
 
-async def test_asgi_connection_reports_the_handshake_era_version(monkeypatch) -> None:
-    """The 2.x server serves both eras; the client's ``initialize()`` still lands
-    on the handshake era (Flight 2 swaps in negotiation)."""
+async def test_asgi_connection_reports_the_modern_era_version(monkeypatch) -> None:
+    """The 2.x server serves both eras; the negotiating client lands on the
+    modern era (Mission 29 Flight 2)."""
     async with _asgi(monkeypatch, website_url="https://hello.example"):
         c = MCPClient(_http_source())
         await c.connect()
         try:
-            assert c.negotiated_protocol_version == "2025-11-25"
+            assert c.negotiated_protocol_version == "2026-07-28"
             assert c.server_info is not None and c.server_info["name"] == "hello"
         finally:
             await c.disconnect()
 
 
-async def test_stdio_connection_reports_the_handshake_era_version() -> None:
+async def test_stdio_connection_reports_the_modern_era_version() -> None:
     c = MCPClient(_stdio_source(), timeout_seconds=30)
     await c.connect()
     try:
-        assert c.negotiated_protocol_version == "2025-11-25"
+        assert c.negotiated_protocol_version == "2026-07-28"
         assert c.server_capabilities["tools"] is not None
         assert {t.name for t in await c.list_tools()} == {"echo", "add"}
         result = await c.call_tool("echo", {"message": "hi"})
@@ -95,15 +96,18 @@ async def test_stdio_connection_reports_the_handshake_era_version() -> None:
 
 
 def test_version_gate_uses_the_handshake_registry() -> None:
-    from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION
+    from mcp.types.version import (
+        HANDSHAKE_PROTOCOL_VERSIONS,
+        LATEST_HANDSHAKE_VERSION,
+        LATEST_MODERN_VERSION,
+    )
 
     from the_one import mcp as the_one_mcp
 
-    assert the_one_mcp._PINNED_PROTOCOL_VERSION == "2025-11-25"
-    assert the_one_mcp._PINNED_PROTOCOL_VERSION == LATEST_HANDSHAKE_VERSION
+    assert the_one_mcp._HANDSHAKE_OFFER_VERSION == "2025-11-25"
+    assert the_one_mcp._HANDSHAKE_OFFER_VERSION == LATEST_HANDSHAKE_VERSION
     assert "2025-11-25" in HANDSHAKE_PROTOCOL_VERSIONS
-    # 2.x's LATEST_PROTOCOL_VERSION moved on to the modern era; the pin must not follow it.
-    assert mcp_types.LATEST_PROTOCOL_VERSION != the_one_mcp._PINNED_PROTOCOL_VERSION
+    assert LATEST_MODERN_VERSION == "2026-07-28"
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +147,12 @@ def _fake_session(*, tools, call_tool=None):
             server_info=mcp_types.Implementation(name="fake", version="1"),
         )
     )
+    session.send_discover = AsyncMock(
+        side_effect=MCPError(mcp_types.METHOD_NOT_FOUND, "Method not found")
+    )
+    session.adopt = MagicMock()
+    session.initialize_result = session.initialize.return_value
+    session.discover_result = None
     session.protocol_version = "2025-11-25"
     session.server_capabilities = caps
     session.server_info = None
@@ -219,6 +229,10 @@ async def test_tool_annotations_dump_by_alias() -> None:
 async def test_oversized_tool_result_event_is_a_plain_call_error_and_keeps_the_client(
     monkeypatch,
 ) -> None:
+    """Handshake-era pin: a modern-era server answers a single response as plain
+    JSON (no SSE), so the event cap cannot fire there. Seed the era memory so
+    ``connect`` takes the handshake shortcut and the server streams SSE."""
+    _era.remember_era(_http_source().id, "2025-11-25")
     async with _asgi(monkeypatch):
         c = MCPClient(_http_source(), call_timeout_seconds=30)
         await c.connect()
@@ -238,6 +252,9 @@ async def test_oversized_tool_result_event_is_a_plain_call_error_and_keeps_the_c
 
 
 async def test_oversized_tools_list_event_is_a_plain_connection_error(monkeypatch) -> None:
+    """Handshake-era pin (see the call_tool twin above): the modern era answers
+    plain JSON, so the SSE cap is exercised on the handshake shortcut."""
+    _era.remember_era(_http_source().id, "2025-11-25")
     async with _asgi(monkeypatch, oversized_description=True):
         c = MCPClient(_http_source(), timeout_seconds=30)
         await c.connect()

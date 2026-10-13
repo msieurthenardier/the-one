@@ -420,6 +420,17 @@ def _stub_embedding_backend_by_default(request: pytest.FixtureRequest, monkeypat
 
 
 @pytest.fixture(autouse=True)
+def _reset_mcp_era_memory():
+    """The MCP era map is process-global (M29 F2 DD2); about 110 tests share
+    fixed source ids, so empty it around every test."""
+    from the_one.mcp import _era
+
+    _era._clear_for_test()
+    yield
+    _era._clear_for_test()
+
+
+@pytest.fixture(autouse=True)
 def _reset_window_chrome_state():
     """The window-chrome state is process-global (M25 F5 L2): reset it around
     every test so a registered fake window or a requested theme never leaks.

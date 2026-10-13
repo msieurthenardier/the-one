@@ -51,3 +51,13 @@ def auth_record_for(session: Any | None) -> AuthRecord | None:
     if session is None:
         return None
     return _AUTH_RECORDS.get(session)
+
+
+def saw_401_since(record: AuthRecord | None, baseline: int) -> bool:
+    """True iff the most recent MCP-POST response after ``baseline`` was a 401.
+
+    The one predicate behind ``MCPClient._auth_required_since`` and the
+    negotiation shortcut (Mission 29 Flight 2). ``record`` None (stdio, a
+    patched transport, a mock session) means "no 401".
+    """
+    return record is not None and record.seq > baseline and record.last_status == 401
