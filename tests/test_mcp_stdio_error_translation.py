@@ -110,7 +110,7 @@ def test_translate_runpy_cli_no_module_named() -> None:
     """`python -m foo` when foo isn't installed → `<argv0>: No module named foo`.
 
     F9 L2 regression: operator hit `MCPConnectionError: MCP connect failed:
-    McpError: Connection closed` because D3's _MODULE_NOT_FOUND_RE only
+    MCPError: Connection closed` because D3's _MODULE_NOT_FOUND_RE only
     matched the import-statement form, not the runpy CLI form. The
     broadened regex now catches both surfaces.
     """

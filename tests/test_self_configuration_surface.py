@@ -8,7 +8,7 @@ client path (`AgentFactory.create` → `MCPToolProvider.get_tools_for_agent`
 → the F4 pool → the SDK's streamable-http client) dialing back into that
 same server over loopback.
 
-Why a FRESH `FastMCP` instance per test (not the process-wide
+Why a FRESH `MCPServer` instance per test (not the process-wide
 `the_one.interfaces.web.app.app` singleton): the SDK's
 `StreamableHTTPSessionManager.run()` may be entered at most ONCE per
 instance ever. By the time this file's tests run, many earlier tests in
@@ -17,7 +17,7 @@ the same pytest process have already cycled `the_one.interfaces.web.app
 `_self_configuration_session_scope` guard means only the FIRST such cycle
 actually calls `.run()` on that shared instance, so it is long since
 closed. `importlib.reload(the_one.self_configuration.surface)` yields a
-brand-new `FastMCP` with an unstarted session manager (and a fresh
+brand-new `MCPServer` with an unstarted session manager (and a fresh
 `@mcp.tool()` registration of the SAME two tool functions), which this
 file's minimal test app mounts and wraps `.run()` around exactly once.
 """
@@ -116,7 +116,7 @@ async def running_surface(isolated_db, monkeypatch):
     @asynccontextmanager
     async def test_lifespan(app: FastAPI):
         conn = await get_connection()
-        async with surface_mod.mcp.session_manager.run():
+        async with surface_mod.session_manager().run():
             sc_credentials.register_credential_source_once()
             sc_external.register_credential_source_once()
             encryptor = get_encryptor(settings.data_dir)
@@ -133,7 +133,7 @@ async def running_surface(isolated_db, monkeypatch):
     test_app = FastAPI(lifespan=test_lifespan)
     test_app.add_middleware(CredentialGateMiddleware)
     test_app.include_router(api_router)
-    test_app.mount(surface_mod.MOUNT_PATH, surface_mod.mcp.streamable_http_app())
+    test_app.mount(surface_mod.MOUNT_PATH, surface_mod.build_app())
 
     @test_app.get("/api/live")
     async def _live() -> dict[str, str]:
@@ -159,7 +159,7 @@ async def running_surface(isolated_db, monkeypatch):
         # `_self_configuration_surface` name binding is that SAME object,
         # so it now points at whatever `.mcp` this reload leaves behind.
         # Reload ONE MORE TIME here so the shared module ends this test
-        # with a FRESH, never-started `FastMCP`/session-manager — leaving
+        # with a FRESH, never-started `MCPServer`/session-manager — leaving
         # a just-used-and-closed one in place would make the real app's
         # own (or the next test's) first `lifespan` cycle crash with
         # the SDK's once-per-instance `RuntimeError` the moment it tries

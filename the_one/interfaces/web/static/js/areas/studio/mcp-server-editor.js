@@ -1880,7 +1880,12 @@
       var state = 'POLLING';
       var pollTimer = null;
       var pollAttempts = 0;
-      var maxPollAttempts = 30; // 30 × 500ms = 15s overall ceiling
+      // Overall consent-wait ceiling: 2 minutes, long enough for a real
+      // sign-in (IdP login, MFA, consent screen). The server-side pending
+      // flow lives 10 minutes (_TTL_SECONDS), so this stays inside it.
+      var CONSENT_WAIT_MS = 120000;
+      var POLL_INTERVAL_MS = 500;
+      var maxPollAttempts = CONSENT_WAIT_MS / POLL_INTERVAL_MS; // 240
       var graceAfterClose = 6; // 3s extra polls after popup-close
       var attemptsCapAfterClose = null; // set on close; bails when reached
 
@@ -1980,7 +1985,7 @@
                   label = 'Sign-in did not complete.';
                 } else {
                   label = 'Sign-in timed out — tokens did not persist within '
-                    + (maxPollAttempts / 2) + 's.';
+                    + (CONSENT_WAIT_MS / 1000) + 's.';
                 }
                 renderRetryUi(label);
                 settle();
@@ -1988,7 +1993,7 @@
             }
           })
           .catch(function () { /* transient fetch error; next tick retries */ });
-      }, 500);
+      }, POLL_INTERVAL_MS);
     }
 
     // F8 L4: send the operator's in-flight form values so Test connection

@@ -1,15 +1,15 @@
-"""In-repo FastMCP "hello world" server for F2 integration tests.
+"""In-repo MCPServer "hello world" server for F2 integration tests.
 
 Exposes two trivial tools: ``echo`` (text-only result) and ``add``
 (typed-return triggering the SDK's structuredContent path).
 
-The HTTP integration-test path requires a fresh FastMCP per test
+The HTTP integration-test path requires a fresh MCPServer per test
 (StreamableHTTPSessionManager.run() is once-per-instance), so this
 module exposes a ``make_mcp_app()`` factory in addition to the
 module-level ``mcp_app`` used by the stdio subprocess.
 
 Run modes:
-  --stdio : run as stdio JSON-RPC server (calls FastMCP.run("stdio"))
+  --stdio : run as stdio JSON-RPC server (calls MCPServer.run("stdio"))
   --http  : prints a usage hint — HTTP tests are in-process via the
             ``mcp_fixture_http_client`` pytest fixture, NOT a real socket.
 
@@ -17,7 +17,7 @@ Optional flags:
   --with-naughty-tools : F3 L5a opt-in switch — registers the three
             TEST-ONLY escape-attempt tools (``write_outside_sandbox``,
             ``dump_env``, ``try_connect``) on the module-level ``mcp_app``
-            BEFORE ``FastMCP.run("stdio")`` is invoked. NEVER set in
+            BEFORE ``MCPServer.run("stdio")`` is invoked. NEVER set in
             production; the tools exist solely to verify the F3 sandbox
             enforces its documented invariants. F2 tests that don't pass
             the flag continue to see only ``echo`` / ``add``.
@@ -33,24 +33,22 @@ import socket
 import sys
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
 
-def make_mcp_app() -> FastMCP:
-    """Build a fresh FastMCP server with the F2 hello tools registered.
+def make_mcp_app(
+    *, oversized_description: bool = False, website_url: str | None = None
+) -> MCPServer:
+    """Build a fresh MCPServer with the F2 hello tools registered.
 
-    DNS-rebinding protection is DISABLED here — the in-process ASGI
-    fixture sends requests with a synthetic Host header, and FastMCP's
-    default protection (active for host="127.0.0.1") would otherwise
-    return 421 Misdirected Request.
+    ``oversized_description=True`` is a TEST-ONLY switch (Mission 29, DD8):
+    it registers ``big_description`` whose description exceeds the 1 MiB SSE
+    event cap, so a ``tools/list`` response is one oversized event.
+    ``website_url`` fills ``serverInfo.websiteUrl`` (DD5's camelCase probe).
     """
-    app = FastMCP(
-        "hello",
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False,
-        ),
-    )
+    app = MCPServer("hello", website_url=website_url)
 
     @app.tool()
     def echo(message: str) -> str:
@@ -62,10 +60,46 @@ def make_mcp_app() -> FastMCP:
         """Return the sum of two integers."""
         return a + b
 
+    if oversized_description:
+        register_oversized_description_tool(app)
+
     return app
 
 
-def register_naughty_tools(app: FastMCP) -> None:
+def make_http_app(server: MCPServer | None = None, **kwargs):
+    """The ASGI app for ``server`` (a fresh one by default).
+
+    DNS-rebinding protection is DISABLED here — the in-process ASGI fixture
+    sends requests with a synthetic Host header, and the SDK's default
+    protection (active for host="127.0.0.1") would otherwise return 421
+    Misdirected Request. In mcp 2.x ``transport_security`` is an argument of
+    ``streamable_http_app`` (not the constructor).
+    """
+    server = server if server is not None else make_mcp_app(**kwargs)
+    return server.streamable_http_app(
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+
+# 1 MiB + a margin: the-one's SSE event cap is 1 MiB (MAX_SSE_EVENT_BYTES).
+OVERSIZED_DESCRIPTION_BYTES = 1024 * 1024 + 4096
+
+
+def register_oversized_description_tool(app: MCPServer) -> None:
+    """TEST-ONLY (Mission 29 DD8): register a tool whose description is
+    larger than 1 MiB, so listing tools yields one over-limit SSE event."""
+
+    def big_description() -> str:
+        return "ok"
+
+    app.add_tool(
+        big_description,
+        name="big_description",
+        description="x" * OVERSIZED_DESCRIPTION_BYTES,
+    )
+
+
+def register_naughty_tools(app: MCPServer) -> None:
     """Register TEST-ONLY escape-attempt tools on the app (F3 L5a).
 
     These tools exist solely to verify the F3 sandbox enforces its
@@ -89,10 +123,15 @@ def register_naughty_tools(app: FastMCP) -> None:
         Under the strict-floor sandbox (writable_paths=[]), every host
         path outside /tmp is read-only via ``--ro-bind / /``; the
         ``write_text`` call raises OSError (EROFS or EACCES) inside the
-        FastMCP runtime, which surfaces as a tool-call error to the MCP
+        MCPServer runtime, which surfaces as a tool-call error to the MCP
         client. Tests assert ``MCPCallError`` with strerror text.
         """
-        Path(path).write_text(content)
+        try:
+            Path(path).write_text(content)
+        except OSError as exc:
+            # mcp 2.x reduces a non-ToolError to "Error executing tool <name>"
+            # with no text; ToolError keeps the strerror the tests assert on.
+            raise ToolError(str(exc)) from exc
         return f"wrote {len(content)} bytes to {path}"
 
     # TEST-ONLY (F3 escape-attempt fixture): DO NOT REMOVE OR PROMOTE TO PRODUCTION
@@ -120,7 +159,7 @@ def register_naughty_tools(app: FastMCP) -> None:
         network calls fail with OSError (ENETUNREACH or similar).
         Returns a formatted error string (does NOT raise) so callers can
         assert on the value directly without mediating through
-        FastMCP's tool-error translation.
+        MCPServer's tool-error translation.
         """
         try:
             with socket.create_connection((host, port), timeout=2.0):
@@ -132,7 +171,7 @@ def register_naughty_tools(app: FastMCP) -> None:
 # Module-level instance — reserved for the stdio subprocess path
 # (see __main__). HTTP fixture must call make_mcp_app() per-test
 # because StreamableHTTPSessionManager.run() enforces once-per-instance.
-mcp_app: FastMCP = make_mcp_app()
+mcp_app: MCPServer = make_mcp_app()
 
 
 def main(argv: list[str] | None = None) -> int:

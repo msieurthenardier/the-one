@@ -272,30 +272,30 @@ def mcp_fixture_sandbox_profile() -> SandboxProfile:
 
 @pytest.fixture
 async def mcp_fixture_http_client():
-    """In-process httpx.AsyncClient wrapping a FRESH FastMCP ASGI app per test.
+    """In-process httpx2.AsyncClient wrapping a FRESH MCPServer ASGI app per test.
 
     Three non-obvious requirements (verified at leg-design review):
       1. Calls ``make_mcp_app()`` per-test — module-level ``mcp_app`` cannot be
          reused because ``StreamableHTTPSessionManager.run()`` enforces
          once-per-instance.
       2. Drives Starlette lifespan via ``asgi_lifespan.LifespanManager`` —
-         ``httpx.ASGITransport`` does NOT auto-fire lifespan events, so the
-         FastMCP session manager's task group would otherwise be unstarted.
+         ``httpx2.ASGITransport`` does NOT auto-fire lifespan events, so the
+         MCPServer session manager's task group would otherwise be unstarted.
       3. Uses ``base_url="http://localhost"`` and ``url="http://localhost/mcp"``
-         — FastMCP auto-enables DNS-rebinding protection for ``host="127.0.0.1"``
+         — MCPServer auto-enables DNS-rebinding protection for ``host="127.0.0.1"``
          constructor default; the localhost form matches the allowlist (and
-         ``make_mcp_app()`` also disables protection at the FastMCP level for
+         ``make_mcp_app()`` also disables protection at the MCPServer level for
          defense-in-depth).
     """
-    import httpx
+    import httpx2
     from asgi_lifespan import LifespanManager
 
-    from tests.fixtures.mcp.hello_server import make_mcp_app
+    from tests.fixtures.mcp.hello_server import make_http_app
 
-    app = make_mcp_app().streamable_http_app()
+    app = make_http_app()
     async with LifespanManager(app):
-        transport = httpx.ASGITransport(app=app)
-        client = httpx.AsyncClient(transport=transport, base_url="http://localhost")
+        transport = httpx2.ASGITransport(app=app)
+        client = httpx2.AsyncClient(transport=transport, base_url="http://localhost")
         try:
             yield client, "http://localhost/mcp"
         finally:

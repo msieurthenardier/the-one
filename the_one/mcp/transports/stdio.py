@@ -494,7 +494,7 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
         #
         # Translation runs in a `finally` (not just an `except`) because
         # MCPClient.connect()'s outer `except Exception:` catches an
-        # initialize-time McpError BEFORE the AsyncExitStack is unwound
+        # initialize-time MCPError BEFORE the AsyncExitStack is unwound
         # — so by the time `transport_stack.aclose()` calls our
         # generator's __aexit__(None, None, None), no exception is
         # flowing through the yield. We can't rely on the except branch.
@@ -575,7 +575,7 @@ async def _open_stdio_transport_stack(
     the existing ``connect_stdio`` ``finally:`` semantics). bwrap setup
     can fail asynchronously: setup may succeed enough that
     ``stdio_client.__aenter__`` returns, but bwrap then dies before the
-    MCP handshake completes — the ``McpError`` surfaces from
+    MCP handshake completes — the ``MCPError`` surfaces from
     ``session.initialize()`` (run by the caller, OUTSIDE this helper).
     Translation therefore CANNOT live in our ``except BaseException``
     clause alone; it must run when the caller eventually closes the
@@ -594,7 +594,7 @@ async def _open_stdio_transport_stack(
     The translation callback raises the translated ``SandboxError``
     if the captured stderr matches an F3 §6 catalog pattern, replacing
     any in-flight exception so the caller sees the bwrap diagnostic
-    rather than the downstream ``McpError`` / ``Connection closed``
+    rather than the downstream ``MCPError`` / ``Connection closed``
     wrapping.
 
     The existing ``connect_stdio`` ``@asynccontextmanager`` continues to

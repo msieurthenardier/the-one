@@ -24,9 +24,15 @@ Each test seam in `the_one/mcp/` follows a 3-property contract:
 
 Live example: `the_one/mcp/transports/streamable_http.py:_test_http_client_override`.
 Test fixtures monkeypatch this attribute to inject an ASGI-transport
-`httpx.AsyncClient` for in-process FastMCP testing. The production code path
-reads the attribute at call time and uses the override iff non-None; otherwise
-it constructs a real `httpx.AsyncClient` from `build_request_headers`.
+`httpx2.AsyncClient` (the mcp 2.x SDK runs on `httpx2`, not `httpx`; everything
+under `the_one/mcp/` imports `httpx2`) for in-process MCPServer testing. The
+production code path reads the attribute at call time and uses the override iff
+non-None; otherwise it constructs a real `httpx2.AsyncClient` from
+`build_request_headers`. The override may also be a factory
+`(headers) -> httpx2.AsyncClient`. All three client branches install the DD1
+sign-in response hook (`the_one.agents.md` "MCP error translation"); a
+pre-built seam client is shared across connections, so its hook is removed
+(that hook only, never the list) when the connection closes.
 
 Production code paths NEVER read or write this attribute outside the function
 that consumes it. Tests use
@@ -240,12 +246,18 @@ module-level constant that tests must override at runtime: import the
 package and read the attribute at call time, do NOT bind the name at module
 load.
 
-The fail-hard policy is narrower than the SDK's `SUPPORTED_PROTOCOL_VERSIONS`
-whitelist: `MCPClient.connect()` raises `MCPVersionMismatch` on ANY mismatch,
-not just on versions outside the SDK whitelist. This is the pre-1.0 stance
-(revisit at SDK 1.0). The test that locks the policy passes a
-non-pinned-but-SDK-supported version and asserts `MCPVersionMismatch` raises
-— proving the gate is on the pinned constant, not the SDK whitelist.
+The version gate is **not** an equality check on the pinned constant:
+`MCPClient.connect()` accepts any revision in the SDK's
+`mcp.types.version.HANDSHAKE_PROTOCOL_VERSIONS` (loosened in M07 F6 A6, so a
+server announcing an older revision such as Cloudflare's 2025-06-18 still
+connects) and raises `MCPVersionMismatch` for one outside it. The pinned
+constant is `"2025-11-25"`, the handshake era's newest revision
+(`LATEST_HANDSHAKE_VERSION`); under mcp 2.x the SDK's `LATEST_PROTOCOL_VERSION`
+is the modern 2026-07-28 revision that Mission 29 Flight 2 adopts, which is why
+the tripwire test compares against `LATEST_HANDSHAKE_VERSION`. The negotiated
+revision and the server's capabilities, info and instructions are read from the
+`ClientSession` properties (`protocol_version`, `server_capabilities`,
+`server_info`, `instructions`), not from the `InitializeResult`.
 
 ## §6. 2-layer flat-merge env-var assembly contract
 

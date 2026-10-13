@@ -106,7 +106,7 @@ async def test_redirect_registers_state_broadcasts_and_callback_returns_code(
         _state.resolve("STATE-X", "code-X", "STATE-X")
 
     cb_result, _ = await asyncio.gather(callback(), driver())
-    assert cb_result == ("code-X", "STATE-X")
+    assert (cb_result.code, cb_result.state, cb_result.iss) == ("code-X", "STATE-X", None)
 
     # Missing-state URL on a fresh factory raises (and does NOT broadcast).
     broadcasts.clear()

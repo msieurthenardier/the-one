@@ -43,6 +43,7 @@ from PyInstaller.utils.hooks import (  # noqa: E402  (must follow the sys.path i
     collect_data_files,
     collect_dynamic_libs,
     collect_submodules,
+    copy_metadata,
 )
 
 from the_one import __version__  # noqa: E402  (must follow the sys.path insert)
@@ -63,20 +64,41 @@ print(f"[the-one.spec] freezing {APP_NAME} v{APP_VERSION} (one-dir, Windows)")
 # plus the optional uvloop/httptools/websockets accelerators ([standard] extra).
 uvicorn_datas, uvicorn_bins, uvicorn_hidden = collect_all("uvicorn")
 
-# mcp (model-context-protocol SDK, pinned 1.27.0): submodules cover its
+# mcp (model-context-protocol SDK, pinned 2.3.0): submodules cover its
 # dynamically-dispatched transports/handlers.
 #
 # Exclude the optional `mcp.cli` subpackage: its __init__ imports `typer` (the
 # mcp[cli] extra), which the app does NOT use and which is not installed. Without
 # the filter, PyInstaller's isolated submodule walk imports mcp.cli, hits
-# ModuleNotFoundError: typer, and aborts the entire freeze. on_error="warn" is a
-# belt-and-suspenders so any OTHER optional mcp submodule that fails to import
-# only warns instead of killing the build.
+# ModuleNotFoundError: typer, and aborts the entire freeze. Likewise exclude
+# `mcp.server.fastmcp`: in 2.x it is a stub module that raises on import (the
+# 1.x FastMCP API moved to MCPServer), so the walk would hit that error.
+# on_error="warn" is a belt-and-suspenders so any OTHER optional mcp submodule
+# that fails to import only warns instead of killing the build.
 mcp_hidden = collect_submodules(
     "mcp",
-    filter=lambda name: not name.startswith("mcp.cli"),
+    filter=lambda name: not (name.startswith("mcp.cli") or name.startswith("mcp.server.fastmcp")),
     on_error="warn",
 )
+
+# mcp 2.x's runtime closure (M29 F1 L2). The SDK now splits its wire types and
+# HTTP stack into separate distributions that its dispatch reaches by import
+# paths PyInstaller's static walk can miss, so each is collected whole:
+#   * mcp_types: the protocol model package the SDK re-exports as mcp.types;
+#   * httpx2 / httpcore2: the SDK's HTTP client stack (renamed forks, distinct
+#     from the app's own httpx);
+#   * truststore: the OS trust-store SSL context the SDK builds for TLS;
+#   * opentelemetry: the tracing API the SDK instruments itself with.
+# httpx2/__version__.py and httpcore2/__init__.py call
+# importlib.metadata.version() at import time, so their dist-info is copied into
+# the bundle (copy_metadata below); without it the import raises PackageNotFound.
+# The frozen `the-one.exe doctor` `mcp sdk` gate is the judge.
+mcp_types_hidden = collect_submodules("mcp_types", on_error="warn")
+httpx2_hidden = collect_submodules("httpx2", on_error="warn")
+httpcore2_hidden = collect_submodules("httpcore2", on_error="warn")
+truststore_hidden = collect_submodules("truststore", on_error="warn")
+opentelemetry_hidden = collect_submodules("opentelemetry", on_error="warn")
+mcp_metadata = [*copy_metadata("httpx2"), *copy_metadata("httpcore2")]
 
 # pywinpty (Windows ConPTY backend): collect the native binaries — the
 # _winpty ABI .pyd and its sibling winpty.dll.  NOTE: collect_dynamic_libs only
@@ -277,6 +299,11 @@ hiddenimports = [
     *collect_submodules("the_one.llm"),
     *uvicorn_hidden,
     *mcp_hidden,
+    *mcp_types_hidden,
+    *httpx2_hidden,
+    *httpcore2_hidden,
+    *truststore_hidden,
+    *opentelemetry_hidden,
     *pystray_hidden,
     *tzdata_hidden,
     *tzlocal_hidden,
@@ -287,6 +314,7 @@ datas = [
     *seed_datas,
     *embedding_datas,
     *tzdata_datas,
+    *mcp_metadata,
     *uvicorn_datas,
 ]
 

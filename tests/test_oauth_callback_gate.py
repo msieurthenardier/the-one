@@ -129,7 +129,8 @@ class TestExemptionAllowsCallback:
         assert resp.status_code == 200
         assert "Login successful. You may close this tab." in resp.text
         assert fut.done()
-        assert await fut == ("code-gate-1", "S-GATE-OK")
+        result = await fut
+        assert (result.code, result.state, result.iss) == ("code-gate-1", "S-GATE-OK", None)
 
 
 # ── AC4 — the exemption opened exactly one path, nothing more ───────────

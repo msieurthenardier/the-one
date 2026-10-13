@@ -94,7 +94,9 @@ async def test_callback_success_resolves_and_broadcasts(
     assert resp.status_code == 200
     assert "Login successful. You may close this tab." in resp.text
     assert fut.done()
-    assert await fut == ("code-1", "S-OK")
+    result = await fut
+    # DD2: the future carries an AuthorizationCodeResult(code, state, iss).
+    assert (result.code, result.state, result.iss) == ("code-1", "S-OK", None)
 
     assert broadcasts == [
         (
@@ -185,7 +187,7 @@ async def test_callback_sweep_race_returns_login_expired(
     real_resolve = _state.resolve
     sweeps: list[int] = []
 
-    def racing_resolve(state, code, returned_state):
+    def racing_resolve(state, code, returned_state, iss=None):
         # Run the sweep BEFORE the actual resolve — emulates the race.
         # ``_sweep_expired`` is async; wrap with a sync drive.
         import asyncio as _asyncio
@@ -205,7 +207,7 @@ async def test_callback_sweep_race_returns_login_expired(
                         OAuthFlowError("OAuth flow timed out (10-minute TTL)")
                     )
                 sweeps.append(1)
-        return real_resolve(state, code, returned_state)
+        return real_resolve(state, code, returned_state, iss)
 
     with patch.object(_state, "resolve", side_effect=racing_resolve):
         resp = await client.get(
@@ -277,3 +279,31 @@ class TestSafeScriptJSON:
         # Both escape sequences applied.
         assert "\\u2028" in out
         assert "\\u2029" in out
+
+
+async def test_callback_forwards_the_rfc9207_iss_parameter(
+    client: AsyncClient, chat_session_in_app
+) -> None:
+    """DD2: GET /api/oauth/callback forwards an optional ``iss`` to the pending
+    flow, so the SDK can validate the authorization-response issuer."""
+    fut = _state.register(
+        "S-ISS", source_id="src-1", tool_call_id=None, chat_session_id="cs-callback-1"
+    )
+    resp = await client.get(
+        "/api/oauth/callback",
+        params={"state": "S-ISS", "code": "code-iss", "iss": "https://as.example"},
+    )
+    assert resp.status_code == 200
+    result = await fut
+    assert (result.code, result.state, result.iss) == ("code-iss", "S-ISS", "https://as.example")
+
+
+async def test_callback_without_iss_leaves_it_none(
+    client: AsyncClient, chat_session_in_app
+) -> None:
+    fut = _state.register(
+        "S-NOISS", source_id="src-1", tool_call_id=None, chat_session_id="cs-callback-1"
+    )
+    resp = await client.get("/api/oauth/callback", params={"state": "S-NOISS", "code": "c"})
+    assert resp.status_code == 200
+    assert (await fut).iss is None

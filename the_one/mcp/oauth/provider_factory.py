@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
+import httpx2
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientMetadata
 
@@ -64,7 +64,7 @@ def build_oauth_provider_for_source(
     *,
     consent_url_future: asyncio.Future[str] | None = None,
     allow_dcr_bootstrap: bool = False,
-) -> httpx.Auth | None:
+) -> httpx2.Auth | None:
     """Construct the appropriate OAuthClientProvider for ``source``, or None.
 
     Returns ``None`` when ``source.secrets["dcr_credentials"]`` is absent or

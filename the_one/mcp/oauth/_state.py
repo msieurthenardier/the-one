@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Awaitable
 
 from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.shared.auth import AuthorizationCodeResult
 
 # 10-minute TTL per F5 §9.
 _TTL_SECONDS: float = 600.0
@@ -42,8 +43,8 @@ _TTL_SECONDS: float = 600.0
 class PendingFlow:
     """One entry in the pending-flow registry.
 
-    ``code_future`` is resolved by ``resolve(state, code, returned_state)``
-    with ``(code, returned_state)`` on success or by ``fail(state, exc)``
+    ``code_future`` is resolved by ``resolve(state, code, returned_state, iss)``
+    with an ``AuthorizationCodeResult(code, state, iss)`` on success or by ``fail(state, exc)``
     with the supplied exception. Awaiters in ``callback_handler`` get the
     code or the exception.
 
@@ -53,7 +54,7 @@ class PendingFlow:
     by the chat UI.
     """
 
-    code_future: asyncio.Future[tuple[str, str | None]]
+    code_future: asyncio.Future[AuthorizationCodeResult]
     created_at: float
     source_id: str
     tool_call_id: str | None
@@ -71,7 +72,7 @@ def register(
     source_id: str,
     tool_call_id: str | None,
     chat_session_id: str,
-) -> asyncio.Future[tuple[str, str | None]]:
+) -> asyncio.Future[AuthorizationCodeResult]:
     """Register a new pending flow, returning the future ``callback_handler``
     will await.
 
@@ -82,7 +83,7 @@ def register(
     if state in _pending:
         raise RuntimeError(f"Duplicate pending OAuth flow for state token: {state!r}")
     loop = asyncio.get_running_loop()
-    future: asyncio.Future[tuple[str, str | None]] = loop.create_future()
+    future: asyncio.Future[AuthorizationCodeResult] = loop.create_future()
     _pending[state] = PendingFlow(
         code_future=future,
         created_at=time.time(),
@@ -103,8 +104,13 @@ def peek(state: str) -> PendingFlow | None:
     return _pending.get(state)
 
 
-def resolve(state: str, code: str, returned_state: str | None) -> bool:
-    """Resolve the pending flow's future with ``(code, returned_state)``.
+def resolve(state: str, code: str, returned_state: str | None, iss: str | None = None) -> bool:
+    """Resolve the pending flow's future with
+    ``AuthorizationCodeResult(code, returned_state, iss)``.
+
+    ``iss`` is the RFC 9207 authorization-response issuer from the redirect's
+    optional ``iss`` query parameter (None when absent); the SDK validates it
+    against the authorization server's metadata (mcp 2.x).
 
     Pops the entry and sets the future's result. Returns True on
     success; False if ``state`` is unknown or already popped.
@@ -119,7 +125,9 @@ def resolve(state: str, code: str, returned_state: str | None) -> bool:
     if entry is None:
         return False
     if not entry.code_future.done():
-        entry.code_future.set_result((code, returned_state))
+        entry.code_future.set_result(
+            AuthorizationCodeResult(code=code, state=returned_state, iss=iss)
+        )
         return True
     # Race with _sweep_expired: future already resolved with timeout.
     # The pop already happened so we're consistent; just signal failure.

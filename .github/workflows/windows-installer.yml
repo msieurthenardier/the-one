@@ -133,6 +133,10 @@ jobs:
           # Time-zones probe (M28 F1 L1, DD9). Same by-name rule; proves the
           # tzdata zone files survived the freeze.
           grep -q "time zones: OK" doctor.out
+          # MCP SDK probe (M29 F1 L2, DD11). Same by-name rule; proves the mcp
+          # 2.x import closure (mcp_types, httpx2/httpcore2, truststore,
+          # opentelemetry) survived the freeze.
+          grep -q "mcp sdk: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

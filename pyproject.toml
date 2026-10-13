@@ -32,9 +32,14 @@ dependencies = [
     "websockets>=13.0",
     "jinja2>=3.1",
     "aiosqlite>=0.20",
-    # 1.28.1 closes PYSEC-2026-3481/3482/3483 (2026-07-28 pr-lint pip-audit
-    # run; 1.27.2 fixed only 3481/3482 — 3483 needed 1.28.1).
-    "mcp==1.28.1",
+    # mcp 2.x SDK (Mission 29). Pinned exactly; the operator waived the
+    # 14-day dependency soak for 2.3.0 (2026-10-12), so no soak caps are
+    # placed on httpx2/httpcore2/truststore/opentelemetry-api. 2.x closes the
+    # PYSEC-2026-3481/3482/3483 advisories that 1.28.1 fixed.
+    "mcp==2.3.0",
+    # mcp 2.x runs on httpx2 (a separate package from httpx); floor mirrors
+    # mcp 2.3.0's own requirement. Everything under the_one/mcp/ uses it.
+    "httpx2>=2.10.0",
     # CVE floors (deps — some direct, most transitive — promoted to
     # explicit floors so any resolve that starts from these ranges instead
     # of uv.lock, e.g. `pip install -e ".[gui,all-llms]"` in

@@ -7,11 +7,11 @@ Tests target three surfaces:
   - ``_build_production_httpx_kwargs`` helper (A2/A3/A4)
   - ``_test_http_client_override`` factory-callable seam (A6/A7)
   - ``MCPClient.call_tool`` SDK auth-exception translation (A8a/A8b)
-  - ``MCPClient.call_tool`` no-provider 401 translation (A9 — probe-confirmed
-    catchable; see flight log)
+  - the no-provider 401 translation (A9 — now DD1's response-hook record,
+    proven against a real 401 in tests/test_mcp_signin_detection.py)
 
 Per Implementation Guidance §4 the stake-test probe surfaced
-``ExceptionGroup wrapping httpx.HTTPStatusError`` on the no-provider 401 path,
+``ExceptionGroup wrapping httpx2.HTTPStatusError`` on the no-provider 401 path,
 so A9 ships as a working test using ``except*`` semantics.
 """
 
@@ -21,7 +21,7 @@ import inspect
 from typing import Any
 from unittest.mock import AsyncMock
 
-import httpx
+import httpx2
 import pytest
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 
@@ -51,18 +51,18 @@ class TestBuildProductionHttpxKwargs:
     def test_no_auth_provider_returns_auth_none(self) -> None:
         """A2: auth_provider=None → kwargs['auth'] is None.
 
-        Headers, follow_redirects, timeout are preserved verbatim.
+        Headers and timeout are preserved verbatim.
         """
         kwargs = sh._build_production_httpx_kwargs(headers={"X-Foo": "bar"}, auth_provider=None)
         assert kwargs["auth"] is None
         assert kwargs["headers"] == {"X-Foo": "bar"}
-        assert kwargs["follow_redirects"] is True
-        assert kwargs["timeout"] == httpx.Timeout(30.0, read=300.0)
+        assert "follow_redirects" not in kwargs  # DD12.1: inert under mcp 2.x
+        assert kwargs["timeout"] == httpx2.Timeout(30.0, read=300.0)
 
     def test_with_auth_provider_returns_auth_stub(self) -> None:
         """A3: auth_provider=stub → kwargs['auth'] is stub (identity)."""
 
-        class StubAuth(httpx.Auth):
+        class StubAuth(httpx2.Auth):
             def auth_flow(self, request):  # type: ignore[no-untyped-def]
                 yield request
 
@@ -70,8 +70,8 @@ class TestBuildProductionHttpxKwargs:
         kwargs = sh._build_production_httpx_kwargs(headers={}, auth_provider=stub)
         assert kwargs["auth"] is stub
         assert kwargs["headers"] == {}
-        assert kwargs["follow_redirects"] is True
-        assert kwargs["timeout"] == httpx.Timeout(30.0, read=300.0)
+        assert "follow_redirects" not in kwargs  # DD12.1: inert under mcp 2.x
+        assert kwargs["timeout"] == httpx2.Timeout(30.0, read=300.0)
 
 
 # ---------------------------------------------------------------------------
@@ -82,14 +82,15 @@ class TestBuildProductionHttpxKwargs:
 def test_both_transport_functions_call_build_production_httpx_kwargs() -> None:
     """A4: single source of truth for production-path kwargs.
 
-    Source-string inspection ensures both ``connect_streamable_http`` and
-    ``_open_streamable_http_transport_stack`` route through the helper —
-    documents the dead-code-until-L6 invariant grep-checkable from the
-    test surface itself.
+    ``connect_streamable_http`` is a thin ``@asynccontextmanager`` over
+    ``_open_streamable_http_transport_stack`` (Mission 29: one implementation
+    of the three client branches, so the DD1 hook cannot drift), and the stack
+    helper builds the production client through the kwargs helper. Source-string
+    inspection keeps both facts grep-checkable from the test surface.
     """
     cm_src = inspect.getsource(sh.connect_streamable_http)
     stack_src = inspect.getsource(sh._open_streamable_http_transport_stack)
-    assert "_build_production_httpx_kwargs" in cm_src
+    assert "_open_streamable_http_transport_stack" in cm_src
     assert "_build_production_httpx_kwargs" in stack_src
 
 
@@ -118,8 +119,8 @@ async def test_mcp_client_threads_auth_provider_to_streamable_http_transport(
     async def _fake_open(
         source: MCPSource,
         *,
-        http_client: httpx.AsyncClient | None = None,
-        auth_provider: httpx.Auth | None = None,
+        http_client: httpx2.AsyncClient | None = None,
+        auth_provider: httpx2.Auth | None = None,
     ) -> tuple[Any, Any]:
         captured["source_id"] = source.id
         captured["auth_provider"] = auth_provider
@@ -130,7 +131,7 @@ async def test_mcp_client_threads_auth_provider_to_streamable_http_transport(
         _fake_open,
     )
 
-    class StubAuth(httpx.Auth):
+    class StubAuth(httpx2.Auth):
         def auth_flow(self, request):  # type: ignore[no-untyped-def]
             yield request
 
@@ -165,7 +166,7 @@ async def test_test_seam_factory_callable_invoked_with_headers(
     class _SentinelError(Exception):
         pass
 
-    def factory(headers: dict[str, str]) -> httpx.AsyncClient:
+    def factory(headers: dict[str, str]) -> httpx2.AsyncClient:
         captured["headers"] = dict(headers)
         # Raise so we don't enter streamable_http_client's body.
         raise _SentinelError("captured")
@@ -198,7 +199,7 @@ async def test_test_seam_legacy_pre_constructed_client_path_preserved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A7: when ``_test_http_client_override`` is a pre-constructed
-    ``httpx.AsyncClient``, the transport detects type via ``isinstance``
+    ``httpx2.AsyncClient``, the transport detects type via ``isinstance``
     and uses the legacy path: headers are mutated post-construction.
 
     Mirrors the existing ``tests/test_mcp_integration.py`` pattern.
@@ -209,7 +210,7 @@ async def test_test_seam_legacy_pre_constructed_client_path_preserved(
 
     # Pre-constructed client — capture the ID so we know it (not a fresh
     # client from any factory) was used.
-    pre_client = httpx.AsyncClient()
+    pre_client = httpx2.AsyncClient()
     pre_id = id(pre_client)
 
     monkeypatch.setattr(sh, "_test_http_client_override", pre_client)
@@ -221,7 +222,7 @@ async def test_test_seam_legacy_pre_constructed_client_path_preserved(
     from contextlib import asynccontextmanager
 
     @asynccontextmanager
-    async def _spy_streamable(url: str, http_client: httpx.AsyncClient):  # type: ignore[no-untyped-def]
+    async def _spy_streamable(url: str, http_client: httpx2.AsyncClient, **kwargs):  # type: ignore[no-untyped-def]
         captured["client_id"] = id(http_client)
         captured["client_headers"] = dict(http_client.headers)
         raise _SentinelError("captured")
@@ -306,61 +307,12 @@ async def test_call_tool_translates_oauth_flow_error_to_mcp_auth_required() -> N
 
 
 # ---------------------------------------------------------------------------
-# A9 — MCPClient.call_tool translates no-provider 401 to MCPAuthRequired
+# A9 — the no-provider 401 -> MCPAuthRequired translation
 # ---------------------------------------------------------------------------
-
-
-async def test_call_tool_translates_no_provider_401_to_mcp_auth_required() -> None:
-    """A9: ExceptionGroup wrapping httpx.HTTPStatusError (status=401) →
-    MCPAuthRequired with resource_metadata_url parsed from
-    WWW-Authenticate header.
-
-    Stake-test probe (Implementation Guidance §4) surfaced
-    ``ExceptionGroup`` wrapping ``httpx.HTTPStatusError``; A9 catch
-    uses Python 3.11+ ``except*`` semantics. See flight log
-    "Stake-test probe results: A9 surface type = ExceptionGroup
-    wrapping httpx.HTTPStatusError".
-    """
-    source = _http_source(source_id="src-401")
-    client = MCPClient(source)
-    client._is_alive = True
-
-    # Build a real httpx.HTTPStatusError with a 401 + WWW-Authenticate
-    # response (so extract_field_from_www_auth has something to parse).
-    request = httpx.Request("POST", "https://example.com/mcp")
-    response = httpx.Response(
-        status_code=401,
-        request=request,
-        headers={
-            "WWW-Authenticate": (
-                'Bearer realm="x", '
-                'resource_metadata="https://example.com/.well-known/oauth-protected-resource"'
-            ),
-        },
-    )
-    inner = httpx.HTTPStatusError(
-        "Client error '401 Unauthorized'", request=request, response=response
-    )
-    # Wrap in ExceptionGroup mirroring the SDK TaskGroup shape.
-    eg = BaseExceptionGroup("unhandled errors in a TaskGroup", [inner])
-
-    client._session = AsyncMock()
-    client._session.call_tool.side_effect = eg
-    client._tools_cache = [
-        MCPTool(
-            name="t",
-            description="x",
-            input_schema={"type": "object", "properties": {}},
-            output_schema=None,
-            annotations=None,
-        )
-    ]
-
-    with pytest.raises(MCPAuthRequired) as exc_info:
-        await client.call_tool("t", {})
-    assert exc_info.value.source_id == "src-401"
-    assert (
-        exc_info.value.resource_metadata_url
-        == "https://example.com/.well-known/oauth-protected-resource"
-    )
-    assert exc_info.value.consent_url is None
+#
+# The synthetic ``ExceptionGroup(httpx2.HTTPStatusError)`` test that lived here
+# is gone: mcp 2.x no longer raises HTTPStatusError for a 401 (it becomes
+# ``MCPError(INTERNAL_ERROR, "Server returned an error response")`` and drops
+# the headers), so the translation now reads the transport's response-hook
+# record (DD1). It is proven against a REAL 401 over HTTP in
+# ``tests/test_mcp_signin_detection.py``.

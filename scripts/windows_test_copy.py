@@ -98,6 +98,7 @@ NEEDLES = (
     "file watcher: OK",
     "window chrome: OK",
     "time zones: OK",
+    "mcp sdk: OK",
 )
 
 

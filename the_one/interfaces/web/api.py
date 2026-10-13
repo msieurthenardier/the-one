@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
+import httpx2
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -3779,7 +3780,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     async def _drive_flow_test() -> None:
         """Hit the source URL with the provider attached; SDK runs auth flow."""
         try:
-            async with httpx.AsyncClient(auth=provider, timeout=30.0) as client:
+            async with httpx2.AsyncClient(auth=provider, timeout=30.0) as client:
                 await client.post(
                     server_url,
                     json={
@@ -4416,6 +4417,7 @@ async def oauth_callback(
     state: str | None = None,
     error: str | None = None,
     error_description: str | None = None,
+    iss: str | None = None,
 ) -> HTMLResponse:
     """Loopback redirect target for the OAuth 2.1 + PKCE flow.
 
@@ -4425,7 +4427,8 @@ async def oauth_callback(
     handler:
 
       1. Looks up the pending flow keyed by ``state``.
-      2. On success, calls ``_state.resolve(state, code, state)`` to
+      2. On success, calls ``_state.resolve(state, code, state, iss)`` (``iss``
+         is the optional RFC 9207 issuer query parameter) to
          hand the code back to the SDK's ``callback_handler`` waiting
          inside the auth flow's yield boundary; broadcasts an
          ``auth_resolved`` event to the originating chat session.
@@ -4492,7 +4495,7 @@ async def oauth_callback(
 
     # Cycle-2 NEW-H2: resolve returns False if the sweep raced between
     # our peek and resolve. Don't broadcast auth_resolved in that case.
-    resolved = oauth_state.resolve(state, code or "", state)
+    resolved = oauth_state.resolve(state, code or "", state, iss)
     if not resolved:
         return HTMLResponse(
             _render_oauth_callback_page(
@@ -4639,7 +4642,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     async def _drive_flow() -> None:
         """Hit the source URL with the provider attached; SDK runs auth flow."""
         try:
-            async with httpx.AsyncClient(auth=provider, timeout=30.0) as client:
+            async with httpx2.AsyncClient(auth=provider, timeout=30.0) as client:
                 # The ``initialize`` JSON-RPC request returns 401 when no
                 # token is present; the provider's ``async_auth_flow``
                 # intercepts, runs PRM/OASM/DCR/auth, and the

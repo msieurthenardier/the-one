@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
+import httpx2
 import pytest
 from cryptography.fernet import Fernet
 from mcp.client.auth import OAuthClientProvider
@@ -67,8 +67,8 @@ async def test_factory_returns_oauth_client_provider_for_dcr(repo_with_source) -
     assert result is not None
     # The DCR path returns the standard SDK provider.
     assert isinstance(result, OAuthClientProvider)
-    # And conforms to httpx.Auth (so callers can pass via auth=).
-    assert isinstance(result, httpx.Auth)
+    # And conforms to httpx2.Auth (so callers can pass via auth=).
+    assert isinstance(result, httpx2.Auth)
 
 
 async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_source) -> None:
