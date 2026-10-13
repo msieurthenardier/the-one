@@ -10,16 +10,36 @@ in-memory token store and the PRODUCTION redirect/callback handlers
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from urllib.parse import parse_qs, urlsplit
 
+import httpx2
+from asgi_lifespan import LifespanManager
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 from the_one.db.models import MCPSource
 from the_one.mcp.oauth import _state
 from the_one.mcp.oauth.handlers import make_oauth_handlers
+from the_one.mcp.transports import streamable_http as _sh
 
 _MISSING = object()
+
+
+@asynccontextmanager
+async def serve_asgi(monkeypatch, wrapper):
+    """Serve an ASGI ``wrapper`` through the transport's test seam
+    (wrapper -> ``LifespanManager`` -> ``httpx2.ASGITransport`` ->
+    ``_test_http_client_override``). Yields the httpx2 client."""
+    async with LifespanManager(wrapper):
+        client = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=wrapper), base_url="http://localhost"
+        )
+        monkeypatch.setattr(_sh, "_test_http_client_override", client)
+        try:
+            yield client
+        finally:
+            await client.aclose()
 
 
 class MemoryStorage(TokenStorage):

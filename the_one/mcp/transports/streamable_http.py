@@ -192,7 +192,7 @@ async def _probe_auth_posture(
     *,
     request_headers: dict[str, str] | None = None,
     timeout: float = 5.0,
-) -> Literal["no_auth", "oauth", "error"]:
+) -> Literal["no_auth", "oauth", "unexpected_status", "error"]:
     """HTTP-level auth-posture probe — bypasses the MCP SDK entirely.
 
     Issues a single ``initialize`` JSON-RPC POST carrying the operator's
@@ -210,7 +210,15 @@ async def _probe_auth_posture(
       headers applied → genuine OAuth (regardless of whether
       ``WWW-Authenticate`` is present — broken servers without RFC 9728
       metadata are still treated as ``"oauth"``) → ``"oauth"``.
-    * Anything else (5xx, transport errors, timeouts) → ``"error"``.
+    * Any other HTTP status (4xx/5xx; e.g. a server that speaks only
+      2026-07-28 and answers a bare ``initialize`` with 400) →
+      ``"unexpected_status"``. The server IS reachable, the probe just
+      cannot classify it; the caller falls through to the version-negotiating
+      SDK path (DD9).
+    * Transport errors, timeouts and any other exception → ``"error"``
+      (fail fast; the caller does not try the SDK).
+
+    The request is made with ``httpx2`` (a bare ``httpx2.AsyncClient``).
 
     Why a bare ``httpx2.AsyncClient`` (and NOT the MCP SDK) is used here:
 
@@ -232,7 +240,7 @@ async def _probe_auth_posture(
       ``mcp/client/streamable_http.py`` (the ``MCP-Protocol-Version`` /
       ``Accept`` / ``Content-Type`` bundle).
 
-    Reads ``the_one.mcp._PINNED_PROTOCOL_VERSION`` at call time (NOT at
+    Reads ``the_one.mcp._HANDSHAKE_OFFER_VERSION`` at call time (NOT at
     import time) so test monkeypatches stick — same convention as
     ``MCPClient.connect``.
 
@@ -246,7 +254,7 @@ async def _probe_auth_posture(
         timeout: Request timeout in seconds (default 5).
 
     Returns:
-        ``"no_auth"``, ``"oauth"``, or ``"error"``.
+        ``"no_auth"``, ``"oauth"``, ``"unexpected_status"`` or ``"error"``.
     """
     # Lazy import — keeps test monkeypatches on the_one.mcp namespace
     # alive (read-at-call-time per F2 convention).
@@ -257,7 +265,7 @@ async def _probe_auth_posture(
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": the_one_mcp._PINNED_PROTOCOL_VERSION,
+            "protocolVersion": the_one_mcp._HANDSHAKE_OFFER_VERSION,
             "clientInfo": {"name": "the-one", "version": "0.1"},
             "capabilities": {},
         },
@@ -285,7 +293,7 @@ async def _probe_auth_posture(
         return "no_auth"
     if resp.status_code == 401:
         return "oauth"
-    return "error"
+    return "unexpected_status"
 
 
 def _build_production_httpx_kwargs(

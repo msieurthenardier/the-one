@@ -1,20 +1,23 @@
 """MCP (Model Context Protocol) client foundation.
 
-F2 lands the runtime-foundation: thin async wrapper around mcp==1.27.0 SDK
+F2 lands the runtime-foundation: thin async wrapper around mcp 2.x SDK
 exposing connect / list-tools / call-tool / disconnect lifecycle for both
 transports (stdio + streamable-http). No agent integration (F6), no warm-pool
 (F4), no sandbox (F3), no OAuth flow (F5).
 
 See CLAUDE.md "F2 (MCP Client Foundation) Contracts" for invariants.
-See _PINNED_PROTOCOL_VERSION docstring for SDK upgrade procedure.
+See _HANDSHAKE_OFFER_VERSION docstring for SDK upgrade procedure.
 """
 
-_PINNED_PROTOCOL_VERSION = "2025-11-25"
-"""The MCP spec revision pinned by F2.
+_HANDSHAKE_OFFER_VERSION = "2025-11-25"
+"""The handshake-era revision the-one offers where it speaks ``initialize`` itself.
 
-Matches ``mcp.types.version.LATEST_HANDSHAKE_VERSION`` (mcp 2.x; its
-``LATEST_PROTOCOL_VERSION`` is now 2026-07-28, which Flight 2 adopts). Verified
-at flight-design time via wheel inspection.
+Renamed from ``_PINNED_PROTOCOL_VERSION`` (Mission 29 Flight 2, DD4). Matches
+``mcp.types.version.LATEST_HANDSHAKE_VERSION`` (mcp 2.x). ``MCPClient.connect``
+now negotiates (``the_one/mcp/_negotiate.py``): it tries ``server/discover`` at
+the SDK's ``LATEST_MODERN_VERSION`` first and falls back to the handshake. This
+constant feeds only the hand-built ``initialize`` payloads (the auth-posture
+probe, the OAuth flow drivers) and the ``MCPVersionMismatch(pinned=...)`` text.
 
 Upgrade procedure:
     1. Bump the mcp SDK pin in pyproject.toml.
@@ -27,8 +30,8 @@ Upgrade procedure:
     5. Confirm version-mismatch test still passes (it asserts
        our constant equals the SDK's at runtime).
 
-Read at call time (`the_one.mcp._PINNED_PROTOCOL_VERSION`), NOT
-imported by name (`from the_one.mcp import _PINNED_PROTOCOL_VERSION`) — the
+Read at call time (`the_one.mcp._HANDSHAKE_OFFER_VERSION`), NOT
+imported by name (`from the_one.mcp import _HANDSHAKE_OFFER_VERSION`) — the
 latter binds at module-load and breaks `monkeypatch.setattr` in tests.
 """
 
@@ -62,7 +65,7 @@ from the_one.mcp.types import (  # noqa: E402  (constants first per F2 contract)
 )
 
 __all__ = [
-    "_PINNED_PROTOCOL_VERSION",
+    "_HANDSHAKE_OFFER_VERSION",
     "MCP_DEFAULT_TIMEOUT_SECONDS",
     "MCP_DEFAULT_CALL_TIMEOUT_SECONDS",
     "MCPClient",

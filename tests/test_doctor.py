@@ -892,7 +892,29 @@ class TestProbeFileWatcher:
         result = _probe_mcp_sdk()
         assert result.name == "mcp sdk"
         assert result.ok is True, result.detail
-        assert re.fullmatch(r"mcp \d+\.\d+\.\d+\S*, handshake \d{4}-\d{2}-\d{2}", result.detail)
+        assert "httpcore2" in result.detail
+        assert re.fullmatch(
+            r"mcp \d+\.\d+\.\d+\S*, handshake \d{4}-\d{2}-\d{2}, "
+            r"modern \d{4}-\d{2}-\d{2}, httpcore2 \S+",
+            result.detail,
+        )
+
+    def test_mcp_sdk_probe_missing_httpcore2_fails_with_reason(self, monkeypatch) -> None:
+        import importlib.metadata
+
+        from the_one.diagnostics import _probe_mcp_sdk
+
+        real = importlib.metadata.version
+
+        def _version(name):
+            if name == "httpcore2":
+                raise importlib.metadata.PackageNotFoundError(name)
+            return real(name)
+
+        monkeypatch.setattr(importlib.metadata, "version", _version)
+        result = _probe_mcp_sdk()
+        assert result.ok is False
+        assert "httpcore2" in result.detail
 
     def test_mcp_sdk_probe_failure_carries_reason(self, monkeypatch) -> None:
         from the_one import diagnostics

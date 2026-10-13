@@ -1,10 +1,10 @@
 # Squawk 0199: Stale MCP docs after the mcp 2.x port
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-12
-**Completed**: —
+**Completed**: 2026-10-12
 
 ## Report
 Mission 29 Flight 1 moved the MCP client to `mcp==2.3.0` on `httpx2`. A few docs still describe the old state, and the new dual HTTP stack has no written rule (found in the flight debrief):
@@ -19,12 +19,17 @@ Mission 29 Flight 1 moved the MCP client to `mcp==2.3.0` on `httpx2`. A few docs
 - `tests/test_mcp_httpx_guard.py` enforces the httpx ban under `the_one/mcp/`, but no prose states the rule.
 
 ## Corrective Action
-*(written at completion)*
+- `the_one/mcp/__init__.py` docstring: now describes the client as a wrapper around "mcp 2.x" (Mission 29 Flight 2 leg 1, with the `_HANDSHAKE_OFFER_VERSION` rename).
+- `_probe_auth_posture` docstring: rewritten in leg 3 (DD9). It states the request is made with `httpx2` and describes the four verdicts (`no_auth`, `oauth`, `unexpected_status`, `error`).
+- `CLAUDE.md` `requires_bwrap` count: corrected in leg 1 to the measured set (44 collected); leg 3 re-measured it (see the flight log).
+- `the_one/agents.md` dual-HTTP-stack rule and the patch-target gotcha: already at the "`httpx2`, not `httpx`, under `the_one/mcp/` (DD4)" bullet; leg 3 adds the patch-target note for tests that stub the driver's client next to a real `httpx2` client, and documents negotiation, era memory, the probe verdicts and the flow drivers.
 
 ## Verification
+- Leg 3: `tests/test_auth_posture_probe.py` pins the four verdicts; `grep -n "bare .httpx. POST" the_one/mcp/transports/streamable_http.py` is empty; `grep -n "1.27" the_one/mcp/__init__.py` is empty.
+- `ruff check` / `ruff format --check` on `the_one/ tests/ scripts/` and `make test-unit` pass (flight log, `### auto-negotiation-api`).
 
 ## Sign-Off
 *(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: flight review, Mission 29 Flight 2 (Sonnet)
+**Verdict**: confirmed
+**Commit**: flight/2 code commit (Mission 29 Flight 2)

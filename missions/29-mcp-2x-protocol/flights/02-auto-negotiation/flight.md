@@ -1,6 +1,6 @@
 # Flight: Automatic negotiation of protocol 2026-07-28
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
@@ -65,7 +65,7 @@ The operator decided this on 2026-10-12, after the design review.
 - **Who reads and writes it.** The module is created in leg 1 (`client-hardening`), so leg 1 can implement DD5's `forget_era` cells. Leg 2 wires the reads and writes.
   - `MCPClient.connect` reads `era_for(self.source.id)` itself, so no caller has to pass an era in, and hands the value to `negotiate()`.
   - After a successful connect, it calls `remember_era(source.id, session.protocol_version)`. The one exception is a Test connection that used a body-override config: it records nothing, because the era belongs to an unsaved URL, not to `source.id`.
-  - `MCPClient(..., fresh_negotiation=True)` ignores the map. The three Test-connection sites (`api.py:3321, 3416, 3644`) pass it, so a Test always re-discovers.
+  - `MCPClient(..., fresh_negotiation=True)` ignores the map. The three Test-connection sites (`api.py:3321, 3416, 3686`) pass it, so a Test always re-discovers.
   - The pool (`_pool.py:228`) and the self-configuration path use the default.
 - **The shortcut.**
   - A remembered handshake revision means `initialize()` directly, with no discover probe.
@@ -110,7 +110,7 @@ The mock-session helpers (`tests/test_mcp_client.py::_set_init` ~134-144 and `te
 
   | Order | Failure | `connect` | `list_tools` | `call_tool` |
   |---|---|---|---|---|
-  | 1 | `UrlElicitationRequiredError` | pass through (**intended change**: today the generic arm wraps it, logged) | pass through (as today) | pass through (as today) |
+  | 1 | `UrlElicitationRequiredError` | `MCPConnectionError` with cleanup, as today (amended at leg design: a pass-through would crash agent builds; nothing outside `client.py` handles it) | pass through (as today) | pass through (as today) |
   | 2 | The sign-in record shows a 401 since the baseline. Applies to `MCPError`, `BaseExceptionGroup`, `asyncio.TimeoutError`, `httpx2.HTTPError` / `anyio.ClosedResourceError` (which consult the record first today, `client.py:736, 882`), generic exceptions, and `CancelledError` (per DD6). | `MCPAuthRequired` | `MCPAuthRequired` | `MCPAuthRequired` |
   | 3 | Protocol-version rejection: any `MCPError(-32022)`, or `initialize()`'s `RuntimeError("Unsupported protocol version …")` | `MCPVersionMismatch` if no shared version; otherwise the policy re-probes (DD1) | mark dead; `forget_era`; `MCPVersionMismatch` if no shared version, otherwise `MCPConnectionError` ("the server changed protocol revision; reconnecting on the next call") | same as `list_tools` |
   | 4 | SSE cap: `MCPError(-32000)` whose message starts "SSE stream failed:" and contains "byte limit" | `MCPConnectionError` (cap text) | `MCPConnectionError` (cap text); not marked dead | `MCPCallError` (cap text); not marked dead |
@@ -176,6 +176,8 @@ This keeps the RFC 8707 `resource` parameter consistent, and was revised after t
 - **Known remaining difference.** On DD2's handshake shortcut, the SDK sends `initialize` with no version header (`mcp/client/streamable_http.py:641-644`), so a 401 there still omits `resource`. This is accepted and documented.
 - **Tests.** Both drivers' first request carries the header, and its payload uses the constant.
 - **Trade-off.** An old authorization server that rejects an unknown `resource` would now fail on these paths too. No real one is known.
+
+> **Amendment, leg 3 design review (2026-10-12):** when Phase B is entered from DD9's fall-through, which only happens for a server that already rejected `initialize`, `_drive_flow_test` triggers sign-in with `server/discover` and the modern version header instead. Everywhere else DD10 stands.
 
 **DD11: The doctor gate proves the full HTTP closure.**
 
@@ -252,7 +254,7 @@ Verified against the worktree at `307ad22` and the installed `mcp` 2.3.0 sources
 | 2.3.0 `serve_loop` (handshake-only) answers discover with -32601 | verified (in-memory probe) |
 | Modern HTTP: every request is a POST with `accept: …text/event-stream`; no GET stream, no `Mcp-Session-Id`; the DD1 hook records discover and modern POSTs | verified (probe against the-one's transport) |
 | `mcp/client/streamable_http.py:641-644` clears the version header on `initialize` | verified (design review) |
-| `api.py:3321, 3416, 3644` Test-connection `MCPClient` sites; `_pool.py:228` pool site | verified |
+| `api.py:3321, 3416, 3686` Test-connection `MCPClient` sites; `_pool.py:228` pool site | verified |
 | `api.py:3698` (`except MCPAuthRequired`) runs before `:3704-3735` (`looks_like_token_failure` strip, which writes from the possibly-overridden `source`) | verified |
 | OAuth-managed MCP secrets: `dcr_credentials`, `access_token`, `refresh_token`, `token_expires_at` (`the_one/agents.md:763`) | verified |
 | `transports/streamable_http.py:255-288` probe; `"error"` covers transport errors and timeouts (`:272-281`); `api.py:3606-3612` Phase 0 short-circuit; ~`api.py:3387` no-auth path turns `MCPAuthRequired` into an error | verified (design review) |
@@ -323,9 +325,9 @@ Three code legs and a HAT.
 4. **`hat`.** H1-H5 with the operator (DD14).
 
 ### Checkpoints
-- [ ] Shared failure classifier and matrix; owner-task cancellation rule; override-safe stale-token clear; input-required plain error; doctor proves `httpcore2`; unit suite green
-- [ ] Negotiation lands; `hello_server` and the self-configuration loopback report 2026-07-28; every older revision proven on a real fixture; every legacy-only fixture falls back; the second connect sends no discover
-- [ ] Probe fall-through into sign-in; drivers' version header; full browser suite and `requires_bwrap` green
+- [x] Shared failure classifier and matrix; owner-task cancellation rule; override-safe stale-token clear; input-required plain error; doctor proves `httpcore2`; unit suite green
+- [x] Negotiation lands; `hello_server` and the self-configuration loopback report 2026-07-28; every older revision proven on a real fixture; every legacy-only fixture falls back; the second connect sends no discover
+- [x] Probe fall-through into sign-in; drivers' version header; full browser suite and `requires_bwrap` green
 - [ ] HAT H1-H5
 
 ### Adaptation Criteria
@@ -342,9 +344,10 @@ Three code legs and a HAT.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `client-hardening` - Flight 1 carry-forwards on the handshake era: the shared failure classifier and matrix, the owner-task cancellation rule, the override-safe stale-token clear, the input-required plain error, the doctor gate proving `httpcore2`, and squawk 0199's docs.
-- [ ] `auto-negotiation-core` - The negotiation policy behind one seam; in-memory era memory; era-agnostic metadata with the serverInfo de-dup; the version gate; the constant rename and re-pinned tripwires; fixtures for every older revision; the structural latency tests.
-- [ ] `auto-negotiation-api` - Web routes: the probe's fourth verdict and fall-through into sign-in, the flow drivers' version header, era clearing on update, delete and reset, and the negotiation docs; full browser and bwrap suites.
+- [x] `client-hardening` - Flight 1 carry-forwards on the handshake era: the shared failure classifier and matrix, the owner-task cancellation rule, the override-safe stale-token clear, the input-required plain error, the doctor gate proving `httpcore2`, and squawk 0199's docs.
+- [x] `auto-negotiation-core` - The negotiation policy behind one seam; in-memory era memory; era-agnostic metadata with the serverInfo de-dup; the version gate; the constant rename and re-pinned tripwires; fixtures for every older revision; the structural latency tests.
+- [x] `auto-negotiation-api` - Web routes: the probe's fourth verdict and fall-through into sign-in, the flow drivers' version header, era clearing on update, delete and reset, and the negotiation docs; full browser and bwrap suites.
+- [x] `discover-401-signin` - *(added in flight, 2026-10-12)* A 401 on the discover probe means sign-in required: `negotiate` stops instead of falling back, so a sign-in-requiring server that speaks only 2026-07-28 gets a sign-in prompt. Also corrects the latency wording.
 - [ ] `hat` - With the operator on the 8492 dev instance: H1 Sonos on 2026-07-28 with a chat tool run, H2 Cloudflare sign-in plus a tool run, H3 live stale-token clear, H4 a real 1.x server, H5 Windows lane re-run.
 
 ---

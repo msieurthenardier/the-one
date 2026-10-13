@@ -10,15 +10,30 @@ class MCPClientError(Exception):
     """Base for all MCPClient-raised errors."""
 
 
+TOKEN_FAILURE_MARKERS: tuple[str, str] = ("did not respond", "cancelled during initialize")
+"""The two phrases Test connection (``api.py``) matches, case-insensitively, in an
+``MCPConnectionError`` message to decide that stored OAuth tokens are stale.
+``client.py`` builds its initialize-timeout and cross-task-cancel messages from
+these constants and ``api.py`` imports them, so the contract is structural
+(Mission 29 Flight 2, DD5)."""
+
+
+def _supported_range() -> str:
+    from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+
+    known = sorted((*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS))
+    return f"{known[0]} through {known[-1]}"
+
+
 class MCPVersionMismatch(MCPClientError):  # noqa: N818  (mandated by F2 contract; subclass of MCPClientError)
-    """Server announced a protocol version different from what the-one targets."""
+    """The server shares no protocol revision with the-one."""
 
     def __init__(self, pinned: str, observed: str) -> None:
         self.pinned = pinned
         self.observed = observed
         super().__init__(
             f"MCP server announced protocol version {observed}, the-one supports "
-            f"{pinned}. Server upgrade or the-one downgrade required."
+            f"{_supported_range()}. Server upgrade or the-one downgrade required."
         )
 
 
