@@ -1,6 +1,6 @@
 # Flight: Port to the mcp 2.x SDK at parity
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
@@ -158,8 +158,8 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 - [x] Provider-attached sign-in failure (mismatched issuer; token endpoint 400) surfaces as `MCPAuthRequired` end to end through `MCPClient.connect`; a sign-in that succeeds mid-operation followed by an ordinary JSON-RPC error does NOT yield `MCPAuthRequired`; stale-token recovery on Test connection observed
 - [x] Issuer-advertising OAuth fixture: matching `iss` signs in; mismatched or missing `iss` fails plainly
 - [x] Full browser suite (`make test-browser`: all lanes, including `shared` — the OAuth modal and callback tests — and `chats`) green; `requires_bwrap` set green
-- [ ] Windows installer-build lane green (frozen doctor passes)
-- [ ] Live Cloudflare sign-in passes on a dev instance
+- [x] Windows installer-build lane green (frozen doctor passes)
+- [x] Live Cloudflare sign-in passes on a dev instance
 
 ### Adaptation Criteria
 
@@ -178,17 +178,17 @@ One implementation leg carries the atomic port, ordered so the suite returns to 
 
 - [x] `sdk-port` - The atomic port to `mcp==2.3.0` at parity: DD1-DD10 and DD12's code, tests and docs; `make test-unit`, the full browser suite (`make test-browser`) and the `requires_bwrap` set green. (Soak waived, DD10.)
 - [x] `packaging-and-doctor` - DD11: Windows packaging spec collection and metadata, the twelfth doctor gate `mcp sdk`, both Windows workflow needle lists, `tests/test_doctor.py`, `CLAUDE.md`'s gate list. *(Split out of `sdk-port` at leg design, 2026-10-12 — see flight log.)*
-- [ ] `hat` - Live checks with the operator on a dedicated dev instance (prerequisites re-verified first): the Cloudflare sign-in (`tests/HAT.md` Tier 2), a legacy stdio server connecting and running a tool, and the Windows installer-build lane with the new doctor gate; fixes as needed.
+- [x] `hat` - Live checks with the operator on a dedicated dev instance (prerequisites re-verified first): the Cloudflare sign-in (`tests/HAT.md` Tier 2), a legacy stdio server connecting and running a tool, and the Windows installer-build lane with the new doctor gate; fixes as needed.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` green, with the expected skip count; `make test-browser` (all lanes) green under `THE_ONE_TEST_NETNS=1`; `pytest -m requires_bwrap` green.

@@ -3,7 +3,7 @@
 **Flight**: [Port to the mcp 2.x SDK at parity](flight.md)
 
 ## Summary
-Mission 29 Flight 1, **in-flight** (approved and started 2026-10-12). Began as sortie planning (charter agreed 2026-10-11), escalated to Mission 29 on 2026-10-12 and re-homed here. Origin: a squawk attempt (not logged) that failed the squawk gate — the newer protocol needs the `mcp` 2.x SDK, a breaking upgrade with design decisions.
+Mission 29 Flight 1, **landed** 2026-10-12 (three legs: `sdk-port`, `packaging-and-doctor`, `hat`). Awaiting merge and debrief. Began as sortie planning (charter agreed 2026-10-11), escalated to Mission 29 on 2026-10-12 and re-homed here. Origin: a squawk attempt (not logged) that failed the squawk gate — the newer protocol needs the `mcp` 2.x SDK, a breaking upgrade with design decisions.
 
 ---
 
@@ -24,6 +24,14 @@ Mission 29 Flight 1, **in-flight** (approved and started 2026-10-12). Began as s
 - **Flight review** (Phase 2d): Reviewer at **Sonnet** tier — the diff touches a security-sensitive surface (OAuth callback route, sign-in detection, credential/token handling, self-configuration identity).
 - **Flight review: [HANDOFF:confirmed]** (Reviewer, Sonnet, first cycle). No blocking issues; its MCP/OAuth/self-configuration/doctor run: 652 passed, 0 failed; ruff clean; security surfaces (callback `iss`, DD1 record scope/last-status/hook removal, self-configuration identity and refusal parity, no stray `httpx` catch on the SDK path) checked. Non-blocking housekeeping (leg AC checkboxes) applied by the FD. Leg statuses `landed` → `completed`.
 - **Commit** of both autonomous legs (Developer per the crew file), then draft PR. `hat` leg follows with the operator.
+- **`hat` started** (2026-10-12). Dev instance from the worktree on 8492, scratch data dir `…/scratchpad/hat-data` (process environ confirmed). `make up`'s `verify-serving` fails on one asset, `admin/providers-list.js` (404): a pre-existing defect on main — sortie 2 moved the file into Library but the Makefile's asset list still names it. Out of scope; to be logged as a squawk at flight close.
+- **HAT V1 (Windows lane) PASS.** `fly -t the-one execute -c ci/tasks/windows-installer-build.yml` on `windows-worker`, clean `git archive` of `f00e9b3`: freeze OK; frozen doctor all twelve gates OK incl. `mcp sdk: OK — mcp 2.3.0, handshake 2025-11-25`; every needle asserted; `the-one-setup-0.11.4.exe` built; `succeeded`.
+- **HAT V2 (Cloudflare sign-in)**: sign-in completed; the callback carried `iss=https://mcp.cloudflare.com` (RFC 9207 path exercised live, accepted). The UI's 15 s consent-wait ceiling (pre-existing, Flight 04 Studio Polish) gave up before the operator finished; a refresh showed the connection working. **FD call: FIX, not feature** (retunes one existing wait in one file; server-side pending-flow TTL is 10 min). Operator asked for 2 minutes → HAT fix 1 (see `### hat`).
+- **HAT V2 PASS** after fix 1 (operator: "timeout fixed"). **V4**: operator accepted the automated tool-run coverage. **V5/V6 PASS**: the operator's Sonos server works on the 2.x client. **V3**: not run live, covered by `tests/test_mcp_test_connection_stale_tokens.py`.
+- **Squawk 0198** logged and deferred: `make verify-serving` checks `admin/providers-list.js`, which sortie 2 moved (pre-existing on main, out of scope).
+- **HAT fix review**: Reviewer at **Haiku** tier. The diff is a UI timeout constant plus docs, not a security-sensitive surface.
+- **HAT fix review: [HANDOFF:confirmed]** (Reviewer, Haiku): static guards 273 passed; `test_oauth_modal_flow.py` + `test_mcp_test_connection_button.py` 13 passed. `hat` → `completed`.
+- **Flight landed** (2026-10-12): all three legs completed; docs verified (`CLAUDE.md`, `the_one/agents.md`, `the_one/mcp/README.md`, `SECURITY-MODEL.md`); Flight 1 checked off in the mission; PR #275 marked ready. Operator note: every server still shows "protocol 2025-11-25" by design, and Flight 2 brings 2026-07-28. `[COMPLETE:flight]`.
 
 ## Leg Progress
 
@@ -139,3 +147,8 @@ Two Architect cycles (the maximum).
 - Needle lists: `ci/tasks/windows-installer-build.yml`, `.github/workflows/windows-installer.yml`, plus `scripts/windows_test_copy.py::NEEDLES` (a mirror pinned by `tests/test_windows_test_copy.py::test_needles_match_ci_foreach_list`, not named in the leg; found when the unit suite failed; its `test_parse_doctor` fixture gained an `mcp sdk` line, gate_count 7 to 8). Docs: CLAUDE.md, the_one/agents.md.
 - Changed expectation: `test_gates_list_has_eleven_names_ending_with_time_zones` renamed `test_gates_list_has_twelve_names_ending_with_mcp_sdk`, asserts `mcp sdk` last. New: `test_mcp_sdk_probe_passes_with_version_detail`, `test_mcp_sdk_probe_failure_carries_reason`.
 - Verification: test_doctor.py 67 passed; spec parses, both YAML parse; ruff check/format clean; `make test-unit` after the NEEDLES fix (see final run). Windows lanes not run (hat leg).
+
+### hat
+
+- HAT fix 1: consent-wait ceiling 15 s to 2 min (operator, Cloudflare sign-in). `mcp-server-editor.js`: `CONSENT_WAIT_MS = 120000` / `POLL_INTERVAL_MS = 500`, `maxPollAttempts` derived (240); the 3 s grace-after-close is unchanged; the timeout label now reads the derived seconds. Server pending-flow TTL is 10 min, so 2 min is inside it. No test or doc stated the 15 s poll ceiling (`tests/HAT.md:270` is about the popup opening; the 15s in `test_mcp_test_connection_button.py` is the server's test-connect timeout).
+- CLAUDE.md correction: MCP 2.x paragraph item (5) now says the twelfth doctor gate `mcp sdk` exists and is asserted by both Windows lanes; added item (6) for the 2-minute consent wait.
