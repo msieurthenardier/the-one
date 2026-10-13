@@ -930,6 +930,38 @@ class TestCooperativeStopAndCancelFallback:
         await manager.stop(kb.id)
         assert manager.cancelled_kb_ids() == frozenset({kb.id})
 
+    async def test_shutdown_flush_timeout_is_reported_as_cancelled(self) -> None:
+        """Squawk 0095. A shutdown flush that times out may leave an
+        ``index.save`` thread running, so the kb_id must appear in
+        ``cancelled_kb_ids()`` just like the cancel-fallback arm."""
+        manager = IndexingManager(shutdown_flush_timeout=0.1)
+        release = asyncio.Event()
+
+        async def _blocked_flush(kb_id, entry) -> None:
+            await release.wait()
+
+        manager._flush = _blocked_flush  # test-only swap
+
+        async def _done() -> None:
+            return None
+
+        entry = _WorkerEntry(
+            task=None,
+            wake=asyncio.Event(),
+            idle=asyncio.Event(),
+            stop_requested=False,
+            state="idle",
+            awaiting_flush=["item-1"],
+            policy=FlushPolicy(),
+        )
+        entry.task = asyncio.create_task(_done())
+        manager._entries["kb-x"] = entry
+        try:
+            await manager.stop("kb-x")
+            assert manager.cancelled_kb_ids() == frozenset({"kb-x"})
+        finally:
+            release.set()
+
 
 # ── AC-6: drain ──────────────────────────────────────────────────────────
 

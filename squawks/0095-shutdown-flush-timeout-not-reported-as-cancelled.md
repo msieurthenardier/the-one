@@ -1,10 +1,10 @@
 # Squawk 0095: A timed-out shutdown flush is not reported as cancelled, so the vector-store hook re-flushes it
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-22
-**Completed**: —
+**Completed**: 2026-10-13
 
 ## Report
 
@@ -40,7 +40,7 @@ Found during the Mission 24 debrief; no flight caught it.
 
 ## Corrective Action
 
-*(written at completion)*
+In `IndexingManager.stop()` (`the_one/knowledge/manager.py`), the shutdown-flush `except` arm now sets `self._cancel_report[kb_id] = True` when the failure is a `TimeoutError`. Cancelling the awaiting `to_thread` leaves the `index.save` pool thread running, so `close_vector_store()` must skip that kb_id exactly as for the cancel fallback. Non-timeout flush failures are not marked (the thread has finished). `stop()` is not restructured; the `cancelled_kb_ids()` docstring, the comment at the write site and the agents.md DD-3a text now describe the report as "the most recent stop left a possibly-running mutation".
 
 Expected shape, one line: the report should answer "did the most recent stop
 leave a possibly-running mutation?", which is true of **both** arms — so set
@@ -54,6 +54,14 @@ Add a test that drives `shutdown_flush_timeout` to expiry and asserts the kb_id
 appears in `cancelled_kb_ids()`. Falsify it by removing the new line and
 confirming it fails — the discipline Flight 7 Leg 1 used for AC-4c and AC-7a.
 
-## Sign-Off
+### Verification results
 
-*(written at completion)*
+- Added `tests/test_kb_manager.py::TestCooperativeStopAndCancelFallback::test_shutdown_flush_timeout_is_reported_as_cancelled` (flush blocks on an Event, `shutdown_flush_timeout=0.1`, Event released in `finally`).
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_kb_manager.py -x --timeout 60`: 29 passed.
+- Falsified: with `manager.py` stashed (fix removed) the new test fails; restored, passes. `git stash list` empty.
+- `ruff check` / `ruff format --check` on `the_one/knowledge` and the test file: clean.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Sonnet; the batch includes the OAuth sign-in path, 0202), batch review of the 2026-10-13 squawk turnaround
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-10-13` commit on `squawk/turnaround-2026-10-13`. The final gate passed: unit 6287 passed and 14 skipped (the expected count under `THE_ONE_TEST_NETNS=1`); `PARALLEL_RESULT rc=0 total=998s lanes=9 failed=-`, every lane within budget.

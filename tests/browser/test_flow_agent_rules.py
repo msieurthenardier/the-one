@@ -247,10 +247,7 @@ def test_failed_toggle_and_failed_save_restore_focus(app_with_agent: SeededApp, 
     toggle.focus()
     page.keyboard.press("Space")
     expect(page.locator('[data-testid="rules-error"]')).to_be_visible(timeout=8000)
-    focused = page.evaluate(
-        "document.activeElement && document.activeElement.getAttribute('data-testid')"
-    )
-    assert focused in ("rules-row-toggle", "rules-row-edit")
+    _lists.wait_active_testid(page, ("rules-row-toggle", "rules-row-edit"))
 
     rows.nth(0).locator('[data-testid="rules-row-edit"]').click()
     inp = rows.nth(0).locator('[data-testid="rules-row-edit-input"]')
@@ -260,7 +257,7 @@ def test_failed_toggle_and_failed_save_restore_focus(app_with_agent: SeededApp, 
     save.click()
     expect(page.locator('[data-testid="rules-error"]')).to_be_visible(timeout=8000)
     expect(inp).to_have_value("Beta.")
-    expect(save).to_be_focused()
+    _lists.wait_active_testid(page, ("rules-row-save",))
 
 
 def test_failed_add_keeps_text_shows_error_and_refocuses_the_input(

@@ -1114,6 +1114,28 @@ class TestKBItemRepositoryOrdering:
         folders = await kb_item_repo.list_folders("kb1")
         assert [f.id for f in folders] == ["f1", "f2"]
 
+    async def test_list_by_status_orders_tied_rows_by_path_and_pages_stably(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        """Squawk 0091: the indexing worker's page fetch must be repeatable."""
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        for item_id, path in [("d", "/q"), ("c", "/z"), ("a", "/a"), ("b", "/m")]:
+            await kb_item_repo.create(
+                KBItem(
+                    id=item_id,
+                    kb_id="kb1",
+                    type="file",
+                    path_or_url=path,
+                    status="pending",
+                    created_at=self._TIED,
+                )
+            )
+        full = [i.id for i in await kb_item_repo.list_by_status("kb1", "pending")]
+        assert full == ["a", "b", "d", "c"]
+        for _ in range(2):
+            page = await kb_item_repo.list_by_status("kb1", "pending", limit=2)
+            assert [i.id for i in page] == ["a", "b"]
+
 
 # ── KB Item Repository lifecycle (Flight 2 Leg 1, DD-5) ───────────────────
 

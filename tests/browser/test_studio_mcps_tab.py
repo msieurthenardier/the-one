@@ -608,3 +608,57 @@ def test_mcps_tab_error_shows_plain_headline_and_details(app_clean: str, page: P
     raw = err.locator('[data-testid="mcp-error-raw"]')
     expect(raw).to_be_visible()
     assert raw.inner_text() == _OPERATOR_ERROR
+
+
+# ── Squawk 0080: a failed MCP source list fetch must not detach sources ─────
+
+
+@pytest.mark.browser
+def test_save_after_failed_mcp_sources_fetch_keeps_attachments(app_clean: str, page: Page) -> None:
+    """The editor's per-mount MCP source refresh fails (500); saving an
+    unrelated edit must leave the agent's stored mcp_source_ids intact."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "failed-fetch-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "failed-fetch-agent",
+        {"description": "before", "mcp_source_ids": [sid]},
+    )
+
+    # Let the area's boot load through, then fail every later list request
+    # (the agent editor's per-mount refresh).
+    calls = {"n": 0}
+
+    def handler(route) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            route.continue_()
+        else:
+            route.fulfill(status=500, body='{"detail": "boom"}', content_type="application/json")
+
+    page.route("**/api/mcp-sources?include_agent_surfaces=1", handler)
+
+    _nav.goto(page, app_clean, "agents/failed-fetch-agent")
+    desc = page.locator('[data-field="description"]')
+    expect(desc).to_have_value("before", timeout=8000)
+    desc.fill("after")
+
+    save_btn = page.locator('[data-testid="save-agent-btn"]')
+    expect(save_btn).not_to_be_disabled(timeout=2000)
+    with page.expect_response(
+        lambda r: "/api/agents/failed-fetch-agent" in r.url and r.request.method == "PUT"
+    ) as resp_info:
+        save_btn.click()
+    assert resp_info.value.status == 200, resp_info.value.text()
+    assert calls["n"] >= 2, "the refresh request never hit the failing route"
+
+    agent = _get_agent(app_clean, "failed-fetch-agent")
+    assert agent["description"] == "after"
+    assert agent.get("mcp_source_ids") == [sid], agent.get("mcp_source_ids")

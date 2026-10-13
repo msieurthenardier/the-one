@@ -95,9 +95,9 @@
       });
   }
 
-  // Decimal units on purpose (matches ollama.com and `ollama pull`). App.formatBytes is
-  // binary maths labelled "GB", which would read a model as 2.0 GB in the Pull list and
-  // 1.9 GB once installed. Do not "simplify" this into App.formatBytes.
+  // Decimal units, like App.formatBytes (matches ollama.com and `ollama pull`). Kept
+  // separate on purpose: its output differs (whole MB, '' for an unknown size, one-decimal
+  // GB with no TB tier), so it is not a drop-in for App.formatBytes.
   function formatSize(bytes) {
     var n = Number(bytes);
     if (!(n > 0)) return '';

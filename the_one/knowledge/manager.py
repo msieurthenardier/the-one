@@ -254,8 +254,10 @@ class IndexingManager:
 
         # DD-3a: the write site is symmetric — this line runs on every
         # stop(), so a cancel re-asserts the verdict just as a clean stop
-        # clears it. The report answers "how did the most recent stop end",
-        # never "has this kb_id ever cancelled".
+        # clears it. The report answers "did the most recent stop leave a
+        # possibly-running mutation", never "has this kb_id ever cancelled".
+        # The shutdown-flush timeout below is the second arm that sets it
+        # (squawk 0095).
         self._cancel_report[kb_id] = cancelled
 
         if cancelled:
@@ -266,7 +268,13 @@ class IndexingManager:
         elif entry.awaiting_flush:
             try:
                 await asyncio.wait_for(self._flush(kb_id, entry), self._shutdown_flush_timeout)
-            except Exception:
+            except Exception as exc:
+                if isinstance(exc, TimeoutError):
+                    # Cancelling the awaiting to_thread does not stop the
+                    # pool thread: an index.save may still be running, so
+                    # the vector-store hook must not flush this kb_id again
+                    # (squawk 0095, same hazard as the cancel fallback).
+                    self._cancel_report[kb_id] = True
                 logger.exception(
                     "kb %s: shutdown flush failed; awaiting items left indexing", kb_id
                 )
@@ -274,8 +282,9 @@ class IndexingManager:
         entry.idle.set()
 
     def cancelled_kb_ids(self) -> frozenset[str]:
-        """kb_ids whose most recent ``stop()`` took the cancel fallback
-        (DD-3a) — read by the vector-store shutdown hook
+        """kb_ids whose most recent ``stop()`` left a possibly-running
+        mutation (DD-3a): it took the cancel fallback, or its shutdown flush
+        timed out (squawk 0095) — read by the vector-store shutdown hook
         (``the_one.vectors.close_vector_store``) to skip a flush that could
         race a still-running mutation and tear the on-disk index.
 

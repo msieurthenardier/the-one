@@ -272,12 +272,14 @@
     return /^https?:/i.test(url) ? url : null;
   }
 
+  // Decimal units (1 GB = 1e9 B), so the label matches the maths and the sizes
+  // agree with ollama.com and `ollama pull`.
   function formatBytes(bytes) {
     if (!bytes || bytes <= 0) return '0 B';
     var units = ['B', 'KB', 'MB', 'GB', 'TB'];
     var i = 0;
     var val = bytes;
-    while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+    while (val >= 1000 && i < units.length - 1) { val /= 1000; i++; }
     return (i >= 2 ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
   }
 

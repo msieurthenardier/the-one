@@ -320,7 +320,7 @@ def test_row_delete_arms_confirms_and_focuses_the_neighbour(
     _wait_rows(page, 2)
     assert {s["id"] for s in _sessions(base)} == {a, c}
     # Focus moved to the neighbouring row (C, the next row), not <body>.
-    expect(_chats.chat_row(page, c)).to_be_focused()
+    _chats.wait_row_has_focus(page, c)
     # The open chat (A) is untouched.
     expect(_chats.chat_row(page, a)).to_have_attribute("aria-current", "page")
 

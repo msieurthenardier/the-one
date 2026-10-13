@@ -173,7 +173,11 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
         # DD10: the handshake version header, and the payload reads the same constant.
         from the_one import mcp as the_one_mcp
 
-        assert captured["headers"] == {"MCP-Protocol-Version": the_one_mcp._HANDSHAKE_OFFER_VERSION}
+        # Squawk 0202: plus the streamable-HTTP Accept a negotiating server requires.
+        assert captured["headers"] == {
+            "MCP-Protocol-Version": the_one_mcp._HANDSHAKE_OFFER_VERSION,
+            "Accept": "application/json, text/event-stream",
+        }
         assert payload["params"]["protocolVersion"] == the_one_mcp._HANDSHAKE_OFFER_VERSION
     finally:
         patcher.stop()
@@ -222,5 +226,5 @@ async def test_start_driver_reads_handshake_version_at_call_time(
             if captured:
                 break
             await asyncio.sleep(0.02)
-    assert captured["headers"] == {"MCP-Protocol-Version": "9999-01-01"}
+    assert captured["headers"]["MCP-Protocol-Version"] == "9999-01-01"
     assert captured["json"]["params"]["protocolVersion"] == "9999-01-01"

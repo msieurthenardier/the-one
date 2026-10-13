@@ -1,10 +1,10 @@
 # Squawk 0097: Exhausted collision-widening returns a colliding name, which silently overwrites a registered tool
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-22
-**Completed**: —
+**Completed**: 2026-10-13
 
 ## Report
 
@@ -29,7 +29,11 @@ is silence, which is what makes it worth closing rather than tolerating.
 
 ## Corrective Action
 
-*(written at completion)*
+In `the_one/knowledge/tool_provider.py::compute_tool_names`, the exhausted-widening
+path still returns the best-effort set, but first groups the final names and logs
+one ERROR per colliding name, naming every colliding kb_id and the shared tool
+name. ERROR (not WARNING) because a tool is silently lost. `ToolRegistry` and the
+best-effort return are untouched. Original plan:
 
 Make the exhausted-widening path loud — a WARNING/ERROR naming both colliding
 kb_ids at the point the colliding set is returned. Scoped to that path; this
@@ -38,9 +42,17 @@ other callers depend on.
 
 ## Verification
 
-Force the collision the way the Mission 24 Architect did — monkeypatch the
+Added `tests/test_kb_tool_provider.py::TestComputeToolNames::test_exhausted_widening_logs_error_naming_colliding_ids`
+(discriminator monkeypatched to collapse at every length; asserts one ERROR via caplog
+naming both colliding ids and not an unrelated one). Ran
+`PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_kb_tool_provider.py -x --timeout 30`:
+37 passed. With the source change stashed, the new test fails (1 failed, 14 passed).
+`ruff check` and `ruff format --check` clean. Stash list empty afterward.
+
+Original plan: Force the collision the way the Mission 24 Architect did — monkeypatch the
 discriminator to collapse at every length — and assert the diagnostic fires.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet; the batch includes the OAuth sign-in path, 0202), batch review of the 2026-10-13 squawk turnaround
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-10-13` commit on `squawk/turnaround-2026-10-13`. The final gate passed: unit 6287 passed and 14 skipped (the expected count under `THE_ONE_TEST_NETNS=1`); `PARALLEL_RESULT rc=0 total=998s lanes=9 failed=-`, every lane within budget.

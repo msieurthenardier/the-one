@@ -217,8 +217,16 @@ def test_second_auth_required_event_navigates_popup_to_consent_url(
             "consent_url": "https://idp.example.com/authorize?state=ST",
         },
     )
+    # Bounded wait (squawk 0201): under heavy load the navigation may land a
+    # moment after the emit, so poll rather than read once.
+    consent = "https://idp.example.com/authorize?state=ST"
+    page.wait_for_function(
+        "(u) => window.__lastPopup && window.__lastPopup.location.href === u",
+        arg=consent,
+        timeout=10_000,
+    )
     href = page.evaluate("() => window.__lastPopup && window.__lastPopup.location.href")
-    assert href == "https://idp.example.com/authorize?state=ST"
+    assert href == consent
 
 
 @pytest.mark.browser
@@ -252,5 +260,9 @@ def test_popup_closes_on_auth_resolved_event(app_with_agent: SeededApp, page: Pa
     )
     page.locator(".login-required-btn").click()
     _emit_ws_event(page, {"type": "auth_resolved", "source_id": "src-4"})
+    page.wait_for_function(
+        "() => window.__lastPopup && window.__lastPopup.closed === true",
+        timeout=10_000,
+    )
     closed = page.evaluate("() => window.__lastPopup && window.__lastPopup.closed")
     assert closed is True

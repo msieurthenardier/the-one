@@ -1,10 +1,10 @@
 # Squawk 0091: `list_by_status` has no `ORDER BY` tiebreak — the indexing worker's page composition is non-deterministic
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-19
-**Completed**: —
+**Completed**: 2026-10-13
 
 ## Report
 
@@ -75,16 +75,17 @@ and deferred per the flight workflow's out-of-scope-defect rule.
 
 ## Corrective Action
 
-*(pending)* Add `, path_or_url` to `list_by_status`'s `ORDER BY`, so it reads
+Added `, path_or_url` to `list_by_status`'s `ORDER BY`, so it reads
 `ORDER BY created_at, path_or_url` — identical to the fix Flight 7 Leg 2a
-applied to `list`, `list_children` and `list_folders`.
+applied to `list`, `list_children` and `list_folders` (none of which add `id`).
 
 ## Verification
 
-*(pending)* A repository test inserting several `pending` items with an
+Added `TestKBItemRepositoryOrdering::test_list_by_status_orders_tied_rows_by_path_and_pages_stably` in tests/test_db_repositories.py: a repository test inserting several `pending` items with an
 identical `created_at`, then asserting that two successive
 `list_by_status(..., limit=N)` calls return the same N items in the same order.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet; the batch includes the OAuth sign-in path, 0202), batch review of the 2026-10-13 squawk turnaround
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-10-13` commit on `squawk/turnaround-2026-10-13`. The final gate passed: unit 6287 passed and 14 skipped (the expected count under `THE_ONE_TEST_NETNS=1`); `PARALLEL_RESULT rc=0 total=998s lanes=9 failed=-`, every lane within budget.

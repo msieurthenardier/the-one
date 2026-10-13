@@ -1488,7 +1488,7 @@ async def test_plan_without_token_or_config_id_raises_reauth(monkeypatch):
     prov = _plan_provider(monkeypatch)
     with pytest.raises(ReauthRequiredError) as excinfo:
         await prov.complete(_user_msg())
-    assert "Administration" in str(excinfo.value)
+    assert "Library › Model providers" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------

@@ -849,6 +849,15 @@
        the editor does not re-mount). */
     var expiryRow = provider || null;
     if (typeSelect) renderTokenExpiry(container, expiryRow, typeSelect.value);
+    /* The dates follow the operator zone live (squawk 0196). The editor has no
+       teardown hook, so the listener is owner-scoped: App.time drops it once the
+       expiry host leaves the page. Re-renders in place from the last saved row. */
+    var expiryHost = container.querySelector('.admin-pf-token-expiry');
+    if (typeSelect && expiryHost) {
+      window.App.time.onChange(function () {
+        renderTokenExpiry(container, expiryRow, typeSelect.value);
+      }, expiryHost);
+    }
 
     /* Anthropic plan sign-in section (M19 F01 L03) — mounted for every
        editor instance; visibility is type-driven (above). Owns its own

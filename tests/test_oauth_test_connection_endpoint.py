@@ -233,6 +233,7 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
             # The provider's redirect_handler must be called with an auth URL
             # containing a state param so the endpoint's consent_url_future
             # gets resolved. Trigger it directly.
+            captured["post_headers"] = kwargs.get("headers")
             auth = captured.get("auth")
             if auth is not None and hasattr(auth, "context") and auth.context.redirect_handler:
                 test_auth_url = (
@@ -294,6 +295,30 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
     assert body["status"] == "auth_required"
     assert "consent_url" in body
     assert "state=test-state-001" in body["consent_url"]
+    # Squawk 0202: the driver's raw MCP POST carries the streamable-HTTP Accept.
+    assert captured["post_headers"]["Accept"] == "application/json, text/event-stream"
+    assert "MCP-Protocol-Version" in captured["post_headers"]
+
+
+async def test_oauth_driver_headers_satisfy_content_negotiating_server() -> None:
+    """Squawk 0202: a server that 406s without the streamable-HTTP Accept is satisfied."""
+    import httpx2
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        accept = request.headers.get("accept", "")
+        if "application/json" not in accept or "text/event-stream" not in accept:
+            return httpx2.Response(406)
+        return httpx2.Response(200, json={})
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        bare = await client.post(
+            "http://x/mcp", json={}, headers={"MCP-Protocol-Version": "2025-06-18"}
+        )
+        fixed = await client.post(
+            "http://x/mcp", json={}, headers=api_mod._oauth_driver_headers("2025-06-18")
+        )
+    assert bare.status_code == 406
+    assert fixed.status_code == 200
 
 
 async def test_test_connect_success_includes_capabilities(client_and_repo) -> None:

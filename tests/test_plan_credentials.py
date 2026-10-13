@@ -197,9 +197,9 @@ class TestGetAccessToken:
         with pytest.raises(ReauthRequiredError) as excinfo:
             await source.get_access_token()
         assert excinfo.value.provider_id == pid
-        # Actionable: names the provider and points at Administration.
+        # Actionable: names the provider and points at Library › Model providers.
         assert "Claude Plan" in str(excinfo.value)
-        assert "Administration" in str(excinfo.value)
+        assert "Library › Model providers" in str(excinfo.value)
 
     async def test_access_token_without_refresh_token_raises_reauth(self, env) -> None:
         """An expired access token with no refresh token cannot renew."""
@@ -379,7 +379,7 @@ class TestRefreshFailure:
             with pytest.raises(ReauthRequiredError) as excinfo:
                 await source.get_access_token()
         assert excinfo.value.provider_id == pid
-        assert "Administration" in str(excinfo.value)
+        assert "Library › Model providers" in str(excinfo.value)
         assert (await env.repo.get(pid)).secrets == stored_before
 
     async def test_network_error_raises_typed_oauth_not_reauth(self, env) -> None:

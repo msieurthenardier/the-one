@@ -253,3 +253,24 @@ def test_provider_row_in_library_list_uses_token_badge(app_clean: str, page: Pag
     row = _lists.list_row(page, "library/providers", "Claude Token")
     expect(row).to_be_visible(timeout=8000)
     expect(row.locator(".badge--anthropic-plan-token")).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_expiry_line_follows_time_zone_change_without_remount(app_clean: str, page: Page) -> None:
+    """Squawk 0196: a zone change while the editor is open re-dates the line in place."""
+    provider_id = _seed_token_provider(app_clean)
+    _stub_network(page)
+    _stamp_days_ago(page, provider_id, 200)
+    _open_edit(page, app_clean, provider_id)
+    line = page.locator('[data-testid="provider-token-expiry"]')
+    expect(line).to_be_visible(timeout=8000)
+    set_at = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    # Zones 26 hours apart: the calendar day differs whatever the clock reads.
+    page.evaluate("() => App.time.setZone('Etc/GMT-14')")
+    east = _fmt(page, set_at)
+    expect(line).to_contain_text(f"Token added {east}")
+    page.evaluate("() => App.time.setZone('Etc/GMT+12')")
+    west = _fmt(page, set_at)
+    assert east != west
+    expect(line).to_contain_text(f"Token added {west}")
+    expect(line).to_have_attribute("data-state", "ok")

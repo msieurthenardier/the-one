@@ -34,6 +34,10 @@ PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 THE_ONE_PORT ?= 8484
 export THE_ONE_PORT
 
+# Static JS root verify-serving derives its admin sub-module list from
+# (squawk 0193/0198: a literal list went stale when files moved).
+ADMIN_JS_ROOT := the_one/interfaces/web/static/js/areas
+
 THE_ONE_PIDFILE ?= .the-one.$(THE_ONE_PORT).pid
 THE_ONE_LOGFILE ?= .the-one.$(THE_ONE_PORT).log
 
@@ -151,7 +155,7 @@ verify-serving: ## Sanity-check that the host-native app serves the current sour
 		sleep 1; \
 	done; \
 	echo "Verifying admin sub-modules served ..."; \
-	for f in admin.js admin/system-page.js admin/providers-list.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/ui-demo.js admin/design-language/ui-buttons-section.js admin/design-language/ui-fields-section.js admin/design-language/ui-choices-section.js admin/design-language/ui-feedback-section.js admin/design-language/ui-lists-section.js admin/design-language/ui-menus-section.js admin/design-language/ui-modal-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js; do \
+	for f in admin.js $$(cd $(ADMIN_JS_ROOT) && find admin -name '*.js' | LC_ALL=C sort); do \
 		code=$$(curl -s --config "$$cfgfile" -o /dev/null -w "%{http_code}" http://localhost:$(THE_ONE_PORT)/static/js/areas/$$f); \
 		if [ "$$code" = "200" ]; then echo "  ✓ $$f served (200)"; \
 		else echo "  ✗ $$f returned $$code — not serving; check 'make logs' / 'make restart'" && exit 1; fi; \

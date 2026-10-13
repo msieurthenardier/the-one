@@ -352,3 +352,22 @@ def open_tool(page: Page, name: str, timeout: float = 8000) -> None:
     page.locator(f'[data-testid="tab-{tab}"]').click()
     item_link(page, "settings/tools", name).click()
     _nav.expect_route(page, f"settings/tools/{_nav.seg(name)}", timeout=timeout)
+
+
+def wait_active_testid(page: Page, testids: tuple[str, ...], timeout: float = 10000) -> str:
+    """Wait until ``document.activeElement`` carries one of *testids*; return it.
+
+    Asserts element identity, not window focus, and waits for it: a focus
+    restore can land after the visible state it follows (async re-read), and a
+    loaded headless run can leave the page without window focus, so a single
+    read or ``to_be_focused`` is flaky (squawk 0187).  Bounded by *timeout* (ms).
+    """
+    page.wait_for_function(
+        """(ids) => {
+          const a = document.activeElement;
+          return !!a && ids.includes(a.getAttribute('data-testid'));
+        }""",
+        arg=list(testids),
+        timeout=timeout,
+    )
+    return page.evaluate("document.activeElement.getAttribute('data-testid')")

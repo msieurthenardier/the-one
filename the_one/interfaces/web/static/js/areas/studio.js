@@ -362,6 +362,12 @@ App.registerArea({
     self._agents = [];
     self._allTools = [];
     self._allMcpSources = [];
+    // Squawk 0080 — explicit load-success flag for `_allMcpSources`: true
+    // once ANY fetch of the list has succeeded, never reset by a later
+    // failure (a failed refresh keeps the last good cache, which is what the
+    // MCPs tab then renders). While false the tab shows zero rows, so
+    // `collectFormData` must not read "no checked toggles" as "detach all".
+    self._mcpSourcesLoaded = false;
     self._allKnowledgeBases = [];
     // F6 L3 (L3-D1) — explicit load-success flag for the agent-editor's
     // Knowledge tab. NOT inferred from `_allKnowledgeBases` being
@@ -2262,6 +2268,7 @@ App.registerArea({
     function refreshMcpSourcesCache() {
       return fetchMcpSources().then(function (sources) {
         self._allMcpSources = sources;
+        self._mcpSourcesLoaded = true;
       }).catch(function () {
         self._allMcpSources = self._allMcpSources || [];
       });
@@ -2433,6 +2440,7 @@ App.registerArea({
           self._agents = results[0];
           self._allTools = results[1];
           self._allMcpSources = results[2];
+          self._mcpSourcesLoaded = true;
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
           self._agentsLoaded = true;
@@ -3542,8 +3550,16 @@ App.registerArea({
       // attached source IDs.
       var mcpToggles = editorEl.querySelectorAll('[data-mcp-source-toggle][data-mcp-source-id]');
       data.mcp_source_ids = [];
-      for (var m = 0; m < mcpToggles.length; m++) {
-        if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
+      if (self._mcpSourcesLoaded || !self._selectedAgent) {
+        for (var m = 0; m < mcpToggles.length; m++) {
+          if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
+        }
+      } else {
+        // Squawk 0080: the MCP source list never loaded, so the MCPs tab has
+        // no rows and every toggle is trivially absent. `update_agent` does
+        // not preserve an omitted `mcp_source_ids` (it defaults to []), so
+        // send the agent's stored value back unchanged instead of wiping it.
+        data.mcp_source_ids = (self._selectedAgent.mcp_source_ids || []).slice();
       }
 
       // F6 L3 (DD-4, L3-D1): `kb_ids` is sent ONLY when the Knowledge

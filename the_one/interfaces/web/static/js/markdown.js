@@ -743,8 +743,12 @@
 
         case NodeType.LINK:
           el = document.createElement('a');
-          el.setAttribute('href', (node.meta && node.meta.href) || '#');
+          var linkHref = (node.meta && node.meta.href) || '#';
+          el.setAttribute('href', linkHref);
           el.setAttribute('rel', 'noopener noreferrer');
+          // Absolute http(s) links open outside the app: a new tab in a
+          // browser, the system browser in the pywebview desktop shell.
+          if (/^https?:/i.test(linkHref)) el.setAttribute('target', '_blank');
           renderNodes(node.children || [], el);
           parent.appendChild(el);
           break;

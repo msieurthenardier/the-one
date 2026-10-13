@@ -67,24 +67,24 @@ DARK: dict[str, str] = {
     "border": "#26272c",
     "border_hover": "#33343b",
     "border_strong": "#4a4b55",
-    # text ladder — fg through fg_muted all clear body AA (>= 4.5:1) on
-    # bg, surface, AND surface-elevated; fg_faint is the deliberate
-    # 3.0-4.5 band exception (see test_design_tokens_a11y.py).
+    # text ladder — fg through fg_faint all clear body AA (>= 4.5:1) on
+    # bg, surface, AND surface-elevated, strictly ordered by contrast
+    # (squawk 0206; see test_design_tokens_a11y.py).
     "fg": "#ededf0",
-    "fg_secondary": "#a1a3ad",
-    "fg_tertiary": "#8f919c",
-    "fg_muted": "#85878f",
-    "fg_faint": "#6b6d78",
+    "fg_secondary": "#adafb7",
+    "fg_tertiary": "#9a9ca4",
+    "fg_muted": "#8f9199",
+    "fg_faint": "#868890",
     "fg_on_accent": "#101114",
     # fg_on_danger is dark ink in dark theme — the bright #f87171 danger
     # fill reads 6.83:1 under dark ink; white would fail body AA.
     "fg_on_danger": "#101114",
-    "fg_tool_msg": "#8f919c",
+    "fg_tool_msg": "#9a9ca4",
     # accent — violet-400 (brand continuity per mission constraint);
     # accent_api is badge-tier cyan (chat user-vs-API differentiation).
     "accent": "#a78bfa",
     # Deep-violet solid control fills + control boundary/thumb (M25 F1 L3).
-    "accent_fill": "#7c3aed",
+    "accent_fill": "#7f3eef",
     "accent_fill_hover": "#6d28d9",
     "fg_on_accent_fill": "#ffffff",
     "control_border": "#6e717a",
@@ -152,14 +152,14 @@ LIGHT: dict[str, str] = {
     "border": "#e4e4e7",
     "border_hover": "#d4d4d8",
     "border_strong": "#a1a1aa",
-    # text ladder — fg through fg_muted all clear body AA (>= 4.5:1) on
-    # bg, surface, AND surface-elevated; fg_faint is the deliberate
-    # 3.0-4.5 band exception (see test_design_tokens_a11y.py).
+    # text ladder — fg through fg_faint all clear body AA (>= 4.5:1) on
+    # bg, surface, AND surface-elevated, strictly ordered by contrast
+    # (squawk 0206; see test_design_tokens_a11y.py).
     "fg": "#18181b",
     "fg_secondary": "#52525b",
     "fg_tertiary": "#5f5f68",
-    "fg_muted": "#6e6e77",
-    "fg_faint": "#898993",
+    "fg_muted": "#65656e",
+    "fg_faint": "#6d6d76",
     "fg_on_accent": "#ffffff",
     "fg_on_danger": "#ffffff",
     "fg_tool_msg": "#5f5f68",
@@ -182,7 +182,7 @@ LIGHT: dict[str, str] = {
     # red-700 (M17 F3 fix): red-600 #dc2626 failed body AA on the soft-fill
     # composite; see the danger comment in tokens.css [data-theme="light"].
     "status_danger": "#b91c1c",
-    "status_danger_muted": "#b45252",
+    "status_danger_muted": "#af4d4d",
     # code well — pale zinc + primary ink (16.1:1).
     "code_block_bg": "#f4f4f5",
     "code_block_fg": "#18181b",

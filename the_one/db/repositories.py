@@ -813,7 +813,7 @@ class KBItemRepository:
         if type is not None:
             sql += " AND type = ?"
             params.append(type)
-        sql += " ORDER BY created_at"
+        sql += " ORDER BY created_at, path_or_url"
         if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)
