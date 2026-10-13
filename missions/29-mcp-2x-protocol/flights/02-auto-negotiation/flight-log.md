@@ -166,6 +166,32 @@ Operator review (2026-10-12): every item accepted as classified. A12 was narrowe
   - Leg statuses `landed` → `completed`. Squawk 0199 is signed off.
 - **Commit** of the four code legs, then a draft PR. `hat` follows with the operator.
 
+- **`hat` started (2026-10-12).**
+  - Dev instance restarted on `bf42907`: new pid, and its environ shows port 8492 and the scratch data dir. `verify-serving` fails only on squawk 0198's moved file.
+  - Built a real `mcp==1.28.1` stdio server at `~/.cache/the-one-hat/` for H4.
+  - Draft PR #277 opened.
+- **WSL crash (2026-10-13).** The crash took down the dev instance and wiped its `/tmp` scratch data dir, so the Cloudflare and Sonos sources and the model provider were lost. It was restarted on `bf42907`, port 8492, with a fresh scratch data dir. `make up` again hit squawk 0195 (no credential file), so the credential was created with `rotate-api-credential`. `verify-serving` fails only on squawk 0198. The `mcp==1.28.1` server in `~/.cache/the-one-hat/` survived.
+- **Sources set up again (2026-10-13).** The operator added the Claude Plan (OAuth) provider and three sources: Sonos (stdio, `uvx` from git), Cloudflare Docs (streamable-http, no OAuth) and Cloudflare API (streamable-http, read-only, OAuth). The Cloudflare API was added because Docs needs no sign-in, so H2 and H3 run against it. Tests driven through the API: all three cached `protocol_version: 2026-07-28`. The serverInfo versions are **not** blank: sonos 0.6.1, docs-ai-search 0.4.13, cloudflare-api 0.1.0. A second Test took 11.4 s for Sonos (a cold `uvx` stdio start) and about 0.35 s for each Cloudflare source.
+  - **The Cloudflare API sign-in went through negotiation.** The first Test sent two 401'd POSTs to `/mcp` (`server/discover`, then `initialize`), then protected-resource metadata, AS metadata, DCR `register`, consent, `token`. This is leg 4's discover-401 path against a real server.
+  - **Observation (not a defect of this flight):** right after the token exchange, the OAuth-completion driver's retry POST to `/mcp` got **406 Not Acceptable**. The hand-built driver (`api.py:3916`/`:4788`) sends no `Accept: application/json, text/event-stream`. The response is thrown away and sign-in completed, so it is only log noise. Logged for the debrief / a squawk.
+- **HAT H1 (Sonos) PASS.** Test connection: protocol 2026-07-28, server version 0.6.1 (not blank). From a chat with "Test agent" (Claude Plan (OAuth), Haiku 4.5; Sonos, Cloudflare Docs and Cloudflare API attached), a Sonos tool ran and returned real data (operator-confirmed). No errors in the log.
+- **HAT H2 (Cloudflare) PASS.** The Cloudflare API sign-in completed under negotiation (discover 401, then initialize 401, then OAuth). Negotiated protocol: **2026-07-28**. A read-only Cloudflare API tool ran from the same chat (operator-confirmed). All the pool's POSTs to `/mcp` during the chat returned 200, and the log has no errors.
+- **HAT H3 (stale tokens, live) SKIPPED by operator decision** (2026-10-13; "confident it works"). Clearing stored secrets when Test times out or gets a 401 (DD7) is covered by `tests/test_mcp_test_connection_stale_tokens.py` and leg 3's tests. Nobody revoked a real Cloudflare authorization.
+- **HAT H4 (real `mcp==1.28.1` server) PASS.** The stdio source "Legacy 1.x" runs `~/.cache/the-one-hat/mcp1x/bin/python legacy_server.py`. It negotiated **2025-11-25**, serverInfo `legacy-1x` 1.28.1, with 1 tool. `echo` ran from Test agent's chat (operator-confirmed).
+  - **No added delay:** three more Tests through the API, with the era remembered from the operator's last Test, took 0.58 s, 0.42 s and 0.40 s. The structural proof that the remembered era skips discover is in `tests/test_mcp_negotiation_fallback.py` (AC9/AC10), since discover on stdio does not show in the HTTP log.
+  - **Each source edit (PUT) cleared the era**, as AC4 requires: the operator's PUT, Test, PUT, Test sequence connected fresh after each edit.
+  - **Operator friction (UX observation, not a defect of this flight):** setting the source up took a few tries. An absolute interpreter path needs the Command dropdown's `Custom…` entry, and neither the FD's H4 instructions nor the editor made that clear. Noted for the debrief.
+- **HAT H5 (Windows) PASS.** The `windows-installer-build` lane on a clean `git archive` of `bf42907` built, and its frozen doctor printed `mcp sdk: OK — mcp 2.3.0, handshake 2025-11-25, modern 2026-07-28, httpcore2 2.13.1`, RESULT PASS. It also built `the-one-setup-0.11.4.exe`. This closes Flight 1's `httpcore2` gap in a real frozen build.
+
+- **`hat` completed (2026-10-13).** H1, H2, H4 and H5 pass, and H3 was skipped by operator decision. The HAT needed no fixes, so it changed no code. Every flight criterion is checked off in `flight.md`.
+- **Observations for the debrief:**
+  - The OAuth-completion driver's 406 (it sends no `Accept` header).
+  - The stdio `Custom…` command friction.
+  - The crash-wiped `/tmp` scratch data dir: a HAT data dir under `/tmp` does not survive a WSL crash.
+  - The 401 on discover then 400 on initialize slow path, from leg 3.
+  - Squawk 0201, the browser-budget pressure.
+- **Flight landed (2026-10-13).** Flight status `landed`, and Flight 2 is checked off in `mission.md`. The flight debrief (`/mission-control:flight-debrief`) is next.
+
 ---
 
 ## Leg Progress

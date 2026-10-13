@@ -1,16 +1,16 @@
 # Flight: Automatic negotiation of protocol 2026-07-28
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [MCP servers connect on the newest protocol](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A server that supports 2026-07-28 connects on it: its MCP editor shows "protocol 2026-07-28", and its tools list and run from an agent's chat (the operator's Sonos server).
-- [ ] A server that supports only an older revision still connects on its revision over stdio and streamable HTTP, with every older revision proven on a real server. After its first successful connection it connects with no added delay the operator would notice. This flight owns the latency half and the per-revision proof; Flight 1 proved parity.
-- [ ] Signing in to a remote MCP server that requires OAuth still works end to end, and the server's tools run afterwards: a re-run of the Cloudflare sign-in under negotiation, with a live tool run.
-- [ ] An agent's self-configuration tools still work, and their refusals still read as a one-line reason. The loopback server negotiates 2026-07-28 after this flight.
-- [ ] When a server shares no protocol revision with the-one, or a tool asks for input the-one cannot provide, the operator sees a plain one-line error. The oversized-event case was done in Flight 1.
-- [ ] The Windows packaged build still builds and `the-one doctor` passes in it, now proving the full HTTP closure (`httpcore2`).
-- [ ] The unit suite and the full browser suite pass, and every changed test expectation is listed with its reason.
+- [x] A server that supports 2026-07-28 connects on it: its MCP editor shows "protocol 2026-07-28", and its tools list and run from an agent's chat (the operator's Sonos server).
+- [x] A server that supports only an older revision still connects on its revision over stdio and streamable HTTP, with every older revision proven on a real server. After its first successful connection it connects with no added delay the operator would notice. This flight owns the latency half and the per-revision proof; Flight 1 proved parity.
+- [x] Signing in to a remote MCP server that requires OAuth still works end to end, and the server's tools run afterwards: a re-run of the Cloudflare sign-in under negotiation, with a live tool run.
+- [x] An agent's self-configuration tools still work, and their refusals still read as a one-line reason. The loopback server negotiates 2026-07-28 after this flight.
+- [x] When a server shares no protocol revision with the-one, or a tool asks for input the-one cannot provide, the operator sees a plain one-line error. The oversized-event case was done in Flight 1.
+- [x] The Windows packaged build still builds and `the-one doctor` passes in it, now proving the full HTTP closure (`httpcore2`).
+- [x] The unit suite and the full browser suite pass, and every changed test expectation is listed with its reason.
 
 ---
 
@@ -272,7 +272,7 @@ Verified against the worktree at `307ad22` and the installed `mcp` 2.3.0 sources
 - [x] Flight 1 merged (`06e1e39`) and debriefed (`307ad22`). The worktree is on `flight/02-auto-negotiation`, cut from merged main.
 - [x] The worktree `.venv` is synced from `uv.lock` (`mcp` 2.3.0). No dependency change is planned.
 - [x] The dev instance on 8492 is running with the operator's Cloudflare and Sonos sources. It is restarted on the flight's code before the HAT, since Python changes need a restart.
-- [ ] **Re-verified at the start of `hat`:**
+- [x] **Re-verified at the start of `hat`:**
   - the operator has a model provider to configure on the dev instance;
   - Cloudflare and the Sonos server are reachable;
   - `uvx` can fetch `mcp==1.28.1` for H4;
@@ -282,7 +282,7 @@ Verified against the worktree at `307ad22` and the installed `mcp` 2.3.0 sources
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete: every code-asserting design decision verified
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
