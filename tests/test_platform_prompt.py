@@ -73,7 +73,7 @@ def test_execution_condition_removes_only_the_box_bullet():
         assert phrase not in off
     assert on.replace(_EXECUTION, "") == off
     # The join stays intact: the bullets around the execution one still follow each other.
-    assert "say what you changed.\n- To keep working in another step" in off
+    assert "instructions to you.\n- To keep working in another step" in off
 
 
 def test_bare_agent_has_neither_kb_nor_box_text():
