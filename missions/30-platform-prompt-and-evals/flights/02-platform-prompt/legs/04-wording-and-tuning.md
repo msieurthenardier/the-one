@@ -1,6 +1,6 @@
 # Leg: wording-and-tuning
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
