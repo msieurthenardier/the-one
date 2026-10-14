@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests._old_prompts import OLD_PLATFORM_TOOL_FREE, OLD_PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN, PLATFORM_TOOLS_ALL_ON_PIN
 from the_one.agent.config import compose_system_prompt
 from the_one.agent.platform_prompt import (
     _EXECUTION,
@@ -18,13 +18,13 @@ from the_one.agent.platform_prompt import (
 
 
 def test_tool_capable_render_is_byte_identical():
-    assert render_platform(Capabilities.all_on()) == OLD_PLATFORM_TOOLS
-    assert OLD_PLATFORM_TOOLS.endswith("\n")
+    assert render_platform(Capabilities.all_on()) == PLATFORM_TOOLS_ALL_ON_PIN
+    assert PLATFORM_TOOLS_ALL_ON_PIN.endswith("\n")
 
 
 def test_tool_free_render_is_byte_identical():
-    assert render_tool_free(Capabilities.all_on()) == OLD_PLATFORM_TOOL_FREE
-    assert OLD_PLATFORM_TOOL_FREE.endswith("\n")
+    assert render_tool_free(Capabilities.all_on()) == PLATFORM_TOOL_FREE_PIN
+    assert PLATFORM_TOOL_FREE_PIN.endswith("\n")
 
 
 KB_PHRASES = ("Knowledge bases are attached", "before answering from memory")
@@ -33,7 +33,7 @@ BOX_PHRASES = ("isolated box", "host access")
 
 def test_all_on_equals_old_constant_and_other_fields_change_nothing():
     base = render_platform(Capabilities.all_on())
-    assert base == OLD_PLATFORM_TOOLS
+    assert base == PLATFORM_TOOLS_ALL_ON_PIN
     for field in ("notes", "rules", "time_tool"):
         assert render_platform(Capabilities(**{field: False})) == base, field
 
@@ -142,19 +142,19 @@ def test_fragments_do_not_tile_and_ui_rows():
 
 def test_tool_free_ignores_other_capabilities():
     assert (
-        render_tool_free(Capabilities(knowledge=False, exec_tools=False)) == OLD_PLATFORM_TOOL_FREE
+        render_tool_free(Capabilities(knowledge=False, exec_tools=False)) == PLATFORM_TOOL_FREE_PIN
     )
-    assert render_platform(Capabilities(tools=False)) == OLD_PLATFORM_TOOL_FREE
+    assert render_platform(Capabilities(tools=False)) == PLATFORM_TOOL_FREE_PIN
 
 
 def test_composed_prompt_matches_old_composition():
     caps = Capabilities.all_on()
     kw = dict(rules=["Be brief."], notes=[], date_line="Today is Monday.")
     new = compose_system_prompt(render_platform(caps), "You are Aria.", **kw)
-    old = compose_system_prompt(OLD_PLATFORM_TOOLS, "You are Aria.", **kw)
+    old = compose_system_prompt(PLATFORM_TOOLS_ALL_ON_PIN, "You are Aria.", **kw)
     assert new == old
     degraded_new = compose_system_prompt(render_tool_free(caps), "You are Aria.", **kw)
-    degraded_old = OLD_PLATFORM_TOOL_FREE + old[len(OLD_PLATFORM_TOOLS) :]
+    degraded_old = PLATFORM_TOOL_FREE_PIN + old[len(PLATFORM_TOOLS_ALL_ON_PIN) :]
     assert degraded_new == degraded_old
 
 

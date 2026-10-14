@@ -25,7 +25,7 @@ service driven through real HTTP, and that the dev-mode trigger fires one true s
 
 - A host-native instance is running on a **non-default port with a scratch data
   directory** — e.g. `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch
-  make up` (`make restart` after `the_one/` changes, against that same instance) — never
+  the-one serve` started from a scratch working directory (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`, detached, PID recorded; stop and restart by that PID after `the_one/` changes, against that same instance; CLAUDE.md "SAFETY RULE") — never
   the operator's default `:8484` instance. Started in **dev mode** (`settings.dev_mode`
   true) with the purge-sweep test seam enabled (`THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`, the
   env gate from Leg 3).

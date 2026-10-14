@@ -26,7 +26,7 @@ import pytest
 from conftest import expected_date_layer
 from cryptography.fernet import Fernet
 
-from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
+from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
 from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig, compose_system_prompt
 from the_one.agent.core import Agent

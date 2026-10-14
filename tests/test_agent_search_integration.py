@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from conftest import FakeLLM, StubTool
 
-from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from the_one.agent.core import Agent
 from the_one.llm.base import Message, Role, ToolCall
 from the_one.tools._search_tools import SearchTools

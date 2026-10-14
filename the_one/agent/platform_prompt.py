@@ -10,10 +10,10 @@ Two variants exist: the tool-capable prompt (``caps.tools``) and the tool-free
 prompt a model without native tool support receives (M16 F03 L08C, #105: no
 catalog, no ``continue`` semantics, so the model converses naturally).
 
-Flight 2 leg 1b: this replaces the fixed ``BASE_PROMPT`` / ``CHAT_ONLY_PROMPT``
-constants with byte-identical output. No condition is switched on yet: only
-``caps.tools`` selects text. The other capability fields are carried for the
-conditions that land in the next leg.
+The prompt is sectioned and capability-conditioned: ``caps.tools`` selects the
+tool-capable or tool-free variant, and the knowledge line and the execution
+section appear only when the agent has the matching tools (see
+:func:`sections_for`). The remaining capability fields do not change this text.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ _IDENTITY_TOOLS = (
     "and concisely.\n"
 )
 
-# Tool discovery (candidate 1). The knowledge line is appended inside the section
+# Tool discovery. The knowledge line is appended inside the section
 # only when the agent has a knowledge base attached; both forms are pinned verbatim.
 NO_KB_TOOL_DISCOVERY = (
     "\nTools:\n"
@@ -153,7 +153,7 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         "tool_use_tail",
-        "Failure, tool descriptions and turn semantics",
+        "Turn semantics",
         "tool-capable agents",
         _tools,
         _const(_TOOL_USE_TAIL),

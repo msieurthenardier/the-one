@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from conftest import FakeLLM, expected_date_layer
 
-from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
-from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
+from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig, compose_system_prompt
 from the_one.agent.factory import AgentFactory
@@ -742,10 +742,30 @@ async def test_a_connector_naming_a_deleted_agent_affects_no_other_agent(factory
 
 
 async def test_factory_fails_open_when_bindings_cannot_be_read(factory, monkeypatch) -> None:
+    import sqlite3
+
     from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME as SEND
 
     async def boom(*_a, **_k):
-        raise RuntimeError("db gone")
+        raise sqlite3.OperationalError("db gone")
 
     monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", boom)
     assert SEND in await _factory_agent_tool_names(factory, "alpha")
+
+
+async def test_factory_propagates_non_database_bindings_error(factory, monkeypatch) -> None:
+    async def bug(*_a, **_k):
+        raise RuntimeError("a bug, not a database failure")
+
+    monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", bug)
+    with pytest.raises(RuntimeError, match="a bug"):
+        await _factory_agent_tool_names(factory, "alpha")
+
+
+async def test_factory_propagates_type_error_from_bindings_read(factory, monkeypatch) -> None:
+    async def bug(*_a, **_k):
+        raise TypeError("a bug, not a database failure")
+
+    monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", bug)
+    with pytest.raises(TypeError, match="a bug"):
+        await _factory_agent_tool_names(factory, "alpha")

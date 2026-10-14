@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from the_one.agent.config import AgentConfig
@@ -539,7 +540,7 @@ class AgentFactory:
 
         try:
             connector_bound = config.name in await agent_names_in_use(conn)
-        except Exception:  # noqa: BLE001 - fail open to the pre-DD7 behaviour (seed the pair)
+        except (sqlite3.Error, ValueError):  # fail open to the pre-DD7 behaviour (seed the pair)
             logger.warning("Could not read connector bindings; seeding the pair", exc_info=True)
             connector_bound = True
         seed_names = [CURRENT_TIME_TOOL_NAME]

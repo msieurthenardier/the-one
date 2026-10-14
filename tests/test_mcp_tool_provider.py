@@ -1200,6 +1200,7 @@ class _StubToolProvider:
         return [StubTool("tool_a", agent_name=agent_name)]
 
 
+@pytest.mark.usefixtures("all_agents_connector_bound")
 class TestAgentFactoryMCPIntegration:
     async def test_factory_with_mcp_provider_none_skips_mcp_wiring(self, monkeypatch) -> None:
         """``mcp_provider=None`` — defaults to a fresh MCPToolProvider

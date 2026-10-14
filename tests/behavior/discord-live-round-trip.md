@@ -11,15 +11,17 @@ Proves the Mission 23 channel contract against REAL Discord infrastructure — t
 
 ## Preconditions
 
-- **Dev instance boot** — from the project root, with BOTH gates open (the sever seam in step 6 needs `THE_ONE_DISCORD_TEST_ENDPOINT=1`; `THE_ONE_DEV_MODE=true` is the standing dev-instance requirement, not a stub-connector gate — no `THE_ONE_STUB_TEST_ENDPOINT` here, this test drives a REAL Discord connector):
+- **Dev instance boot** — from a scratch working directory (not the repo root; CLAUDE.md "SAFETY RULE"), with BOTH gates open (the sever seam in step 6 needs `THE_ONE_DISCORD_TEST_ENDPOINT=1`; `THE_ONE_DEV_MODE=true` is the standing dev-instance requirement, not a stub-connector gate — no `THE_ONE_STUB_TEST_ENDPOINT` here, this test drives a REAL Discord connector):
   ```bash
-  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch \
-    THE_ONE_DEV_MODE=true THE_ONE_DISCORD_TEST_ENDPOINT=1 make up
+  mkdir -p $HOME/the-one-behavior-test-scratch/cwd && cd $HOME/the-one-behavior-test-scratch/cwd
+  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/data \
+    THE_ONE_DEV_MODE=true THE_ONE_DISCORD_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve >serve.log 2>&1 &
+  echo $! > serve.pid
   ```
   Use a fresh scratch `THE_ONE_DATA_DIR` (not the operator's default) and port `8485`
   (never `8484`, the operator's production instance — see CLAUDE.md's "SAFETY RULE").
   Verify liveness: `curl http://127.0.0.1:8485/api/live` → HTTP 200. Tear down after
-  the run with `THE_ONE_PORT=8485 make down`.
+  the run with `kill $(cat serve.pid)`.
 - **Env contract** — read from the operator's `tests/behavior/.env.hat` (copied from the
   committed `.env.hat.example` and filled with real values; see that file's provisioning
   notes for bot creation):

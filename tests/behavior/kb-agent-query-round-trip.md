@@ -38,7 +38,7 @@ behavior and is intentionally left as it was observed.
   `http://127.0.0.1:8485` with a **scratch data directory** `<scratch>`
   and `THE_ONE_DEV_MODE=true` (the `mock` provider type is refused
   without it), started as `THE_ONE_DEV_MODE=true THE_ONE_PORT=8485
-  THE_ONE_DATA_DIR=<scratch> make up`. Verify with an active probe:
+  THE_ONE_DATA_DIR=<scratch> <repo>/.venv/bin/the-one serve`, run detached from a scratch working directory and not the repo root (`<scratch>/cwd`; PID recorded; CLAUDE.md "SAFETY RULE"). Verify with an active probe:
   `GET http://127.0.0.1:8485/api/live` returns 200. **Never 8484, never
   the operator's default data directory** (CLAUDE.md "SAFETY RULE").
 - **Credential**: CLAUDE.md's "Behavior-test credential convention" —

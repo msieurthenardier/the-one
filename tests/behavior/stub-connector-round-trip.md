@@ -27,15 +27,17 @@ Verifies the Mission 23 channel contract end-to-end against a live dev instance,
 
 ## Preconditions
 
-- **Dev instance boot** — from the project root:
+- **Dev instance boot** — from a scratch working directory (not the repo root; CLAUDE.md "SAFETY RULE"):
   ```bash
-  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch \
-    THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 make up
+  mkdir -p $HOME/the-one-behavior-test-scratch/cwd && cd $HOME/the-one-behavior-test-scratch/cwd
+  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/data \
+    THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve >serve.log 2>&1 &
+  echo $! > serve.pid
   ```
   Use a fresh scratch `THE_ONE_DATA_DIR` (not the operator's default) and port `8485`
   (never `8484`, the operator's production instance — see CLAUDE.md's "SAFETY RULE").
   Verify liveness: `curl http://127.0.0.1:8485/api/live` → HTTP 200. Tear down after
-  the run with `THE_ONE_PORT=8485 make down`.
+  the run with `kill $(cat serve.pid)`.
 - **Both gates must be open** for the stub connector to exist at all:
   `THE_ONE_DEV_MODE=true` makes the `stub` connector type *and* the `mock` LLM
   provider type selectable; `THE_ONE_STUB_TEST_ENDPOINT=1` additionally (a) admits

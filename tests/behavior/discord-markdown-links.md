@@ -11,11 +11,13 @@ This test proves Mission 30's link criterion through a real connector: when an a
 Unit tests cannot cover this. It depends on a real model choosing the link format under the platform prompt, on the connector's outbound path (`connectors/discord/_rest.py` posts `{"content": …}` with no transformation or splitting), and on Discord's own handling of the message. The test reads Discord's stored message content, not its rendering: Discord's documentation does not say whether bot messages render masked links, and the criterion is that the link stays usable either way.
 
 ## Preconditions
-- **Dev instance boot** from the project root. Use port **8486** and a scratch data directory **under `$HOME`** (a Mission 29 lesson: not `/tmp`). Never use 8484, 8485 or the operator's default data directory (CLAUDE.md "SAFETY RULE").
+- **Dev instance boot** from a scratch working directory, not the project root (CLAUDE.md "SAFETY RULE"). Use port **8486** and a scratch data directory **under `$HOME`** (a Mission 29 lesson: not `/tmp`). Never use 8484, 8485 or the operator's default data directory (CLAUDE.md "SAFETY RULE").
   ```bash
-  THE_ONE_PORT=8486 THE_ONE_DATA_DIR=$HOME/the-one-hat-scratch-m30 THE_ONE_DEV_MODE=true make up
+  mkdir -p $HOME/the-one-hat-scratch-m30/cwd && cd $HOME/the-one-hat-scratch-m30/cwd
+  THE_ONE_PORT=8486 THE_ONE_DATA_DIR=$HOME/the-one-hat-scratch-m30/data THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve >serve.log 2>&1 &
+  echo $! > serve.pid
   ```
-  Check liveness with `curl http://127.0.0.1:8486/api/live`, which should return HTTP 200. Tear down with `THE_ONE_PORT=8486 THE_ONE_DATA_DIR=$HOME/the-one-hat-scratch-m30 make down`, then delete the scratch directory.
+  Check liveness with `curl http://127.0.0.1:8486/api/live`, which should return HTTP 200. Tear down with `kill $(cat serve.pid)`, then delete the scratch directory.
 - **Credential.** Follow CLAUDE.md's "Behavior-test credential convention". Read `$HOME/the-one-hat-scratch-m30/api-credential`; if it is absent, run `THE_ONE_DATA_DIR=$HOME/the-one-hat-scratch-m30 the-one rotate-api-credential` (squawk 0195). Send `Authorization: Bearer <credential>` on every app-API call, and mint a handoff URL for the browser.
 - **Model.** A "Claude Plan (Token)" provider (`anthropic-plan-token`, model `claude-haiku-4-5-20251001`).
   - A `python3` script creates it. The script reads `~/.config/the-one-evals/plan-token` itself and prints only status and booleans. **The token is never printed, quoted or put on a command line.**

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from conftest import FakeLLM, StubTool
 
-from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from the_one.agent.config import AgentConfig, compose_system_prompt
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
@@ -20,6 +20,8 @@ from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
 from the_one.tools.connector_lookup import FIND_PLATFORM_DESTINATION_TOOL_NAME
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+
+pytestmark = pytest.mark.usefixtures("all_agents_connector_bound")
 
 # ---------------------------------------------------------------------------
 # Helpers

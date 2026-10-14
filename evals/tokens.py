@@ -135,14 +135,19 @@ def _single_platform_part(text: str) -> list[tuple[str, str]]:
     return [("platform", text)]
 
 
-def platform_prompt_sections(text: str) -> list[tuple[str, str]]:
+class PlatformAttributionError(RuntimeError):
+    """The platform text matches no capability combination the splitter knows."""
+
+
+def platform_prompt_sections(text: str, *, strict: bool = False) -> list[tuple[str, str]]:
     """Split a first-call platform text into the platform prompt's own sections.
 
     The platform prompt is conditional (Flight 2 leg 1c), so the text is matched against
     the render of every capability combination (tools on or off, knowledge, execution
     tools); the first render equal to ``text`` supplies the split. When none matches the
     text stays one ``platform`` part (and a warning is logged), so the parts always sum
-    to the total.
+    to the total. With ``strict`` a no-match raises :class:`PlatformAttributionError`
+    instead: measurement must never report unattributed sizes as if they were sections.
     """
     import itertools
 
@@ -155,10 +160,21 @@ def platform_prompt_sections(text: str) -> list[tuple[str, str]]:
     for caps in combos:
         if render_platform(caps) == text:
             return sections_for(caps)
+    if strict:
+        raise PlatformAttributionError(
+            "platform text matches no capability combination (tools, knowledge, exec_tools, "
+            "tool-free); a new conditional section needs its capability added to "
+            "evals/tokens.py::platform_prompt_sections"
+        )
     logging.getLogger(__name__).warning(
         "platform text matches no capability combination; counted as one part"
     )
     return _single_platform_part(text)
+
+
+def strict_platform_prompt_sections(text: str) -> list[tuple[str, str]]:
+    """:func:`platform_prompt_sections` that raises when the text cannot be attributed."""
+    return platform_prompt_sections(text, strict=True)
 
 
 def _layers(
@@ -386,7 +402,7 @@ def measure_configs(
             note_texts=rc.note_texts,
             date_lines=rc.date_lines,
             notes_present=rc.notes_present,
-            platform_sections=platform_sections or platform_prompt_sections,
+            platform_sections=platform_sections or strict_platform_prompt_sections,
         )
         out[name] = {"parts": [p.to_dict() for p in parts], "totals": totals(parts)}
     return out

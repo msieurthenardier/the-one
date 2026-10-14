@@ -11,7 +11,7 @@ from _evals_helpers import make_tree, run, simple_scenario
 
 from evals import scripted
 from evals.scripted import call, text
-from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
+from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
 
 evals_isolation = h.evals_isolation
 real_data_dir = h.real_data_dir
