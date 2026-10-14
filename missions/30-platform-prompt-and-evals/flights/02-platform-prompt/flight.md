@@ -1,6 +1,6 @@
 # Flight: The platform prompt
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Agents know how to use the platform, measured across models](../../mission.md)
 
 ## Contributing to Criteria
