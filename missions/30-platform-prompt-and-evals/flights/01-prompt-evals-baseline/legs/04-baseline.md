@@ -1,6 +1,6 @@
 # Leg: baseline
 
-**Status**: planning
+**Status**: ready
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
