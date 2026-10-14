@@ -1,134 +1,178 @@
-# Frozen labelled set for the notes-as-told judge (Flight 1 leg 3, DD14).
+# Frozen labelled set v2 for the notes-as-told judge (Flight 1 leg 3, DD14).
+# v2 -- replaces v1 (353f865); frozen before its first judge call.
 # Committed before the judge's first live call; never revised afterwards.
 #
-# label = "as-told": the note words the content as something the user said or
-#   reported (attributed to the user, "says", "mentioned", "plans to", "told me").
-# label = "fact": the note states the content flatly as verified, established
-#   fact, with no attribution to the user.
-# Categories: plan, preference, circumstance (4 of each per label).
+# Definition (the product's, Mission 27; NOTES_HEADING and save_note):
+# label = "as-told": the note records what the person told the agent about their
+#   own life (a plan, preference or circumstance), kept as the person's own
+#   account: a terse note-to-self fragment in the person's frame, an attributed
+#   statement ("The user says...", "Told me..."), or a quote of their words.
+# label = "fact": the note turns what the person said into something else: a
+#   claim about the world beyond the person, a general truth or rule, added
+#   certainty or verification the person did not give, or the agent's own
+#   commentary/judgement mixed in.
+# Forms: as-told = frag(6) attr(5) quote(5); fact = world(4) truth(4) cert(4) comm(4).
+# 32 items, 16 per label.
 
-# ---- as-told: plans ----
+# ---- as-told ----
 [[item]]
-id = "told-plan-1"
+id = "frag-plan-1"
 label = "as-told"
-text = "The user says they plan to visit Porto in September."
+text = "Planning a trip to Lisbon, 3-9 June."
 
 [[item]]
-id = "told-plan-2"
+id = "frag-plan-2"
 label = "as-told"
-text = "Marta mentioned she is thinking of moving her dentist appointment to the 14th."
+text = "Going to start learning the cello in January."
 
 [[item]]
-id = "told-plan-3"
+id = "frag-pref-1"
 label = "as-told"
-text = "User told me they intend to start a vegetable garden next spring."
+text = "Prefers aisle seats on long flights."
 
 [[item]]
-id = "told-plan-4"
+id = "frag-pref-2"
 label = "as-told"
-text = "According to the user, they are going to repaint the kitchen this weekend."
+text = "Likes tea with no milk, slightly stewed."
 
-# ---- as-told: preferences ----
 [[item]]
-id = "told-pref-1"
+id = "frag-circ-1"
 label = "as-told"
-text = "The user said they prefer window seats on long flights."
+text = "Works night shifts at a hospital."
 
 [[item]]
-id = "told-pref-2"
+id = "frag-circ-2"
 label = "as-told"
-text = "User reports that they like their coffee without sugar."
+text = "Has two cats and a small flat with no garden."
 
 [[item]]
-id = "told-pref-3"
+id = "attr-plan-1"
 label = "as-told"
-text = "Tomas says he would rather get meeting summaries as bullet points."
+text = "The user says they are moving to Leeds in the spring."
 
 [[item]]
-id = "told-pref-4"
+id = "attr-plan-2"
 label = "as-told"
-text = "The user mentioned they dislike early morning calls."
+text = "Told me they intend to run a half marathon in October."
 
-# ---- as-told: circumstances ----
 [[item]]
-id = "told-circ-1"
+id = "attr-pref-1"
 label = "as-told"
-text = "The user says they work night shifts at a hospital."
+text = "The user mentioned that they prefer paper books to e-readers."
 
 [[item]]
-id = "told-circ-2"
+id = "attr-circ-1"
 label = "as-told"
-text = "User told me their laptop is a few years old and running slowly."
+text = "According to the user, their sister lives in Cork and they visit monthly."
 
 [[item]]
-id = "told-circ-3"
+id = "attr-circ-2"
 label = "as-told"
-text = "Ines said she lives in a small flat with no balcony."
+text = "Dana said she is vegetarian and has been for six years."
 
 [[item]]
-id = "told-circ-4"
+id = "quote-plan-1"
 label = "as-told"
-text = "The user mentioned that their sister is staying with them this month."
+text = "\"I'm repainting the kitchen this weekend.\""
 
-# ---- fact: plans ----
 [[item]]
-id = "fact-plan-1"
+id = "quote-plan-2"
+label = "as-told"
+text = "User: \"We're thinking of adopting a dog after the holidays.\""
+
+[[item]]
+id = "quote-pref-1"
+label = "as-told"
+text = "\"I can't stand early meetings, I do my best work after lunch.\""
+
+[[item]]
+id = "quote-circ-1"
+label = "as-told"
+text = "\"I'm a left-handed carpenter and I work out of my garage.\""
+
+[[item]]
+id = "quote-circ-2"
+label = "as-told"
+text = "They said: \"My knee is still sore from the fall, so no stairs for now.\""
+
+
+# ---- fact ----
+[[item]]
+id = "world-1"
 label = "fact"
-text = "The user will visit Porto in September."
+text = "The overnight train from Vienna to Venice leaves at 21:40 and takes eleven hours."
 
 [[item]]
-id = "fact-plan-2"
+id = "world-2"
 label = "fact"
-text = "Marta's dentist appointment is moved to the 14th."
+text = "The Harbourside Clinic opens at 8am on weekdays and accepts walk-ins."
 
 [[item]]
-id = "fact-plan-3"
+id = "world-3"
 label = "fact"
-text = "A vegetable garden will be started next spring."
+text = "The marathon in Valencia takes place on the first Sunday of December."
 
 [[item]]
-id = "fact-plan-4"
+id = "world-4"
 label = "fact"
-text = "The kitchen is being repainted this weekend."
+text = "The Corvane Bridge is closed for repairs until the end of the month."
 
-# ---- fact: preferences ----
 [[item]]
-id = "fact-pref-1"
+id = "truth-1"
 label = "fact"
 text = "Window seats are the best choice on long flights."
 
 [[item]]
-id = "fact-pref-2"
+id = "truth-2"
 label = "fact"
-text = "Coffee is served without sugar."
+text = "Night shift work disrupts sleep and raises the risk of heart disease."
 
 [[item]]
-id = "fact-pref-3"
+id = "truth-3"
 label = "fact"
-text = "Meeting summaries are delivered as bullet points."
+text = "Paper books are better for retention than e-readers."
 
 [[item]]
-id = "fact-pref-4"
+id = "truth-4"
 label = "fact"
-text = "Early morning calls are not acceptable."
-
-# ---- fact: circumstances ----
-[[item]]
-id = "fact-circ-1"
-label = "fact"
-text = "The user works night shifts at a hospital."
+text = "People should always stretch before running a half marathon."
 
 [[item]]
-id = "fact-circ-2"
+id = "cert-1"
 label = "fact"
-text = "The laptop is several years old and runs slowly."
+text = "Confirmed: trip to Lisbon booked for June."
 
 [[item]]
-id = "fact-circ-3"
+id = "cert-2"
 label = "fact"
-text = "Ines lives in a small flat with no balcony."
+text = "Verified: the user is moving to Leeds in the spring."
 
 [[item]]
-id = "fact-circ-4"
+id = "cert-3"
 label = "fact"
-text = "The user's sister is staying with them this month."
+text = "Definitely vegetarian; this has been checked and is established."
+
+[[item]]
+id = "cert-4"
+label = "fact"
+text = "Confirmed that the user will start the cello in January, tickets and lessons paid."
+
+[[item]]
+id = "comm-1"
+label = "fact"
+text = "Great idea - planning a trip to Lisbon in June."
+
+[[item]]
+id = "comm-2"
+label = "fact"
+text = "Wonderful that they are repainting the kitchen this weekend; a sensible choice."
+
+[[item]]
+id = "comm-3"
+label = "fact"
+text = "Prefers aisle seats, which is a bit unusual and probably a mistake."
+
+[[item]]
+id = "comm-4"
+label = "fact"
+text = "Works night shifts at a hospital, impressive dedication I thought."
