@@ -3,8 +3,8 @@
 **Slug**: `agent-rules-round-trip`
 **Status**: draft
 **Created**: 2026-10-09 (Mission 27 Flight 1)
-**Updated**: 2026-10-10 (Mission 27 Flight 3 HAT: the panel is read-only and bulleted; step 4 is re-authored for the removed Edit rules link)
-**Last Run**: 2026-10-10 (post-HAT re-run): pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-10-21-05-09.md)). Earlier: 2026-10-09 pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
+**Updated**: 2026-10-10 (Mission 27 Flight 3 HAT: the panel is read-only and bulleted; step 4 is re-authored for the removed Edit rules link); 2026-10-14 (M30 F2 run: the port precondition names a dedicated port)
+**Last Run**: 2026-10-14 (Mission 30 Flight 2, final platform prompt): pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-14-15-19-35.md)). Earlier: 2026-10-10 (post-HAT re-run) pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-10-21-05-09.md)); 2026-10-09 pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
 
 ## Intent
 
@@ -33,8 +33,9 @@ observables:
 
 ## Preconditions
 
-- A dev instance built from the flight branch, on a port of 8490 or higher (never
-  8484 or 8485), with a **scratch data directory**. Start it with
+- A dev instance built from the flight branch, on a dedicated non-default port
+  (8486 or higher, assigned per run; never 8484 or 8485), with a **scratch data
+  directory**. Start it with
   `THE_ONE_DEV_MODE=true` and `THE_ONE_STUB_TEST_ENDPOINT=1`. Follow CLAUDE.md
   "Behavior-test credential convention" for the credential and the browser
   handoff.
@@ -50,7 +51,7 @@ observables:
   and peer `peer-1` admitted. Set it up as `stub-connector-round-trip.md` steps
   1-4 do, with these changes:
   - select `rules-probe` where that spec selects `test-agent`;
-  - keep **this** spec's port (8490 or higher), not the 8485 that spec names;
+  - keep **this** spec's dedicated port, not the 8485 that spec names;
   - the peer-2 replay in its step 4 is optional.
 
   Pairing creates no session (`inbound.py:385-390`), so step 5 below is the

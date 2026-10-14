@@ -1,6 +1,6 @@
 # Leg: wording-and-tuning
 
-**Status**: landed
+**Status**: completed
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
@@ -41,23 +41,23 @@ Write the terse platform wording and choose every addition by DD5's protocol on 
 - A flight-log "Tuning" section: a table of every candidate (iteration, change, sizes, the per-cell smoke for both models, keep/reject plus the rule applied), every `compare` output verbatim, the final per-fact table, and the DD5.10 power statement.
 
 ## Acceptance Criteria
-- [ ] **Probes.** Both live probes passed and are recorded (status only).
-- [ ] **Screening budget.** At most 6 screening iterations and at most 2 full runs, each logged with its candidate commit, `measure.json` fingerprint, sizes and per-cell results, including rejected ones.
-- [ ] **Reference screen.** The first screen is the **minimal** candidate (DD5.2), and its results are the reference.
-- [ ] **Rejections.** Every rejection cites the DD5.4 rule that fired:
+- [x] **Probes.** Both live probes passed and are recorded (status only).
+- [x] **Screening budget.** At most 6 screening iterations and at most 2 full runs, each logged with its candidate commit, `measure.json` fingerprint, sizes and per-cell results, including rejected ones.
+- [x] **Reference screen.** The first screen is the **minimal** candidate (DD5.2), and its results are the reference.
+- [x] **Rejections.** Every rejection cites the DD5.4 rule that fired:
   - a size gate failed
   - any safety failure
   - any cell ≥ 2 below the baseline's fact-0 count
-- [ ] **Additions.** Every kept addition cites its DD5.5 gain: a cell up by ≥ 2 of 4 against the reference screen, and no cell down by ≥ 2. Additions that show no gain are cut and logged.
-- [ ] **KB discovery (DD6).** The decision between (a) and (b) is logged, made on "no drop and a smaller measured size".
-- [ ] **Final run.** It runs n = 20 on both models in two run directories, each with `measure.json` from the same committed candidate. `compare --baseline evals/baselines/m30-today.json <both dirs>` is run, and its full output is pasted into the flight log.
-- [ ] **Outcome.**
+- [x] **Additions.** Every kept addition cites its DD5.5 gain: a cell up by ≥ 2 of 4 against the reference screen, and no cell down by ≥ 2. Additions that show no gain are cut and logged.
+- [x] **KB discovery (DD6).** The decision between (a) and (b) is logged, made on "no drop and a smaller measured size".
+- [x] **Final run.** It runs n = 20 on both models in two run directories, each with `measure.json` from the same committed candidate. `compare --baseline evals/baselines/m30-today.json <both dirs>` is run, and its full output is pasted into the flight log.
+- [x] **Outcome.**
   - **If there is no hard-gate failure:**
     - `evals/baselines/m30-platform.json` is written with `baseline` + `derive-bars --size-ratio 1.0` and committed.
     - The best-effort results are listed as measured, met or unmet.
   - **If there is a hard-gate failure** after the budget: the flight diverts per its Adaptation Criteria. The leg is recorded `aborted` with every candidate's numbers, and the gate is never relaxed.
-- [ ] **Final report.** The per-fact table for the final run is recorded, along with the DD5.10 statement on statistical power.
-- [ ] **Regression check.** `make test-unit` passes, ruff is clean, and the freeze test passes.
+- [x] **Final report.** The per-fact table for the final run is recorded, along with the DD5.10 statement on statistical power.
+- [x] **Regression check.** `make test-unit` passes, ruff is clean, and the freeze test passes.
 
 ## Verification Steps
 - The flight log's Tuning section is complete and consistent with `evals/runs/*/results.jsonl`.

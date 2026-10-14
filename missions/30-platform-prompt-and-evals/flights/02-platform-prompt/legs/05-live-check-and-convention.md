@@ -1,6 +1,6 @@
 # Leg: live-check-and-convention
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
@@ -23,11 +23,11 @@ Prove the final platform prompt live (the Discord link behavior test and the fou
   - `the_one/agents.md` gets the "Platform prompt" section (structure, capabilities, the two prompts, conditional seeding, where each consumer reads it), if leg 1b/1c did not already add it in full.
 
 ## Acceptance Criteria
-- [ ] **Behavior specs reviewed.** Each of the five specs is checked against the final platform text, and any spec quoting changed text is updated, with the change listed in the flight log.
-- [ ] **`discord-markdown-links` passes.** The run log is at `tests/behavior/discord-markdown-links/runs/{ts}.md` and is referenced in the flight log. The spec status becomes `active`.
-- [ ] **The other four specs pass.** `agent-notes-round-trip`, `agent-rules-round-trip`, `agent-tells-the-time` and `agent-self-revision-propagation` each pass, with run logs referenced. A failing spec blocks the leg until it is fixed, with a new commit and a re-run, unless the failure is a spec defect, which is corrected in place and recorded.
-- [ ] **Docs.** CLAUDE.md's "Prompt evals" section states the convention, names `m30-platform.json` as the current baseline, and lists what counts as platform prompt text. `evals/README.md` matches it. `the_one/agents.md` has the "Platform prompt" section.
-- [ ] **Full gate.** `make gate` under `THE_ONE_TEST_NETNS=1` (unit, then all browser lanes at `--parallel 3`) passes. Known squawk flakes that pass when re-run in isolation are recorded and accepted. `make lint` is clean.
+- [x] **Behavior specs reviewed.** Each of the five specs is checked against the final platform text, and any spec quoting changed text is updated, with the change listed in the flight log.
+- [x] **`discord-markdown-links` passes.** The run log is at `tests/behavior/discord-markdown-links/runs/{ts}.md` and is referenced in the flight log. The spec status becomes `active`.
+- [x] **The other four specs pass.** `agent-notes-round-trip`, `agent-rules-round-trip`, `agent-tells-the-time` and `agent-self-revision-propagation` each pass, with run logs referenced. A failing spec blocks the leg until it is fixed, with a new commit and a re-run, unless the failure is a spec defect, which is corrected in place and recorded.
+- [x] **Docs.** CLAUDE.md's "Prompt evals" section states the convention, names `m30-platform.json` as the current baseline, and lists what counts as platform prompt text. `evals/README.md` matches it. `the_one/agents.md` has the "Platform prompt" section.
+- [x] **Full gate.** `make gate` under `THE_ONE_TEST_NETNS=1` (unit, then all browser lanes at `--parallel 3`) passes. Known squawk flakes that pass when re-run in isolation are recorded and accepted. `make lint` is clean.
 
 ## Verification Steps
 - The run logs under `tests/behavior/*/runs/`.

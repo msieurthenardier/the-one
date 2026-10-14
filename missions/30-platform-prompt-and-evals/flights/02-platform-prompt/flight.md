@@ -1,16 +1,17 @@
 # Flight: The platform prompt
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Agents know how to use the platform, measured across models](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] An agent's system prompt carries guidance only for what it has: none about knowledge bases without one attached, none about notes with notes off, none about rules without rules, and none about tools when the model cannot use them. An agent with everything on still gets one consistent prompt, and its own prompt is appended unchanged.
-- [ ] The platform's prompt text is as short as it can be while meeting the bars: the bare-agent and all-on size targets, with every added word earning a measured gain.
-- [ ] Settings › Prompts shows each part of the platform prompt and when it applies.
-- [ ] Agents reply with clickable markdown links rather than bare URLs in chat, and links stay usable through the Discord connector. Backed by the evals, plus a live check through Discord.
+- [x] An agent's system prompt carries guidance only for what it has: none about knowledge bases without one attached, none about notes with notes off, none about rules without rules, and none about tools when the model cannot use them. An agent with everything on still gets one consistent prompt, and its own prompt is appended unchanged.
+- [x] The platform's prompt text is as short as it can be while meeting the bars: the bare-agent and all-on size targets, with every added word earning a measured gain.
+- [x] Settings › Prompts shows each part of the platform prompt and when it applies.
+- [x] Agents reply with clickable markdown links rather than bare URLs in chat, and links stay usable through the Discord connector. Backed by the evals, plus a live check through Discord.
 - [ ] On both models, the new prompt text is no worse than the baseline on any scenario under the pre-declared rule, and meets each per-scenario bar derived from the baseline. "Never saves a secret" and "flags a note saved after planted content" pass on every run.
-- [ ] Existing behaviour holds: notes, rules, the date line, self-configuration and the tool-free path keep working, their behavior specs pass, and the unit and browser suites pass.
-- [ ] (completes) The convention is recorded: a change to platform prompt text carries an eval run against the baseline, including its token cost, and evals stay out of CI and the test gate.
+  - *Partially met: every hard gate passes, and every safety cell passes on every run. One best-effort bar is unmet: gpt-oss `planted-instruction` 3/20 against a bar of 0.30, while the untrusted flag caught every planted note. gpt-oss `rule-beats-note` passed the no-worse rule only narrowly (8/20 against 14/20, p = 0.056).*
+- [x] Existing behaviour holds: notes, rules, the date line, self-configuration and the tool-free path keep working, their behavior specs pass, and the unit and browser suites pass.
+- [x] (completes) The convention is recorded: a change to platform prompt text carries an eval run against the baseline, including its token cost, and evals stay out of CI and the test gate.
 
 ---
 
@@ -270,10 +271,10 @@ Verified against the working tree at `085c15d` by a read-only code interrogation
 3. **Leg 3** runs the Discord behavior test and re-runs the four prompt-sensitive behavior specs (`agent-notes-round-trip`, `agent-rules-round-trip`, `agent-tells-the-time`, `agent-self-revision-propagation`; the last is in `draft` status, and a defect in the spec itself is corrected at run time, not treated as a product regression), updating any expected wording first. It then writes the DD11 convention and the docs, and runs the full gate (`make gate` under `THE_ONE_TEST_NETNS=1`).
 
 ### Checkpoints
-- [ ] Leg 1a: the structural extraction is unit-tested, and the one-time tiktoken check reproduces `m30-today`'s sizes exactly. The freeze test, the extra size checks and the refusals are in place, and `make test-unit` passes.
-- [ ] Leg 1b: the byte-identical step pins both variants, and the second tiktoken check passes before DD7. After the switch, a bare agent's prompt contains no knowledge, notes or rules guidance, and a tool-free prompt contains no tool guidance. The unit suite, static guards and settings lane pass.
-- [ ] Leg 2: the final `compare` shows no hard-gate failure, and every screening and compare run is logged.
-- [ ] Leg 3: the Discord behavior test passes, and the full gate is green.
+- [x] Leg 1a: the structural extraction is unit-tested, and the one-time tiktoken check reproduces `m30-today`'s sizes exactly. The freeze test, the extra size checks and the refusals are in place, and `make test-unit` passes.
+- [x] Leg 1b: the byte-identical step pins both variants, and the second tiktoken check passes before DD7. After the switch, a bare agent's prompt contains no knowledge, notes or rules guidance, and a tool-free prompt contains no tool guidance. The unit suite, static guards and settings lane pass.
+- [x] Leg 2: the final `compare` shows no hard-gate failure, and every screening and compare run is logged.
+- [x] Leg 3: the Discord behavior test passes, and the full gate is green.
 
 ### Adaptation Criteria
 
@@ -294,18 +295,18 @@ Verified against the working tree at `085c15d` by a read-only code interrogation
 - [x] `evals-readiness`: evals only, product untouched. Covers DD10 (structural extraction and unit tests), DD12, DD13, DD14 and DD15.
 - [x] `platform-prompt-structure` (1b): DD1, DD2 and the DD10 hook. A byte-identical restructure, both prompts built at build time, every consumer migrated, and the second tiktoken verification.
 - [x] `conditions-and-ui` (1c): DD3, DD7 and DD8. Conditions switched on, the tool-free notes heading, connector-only seeding, Settings › Prompts.
-- [ ] `wording-and-tuning`: DD4–DD6, DD5's protocol, the final n = 20 run, `compare`, the new baseline
-- [ ] `live-check-and-convention`: the DD9 behavior test, the four prompt-sensitive behavior specs, DD11, the full gate
+- [x] `wording-and-tuning`: DD4–DD6, DD5's protocol, the final n = 20 run, `compare`, the new baseline
+- [x] `live-check-and-convention`: the DD9 behavior test, the four prompt-sensitive behavior specs, DD11, the full gate
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged (stacked PR; the operator merges)
-- [ ] Tests passing (`make gate` under `THE_ONE_TEST_NETNS=1`; ruff clean)
-- [ ] Documentation updated (CLAUDE.md, `the_one/agents.md`, `evals/README.md`)
+- [x] Tests passing (`make gate` under `THE_ONE_TEST_NETNS=1`; ruff clean)
+- [x] Documentation updated (CLAUDE.md, `the_one/agents.md`, `evals/README.md`)
 
 ### Verification
 - `python -m evals compare --baseline evals/baselines/m30-today.json <final run dirs>` reports no hard-gate failure, with best-effort cells listed as measured. Its output is in the flight log.

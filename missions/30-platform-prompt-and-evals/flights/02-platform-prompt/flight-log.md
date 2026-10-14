@@ -396,3 +396,35 @@ Behavior-spec wording changes (what each spec proves is unchanged):
 - Date line wording ("Today is ... call current_time.") and the notes-block markers still match; no change.
 
 Docs: CLAUDE.md "Prompt evals" Convention bullet rewritten (DD11, names `m30-platform.json`); `evals/README.md` gained a "Convention" section; `the_one/agents.md` gained a "Platform prompt (Mission 30 F2)" section.
+
+#### Full gate (leg 5)
+
+`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate`, all green, no flakes, no re-runs needed.
+
+- Unit: 6611 passed, 14 skipped, 1992 deselected (14 is the expected skip count under netns).
+- `PARALLEL_RESULT rc=0 total=1023s lanes=9 failed=-`
+- Lanes (wall / budget, all rc=0): routing 508/600, agents 500/510, chats 342/360, mcp 307/360, library 248/300, settings 254/300, providers 281/300, shared 275/300, contracts 239/270 (WebKit required, passed; no over-budget lane).
+- Lint: `make lint` passed; `ruff format --check the_one/ tests/ scripts/ evals/` 627 files already formatted.
+
+### Discord live check waived by the operator (2026-10-14)
+- **Why the run stopped:** `discord-markdown-links` was blocked because both bot tokens in `tests/behavior/.env.hat` return HTTP 401 (revoked or reset).
+- **Operator decision:** "we can skip that test".
+- **What is left unproven:** the mission's link criterion is met in the web chat (eval `markdown-links`: 19/20 on both models), and the connector path is verified by code review (the Discord connector posts `{"content": …}` with no transformation or splitting). The live Discord observation was **not** made.
+- **Status:** the spec stays `draft` for a future run once fresh tokens exist. The 8486 scratch instance was torn down and its data directory deleted.
+- **Operator clarification (2026-10-14):** "the link in chat is sufficient; if we end up with a connector problem … that's more of a technical issue not a prompt issue." The link criterion is therefore **met** on the in-app evidence (`markdown-links`: 19/20 on both models). Any connector delivery defect is out of this mission's scope and would be filed as a technical defect.
+- **`agent-notes-round-trip`: PASS 11/11** (run log `tests/behavior/agent-notes-round-trip/runs/2026-10-14-15-03-23.md`, gpt-oss:20b, port 8487). The final notes and rules wording was confirmed live. Spec corrections (wording only): step 8 punctuation, step 2 (a substituted `write_file` is not a notes write), and the port precondition. **Setup finding for the debrief:** a dev instance started with the repo as its working directory exposes the repo to the agent's file tools. In step 2 a stray `note.txt` was written to the repo root (moved to evidence); in step 10 the agent read `.memory/*.md`. This is not a prompt defect. Behavior-test dev instances should start with a scratch working directory.
+- **`agent-rules-round-trip`: PASS 9/9** (run log `tests/behavior/agent-rules-round-trip/runs/2026-10-14-15-19-35.md`). The live rules heading reads "Operator rules. Follow all of them; if two conflict, the earlier one wins.", and the connector DM's system prompt is byte-identical to the web chat's. Spec corrections: port wording only. The instance ran with a scratch working directory and left no stray repo files.
+- **`agent-tells-the-time`: PASS 8/8** (run log `tests/behavior/agent-tells-the-time/runs/2026-10-14-15-32-33.md`). Both date-line wordings were observed live and unchanged. With `current_time` disabled, the system message never names it. Spec corrections: wording and procedure only (port, PID source, `env -u TZ`, live preview values excluded). No stray repo files.
+- **`agent-self-revision-propagation` run 1: 6/8** (run log `…/runs/2026-10-14-15-45-10.md`). Both failures were spec defects: steps 3 and 6 judged the model's reply wording, while the stored `messages[0]` and tool results showed correct propagation. The spec was corrected in place to check stored state. The run confirmed the `pending` rebuild: the new persona present, and the platform part and date line byte-identical. **Decision:** re-run the corrected spec for a clean verdict before the leg lands.
+- **`agent-self-revision-propagation` run 2 (corrected spec): PASS 8/8** (run log `…/runs/2026-10-14-15-57-27.md`). The spec is now `active`. One further spec correction: step 7's date line is allowed to change across midnight, because `pending` recomputes it.
+- **Leg 3 landed:**
+  - Behavior specs: notes 11/11, rules 9/9, time 8/8, self-revision 8/8 (after a run-time spec correction). Discord was waived by the operator.
+  - Full gate green: unit 6611 passed, 14 skipped under netns; browser `PARALLEL_RESULT rc=0`.
+  - DD11 convention documented.
+- **Flight-end review next.** It covers the changes since the reviewed checkpoint `96708fe`. Reviewer tier: Sonnet (prompt text and self-configuration behaviour).
+
+---
+
+## Flight Completion (2026-10-14)
+- **Final review:** `[HANDOFF:confirmed]` (Sonnet). The shipped text is byte-identical to the measured candidate 7. The `m30-platform` fingerprint matches the current prompt. Candidates 4–6 reverted cleanly, the docs are accurate, and no secrets were found. Unit 6613 passed, 12 skipped; settings lane 115 passed; ruff clean.
+- **Status:** all 5 legs completed and the flight `landed`. Flight 2 is checked off in the mission. The mission criterion "no worse … and meets the per-scenario bar" stays **unchecked**: gpt-oss `planted-instruction` is a best-effort miss, recorded verbatim.
