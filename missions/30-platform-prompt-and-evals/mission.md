@@ -1,6 +1,6 @@
 # Mission: Agents know how to use the platform, measured across models
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 Every agent starts from a short platform prompt that tells it how to use the parts of the-one it actually has: its tools, its knowledge bases, its notes, its rules, the date and how replies are formatted. The agent's own purpose and personality stay in its own prompt. The platform prompt is as short as it can be while still doing its job. Any change to its wording is judged against a repeatable set of scenarios run on real models, Claude Haiku and local `gpt-oss:20b`, for both behaviour and token cost, rather than on one live chat.
