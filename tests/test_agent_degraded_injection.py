@@ -186,7 +186,7 @@ class TestDegradedInjection:
         # No tool protocol/format block.
         assert "```tool_code" not in sys_content
         # No tool sections.
-        assert "Tool discovery:" not in sys_content
+        assert "Tools:" not in sys_content
         assert "Tool use:" not in sys_content
         # No continue-tool turn semantics.
         assert "call the `continue` tool" not in sys_content
@@ -208,7 +208,7 @@ class TestDegradedInjection:
         # PLATFORM_TOOL_FREE is the base; its identity line must be present.
         assert "You are an AI assistant" in sys_content
         # The direct, concise response note is kept.
-        assert "direct, concise responses" in sys_content
+        assert "Reply directly and concisely" in sys_content
         assert sys_content == _degraded_prompt()
 
     async def test_without_a_degraded_prompt_the_system_prompt_is_sent_verbatim(self) -> None:
@@ -233,7 +233,7 @@ class TestDegradedInjection:
         # the injection only touched the ephemeral request copy.
         assert agent.messages[0].content == original_system
         # The original has PLATFORM_TOOLS content (tool discovery block).
-        assert "Tool discovery:" in agent.messages[0].content
+        assert "Tools:" in agent.messages[0].content
         assert "```tool_code" not in agent.messages[0].content
 
         # The request captured at stream() time was [chat_only_system, user].
@@ -301,7 +301,7 @@ class TestCapableUnchanged:
         # for the leading system message content).
         assert sent[0].content == agent.messages[0].content
         assert "```tool_code" not in sent[0].content
-        assert "Tool discovery:" in sent[0].content  # discovery block intact
+        assert "Tools:" in sent[0].content  # discovery block intact
 
         # tools= carries the visible-schema array (search_tools + continue at
         # minimum), NOT None.

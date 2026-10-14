@@ -75,109 +75,45 @@ def _exec_tools(caps: Capabilities) -> bool:
     return caps.tools and caps.exec_tools
 
 
-def _always(_caps: Capabilities) -> bool:
-    return True
-
-
-_IDENTITY_TOOLS = """\
-You are an AI agent with access to a set of tools. Use them to accomplish what the \
-operator asks.
-"""
-
-# Knowledge-base phrases inside the tool-discovery text (Flight 2 leg 1c, DD3).
-# Each has a with-knowledge form and a no-knowledge form written out as its own
-# literal (never spliced), and both are pinned verbatim by tests.
-KB_CATALOG = (
-    "The catalog covers built-in tools (shell, file operations, web fetch, etc.), "
-    "tools from any MCP servers attached to this agent, AND search tools for any "
-    "knowledge bases attached to this agent \u2014 they all surface through this one tool. "
+_IDENTITY_TOOLS = (
+    "You are an AI agent. Use your tools to do what you're asked, and reply directly "
+    "and concisely.\n"
 )
-NO_KB_CATALOG = (
-    "The catalog covers built-in tools (shell, file operations, web fetch, etc.) "
-    "and tools from any MCP servers attached to this agent \u2014 they all surface "
-    "through this one tool. "
+
+# Tool discovery (candidate 1). The knowledge line is appended inside the section
+# only when the agent has a knowledge base attached; both forms are pinned verbatim.
+NO_KB_TOOL_DISCOVERY = (
+    "\nTools:\n"
+    "- You start with `search_tools` and `continue`. Find any other tool with "
+    '`search_tools` (for example "read a file" or "http request"); tools you find '
+    "stay available for the rest of the conversation.\n"
 )
-KB_GROUPS = (
-    "Results are grouped by source: `built-in: \u2026` for built-in tools, "
-    "`mcp:<server>: \u2026` for MCP server tools, `kb:<name>: \u2026` for "
-    "knowledge-base search tools. "
+KB_LINE = (
+    "- Attached knowledge bases have search tools too: find them with `search_tools`, "
+    "and search them before answering from memory on topics they cover.\n"
 )
-NO_KB_GROUPS = (
-    "Results are grouped by source: `built-in: \u2026` for built-in tools and "
-    "`mcp:<server>: \u2026` for MCP server tools. "
-)
-KB_EXAMPLES = 'search by intent ("issue tracker", "read a file", "http request", "internal docs")'
-NO_KB_EXAMPLES = 'search by intent ("issue tracker", "read a file", "http request")'
-
-_TD_HEAD = """
-Tool discovery:
-- At the start of each conversation, you have only `search_tools` and `continue` \
-available.
-- To use any other capability, call `search_tools` with a query describing what you \
-need. """
-
-_TD_AFTER_CATALOG = """Empty query lists everything; a specific query narrows results.
-- """
-
-_TD_AFTER_GROUPS = """Don't second-guess which catalog has what \u2014 just """
-
-_TD_TAIL = """ and the right tools will surface regardless of where they come from.
-- Matched tools are automatically added to your available toolset for the rest of \
-this conversation. Once you've searched for a tool, you can call it by name on \
-subsequent turns; no need to search again.
-- New conversations start fresh with the baseline (just `search_tools` + \
-`continue`). If the operator attached a new MCP server mid-session, you'll see it in \
-your next session, not the current one.
-"""
 
 
 def _tool_discovery(caps: Capabilities) -> str:
-    kb = caps.knowledge
-    return (
-        _TD_HEAD
-        + (KB_CATALOG if kb else NO_KB_CATALOG)
-        + _TD_AFTER_CATALOG
-        + (KB_GROUPS if kb else NO_KB_GROUPS)
-        + _TD_AFTER_GROUPS
-        + (KB_EXAMPLES if kb else NO_KB_EXAMPLES)
-        + _TD_TAIL
-    )
+    return NO_KB_TOOL_DISCOVERY + (KB_LINE if caps.knowledge else "")
 
 
-_TOOL_USE_HEAD = """
-Tool use:
-- When an action is needed, take the action. Don't describe what you would do.
-- Prefer the right tool for the job. Read files with the file-reading tool, not by \
-asking the operator to paste them. Run commands with the shell tool, not by \
-speculating about output."""
+_TOOL_USE_HEAD = (
+    "- Take actions rather than describing them. If a tool fails, try another way "
+    "and say what you changed."
+)
 
 _EXECUTION = """
 - Execution tools default to an isolated box with no access to the user's files or \
 network; request host access only when the task concretely needs the user's real \
 files or network."""
 
-_TOOL_USE_TAIL = """
-- On failure, try a different approach before giving up. State what failed and what \
-you're trying next.
-- Tool descriptions tell you what each tool does and when it applies. Read them.
+_TOOL_USE_TAIL = (
+    "\n- To keep working in another step, call `continue`; otherwise your text reply "
+    "ends the turn.\n"
+)
 
-Turn semantics:
-- Each user message starts a turn. Within a turn you may call tools, see their \
-results, and call more tools.
-- When you still have work to do but want to think or act in another step, call the \
-`continue` tool. It signals "give me another turn"; nothing more.
-- When you're done, just respond with text. No `continue` call ends your turn.
-"""
-
-_IDENTITY_FREE = """\
-You are an AI assistant. Respond directly and concisely to the user.
-"""
-
-_CLOSING = """
-A persona, scope, or set of instructions may be appended below this base prompt. \
-Treat any addition as a refinement, not a replacement. If no persona is set, default \
-to direct, concise responses.
-"""
+_IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"
 
 SECTIONS: tuple[Section, ...] = (
     Section("identity", "Identity", "tool-capable agents", _tools, _const(_IDENTITY_TOOLS)),
@@ -216,7 +152,6 @@ SECTIONS: tuple[Section, ...] = (
         _tools,
         _const(_TOOL_USE_TAIL),
     ),
-    Section("closing", "Persona note", "always", _always, _const(_CLOSING)),
 )
 
 
@@ -239,7 +174,7 @@ FRAGMENTS: tuple[Fragment, ...] = (
         "knowledge",
         "Knowledge-base wording",
         "tool-capable agents with a knowledge base attached (inside Tool discovery)",
-        "\n\n".join(part.strip() for part in (KB_CATALOG, KB_GROUPS, KB_EXAMPLES)),
+        KB_LINE.strip(),
     ),
 )
 

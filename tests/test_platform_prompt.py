@@ -1,4 +1,4 @@
-"""The sectioned platform prompt renders byte-identically to the old constants."""
+"""The sectioned platform prompt renders exactly the pinned wording (candidate 1)."""
 
 from __future__ import annotations
 
@@ -6,12 +6,8 @@ from tests._old_prompts import OLD_PLATFORM_TOOL_FREE, OLD_PLATFORM_TOOLS
 from the_one.agent.config import compose_system_prompt
 from the_one.agent.platform_prompt import (
     _EXECUTION,
-    KB_CATALOG,
-    KB_EXAMPLES,
-    KB_GROUPS,
-    NO_KB_CATALOG,
-    NO_KB_EXAMPLES,
-    NO_KB_GROUPS,
+    KB_LINE,
+    NO_KB_TOOL_DISCOVERY,
     SECTIONS,
     Capabilities,
     capabilities_from_registry,
@@ -31,13 +27,7 @@ def test_tool_free_render_is_byte_identical():
     assert OLD_PLATFORM_TOOL_FREE.endswith("\n")
 
 
-KB_PHRASES = (
-    "AND search tools for any",
-    "knowledge bases attached",
-    "`kb:<name>:",
-    "knowledge-base search tools",
-    '"internal docs"',
-)
+KB_PHRASES = ("Attached knowledge bases", "before answering from memory")
 BOX_PHRASES = ("isolated box", "host access")
 
 
@@ -55,24 +45,24 @@ def test_knowledge_condition_only_removes_kb_phrases():
         assert phrase in on
         assert phrase not in off, phrase
     # Everything else is still there.
-    assert "Tool discovery:" in off and "`built-in: " in off and "`mcp:<server>: " in off
+    assert "Tools:" in off and "search_tools" in off
     assert off.count("knowledge") == 0
 
 
 def test_no_kb_forms_are_pinned_verbatim():
     off = render_platform(Capabilities(knowledge=False))
-    assert NO_KB_CATALOG in off and NO_KB_GROUPS in off and NO_KB_EXAMPLES in off
+    assert NO_KB_TOOL_DISCOVERY in off and KB_LINE not in off
     assert (
-        "The catalog covers built-in tools (shell, file operations, web fetch, etc.) and tools "
-        "from any MCP servers attached to this agent \u2014 they all surface through this one "
-        "tool. Empty query lists everything; a specific query narrows results.\n"
-        "- Results are grouped by source: `built-in: \u2026` for built-in tools and "
-        "`mcp:<server>: \u2026` for MCP server tools. Don't second-guess which catalog has "
-        'what \u2014 just search by intent ("issue tracker", "read a file", "http request") '
-        "and the right tools will surface regardless of where they come from."
+        "\nTools:\n- You start with `search_tools` and `continue`. Find any other tool with "
+        '`search_tools` (for example "read a file" or "http request"); tools you find stay '
+        "available for the rest of the conversation.\n- Take actions rather than describing"
     ) in off
     on = render_platform(Capabilities.all_on())
-    assert KB_CATALOG in on and KB_GROUPS in on and KB_EXAMPLES in on
+    assert NO_KB_TOOL_DISCOVERY + KB_LINE in on
+    assert KB_LINE == (
+        "- Attached knowledge bases have search tools too: find them with `search_tools`, "
+        "and search them before answering from memory on topics they cover.\n"
+    )
 
 
 def test_execution_condition_removes_only_the_box_bullet():
@@ -83,7 +73,7 @@ def test_execution_condition_removes_only_the_box_bullet():
         assert phrase not in off
     assert on.replace(_EXECUTION, "") == off
     # The join stays intact: the bullets around the execution one still follow each other.
-    assert "speculating about output.\n- On failure, try a different approach" in off
+    assert "say what you changed.\n- To keep working in another step" in off
 
 
 def test_bare_agent_has_neither_kb_nor_box_text():
@@ -98,7 +88,7 @@ def test_capability_matrix_each_alone_and_all():
         for ex in (True, False):
             caps = Capabilities(knowledge=kb, exec_tools=ex)
             text = render_platform(caps)
-            assert (KB_CATALOG in text) is kb
+            assert (KB_LINE in text) is kb
             assert ("isolated box" in text) is ex
             assert "".join(t for _i, t in sections_for(caps)) == text
     ids = [i for i, _t in sections_for(Capabilities(exec_tools=False))]
@@ -135,12 +125,11 @@ def test_fragments_do_not_tile_and_ui_rows():
         "tool_use",
         "execution",
         "tool_use_tail",
-        "closing",
     ]
-    assert free == ["identity_tool_free", "closing"]
+    assert free == ["identity_tool_free"]
     assert set(rows[0]) == {"id", "title", "applies_when", "text", "variant"}
     knowledge = next(r for r in rows if r["id"] == "knowledge")
-    assert KB_EXAMPLES in knowledge["text"]
+    assert KB_LINE.strip() == knowledge["text"]
     # The tools rows' texts tile the all-on render (the fragment row is extra).
     assert "".join(
         r["text"] for r in rows if r["variant"] == "tools" and r["id"] != "knowledge"
@@ -176,7 +165,6 @@ def test_section_ids_unique_and_sections_for_matches_render():
     assert [i for i, _t in sections_for(caps)][0] == "identity"
     assert [i for i, _t in sections_for(Capabilities(tools=False))] == [
         "identity_tool_free",
-        "closing",
     ]
 
 

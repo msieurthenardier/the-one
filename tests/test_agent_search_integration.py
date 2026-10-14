@@ -90,12 +90,12 @@ def test_base_prompt_includes_discovery_section() -> None:
     """
 
     assert "search_tools" in PLATFORM_TOOLS
-    assert "Tool discovery" in PLATFORM_TOOLS
+    assert "\nTools:\n" in PLATFORM_TOOLS
     # The discovery section must mention MCP server tools surface through
     # the same search (the whole point of the merge).
-    assert "MCP" in PLATFORM_TOOLS
+    assert "search_tools" in PLATFORM_TOOLS  # MCP and built-in tools surface through it
     # Order lock: discovery section before "Tool use:".
-    assert PLATFORM_TOOLS.index("Tool discovery") < PLATFORM_TOOLS.index("Tool use:")
+    assert PLATFORM_TOOLS.index("Tools:") < PLATFORM_TOOLS.index("Take actions")
 
 
 @pytest.mark.asyncio

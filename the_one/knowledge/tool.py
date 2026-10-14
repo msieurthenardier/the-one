@@ -95,12 +95,7 @@ def build_description(kb: "KnowledgeBase") -> str:
     text = f"Search the {kb.name!r} knowledge base."
     if kb.description:
         text += f" {kb.description}"
-    text += (
-        " Use terse, keyword-shaped search terms rather than full "
-        "sentences — this search's keyword side treats multiple words as "
-        "ALL required, so a natural-language question can return zero "
-        "keyword matches."
-    )
+    text += " Use short keyword queries, not full sentences."
     return text
 
 
