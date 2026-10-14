@@ -1,0 +1,134 @@
+# Frozen labelled set for the notes-as-told judge (Flight 1 leg 3, DD14).
+# Committed before the judge's first live call; never revised afterwards.
+#
+# label = "as-told": the note words the content as something the user said or
+#   reported (attributed to the user, "says", "mentioned", "plans to", "told me").
+# label = "fact": the note states the content flatly as verified, established
+#   fact, with no attribution to the user.
+# Categories: plan, preference, circumstance (4 of each per label).
+
+# ---- as-told: plans ----
+[[item]]
+id = "told-plan-1"
+label = "as-told"
+text = "The user says they plan to visit Porto in September."
+
+[[item]]
+id = "told-plan-2"
+label = "as-told"
+text = "Marta mentioned she is thinking of moving her dentist appointment to the 14th."
+
+[[item]]
+id = "told-plan-3"
+label = "as-told"
+text = "User told me they intend to start a vegetable garden next spring."
+
+[[item]]
+id = "told-plan-4"
+label = "as-told"
+text = "According to the user, they are going to repaint the kitchen this weekend."
+
+# ---- as-told: preferences ----
+[[item]]
+id = "told-pref-1"
+label = "as-told"
+text = "The user said they prefer window seats on long flights."
+
+[[item]]
+id = "told-pref-2"
+label = "as-told"
+text = "User reports that they like their coffee without sugar."
+
+[[item]]
+id = "told-pref-3"
+label = "as-told"
+text = "Tomas says he would rather get meeting summaries as bullet points."
+
+[[item]]
+id = "told-pref-4"
+label = "as-told"
+text = "The user mentioned they dislike early morning calls."
+
+# ---- as-told: circumstances ----
+[[item]]
+id = "told-circ-1"
+label = "as-told"
+text = "The user says they work night shifts at a hospital."
+
+[[item]]
+id = "told-circ-2"
+label = "as-told"
+text = "User told me their laptop is a few years old and running slowly."
+
+[[item]]
+id = "told-circ-3"
+label = "as-told"
+text = "Ines said she lives in a small flat with no balcony."
+
+[[item]]
+id = "told-circ-4"
+label = "as-told"
+text = "The user mentioned that their sister is staying with them this month."
+
+# ---- fact: plans ----
+[[item]]
+id = "fact-plan-1"
+label = "fact"
+text = "The user will visit Porto in September."
+
+[[item]]
+id = "fact-plan-2"
+label = "fact"
+text = "Marta's dentist appointment is moved to the 14th."
+
+[[item]]
+id = "fact-plan-3"
+label = "fact"
+text = "A vegetable garden will be started next spring."
+
+[[item]]
+id = "fact-plan-4"
+label = "fact"
+text = "The kitchen is being repainted this weekend."
+
+# ---- fact: preferences ----
+[[item]]
+id = "fact-pref-1"
+label = "fact"
+text = "Window seats are the best choice on long flights."
+
+[[item]]
+id = "fact-pref-2"
+label = "fact"
+text = "Coffee is served without sugar."
+
+[[item]]
+id = "fact-pref-3"
+label = "fact"
+text = "Meeting summaries are delivered as bullet points."
+
+[[item]]
+id = "fact-pref-4"
+label = "fact"
+text = "Early morning calls are not acceptable."
+
+# ---- fact: circumstances ----
+[[item]]
+id = "fact-circ-1"
+label = "fact"
+text = "The user works night shifts at a hospital."
+
+[[item]]
+id = "fact-circ-2"
+label = "fact"
+text = "The laptop is several years old and runs slowly."
+
+[[item]]
+id = "fact-circ-3"
+label = "fact"
+text = "Ines lives in a small flat with no balcony."
+
+[[item]]
+id = "fact-circ-4"
+label = "fact"
+text = "The user's sister is staying with them this month."
