@@ -17,7 +17,12 @@ Author the DD17 scenario set, with its fixtures, the judge rubric and a frozen l
   Before any live call, re-probe both:
   - the plan token: one Haiku 4.5 call through `get_provider("anthropic-plan-token", …)`, printing status only, never the token
   - Ollama: `/api/tags` lists `gpt-oss:20b`
-- **Execution tools are disabled** for eval agents (leg 1). `absent-capability`'s pattern still lists them.
+- **Leg 1 as landed.**
+  - The execution tools (`shell`, `python_exec`, `shell_session_*`) plus `web_search` and `download_file` are disabled for eval agents, so `absent-capability` effectively measures the filesystem tools. Its pattern still lists all of them.
+  - KB fixtures are copied to `{run-dir}/kb/{fixture}` and get the id `evkb-{fixture}`. The KB tool name is `kb__{slug}_{hash}__search`; match it with a regex (`kb__.*__search`), never a literal hash.
+  - Tool refusals come back as `"[error] ..."` result strings.
+  - A turn that times out (900 s by default) is a counted `fail`.
+  - Ollama parse 5xx errors are matched by `outcomes.PARSE_ERROR_PATTERNS`, which is unconfirmed until this leg's smoke run.
 
 ## Inputs
 - Legs 1 and 2 landed (uncommitted) on `flight/01-prompt-evals-baseline`.
