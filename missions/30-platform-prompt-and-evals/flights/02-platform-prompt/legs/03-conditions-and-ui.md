@@ -1,6 +1,6 @@
 # Leg: conditions-and-ui
 
-**Status**: planning
+**Status**: ready
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
@@ -101,3 +101,37 @@ Taken from the leg 1b design review, 2026-10-14:
 - `NOTES_HEADING` ends with the update/forget instruction.
 
 Re-locate each by symbol before editing.
+
+## Design-review amendments (2026-10-14, binding)
+Where these conflict with the text above, these win.
+
+1. **The tool-free date line.** `build_system_prompts` builds a second date line with `tool_available=False` for the tool-free variant, so the tool-free prompt never says "call current_time".
+   - A test covers `time_tool=True` with every capability on.
+   - This is the existing without-tool wording, not new wording.
+2. **The `pending.py` fallback.** `pending.py`'s failure fallback, `compose_system_prompt(render_tool_free(caps), …)`, passes `tools=False`, and `pending.py` is added to Outputs.
+   - The hand-built tool-free expectations in `test_agent_degraded_injection.py`, `test_self_configuration_write.py` and `test_evals_tokens.py` pass `tools=False` where they pass notes.
+3. **`evals/tokens.py::platform_prompt_sections` must handle conditional renders.**
+   - It iterates the capability combinations (`tools` on/off × `knowledge` × `exec_tools`, with `time_tool` as relevant) and returns `sections_for(caps)` for the render that equals the text.
+   - If none matches, it returns a single `platform` part and logs a warning.
+   - A test checks that every combination's parts sum to its total.
+   - `measure-prompt` passes each configuration's real capabilities.
+   - `evals/tokens.py` is not frozen, so this change is allowed under DD10.
+4. **KB phrases are fragments, not `Section`s.** The KB phrases sit inside `tool_discovery` as conditional text:
+   - Both literal forms live in named module constants and are pinned verbatim.
+   - The UI's `knowledge` row comes from a separate `FRAGMENTS` list that `sections_for` ignores, so tiling stays exact.
+   - The `knowledge` row appears under "With tools" only.
+5. **The tool-free notes heading,** `NOTES_HEADING_TOOL_FREE`, is an explicit literal: the reference-and-trust part of `NOTES_HEADING`, with "You saved these in earlier conversations" changed to "These were saved in earlier conversations" (true for a model that can't save). Log this as a wording change. It contains `(unverified)`, and a test pins it.
+6. **Connector bindings.** The per-row guard wraps the whole row: the parse, the `isinstance(config, dict)` check, the `channel_map` dict check and the set build. It catches `(ValueError, TypeError, AttributeError)`.
+   - In the factory, `connector_bindings` is fetched once per `create()`, using the connection already in scope.
+   - Tests use `tests/_schema_template.py` fixtures.
+   - `agents.md` records the accepted staleness: a mapping added after a web session starts applies on rejoin.
+7. **The UI registry.**
+   - `platform-section-` goes in `docs/ui-testid-registry.md`'s **"Parametric prefix families"** table, not the live table.
+   - `base-prompt-content` moves from the live table to "Retired testids" and into `RETIRED_SELECTORS`.
+   - A new live testid, `notes-prompt-content-tool-free`, is added, with no prefix collision.
+8. **The browser test.**
+   - It replaces the `base-prompt-content` visibility and "Loading…" checks with testid-based checks on a `platform-section-tools-identity` block.
+   - It asserts the blocks by testid, not by `nth`.
+   - It updates the `.section-title` list explicitly, or gives in-block section titles a distinct class so the existing four-title list holds.
+9. **Execution gating.** `execution` applies on `tools and exec_tools`, and its `applies_when` text is updated. A test confirms the join stays intact when it is dropped. "the shell tool" and "shell" stay in `tool_use` and `tool_discovery` as they are; rewording is leg 2's job.
+10. **Other `base_prompt` references** to update: `tests/test_prompt_layers.py`, `tests/test_aiat.py`, the `/api/info` docstring in `app.py`, `the_one/agents.md`, and `tests/behavior/agent-rules-round-trip.md` if it names the old key. Leave the `test_credential_gate.py` and `test_desktop_shell.py` fixtures and the `.admin-base-prompt` CSS class.
