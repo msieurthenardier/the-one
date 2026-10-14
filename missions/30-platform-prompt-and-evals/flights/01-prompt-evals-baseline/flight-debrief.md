@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-14
 **Flight**: [Prompt evals and baseline](flight.md)
-**Status**: completed
+**Status**: landed
 **Duration**: 2026-10-13 – 2026-10-14
 **Legs Completed**: 4 of 4
 **Plugin version**: mission-control 1.2.0
