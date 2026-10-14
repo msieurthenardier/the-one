@@ -35,7 +35,6 @@ from the_one.agent._context import (
     current_tool_call_id,  # noqa: F401  re-export for future consumers
     current_turn,
 )
-from the_one.agent.config import BASE_PROMPT
 from the_one.agent.factory import (
     AgentFactory,
     AgentNotFoundError,
@@ -45,6 +44,7 @@ from the_one.agent.factory import (
 from the_one.agent.factory import (
     set_factory as _set_module_factory,
 )
+from the_one.agent.platform_prompt import platform_sections_for_ui
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
 from the_one.connectors.manager import ConnectorManager
@@ -2620,9 +2620,12 @@ async def info() -> dict[str, Any]:
 
     # The rules and notes layers are rendered by the same functions that build a
     # real prompt, from placeholder content, so the Prompts page cannot drift.
+    # ``platform_sections`` is the platform prompt by section (Flight 2 leg 1c,
+    # DD8): ``{id, title, applies_when, text, variant}``, ``variant`` "tools" or
+    # "tool_free"; it replaces the old ``base_prompt`` string.
     return {
         "version": __version__,
-        "base_prompt": BASE_PROMPT,
+        "platform_sections": platform_sections_for_ui(),
         "date_prompt_example": render_date_line(
             "{today's date}", "{time zone}", tool_available=True
         ),
@@ -2637,6 +2640,13 @@ async def info() -> dict[str, Any]:
                 RenderedNote(1, "{a saved note}", False),
                 RenderedNote(2, "{a note saved while outside text was in the conversation}", True),
             ]
+        ),
+        "notes_prompt_example_tool_free": render_notes_block(
+            [
+                RenderedNote(1, "{a saved note}", False),
+                RenderedNote(2, "{a note saved while outside text was in the conversation}", True),
+            ],
+            tools=False,
         ),
     }
 

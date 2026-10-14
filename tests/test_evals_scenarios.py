@@ -3,7 +3,9 @@
 For every run set, the REAL scenario file is driven through the runner with the scripted
 provider:
 
-* a passing script, for all 20 variants (every phrasing x every fact), must end ``pass``;
+* a passing script must end ``pass`` for every variant: in the unit tier 5 of the 20 (one
+  per fact, the phrasings rotating, DD15); ``python -m evals selftest`` sets
+  ``EVALS_SELFTEST_FULL=1`` and runs all 20 (every phrasing x every fact);
 * four variants of one fact (one passing script, then one violating script each) must end
   ``fail`` with exactly the expected checks failing and the others passing.
 
@@ -16,6 +18,7 @@ flag). They are proven at the check level against the real scenario's declaratio
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -476,17 +479,33 @@ async def _drive(tmp, sid, builders, n, judge=None):
 CASE_IDS = list(EXPECTED_SETS)
 
 
+FULL_WIDTH = os.environ.get("EVALS_SELFTEST_FULL") == "1"
+WIDTH = 20 if FULL_WIDTH else 5
+
+
 @pytest.mark.parametrize("sid", CASE_IDS)
-async def test_passing_script_passes_for_all_twenty_variants(evals_isolation, sid):
+async def test_passing_script_passes_for_every_variant(evals_isolation, sid, monkeypatch):
     tmp = evals_isolation
+    if not FULL_WIDTH:  # one variant per fact; the phrasing rotates with the fact
+        from evals.scenario import Scenario
+
+        full = Scenario.variants
+        monkeypatch.setattr(
+            Scenario,
+            "variants",
+            lambda self: [v for v in full(self) if v.phrasing_index == v.fact_index % 4],
+        )
     case = build_cases(None)[sid]
     judge = fake_judge() if sid == "notes-as-told" else None
-    code, run_dir = await _drive(tmp, sid, lambda pi: case.ok, 20, judge)
+    code, run_dir = await _drive(tmp, sid, lambda pi: case.ok, WIDTH, judge)
     recs = records(run_dir)
-    assert len(recs) == 20
+    assert len(recs) == WIDTH
     bad = [(r["variant"], r["reason"]) for r in recs if r["outcome"] != "pass"]
     assert not bad, bad
-    assert {r["variant"] for r in recs} == {f"f{f}p{p}" for f in range(5) for p in range(4)}
+    if FULL_WIDTH:
+        assert {r["variant"] for r in recs} == {f"f{f}p{p}" for f in range(5) for p in range(4)}
+    else:
+        assert {r["variant"] for r in recs} == {f"f{f}p{f % 4}" for f in range(5)}
     if sid == "kb":  # the fixture must really contain the answer: the search finds it
         for r in recs:
             tr = json.loads(

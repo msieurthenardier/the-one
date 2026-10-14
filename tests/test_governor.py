@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 import pytest
 
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
 from tests.conftest import FakeLLM
 from the_one.agent._governor import (
     _DEFAULT_CEILING_BYTES,
@@ -29,7 +30,6 @@ from the_one.agent._governor import (
     govern_tool_content,
     governor_defaults,
 )
-from the_one.agent.config import BASE_PROMPT
 from the_one.agent.core import Agent
 from the_one.llm.base import ToolCall
 from the_one.tools._web_config import WebConfig
@@ -188,7 +188,7 @@ class _BigResultTool(Tool):
 
 
 def _agent_with(registry: ToolRegistry) -> Agent:
-    return Agent(llm=FakeLLM(responses=[]), tools=registry, system_prompt=BASE_PROMPT)
+    return Agent(llm=FakeLLM(responses=[]), tools=registry, system_prompt=PLATFORM_TOOLS)
 
 
 def _call(name: str) -> ToolCall:

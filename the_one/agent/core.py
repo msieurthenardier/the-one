@@ -7,7 +7,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent._context import current_tool_call_id
 from the_one.agent._governor import govern_tool_content, governor_defaults
-from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT
 from the_one.db.codec import truncate_for_event
 from the_one.llm.base import (
     ContentBlock,
@@ -169,10 +168,15 @@ class Agent:
         *,
         loaded_schemas: list[dict] | None = None,
         loaded_tool_names: set[str] | None = None,
+        degraded_system_prompt: str | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.system_prompt = system_prompt
+        # The tool-free twin of ``system_prompt`` (same persona/rules/notes/date on
+        # the tool-free platform prompt), sent instead of it when the model has no
+        # native tool support. ``None`` -> ``system_prompt`` is sent verbatim.
+        self.degraded_system_prompt = degraded_system_prompt
         self.max_iterations = max_iterations
         self.messages: list[Message] = [Message.system(system_prompt)]
         # F5 L3: pause/resume state (in-memory only; not persisted —
@@ -263,7 +267,7 @@ class Agent:
         # M16 F03 L08C (#105): if the model can't accept a native tools= array
         # (e.g. Ollama Gemma — Ollama 400s if tools are offered), the degraded
         # path runs as a CHAT-ONLY conversation: a tool-free system prompt
-        # (CHAT_ONLY_PROMPT, no catalog/protocol) is injected and recovery is
+        # (the tool-free platform prompt, no catalog/protocol) is injected and recovery is
         # gated OFF at the provider level so spontaneously-emitted tool_code
         # blocks pass through verbatim as assistant text. The wire tools= stays
         # None. Studio surfaces the degraded model via the red "no tools"
@@ -288,7 +292,7 @@ class Agent:
             #
             # M16 F03 L08C: on the degraded path build an EPHEMERAL message list
             # that REPLACES messages[0] (always the system prompt) with the
-            # tool-free chat prompt (CHAT_ONLY_PROMPT + persona). self.messages
+            # tool-free chat prompt (``degraded_system_prompt``). self.messages
             # is NOT mutated. The wire tools= stays None on this path.
             if supports_tools:
                 tool_schemas = self._compute_visible_schemas()
@@ -435,7 +439,7 @@ class Agent:
 
         M16 F03 L08C (#105): for a non-tool-capable model (``supports_tools()=False``),
         REPLACE ``messages[0]`` (always the system prompt) with a tool-free chat prompt
-        — CHAT_ONLY_PROMPT with no catalog, no ``tool_code`` format spec, no
+        — the tool-free platform prompt with no catalog, no ``tool_code`` format spec, no
         ``continue``-tool turn semantics. ``self.messages`` is left untouched.
 
         Recovery is gated OFF at the provider level (OllamaProvider.complete() /
@@ -443,9 +447,8 @@ class Agent:
         even if the model spontaneously emits a ``tool_code`` fence the block passes
         through verbatim as assistant text rather than being parsed and dispatched.
 
-        The swap logic mirrors the prior 08A approach: swap BASE_PROMPT → CHAT_ONLY_PROMPT
-        so the persona carries through unchanged. No addendum, no catalog, no
-        `degraded_tools` protocol injection.
+        The tool-free prompt is built at agent-build time (``degraded_system_prompt``);
+        when it is unset ``system_prompt`` is sent verbatim. No prefix recovery.
 
         Updates Flight 3 DD2 / DD-G: the degraded path is now conversational-only;
         the Leg-09 backstop (partition/synthesize logic below) becomes harmless dead code
@@ -454,14 +457,11 @@ class Agent:
         still validates the loop logic for structured-tool_calls inputs in tests. See
         flight-log for the debrief cleanup note.
         """
-        # Swap BASE_PROMPT → CHAT_ONLY_PROMPT so the persona carries through
-        # unchanged.
-        if self.system_prompt.startswith(BASE_PROMPT):
-            chat_system = CHAT_ONLY_PROMPT + self.system_prompt[len(BASE_PROMPT) :]
-        else:
-            # Defensive: a system prompt not built from BASE_PROMPT (custom
-            # construction sites / tests). Keep it verbatim.
-            chat_system = self.system_prompt
+        chat_system = (
+            self.degraded_system_prompt
+            if self.degraded_system_prompt is not None
+            else self.system_prompt
+        )
         return [Message.system(chat_system), *self.messages[1:]]
 
     async def _dispatch_tool_calls(self, tcs: list[ToolCall]) -> AsyncIterator[Message]:

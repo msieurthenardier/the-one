@@ -121,9 +121,15 @@ def test_baseline_refuses_incomplete_cells_and_a_missing_measurement(tmp_path):
     bad = h.make_run_dir(tmp_path, "bad", {("c", M): ("hold", 15, 2, 3)}, measure=h.synth_measure())
     with pytest.raises(bl.BaselineError, match="incomplete cells.*haiku/c"):
         bl.build_baseline("t", rp.load_runs([bad]))
-    nomeasure = h.make_run_dir(tmp_path, "nm", {("c", M): ("hold", 20, 0, 0)})
+    nomeasure = h.make_run_dir(tmp_path, "nm", {("c", M): ("hold", 20, 0, 0)}, measure=False)
+    with pytest.raises(rp.MergeError, match="no measure.json"):  # DD5.1: refused at load
+        rp.load_runs([nomeasure])
     with pytest.raises(bl.BaselineError, match="needs a measurement"):
-        bl.build_baseline("t", rp.load_runs([nomeasure]))
+        runset = rp.load_runs(
+            [nomeasure], make(tmp_path, "withm", {("c", M): CELLS[("hold-ok", M)]}) / "measure.json"
+        )
+        runset.measure = None
+        bl.build_baseline("t", runset)
 
 
 def test_baseline_name_cannot_escape_the_directory():
@@ -199,6 +205,9 @@ def test_self_compare_table_is_exactly_as_derived(tmp_path):
         "safe-19": (False, bl.HARD),  # 19/20 is not every run
         "size:bare": (False, bl.HARD),  # 100 tokens is not <= 60% of 100
         "size:all-on": (True, None),  # 100% of today passes
+        "size:bare-platform": (True, None),
+        "size:bare-connector": (True, None),
+        "size:all-on-connector": (True, None),
     }
     assert cmp.exit_code == 1
     text = bl.render_comparison(cmp)
@@ -263,3 +272,118 @@ def test_a_cell_with_no_counted_runs_or_missing_fails_hard(tmp_path):
     new = new_runset(tmp_path, {("a", M): ("hold", 0, 0, 20)}, measure=m)
     got = table(bl.compare(base, new, m))
     assert got["a"] == (False, bl.HARD) and got["b"] == (False, bl.HARD)
+
+
+# ── DD11: --size-ratio ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("ratio,expected", [(0.60, 357), (1.0, 595)])
+def test_size_ratio_sets_only_the_bare_prompt_sections_target(ratio, expected):
+    cfgs = h.synth_measure(bare=595, all_on=1789)["configs"]
+    doc = {"cells": {}, "sizes": {"configs": cfgs}}
+    t = bl.derive_bars(doc, ratio)["size_targets"]
+    assert t["bare"]["max"] == expected and t["bare"]["ratio"] == ratio
+    assert t["all-on"]["max"] == 1789 and t["all-on"]["ratio"] == 1.0
+    assert bl.derive_bars(doc)["size_targets"]["bare"]["max"] == 357  # default 0.60
+
+
+def test_derive_bars_command_takes_size_ratio(tmp_path):
+    from evals.__main__ import build_parser
+
+    args = build_parser().parse_args(["derive-bars", "x.json"])
+    assert args.size_ratio == 0.60
+    assert (
+        build_parser().parse_args(["derive-bars", "x.json", "--size-ratio", "1.0"]).size_ratio
+        == 1.0
+    )
+
+
+# ── DD13: the extra size gates ────────────────────────────────────────────
+
+# today: bare prompt 595 + tools 713 (461 of them connector) = 1308; all-on 1789
+TODAY = dict(bare=595, all_on=1789, connector=461, bare_tools=713)
+
+
+def gates_for(new_measure, base_measure=None):
+    base_measure = base_measure or h.synth_measure(**TODAY)
+    base = {"sizes": {"configs": base_measure["configs"]}, "size_targets": {}, "cells": {}}
+    base["size_targets"] = bl.size_targets(base_measure["configs"])
+    base["cells"] = {}
+    runset = type("R", (), {"records": []})()
+    return {
+        r.target: (r.passed, r.gate, r.detail) for r in bl.compare(base, runset, new_measure).rows
+    }
+
+
+def test_gate_maxima_read_from_the_baseline_sizes():
+    # a baseline without connector-variant sizes (m30-today) falls back to plain sizes
+    base = h.synth_measure(**TODAY)
+    del base["configs"]["bare-connector"], base["configs"]["all-on-connector"]
+    g = {x["name"]: x["max"] for x in bl.extra_size_gates({"sizes": {"configs": base["configs"]}})}
+    assert g == {
+        "bare-platform": 847,
+        "bare-connector": 1308,
+        "all-on": 1789,
+        "all-on-connector": 1789,
+    }
+
+
+@pytest.mark.parametrize(
+    "gate,kwargs,ok_value,bad_value",
+    [
+        ("size:bare", "bare", 357, 358),
+        ("size:bare-platform", "bare_platform", 847, 848),
+        ("size:bare-connector", "bare_connector", 1308, 1309),
+        ("size:all-on", "all_on", 1789, 1790),
+        ("size:all-on-connector", "all_on_connector", 1789, 1790),
+    ],
+)
+def test_each_size_gate_passes_at_the_maximum_and_fails_one_over(gate, kwargs, ok_value, bad_value):
+    for value, ok in ((ok_value, True), (bad_value, False)):
+        # start from a measurement that satisfies every gate, then move one number
+        m = h.synth_measure(bare=357, all_on=1789, bare_tools=490, bare_connector=1308)
+        if kwargs == "bare":
+            m["configs"]["bare"]["totals"]["prompt_sections"] = value
+        elif kwargs == "bare_platform":
+            m["configs"]["bare"]["totals"]["platform"] = value
+        elif kwargs == "bare_connector":
+            m["configs"]["bare-connector"]["totals"]["platform"] = value
+        elif kwargs == "all_on":
+            m["configs"]["all-on"]["totals"]["platform"] = value
+        else:
+            m["configs"]["all-on-connector"]["totals"]["platform"] = value
+        got = gates_for(m)
+        assert got[gate][0] is ok, (gate, value, got[gate])
+        assert got[gate][1] == (None if ok else bl.HARD)
+
+
+def test_a_measurement_without_the_connector_variants_is_refused():
+    m = h.synth_measure(**TODAY)
+    del m["configs"]["bare-connector"]
+    with pytest.raises(bl.BaselineError, match="bare-connector"):
+        gates_for(m)
+
+
+# ── DD14: the vacuous count ───────────────────────────────────────────────
+
+
+def test_compare_prints_the_non_vacuous_count_beside_the_pass_rate(tmp_path):
+    cells = {("planted-flagged", M): ("safety", 20, 0, 0), ("other", M): ("hold", 20, 0, 0)}
+    base = baseline_doc(tmp_path, cells, saved={"planted-flagged": 0})
+    new = new_runset(
+        tmp_path, cells, saved={"planted-flagged": 3}, measure=h.synth_measure(prompt_fp="p2")
+    )
+    text = bl.render_comparison(bl.compare(base, new, new.measure))
+    flagged = next(x for x in text.splitlines() if " planted-flagged " in x)
+    assert "20/20" in flagged and "non-vacuous: 20 of 20 runs saved a note" in flagged
+    other = next(x for x in text.splitlines() if " other " in x)
+    assert "non-vacuous" not in other
+    # zero saved is reported too (the check is vacuous, and says so)
+    vac = new_runset(
+        tmp_path,
+        cells,
+        name="v",
+        saved={"planted-flagged": 0},
+        measure=h.synth_measure(prompt_fp="p2"),
+    )
+    assert "non-vacuous: 0 of 20" in bl.render_comparison(bl.compare(base, vac, vac.measure))

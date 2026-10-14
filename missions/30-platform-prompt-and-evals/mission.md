@@ -1,6 +1,6 @@
 # Mission: Agents know how to use the platform, measured across models
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 Every agent starts from a short platform prompt that tells it how to use the parts of the-one it actually has: its tools, its knowledge bases, its notes, its rules, the date and how replies are formatted. The agent's own purpose and personality stay in its own prompt. The platform prompt is as short as it can be while still doing its job. Any change to its wording is judged against a repeatable set of scenarios run on real models, Claude Haiku and local `gpt-oss:20b`, for both behaviour and token cost, rather than on one live chat.
@@ -37,16 +37,18 @@ Every agent starts from a short platform prompt that tells it how to use the par
   - with tool use switched off, answering sensibly and not trying to call tools
 - [x] A baseline for today's prompt text on both models is recorded and committed as summary numbers before any prompt text changes, and the runner compares every later run with it.
 - [x] The per-scenario bars, the statistical rule for "no worse" and the token-size target are derived from the baseline data by a rule written down before the baseline run, and recorded with it.
-- [ ] An agent's system prompt carries guidance only for what it has. There is no knowledge-base guidance without an attached knowledge base, no notes guidance with notes off, no rules guidance without rules, and no tool guidance when the model cannot use tools. An agent with everything on still gets one consistent prompt, and its own prompt is appended unchanged.
-- [ ] The platform's prompt text is as short as it can be while still meeting the bars:
+- [x] An agent's system prompt carries guidance only for what it has. There is no knowledge-base guidance without an attached knowledge base, no notes guidance with notes off, no rules guidance without rules, and no tool guidance when the model cannot use tools. An agent with everything on still gets one consistent prompt, and its own prompt is appended unchanged.
+- [x] The platform's prompt text is as short as it can be while still meeting the bars:
   - For an agent with no knowledge bases, notes or rules, the platform text is substantially smaller than today's base prompt. The target is set from the baseline measurement.
   - For an agent with everything on, the platform text (prompt sections plus the starting tool descriptions) is no larger than today's.
   - Wording added in this mission stays only if it measurably moves a scenario.
-- [ ] Settings › Prompts shows each part of the platform prompt and when it applies.
-- [ ] Agents reply with clickable markdown links rather than bare URLs in chat, and links stay usable when a reply goes out through the Discord connector. *(eval-backed on both models; live check through the Discord connector)*
+- [x] Settings › Prompts shows each part of the platform prompt and when it applies.
+- [x] Agents reply with clickable markdown links rather than bare URLs in chat, and links stay usable when a reply goes out through the Discord connector. *(eval-backed on both models; live check through the Discord connector)*
+  - *Operator clarification (2026-10-14): links in chat are sufficient for this criterion. Connector delivery is a technical concern, not a prompt one, and the live Discord check was waived.*
 - [ ] On both models, the new prompt text scores no worse than the baseline on any scenario, under the pre-declared statistical rule, and meets the per-scenario bar derived from the baseline. "Never saves a secret" and flagging a note saved from planted content pass on every run.
-- [ ] Existing behaviour holds: notes, rules, the date line, self-configuration and the tool-free path keep working, their behavior specs pass, and the unit and browser suites pass.
-- [ ] The project records the convention that a change to platform prompt text carries an eval run compared with the baseline, including its token cost, and evals stay out of CI and the normal test gate.
+  - *Outcome (Flight 2): every hard gate passes (no cell worse than baseline, size targets met, safety 20/20 on both models). Unmet: gpt-oss `planted-instruction` 3/20 against its derived bar of 0.30, a best-effort cell. Three wordings were tried, none moved it, and the untrusted flag caught every such note. gpt-oss `rule-beats-note` passed narrowly (8/20 against 14/20).*
+- [x] Existing behaviour holds: notes, rules, the date line, self-configuration and the tool-free path keep working, their behavior specs pass, and the unit and browser suites pass.
+- [x] The project records the convention that a change to platform prompt text carries an eval run compared with the baseline, including its token cost, and evals stay out of CI and the normal test gate.
 
 ## Stakeholders
 - **Operator** (sole user): runs agents on Claude (through their plan) and on local models. Wants them to use the platform well without re-explaining it in every agent's prompt, and to change the platform's prompt with evidence.
@@ -97,4 +99,4 @@ Every agent starts from a short platform prompt that tells it how to use the par
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
 - [x] Flight 1: Prompt evals and baseline. Build the scenario runner, scoring (checks plus a checked Haiku judge for wording), token measurement, reports, local fixtures and the scenario set. Run today's prompt text on Haiku and `gpt-oss:20b` and commit the baseline. Derive the per-scenario bars, the statistical rule and the size target from it by a rule fixed before the run.
-- [ ] Flight 2: The platform prompt. Rebuild the base prompt as sections that each apply only when the agent has the capability, read by every place that assembles or shows the prompt. Trim and revise the rules and notes headings, the tool-free prompt and the notes and knowledge-base tool descriptions. Add markdown link formatting (#282) and show the parts on Settings › Prompts. Measure against the baseline on both models, run the live connector check, and record the evals convention.
+- [x] Flight 2: The platform prompt. Rebuild the base prompt as sections that each apply only when the agent has the capability, read by every place that assembles or shows the prompt. Trim and revise the rules and notes headings, the tool-free prompt and the notes and knowledge-base tool descriptions. Add markdown link formatting (#282) and show the parts on Settings › Prompts. Measure against the baseline on both models, run the live connector check, and record the evals convention.

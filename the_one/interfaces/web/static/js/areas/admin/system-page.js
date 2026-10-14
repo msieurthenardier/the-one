@@ -4,7 +4,7 @@
   window.App.admin = window.App.admin || {};
 
   // The three General pages (M25 F3 L5a, DD6): Appearance (theme toggle),
-  // Prompts (the read-only base prompt) and Encryption (the rotate flow).
+  // Prompts (the read-only platform prompt sections) and Encryption (the rotate flow).
   // Until L5a they were one "General" page with three blocks; each block now
   // has its own route and renders under the page's own header, so the block's
   // former section title is the page's h1 and nothing repeats it. The blocks
@@ -64,19 +64,62 @@
     return el('pre', { className: 'admin-base-prompt code-block', text: 'Loading\u2026' });
   }
 
+  // One platform-prompt section as a block (Flight 2 leg 1c, DD8): a title, an
+  // "Applies when" line and the section's text. The test id is
+  // `platform-section-{variant}-{id}` (a parametric family, see the registry).
+  function platformSectionBlock(row) {
+    var key = row.variant + '-' + row.id;
+    var applies = el('p', {
+      className: 'admin-system-text platform-section-applies',
+      text: 'Applies when: ' + row.applies_when
+    });
+    applies.setAttribute('data-testid', 'platform-section-' + key + '-applies-when');
+    var pre = el('pre', { className: 'admin-base-prompt code-block', text: row.text });
+    pre.setAttribute('data-testid', 'platform-section-' + key + '-text');
+    var block = el('div', { className: 'platform-section' }, [
+      el('div', { className: 'platform-section-title', text: row.title }),
+      applies,
+      pre
+    ]);
+    block.setAttribute('data-testid', 'platform-section-' + key);
+    return block;
+  }
+
+  var PLATFORM_GROUPS = [
+    { variant: 'tools', caption: 'With tools' },
+    { variant: 'tool_free', caption: 'Without tools (models that can\u2019t call tools)' }
+  ];
+
+  function fillPlatformSections(mount, rows) {
+    mount.textContent = '';
+    PLATFORM_GROUPS.forEach(function (group) {
+      var members = rows.filter(function (r) { return r.variant === group.variant; });
+      if (!members.length) { return; }
+      var wrap = el('div', { className: 'admin-prompt-layer' }, [
+        el('div', { className: 'section-title', text: group.caption })
+      ]);
+      members.forEach(function (r) { wrap.appendChild(platformSectionBlock(r)); });
+      mount.appendChild(wrap);
+    });
+  }
+
   function renderPromptsPage(container) {
-    var base = promptPre();
-    base.setAttribute('data-testid', 'base-prompt-content');
+    var platform = el('div', { className: 'platform-sections' }, [
+      el('p', { className: 'admin-system-text', text: 'Loading\u2026' })
+    ]);
+    platform.setAttribute('data-testid', 'platform-sections');
     var rules = promptPre();
     rules.setAttribute('data-testid', 'rules-prompt-content');
     var notes = promptPre();
     notes.setAttribute('data-testid', 'notes-prompt-content');
+    var notesFree = promptPre();
+    notesFree.setAttribute('data-testid', 'notes-prompt-content-tool-free');
     var dateWith = promptPre();
     dateWith.setAttribute('data-testid', 'date-prompt-content');
     var dateWithout = promptPre();
     dateWithout.setAttribute('data-testid', 'date-prompt-content-without-tool');
     // The Date layer has two wordings; each pre gets a small caption (plain
-    // text, not a .section-title, so the layer-title list stays four).
+    // text, not a .section-title, so the layer-title list stays short).
     var dateLayer = el('div', { className: 'admin-prompt-layer' }, [
       el('div', { className: 'section-title', text: 'Date' }),
       text('Added last to every agent\u2019s prompt, with the date in your time zone. ' +
@@ -87,34 +130,52 @@
       text('Without it'),
       dateWithout
     ]);
+    var notesLayer = el('div', { className: 'admin-prompt-layer' }, [
+      el('div', { className: 'section-title', text: 'Notes' }),
+      text('Added after the rules when the agent keeps notes.'),
+      text('With tools'),
+      notes,
+      text('Without tools (it can\u2019t save notes, so the saving instructions are left out)'),
+      notesFree
+    ]);
     renderPage(container, 'Prompts', null, [
       text('Every agent\u2019s system prompt is assembled from these layers, in this order, ' +
-        'separated by ---: the base prompt, the agent\u2019s own system prompt (set on its General tab), ' +
-        'then rules, notes and the date. They are read-only and only change via code releases. ' +
+        'separated by ---: the platform prompt, the agent\u2019s own system prompt (set on its General tab), ' +
+        'then rules, notes and the date. Parts of the platform prompt apply only when the agent ' +
+        'can use them (each block says when). They are read-only and only change via code releases. ' +
         'The Rules and Notes layers below show placeholder content.'),
-      promptLayer('Base prompt', null, base),
+      el('div', { className: 'admin-prompt-layer' }, [
+        el('div', { className: 'section-title', text: 'Platform prompt' })
+      ]),
+      platform,
       promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.', rules),
-      promptLayer('Notes', 'Added after the rules when the agent keeps notes.', notes),
+      notesLayer,
       dateLayer
     ]);
-    fetchPrompts(base, rules, notes, dateWith, dateWithout);
+    fetchPrompts(platform, rules, notes, notesFree, dateWith, dateWithout);
   }
 
-  function fetchPrompts(baseEl, rulesEl, notesEl, dateWithEl, dateWithoutEl) {
+  function fetchPrompts(platformEl, rulesEl, notesEl, notesFreeEl, dateWithEl, dateWithoutEl) {
     function fill(pre, value, fallback) {
       pre.textContent = typeof value === 'string' ? value : fallback;
     }
     fetch('/api/info')
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        fill(baseEl, data.base_prompt, '(base prompt unavailable)');
+        if (Array.isArray(data.platform_sections)) {
+          fillPlatformSections(platformEl, data.platform_sections);
+        } else {
+          platformEl.textContent = '(platform prompt unavailable)';
+        }
         fill(rulesEl, data.rules_prompt_example, '(unavailable)');
         fill(notesEl, data.notes_prompt_example, '(unavailable)');
+        fill(notesFreeEl, data.notes_prompt_example_tool_free, '(unavailable)');
         fill(dateWithEl, data.date_prompt_example, '(unavailable)');
         fill(dateWithoutEl, data.date_prompt_example_without_tool, '(unavailable)');
       })
       .catch(function () {
-        [baseEl, rulesEl, notesEl, dateWithEl, dateWithoutEl].forEach(function (p) {
+        platformEl.textContent = '(failed to load)';
+        [rulesEl, notesEl, notesFreeEl, dateWithEl, dateWithoutEl].forEach(function (p) {
           p.textContent = '(failed to load)';
         });
       });

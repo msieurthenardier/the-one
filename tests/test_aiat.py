@@ -108,7 +108,7 @@ def test_health(base_url: str) -> None:
     r.raise_for_status()
     data = r.json()
     assert "version" in data, f"missing version in {data}"
-    assert "base_prompt" in data, f"missing base_prompt in {data}"
+    assert "platform_sections" in data, f"missing platform_sections in {data}"
 
 
 @pytest.mark.live

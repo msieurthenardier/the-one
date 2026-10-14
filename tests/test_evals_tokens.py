@@ -16,6 +16,9 @@ import pytest
 
 from evals import tokens
 from evals.tokens import StandInCounter, extract_parts
+from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from the_one.agent.platform_prompt import Capabilities, sections_for
 
 evals_isolation = h.evals_isolation
 C = StandInCounter()
@@ -40,36 +43,100 @@ def test_schema_text_is_deterministic_and_covers_name_description_parameters():
     assert tokens.schema_text(wrapped) == tokens.schema_text(a)
 
 
-def test_extract_parts_pure_attribution_and_other():
-    from the_one.agent.config import BASE_PROMPT, compose_system_prompt
-    from the_one.db._rules import RULES_HEADING
+def test_separator_matches_the_products_layer_separator():
+    from the_one.agent.config import compose_system_prompt
 
-    date = "Today is Monday."
-    system = (
-        compose_system_prompt(BASE_PROMPT, "", rules=["RULE-A"], notes=None, date_line=date)
-        + "\n\n---\n\nA stray layer."
+    assert compose_system_prompt("A", "B") == f"A{tokens.SEPARATOR}B"
+    assert compose_system_prompt("A", "", date_line="D") == f"A{tokens.SEPARATOR}D"
+
+
+def compose(persona="", rules=(), notes=None, date="Today is Monday."):
+    from the_one.agent.config import compose_system_prompt
+
+    return compose_system_prompt(
+        PLATFORM_TOOLS, persona, rules=list(rules), notes=notes, date_line=date
     )
+
+
+def test_extract_parts_bare_all_on_tool_free_and_persona_attribution():
+    from the_one.agent.config import RenderedNote
+
     schemas = [{"name": "x", "description": "d", "parameters": {}}]
-    parts = extract_parts(system, schemas, C, rule_texts=["RULE-A"], date_lines=[date])
-    assert names(parts) == ["base_prompt", "rules_layer", "date_line", "other", "tool:x"]
+    # bare: platform, date
+    parts = extract_parts(compose(), schemas, C, date_lines=["Today is Monday."])
+    assert names(parts) == ["platform", "date_line", "tool:x"]
+    assert parts[0].tokens == C.count(PLATFORM_TOOLS)
+    # all-on: rules and notes layers, operator texts subtracted
+    sys_all = compose(rules=["RULE-A"], notes=[RenderedNote(1, "NOTE-A")])
+    parts = extract_parts(
+        sys_all,
+        [],
+        C,
+        rule_texts=["RULE-A"],
+        note_texts=["NOTE-A"],
+        date_lines=["Today is Monday."],
+    )
+    assert names(parts) == ["platform", "rules_layer", "notes_layer", "date_line"]
+    layers = sys_all.split(tokens.SEPARATOR)
     by = {p.name: p for p in parts}
-    assert by["base_prompt"].tokens == C.count(BASE_PROMPT)
-    # the rules layer is counted without the rule's own text
-    layer = system.split("\n\n---\n\n")[1]
-    assert layer.startswith(RULES_HEADING)
-    assert by["rules_layer"].tokens == C.count(layer.replace("RULE-A", ""))
-    assert by["other"].tokens == C.count("A stray layer.")
-    assert tokens.totals(parts)["platform"] == sum(p.tokens for p in parts)
+    assert by["rules_layer"].tokens == C.count(layers[1].replace("RULE-A", ""))
+    assert by["notes_layer"].tokens == C.count(layers[2].replace("NOTE-A", ""))
+    # tool-free: the chat-only prompt is just another platform text
+    from the_one.agent.config import compose_system_prompt
+
+    free = compose_system_prompt(PLATFORM_TOOL_FREE, "", date_line="Today is Monday.")
+    parts = extract_parts(free, [], C, date_lines=["Today is Monday."])
+    assert names(parts) == ["platform", "date_line"]
+    assert parts[0].tokens == C.count(PLATFORM_TOOL_FREE)
+    # persona: operator text, not counted
+    parts = extract_parts(
+        compose(persona="I am Penny."),
+        [],
+        C,
+        persona="I am Penny.",
+        date_lines=["Today is Monday."],
+    )
+    assert names(parts) == ["platform", "date_line"]
+    assert all("unattributed" != n for n in names(parts))
 
 
-def test_extract_parts_persona_is_operator_text_and_unknown_prefix_is_other():
-    from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+def test_a_persona_containing_the_separator_does_not_confuse_the_split():
+    persona = f"First half.{tokens.SEPARATOR}Second half."
+    system = compose(persona=persona, rules=["RULE-A"])
+    parts = extract_parts(
+        system,
+        [],
+        C,
+        persona=persona,
+        rule_texts=["RULE-A"],
+        date_lines=["Today is Monday."],
+    )
+    assert names(parts) == ["platform", "rules_layer", "date_line"]
 
-    system = compose_system_prompt(BASE_PROMPT, "I am Penny.", rules=[], notes=None)
-    parts = extract_parts(system, [], C, persona="I am Penny.")
-    assert names(parts) == ["base_prompt"]
-    parts = extract_parts("something else entirely", [], C)
-    assert names(parts) == ["other"]
+
+def test_a_notes_layer_with_no_notes_counts_as_platform_text():
+    system = compose(notes=[])
+    assert "No saved notes yet." in system
+    parts = extract_parts(system, [], C, notes_present=True, date_lines=["Today is Monday."])
+    assert names(parts) == ["platform", "notes_layer", "date_line"]
+    notes = next(p for p in parts if p.name == "notes_layer")
+    assert notes.tokens == C.count(system.split(tokens.SEPARATOR)[1])
+
+
+def test_extra_layers_become_unattributed_and_the_section_hook_replaces_the_platform_part():
+    system = compose() + tokens.SEPARATOR + "A stray layer."
+    parts = extract_parts(system, [], C, date_lines=["Today is Monday."])
+    assert names(parts) == ["platform", "date_line", "unattributed"]
+    assert parts[-1].tokens == C.count("A stray layer.")
+    split = extract_parts(
+        compose(),
+        [],
+        C,
+        date_lines=["Today is Monday."],
+        platform_sections=lambda text: [("one", text[:10]), ("two", text[10:])],
+    )
+    assert names(split) == ["one", "two", "date_line"]
+    assert extract_parts("something else entirely", [], C)[0].name == "platform"
 
 
 async def build(tmp, run="m"):
@@ -80,40 +147,44 @@ async def build(tmp, run="m"):
 async def test_three_configurations_parts_sum_and_attribution(evals_isolation):
     doc = await build(evals_isolation)
     cfgs = doc["configs"]
-    assert set(cfgs) == {"bare", "all-on", "tool-free"}
+    assert set(cfgs) == set(tokens.ALL_CONFIGS)
     for name, cfg in cfgs.items():
         parts = cfg["parts"]
-        assert "other" not in [p["name"] for p in parts], name  # everything is attributed
+        assert "unattributed" not in [p["name"] for p in parts], name  # everything is attributed
         t = cfg["totals"]
         assert t["platform"] == sum(p["tokens"] for p in parts)
         assert t["prompt_sections"] == sum(p["tokens"] for p in parts if p["group"] == "prompt")
         assert t["tools"] == sum(p["tokens"] for p in parts if p["group"] == "tools")
 
     bare = [p["name"] for p in cfgs["bare"]["parts"]]
-    assert bare[:2] == ["base_prompt", "date_line"]
+    # The measured agents carry no execution tools; only all-on has a knowledge base.
+    sec_ids = [sid for sid, _ in sections_for(Capabilities(knowledge=False, exec_tools=False))]
+    assert "execution" not in sec_ids
+    assert bare[: len(sec_ids)] == sec_ids and bare[len(sec_ids)] == "date_line"
     assert {"tool:search_tools", "tool:continue", "tool:current_time"} <= set(bare)
     assert "rules_layer" not in bare and "notes_layer" not in bare
 
     allon = [p["name"] for p in cfgs["all-on"]["parts"]]
-    assert allon[:4] == ["base_prompt", "rules_layer", "notes_layer", "date_line"]
+    assert allon[len(sec_ids) : len(sec_ids) + 3] == ["rules_layer", "notes_layer", "date_line"]
     assert {"tool:save_note", "tool:update_note", "tool:forget_note"} <= set(allon)
     # the KB search tool is not in the starting set, but is measured on its own
     assert not [n for n in allon if n.startswith("tool:kb__")]
     assert doc["kb_tool"]["name"].startswith("kb__") and doc["kb_tool"]["tokens"] > 0
 
     free = cfgs["tool-free"]
-    assert [p["name"] for p in free["parts"]] == ["chat_only_prompt", "date_line"]
+    free_ids = [sid for sid, _ in sections_for(Capabilities(tools=False))]
+    assert [p["name"] for p in free["parts"]] == [*free_ids, "date_line"]
     assert free["totals"]["tools"] == 0
     # tool-free is far smaller than bare (the degraded prompt, no catalog)
     assert free["totals"]["platform"] < cfgs["bare"]["totals"]["prompt_sections"]
 
 
 def test_note_and_rule_texts_do_not_change_their_layers_count():
-    from the_one.agent.config import BASE_PROMPT, RenderedNote, compose_system_prompt
+    from the_one.agent.config import RenderedNote, compose_system_prompt
 
     def parts_for(rule: str, note: str):
         system = compose_system_prompt(
-            BASE_PROMPT, "", rules=[rule], notes=[RenderedNote(1, note)], date_line="D"
+            PLATFORM_TOOLS, "", rules=[rule], notes=[RenderedNote(1, note)], date_line="D"
         )
         return {
             p.name: p.tokens
@@ -267,3 +338,120 @@ def test_render_tables_lists_totals_and_fingerprint():
     out = tokens.render_tables(doc)
     assert "base_prompt" in out and "platform text total" in out and "abc" in out
     assert "m: bare=7, all-on=9, tool-free=3" in out
+
+
+async def test_connector_variants_are_built_mapped_then_unmapped(evals_isolation, monkeypatch):
+    """DD13: each variant gets a distinct agent name; the row exists only while it is measured."""
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorRepository
+
+    seen: list[tuple[str, list[str], list[str]]] = []
+    real = tokens.connector_row
+
+    def spy(agent_name):
+        cm = real(agent_name)
+
+        class Wrap:
+            async def __aenter__(self):
+                row = await cm.__aenter__()
+                seen.append((agent_name, await _ids(), []))
+                return row
+
+            async def __aexit__(self, *exc):
+                await cm.__aexit__(*exc)
+                seen[-1][2].extend(await _ids())
+
+        return Wrap()
+
+    async def _ids():
+        from the_one.config import settings
+        from the_one.encryption import get_encryptor
+
+        repo = ConnectorRepository(await get_connection(), get_encryptor(settings.data_dir))
+        return [c.config["default_agent"] for c in await repo.list()]
+
+    monkeypatch.setattr(tokens, "connector_row", spy)
+    doc = await build(evals_isolation)
+    assert [s[0] for s in seen] == [
+        "ev-measure-bare-measure-f0p0-90",
+        "ev-measure-all-on-measure-f0p0-91",
+    ]
+    for name, during, after in seen:
+        assert during == [name] and after == []  # inserted for the run, deleted after
+    assert len({s[0] for s in seen}) == 2
+    # the plain bare and all-on are never mapped, and the scripts match (all-on searches)
+    assert "bare-connector" in doc["configs"] and "all-on-connector" in doc["configs"]
+    assert tokens._script_for("all-on-connector", "q")[0].tool_calls  # search_tools script
+    assert not hasattr(tokens._script_for("bare-connector", "q")[0], "tool_calls") or not (
+        tokens._script_for("bare-connector", "q")[0].tool_calls
+    )
+
+
+def test_platform_prompt_sections_split_matches_the_whole_count():
+    from evals.tokens import platform_prompt_sections
+    from the_one.agent.platform_prompt import render_platform, render_tool_free
+
+    for text, caps in (
+        (render_platform(Capabilities.all_on()), Capabilities.all_on()),
+        (render_tool_free(Capabilities.all_on()), Capabilities(tools=False)),
+    ):
+        assert platform_prompt_sections(text) == sections_for(caps)
+        parts = extract_parts(text, [], C, platform_sections=platform_prompt_sections)
+        assert [p.name for p in parts] == [sid for sid, _ in sections_for(caps)]
+        assert sum(p.tokens for p in parts) == C.count(text)
+        assert sum(p.chars for p in parts) == len(text)
+    assert platform_prompt_sections("custom text") == [("platform", "custom text")]
+
+
+def test_platform_prompt_sections_handle_every_conditional_render(caplog):
+    import itertools
+
+    from evals.tokens import platform_prompt_sections
+    from the_one.agent.platform_prompt import render_platform
+
+    combos = [
+        Capabilities(tools=True, knowledge=kb, exec_tools=ex, time_tool=tt)
+        for kb, ex, tt in itertools.product((True, False), repeat=3)
+    ] + [Capabilities(tools=False)]
+    for caps in combos:
+        text = render_platform(caps)
+        parts = extract_parts(text, [], C, platform_sections=platform_prompt_sections)
+        assert "platform" not in [p.name for p in parts], caps
+        assert sum(p.tokens for p in parts) == C.count(text), caps
+        assert sum(p.chars for p in parts) == len(text), caps
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        assert platform_prompt_sections("custom text") == [("platform", "custom text")]
+    assert "matches no capability combination" in caplog.text
+
+
+def test_tool_free_notes_variant_needs_no_extra_matching():
+    from the_one.agent.config import RenderedNote, compose_system_prompt
+
+    free = compose_system_prompt(
+        PLATFORM_TOOL_FREE,
+        "",
+        notes=[RenderedNote(1, "a note", False)],
+        date_line="D",
+        tools=False,
+    )
+    parts = extract_parts(free, [], C, note_texts=["a note"], date_lines=["D"], notes_present=True)
+    names = [p.name for p in parts]
+    assert names[-2:] == ["notes_layer", "date_line"]
+    assert "unattributed" not in names
+
+
+def test_sections_that_tile_the_platform_text_are_counted_cumulatively():
+    class Pairwise:
+        name = "pairwise"
+
+        def count(self, text: str) -> int:  # merges across a boundary: not additive
+            return len(text) // 2
+
+    parts = extract_parts(
+        "abc",
+        [],
+        Pairwise(),
+        platform_sections=lambda t: [("a", t[:1]), ("b", t[1:2]), ("c", t[2:])],
+    )
+    assert sum(p.tokens for p in parts) == Pairwise().count("abc") == 1

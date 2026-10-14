@@ -176,7 +176,7 @@ def make_run_dir(
     scenarios_fp: str = "scen-1",
     effective: dict | None = None,
     saved: dict[str, int] | None = None,
-    measure: dict | None = None,
+    measure: dict | None | bool = None,
 ) -> Path:
     """``cells[(cell, model)] = (class, passes, fails, excluded)`` -> one run directory."""
     import json
@@ -208,25 +208,55 @@ def make_run_dir(
     (d / "fingerprints.json").write_text(
         json.dumps({"scenarios": scenarios_fp, "presets": presets}), encoding="utf-8"
     )
-    if measure is not None:
+    if measure is None:  # DD5.1: a run directory is measured; False leaves it out
+        measure = synth_measure()
+    if measure is not False:
         (d / "measure.json").write_text(json.dumps(measure), encoding="utf-8")
     return d
 
 
-def synth_measure(bare: int = 100, all_on: int = 500, prompt_fp: str = "prompt-1") -> dict:
-    def cfg(prompt: int, tools: int) -> dict:
+def synth_measure(
+    bare: int = 100,
+    all_on: int = 500,
+    prompt_fp: str = "prompt-1",
+    *,
+    connector: int = 0,
+    bare_tools: int = 200,
+    bare_connector: int | None = None,
+    all_on_connector: int | None = None,
+) -> dict:
+    """A measurement document. ``bare``/``all_on`` are the prompt-sections bare and the
+    all-on platform total; ``connector`` is the tokens of the two connector tool parts
+    inside bare's 200 tool tokens; ``*_connector`` override the connector-mapped
+    variants' platform totals (default: the plain configuration's)."""
+
+    def cfg(prompt: int, tools: int, conn: int = 0) -> dict:
+        parts = []
+        if conn:
+            parts = [
+                {"name": "tool:send_to_platform_channel", "group": "tools", "tokens": conn - 1},
+                {"name": "tool:find_platform_destination", "group": "tools", "tokens": 1},
+            ]
         return {
-            "parts": [],
+            "parts": parts,
             "totals": {"prompt_sections": prompt, "tools": tools, "platform": prompt + tools},
         }
+
+    plain_bare, plain_allon = cfg(bare, bare_tools, connector), cfg(all_on - 100, 100)
+    plain_allon_total = plain_allon["totals"]["platform"]
+    bc = plain_bare if bare_connector is None else cfg(bare_connector - bare_tools, bare_tools)
+    ac = plain_allon if all_on_connector is None else cfg(all_on_connector - 100, 100)
+    assert plain_allon_total == all_on
 
     return {
         "schema": 1,
         "counter": "standin:bytes/4",
         "configs": {
-            "bare": cfg(bare, 200),
-            "all-on": cfg(all_on - 100, 100),
+            "bare": plain_bare,
+            "all-on": plain_allon,
             "tool-free": cfg(20, 0),
+            "bare-connector": bc,
+            "all-on-connector": ac,
         },
         "kb_tool": {"name": "kb__x__search", "tokens": 10},
         "fingerprints": {"prompt": prompt_fp},

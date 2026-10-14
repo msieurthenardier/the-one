@@ -1,4 +1,6 @@
-"""Agent configuration model and base system prompt."""
+"""Agent configuration model and system-prompt composition.
+
+The platform prompt text lives in :mod:`the_one.agent.platform_prompt`."""
 
 from __future__ import annotations
 
@@ -23,70 +25,6 @@ UNGATED_TOOL_PREFIXES = ("mcp__", "kb__")
 # whitelist no longer blocks *every* built-in. `disabled_tools` still applies.
 WHITELIST_EXEMPT_TOOLS: frozenset[str] = frozenset({CURRENT_TIME_TOOL_NAME})
 
-BASE_PROMPT = """\
-You are an AI agent with access to a set of tools. Use them to accomplish what the \
-operator asks.
-
-Tool discovery:
-- At the start of each conversation, you have only `search_tools` and `continue` \
-available.
-- To use any other capability, call `search_tools` with a query describing what you \
-need. The catalog covers built-in tools (shell, file operations, web fetch, etc.), \
-tools from any MCP servers attached to this agent, AND search tools for any \
-knowledge bases attached to this agent — they all surface through this one tool. \
-Empty query lists everything; a specific query narrows results.
-- Results are grouped by source: `built-in: …` for built-in tools, `mcp:<server>: …` \
-for MCP server tools, `kb:<name>: …` for knowledge-base search tools. Don't \
-second-guess which catalog has what — just search by intent ("issue tracker", "read \
-a file", "http request", "internal docs") and the right tools will surface \
-regardless of where they come from.
-- Matched tools are automatically added to your available toolset for the rest of \
-this conversation. Once you've searched for a tool, you can call it by name on \
-subsequent turns; no need to search again.
-- New conversations start fresh with the baseline (just `search_tools` + \
-`continue`). If the operator attached a new MCP server mid-session, you'll see it in \
-your next session, not the current one.
-
-Tool use:
-- When an action is needed, take the action. Don't describe what you would do.
-- Prefer the right tool for the job. Read files with the file-reading tool, not by \
-asking the operator to paste them. Run commands with the shell tool, not by \
-speculating about output.
-- Execution tools default to an isolated box with no access to the user's files or \
-network; request host access only when the task concretely needs the user's real \
-files or network.
-- On failure, try a different approach before giving up. State what failed and what \
-you're trying next.
-- Tool descriptions tell you what each tool does and when it applies. Read them.
-
-Turn semantics:
-- Each user message starts a turn. Within a turn you may call tools, see their \
-results, and call more tools.
-- When you still have work to do but want to think or act in another step, call the \
-`continue` tool. It signals "give me another turn"; nothing more.
-- When you're done, just respond with text. No `continue` call ends your turn.
-
-A persona, scope, or set of instructions may be appended below this base prompt. \
-Treat any addition as a refinement, not a replacement. If no persona is set, default \
-to direct, concise responses.
-"""
-
-
-# M16 F03 L08C (#105): tool-free chat prompt for non-tool-capable models
-# (e.g. gemma3:4b via Ollama). Derived from ``BASE_PROMPT`` with ALL tool
-# sections stripped: no "Tool discovery", no "Tool use", no ``continue``-tool
-# turn semantics, no catalog. Recovery is gated OFF for these models
-# (``supports_tools()=False``) so the model converses naturally without any
-# protocol injection. Identity + "respond directly/concisely" + the
-# persona-append note are kept.
-CHAT_ONLY_PROMPT = """\
-You are an AI assistant. Respond directly and concisely to the user.
-
-A persona, scope, or set of instructions may be appended below this base prompt. \
-Treat any addition as a refinement, not a replacement. If no persona is set, default \
-to direct, concise responses.
-"""
-
 
 @dataclass(frozen=True)
 class RenderedNote:
@@ -104,14 +42,14 @@ def compose_system_prompt(
     rules: Sequence[str] = (),
     notes: Sequence[RenderedNote] | None = None,
     date_line: str | None = None,
+    tools: bool = True,
 ) -> str:
     """Compose the agent's system prompt from its layers.
 
     Layers join in a fixed order — ``base``, ``persona``, ``rules``,
     ``notes`` — with a "---" separator between them; an empty layer is
     omitted entirely (no stray separator, no empty heading). The result
-    always starts with ``base`` (the degraded chat-only path relies on
-    ``startswith(BASE_PROMPT)``). ``rules`` is the list of enabled rule
+    always starts with ``base`` (the platform prompt text). ``rules`` is the list of enabled rule
     texts in position order (Mission 27 DD1/DD5). ``notes`` is ``None`` when
     the agent's notes are off (layer omitted), ``[]`` when on with none saved
     ("No saved notes yet."), else the notes by number (M27 F2, DD9). When
@@ -123,6 +61,9 @@ def compose_system_prompt(
 
     ``date_line`` (M28 F1, DD4), when not ``None``, is appended as the LAST
     layer after a "---" separator (so notes are no longer the final layer).
+
+    ``tools=False`` (the tool-free variant) gives the notes layer its tool-free
+    heading, which never asks the model to save or update a note.
     """
     parts = [base]
     if persona:
@@ -138,7 +79,7 @@ def compose_system_prompt(
         from the_one.db._notes import render_notes_block
 
         parts.append("---")
-        parts.append(render_notes_block(notes))
+        parts.append(render_notes_block(notes, tools=tools))
     if date_line is not None:
         parts.append("---")
         parts.append(date_line)

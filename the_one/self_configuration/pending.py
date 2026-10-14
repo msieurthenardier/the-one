@@ -23,9 +23,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from the_one.agent.config import BASE_PROMPT, compose_system_prompt
-from the_one.agent.prompt_layers import build_system_prompt, time_tool_available
+from the_one.agent.config import compose_system_prompt
+from the_one.agent.platform_prompt import (
+    capabilities_from_registry,
+    render_platform,
+    render_tool_free,
+)
+from the_one.agent.prompt_layers import (
+    SystemPrompts,
+    build_system_prompts,
+    time_tool_available,
+)
 from the_one.llm.base import Message
+from the_one.notes.tools import SAVE_NOTE_TOOL_NAME
 
 if TYPE_CHECKING:
     from the_one.agent.core import Agent
@@ -74,6 +84,13 @@ def record(
     )
 
 
+def _has_tool(registry: object, name: str) -> bool:
+    try:
+        return name in registry.tool_names  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - a missing/broken registry has no tools
+        return False
+
+
 async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
     """Pop and apply the pending entry for *agent_name* onto the LIVE
     *agent* object, if one exists.
@@ -108,18 +125,35 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
             )
         except Exception:  # noqa: BLE001 - must never break the turn
             tool_available = False
+        registry = getattr(agent, "tools", None)
+        caps = capabilities_from_registry(
+            registry,
+            notes=_has_tool(registry, SAVE_NOTE_TOOL_NAME),
+            rules=True,
+            time_tool=tool_available,
+        )
         try:
-            composed = await build_system_prompt(
-                agent_name, system_prompt, tool_available=tool_available
+            prompts = await build_system_prompts(
+                agent_name,
+                system_prompt,
+                tool_available=tool_available,
+                knowledge=caps.knowledge,
+                time_tool=caps.time_tool,
+                exec_tools=caps.exec_tools,
             )
         except Exception:
             logger.warning(
                 "self-configuration: could not load rules for agent %r at settle; "
-                "applying base + persona without rules",
+                "applying platform prompt + persona without rules",
                 agent_name,
                 exc_info=True,
             )
-            composed = compose_system_prompt(BASE_PROMPT, system_prompt)
+            prompts = SystemPrompts(
+                tool_capable=compose_system_prompt(render_platform(caps), system_prompt),
+                tool_free=compose_system_prompt(render_tool_free(caps), system_prompt, tools=False),
+            )
+        composed = prompts.tool_capable
+        agent.degraded_system_prompt = prompts.tool_free
         agent.system_prompt = composed
         agent.messages[0] = Message.system(composed)
         logger.info(

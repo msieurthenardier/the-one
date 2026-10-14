@@ -19,14 +19,11 @@ RULES_TOTAL_MAX_CHARS = 4000
 
 # DD5 — the rules layer's heading. Flight 2 adds the sentence ranking rules
 # above notes when notes exist.
-RULES_HEADING = (
-    "Rules set by the operator for this agent. Follow every rule. If two rules\n"
-    "conflict, the one listed first wins."
-)
+RULES_HEADING = "Operator rules. Follow all of them; if two conflict, the earlier one wins."
 
 
 # Appended to the rules layer when a notes layer follows it (M27 F2, DD9).
-RULES_OVER_NOTES = "Rules take precedence over saved notes."
+RULES_OVER_NOTES = "Rules override saved notes."
 
 
 class RuleLimitError(ValueError):

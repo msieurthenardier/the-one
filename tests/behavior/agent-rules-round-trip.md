@@ -3,8 +3,8 @@
 **Slug**: `agent-rules-round-trip`
 **Status**: draft
 **Created**: 2026-10-09 (Mission 27 Flight 1)
-**Updated**: 2026-10-10 (Mission 27 Flight 3 HAT: the panel is read-only and bulleted; step 4 is re-authored for the removed Edit rules link)
-**Last Run**: 2026-10-10 (post-HAT re-run): pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-10-21-05-09.md)). Earlier: 2026-10-09 pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
+**Updated**: 2026-10-10 (Mission 27 Flight 3 HAT: the panel is read-only and bulleted; step 4 is re-authored for the removed Edit rules link); 2026-10-14 (M30 F2 run: the port precondition names a dedicated port)
+**Last Run**: 2026-10-14 (Mission 30 Flight 2, final platform prompt): pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-14-15-19-35.md)). Earlier: 2026-10-10 (post-HAT re-run) pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-10-21-05-09.md)); 2026-10-09 pass, 9/9 ([run log](agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
 
 ## Intent
 
@@ -28,13 +28,14 @@ observables:
    Every web and connector session stores `agent.messages`, system message
    included, in `chat_sessions.messages` (a JSON list whose first element has
    `"role": "system"`). Read it with `sqlite3` from the scratch data directory's
-   database. It shows rule order, disabled-rule absence and the base-prompt
+   database. It shows rule order, disabled-rule absence and the platform-prompt
    prefix without relying on the model.
 
 ## Preconditions
 
-- A dev instance built from the flight branch, on a port of 8490 or higher (never
-  8484 or 8485), with a **scratch data directory**. Start it with
+- A dev instance built from the flight branch, on a dedicated non-default port
+  (8486 or higher, assigned per run; never 8484 or 8485), with a **scratch data
+  directory**. Start it with
   `THE_ONE_DEV_MODE=true` and `THE_ONE_STUB_TEST_ENDPOINT=1`. Follow CLAUDE.md
   "Behavior-test credential convention" for the credential and the browser
   handoff.
@@ -50,7 +51,7 @@ observables:
   and peer `peer-1` admitted. Set it up as `stub-connector-round-trip.md` steps
   1-4 do, with these changes:
   - select `rules-probe` where that spec selects `test-agent`;
-  - keep **this** spec's port (8490 or higher), not the 8485 that spec names;
+  - keep **this** spec's dedicated port, not the 8485 that spec names;
   - the peer-2 replay in its step 4 is optional.
 
   Pairing creates no session (`inbound.py:385-390`), so step 5 below is the
@@ -77,7 +78,7 @@ after its edit).
 |---|---------|------------------|
 | 1 | In the browser, open Agents, then `rules-probe`, then the rules tab (`tab-rules-and-notes`, labelled "Rules and notes", or "Rules" if Flight 1 took the width fallback). | The tab shows a **Rules** section with an empty state and an "Add rule" control. A line says changes apply to new and reopened chats, and to the next message in connector channels. No error is shown. |
 | 2 | Add three rules in this order: A "Begin every reply with the single word NAUTILUS.", B "End every reply with the single word WOMBAT.", C "Keep every reply under 25 words." Turn B **off**. Move C to the top. Reload the page and reopen the tab. | After the reload the list reads C, A, B, top to bottom, with B shown off and A and C on. `GET /api/agents/rules-probe/rules` returns the same order (`position` ascending) with `enabled: false` only on B. No error is shown. |
-| 3 | Start a **new** web chat with `rules-probe` (Chats, New chat, then pick it) and send "Say hello." Record the session id as `{WEB1}`. Read `{WEB1}`'s stored system message through the shell. | The reply's first word is `NAUTILUS`, and it does **not** end with `WOMBAT`. The stored system message starts with the base prompt: it begins "You are an AI agent with access to a set of tools". The persona appears after it, then a rules block with C as rule 1 and A as rule 2. The text `WOMBAT` does **not** appear anywhere in it. |
+| 3 | Start a **new** web chat with `rules-probe` (Chats, New chat, then pick it) and send "Say hello." Record the session id as `{WEB1}`. Read `{WEB1}`'s stored system message through the shell. | The reply's first word is `NAUTILUS`, and it does **not** end with `WOMBAT`. The stored system message starts with the platform prompt: it begins "You are an AI agent. Use your tools to do what you're asked". The persona appears after it, then a rules block with C as rule 1 and A as rule 2. The text `WOMBAT` does **not** appear anywhere in it. |
 | 4 | With `{WEB1}` open, make sure the chat agent panel is open. It is open by default at 1280 px and wider, so click `chat-drawer-toggle` only if it is closed (clicking an open panel closes it). | The panel has a **Rules** group listing C then A as a bulleted list (no numbers), plus "1 off". The panel has **no** "Edit rules" link (removed in Mission 27 Flight 3). Its footer's **Open agent settings** is present. |
 | 5 | Through the stub seam, inject a DM from `peer-1`: "Say hello." Poll the outbound records for up to 90 s. Find the resulting session (`DM: peer-1`), record its id as `{DM1}`, and read its stored system message. | One outbound reply arrives whose first word is `NAUTILUS`. `{DM1}`'s stored system message holds the same rules block as `{WEB1}`'s (C, then A, no `WOMBAT`). |
 | 6 | Edit rule A to "Begin every reply with the single word MARLIN." Then start a **new** web chat with `rules-probe` and send "Say hello." Record it as `{WEB2}`. | `{WEB2}`'s reply begins with `MARLIN`, not `NAUTILUS`. Its stored system message contains `MARLIN` and not `NAUTILUS`. |

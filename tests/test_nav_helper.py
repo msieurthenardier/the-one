@@ -404,6 +404,7 @@ def test_settings_providers_guard_self_test():
 # union with ``RETIRED_EXACT`` against ``docs/ui-testid-registry.md``'s
 # "Retired testids" table.
 RETIRED_SELECTORS = (
+    "base-prompt-content",
     "entity-tile",
     "section-nav-item",
     "back-agent-btn",

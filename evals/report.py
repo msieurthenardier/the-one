@@ -141,6 +141,11 @@ def load_runs(run_dirs: list[Path], measure_path: Path | None = None) -> RunSet:
                 presets[name] = body
         else:
             raise MergeError(f"{d}: no fingerprints.json (not written by `evals run`)")
+        if measure_path is None and not (d / "measure.json").is_file():
+            raise MergeError(
+                f"{d}: no measure.json (run `python -m evals measure-prompt --json "
+                f"{d}/measure.json` for the prompt these runs used, or pass --measure)"
+            )
         if (d / "measure.json").is_file() and measure_path is None:
             m = load_measure(d / "measure.json")
             prompts.setdefault(m["fingerprints"]["prompt"], d)

@@ -23,7 +23,7 @@ def raw(desc="Do a thing.", kb_desc="Search the KB."):
             schemas=[{"name": "a", "description": desc, "parameters": {"type": "object"}}],
             kb_schema=(
                 {"name": "kb__x__search", "description": kb_desc, "parameters": {}}
-                if name == "all-on"
+                if name.startswith("all-on")
                 else None
             ),
             persona="",
@@ -32,7 +32,7 @@ def raw(desc="Do a thing.", kb_desc="Search the KB."):
             date_lines=[],
         )
 
-    return {n: cfg(n) for n in tokens.CONFIGS}
+    return {n: cfg(n) for n in tokens.ALL_CONFIGS}
 
 
 def test_prompt_fingerprint_stable_and_sensitive():
@@ -43,6 +43,12 @@ def test_prompt_fingerprint_stable_and_sensitive():
     changed = raw()
     changed["tool-free"].system = "CHAT"
     assert fp.prompt_fingerprint(changed) != base
+    # DD13: the connector-mapped variants are part of the fingerprint
+    for variant in ("bare-connector", "all-on-connector"):
+        changed = raw()
+        changed[variant].schemas = []
+        assert fp.prompt_fingerprint(changed) != base, variant
+    assert set(raw()) >= {"bare-connector", "all-on-connector"}
 
 
 def test_scenarios_fingerprint_follows_files(tmp_path):

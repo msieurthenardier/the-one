@@ -26,9 +26,11 @@ import pytest
 from conftest import expected_date_layer
 from cryptography.fernet import Fernet
 
+from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
 from tests._schema_template import connect_template_db
-from the_one.agent.config import BASE_PROMPT, AgentConfig, compose_system_prompt
+from the_one.agent.config import AgentConfig, compose_system_prompt
 from the_one.agent.core import Agent
+from the_one.agent.platform_prompt import Capabilities, render_platform
 from the_one.db.repositories import (
     AgentRevisionRepository,
     AgentRuleRepository,
@@ -41,6 +43,9 @@ from the_one.llm.base import LLMProvider, Message, StreamChunk, ToolCall, ToolRe
 from the_one.mcp._tool import _TOOL_NAME_MAX_LEN, _normalize_source_name
 from the_one.self_configuration import manage, pending, surface
 from the_one.tools.base import Tool, ToolRegistry
+
+# A stub agent has no knowledge-base or execution tools in its registry.
+PLATFORM_STUB = render_platform(Capabilities(knowledge=False, exec_tools=False))
 
 
 @pytest.fixture(autouse=True)
@@ -443,12 +448,12 @@ class TestAC3MidTurnNonApplication:
         # Known Issue 2 closed (M27 F1): the recomposed prompt keeps the base
         # prompt and carries the enabled rules (not the disabled one).
         expected = compose_system_prompt(
-            BASE_PROMPT,
+            PLATFORM_STUB,
             "NEW PROMPT",
             rules=["Always answer in French."],
             date_line=expected_date_layer(False),
         )
-        assert expected.startswith(BASE_PROMPT)
+        assert expected.startswith(PLATFORM_STUB)
         assert agent.system_prompt == expected
         assert agent.messages[0].content == expected
         assert "Never mention cats." not in agent.system_prompt
@@ -536,7 +541,7 @@ def _stub_broadcast_and_persist(monkeypatch):
 
 # M27 F1: a settled ``next_turn`` revision is recomposed as base + persona
 # (+ the agent's enabled rules), never the raw persona (Known Issue 2).
-_NEW = compose_system_prompt(BASE_PROMPT, "NEW", date_line=expected_date_layer(False))
+_NEW = compose_system_prompt(PLATFORM_STUB, "NEW", date_line=expected_date_layer(False))
 
 
 class TestAC4HookRunsAtNonPausedSettleOnly:
@@ -648,14 +653,14 @@ class TestRulesAtSettle:
         await _process_and_broadcast(session, "hi")
 
         expected = compose_system_prompt(
-            BASE_PROMPT,
+            PLATFORM_STUB,
             "NEW",
             rules=["First.", "Second."],
             date_line=expected_date_layer(False),
         )
         assert agent.system_prompt == expected
         assert agent.messages[0].content == expected
-        assert agent.system_prompt.startswith(BASE_PROMPT)
+        assert agent.system_prompt.startswith(PLATFORM_STUB)
         assert "Hidden." not in agent.system_prompt
 
     async def test_settle_recompose_keeps_the_notes_block(self, isolated_db) -> None:
@@ -690,7 +695,7 @@ class TestRulesAtSettle:
         from the_one.agent.config import RenderedNote
 
         expected = compose_system_prompt(
-            BASE_PROMPT,
+            PLATFORM_STUB,
             "NEW",
             rules=["Rule."],
             notes=[RenderedNote(1, "Kept note.", True)],
@@ -717,11 +722,68 @@ class TestRulesAtSettle:
         await _process_and_broadcast(session, "hi")
 
         # base + persona only: the fallback is date-free by design (M28 F1 DD4).
-        assert agent.system_prompt == compose_system_prompt(BASE_PROMPT, "NEW")
+        assert agent.system_prompt == compose_system_prompt(PLATFORM_STUB, "NEW")
         assert agent.messages[0].content == agent.system_prompt
         assert any(c.args[1] == {"type": "done"} for c in send.call_args_list)
         # The entry was consumed despite the failure.
         assert await pending.apply_pending_revision("default", agent) is False
+
+    async def test_settle_sets_the_degraded_prompt_with_the_revised_persona(
+        self, isolated_db
+    ) -> None:
+        """Leg 1b: `pending` rebuilds BOTH prompts, so a tool-free turn after a
+        next_turn revision sees the revised persona on the tool-free platform prompt."""
+        from the_one.agent.core import Agent
+        from the_one.db.connection import get_connection
+        from the_one.tools.base import ToolRegistry
+
+        conn = await get_connection()
+        enc = Encryptor(Fernet.generate_key(), key_path=isolated_db.parent / "kd.key")
+        store = SQLiteAgentStore(conn, enc)
+        await store.save(AgentConfig(name="default"))
+        await AgentRuleRepository(conn).create("default", "Be kind.")
+
+        class _LLM:
+            max_context_tokens = 128_000
+
+            async def supports_tools(self):
+                return False
+
+        agent = Agent(
+            llm=_LLM(),  # type: ignore[arg-type]
+            tools=ToolRegistry(),
+            system_prompt="OLD",
+            degraded_system_prompt="OLD-FREE",
+        )
+        pending.record("default", system_prompt="REVISED PERSONA")
+        assert await pending.apply_pending_revision("default", agent) is True
+
+        degraded = agent._build_degraded_messages()[0].content
+        assert degraded.startswith(PLATFORM_TOOL_FREE)
+        assert "REVISED PERSONA" in degraded and "Be kind." in degraded
+        assert "OLD-FREE" not in degraded
+        assert agent.system_prompt.startswith(PLATFORM_STUB)
+        assert agent.messages[0].content == agent.system_prompt
+
+    async def test_fallback_also_sets_the_degraded_prompt(self, isolated_db, monkeypatch) -> None:
+        from the_one.agent.core import Agent
+        from the_one.tools.base import ToolRegistry
+
+        async def _boom(self, *a, **kw):
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr(AgentRuleRepository, "list_for_agent", _boom)
+
+        class _LLM:
+            async def supports_tools(self):
+                return False
+
+        agent = Agent(llm=_LLM(), tools=ToolRegistry(), system_prompt="OLD")  # type: ignore[arg-type]
+        pending.record("default", system_prompt="NEW")
+        await pending.apply_pending_revision("default", agent)
+
+        assert agent.system_prompt == compose_system_prompt(PLATFORM_STUB, "NEW")
+        assert agent.degraded_system_prompt == compose_system_prompt(PLATFORM_TOOL_FREE, "NEW")
 
 
 # ── LD7 — fixed prefixed tool names and JS/Python slug parity ────────────
@@ -1176,7 +1238,7 @@ class TestSettleDateLayerToolWording:
         await _process_and_broadcast(session, "hi")
 
         assert agent.system_prompt == compose_system_prompt(
-            BASE_PROMPT, "NEW", date_line=expected_date_layer(True)
+            PLATFORM_STUB, "NEW", date_line=expected_date_layer(True)
         )
 
     async def test_missing_registry_counts_as_tool_absent(self, isolated_db) -> None:

@@ -7,7 +7,7 @@ provider, verifying that:
   iterations' tools= arrays.
 - Loaded schemas persist across user turns within a session.
 - No-match searches do not add anything to the loaded set.
-- BASE_PROMPT contains the Tool discovery section before Tool use.
+- PLATFORM_TOOLS contains the Tool discovery section before Tool use.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from conftest import FakeLLM, StubTool
 
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
 from the_one.agent.core import Agent
 from the_one.llm.base import Message, Role, ToolCall
 from the_one.tools._search_tools import SearchTools
@@ -82,20 +83,19 @@ def _schema_names(schemas: list[dict] | None) -> list[str]:
 
 
 def test_base_prompt_includes_discovery_section() -> None:
-    """BASE_PROMPT must teach the lazy-discovery protocol.
+    """PLATFORM_TOOLS must teach the lazy-discovery protocol.
 
     If this test fails after a future edit, the discovery section was
     removed — either reinstate it or update the design contract.
     """
-    from the_one.agent.config import BASE_PROMPT
 
-    assert "search_tools" in BASE_PROMPT
-    assert "Tool discovery" in BASE_PROMPT
+    assert "search_tools" in PLATFORM_TOOLS
+    assert "\nTools:\n" in PLATFORM_TOOLS
     # The discovery section must mention MCP server tools surface through
     # the same search (the whole point of the merge).
-    assert "MCP" in BASE_PROMPT
+    assert "search_tools" in PLATFORM_TOOLS  # MCP and built-in tools surface through it
     # Order lock: discovery section before "Tool use:".
-    assert BASE_PROMPT.index("Tool discovery") < BASE_PROMPT.index("Tool use:")
+    assert PLATFORM_TOOLS.index("Tools:") < PLATFORM_TOOLS.index("Take actions")
 
 
 @pytest.mark.asyncio

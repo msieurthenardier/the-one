@@ -1,7 +1,7 @@
 """Chat-only degraded-path injection tests (M16 F03 L08C, #105).
 
 M16 F03 L08C: non-tool-capable models (supports_tools()=False) are CHAT-ONLY.
-The degraded system prompt is tool-free (CHAT_ONLY_PROMPT — no catalog, no
+The degraded system prompt is tool-free (PLATFORM_TOOL_FREE — no catalog, no
 tool_code format spec, no continue-tool semantics). Recovery is gated OFF at the
 provider level, so this agent-layer test suite only needs to verify:
 
@@ -30,7 +30,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from the_one.agent.config import compose_system_prompt
 from the_one.agent.core import Agent
 from the_one.llm.base import (
     LLMProvider,
@@ -127,7 +129,21 @@ def _registry_with_virtuals() -> ToolRegistry:
 
 
 def _system_prompt(persona: str = "You are Aria, terse and dry.") -> str:
-    return compose_system_prompt(BASE_PROMPT, persona)
+    return compose_system_prompt(PLATFORM_TOOLS, persona)
+
+
+def _degraded_prompt(persona: str = "You are Aria, terse and dry.") -> str:
+    return compose_system_prompt(PLATFORM_TOOL_FREE, persona)
+
+
+def _agent(llm: Any, persona: str = "You are Aria, terse and dry.") -> Agent:
+    """An agent built the way the factory builds one: both prompts, passed in."""
+    return Agent(
+        llm=llm,
+        tools=_registry_with_virtuals(),
+        system_prompt=_system_prompt(persona),
+        degraded_system_prompt=_degraded_prompt(persona),
+    )
 
 
 async def _collect(agent: Agent, user_input: str) -> list[Message]:
@@ -154,9 +170,7 @@ class TestDegradedInjection:
         Persona survives the base swap. Wire tools= is None.
         """
         llm = CapturingLLM([Message.assistant("ok")], supports=False)
-        reg = _registry_with_virtuals()
-        system_prompt = _system_prompt()
-        agent = Agent(llm=llm, tools=reg, system_prompt=system_prompt)
+        agent = _agent(llm)
 
         await _collect(agent, "hello there")
 
@@ -172,7 +186,7 @@ class TestDegradedInjection:
         # No tool protocol/format block.
         assert "```tool_code" not in sys_content
         # No tool sections.
-        assert "Tool discovery:" not in sys_content
+        assert "Tools:" not in sys_content
         assert "Tool use:" not in sys_content
         # No continue-tool turn semantics.
         assert "call the `continue` tool" not in sys_content
@@ -182,24 +196,35 @@ class TestDegradedInjection:
         # Wire tools= is None on the degraded path.
         assert llm.calls[0]["tools"] is None
 
-    async def test_chat_only_prompt_derived_from_chat_only_constant(self) -> None:
-        """The degraded system message uses CHAT_ONLY_PROMPT as its base."""
+    async def test_degraded_prompt_is_the_one_built_at_agent_build_time(self) -> None:
+        """The degraded system message is ``degraded_system_prompt``, verbatim."""
         llm = CapturingLLM([Message.assistant("ok")], supports=False)
-        agent = Agent(llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt())
+        agent = _agent(llm)
 
         await _collect(agent, "hello")
 
         sent = llm.calls[0]["messages"]
         sys_content = sent[0].content
-        # CHAT_ONLY_PROMPT is the base; its identity line must be present.
+        # PLATFORM_TOOL_FREE is the base; its identity line must be present.
         assert "You are an AI assistant" in sys_content
         # The direct, concise response note is kept.
-        assert "direct, concise responses" in sys_content
+        assert "Reply directly and concisely" in sys_content
+        assert sys_content == _degraded_prompt()
+
+    async def test_without_a_degraded_prompt_the_system_prompt_is_sent_verbatim(self) -> None:
+        """No ``degraded_system_prompt`` -> no prefix recovery, no swap."""
+        llm = CapturingLLM([Message.assistant("ok")], supports=False)
+        agent = Agent(llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt())
+        assert agent.degraded_system_prompt is None
+
+        await _collect(agent, "hello")
+
+        assert llm.calls[0]["messages"][0].content == _system_prompt()
 
     async def test_self_messages_unmutated_and_tail_passthrough(self) -> None:
         """self.messages[0] remains the ORIGINAL (capable) system prompt."""
         llm = CapturingLLM([Message.assistant("ok")], supports=False)
-        agent = Agent(llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt())
+        agent = _agent(llm)
         original_system = agent.messages[0].content
 
         await _collect(agent, "hello there")
@@ -207,8 +232,8 @@ class TestDegradedInjection:
         # self.messages[0] is the ORIGINAL system prompt (capable shape) —
         # the injection only touched the ephemeral request copy.
         assert agent.messages[0].content == original_system
-        # The original has BASE_PROMPT content (tool discovery block).
-        assert "Tool discovery:" in agent.messages[0].content
+        # The original has PLATFORM_TOOLS content (tool discovery block).
+        assert "Tools:" in agent.messages[0].content
         assert "```tool_code" not in agent.messages[0].content
 
         # The request captured at stream() time was [chat_only_system, user].
@@ -276,7 +301,7 @@ class TestCapableUnchanged:
         # for the leading system message content).
         assert sent[0].content == agent.messages[0].content
         assert "```tool_code" not in sent[0].content
-        assert "Tool discovery:" in sent[0].content  # discovery block intact
+        assert "Tools:" in sent[0].content  # discovery block intact
 
         # tools= carries the visible-schema array (search_tools + continue at
         # minimum), NOT None.

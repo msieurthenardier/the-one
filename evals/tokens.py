@@ -3,8 +3,8 @@
 The platform text is everything the platform, not the operator, puts before the
 model on the first call, reported by part:
 
-- prompt sections: the base prompt (or ``CHAT_ONLY_PROMPT`` for the tool-free
-  configuration), the rules layer and the notes layer (each minus the operator's
+- prompt sections: the platform prompt's own sections (the tool-free prompt's for the
+  tool-free configuration), the rules layer and the notes layer (each minus the operator's
   rule and note texts), the date line, and ``other`` for any text that no known
   part explains (so the parts always sum to the total);
 - one part per starting tool schema (name + description + JSON parameters,
@@ -19,8 +19,10 @@ cold (Ollama is unloaded first).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import json
+import logging
 import math
 import os
 import time
@@ -37,6 +39,12 @@ ENCODING = "o200k_base"
 SEPARATOR = "\n\n---\n\n"
 
 CONFIGS = ("bare", "all-on", "tool-free")
+# DD13: the bare and all-on configurations again, with a connector row whose
+# ``default_agent`` is the variant's own agent name. name -> (base config, attempt).
+CONNECTOR_VARIANTS = {"bare-connector": ("bare", 90), "all-on-connector": ("all-on", 91)}
+ALL_CONFIGS = (*CONFIGS, *CONNECTOR_VARIANTS)
+# the starting tools that exist only for a connector-mapped agent's benefit (DD13 a')
+CONNECTOR_TOOLS = ("send_to_platform_channel", "find_platform_destination")
 CONFIG_FILES = {c: MEASURE_DIR / f"{c}.toml" for c in CONFIGS}
 GROUP_PROMPT = "prompt"
 GROUP_TOOLS = "tools"
@@ -119,6 +127,68 @@ def _without(text: str, operator_texts: list[str]) -> str:
     return text
 
 
+SectionSplitter = Callable[[str], list[tuple[str, str]]]
+
+
+def _single_platform_part(text: str) -> list[tuple[str, str]]:
+    """The default section hook: the whole platform text is one part."""
+    return [("platform", text)]
+
+
+def platform_prompt_sections(text: str) -> list[tuple[str, str]]:
+    """Split a first-call platform text into the platform prompt's own sections.
+
+    The platform prompt is conditional (Flight 2 leg 1c), so the text is matched against
+    the render of every capability combination (tools on or off, knowledge, execution
+    tools); the first render equal to ``text`` supplies the split. When none matches the
+    text stays one ``platform`` part (and a warning is logged), so the parts always sum
+    to the total.
+    """
+    import itertools
+
+    from the_one.agent.platform_prompt import Capabilities, render_platform, sections_for
+
+    combos = [
+        Capabilities(tools=True, knowledge=kb, exec_tools=ex)
+        for kb, ex in itertools.product((True, False), repeat=2)
+    ] + [Capabilities(tools=False, knowledge=False, exec_tools=False)]
+    for caps in combos:
+        if render_platform(caps) == text:
+            return sections_for(caps)
+    logging.getLogger(__name__).warning(
+        "platform text matches no capability combination; counted as one part"
+    )
+    return _single_platform_part(text)
+
+
+def _layers(
+    system: str,
+    persona: str,
+    tail_names: list[str],
+) -> tuple[str, list[tuple[str, str]]]:
+    """Split ``system`` into (platform text, [(layer name, text)]) by the layer order.
+
+    The order is platform, persona, rules, notes, date; ``tail_names`` lists which of
+    rules/notes/date this configuration carries. A persona is located by its own text
+    first, so a persona that contains the separator cannot confuse the split. Layers
+    beyond the known ones are named ``unattributed``.
+    """
+    idx = system.find(SEPARATOR + persona + SEPARATOR) if persona else -1
+    if idx < 0 and persona and system.endswith(SEPARATOR + persona):
+        idx = len(system) - len(persona) - len(SEPARATOR)
+    if idx >= 0:
+        platform = system[:idx]
+        rest = system[idx + len(SEPARATOR) + len(persona) :]
+        segs = rest[len(SEPARATOR) :].split(SEPARATOR) if rest.startswith(SEPARATOR) else []
+    else:
+        first, *segs = system.split(SEPARATOR)
+        platform = first
+    named = [
+        (tail_names[i] if i < len(tail_names) else "unattributed", s) for i, s in enumerate(segs)
+    ]
+    return platform, named
+
+
 def extract_parts(
     system: str,
     schemas: list[dict[str, Any]],
@@ -128,56 +198,55 @@ def extract_parts(
     rule_texts: list[str] | None = None,
     note_texts: list[str] | None = None,
     date_lines: list[str] | None = None,
+    notes_present: bool | None = None,
+    platform_sections: SectionSplitter | None = None,
 ) -> list[Part]:
     """Split a first-call system prompt and its tool schemas into platform-text parts.
 
-    Operator-authored text (the persona, rule texts, note texts) is removed by
-    subtracting the strings the scenario seeded, never by guessing. Text that no
-    known part explains becomes ``other``, so the parts always sum to the total.
+    Structural (DD10): the prompt is split on the layer separator and layers are
+    assigned by their known order (platform, persona, rules, notes, date; each present
+    by configuration). Operator-authored text (persona, rule texts, note texts) is
+    subtracted from the layer that holds it, never guessed. The platform text goes through
+    ``platform_sections`` (``text -> [(id, text)]``, default one ``platform`` part;
+    :func:`platform_prompt_sections` splits it into the platform prompt's sections); a
+    layer no configuration explains becomes ``unattributed``.
     """
-    from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT
-    from the_one.db._notes import NOTES_HEADING
-    from the_one.db._rules import RULES_HEADING
-
-    texts: list[tuple[str, str]] = []  # (part name, text counted)
-    if system.startswith(BASE_PROMPT):
-        head, name = BASE_PROMPT, "base_prompt"
-    elif system.startswith(CHAT_ONLY_PROMPT):
-        head, name = CHAT_ONLY_PROMPT, "chat_only_prompt"
-    else:
-        head, name = "", ""
-    if head:
-        texts.append((name, head))
-        rest = system[len(head) :]
-        segments = rest.split(SEPARATOR)
-        # the base text ends with a newline, so the separator's leading blank lines
-        # may be partly part of ``head``: a leading empty piece is not a layer.
-        segments = [s for i, s in enumerate(segments) if not (i == 0 and s.strip("\n") == "")]
-    else:
-        segments = [system] if system else []
-    seen: set[str] = set()
-    for seg in segments:
-        if persona and seg == persona:
-            continue  # operator-authored: not platform text
-        if seg.startswith(RULES_HEADING) and "rules_layer" not in seen:
-            seen.add("rules_layer")
-            texts.append(("rules_layer", _without(seg, rule_texts or [])))
-        elif seg.startswith(NOTES_HEADING) and "notes_layer" not in seen:
-            seen.add("notes_layer")
-            texts.append(("notes_layer", _without(seg, note_texts or [])))
-        elif seg in (date_lines or []) and "date_line" not in seen:
-            seen.add("date_line")
-            texts.append(("date_line", seg))
+    rule_texts = rule_texts or []
+    note_texts = note_texts or []
+    if notes_present is None:
+        notes_present = bool(note_texts)
+    tail_names = (
+        (["rules_layer"] if rule_texts else [])
+        + (["notes_layer"] if notes_present else [])
+        + (["date_line"] if date_lines else [])
+    )
+    # Each layer is stripped of the operator texts that layer holds. A short rule text
+    # is not searched for in the notes layer (it could match the platform's own words).
+    holds = {"rules_layer": rule_texts, "notes_layer": note_texts}
+    platform, layers = _layers(system, persona, tail_names)
+    sections = (platform_sections or _single_platform_part)(platform)
+    texts: list[tuple[str, str]] = [(sid, t) for sid, t in sections]
+    unattributed: list[str] = []
+    for name, seg in layers:
+        seg = _without(seg, holds.get(name, []))
+        if name == "unattributed":
+            unattributed.append(seg)
         else:
-            texts.append(("other", seg))
-    parts: list[Part] = []
-    other = [t for n, t in texts if n == "other"]
-    for n, t in texts:
-        if n != "other":
-            parts.append(Part(n, GROUP_PROMPT, counter.count(t), len(t)))
-    if other:
-        joined = SEPARATOR.join(other)
-        parts.append(Part("other", GROUP_PROMPT, counter.count(joined), len(joined)))
+            texts.append((name, seg))
+    parts = [Part(n, GROUP_PROMPT, counter.count(t), len(t)) for n, t in texts]
+    if len(sections) > 1 and "".join(t for _, t in sections) == platform:
+        # Sections that tile the platform text are counted cumulatively (each part is the
+        # growth in the count of the text so far), so the parts sum exactly to the count of
+        # the whole platform text: tokens can merge across a section boundary.
+        done, prev = "", 0
+        for i, (sid, t) in enumerate(sections):
+            done += t
+            now = counter.count(done)
+            parts[i] = Part(sid, GROUP_PROMPT, now - prev, len(t))
+            prev = now
+    if unattributed:
+        joined = SEPARATOR.join(unattributed)
+        parts.append(Part("unattributed", GROUP_PROMPT, counter.count(joined), len(joined)))
     for s in schemas:
         t = schema_text(s)
         parts.append(Part(f"tool:{schema_name(s)}", GROUP_TOOLS, counter.count(t), len(t)))
@@ -205,12 +274,13 @@ class RawConfig:
     rule_texts: list[str]
     note_texts: list[str]
     date_lines: list[str]
+    notes_present: bool = False
 
 
 def _script_for(config: str, kb_query: str):
     from evals import scripted
 
-    if config == "all-on":
+    if config in ("all-on", "all-on-connector"):
         return [scripted.call("search_tools", {"query": kb_query}), scripted.text("ok")]
     return [scripted.text("ok")]
 
@@ -222,23 +292,55 @@ def load_config_scenarios(measure_dir: Path | None = None) -> dict[str, Any]:
     return {c: parse_scenario(d / f"{c}.toml", fixtures_root=d / "fixtures") for c in CONFIGS}
 
 
+@contextlib.asynccontextmanager
+async def connector_row(agent_name: str):
+    """Insert a connector whose ``default_agent`` is ``agent_name``; delete it on exit."""
+    from the_one.config import settings
+    from the_one.db.connection import get_connection
+    from the_one.db.models import Connector
+    from the_one.db.repositories import ConnectorRepository
+    from the_one.encryption import get_encryptor
+
+    conn = await get_connection()
+    repo = ConnectorRepository(conn, get_encryptor(settings.data_dir))
+    row = Connector(
+        id=f"measure-{agent_name}",
+        name=f"measure-{agent_name}",
+        type="stub",
+        config={"default_agent": agent_name},
+    )
+    await repo.create(row)
+    try:
+        yield row
+    finally:
+        await repo.delete(row.id)
+
+
 async def build_raw_configs(harness: Any, scenarios: dict[str, Any]) -> dict[str, RawConfig]:
-    """Build the bare, all-on and tool-free agents with the scripted provider."""
+    """Build the bare, all-on and tool-free agents, then the two connector-mapped
+    variants (DD13), with the scripted provider."""
     from evals import scripted
     from evals.harness import RunSpec, expected_date_lines
 
     out: dict[str, RawConfig] = {}
-    for config, sc in scenarios.items():
+    plan: list[tuple[str, str, int]] = [(c, c, 1) for c in scenarios]
+    plan += [(n, base, att) for n, (base, att) in CONNECTOR_VARIANTS.items() if base in scenarios]
+    for config, base, attempt_no in plan:
+        sc = scenarios[base]
         holder: list[Any] = []
 
-        def hook(spec: Any, base: str, config: str = config, holder: list[Any] = holder) -> Any:
+        def hook(spec: Any, _b: str, config: str = config, holder: list[Any] = holder) -> Any:
             p = scripted.ScriptedProvider(_script_for(config, "measurement"))
             holder.append(p)
             return p
 
         harness.provider_hook = hook
-        spec = RunSpec(sc, sc.variants()[0], MEASURE_MODEL)
-        attempt = await harness.run_once(spec)
+        spec = RunSpec(sc, sc.variants()[0], MEASURE_MODEL, attempt=attempt_no)
+        if config in CONNECTOR_VARIANTS:
+            async with connector_row(spec.agent_name):
+                attempt = await harness.run_once(spec)
+        else:
+            attempt = await harness.run_once(spec)
         if attempt.exc is not None:
             raise RuntimeError(
                 f"measuring {config}: {type(attempt.exc).__name__}: {attempt.exc}"
@@ -247,13 +349,13 @@ async def build_raw_configs(harness: Any, scenarios: dict[str, Any]) -> dict[str
         if not rec.systems or rec.starting_schemas is None:
             raise RuntimeError(f"measuring {config}: the agent made no model call")
         kb_schema = None
-        if config == "all-on":
+        if base == "all-on":
             for call_ in holder[-1].calls:
                 for t in call_["tools"] or []:
                     if schema_name(t).startswith(KB_TOOL_PREFIX):
                         kb_schema = t
             if kb_schema is None:
-                raise RuntimeError("measuring all-on: no knowledge-base search tool was found")
+                raise RuntimeError(f"measuring {config}: no knowledge-base search tool was found")
         out[config] = RawConfig(
             name=config,
             system=rec.systems[0],
@@ -263,11 +365,16 @@ async def build_raw_configs(harness: Any, scenarios: dict[str, Any]) -> dict[str
             rule_texts=list(sc.rules),
             note_texts=[n.text for n in sc.seeded_notes],
             date_lines=expected_date_lines(sc),
+            notes_present=bool(sc.notes_enabled),
         )
     return out
 
 
-def measure_configs(raw: dict[str, RawConfig], counter: Counter) -> dict[str, Any]:
+def measure_configs(
+    raw: dict[str, RawConfig],
+    counter: Counter,
+    platform_sections: SectionSplitter | None = None,
+) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name, rc in raw.items():
         parts = extract_parts(
@@ -278,6 +385,8 @@ def measure_configs(raw: dict[str, RawConfig], counter: Counter) -> dict[str, An
             rule_texts=rc.rule_texts,
             note_texts=rc.note_texts,
             date_lines=rc.date_lines,
+            notes_present=rc.notes_present,
+            platform_sections=platform_sections or platform_prompt_sections,
         )
         out[name] = {"parts": [p.to_dict() for p in parts], "totals": totals(parts)}
     return out
@@ -475,7 +584,7 @@ async def _default_server_info(preset: Any) -> dict[str, Any]:
 def render_tables(doc: dict[str, Any]) -> str:
     """Per-part tables for the three configurations, then the model counts."""
     lines = [f"counter: {doc['counter']}", ""]
-    for name in CONFIGS:
+    for name in ALL_CONFIGS:
         cfg = doc["configs"].get(name)
         if not cfg:
             continue

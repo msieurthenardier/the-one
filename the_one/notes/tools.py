@@ -217,11 +217,9 @@ async def _origin(turn: TurnContext | None) -> dict[str, Any]:
 class SaveNoteTool(_NotesToolBase):
     name = SAVE_NOTE_TOOL_NAME
     description = (
-        "Save a short note to this agent's saved notes: something the person you're "
-        "talking with told you about their life (a preference, a plan or a circumstance) "
-        "that may matter in a later conversation, written as what they told you. Never "
-        "save passwords, keys or other secrets. Saved notes are shown to you at the "
-        "start of every later conversation."
+        "Save a note for later conversations: something the person told you about their "
+        "life (a preference, plan or circumstance), worded as they told it. Never save "
+        "passwords, keys or other secrets."
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -251,10 +249,7 @@ class SaveNoteTool(_NotesToolBase):
 
 class UpdateNoteTool(_NotesToolBase):
     name = UPDATE_NOTE_TOOL_NAME
-    description = (
-        "Replace the text of one of your saved notes, addressed by the number shown "
-        "in the saved notes."
-    )
+    description = "Replace a saved note's text, by its number."
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -289,7 +284,7 @@ class UpdateNoteTool(_NotesToolBase):
 
 class ForgetNoteTool(_NotesToolBase):
     name = FORGET_NOTE_TOOL_NAME
-    description = "Remove one of your saved notes, addressed by its number in the saved notes."
+    description = "Delete a saved note, by its number."
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {"number": {"type": "integer", "description": "The note's number."}},

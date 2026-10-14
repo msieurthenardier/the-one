@@ -3,7 +3,7 @@
 **Slug**: `agent-tells-the-time`
 **Status**: active
 **Created**: 2026-10-10 (Mission 28 Flight 1)
-**Last Run**: 2026-10-11 pass, 8/8 ([run log](agent-tells-the-time/runs/2026-10-11-01-02-39.md))
+**Last Run**: 2026-10-14 (Mission 30 Flight 2, final platform prompt): pass, 8/8 ([run log](agent-tells-the-time/runs/2026-10-14-15-32-33.md)). Earlier: 2026-10-11 pass, 8/8 ([run log](agent-tells-the-time/runs/2026-10-11-01-02-39.md))
 
 ## Intent
 
@@ -41,8 +41,9 @@ window from the host's actual zone, read from the instance as in step 7.
 
 ## Preconditions
 
-- A dev instance built from the flight branch, on a port of 8490 or higher (never
-  8484 or 8485), with a **scratch data directory**. Start it with
+- A dev instance built from the flight branch, on a dedicated non-default port
+  (8486 or higher, assigned per run; never 8484 or 8485), with a **scratch data
+  directory**. Start it with
   `THE_ONE_DEV_MODE=true` and `THE_ONE_STUB_TEST_ENDPOINT=1`. Follow CLAUDE.md's
   "Behavior-test credential convention" for the credential and the browser
   handoff.
@@ -57,7 +58,7 @@ window from the host's actual zone, read from the instance as in step 7.
   - notes off.
 - A stub connector `bt-stub` exists with `default_agent` set to `time-probe` and
   peer `peer-1` admitted, set up as in `stub-connector-round-trip.md` steps 1-4
-  (with this spec's port and agent).
+  (with this spec's dedicated port and agent).
 - A browser apparatus can reach the dev instance.
 - The database path is `{data_dir}/the-one.db`.
 
@@ -80,13 +81,13 @@ window from the host's actual zone, read from the instance as in step 7.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | `PUT /api/time-settings` with `{"mode": "zone", "zone": "Pacific/Kiritimati"}`, then `GET /api/time-settings`. Compute `{KDATE}` with `TZ=Pacific/Kiritimati date '+%A, %B %-d, %Y'`. | The PUT returns 200. The GET shows `mode` "zone", `zone` "Pacific/Kiritimati" and `effective.zone` "Pacific/Kiritimati". `preview.prompt` begins `Today is {KDATE} (Pacific/Kiritimati).` and names `current_time`. `preview.prompt_without_tool` does not name it. `preview.tool`'s first line ends `+14:00 (Pacific/Kiritimati)`. |
-| 2 | In the browser, start a **new** chat with `time-probe` and send "What is today's date? Reply with the weekday and the date only." Record the session id as `{WEB1}`, then read its stored messages. | The reply names `{KDATE}`'s weekday and its day of the month. Stored element 0, the system message, starts with the base prompt ("You are an AI agent with access to a set of tools"). Its last `---`-separated layer is the date line `Today is {KDATE} (Pacific/Kiritimati). … call current_time.` No error is shown in the transcript. |
+| 2 | In the browser, start a **new** chat with `time-probe` and send "What is today's date? Reply with the weekday and the date only." Record the session id as `{WEB1}`, then read its stored messages. | The reply names `{KDATE}`'s weekday and its day of the month. Stored element 0, the system message, starts with the platform prompt ("You are an AI agent. Use your tools to do what you're asked"). Its last `---`-separated layer is the date line `Today is {KDATE} (Pacific/Kiritimati). … call current_time.` No error is shown in the transcript. |
 | 3 | In the same chat, send "What time is it in Tokyo right now?" Compute `{TOKYO}` with `TZ=Asia/Tokyo date '+%H:%M'` immediately after the reply arrives. | The stored messages for `{WEB1}` include at least one assistant tool call named `current_time`. Record whether its arguments carry `zone` "Asia/Tokyo" or no zone; a model may convert itself. If `zone` is "Asia/Tokyo", the matching tool result's first line ends `+09:00 (Asia/Tokyo)` and contains an `Operator's time zone:` block naming Pacific/Kiritimati. If there is no zone, it ends `+14:00 (Pacific/Kiritimati)`. Either way, the reply's time is within 5 minutes of `{TOKYO}`, read in 12-hour or 24-hour form. |
 | 4 | `PUT /api/agents/time-probe` with `enabled_tools: ["read_file"]` (trimming the agent's built-ins), keeping its other fields. Start a **new** chat and send "What time is it right now?" Record `{WEB2}` and compute `{KTIME}` with `TZ=Pacific/Kiritimati date '+%H:%M'`. | The stored system message's date line still names `current_time`. Either the stored messages include a `current_time` call (no `zone`, or `zone` Pacific/Kiritimati), or the reply's time is within 5 minutes of `{KTIME}`; record which. There is no "tool not found" or unknown-tool error in the stored messages. |
 | 5 | `PUT /api/agents/time-probe` with `enabled_tools: null` and `disabled_tools: ["current_time"]`. Start a **new** chat and send "What is today's date? Reply with the weekday and the date only." Record `{WEB3}`. | The stored system message's last layer is the tool-free wording `Today is {KDATE} (Pacific/Kiritimati), as of when this conversation was last loaded.`, and the text `current_time` appears nowhere in it. The stored messages contain no `current_time` call. The reply still names `{KDATE}`'s weekday and day of the month. |
 | 6 | Restore `time-probe` to defaults (`enabled_tools: null`, `disabled_tools: []`). Snapshot `GET /api/_test/stub/outbound` (the pairing setup may have left records). Inject a stub inbound message from `peer-1` on `bt-stub`: "What's today's date? Weekday and date only." Poll `GET /api/_test/stub/outbound` for up to 120 s. Find the connector session through `GET /api/chat/sessions` (platform `stub`), and read its stored messages. | An outbound reply addressed to `peer-1` arrives **beyond the snapshot's records** (outbound records carry no id or timestamp: compare the record list's length and contents with the snapshot); only that record is judged. It names `{KDATE}`'s weekday and day of the month. The connector session's stored system message ends with the date line naming Pacific/Kiritimati and `current_time`. |
-| 7 | `PUT /api/time-settings` with `{"mode": "system", "zone": null}`, then `GET`. Compute `{HOSTZONE}` in the **instance's** environment. Read `TZ` from the running instance's `/proc/<pid>/environ` (the PID is in `.the-one.<port>.pid`). Then run `env TZ=<that value, or unset if absent> .venv/bin/python -c "import tzlocal; print(tzlocal.get_localzone_name())"` from the flight branch checkout. Start a **new** web chat, send "Hello.", record `{WEB4}`, and read its system message. | The GET shows `mode` "system", with `system.zone` and `effective.zone` both equal to `{HOSTZONE}` (or both null when `{HOSTZONE}` is empty). `{WEB4}`'s date line names `{HOSTZONE}`, or `system time zone, UTC…` when there is no name, and its date matches `TZ={HOSTZONE} date '+%A, %B %-d, %Y'`. |
-| 8 | `PUT /api/time-settings` with `{"mode": "zone", "zone": "Mars/Olympus_Mons"}`, then `GET`. | The PUT returns **422** with a plain-sentence `detail` naming the unknown zone. The GET is unchanged from step 7. |
+| 7 | `PUT /api/time-settings` with `{"mode": "system", "zone": null}`, then `GET`. Compute `{HOSTZONE}` in the **instance's** environment. Read `TZ` from the running instance's `/proc/<pid>/environ` (the PID is in `.the-one.<port>.pid` for a `make up` instance, else the PID recorded at launch). Then run `env TZ=<that value> .venv/bin/python -c "import tzlocal; print(tzlocal.get_localzone_name())"` from the flight branch checkout; when `TZ` is absent, use `env -u TZ` instead (never an empty `TZ=`). Start a **new** web chat, send "Hello.", record `{WEB4}`, and read its system message. | The GET shows `mode` "system", with `system.zone` and `effective.zone` both equal to `{HOSTZONE}` (or both null when `{HOSTZONE}` is empty). `{WEB4}`'s date line names `{HOSTZONE}`, or `system time zone, UTC…` when there is no name, and its date matches `TZ={HOSTZONE} date '+%A, %B %-d, %Y'`. |
+| 8 | `PUT /api/time-settings` with `{"mode": "zone", "zone": "Mars/Olympus_Mons"}`, then `GET`. | The PUT returns **422** with a plain-sentence `detail` naming the unknown zone. The GET is unchanged from step 7 (apart from `preview`'s live clock values). |
 
 ## Out of Scope
 

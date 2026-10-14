@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
-from the_one.agent.prompt_layers import build_system_prompt, time_tool_available
+from the_one.agent.platform_prompt import capabilities_from_registry
+from the_one.agent.prompt_layers import build_system_prompts, time_tool_available
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
 from the_one.llm import get_provider
@@ -527,11 +528,28 @@ class AgentFactory:
         # stays untouched, the seed/reset mechanism already handles N
         # entries). `fetch_channel_history` deliberately stays
         # search-discovered (not chain-critical) and is NOT seeded here.
-        for seed_tool_name in (
-            SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
-            FIND_PLATFORM_DESTINATION_TOOL_NAME,
-            CURRENT_TIME_TOOL_NAME,
-        ):
+        #
+        # Flight 2 leg 1c (DD7): the connector pair is seeded only for an
+        # agent some connector's binding names (default_agent or a
+        # channel_map value). Others still find the pair through
+        # `search_tools`. An agent mapped after its web session started sees
+        # the pair seeded on rejoin (accepted staleness). `current_time`
+        # stays seeded for everyone.
+        from the_one.db.repositories import agent_names_in_use
+
+        try:
+            connector_bound = config.name in await agent_names_in_use(conn)
+        except Exception:  # noqa: BLE001 - fail open to the pre-DD7 behaviour (seed the pair)
+            logger.warning("Could not read connector bindings; seeding the pair", exc_info=True)
+            connector_bound = True
+        seed_names = [CURRENT_TIME_TOOL_NAME]
+        if connector_bound:
+            seed_names = [
+                SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+                FIND_PLATFORM_DESTINATION_TOOL_NAME,
+                CURRENT_TIME_TOOL_NAME,
+            ]
+        for seed_tool_name in seed_names:
             if seed_tool_name in registry.tool_names:
                 seed_tool = registry.get(seed_tool_name)
                 loaded_schemas.append(seed_tool.to_schema())
@@ -546,8 +564,17 @@ class AgentFactory:
 
         # 3. Resolve system prompt
         tool_available = await time_tool_available(registry, llm)
-        system_prompt = await build_system_prompt(
-            config.name, config.system_prompt, conn=conn, tool_available=tool_available
+        caps = capabilities_from_registry(
+            registry, notes=bool(notes_tools), rules=True, time_tool=tool_available
+        )
+        prompts = await build_system_prompts(
+            config.name,
+            config.system_prompt,
+            conn=conn,
+            tool_available=tool_available,
+            knowledge=caps.knowledge,
+            time_tool=caps.time_tool,
+            exec_tools=caps.exec_tools,
         )
 
         # 4. Create agent
@@ -556,7 +583,8 @@ class AgentFactory:
         agent = Agent(
             llm=llm,
             tools=registry,
-            system_prompt=system_prompt,
+            system_prompt=prompts.tool_capable,
+            degraded_system_prompt=prompts.tool_free,
             max_iterations=config.max_iterations,
             loaded_schemas=loaded_schemas,
             loaded_tool_names=loaded_tool_names,

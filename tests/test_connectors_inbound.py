@@ -20,6 +20,7 @@ from conftest import FakeLLM
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory, set_factory
+from the_one.agent.platform_prompt import Capabilities, render_platform
 from the_one.config import settings
 from the_one.connectors import registry
 from the_one.connectors.base import ChannelTarget, ConnectorClientError, InboundEnvelope, PeerTarget
@@ -564,7 +565,7 @@ async def test_connector_session_system_message_carries_enabled_rules(
     """M27 F1 (AC20, connector half): a real ``AgentFactory`` builds the
     connector agent; the persisted session's system message (element 0) is
     base + persona + the agent's enabled rules in order, no disabled rule."""
-    from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+    from the_one.agent.config import compose_system_prompt
 
     connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
     await conn_repo.create(connector)
@@ -600,7 +601,7 @@ async def test_connector_session_system_message_carries_enabled_rules(
     from conftest import expected_date_layer
 
     expected = compose_system_prompt(
-        BASE_PROMPT,
+        render_platform(Capabilities(knowledge=False)),
         "Be brief.",
         rules=["Rule A.", "Rule B."],
         date_line=expected_date_layer(True),
