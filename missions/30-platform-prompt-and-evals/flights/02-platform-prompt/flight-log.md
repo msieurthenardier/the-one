@@ -270,7 +270,7 @@ Parts: bare: identity 22, tool_discovery 246, tool_use 61, tool_use_tail 121, cl
 - **Commits:** HEAD `5cfd134` (revert of candidate 6, `dd53bed`). `git diff c4bb053 -- the_one/ tests/` is empty. The final candidate is exactly candidate 3.
 - **Gates:** `make test-unit` 6613 passed, 12 skipped; ruff check and format --check clean on the_one/ tests/ scripts/ evals/; freeze test 3 passed.
 - **Probes (status only):** Haiku 4.5 OK (200); Ollama 0.34.0, gpt-oss:20b digest 17052f91.
-- **Run dirs:** `evals/runs/f2-final-haiku`, `evals/runs/f2-final-gpt-oss` (each with `measure.json`; 240 runs each, 228 pass / 12 fail for Haiku and 174 pass / 66 fail for gpt-oss, none excluded, no cut-short or error). Wall time: Haiku 1054 s (17.6 min), gpt-oss 5424 s (90.4 min).
+- **Run dirs:** `evals/runs/f2-final-haiku`, `evals/runs/f2-final-gpt-oss` (each with `measure.json`; 240 runs each, 228 pass / 12 fail for Haiku and 174 pass / 66 fail for gpt-oss, none excluded, no cut-short or error). Wall time: Haiku 1054 s (17.6 min), gpt-oss 6478 s (108 min); both started together.
 - **Sizes (tokens):**
 
 | config | prompt sections | platform total |
