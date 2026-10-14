@@ -1,6 +1,6 @@
 # Leg: platform-prompt-structure
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
@@ -49,18 +49,18 @@ No condition is switched on and no wording changes in this leg. That is leg 1c (
 - Docs: `evals/README.md` stops naming the removed constants. `evals/measure/tool-free.toml` is **frozen** (DD12) and is not edited; its comment's mention of `CHAT_ONLY_PROMPT` stays as history. `the_one/agents.md`'s references (around lines 858, 862, 879, 916, 1641 and 2504) are updated to describe `platform_prompt` and the two built prompts.
 
 ## Acceptance Criteria
-- [ ] **Byte-identical renders.** Tests pin `render_platform(Capabilities.all_on())` == the exact old `BASE_PROMPT` literal (trailing newline included), and the tool-free render == the exact old `CHAT_ONLY_PROMPT` literal.
-- [ ] **Unchanged composed prompts.** A test pins that the composed system prompt of an all-on agent (persona, rules, notes, date) is byte-identical to what `compose_system_prompt(<old BASE_PROMPT literal>, …)` produces. Another pins that its degraded prompt equals the old `CHAT_ONLY_PROMPT + rest` construction.
-- [ ] **`build_system_prompts`.** It returns `SystemPrompts`. The factory passes `degraded_system_prompt` to `Agent`, and `_build_degraded_messages` uses it, with no `startswith` anywhere in `core.py`. Tests:
+- [x] **Byte-identical renders.** Tests pin `render_platform(Capabilities.all_on())` == the exact old `BASE_PROMPT` literal (trailing newline included), and the tool-free render == the exact old `CHAT_ONLY_PROMPT` literal.
+- [x] **Unchanged composed prompts.** A test pins that the composed system prompt of an all-on agent (persona, rules, notes, date) is byte-identical to what `compose_system_prompt(<old BASE_PROMPT literal>, …)` produces. Another pins that its degraded prompt equals the old `CHAT_ONLY_PROMPT + rest` construction.
+- [x] **`build_system_prompts`.** It returns `SystemPrompts`. The factory passes `degraded_system_prompt` to `Agent`, and `_build_degraded_messages` uses it, with no `startswith` anywhere in `core.py`. Tests:
   - a tool-free model gets the tool-free prompt
   - an `Agent` constructed directly without the attribute sends `system_prompt` verbatim
   - the existing degraded-injection tests are rewritten to the new mechanism with equivalent assertions
-- [ ] **`pending`.** The main path and the fallback both set `degraded_system_prompt`. A test applies a `next_turn` revision and then takes a tool-free turn, and sees the revised persona in the degraded prompt. The fallback test no longer references a removed constant.
-- [ ] **`capabilities_from_registry`.** Unit-tested: a `kb__` tool gives `knowledge`, `shell`/`python_exec` give `exec_tools`, and `None` gives all-False. Both the factory and `pending` use it.
-- [ ] **Constants gone.** `grep -rn "BASE_PROMPT\|CHAT_ONLY_PROMPT" the_one tests evals scripts` returns only the frozen comment in `evals/measure/tool-free.toml`. That covers `.py`, `.md` and `.toml`, including `the_one/agents.md` and `evals/README.md`.
-- [ ] **Evals measurement.** The `platform_sections` hook is wired, and `make eval ARGS="measure-prompt"` (tiktoken) still reports exactly 595 / 862 / 84 prompt sections, 1308 / 1789 / 84 platform text, and the connector variants 1308 / 1789. The per-section parts are shown. The output is pasted into the flight log as the **second one-time verification**.
-- [ ] **Unchanged surfaces.** The freeze test passes, and `/api/info` and Settings › Prompts are unchanged.
-- [ ] **Regression check.** `make test-unit` passes (expected 12 skips), and ruff is clean on `the_one/ tests/ scripts/ evals/`.
+- [x] **`pending`.** The main path and the fallback both set `degraded_system_prompt`. A test applies a `next_turn` revision and then takes a tool-free turn, and sees the revised persona in the degraded prompt. The fallback test no longer references a removed constant.
+- [x] **`capabilities_from_registry`.** Unit-tested: a `kb__` tool gives `knowledge`, `shell`/`python_exec` give `exec_tools`, and `None` gives all-False. Both the factory and `pending` use it.
+- [x] **Constants gone.** `grep -rn "BASE_PROMPT\|CHAT_ONLY_PROMPT" the_one tests evals scripts` returns only the frozen comment in `evals/measure/tool-free.toml`. That covers `.py`, `.md` and `.toml`, including `the_one/agents.md` and `evals/README.md`.
+- [x] **Evals measurement.** The `platform_sections` hook is wired, and `make eval ARGS="measure-prompt"` (tiktoken) still reports exactly 595 / 862 / 84 prompt sections, 1308 / 1789 / 84 platform text, and the connector variants 1308 / 1789. The per-section parts are shown. The output is pasted into the flight log as the **second one-time verification**.
+- [x] **Unchanged surfaces.** The freeze test passes, and `/api/info` and Settings › Prompts are unchanged.
+- [x] **Regression check.** `make test-unit` passes (expected 12 skips), and ruff is clean on `the_one/ tests/ scripts/ evals/`.
 
 ## Verification Steps
 - `.venv/bin/python -m pytest tests/test_prompt_layers.py tests/test_config.py tests/test_agent_degraded_injection.py tests/test_self_configuration_write.py tests/test_connectors_inbound.py tests/test_factory.py tests/test_evals_tokens.py tests/test_evals_harness.py -x -q --timeout 60`

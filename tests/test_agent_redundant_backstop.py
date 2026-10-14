@@ -24,7 +24,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from the_one.agent.config import compose_system_prompt
 from the_one.agent.core import Agent, _executed_key, _synthesize_closing
 from the_one.llm.base import (
     LLMProvider,
@@ -127,7 +128,7 @@ def _registry() -> ToolRegistry:
 
 
 def _system_prompt() -> str:
-    return compose_system_prompt(BASE_PROMPT, "You are Aria.")
+    return compose_system_prompt(PLATFORM_TOOLS, "You are Aria.")
 
 
 def _agent(responses: list[Message], *, supports: bool, reg: ToolRegistry | None = None) -> Agent:

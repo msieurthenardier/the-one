@@ -291,9 +291,9 @@ Verified against the working tree at `085c15d` by a read-only code interrogation
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `evals-readiness`: evals only, product untouched. Covers DD10 (structural extraction and unit tests), DD12, DD13, DD14 and DD15.
-- [ ] `platform-prompt-structure` (1b): DD1, DD2 and the DD10 hook. A byte-identical restructure, both prompts built at build time, every consumer migrated, and the second tiktoken verification.
-- [ ] `conditions-and-ui` (1c): DD3, DD7 and DD8. Conditions switched on, the tool-free notes heading, connector-only seeding, Settings › Prompts.
+- [x] `evals-readiness`: evals only, product untouched. Covers DD10 (structural extraction and unit tests), DD12, DD13, DD14 and DD15.
+- [x] `platform-prompt-structure` (1b): DD1, DD2 and the DD10 hook. A byte-identical restructure, both prompts built at build time, every consumer migrated, and the second tiktoken verification.
+- [x] `conditions-and-ui` (1c): DD3, DD7 and DD8. Conditions switched on, the tool-free notes heading, connector-only seeding, Settings › Prompts.
 - [ ] `wording-and-tuning`: DD4–DD6, DD5's protocol, the final n = 20 run, `compare`, the new baseline
 - [ ] `live-check-and-convention`: the DD9 behavior test, the four prompt-sensitive behavior specs, DD11, the full gate
 

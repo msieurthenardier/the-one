@@ -96,6 +96,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     db = sub.add_parser("derive-bars", help="(re)write the bars and size targets into a baseline")
     db.add_argument("baseline", type=Path, help="baseline JSON file")
+    db.add_argument(
+        "--size-ratio",
+        type=float,
+        default=bl.BARE_RATIO,
+        help="bare prompt-sections target as a fraction of the baseline's "
+        f"(default {bl.BARE_RATIO}; use 1.0 for 'no larger than this baseline')",
+    )
+    sub.add_parser(
+        "selftest",
+        help="run the can-fail suite at full width (20 variants per scenario), offline",
+    )
     return parser
 
 
@@ -118,7 +129,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         run_dir=args.run_dir,
     )
     try:
-        print("building the three agents (no model call)...", file=sys.stderr, flush=True)
+        print("building the agents (no model call)...", file=sys.stderr, flush=True)
         doc = asyncio.run(tokens.measure_prompt(opts))
     except tokens.TiktokenMissingError as exc:
         return _err(str(exc))
@@ -145,7 +156,7 @@ def _cmd_baseline(args: argparse.Namespace) -> int:
 
 
 def _cmd_derive(args: argparse.Namespace) -> int:
-    doc = bl.derive_bars(bl.read_baseline(args.baseline))
+    doc = bl.derive_bars(bl.read_baseline(args.baseline), args.size_ratio)
     bl.write_baseline(doc, args.baseline)
     for model, cells in sorted(doc["cells"].items()):
         for cell, c in sorted(cells.items()):
@@ -157,14 +168,33 @@ def _cmd_derive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_selftest(args: argparse.Namespace) -> int:
+    """The can-fail suite at full width (DD15): the scenario proofs, 20 variants each."""
+    import os
+    import subprocess
+
+    test_file = Path(__file__).resolve().parent.parent / "tests" / "test_evals_scenarios.py"
+    if not test_file.is_file():
+        return _err(f"{test_file}: selftest needs the repository's tests directory")
+    env = {**os.environ, "EVALS_SELFTEST_FULL": "1"}
+    cmd = [sys.executable, "-m", "pytest", str(test_file), "-x", "-q", "--timeout", "300"]
+    print("selftest: can-fail suite at width 20 (offline, scripted provider)", file=sys.stderr)
+    return subprocess.run(cmd, env=env, cwd=test_file.parent.parent).returncode
+
+
 def _cmd_compare(args: argparse.Namespace) -> int:
     runset = rp.load_runs(args.run_dirs, args.measure)
     base = bl.read_baseline(args.baseline)
     measure = runset.measure
-    if measure is None:
-        print("measuring the current prompt (no model call)...", file=sys.stderr, flush=True)
-        measure = asyncio.run(tokens.measure_prompt(tokens.MeasureOptions()))
-        runset.measure, runset.prompt_fp = measure, measure["fingerprints"]["prompt"]
+    if measure is None:  # load_runs refuses a directory with no measure.json; defensive
+        raise bl.BaselineError("compare needs a measurement of the current prompt")
+    if args.measure is not None:
+        print(
+            f"warning: --measure {args.measure} overrides the run directories' own "
+            "measure.json; make sure it measures the prompt these runs used",
+            file=sys.stderr,
+            flush=True,
+        )
     bl.check_comparable(base, runset, same_prompt=args.same_prompt, measure=measure)
     cmp = bl.compare(base, runset, measure)
     print(bl.render_comparison(cmp), end="")
@@ -185,6 +215,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "report": _cmd_report,
         "baseline": _cmd_baseline,
         "derive-bars": _cmd_derive,
+        "selftest": _cmd_selftest,
         "compare": _cmd_compare,
     }
     if args.command in handlers:

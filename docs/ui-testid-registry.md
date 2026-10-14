@@ -63,9 +63,10 @@ caught — but it cannot see where the attribute is emitted.
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
 | `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
-| `base-prompt-content` | admin | The Prompts page's read-only base prompt (`#settings/prompts`; on the single General page until M25 F3 L5a) |
+| `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
+| `notes-prompt-content-tool-free` | admin | The Prompts page's read-only notes-layer example for a model without tools (no saving instructions; Flight 2 leg 1c) |
 | `date-prompt-content` | admin | The Prompts page's read-only date-layer wording for an agent with the `current_time` tool (M28 F1 L3) |
 | `date-prompt-content-without-tool` | admin | The Prompts page's read-only date-layer wording for an agent without the tool (M28 F1 L3) |
 | `date-time-chosen` | admin | The chosen-zone line under "Choose a time zone" on the Date and time page (M28 F2 L3) |
@@ -388,6 +389,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
+| `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
@@ -446,6 +448,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |
 | `agent-tile-mcp-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile MCP tool count) is replaced by the Agents list |
 | `agent-tile-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile built-in tool count) is replaced by the Agents list |

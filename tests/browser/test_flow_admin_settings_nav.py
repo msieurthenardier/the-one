@@ -262,7 +262,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     test ids of the former General page's blocks, and nothing of the others."""
     blocks = page.locator(".content-panel.active .admin-system-section")
     theme = page.locator(".content-panel.active .admin-theme-toggle")
-    prompt = page.locator('[data-testid="base-prompt-content"]')
+    prompt = page.locator('[data-testid="platform-section-tools-identity"]')
     rotate = page.locator('[data-testid="rotate-key-btn"]')
 
     _nav.goto(page, app_clean, "settings/appearance")
@@ -278,24 +278,45 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
 
     _lists.open_settings_page(page, "prompts")
     expect(blocks).to_have_count(1)
-    expect(prompt).to_be_visible()
-    expect(prompt).not_to_have_text("Loading…", timeout=8000)
-    pres = page.locator(".content-panel.active .admin-system-section pre")
-    expect(pres).to_have_count(5)
-    expect(pres.nth(0)).to_have_attribute("data-testid", "base-prompt-content")
-    expect(pres.nth(1)).to_have_attribute("data-testid", "rules-prompt-content")
-    expect(pres.nth(2)).to_have_attribute("data-testid", "notes-prompt-content")
-    expect(pres.nth(3)).to_have_attribute("data-testid", "date-prompt-content")
-    expect(pres.nth(4)).to_have_attribute("data-testid", "date-prompt-content-without-tool")
-    expect(pres.nth(3)).to_contain_text("{today's date}", timeout=8000)
-    expect(pres.nth(3)).to_contain_text("current_time")
-    expect(pres.nth(4)).to_contain_text("{today's date}", timeout=8000)
-    expect(pres.nth(4)).not_to_contain_text("current_time")
-    expect(pres.nth(1)).to_contain_text("{first enabled rule}", timeout=8000)
-    expect(pres.nth(2)).to_contain_text("(unverified)", timeout=8000)
+    expect(prompt).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="platform-sections"]')).not_to_contain_text("Loading…")
+    # The platform prompt is one block per section, by testid.
+    ident = page.locator('[data-testid="platform-section-tools-identity-text"]')
+    expect(ident).to_contain_text("You are an AI agent")
+    expect(
+        page.locator('[data-testid="platform-section-tools-identity-applies-when"]')
+    ).to_contain_text("Applies when")
+    for sid in ("tool_discovery", "knowledge", "tool_use", "execution", "tool_use_tail", "closing"):
+        expect(page.locator(f'[data-testid="platform-section-tools-{sid}"]')).to_be_visible()
+    for sid in ("identity_tool_free", "closing"):
+        expect(page.locator(f'[data-testid="platform-section-tool_free-{sid}"]')).to_be_visible()
+    # The tool-free blocks never name a tool.
+    free_text = page.locator('[data-testid^="platform-section-tool_free-"][data-testid$="-text"]')
+    for t in free_text.all_inner_texts():
+        assert "search_tools" not in t and "continue" not in t
+    expect(
+        page.locator('[data-testid="platform-section-tools-execution-applies-when"]')
+    ).to_contain_text("shell")
+    # The rules, notes and date layers keep their pres.
+    rules = page.locator('[data-testid="rules-prompt-content"]')
+    notes = page.locator('[data-testid="notes-prompt-content"]')
+    notes_free = page.locator('[data-testid="notes-prompt-content-tool-free"]')
+    date_with = page.locator('[data-testid="date-prompt-content"]')
+    date_without = page.locator('[data-testid="date-prompt-content-without-tool"]')
+    expect(date_with).to_contain_text("{today's date}", timeout=8000)
+    expect(date_with).to_contain_text("current_time")
+    expect(date_without).to_contain_text("{today's date}", timeout=8000)
+    expect(date_without).not_to_contain_text("current_time")
+    expect(rules).to_contain_text("{first enabled rule}", timeout=8000)
+    expect(notes).to_contain_text("(unverified)", timeout=8000)
+    expect(notes).to_contain_text("update_note")
+    expect(notes_free).to_contain_text("(unverified)", timeout=8000)
+    expect(notes_free).not_to_contain_text("update_note")
     titles = page.locator(".content-panel.active .admin-prompt-layer .section-title")
     assert [t.lower() for t in titles.all_inner_texts()] == [
-        "base prompt",
+        "platform prompt",
+        "with tools",
+        "without tools (models that can\u2019t call tools)",
         "rules",
         "notes",
         "date",

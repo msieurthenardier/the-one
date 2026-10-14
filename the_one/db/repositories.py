@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from collections.abc import AsyncIterator, Sequence
@@ -1389,6 +1390,44 @@ class ConnectorRepository:
 
 # ── Connector directory repository ───────────────────────────────────────
 
+_conn_logger = logging.getLogger(__name__)
+
+
+async def connector_bindings(conn: aiosqlite.Connection) -> dict[str, set[str]]:
+    """Map each connector id to the agent names its binding names.
+
+    A connector's binding is its ``config.default_agent`` plus every
+    ``config.channel_map`` value. A malformed row (unparseable JSON, a non-dict
+    config or ``channel_map``, unhashable values) is skipped with a log line
+    rather than raised, so one bad row cannot break a search or an agent build.
+    Reads the plaintext ``config`` column only (no secrets).
+    """
+    async with conn.execute("SELECT id, config FROM connectors") as cur:
+        rows = await cur.fetchall()
+    out: dict[str, set[str]] = {}
+    for row in rows:
+        try:
+            config = json.loads(row["config"] or "{}")
+            if not isinstance(config, dict):
+                raise TypeError("connector config is not an object")
+            channel_map = config.get("channel_map") or {}
+            if not isinstance(channel_map, dict):
+                raise TypeError("channel_map is not an object")
+            names = {n for n in [config.get("default_agent"), *channel_map.values()] if n}
+            out[row["id"]] = names
+        except (ValueError, TypeError, AttributeError):
+            _conn_logger.warning("Skipping malformed connector row %r", row["id"], exc_info=True)
+    return out
+
+
+async def agent_names_in_use(
+    conn: aiosqlite.Connection, bindings: dict[str, set[str]] | None = None
+) -> set[str]:
+    """Every agent name some connector's binding names."""
+    if bindings is None:
+        bindings = await connector_bindings(conn)
+    return set().union(*bindings.values()) if bindings else set()
+
 
 class ConnectorDirectoryRepository:
     """Async access to ``connector_directory`` (v39, DD-4) — passively
@@ -1508,14 +1547,8 @@ class ConnectorDirectoryRepository:
         secret). This is the only enrichment path; :meth:`get` stays a
         single-table exact-match read.
         """
-        async with self.conn.execute("SELECT id, config FROM connectors") as cur:
-            connector_rows = await cur.fetchall()
-        authorized_ids: list[str] = []
-        for row in connector_rows:
-            config = json.loads(row["config"] or "{}")
-            channel_map = config.get("channel_map") or {}
-            if config.get("default_agent") == agent_name or agent_name in channel_map.values():
-                authorized_ids.append(row["id"])
+        bindings = await connector_bindings(self.conn)
+        authorized_ids = [cid for cid, names in bindings.items() if agent_name in names]
         if connector_id is not None:
             authorized_ids = [c for c in authorized_ids if c == connector_id]
         if not authorized_ids:

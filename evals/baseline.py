@@ -41,6 +41,7 @@ DEFAULT_BASELINES_DIR = Path(__file__).resolve().parent / "baselines"
 
 HARD = "hard"
 BEST_EFFORT = "best-effort"
+CONNECTOR_PART_NAMES = ("tool:send_to_platform_channel", "tool:find_platform_destination")
 
 
 class BaselineError(Exception):
@@ -64,7 +65,7 @@ def cell_bar(klass: str, passes: int, counted: int) -> dict[str, Any]:
     return {"kind": "hold", "bar_rate": None, "rule": "not worse than baseline"}
 
 
-def size_targets(configs: dict[str, Any]) -> dict[str, Any]:
+def size_targets(configs: dict[str, Any], bare_ratio: float = BARE_RATIO) -> dict[str, Any]:
     bare = configs["bare"]["totals"]["prompt_sections"]
     allon = configs["all-on"]["totals"]["platform"]
     return {
@@ -72,8 +73,8 @@ def size_targets(configs: dict[str, Any]) -> dict[str, Any]:
             "metric": "prompt_sections",
             "config": "bare",
             "today": bare,
-            "ratio": BARE_RATIO,
-            "max": math.floor(bare * BARE_RATIO + 1e-9),
+            "ratio": bare_ratio,
+            "max": math.floor(bare * bare_ratio + 1e-9),
         },
         "all-on": {
             "metric": "platform",
@@ -85,13 +86,66 @@ def size_targets(configs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def derive_bars(doc: dict[str, Any]) -> dict[str, Any]:
-    """Write the bars and size targets into a baseline document (idempotent)."""
+def derive_bars(doc: dict[str, Any], size_ratio: float = BARE_RATIO) -> dict[str, Any]:
+    """Write the bars and size targets into a baseline document (idempotent).
+
+    ``size_ratio`` (DD11) sets the bare prompt-sections target as a fraction of the
+    baseline's; the other size maxima are always the baseline's own values (ratio 1.0).
+    """
     for cells in doc["cells"].values():
         for cell in cells.values():
             cell["bar"] = cell_bar(cell["class"], cell["passes"], cell["counted"])
-    doc["size_targets"] = size_targets(doc["sizes"]["configs"])
+    doc["size_targets"] = size_targets(doc["sizes"]["configs"], size_ratio)
     return doc
+
+
+def connector_tokens(config: dict[str, Any]) -> int:
+    """Tokens of the connector-only tool schemas a recorded configuration carries."""
+    return sum(p["tokens"] for p in config["parts"] if p["name"] in CONNECTOR_PART_NAMES)
+
+
+def extra_size_gates(base: dict[str, Any]) -> list[dict[str, Any]]:
+    """DD13's hard gates, each maximum read from the baseline's ``sizes``.
+
+    A baseline without connector-variant sizes (``m30-today``) takes the "plus
+    connector" maxima from its plain bare and all-on sizes.
+    """
+    cfgs = base["sizes"]["configs"]
+    bare = cfgs["bare"]["totals"]["platform"]
+    allon = cfgs["all-on"]["totals"]["platform"]
+    bare_conn = cfgs.get("bare-connector", cfgs["bare"])["totals"]["platform"]
+    allon_conn = cfgs.get("all-on-connector", cfgs["all-on"])["totals"]["platform"]
+    held = connector_tokens(cfgs["bare"])
+    return [
+        {
+            "name": "bare-platform",
+            "config": "bare",
+            "metric": "platform",
+            "max": bare - held,
+            "why": f"baseline bare {bare} minus {held} connector tokens",
+        },
+        {
+            "name": "bare-connector",
+            "config": "bare-connector",
+            "metric": "platform",
+            "max": bare_conn,
+            "why": f"baseline bare plus connector {bare_conn}",
+        },
+        {
+            "name": "all-on",
+            "config": "all-on",
+            "metric": "platform",
+            "max": allon,
+            "why": f"baseline all-on {allon}",
+        },
+        {
+            "name": "all-on-connector",
+            "config": "all-on-connector",
+            "metric": "platform",
+            "max": allon_conn,
+            "why": f"baseline all-on plus connector {allon_conn}",
+        },
+    ]
 
 
 # ── Writing and reading ───────────────────────────────────────────────────
@@ -208,7 +262,10 @@ def check_comparable(
 
 
 def _stat_line(st: CellStat) -> str:
-    return f"{st.passes}/{st.counted}"
+    line = f"{st.passes}/{st.counted}"
+    if st.saved_runs is not None:  # DD14: how many runs actually exercised the check
+        line += f" (non-vacuous: {st.saved_runs} of {st.counted} runs saved a note)"
+    return line
 
 
 def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Comparison:
@@ -272,6 +329,8 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
                     )
                 )
     for name, tgt in sorted(base["size_targets"].items()):
+        if name == "all-on":
+            continue  # reported by the DD13 all-on gate below (same maximum, same config)
         now = measure["configs"][tgt["config"]]["totals"][tgt["metric"]]
         ok = now <= tgt["max"]
         out.rows.append(
@@ -283,6 +342,24 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
                 None if ok else HARD,
                 f"{tgt['metric']} {now} tokens vs max {tgt['max']} "
                 f"({tgt['ratio'] * 100:.0f}% of today's {tgt['today']})",
+            )
+        )
+    for gate in extra_size_gates(base):
+        cfg = measure["configs"].get(gate["config"])
+        if cfg is None:
+            raise BaselineError(
+                f"the measurement has no {gate['config']} configuration: re-run measure-prompt"
+            )
+        now = cfg["totals"][gate["metric"]]
+        ok = now <= gate["max"]
+        out.rows.append(
+            Row(
+                f"size:{gate['name']}",
+                "-",
+                "size",
+                ok,
+                None if ok else HARD,
+                f"{gate['metric']} {now} tokens vs max {gate['max']} ({gate['why']})",
             )
         )
     return out

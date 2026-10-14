@@ -11,6 +11,7 @@ from _evals_helpers import make_tree, run, simple_scenario
 
 from evals import scripted
 from evals.scripted import call, text
+from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
 
 evals_isolation = h.evals_isolation
 real_data_dir = h.real_data_dir
@@ -111,7 +112,6 @@ async def test_fetch_to_another_host_is_refused_and_reported(evals_isolation):
 
 
 async def test_tools_off_run_carries_no_tools_chat_prompt_and_tool_free_date_line(evals_isolation):
-    from the_one.agent.config import CHAT_ONLY_PROMPT
 
     tmp = evals_isolation
     sc = simple_scenario(
@@ -127,7 +127,7 @@ async def test_tools_off_run_carries_no_tools_chat_prompt_and_tool_free_date_lin
     (prov,) = hook.made
     first = prov.calls[0]
     assert first["tools"] is None
-    assert first["messages"][0].content.startswith(CHAT_ONLY_PROMPT)
+    assert first["messages"][0].content.startswith(PLATFORM_TOOL_FREE)
     assert "current_time" not in first["messages"][0].content  # the tool-free wording
     tr = transcript(run_dir, "tf__gpt-oss__f0p0__a1")
     assert tr["model_calls"][0]["tools"] == []

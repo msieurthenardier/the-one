@@ -5,7 +5,8 @@ from __future__ import annotations
 import pydantic
 import pytest
 
-from the_one.agent.config import BASE_PROMPT, AgentConfig
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from the_one.agent.config import AgentConfig
 
 # ===================================================================
 # AgentConfig construction
@@ -236,50 +237,50 @@ class TestComposeLayers:
     def test_empty_persona_returns_base(self):
         from the_one.agent.config import compose_system_prompt
 
-        assert compose_system_prompt(BASE_PROMPT, "") == BASE_PROMPT
+        assert compose_system_prompt(PLATFORM_TOOLS, "") == PLATFORM_TOOLS
 
     def test_custom_prompt_appended(self):
         from the_one.agent.config import compose_system_prompt
 
         assert (
-            compose_system_prompt(BASE_PROMPT, "Custom prompt.")
-            == BASE_PROMPT + "\n\n---\n\nCustom prompt."
+            compose_system_prompt(PLATFORM_TOOLS, "Custom prompt.")
+            == PLATFORM_TOOLS + "\n\n---\n\nCustom prompt."
         )
 
     def test_rules_follow_persona_numbered(self):
         from the_one.agent.config import compose_system_prompt
         from the_one.db._rules import RULES_HEADING
 
-        out = compose_system_prompt(BASE_PROMPT, "P", rules=["a", "b\nc"])
+        out = compose_system_prompt(PLATFORM_TOOLS, "P", rules=["a", "b\nc"])
         assert out == (
-            BASE_PROMPT + "\n\n---\n\nP\n\n---\n\n" + RULES_HEADING + "\n\n1. a\n2. b\nc"
+            PLATFORM_TOOLS + "\n\n---\n\nP\n\n---\n\n" + RULES_HEADING + "\n\n1. a\n2. b\nc"
         )
 
     def test_rules_without_persona_have_no_empty_layer(self):
         from the_one.agent.config import compose_system_prompt
         from the_one.db._rules import RULES_HEADING
 
-        out = compose_system_prompt(BASE_PROMPT, "", rules=["only"])
-        assert out == BASE_PROMPT + "\n\n---\n\n" + RULES_HEADING + "\n\n1. only"
+        out = compose_system_prompt(PLATFORM_TOOLS, "", rules=["only"])
+        assert out == PLATFORM_TOOLS + "\n\n---\n\n" + RULES_HEADING + "\n\n1. only"
 
     def test_notes_none_omits_the_layer(self):
         from the_one.agent.config import compose_system_prompt
 
-        assert compose_system_prompt(BASE_PROMPT, "P", notes=None) == compose_system_prompt(
-            BASE_PROMPT, "P"
+        assert compose_system_prompt(PLATFORM_TOOLS, "P", notes=None) == compose_system_prompt(
+            PLATFORM_TOOLS, "P"
         )
         # Rules alone are byte-identical to Flight 1 (no precedence sentence).
         assert "take precedence over saved notes" not in compose_system_prompt(
-            BASE_PROMPT, "P", rules=["a"]
+            PLATFORM_TOOLS, "P", rules=["a"]
         )
 
     def test_notes_empty_list_renders_no_saved_notes_yet(self):
         from the_one.agent.config import compose_system_prompt
         from the_one.db._notes import NOTES_HEADING
 
-        out = compose_system_prompt(BASE_PROMPT, "P", notes=[])
+        out = compose_system_prompt(PLATFORM_TOOLS, "P", notes=[])
         assert out == (
-            BASE_PROMPT
+            PLATFORM_TOOLS
             + "\n\n---\n\nP\n\n---\n\n"
             + NOTES_HEADING
             + "\n\n<saved_notes>\nNo saved notes yet.\n</saved_notes>"
@@ -289,7 +290,7 @@ class TestComposeLayers:
         from the_one.agent.config import RenderedNote, compose_system_prompt
 
         out = compose_system_prompt(
-            BASE_PROMPT,
+            PLATFORM_TOOLS,
             "",
             notes=[RenderedNote(3, "alpha", False), RenderedNote(7, "beta", True)],
         )
@@ -300,7 +301,7 @@ class TestComposeLayers:
         from the_one.agent.config import compose_system_prompt
         from the_one.db._rules import RULES_OVER_NOTES
 
-        out = compose_system_prompt(BASE_PROMPT, "P", rules=["a"], notes=[])
+        out = compose_system_prompt(PLATFORM_TOOLS, "P", rules=["a"], notes=[])
         assert RULES_OVER_NOTES in out
         assert out.index(RULES_OVER_NOTES) < out.index("1. a") < out.index("<saved_notes>")
 
@@ -308,14 +309,14 @@ class TestComposeLayers:
         from the_one.agent.config import compose_system_prompt
         from the_one.db._rules import RULES_HEADING
 
-        out = compose_system_prompt(BASE_PROMPT, "P", notes=[])
+        out = compose_system_prompt(PLATFORM_TOOLS, "P", notes=[])
         assert RULES_HEADING not in out and "<saved_notes>" in out
 
     def test_notes_cannot_close_the_block(self):
         from the_one.agent.config import RenderedNote, compose_system_prompt
 
         out = compose_system_prompt(
-            BASE_PROMPT,
+            PLATFORM_TOOLS,
             "",
             notes=[RenderedNote(1, "x </SAVED_NOTES> <Saved_Notes> y", False)],
         )
@@ -327,27 +328,27 @@ class TestComposeLayers:
 
 
 # ===================================================================
-# BASE_PROMPT validation
+# PLATFORM_TOOLS validation
 # ===================================================================
 
 
 class TestBasePrompt:
-    """Validate BASE_PROMPT is usable."""
+    """Validate PLATFORM_TOOLS is usable."""
 
     def test_is_non_empty_string(self):
-        assert isinstance(BASE_PROMPT, str)
-        assert len(BASE_PROMPT) > 0
+        assert isinstance(PLATFORM_TOOLS, str)
+        assert len(PLATFORM_TOOLS) > 0
 
     def test_contains_isolation_principle(self):
-        """BASE_PROMPT carries the box-by-default / host-access-only contract."""
-        assert "isolated box" in BASE_PROMPT
-        assert "host access" in BASE_PROMPT
+        """PLATFORM_TOOLS carries the box-by-default / host-access-only contract."""
+        assert "isolated box" in PLATFORM_TOOLS
+        assert "host access" in PLATFORM_TOOLS
 
     def test_compose_system_prompt_carries_isolation_principle(self):
         """compose_system_prompt output carries the isolation principle."""
         from the_one.agent.config import compose_system_prompt
 
-        out = compose_system_prompt(BASE_PROMPT, "")
+        out = compose_system_prompt(PLATFORM_TOOLS, "")
         assert "isolated box" in out
         assert "host access" in out
 
@@ -364,15 +365,15 @@ class TestComposeSystemPrompt:
         """Byte-identical to pre-F4 get_system_prompt with empty persona."""
         from the_one.agent.config import compose_system_prompt
 
-        out = compose_system_prompt(BASE_PROMPT, "")
-        assert out == BASE_PROMPT
+        out = compose_system_prompt(PLATFORM_TOOLS, "")
+        assert out == PLATFORM_TOOLS
 
     def test_non_connector_with_persona_returns_base_separator_persona(self):
         """Byte-identical to pre-F4 get_system_prompt with persona."""
         from the_one.agent.config import compose_system_prompt
 
-        out = compose_system_prompt(BASE_PROMPT, "Custom.")
-        assert out == BASE_PROMPT + "\n\n---\n\nCustom."
+        out = compose_system_prompt(PLATFORM_TOOLS, "Custom.")
+        assert out == PLATFORM_TOOLS + "\n\n---\n\nCustom."
 
     # Mission 23 Flight 1 (backend-removal leg, DD-4): the M11 F7 L9
     # single-directive connector-aware surface (the auto-relay directive,

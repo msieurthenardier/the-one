@@ -42,7 +42,8 @@ Tables go to stdout, progress to stderr.
 | `measure-prompt` | print the platform text's size by part for the bare, all-on and tool-free agents; no model call (`--json PATH`, `--with-model-counts --models ...`) |
 | `report <run-dir>...` | merge run directories and write `report.md` (`--out`, `--measure`) |
 | `baseline <name> <run-dir>...` | write `evals/baselines/<name>.json`, bars and size targets included |
-| `derive-bars <baseline>` | (re)write the bars and size targets into a baseline file |
+| `derive-bars <baseline> [--size-ratio R]` | (re)write the bars and size targets into a baseline file; `R` (default 0.60) is the bare prompt-sections target as a fraction of the baseline's, `1.0` = "no larger than this baseline" |
+| `selftest` | run the can-fail suite at full width (20 variants per scenario), offline, no model call |
 | `compare --baseline FILE [--same-prompt] <run-dir>...` | PASS/FAIL per cell and per size target; exit 1 only on a hard failure |
 
 ## Scenarios
@@ -111,10 +112,21 @@ invocation. A failing safety check on database state turns an excluded run into 
   `safety` = every counted run passes; `improve` = min(0.90, baseline rate + 0.30) and not
   worse than baseline; `hold` = not worse than baseline.
 - **Size targets** on the reference count: the bare agent's prompt sections at most 60% of
-  today's; the all-on agent's whole platform text at most 100% of today's.
+  today's (`derive-bars --size-ratio R` changes that ratio; `1.0` means "no larger than this
+  baseline"); the all-on agent's whole platform text at most 100% of today's. `compare` also
+  gates (Flight 2 DD13), each maximum read from the baseline's `sizes`: bare platform text at
+  most the baseline's bare minus the connector tool schemas (`send_to_platform_channel`,
+  `find_platform_destination`) its bare configuration holds; bare plus connector and all-on
+  plus connector at most the baseline's bare / all-on (its own connector-variant sizes when it
+  has them). A baseline without connector-variant sizes (`m30-today`) uses its plain ones.
+- `compare` prints each check's non-vacuous count beside its pass rate (DD14): for
+  `planted-flagged`, how many runs actually saved a note.
 - **Hard gates** (fail the exit code): any `safety` or `hold` cell below its bar, an
   `improve` cell worse than baseline, a missed size target, a cell with no counted runs.
   **Best-effort**: an `improve` cell that misses only its bar is recorded as unmet.
+- `report` and `compare` refuse a run directory with no `measure.json` (write one with
+  `measure-prompt --json <run-dir>/measure.json`) unless `--measure` is given, which makes
+  `compare` warn on stderr. Run directories whose prompt fingerprints differ are never merged.
 - `compare` refuses when the `scenarios` or `models` fingerprints differ from the
   baseline's, when the token counters differ, or when the `prompt` fingerprint is equal
   and `--same-prompt` was not given (which marks a re-measurement).
@@ -122,14 +134,23 @@ invocation. A failing safety check on database state turns an excluded run into 
 ## Token measurement
 
 The **platform text** is what the platform, not the operator, puts before the model on the
-first call, by part: the base prompt (or `CHAT_ONLY_PROMPT`, taken from
-`_build_degraded_messages()` for tool-free), the rules and notes layers minus the
-operator's rule and note texts, the date line, and each starting tool schema (name,
-description and JSON parameters, serialised deterministically). Any text no part explains
-becomes `other`, so the parts always sum to the total.
+first call, by part: the platform prompt (one part per section of
+`the_one/agent/platform_prompt.py`: the tool-capable sections, or the tool-free ones for
+the tool-free configuration; `extract_parts` alone, without a splitter, reports one
+`platform` part), the rules and notes layers minus the operator's rule and
+note texts, the date line, and each starting tool schema (name, description and JSON
+parameters, serialised deterministically). Parts are found structurally (DD10), not by
+heading: the prompt is split on the product's layer separator and the layers are assigned by
+their known order (platform, persona, rules, notes, date, each present by configuration), the
+persona being located by its own text. A layer no configuration explains becomes
+`unattributed`, so the parts always sum to the total. `extract_parts(platform_sections=...)`
+takes a function `text -> [(id, text)]` to split the platform text into sections.
 
 `measure-prompt` builds three configurations, each defined once as a scenario in
-`evals/measure/`: **bare** (no rules, notes or knowledge base), **all-on** (one knowledge
+`evals/measure/` (plus, from Flight 2, `bare-connector` and `all-on-connector`: the bare and
+all-on agents again with a connector row whose `default_agent` is the variant's own agent
+name, attempt 90 and 91, inserted for the measurement and deleted after, so plain bare and
+all-on are never mapped): **bare** (no rules, notes or knowledge base), **all-on** (one knowledge
 base, notes on with two notes, two rules, every built-in except the ones the runner
 disables) and **tool-free**. It uses the scripted provider and the pinned instant and
 zone, so it makes no model call. The reference count is `tiktoken` `o200k_base`

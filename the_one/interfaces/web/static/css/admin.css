@@ -71,6 +71,14 @@
   .area-admin .admin-prompt-layer { margin-top: 24px; }
   .area-admin .admin-prompt-layer .section-title { margin: 0 0 8px; }
   .area-admin .admin-prompt-layer .admin-system-text { margin: 0 0 8px; }
+  /* Platform prompt blocks (Flight 2 leg 1c): title, "Applies when" line, text. */
+  .area-admin .platform-section { margin: 0 0 16px; }
+  .area-admin .platform-section-title {
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    margin: 0 0 4px;
+  }
+  .area-admin .platform-section .admin-system-text { margin: 0 0 8px; }
   /* Theme toggle — quiet segmented control: accent-translucent base +
      hairline border; active option takes the solid accent fill. */
   .area-admin .admin-theme-toggle {

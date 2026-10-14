@@ -57,7 +57,7 @@ multi-user isolation would need to revisit this (see "Future Work" below).
 - **Exactly two exemptions**: `GET /api/live`, a minimal liveness probe that
   returns `{"status": "ok"}` and nothing else — no version, no build info, no
   prompt text. `/api/info` was considered and rejected as the exemption
-  instead: it returns `base_prompt` (the agent's full system prompt), and
+  instead: it returns `platform_sections` (the platform prompt text), and
   exempting it would have published that to every local process regardless
   of credential. `/api/info` is therefore credentialed like every other
   route; only the liveness probe and the OAuth callback below are reachable

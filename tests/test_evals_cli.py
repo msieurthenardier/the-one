@@ -28,7 +28,15 @@ def test_run_help_and_subcommands_listed():
     out = subprocess.run(
         [sys.executable, "-m", "evals", "--help"], capture_output=True, text=True, cwd=ROOT
     ).stdout
-    for name in ("run", "measure-prompt", "report", "baseline", "derive-bars", "compare"):
+    for name in (
+        "run",
+        "measure-prompt",
+        "report",
+        "baseline",
+        "derive-bars",
+        "compare",
+        "selftest",
+    ):
         assert name in out
     run_help = subprocess.run(
         [sys.executable, "-m", "evals", "run", "--help"], capture_output=True, text=True, cwd=ROOT
@@ -163,6 +171,7 @@ async def test_run_records_cells_classes_and_fingerprints(evals_isolation):
     # the whole record chain feeds the report
     from evals import report as rp
 
+    (run_dir / "measure.json").write_text(json.dumps(h.synth_measure()), encoding="utf-8")
     rs = rp.load_runs([run_dir])
     stats = rp.aggregate(rs.records)["gpt-oss"]
     assert (stats["alpha"].passes, stats["beta"].passes) == (1, 0)
@@ -179,3 +188,54 @@ async def test_resume_refuses_changed_scenarios(evals_isolation):
         tmp, sdir, script_hook(scripted.text("hello there")), run_dir=None, resume=run_dir
     )
     assert code2 == 2
+
+
+def test_derive_bars_size_ratio_flag_reaches_the_file(tmp_path, capsys):
+    d = h.make_run_dir(tmp_path, "r", CELLS)
+    out = tmp_path / "bl"
+    assert cli.main(["baseline", "t", str(d), "--baselines-dir", str(out)]) == 0
+    path = out / "t.json"
+    assert cli.main(["derive-bars", str(path), "--size-ratio", "1.0"]) == 0
+    assert json.loads(path.read_text())["size_targets"]["bare"]["max"] == 100
+    assert cli.main(["derive-bars", str(path)]) == 0
+    assert json.loads(path.read_text())["size_targets"]["bare"]["max"] == 60
+
+
+def test_compare_and_report_refuse_a_directory_without_measure_json(tmp_path, capsys):
+    d = h.make_run_dir(tmp_path, "r", CELLS, measure=False)
+    good = h.make_run_dir(tmp_path, "g", CELLS)
+    out = tmp_path / "bl"
+    assert cli.main(["baseline", "t", str(good), "--baselines-dir", str(out)]) == 0
+    capsys.readouterr()
+    base = str(out / "t.json")
+    for argv in (["compare", "--baseline", base, str(d)], ["report", str(d)]):
+        assert cli.main(argv) == 2
+        err = capsys.readouterr().err.strip()
+        assert "\n" not in err and str(d) in err and "no measure.json" in err
+
+
+def test_compare_warns_on_stderr_whenever_measure_is_given(tmp_path, capsys):
+    good = h.make_run_dir(tmp_path, "g", CELLS)
+    out = tmp_path / "bl"
+    assert cli.main(["baseline", "t", str(good), "--baselines-dir", str(out)]) == 0
+    m = tmp_path / "m.json"
+    m.write_text(json.dumps(h.synth_measure(bare=50, all_on=400, prompt_fp="p2")))
+    bare_dir = h.make_run_dir(tmp_path, "nm", CELLS, measure=False)
+    capsys.readouterr()
+    cli.main(["compare", "--baseline", str(out / "t.json"), "--measure", str(m), str(bare_dir)])
+    err = capsys.readouterr().err
+    assert err.startswith("warning: --measure") and "overrides" in err
+    # without --measure there is no warning
+    cli.main(["compare", "--baseline", str(out / "t.json"), str(good)])
+    assert "warning" not in capsys.readouterr().err
+
+
+def test_mixed_prompt_fingerprints_across_directories_are_refused(tmp_path):
+    from evals import report as rp
+
+    a = h.make_run_dir(tmp_path, "a", {("c", M): ("hold", 5, 0, 0)}, measure=h.synth_measure())
+    b = h.make_run_dir(
+        tmp_path, "b", {("d", M): ("hold", 5, 0, 0)}, measure=h.synth_measure(prompt_fp="p2")
+    )
+    with pytest.raises(rp.MergeError, match="prompt fingerprints differ"):
+        rp.load_runs([a, b])

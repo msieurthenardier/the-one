@@ -9,11 +9,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from conftest import FakeLLM, StubTool
 
-from the_one.agent.config import (
-    BASE_PROMPT,
-    AgentConfig,
-    compose_system_prompt,
-)
+from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from the_one.agent.config import AgentConfig, compose_system_prompt
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import LLMProviderConfig, ToolConfig
@@ -201,7 +198,7 @@ class TestDefaultAgent:
         factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
         # Use _default_config directly since create() will fail without provider
         config = factory._default_config()
-        assert compose_system_prompt(BASE_PROMPT, config.system_prompt) != ""
+        assert compose_system_prompt(PLATFORM_TOOLS, config.system_prompt) != ""
 
 
 class TestNamedAgent:

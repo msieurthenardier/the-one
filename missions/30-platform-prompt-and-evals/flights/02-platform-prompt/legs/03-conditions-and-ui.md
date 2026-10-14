@@ -1,6 +1,6 @@
 # Leg: conditions-and-ui
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
@@ -45,28 +45,28 @@ Switch the platform prompt's conditions on (DD3), give the tool-free notes layer
 - Docs: `the_one/agents.md` ("Platform prompt": capabilities, conditions, the tool-free notes heading, connector seeding); the CLAUDE.md "Settings › Prompts (M27 F3 L3)" paragraph; `evals/README.md` if it mentions the page.
 
 ## Acceptance Criteria
-- [ ] **Conditions matrix.** Unit tests cover capabilities none / each alone / all:
+- [x] **Conditions matrix.** Unit tests cover capabilities none / each alone / all:
   - A bare agent (no KB, notes off, no rules, no execution tools) has a tool-capable prompt with no KB phrases, no box / `host_access` text, no notes layer and no rules layer.
   - KB phrases appear only with a registered `kb__` tool. A disabled KB tool means no phrases.
   - The box text appears only with `shell` or `python_exec` registered.
   - The all-on render is still the old `BASE_PROMPT` (leg 1b's test, kept).
-- [ ] **Tool-free variant.**
+- [x] **Tool-free variant.**
   - It never contains `search_tools`, `continue`, `current_time`, `update_note`, `forget_note`, `save_note` or `host_access`, even with every capability on.
   - Its notes layer uses `NOTES_HEADING_TOOL_FREE`, which still contains `(unverified)`.
   - Unit-tested.
-- [ ] **`parse_notes_block` and the pending contract.** Both still work (`tests/test_notes_pending.py` passes). `tests/test_notes_tools.py`'s `(unverified)` count still passes or is updated with a recorded reason.
-- [ ] **Connector seeding (DD7).**
+- [x] **`parse_notes_block` and the pending contract.** Both still work (`tests/test_notes_pending.py` passes). `tests/test_notes_tools.py`'s `(unverified)` count still passes or is updated with a recorded reason.
+- [x] **Connector seeding (DD7).**
   - `connector_bindings` returns the right mapping, and malformed rows are skipped and logged (tested).
   - `ConnectorDirectoryRepository.search`'s existing tests pass.
   - A mapped agent (as `default_agent`, and as a `channel_map` value) gets the connector pair in its starting schemas. An unmapped agent does not, and `search_tools` still finds them for it. `current_time` is still seeded for both.
   - The inbound connector tests pass.
-- [ ] **`/api/info` and Settings › Prompts (DD8).** `/api/info` has `platform_sections` and no `base_prompt`; `test_prompt_layers.py` and `test_aiat.py` are updated. The page renders a titled block per section with its "Applies when …" line, using DOM APIs only. The registry, `RETIRED_SELECTORS` and the browser test are updated as described in Context. These pass:
+- [x] **`/api/info` and Settings › Prompts (DD8).** `/api/info` has `platform_sections` and no `base_prompt`; `test_prompt_layers.py` and `test_aiat.py` are updated. The page renders a titled block per section with its "Applies when …" line, using DOM APIs only. The registry, `RETIRED_SELECTORS` and the browser test are updated as described in Context. These pass:
   - `tests/test_nav_helper.py` (including `test_retired_selectors_cover_the_registry_retired_table`)
   - `tests/test_ui_guards.py`, `tests/test_token_definitions.py`, `tests/test_design_tokens_a11y.py`
   - `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane settings`
-- [ ] **Size after the switch.** `make eval ARGS="measure-prompt"` is recorded in the flight log. Bare prompt sections are expected to fall below 595, and bare platform (no connector) to fall by at least the 461 connector tokens. Hitting the targets is leg 2's job; this leg only records the numbers.
-- [ ] **Unchanged scoring inputs.** The freeze test passes, and nothing under `evals/scenarios|fixtures|judge|measure` changes.
-- [ ] **Regression check.** `make test-unit` passes (expected 12 skips), and ruff is clean on `the_one/ tests/ scripts/ evals/`.
+- [x] **Size after the switch.** `make eval ARGS="measure-prompt"` is recorded in the flight log. Bare prompt sections are expected to fall below 595, and bare platform (no connector) to fall by at least the 461 connector tokens. Hitting the targets is leg 2's job; this leg only records the numbers.
+- [x] **Unchanged scoring inputs.** The freeze test passes, and nothing under `evals/scenarios|fixtures|judge|measure` changes.
+- [x] **Regression check.** `make test-unit` passes (expected 12 skips), and ruff is clean on `the_one/ tests/ scripts/ evals/`.
 
 ## Verification Steps
 - `.venv/bin/python -m pytest tests/test_prompt_layers.py tests/test_config.py tests/test_notes_tools.py tests/test_notes_pending.py tests/test_factory.py tests/test_connectors_inbound.py tests/test_nav_helper.py tests/test_ui_guards.py tests/test_token_definitions.py tests/test_design_tokens_a11y.py -x -q --timeout 60`
