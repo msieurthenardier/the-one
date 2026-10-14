@@ -22,4 +22,4 @@ Full unit tier: 6616 passed, 12 skipped. ruff check and format --check clean. Fi
 *(written at completion)*
 **Reviewer**: Reviewer agent (Sonnet tier), batch review of squawks 0208–0212
 **Verdict**: confirmed
-**Commit**: 5e4203f
+**Commit**: 66798d3

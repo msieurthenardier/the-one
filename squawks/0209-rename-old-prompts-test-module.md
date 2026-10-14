@@ -23,4 +23,4 @@ grep for `_old_prompts|OLD_PLATFORM|OLD_BASE|OLD_CHAT` across the_one/tests/eval
 *(written at completion)*
 **Reviewer**: Reviewer agent (Sonnet tier), batch review of squawks 0208–0212
 **Verdict**: confirmed
-**Commit**: 5e4203f
+**Commit**: 66798d3

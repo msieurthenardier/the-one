@@ -22,4 +22,4 @@ Chose option (b): option (a) would need the factory's computed Capabilities, i.e
 *(written at completion)*
 **Reviewer**: Reviewer agent (Sonnet tier), batch review of squawks 0208–0212
 **Verdict**: confirmed
-**Commit**: 5e4203f
+**Commit**: 66798d3

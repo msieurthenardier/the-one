@@ -24,4 +24,4 @@ Retitled the section to match its content and refresh the docstring and comment.
 *(written at completion)*
 **Reviewer**: Reviewer agent (Sonnet tier), batch review of squawks 0208–0212
 **Verdict**: confirmed
-**Commit**: 5e4203f
+**Commit**: 66798d3
