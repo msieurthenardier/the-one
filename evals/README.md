@@ -164,6 +164,10 @@ configurations' platform text and starting schemas, plus the all-on KB search to
 schema), `scenarios` (scenario, fixture and judge files) and `models` (presets plus each
 model's recorded effective values and digest).
 
+## Convention
+
+A change to platform prompt text lands with an eval run compared against the current baseline, `evals/baselines/m30-platform.json`, including its token cost. Platform prompt text is `the_one/agent/platform_prompt.py`, the rules and notes layers in `the_one/db/_rules.py` and `the_one/db/_notes.py`, the date-line templates in `the_one/time_zones.py`, and the starting tool descriptions. Run `measure-prompt`, then `compare --baseline evals/baselines/m30-platform.json <run-dir>...`. Evals stay out of CI and the test gate. A changed scenario set requires a same-prompt re-baseline. `m30-platform` size targets use ratio 1.0 (`derive-bars --size-ratio 1.0`).
+
 ## Files
 
 - `evals/runs/<id>/` (gitignored): `results.jsonl`, `fingerprints.json`, `summary.txt`,

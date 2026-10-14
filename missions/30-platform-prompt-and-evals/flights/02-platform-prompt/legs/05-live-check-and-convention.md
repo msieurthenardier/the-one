@@ -1,6 +1,6 @@
 # Leg: live-check-and-convention
 
-**Status**: ready
+**Status**: in-flight
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
