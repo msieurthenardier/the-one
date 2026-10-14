@@ -34,3 +34,4 @@ Planning. The operator directed fully agentic execution with the data as the gat
 
 - **2026-10-13:** Loaded `.flightops/agent-crews/leg-execution.md`, which has all the required sections. The flight is now `in-flight`.
 - **Leg 1 `runner-core`: high risk.** It is the surface that handles the plan token and enforces containment (scratch data directory and home, refusal of the operator's real data directory, tool allowlists). A Developer design review runs before implementation, and the flight-end Reviewer is Sonnet (security-sensitive tier).
+- **Leg 1 design review:** approve with changes, all applied, no second cycle. They were targeted fixes, not a redesign. I kept the leg as one slice with an ordered build (a → b → c) instead of splitting it: the parts share one harness and their tests, and a split would mean three hand-offs over the same files.

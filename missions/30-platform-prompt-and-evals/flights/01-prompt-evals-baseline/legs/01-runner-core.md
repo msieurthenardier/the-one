@@ -1,6 +1,6 @@
 # Leg: runner-core
 
-**Status**: planning
+**Status**: ready
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
@@ -52,18 +52,18 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
   - `{fixture_base}` is substituted in turn text and check parameters (DD7).
 - [ ] **Start-up order (DD3, DD19).** The guard, token read, HOME switch and build happen in that order.
   - The real default data directory is computed once, before `HOME` changes, and every refusal check uses that value.
-  - The runner refuses (non-zero exit, one-line message, nothing created) when `--run-dir`'s `data/` equals, contains or lies inside the real default data directory, or when `THE_ONE_DATA_DIR` names such a path.
+  - The runner refuses (non-zero exit, one-line message, nothing created) when `--run-dir`'s `data/` equals, contains or lies inside the real default data directory, or when the already-resolved `settings.data_dir` does. That catches a `THE_ONE_DATA_DIR` from the environment or from a working-directory `.env`, which `Settings` loads (`env_file=".env"`).
   - Unit tests cover each refusal, with platformdirs pointed at a temp directory.
-- [ ] **Environment pinning (DD4).** The runner refuses to start if any of `THE_ONE_ANTHROPIC_EXTENDED_THINKING`, `THE_ONE_REASONING_EFFORT`, `THE_ONE_OLLAMA_NUM_CTX`, `THE_ONE_STOP` or `THE_ONE_RESPONSE_FORMAT` is set. Each run records the effective provider values (thinking, reasoning effort, `num_ctx`, temperature). For Ollama presets it also records the model digest (`/api/show`) and the server version (`/api/version`).
+- [ ] **Environment pinning (DD4).** Before the HOME switch, the runner checks `os.environ` (these five are read from `os.environ`, not from `.env`) and refuses to start if any of `THE_ONE_ANTHROPIC_EXTENDED_THINKING`, `THE_ONE_REASONING_EFFORT`, `THE_ONE_OLLAMA_NUM_CTX`, `THE_ONE_STOP` or `THE_ONE_RESPONSE_FORMAT` is set. Each run records the effective provider values (thinking, reasoning effort, `num_ctx`, temperature). For Ollama presets it also records the model digest (`/api/show`) and the server version (`/api/version`).
 - [ ] **Token redaction (DD4).** A unit test plants a known fake token and drives a run whose model output, tool results and an exception all contain it. The token appears in none of the files the runner writes (results, transcripts, summary), and it never appears on stdout or stderr.
 - [ ] **Locks and sweeps (DD3).** Each run directory gets an `owner.lock` holding the owning PID. At start, a stale `data/` is deleted only when its owner PID is dead. A unit test shows a live owner's `data/` survives a second runner's start-up.
-- [ ] **Shutdown (DD3).** Shutdown runs stop indexing → `close_vector_store()` → `close_connection()` → delete `data/`. `data/` is gone after a normal run and after a run interrupted by an exception (try/finally).
+- [ ] **Shutdown (DD3).** Shutdown runs stop indexing → `close_vector_store()` → `close_connection()` → delete `data/`. `data/` is gone after the invocation ends normally and after one interrupted by an exception (try/finally).
 - [ ] **Per-run setup (DD3).** Each run's agent has a unique name and its own `TurnContext(session_id=…)` around every `agent.step`.
-  - A conversation boundary builds a fresh agent through `AgentFactory.create`.
+  - A conversation boundary calls `AgentFactory.create` again for the same agent name, so a fresh `Agent` with a freshly built system prompt reads that run's notes from the same database.
   - Rules and seeded notes are created through the repositories before `create()`.
   - A test shows a note saved in conversation 1 appears in conversation 2's system prompt, and that two runs never see each other's notes.
 - [ ] **Tool-free runs (DD6).** In a `tools_off` run, the first LLM call carries no tool schemas, its system message starts with `CHAT_ONLY_PROMPT`, and the date line uses the tool-free wording. A unit test asserts all three via the scripted provider's recorded calls.
-- [ ] **Clock and zone (DD8).** Each run sets the instant and zone before `create()`. A test with two scenarios declaring different instants and zones shows each run's date line and a `current_time` result agree with that run's own values.
+- [ ] **Clock and zone (DD8).** Each run sets the instant and zone before its first `create()`, and the clock patch stays active across every `create()` and every `agent.step` of that run (the `current_time` tool reads `time_zones.utcnow` at call time). It is restored in a `finally` at run end. This lifetime differs from the provider wrapper's, which is scoped to `create()` only. A test with two scenarios declaring different instants and zones shows each run's date line and a `current_time` result agree with that run's own values.
 - [ ] **Fixture server (DD7).**
   - It serves `fixtures/web/` on `127.0.0.1` on a free port.
   - The `ToolConfig` rows give both `http_request` and `fetch_url` `extra_allowed_hosts = ["127.0.0.1"]` and `host_allowlist = ["127.0.0.1"]`.
@@ -74,13 +74,19 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
   - `HOME` and `USERPROFILE` point at `{run-dir}/home/`.
   - The filesystem tools' `path_allowlist` is narrowed to that home.
   - `web_search` and `download_file` are disabled.
-  - Execution tools (`shell`, `python_exec`, `shell_session_*`) are either contained (bwrap sandbox present, `sandbox_network_allowed` false, and `host_access` refusable by config) or disabled for eval agents. Which branch applied, and why, is recorded in every run's record and in the flight log.
+  - The execution tools (`shell`, `python_exec`, `shell_session_start`/`send`/`close`/`list`) are disabled for eval agents with `enabled=False` `ToolConfig` rows. The design review confirmed that no `ExecutionConfig` field can refuse `host_access=true`: it is a plain tool argument in `shell.py`, `python_exec.py` and `sessions.py`. Do not spend time on bwrap detection. A test shows that disabled tools appear neither in the starting schemas nor in `search_tools` results. Every run record carries `execution_tools: "disabled"`, and the Developer records the decision in the flight log.
   - A scripted `write_file` to `~/x.txt` lands under `{run-dir}/home/`, and one to an absolute path outside it is refused.
 - [ ] **Run outcomes (DD5).** Every outcome rule is unit-tested with the scripted provider raising each exception class:
   - `fail` covers model-caused errors: `max_iterations` exhausted with no final text, a tool-call timeout, and an Ollama tool-call parse 5xx (matched on error text).
-  - `cut-short` covers refused, rate-limited or connection errors, after bounded backoff; backoff is injectable so tests don't sleep.
+  - `cut-short` covers refused, rate-limited or connection errors, after bounded backoff; backoff is injectable so tests don't sleep. The classes are:
+    - `the_one.llm.anthropic_plan_provider.PlanRequestRefusedError`
+    - `anthropic.RateLimitError` and `anthropic.APIConnectionError`
+    - the builtin `ConnectionError`, which Ollama's connect and timeout paths raise
+    - an `httpx.HTTPStatusError` of 5xx whose text does not match the tool-call parse patterns
+
+    Ollama's native path (`the_one/llm/ollama_api.py`, including the separate `chat_stream_native` error path) raises `httpx.HTTPStatusError` with `"Ollama returned {status} from {url}: {detail}"`, and the classifier handles both the native and `/v1` paths.
   - Three consecutive `cut-short` runs stop that model.
-  - `PlanTokenRejectedError` aborts the invocation.
+  - `the_one.llm.anthropic_plan_provider.PlanTokenRejectedError` aborts the invocation.
   - Any other exception is `error`.
   - A safety-class check that fails on database state turns the run into `fail` even when it would otherwise be excluded, and such a run is never re-run.
 - [ ] **Results and resume (DD5).**
@@ -109,6 +115,12 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
 
 ## Implementation Guidance
 
+0. **Build in this order, a → b → c, running the tests at each step.**
+   - **(a) Pure and offline:** the scenario loader, checks and scripted provider.
+   - **(b) Runtime:** `env.py`, `models.py` and `harness.py` (start-up order, containment, clock, tools-off, the run loop).
+   - **(c) Plumbing:** the fixture server, KB indexing, `outcomes.py`/resume/transcripts and the redactor.
+
+   If you run short of budget, land what is complete and record precisely what remains in the flight log rather than leaving partial modules.
 1. **Start from the CLI driving pattern.** Follow `the_one/interfaces/cli.py::_run_cli`:
    - `init_db()`, `reconcile_pending_key(conn, get_encryptor(settings.data_dir))`, `SQLiteAgentStore`, `AgentFactory(store=store)`
    - per turn: `token = current_turn.set(TurnContext(session_id=…))`, then `async for msg in agent.step(text)`, then `current_turn.reset(token)` in a `finally`
@@ -117,16 +129,19 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
 2. **Start-up order is safety-critical; write it as one function with the order explicit** (DD3, DD19):
    1. real default dir = `_default_data_dir()`
    2. guard
-   3. read the token file (strip, never log)
+   3. read the token file only if a selected preset or check needs it (strip it, never log it)
    4. `os.environ["HOME"]`/`USERPROFILE` = scratch home
    5. set `settings.data_dir`
    6. sweep
    7. `init_db`
 
-   platformdirs reads `HOME`, so step 1 must come before step 4. Check whether `settings` caches anything derived from `HOME` before step 5.
+   platformdirs reads `HOME`, so step 1 must come before step 4. A unit test asserts the call order, not just the end state.
+   - Keep `the_one` imports out of `evals/__init__.py`, so `--help` and `--dry-run` never touch `settings`.
+   - The `Settings` legacy `~/.the-one` migration validator runs only when `data_dir` is not explicitly set. Confirm that assignment does not re-trigger it.
+   - `get_encryptor` caches by resolved `data_dir`, `db/connection.py` holds a process-wide `_connection`, and `get_vector_store()` caches a store built against `settings.data_dir`. Set `data_dir` before the first call to any of them. Tests that run several invocations in one process must call `close_connection()` and the vector store's `_reset_for_test()` between them.
 3. **Tool configuration rows** go through `ToolConfigRepository` with `ToolConfig(name=…, config=…, enabled=…)`:
    - Check `BuiltinToolProvider.get_tools` in `the_one/tools/builtins.py`: the shared Config resolves from the first tool carrying it, and the per-tool cfg from that tool's own row. Write the web rows for both `http_request` and `fetch_url`.
-   - Filesystem: every filesystem tool shares `FilesystemConfig`. Find which tool's row is authoritative the same way, and narrow `path_allowlist` there; writing it on every filesystem tool's row is the safe choice.
+   - Filesystem: the shared `FilesystemConfig` resolves from the `read_file` row (`builtins.py` asserts this). Narrow `path_allowlist` there and on every filesystem tool's row. A test asserts that an agent-level override cannot widen it.
 4. **The execution-tool decision (DD19).** Inspect `the_one/tools/shell.py`, `python_exec.py` and `sessions.py` for how `host_access=true` is handled, and whether any `ExecutionConfig` field refuses it. Inspect `the_one/platform/sandbox*` to see whether bwrap or `PassthroughSandbox` is in use.
    - If host access cannot be refused by config, disable the execution tools for eval agents with `enabled=False` rows. That is the expected outcome.
    - Record the branch taken in the run records and in the flight log.
@@ -134,13 +149,20 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
 5. **The provider wrapper** (DD6, DD18) is one context manager that temporarily replaces `the_one.agent.factory.get_provider` for the duration of `create()`.
    - It can either call the real `get_provider` and override `supports_tools` on the returned instance (`tools_off`), or return a scripted provider (tests).
    - Always restore it in `finally`, and keep it scoped to `create()` only.
-   - The scripted provider subclasses `the_one.llm.base.LLMProvider`. Model it on `tests/conftest.py::FakeLLM`, but do not import `tests/` from `evals/`; copy the shape. It must give `supports_tools()`, a context window, and `complete()`/`stream()` behaviour compatible with `Agent._run_iterations`.
+   - The scripted provider subclasses `the_one.llm.base.LLMProvider` and needs:
+     - a `name`
+     - `complete()` only (the base `stream()` falls back to it)
+     - `TokenUsage` on each returned `Message`, so usage recording is testable
+     - the default context window
+     - `supports_tools`, which is **async**: the `tools_off` override must assign an async function, not a bool
+
+     It is otherwise Model it on `tests/conftest.py::FakeLLM`, but do not import `tests/` from `evals/`; copy the shape. It must give `supports_tools()`, a context window, and `complete()`/`stream()` behaviour compatible with `Agent._run_iterations`.
 6. **Clock (DD8).** Patch `the_one.time_zones.utcnow` and `detect_system_zone` per run, mirroring `tests/conftest.py::frozen_clock`, and call `time_zones.save_setting(conn, TimeZoneSetting(mode="zone", zone=…))` before `create()`. Restore in `finally`.
 7. **Provider rows (DD4).** Create `LLMProviderConfig` rows through `LLMProviderRepository` with `type`, `base_url` and `api_key` (the token, for `anthropic-plan-token`); it is encrypted at rest by the repository.
    - Check how `PROVIDER_TYPE_MAP` in the factory maps `"ollama"` to `native_api=True`.
    - Record effective values from the built provider instance after `create()` (`agent.llm`); find each one's resolved attribute, and record `None` honestly when an attribute is not exposed.
 8. **Redaction.** One `Redactor` holds the token and wraps every write: JSON dumps, the summary, and log handlers. Install a logging filter on the root logger for the invocation, and redact exception strings before recording them.
-9. **Ollama 5xx classification.** Find what the Ollama provider raises on a server 5xx and what the error text looks like when the model emits a malformed tool call. Look at `ollama_provider.py`'s error paths and any existing tests with such errors, and record the matched patterns in a code comment. If no evidence is available offline, match `"error parsing tool call"` and record that leg 3's live smoke must confirm it.
+9. **Ollama 5xx classification.** Find what the Ollama provider raises on a server 5xx and what the error text looks like when the model emits a malformed tool call. Look at `ollama_provider.py`'s error paths and any existing tests with such errors, and record the matched patterns in a code comment. No such string exists in the repo today (design review), so match `"error parsing tool call"` case-insensitively and state in the flight log that leg 3's live smoke must confirm or correct the pattern.
 10. **Transcripts.** Write one JSON per run with every message (role, content, tool calls with arguments, tool results), the system prompt actually sent on the first call (from the scripted provider's records, or for live runs the first call's messages), the checks, and the outcome. Live runs capture the first call's messages by wrapping the provider's `complete`/`stream` in the same provider wrapper (record-only).
 11. **Tests.** Use the `isolated_db`-style isolation in `tests/conftest.py`, or a temp `--run-dir` per test; never the real data dir. Keep each test file under ~60 s and mark nothing `live`.
 
@@ -149,7 +171,7 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
 - **Ctrl-C mid-run.** The `finally` path still deletes `data/` and releases the lock.
 - **Tool-schema JSON in transcripts.** Store schemas only once per run (the starting set), not per call.
 - **A scenario whose `n` exceeds its distinct variants.** The loader rejects it (n ≤ phrasings × facts).
-- **Agent names.** They must satisfy the agent-name validation in `AgentConfig`/the store. Check the allowed characters and the length limit, and hash a long name if needed.
+- **Agent names.** They must match `[A-Za-z0-9_-]{1,64}` (`the_one/db/models.py`). Build `ev-{scenario}-{model}-{variant}-{attempt}`, and if it exceeds 64 characters, truncate deterministically and append a short hash so the same inputs always give the same name (resume depends on it).
 - **The KB fixture path.** The KB folder must not lie inside the scratch `data/` directory (the API refuses that; mirror the refusal). Use `{run-dir}/home/kb/{fixture}` copied from the fixture source, or the repo fixture path directly.
 
 ## Files Affected
@@ -171,3 +193,6 @@ Checked 2026-10-13 against the working tree:
 - `host_access` is a parameter of `python_exec` and the session tools (`python_exec.py`, `sessions.py`).
 - `ToolConfig` is in `the_one/db/models.py`, `ToolConfigRepository` in `the_one/db/repositories.py`.
 - The `_TOOL_CLASSES` order in `the_one/tools/builtins.py` lists `http_request` before `fetch_url`, and includes `delete_file` (so add `delete_file` to the absent-capability pattern in leg 3).
+
+
+Design review (Developer, 2026-10-13): approve with changes, all applied. The changes were the clock-patch lifetime, the env-check site plus a resolved-`data_dir` guard, the scripted provider's async `supports_tools` and usage, the execution tools disabled (confirmed by code), Ollama's native error classes, and a build order a → b → c in place of a split. The leg stays one slice, with an ordered build and a land-what-is-complete rule.
