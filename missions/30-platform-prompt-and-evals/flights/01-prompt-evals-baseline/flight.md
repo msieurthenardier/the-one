@@ -1,13 +1,13 @@
 # Flight: Prompt evals and baseline
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Agents know how to use the platform, measured across models](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] The operator can run a fixed set of scenarios against one or more configured models with one command. Per scenario and model, they get a pass rate with its uncertainty, failed-run transcripts, time and token use, and the platform text's size by part.
-- [ ] The scenarios cover the mission's list, scored by program checks plus a model judge only for wording.
-- [ ] A baseline for today's prompt text on both models is recorded and committed as summary numbers before any prompt text changes, and the runner compares later runs with it.
-- [ ] The per-scenario bars, the statistical rule and the token-size target are derived from the baseline data by a rule written down before the baseline run, and recorded with it.
+- [x] The operator can run a fixed set of scenarios against one or more configured models with one command. Per scenario and model, they get a pass rate with its uncertainty, failed-run transcripts, time and token use, and the platform text's size by part.
+- [x] The scenarios cover the mission's list, scored by program checks plus a model judge only for wording.
+- [x] A baseline for today's prompt text on both models is recorded and committed as summary numbers before any prompt text changes, and the runner compares later runs with it.
+- [x] The per-scenario bars, the statistical rule and the token-size target are derived from the baseline data by a rule written down before the baseline run, and recorded with it.
 - [ ] (partial) The convention that prompt-text changes carry an eval run is documented, and evals stay out of CI and the test gate. *Flight 2 completes it.*
 
 ---
@@ -322,10 +322,10 @@ Verified against the working tree at `bb54636` by a read-only code interrogation
 4. **Leg 4 (baseline)** freezes the scenarios. It then runs n = 20 on both models (two processes), resumes any exclusions, derives the bars and size targets, commits the baseline, and summarises it in the flight log.
 
 ### Checkpoints
-- [ ] Leg 1: the runner drives every scenario offline through the scripted provider. The guards refuse the default data directory and set environment variables. The token never reaches any written file.
-- [ ] Leg 2: the statistics match known values (including the DD10 table), and `--measure-prompt` prints today's sizes by part.
-- [ ] Leg 3: every check is shown to flip, judge agreement is at least 90%, and the smoke run has zero `error` runs and a run-time extrapolation.
-- [ ] Leg 4: the baseline is committed with its bars and size targets, and no cell is `incomplete`.
+- [x] Leg 1: the runner drives every scenario offline through the scripted provider. The guards refuse the default data directory and set environment variables. The token never reaches any written file.
+- [x] Leg 2: the statistics match known values (including the DD10 table), and `--measure-prompt` prints today's sizes by part.
+- [x] Leg 3: every check is shown to flip, judge agreement is at least 90%, and the smoke run has zero `error` runs and a run-time extrapolation.
+- [x] Leg 4: the baseline is committed with its bars and size targets, and no cell is `incomplete`.
 
 ### Adaptation Criteria
 
@@ -344,20 +344,20 @@ Verified against the working tree at `bb54636` by a read-only code interrogation
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `runner-core`: the `evals/` package (loader, harness, check engine, guards, presets, fixtures, clock, tool-free wrapper, scripted provider, run outcomes and resume, transcripts), the pytest `pythonpath` and `.gitignore` entries, unit-tested offline (DD1-DD9, DD13, DD18, DD19)
-- [ ] `measurement`: statistics, token measurement, `--measure-prompt`, fingerprints, report, baselines, `--derive-bars`, `--compare`, `make eval`, lint paths, the `[evals]` extra, and docs (DD10-DD12, DD15, DD16)
-- [ ] `scenarios-and-judge`: the DD17 set, fixtures, judge rubric and frozen labelled set, the can-fail proof per check, judge validation, and the timed live smoke on both models (DD14, DD17, DD18)
-- [ ] `baseline`: freeze the scenarios, run n = 20 on both models, resume exclusions, `--derive-bars`, commit the baseline, and summarise it in the flight log
+- [x] `runner-core`: the `evals/` package (loader, harness, check engine, guards, presets, fixtures, clock, tool-free wrapper, scripted provider, run outcomes and resume, transcripts), the pytest `pythonpath` and `.gitignore` entries, unit-tested offline (DD1-DD9, DD13, DD18, DD19)
+- [x] `measurement`: statistics, token measurement, `--measure-prompt`, fingerprints, report, baselines, `--derive-bars`, `--compare`, `make eval`, lint paths, the `[evals]` extra, and docs (DD10-DD12, DD15, DD16)
+- [x] `scenarios-and-judge`: the DD17 set, fixtures, judge rubric and frozen labelled set, the can-fail proof per check, judge validation, and the timed live smoke on both models (DD14, DD17, DD18)
+- [x] `baseline`: freeze the scenarios, run n = 20 on both models, resume exclusions, `--derive-bars`, commit the baseline, and summarise it in the flight log
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged (stacked PR; the operator merges)
-- [ ] Tests passing (`make test-unit`; `ruff check` and `format --check` over `the_one/ tests/ scripts/ evals/`)
-- [ ] Documentation updated (a CLAUDE.md "Prompt evals" section, a `the_one/agents.md` pointer, `evals/README.md`)
+- [x] Tests passing (`make test-unit`; `ruff check` and `format --check` over `the_one/ tests/ scripts/ evals/`)
+- [x] Documentation updated (a CLAUDE.md "Prompt evals" section, a `the_one/agents.md` pointer, `evals/README.md`)
 
 ### Verification
 - `make test-unit` passes, including the runner's unit tests and a guard that nothing under `the_one/` imports `evals`. This flight changes no product code, so the browser gate is not required.

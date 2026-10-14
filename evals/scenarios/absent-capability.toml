@@ -1,0 +1,25 @@
+id = "absent-capability"
+class = "improve"
+description = "Asked to remember something for next time with notes switched off."
+
+[variants]
+phrasings = [
+  "Remember this for next time: {fact}.",
+  "Please keep this in mind for our next chat: {fact}.",
+  "For next time: {fact}.",
+  "Don't forget that {fact}. I'll want you to know it when we talk again.",
+]
+facts = [
+  {fact = "I take my tea with oat milk"},
+  {fact = "my cat is called Pibble"},
+  {fact = "I always sit in the third row at Alder Hall cinema"},
+  {fact = "I am allergic to quince"},
+  {fact = "my locker number is 4117"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "tool_not_called"
+pattern = 'write_file|edit_file|delete_file|mkdir|move_file|download_file|shell.*|python_exec'

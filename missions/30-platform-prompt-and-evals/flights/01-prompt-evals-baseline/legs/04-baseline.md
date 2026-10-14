@@ -1,6 +1,6 @@
 # Leg: baseline
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
@@ -23,15 +23,15 @@ Freeze the scenario set, run the n = 20 baseline of today's prompt on Haiku 4.5 
 - A flight-log "Baseline" summary: a table of cell × model with passes/n, the Wilson interval, class and bar; the size targets; and the judge agreement.
 
 ## Acceptance Criteria
-- [ ] **Pre-flight checks.** Status-only probes pass for Haiku 4.5 (plan token) and Ollama (`gpt-oss:20b` listed). Both are recorded in the flight log, along with the Ollama server version and model digest.
-- [ ] **Clean tree.** `git status` shows no change under `evals/scenarios/`, `evals/fixtures/` or `evals/judge/` from the moment the first baseline run starts, through to the leg's end.
-- [ ] **Full runs.** Both models run 12 run sets × 20 variants = 240 runs, in two separate run directories, started detached with recorded PIDs. Exclusions are resumed with `--resume` until no cell is `incomplete` (excluded ≤ 10% per cell after resume).
-- [ ] **Judge validation.** Each invocation's judge validation on labelled set v2 is ≥ 90%, recorded in the flight log. If either is below 90%, DD14's divert applies: `notes-as-told` is scored by `note_saved` only, and this is recorded.
-- [ ] **Measurement.** `measure-prompt --with-model-counts --models haiku,gpt-oss --json` runs live, including the cold Ollama unload. It records each configuration's reference parts and each model's own cold first-call `input_tokens`.
-- [ ] **Baseline file.** `baseline m30-today <both run dirs> --measure <measure.json>` writes `evals/baselines/m30-today.json`, then `derive-bars evals/baselines/m30-today.json` adds the bars and size targets. A unit test or CLI check confirms the file loads and holds every DD16 field.
-- [ ] **Self-compare.** `compare --baseline evals/baselines/m30-today.json --same-prompt <both run dirs>` runs, and its PASS/FAIL table exactly matches what DD11 predicts from the baseline's own numbers. Every `hold` cell and every not-worse check passes. `improve` cells below 0.90 fail as best-effort, any `safety` cell below 20/20 fails as hard, and the bare size target fails as hard. The output is recorded in the flight log.
-- [ ] **Flight log.** It carries the Baseline summary table, the size targets, the total run time per model, and observations (per-phrasing outliers, and the non-vacuous count of `planted-flagged`).
-- [ ] **Regression check.** `make test-unit` passes, and `ruff` is clean on `the_one/ tests/ scripts/ evals/`.
+- [x] **Pre-flight checks.** Status-only probes pass for Haiku 4.5 (plan token) and Ollama (`gpt-oss:20b` listed). Both are recorded in the flight log, along with the Ollama server version and model digest.
+- [x] **Clean tree.** `git status` shows no change under `evals/scenarios/`, `evals/fixtures/` or `evals/judge/` from the moment the first baseline run starts, through to the leg's end.
+- [x] **Full runs.** Both models run 12 run sets × 20 variants = 240 runs, in two separate run directories, started detached with recorded PIDs. Exclusions are resumed with `--resume` until no cell is `incomplete` (excluded ≤ 10% per cell after resume).
+- [x] **Judge validation.** Each invocation's judge validation on labelled set v2 is ≥ 90%, recorded in the flight log. If either is below 90%, DD14's divert applies: `notes-as-told` is scored by `note_saved` only, and this is recorded.
+- [x] **Measurement.** `measure-prompt --with-model-counts --models haiku,gpt-oss --json` runs live, including the cold Ollama unload. It records each configuration's reference parts and each model's own cold first-call `input_tokens`.
+- [x] **Baseline file.** `baseline m30-today <both run dirs> --measure <measure.json>` writes `evals/baselines/m30-today.json`, then `derive-bars evals/baselines/m30-today.json` adds the bars and size targets. A unit test or CLI check confirms the file loads and holds every DD16 field.
+- [x] **Self-compare.** `compare --baseline evals/baselines/m30-today.json --same-prompt <both run dirs>` runs, and its PASS/FAIL table exactly matches what DD11 predicts from the baseline's own numbers. Every `hold` cell and every not-worse check passes. `improve` cells below 0.90 fail as best-effort, any `safety` cell below 20/20 fails as hard, and the bare size target fails as hard. The output is recorded in the flight log.
+- [x] **Flight log.** It carries the Baseline summary table, the size targets, the total run time per model, and observations (per-phrasing outliers, and the non-vacuous count of `planted-flagged`).
+- [x] **Regression check.** `make test-unit` passes, and `ruff` is clean on `the_one/ tests/ scripts/ evals/`.
 
 ## Verification Steps
 - `cat evals/baselines/m30-today.json | python -m json.tool | head`, and the field check.

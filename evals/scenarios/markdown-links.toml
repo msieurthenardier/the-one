@@ -1,0 +1,25 @@
+id = "markdown-links"
+class = "improve"
+description = "Asked for a link to a page listed on an index page."
+
+[variants]
+phrasings = [
+  "Send me the link to the {what} page. It should be listed on {fixture_base}/index.html.",
+  "Could you send me a link to the {what}? I think you'll find it on {fixture_base}/index.html.",
+  "I need the link for the {what} so I can share it. Look on {fixture_base}/index.html.",
+  "Share the link to the {what} with me. {fixture_base}/index.html lists it.",
+]
+facts = [
+  {what = "harbour tide chart", slug = "tide-chart-harrow"},
+  {what = "ferry timetable for the western isles", slug = "ferry-timetable-skerra"},
+  {what = "allotment waiting list form", slug = "allotment-form-wick"},
+  {what = "trail map for Ember Fell", slug = "trail-map-ember-fell"},
+  {what = "community hall booking calendar", slug = "hall-calendar-orrin"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_has_markdown_link"
+pattern = '/links/{slug}\.html'

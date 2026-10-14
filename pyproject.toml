@@ -119,6 +119,10 @@ dependencies = [
 openai = ["openai>=2.16"]
 anthropic = ["anthropic>=0.40,<0.97"]
 all-llms = ["openai>=2.16", "anthropic>=0.40,<0.97"]
+# Prompt evals (Mission 30): the reference tokenizer for `python -m evals measure-prompt`.
+# Optional and never imported by the unit suite (the counter is injectable); CI does not
+# install it. 0.14.0 was uploaded 2026-08-17, past the 14-day soak.
+evals = ["tiktoken>=0.14,<0.15"]
 gui = [
     # Upgrade blocker: pywebview 6.x's WinForms backend adds update_title_bar_theme(),
     # which sets DWM attributes 20/38 from the OS theme on creation and on
@@ -179,7 +183,7 @@ asyncio_mode = "auto"
 # Per-marker deselect math (last verified Mission 23 Flight 1): live=15, browser=513, pixel=12, requires_bwrap=12, total=552
 # (discord_hat retired with the connector package — Mission 23 Flight 1)
 addopts = "-m 'not live and not browser and not pixel and not requires_bwrap' --import-mode=importlib"
-pythonpath = ["tests"]
+pythonpath = ["tests", "."]
 markers = [
     "live: marks tests that call real LLM APIs (deselect with '-m \"not live\"')",
     "browser: marks tests that require a browser via Playwright (deselect with '-m \"not browser\"')",

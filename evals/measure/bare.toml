@@ -1,0 +1,11 @@
+# The bare configuration (DD11, DD12): no persona, no rules, no notes, no knowledge
+# base. Defined once here; measure-prompt and the `prompt` fingerprint both use it.
+id = "measure-bare"
+class = "hold"
+description = "Bare agent: base prompt, date line, starting tools only."
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

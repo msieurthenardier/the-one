@@ -1,0 +1,32 @@
+id = "tool-discovery"
+class = "hold"
+description = "Find a web tool and read a fixture menu page."
+
+[variants]
+phrasings = [
+  "What's the soup of the day on the menu at {fixture_base}/menu-{n}.html?",
+  "Check {fixture_base}/menu-{n}.html for me. What soup are they serving today?",
+  "Can you look at {fixture_base}/menu-{n}.html and tell me what the soup of the day is?",
+  "I'm deciding where to eat. {fixture_base}/menu-{n}.html - what is today's soup?",
+]
+facts = [
+  {n = "1", soup = "quince broth"},
+  {n = "2", soup = "turnip chowder"},
+  {n = "3", soup = "fennel and plum"},
+  {n = "4", soup = "sorrel and barley"},
+  {n = "5", soup = "chestnut and pear"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "search_tools_used"
+
+[[checks]]
+name = "tool_called"
+pattern = 'fetch_url|http_request'
+
+[[checks]]
+name = "reply_matches"
+pattern = '{soup}'

@@ -1,6 +1,6 @@
 # Leg: measurement
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
@@ -43,21 +43,21 @@ Also wire the developer surface: `make eval`, lint paths, the `[evals]` extra, a
 - `tests/test_evals_*.py`: new tests for all of the above.
 
 ## Acceptance Criteria
-- [ ] **Statistics (DD10).** `stats.wilson(k, n)` and `stats.fisher_one_sided_worse(new_k, new_n, base_k, base_n)` match known reference values to 1e-6 in unit tests. A test pins the DD10 table at n = 20:
+- [x] **Statistics (DD10).** `stats.wilson(k, n)` and `stats.fisher_one_sided_worse(new_k, new_n, base_k, base_n)` match known reference values to 1e-6 in unit tests. A test pins the DD10 table at n = 20:
   - baseline 20 → new 15 flagged, 16 not
   - baseline 18 → new 12 flagged, 13 not
   - baseline 15 → new 8 flagged, 9 not
 
   If a pinned value disagrees with the exact computation, the code is right and the DD10 table in `flight.md` is corrected, recorded in the flight log.
-- [ ] **Gate rules (DD11).** `derive-bars` writes, per cell:
+- [x] **Gate rules (DD11).** `derive-bars` writes, per cell:
   - the class
   - the bar: `safety` = all counted runs pass; `improve` = min(0.90, baseline + 0.30); `hold` = not worse
   - the size targets: bare prompt sections ≤ 60% of today's; all-on platform text ≤ 100% of today's
 
   A unit test pins each formula, including min() capping at 0.90 and a baseline of 1.0.
-- [ ] **Compare (DD11).** `compare` prints PASS/FAIL per cell and per size target, marks each FAIL as `hard` or `best-effort` per DD11, and exits non-zero only when a hard gate fails. It refuses when `scenarios` or `models` fingerprints differ from the baseline's, or when `prompt` is equal without `--same-prompt`. A unit test covers each refusal and each gate outcome.
-- [ ] **Self-compare.** A unit test builds a synthetic baseline (some `improve` cells below 0.90, one `safety` cell at 19/20, today's size). Comparing it against itself with `--same-prompt` gives exactly the expected table: every not-worse check and `hold` cell PASS; `improve`, `safety` and size results as derived (the 19/20 safety cell and a 0.5 `improve` cell FAIL). This is the flight's Verification table.
-- [ ] **Token parts (DD12).** The platform-text parts are extracted from the first LLM call's recorded messages and schemas:
+- [x] **Compare (DD11).** `compare` prints PASS/FAIL per cell and per size target, marks each FAIL as `hard` or `best-effort` per DD11, and exits non-zero only when a hard gate fails. It refuses when `scenarios` or `models` fingerprints differ from the baseline's, or when `prompt` is equal without `--same-prompt`. A unit test covers each refusal and each gate outcome.
+- [x] **Self-compare.** A unit test builds a synthetic baseline (some `improve` cells below 0.90, one `safety` cell at 19/20, today's size). Comparing it against itself with `--same-prompt` gives exactly the expected table: every not-worse check and `hold` cell PASS; `improve`, `safety` and size results as derived (the 19/20 safety cell and a 0.5 `improve` cell FAIL). This is the flight's Verification table.
+- [x] **Token parts (DD12).** The platform-text parts are extracted from the first LLM call's recorded messages and schemas:
   - base (or `CHAT_ONLY_PROMPT` for tool-free, taken from `_build_degraded_messages()`'s output)
   - the rules layer minus rule texts
   - the notes layer minus note texts
@@ -65,9 +65,9 @@ Also wire the developer surface: `make eval`, lint paths, the `[evals]` extra, a
   - each starting tool schema separately (name + description + JSON parameters, serialized deterministically)
 
   A unit test with a fixed counter checks the parts sum and the per-part attribution for the bare, all-on and tool-free configurations.
-- [ ] **Measure-prompt (DD12).** `python -m evals measure-prompt` builds the bare, all-on (every built-in enabled except DD19's disabled ones) and tool-free agents with the scripted provider and DD8's pinned instant and zone. It prints a per-part table with no model call and no network, apart from tiktoken's one-time encoding download into `evals/.cache/tiktoken`. `TIKTOKEN_CACHE_DIR` is set before first use.
-- [ ] **Model counts (DD12).** `--with-model-counts --models …` adds each model's own cold first-call `input_tokens` per configuration. For Ollama, the runner sends a `keep_alive: 0` unload and polls `/api/ps` until the model is gone (bounded wait) before the measurement call. Unit-tested with fakes; the live path is exercised in leg 4.
-- [ ] **Fingerprints (DD15).**
+- [x] **Measure-prompt (DD12).** `python -m evals measure-prompt` builds the bare, all-on (every built-in enabled except DD19's disabled ones) and tool-free agents with the scripted provider and DD8's pinned instant and zone. It prints a per-part table with no model call and no network, apart from tiktoken's one-time encoding download into `evals/.cache/tiktoken`. `TIKTOKEN_CACHE_DIR` is set before first use.
+- [x] **Model counts (DD12).** `--with-model-counts --models …` adds each model's own cold first-call `input_tokens` per configuration. For Ollama, the runner sends a `keep_alive: 0` unload and polls `/api/ps` until the model is gone (bounded wait) before the measurement call. Unit-tested with fakes; the live path is exercised in leg 4.
+- [x] **Fingerprints (DD15).**
   - `prompt` hashes the three configurations' rendered platform text and starting tool schemas, plus the all-on agent's KB search tool schema.
   - `scenarios` hashes the scenario files, fixtures and judge files (sorted paths plus contents).
   - `models` hashes the presets plus each model's recorded effective values and digest.
@@ -76,16 +76,16 @@ Also wire the developer surface: `make eval`, lint paths, the `[evals]` extra, a
   - Changing one word of a tool description, or the KB tool description, changes `prompt`.
   - Changing a scenario file changes `scenarios`.
   - Re-running unchanged gives identical hashes.
-- [ ] **Report and baseline (DD16).**
+- [x] **Report and baseline (DD16).**
   - `report <run-dir>…` merges run directories (for example one per model) and writes `report.md`. It contains, per cell: passes / counted, the rate, the Wilson interval, the excluded count and rate, `incomplete` when exclusions exceed 10%, `notes_from_untrusted_flagged`'s non-vacuous count, per-phrasing and per-fact counts, and the platform-text parts.
   - `baseline` writes `evals/baselines/{name}.json` with the DD16 fields.
   - Both refuse a cell set containing `incomplete` cells for `baseline`.
-- [ ] **Developer surface.**
+- [x] **Developer surface.**
   - `make eval ARGS="run --help"` works, and `make help` lists `eval`.
   - `make lint` and `make format`, `ci/tasks/lint.yml` and the CLAUDE.md lint commands cover `evals/`.
   - `pip install -e ".[evals]"` installs tiktoken. `uv.lock` is regenerated, and `uv lock --check` passes if the project uses it.
-- [ ] **Docs.** CLAUDE.md has a concise "Prompt evals" section in the house style. `evals/README.md` exists. `the_one/agents.md` has a pointer section. No absolute home paths or usernames appear in any of them.
-- [ ] **Regression check.** `make test-unit` passes (expected skip count 12 on this host, more only for the documented timing-conditional skips). `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/` are clean.
+- [x] **Docs.** CLAUDE.md has a concise "Prompt evals" section in the house style. `evals/README.md` exists. `the_one/agents.md` has a pointer section. No absolute home paths or usernames appear in any of them.
+- [x] **Regression check.** `make test-unit` passes (expected skip count 12 on this host, more only for the documented timing-conditional skips). `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/` are clean.
 
 ## Verification Steps
 - `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_evals_*.py -x --timeout 60`

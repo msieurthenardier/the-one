@@ -113,7 +113,7 @@ post-merge build is its measurement.
 `.github/workflows/pr-lint.yml` triggers `on: pull_request` (branches: `[main]`) and
 runs two jobs, both fail-on-nonzero:
 
-- **lint** — `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/`,
+- **lint** — `ruff check the_one/ tests/ scripts/ evals/` + `ruff format --check the_one/ tests/ scripts/ evals/`,
   pinned to the same `ruff==0.15.15` version as `ci/tasks/lint.yml` (parity with the
   Concourse lane).
 - **pip-audit** — audits the **release dependency closure**: `uv export --no-dev

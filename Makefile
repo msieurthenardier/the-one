@@ -225,6 +225,10 @@ test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, re
 	# Keep this -m in sync with pyproject.toml addopts' default-deselect set.
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap' -v --tb=short
 
+.PHONY: eval
+eval: ## Prompt evals (local only, never in CI): make eval ARGS="run --help"
+	$(PY) -m evals $(ARGS)
+
 .PHONY: test-browser
 test-browser: ## Run all browser lanes 3 at a time (run-tests.sh --parallel 3)
 	@$(MAKE) --no-print-directory _ensure-playwright
@@ -258,15 +262,15 @@ smoke-runtimes: ## Verify uvx / pipx / npx + their host caches populate and are 
 
 .PHONY: lint
 lint: ## Ruff check host-native (read-only)
-	$(PY) -m ruff check the_one/ tests/ scripts/
+	$(PY) -m ruff check the_one/ tests/ scripts/ evals/
 
 .PHONY: format
 format: ## Ruff format host-native (writes changes)
-	$(PY) -m ruff format the_one/ tests/ scripts/
+	$(PY) -m ruff format the_one/ tests/ scripts/ evals/
 
 .PHONY: format-check
 format-check: ## Ruff format check host-native (read-only)
-	$(PY) -m ruff format --check the_one/ tests/ scripts/
+	$(PY) -m ruff format --check the_one/ tests/ scripts/ evals/
 
 # ── Drift detection (host-side) ────────────────────────────────────────
 

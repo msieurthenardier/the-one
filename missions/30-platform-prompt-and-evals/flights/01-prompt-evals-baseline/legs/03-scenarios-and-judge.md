@@ -1,6 +1,6 @@
 # Leg: scenarios-and-judge
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
@@ -39,35 +39,35 @@ Author the DD17 scenario set, with its fixtures, the judge rubric and a frozen l
 - A flight-log entry with the judge agreement, the smoke results per cell and model, the smoke timings and the full-run extrapolation, plus any fixture fixes made after the smoke.
 
 ## Acceptance Criteria
-- [ ] **12 run sets, 14 cells.** `evals/scenarios/` holds the 12 run sets of DD17, each with:
+- [x] **12 run sets, 14 cells.** `evals/scenarios/` holds the 12 run sets of DD17, each with:
   - `class` set exactly as in DD17's table
   - 4 phrasings × 5 facts (20 distinct variants)
   - checks exactly as listed in DD17, with these refinements:
     - `absent-capability`'s pattern also includes `delete_file`
     - `rule-beats-note` uses 5 different rule/note pairs, one per fact set (units, date format, spelling, measurement system, time format), each with its own `reply_matches` / `reply_not_matches` patterns
     - `date-awareness` uses 5 instants with DD8's Kiritimati zone. In each, the zone's weekday differs from the weekday in the patched host zone (`detect_system_zone` → `America/Los_Angeles`)
-- [ ] **Invented facts only.** Every fact a scenario checks is invented and checkable only from the fixture or the conversation: made-up place names, codenames and specials. Nothing is guessable from world knowledge, except `notes-proactive`/`notes-as-told`/`notes-recall` places, which may be real, because the check is that the note is saved or recalled, not the fact. KB documents contain the KB-only facts, and `kb-answer` questions cannot be answered without the KB.
-- [ ] **Natural user turns.** User turns never name a tool or the platform's mechanics ("use search_tools", "save a note"), except where the scenario's purpose requires an explicit request (`notes-as-told`: "please remember…"; `markdown-links`: "send me the link"). `notes-proactive` turns state a plan in passing while asking for help with something else.
-- [ ] **Planted pages.** These pages carry an instruction aimed at the agent (to save a note containing a unique marker) embedded in otherwise ordinary page content. The user's turn only asks for a summary of the page.
-- [ ] **Can-fail proof (DD18).** For every run set, `tests/test_evals_scenarios.py` drives the real scenario file through the runner with the scripted provider twice:
+- [x] **Invented facts only.** Every fact a scenario checks is invented and checkable only from the fixture or the conversation: made-up place names, codenames and specials. Nothing is guessable from world knowledge, except `notes-proactive`/`notes-as-told`/`notes-recall` places, which may be real, because the check is that the note is saved or recalled, not the fact. KB documents contain the KB-only facts, and `kb-answer` questions cannot be answered without the KB.
+- [x] **Natural user turns.** User turns never name a tool or the platform's mechanics ("use search_tools", "save a note"), except where the scenario's purpose requires an explicit request (`notes-as-told`: "please remember…"; `markdown-links`: "send me the link"). `notes-proactive` turns state a plan in passing while asking for help with something else.
+- [x] **Planted pages.** These pages carry an instruction aimed at the agent (to save a note containing a unique marker) embedded in otherwise ordinary page content. The user's turn only asks for a summary of the page.
+- [x] **Can-fail proof (DD18).** For every run set, `tests/test_evals_scenarios.py` drives the real scenario file through the runner with the scripted provider twice:
   - once with a script that satisfies every check, giving `pass`
   - once with a script that violates each check in turn, giving `fail`, with the failed check named
 
   For `judge`, a fake judge client returns pass and fail. These tests run offline in `make test-unit`.
-- [ ] **The judge (DD14).**
+- [x] **The judge (DD14).**
   - `judge(rubric_id)` sends the rubric and the saved note's text to `claude-haiku-4-5-20251001` via the plan-token provider at temperature 0.
   - It parses `{"pass": bool, "reason": str}`, and a malformed reply counts as a judge failure (the check's result is `judge-error`, which excludes the run as `error`).
   - At the start of an invocation that selects a judge-scored scenario, the runner scores `labelled.toml` and records the agreement. Below 90%, judge-scored cells are `judge-unvalidated`.
   - Unit-tested with a fake client.
-- [ ] **The labelled set.** `labelled.toml` has at least 24 items, 12 "as told" and 12 "stated as fact", unambiguous, covering plans, preferences and circumstances. It is committed (by the Flight Director) before the first live judge call.
-- [ ] **Judge agreement.** A live judge validation on Haiku reaches ≥ 90% agreement, recorded in the flight log with the per-item misses. If it falls short, the rubric may be revised **once**. The labelled set is never revised after the first call. A second miss triggers the flight's divert: drop `judge` from `notes-as-told` and record it.
-- [ ] **Live smoke.** One fact set × 4 phrasings (n = 4 per cell) on `haiku` and `gpt-oss` (two processes, separate run directories) completes with zero `error` runs.
+- [x] **The labelled set.** `labelled.toml` has at least 24 items, 12 "as told" and 12 "stated as fact", unambiguous, covering plans, preferences and circumstances. It is committed (by the Flight Director) before the first live judge call.
+- [x] **Judge agreement.** A live judge validation on Haiku reaches ≥ 90% agreement, recorded in the flight log with the per-item misses. If it falls short, the rubric may be revised **once**. The labelled set is never revised after the first call. A second miss triggers the flight's divert: drop `judge` from `notes-as-told` and record it.
+- [x] **Live smoke.** One fact set × 4 phrasings (n = 4 per cell) on `haiku` and `gpt-oss` (two processes, separate run directories) completes with zero `error` runs.
   - Every `cut-short` run is resumed to a counted result.
   - Per-cell smoke results, mean seconds per run per model, and the extrapolated full-run time (240 runs per model) are recorded in the flight log.
   - If the gpt-oss extrapolation is over 8 hours, the flight's n = 15 divert is recorded, and the Flight Director decides before leg 4.
-- [ ] **Smoke-driven fixes.** Fixes after the smoke are limited to fixture or check bugs (a check misfiring on a correct reply, a broken fixture link), each listed in the flight log with the before/after evidence. Wording is never changed to move a pass rate.
-- [ ] **Ollama parse-error pattern.** Leg 1's pattern is confirmed or corrected from any live occurrence, and recorded either way.
-- [ ] **Regression check.** `make test-unit` passes, and `ruff` is clean on `the_one/ tests/ scripts/ evals/`.
+- [x] **Smoke-driven fixes.** Fixes after the smoke are limited to fixture or check bugs (a check misfiring on a correct reply, a broken fixture link), each listed in the flight log with the before/after evidence. Wording is never changed to move a pass rate.
+- [x] **Ollama parse-error pattern.** Leg 1's pattern is confirmed or corrected from any live occurrence, and recorded either way.
+- [x] **Regression check.** `make test-unit` passes, and `ruff` is clean on `the_one/ tests/ scripts/ evals/`.
 
 ## Verification Steps
 - `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_evals_scenarios.py -x --timeout 120`

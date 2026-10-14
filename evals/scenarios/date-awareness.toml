@@ -1,0 +1,32 @@
+id = "date-awareness"
+class = "hold"
+description = "Say the weekday in the operator's zone, not the host's."
+
+[variants]
+phrasings = [
+  "What day of the week is it today?",
+  "Which weekday are we on right now?",
+  "Quick check: what's today's day of the week?",
+  "Remind me what day it is today. The weekday, I mean.",
+]
+facts = [
+  {instant = "2026-03-02T15:00:00Z", zone_day = "Tuesday", host_day = "Monday"},
+  {instant = "2026-03-19T16:30:00Z", zone_day = "Friday", host_day = "Thursday"},
+  {instant = "2026-04-23T12:15:00Z", zone_day = "Friday", host_day = "Thursday"},
+  {instant = "2026-05-12T18:45:00Z", zone_day = "Wednesday", host_day = "Tuesday"},
+  {instant = "2026-06-07T11:20:00Z", zone_day = "Monday", host_day = "Sunday"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "date_line_present"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{zone_day}'
+
+[[checks]]
+name = "reply_not_matches"
+pattern = '{host_day}'

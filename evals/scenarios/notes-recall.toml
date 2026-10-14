@@ -1,0 +1,29 @@
+id = "notes-recall"
+class = "hold"
+description = "Recall a seeded note in a new conversation."
+
+[agent]
+notes_enabled = true
+seeded_notes = [{ text = "The user is planning a trip to {place} in {when}." }]
+
+[variants]
+phrasings = [
+  "Where am I travelling to next?",
+  "Remind me, where was my next trip going to be?",
+  "What was the destination I told you about?",
+  "Do you remember where I'm headed?",
+]
+facts = [
+  {place = "Valparaiso", place_pat = "Valpara[ií]so", when = "October"},
+  {place = "Tromso", place_pat = "Troms[oø]", when = "January"},
+  {place = "Gdansk", place_pat = "Gda[nń]sk", when = "May"},
+  {place = "Luang Prabang", place_pat = "Luang Prabang", when = "March"},
+  {place = "Ushuaia", place_pat = "Ushuaia", when = "December"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_matches"
+pattern = '{place_pat}'

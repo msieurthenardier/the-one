@@ -33,11 +33,11 @@ pytest -m live tests/test_aiat.py                   # AIAT (needs running instan
 pytest -m browser tests/browser/                    # Browser tests (needs THE_ONE_DEV_MODE=true)
 
 # Lint & format
-ruff check the_one/ tests/ scripts/
-ruff format the_one/ tests/ scripts/
+ruff check the_one/ tests/ scripts/ evals/
+ruff format the_one/ tests/ scripts/ evals/
 ```
 
-**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
+**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/ scripts/ evals/` + `ruff format --check the_one/ tests/ scripts/ evals/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
 
 ## Local dev (host-native)
 
@@ -169,6 +169,15 @@ never to differentiate multiple senders. See the `.env.hat.example` file's
 own comments for bot-provisioning notes (real browser required — the
 Developer Portal's hCaptcha/MFA block automation; the driver bot does NOT
 need Message Content intent, the MAIN bot does).
+
+## Prompt evals (Mission 30)
+
+`evals/` is a hand-rolled developer tool, not product code (nothing under `the_one/` imports it): it runs declared scenarios through the app's real agent factory, prompt assembly and agent loop, in a scratch data directory and a scratch home, against Claude Haiku 4.5 (plan token) and a local `gpt-oss:20b` (Ollama), scores each run with program checks, and reports pass rates with Wilson intervals, the platform text's size by part, and the gate results that decide whether a prompt change may land. Run it with `make eval ARGS="<subcommand> ..."` (`run`, `measure-prompt`, `report`, `baseline`, `derive-bars`, `compare`; `make eval ARGS="run --help"`). Full usage, the scenario format, the check vocabulary, outcomes, statistics, gate rules, token measurement and the file layout are in `evals/README.md`.
+
+- **Never production.** It refuses to start when its scratch data directory would overlap the real default data directory or a configured `THE_ONE_DATA_DIR`, never touches port 8484, switches `HOME` to the run directory, and disables the execution tools. It makes real model calls and burns plan quota, so it is local-only.
+- **The plan token** lives in `~/.config/the-one-evals/plan-token` (override with `--plan-token-file`); it is read after the guard, kept in memory, and redacted from every file and log line.
+- **Out of CI and the gates.** `make test-unit` runs only the offline `tests/test_evals_*.py` (scripted provider, injected counter, no network). CI does not install the `[evals]` extra (`tiktoken`, the reference tokenizer); `make eval ARGS="measure-prompt"` needs `pip install -e ".[evals]"` and downloads the `o200k_base` encoding once into `evals/.cache/tiktoken` (gitignored).
+- **Convention.** A change to prompt text (the base prompt, a layer, a tool description) carries an eval run: `measure-prompt` for sizes, then `compare --baseline evals/baselines/<name>.json` against the committed baseline. Flight 2 of Mission 30 finalises the rule. Run directories (`evals/runs/`) are gitignored; baselines (`evals/baselines/*.json`) are committed, the recorded exception to the no-golden-files preference.
 
 ## Security posture
 

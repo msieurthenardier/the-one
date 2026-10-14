@@ -386,7 +386,14 @@ def reset_lifespan_singletons():
 # every call) would race a real ~250 MiB model load into the background of
 # any test that creates a knowledge base.
 _EMBEDDING_REAL_LOAD_MODULES = frozenset(
-    {"tests.test_doctor_embedding_model", "tests.test_embeddings"}
+    {
+        "tests.test_doctor_embedding_model",
+        "tests.test_embeddings",
+        "tests.test_evals_fingerprint",
+        "tests.test_evals_kb",
+        "tests.test_evals_scenarios",
+        "tests.test_evals_tokens",
+    }
 )
 
 

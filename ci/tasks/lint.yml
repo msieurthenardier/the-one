@@ -1,6 +1,6 @@
 ---
 # Lint task — mirrors the GitHub Actions "lint" job (lint.yml).
-# Runs ruff check + ruff format --check on the_one/, tests/, and scripts/.
+# Runs ruff check + ruff format --check on the_one/, tests/, scripts/ and evals/.
 # Runnable two ways:
 #   fly -t the-one execute -c ci/tasks/lint.yml -i repo=.   (local tree)
 #   as a task in ci/the-one.pipeline.yml                            (git resource)
@@ -30,5 +30,5 @@ run:
       export UV_CACHE_DIR="$PWD/uv-cache" UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1
       cd repo
       time uv sync --locked --extra dev
-      .venv/bin/ruff check the_one/ tests/ scripts/
-      .venv/bin/ruff format --check the_one/ tests/ scripts/
+      .venv/bin/ruff check the_one/ tests/ scripts/ evals/
+      .venv/bin/ruff format --check the_one/ tests/ scripts/ evals/

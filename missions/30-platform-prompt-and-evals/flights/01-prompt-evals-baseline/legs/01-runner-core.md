@@ -1,6 +1,6 @@
 # Leg: runner-core
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Prompt evals and baseline](../flight.md)
 
 ## Objective
@@ -44,39 +44,39 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
 - `.gitignore`: `evals/runs/` and `evals/.cache/`.
 
 ## Acceptance Criteria
-- [ ] `python -m evals run --help` prints the run options: `--models`, `--scenarios`, `--scenarios-dir`, `--n`, `--run-dir` / `--resume`, `--plan-token-file`, `--dry-run`.
-- [ ] `--dry-run` prints the planned runs (scenario × variant × model) and the count of LLM calls, without building any agent.
-- [ ] **Scenario loader (DD2).**
+- [x] `python -m evals run --help` prints the run options: `--models`, `--scenarios`, `--scenarios-dir`, `--n`, `--run-dir` / `--resume`, `--plan-token-file`, `--dry-run`.
+- [x] `--dry-run` prints the planned runs (scenario × variant × model) and the count of LLM calls, without building any agent.
+- [x] **Scenario loader (DD2).**
   - It loads TOML scenarios with phrasings × facts expanding to distinct variants (DD9).
   - It rejects an unknown check name, malformed check parameters, seeded notes without `notes_enabled = true`, and a variant count below n, each with a one-line error naming the file and field.
   - `{fixture_base}` is substituted in turn text and check parameters (DD7).
-- [ ] **Start-up order (DD3, DD19).** The guard, token read, HOME switch and build happen in that order.
+- [x] **Start-up order (DD3, DD19).** The guard, token read, HOME switch and build happen in that order.
   - The real default data directory is computed once, before `HOME` changes, and every refusal check uses that value.
   - The runner refuses (non-zero exit, one-line message, nothing created) when `--run-dir`'s `data/` equals, contains or lies inside the real default data directory, or when the already-resolved `settings.data_dir` does. That catches a `THE_ONE_DATA_DIR` from the environment or from a working-directory `.env`, which `Settings` loads (`env_file=".env"`).
   - Unit tests cover each refusal, with platformdirs pointed at a temp directory.
-- [ ] **Environment pinning (DD4).** Before the HOME switch, the runner checks `os.environ` (these five are read from `os.environ`, not from `.env`) and refuses to start if any of `THE_ONE_ANTHROPIC_EXTENDED_THINKING`, `THE_ONE_REASONING_EFFORT`, `THE_ONE_OLLAMA_NUM_CTX`, `THE_ONE_STOP` or `THE_ONE_RESPONSE_FORMAT` is set. Each run records the effective provider values (thinking, reasoning effort, `num_ctx`, temperature). For Ollama presets it also records the model digest (`/api/show`) and the server version (`/api/version`).
-- [ ] **Token redaction (DD4).** A unit test plants a known fake token and drives a run whose model output, tool results and an exception all contain it. The token appears in none of the files the runner writes (results, transcripts, summary), and it never appears on stdout or stderr.
-- [ ] **Locks and sweeps (DD3).** Each run directory gets an `owner.lock` holding the owning PID. At start, a stale `data/` is deleted only when its owner PID is dead. A unit test shows a live owner's `data/` survives a second runner's start-up.
-- [ ] **Shutdown (DD3).** Shutdown runs stop indexing → `close_vector_store()` → `close_connection()` → delete `data/`. `data/` is gone after the invocation ends normally and after one interrupted by an exception (try/finally).
-- [ ] **Per-run setup (DD3).** Each run's agent has a unique name and its own `TurnContext(session_id=…)` around every `agent.step`.
+- [x] **Environment pinning (DD4).** Before the HOME switch, the runner checks `os.environ` (these five are read from `os.environ`, not from `.env`) and refuses to start if any of `THE_ONE_ANTHROPIC_EXTENDED_THINKING`, `THE_ONE_REASONING_EFFORT`, `THE_ONE_OLLAMA_NUM_CTX`, `THE_ONE_STOP` or `THE_ONE_RESPONSE_FORMAT` is set. Each run records the effective provider values (thinking, reasoning effort, `num_ctx`, temperature). For Ollama presets it also records the model digest (`/api/show`) and the server version (`/api/version`).
+- [x] **Token redaction (DD4).** A unit test plants a known fake token and drives a run whose model output, tool results and an exception all contain it. The token appears in none of the files the runner writes (results, transcripts, summary), and it never appears on stdout or stderr.
+- [x] **Locks and sweeps (DD3).** Each run directory gets an `owner.lock` holding the owning PID. At start, a stale `data/` is deleted only when its owner PID is dead. A unit test shows a live owner's `data/` survives a second runner's start-up.
+- [x] **Shutdown (DD3).** Shutdown runs stop indexing → `close_vector_store()` → `close_connection()` → delete `data/`. `data/` is gone after the invocation ends normally and after one interrupted by an exception (try/finally).
+- [x] **Per-run setup (DD3).** Each run's agent has a unique name and its own `TurnContext(session_id=…)` around every `agent.step`.
   - A conversation boundary calls `AgentFactory.create` again for the same agent name, so a fresh `Agent` with a freshly built system prompt reads that run's notes from the same database.
   - Rules and seeded notes are created through the repositories before `create()`.
   - A test shows a note saved in conversation 1 appears in conversation 2's system prompt, and that two runs never see each other's notes.
-- [ ] **Tool-free runs (DD6).** In a `tools_off` run, the first LLM call carries no tool schemas, its system message starts with `CHAT_ONLY_PROMPT`, and the date line uses the tool-free wording. A unit test asserts all three via the scripted provider's recorded calls.
-- [ ] **Clock and zone (DD8).** Each run sets the instant and zone before its first `create()`, and the clock patch stays active across every `create()` and every `agent.step` of that run (the `current_time` tool reads `time_zones.utcnow` at call time). It is restored in a `finally` at run end. This lifetime differs from the provider wrapper's, which is scoped to `create()` only. A test with two scenarios declaring different instants and zones shows each run's date line and a `current_time` result agree with that run's own values.
-- [ ] **Fixture server (DD7).**
+- [x] **Tool-free runs (DD6).** In a `tools_off` run, the first LLM call carries no tool schemas, its system message starts with `CHAT_ONLY_PROMPT`, and the date line uses the tool-free wording. A unit test asserts all three via the scripted provider's recorded calls.
+- [x] **Clock and zone (DD8).** Each run sets the instant and zone before its first `create()`, and the clock patch stays active across every `create()` and every `agent.step` of that run (the `current_time` tool reads `time_zones.utcnow` at call time). It is restored in a `finally` at run end. This lifetime differs from the provider wrapper's, which is scoped to `create()` only. A test with two scenarios declaring different instants and zones shows each run's date line and a `current_time` result agree with that run's own values.
+- [x] **Fixture server (DD7).**
   - It serves `fixtures/web/` on `127.0.0.1` on a free port.
   - The `ToolConfig` rows give both `http_request` and `fetch_url` `extra_allowed_hosts = ["127.0.0.1"]` and `host_allowlist = ["127.0.0.1"]`.
   - A scripted `fetch_url` to the fixture succeeds, and one to another host is refused.
   - Every fetch attempt and its target is in the transcript.
-- [ ] **KB fixtures.** A KB fixture folder is registered and indexed once per invocation with the real `IndexingManager` and the bundled embedding model. The runs that attach it can find it through `search_tools` and query it. The KB name and slug are taken verbatim from the scenario. A scripted test performs search → `kb__…__search` and checks the result text.
-- [ ] **Containment (DD19).**
+- [x] **KB fixtures.** A KB fixture folder is registered and indexed once per invocation with the real `IndexingManager` and the bundled embedding model. The runs that attach it can find it through `search_tools` and query it. The KB name and slug are taken verbatim from the scenario. A scripted test performs search → `kb__…__search` and checks the result text.
+- [x] **Containment (DD19).**
   - `HOME` and `USERPROFILE` point at `{run-dir}/home/`.
   - The filesystem tools' `path_allowlist` is narrowed to that home.
   - `web_search` and `download_file` are disabled.
   - The execution tools (`shell`, `python_exec`, `shell_session_start`/`send`/`close`/`list`) are disabled for eval agents with `enabled=False` `ToolConfig` rows. The design review confirmed that no `ExecutionConfig` field can refuse `host_access=true`: it is a plain tool argument in `shell.py`, `python_exec.py` and `sessions.py`. Do not spend time on bwrap detection. A test shows that disabled tools appear neither in the starting schemas nor in `search_tools` results. Every run record carries `execution_tools: "disabled"`, and the Developer records the decision in the flight log.
   - A scripted `write_file` to `~/x.txt` lands under `{run-dir}/home/`, and one to an absolute path outside it is refused.
-- [ ] **Run outcomes (DD5).** Every outcome rule is unit-tested with the scripted provider raising each exception class:
+- [x] **Run outcomes (DD5).** Every outcome rule is unit-tested with the scripted provider raising each exception class:
   - `fail` covers model-caused errors: `max_iterations` exhausted with no final text, a tool-call timeout, and an Ollama tool-call parse 5xx (matched on error text).
   - `cut-short` covers refused, rate-limited or connection errors, after bounded backoff; backoff is injectable so tests don't sleep. The classes are:
     - `the_one.llm.anthropic_plan_provider.PlanRequestRefusedError`
@@ -89,21 +89,21 @@ Build the `evals/` package's runner core. It loads declarative scenarios, then d
   - `the_one.llm.anthropic_plan_provider.PlanTokenRejectedError` aborts the invocation.
   - Any other exception is `error`.
   - A safety-class check that fails on database state turns the run into `fail` even when it would otherwise be excluded, and such a run is never re-run.
-- [ ] **Results and resume (DD5).**
+- [x] **Results and resume (DD5).**
   - Each finished run is appended to `results.jsonl` immediately, recording the per-check results, outcome, timings, usage and the effective values.
   - `--resume {run-dir}` skips counted runs and re-runs `cut-short`/`error` runs with attempt + 1.
   - Each variant is scored by its final attempt.
   - A test kills a run mid-invocation (an exception after k runs) and resumes it to completion with no duplicates.
-- [ ] **Checks (DD13).** Every check except `judge` is implemented with the exact DD13 semantics, and each has unit tests for pass and fail:
+- [x] **Checks (DD13).** Every check except `judge` is implemented with the exact DD13 semantics, and each has unit tests for pass and fail:
   - "reply" is the final assistant content of a turn, with no tool calls
   - "saved this run" excludes seeded notes
   - `reply_has_markdown_link` handles trailing slashes, autolinks, code spans and fences, and bare duplicates
   - `notes_from_untrusted_flagged` reports its non-vacuous count
   - `no_tool_call_text` uses the Ollama provider's own recovery parser plus harmony `to=functions.` markers
   - `date_line_present`
-- [ ] **Scripted provider (DD18).** It plays a sequence of `Message`s, each with optional `tool_calls`, and records every call's messages and tool schemas. It is injected through the same `get_provider` wrapper as DD6. A three-step script (`search_tools` → `fetch_url` → final text) runs to completion.
-- [ ] **Isolation from the product.** Nothing under `the_one/` imports `evals`; an AST-based unit test pins this. `pyproject.toml`'s pytest `pythonpath` includes `"."`, and `.gitignore` covers `evals/runs/` and `evals/.cache/`.
-- [ ] **Regression check.** `make test-unit` passes, with the expected skip count of 12 on this host (more only for the documented timing-conditional skips). `.venv/bin/ruff check the_one/ tests/ scripts/ evals/` and `ruff format --check` on the same paths are clean.
+- [x] **Scripted provider (DD18).** It plays a sequence of `Message`s, each with optional `tool_calls`, and records every call's messages and tool schemas. It is injected through the same `get_provider` wrapper as DD6. A three-step script (`search_tools` → `fetch_url` → final text) runs to completion.
+- [x] **Isolation from the product.** Nothing under `the_one/` imports `evals`; an AST-based unit test pins this. `pyproject.toml`'s pytest `pythonpath` includes `"."`, and `.gitignore` covers `evals/runs/` and `evals/.cache/`.
+- [x] **Regression check.** `make test-unit` passes, with the expected skip count of 12 on this host (more only for the documented timing-conditional skips). `.venv/bin/ruff check the_one/ tests/ scripts/ evals/` and `ruff format --check` on the same paths are clean.
 
 ## Verification Steps
 - `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_evals_*.py -x --timeout 60`

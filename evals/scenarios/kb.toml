@@ -1,0 +1,36 @@
+id = "kb"
+class = "improve"
+description = "Answer from an attached knowledge base of invented facts."
+
+[agent]
+kb = [{ name = "Kestrel field notes", fixture = "kestrel" }]
+
+[variants]
+phrasings = [
+  "For the Kestrel project, can you tell me {ask}?",
+  "I'm writing up the Kestrel work and forgot {ask}.",
+  "Kestrel question: {ask}?",
+  "Do you know {ask}? It's for the Kestrel project.",
+]
+facts = [
+  {ask = "what frequency the Tarn Ridge beacon transmits on", answer = "412\\.7"},
+  {ask = "who keeps the Osprey Hollow cache", answer = "Wenna Dray"},
+  {ask = "how many sample jars were logged at Brindle Flats", answer = "\\b37\\b"},
+  {ask = "what colour flags the Corran Gap trail", answer = "violet"},
+  {ask = "what the code name for the winter resupply is", answer = "Lantern Moth"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "tool_called"
+pattern = 'kb__.*__search'
+cell = "kb-find"
+class = "improve"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{answer}'
+cell = "kb-answer"
+class = "hold"
