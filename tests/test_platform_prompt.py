@@ -27,7 +27,7 @@ def test_tool_free_render_is_byte_identical():
     assert OLD_PLATFORM_TOOL_FREE.endswith("\n")
 
 
-KB_PHRASES = ("Attached knowledge bases", "before answering from memory")
+KB_PHRASES = ("Knowledge bases are attached", "before answering from memory")
 BOX_PHRASES = ("isolated box", "host access")
 
 
@@ -60,8 +60,8 @@ def test_no_kb_forms_are_pinned_verbatim():
     on = render_platform(Capabilities.all_on())
     assert NO_KB_TOOL_DISCOVERY + KB_LINE in on
     assert KB_LINE == (
-        "- Attached knowledge bases have search tools too: find them with `search_tools`, "
-        "and search them before answering from memory on topics they cover.\n"
+        "- Knowledge bases are attached: list them with `search_tools` (empty query) and "
+        "search them before answering from memory on topics they cover.\n"
     )
 
 

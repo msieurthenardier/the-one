@@ -89,8 +89,8 @@ NO_KB_TOOL_DISCOVERY = (
     "stay available for the rest of the conversation.\n"
 )
 KB_LINE = (
-    "- Attached knowledge bases have search tools too: find them with `search_tools`, "
-    "and search them before answering from memory on topics they cover.\n"
+    "- Knowledge bases are attached: list them with `search_tools` (empty query) and "
+    "search them before answering from memory on topics they cover.\n"
 )
 
 
