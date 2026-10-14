@@ -1,6 +1,6 @@
 # Flight: Prompt evals and baseline
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Agents know how to use the platform, measured across models](../../mission.md)
 
 ## Contributing to Criteria

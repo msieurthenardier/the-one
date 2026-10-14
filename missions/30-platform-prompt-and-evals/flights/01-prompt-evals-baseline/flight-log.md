@@ -27,3 +27,10 @@ Planning. The operator directed fully agentic execution with the data as the gat
 - Cycle 1 added: distinct variants (DD9), a bare size target on prompt sections only (DD11), the sequence-scripted provider (DD18), containment (DD19), environment pinning (DD4), run-outcome rules (DD5), rendered-output fingerprints (DD15), and the split into four legs.
 - Cycle 2 added: a guard → token → HOME start-up order, owner-locked sweeps, a cold Ollama count, `--measure-prompt` determinism, the safety fail on excluded runs, and a Verification table that expects today's prompt to fail its own improve bars.
 - Carried to Flight 2: any `safety` cell below 20/20 at baseline becomes a hard gate with no divert path.
+
+---
+
+## Flight Director Notes
+
+- **2026-10-13:** Loaded `.flightops/agent-crews/leg-execution.md`, which has all the required sections. The flight is now `in-flight`.
+- **Leg 1 `runner-core`: high risk.** It is the surface that handles the plan token and enforces containment (scratch data directory and home, refusal of the operator's real data directory, tool allowlists). A Developer design review runs before implementation, and the flight-end Reviewer is Sonnet (security-sensitive tier).
