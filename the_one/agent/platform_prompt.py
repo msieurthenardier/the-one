@@ -63,6 +63,10 @@ def _const(s: str) -> Callable[[Capabilities], str]:
     return lambda _caps: s
 
 
+def _always(caps: Capabilities) -> bool:
+    return True
+
+
 def _tools(caps: Capabilities) -> bool:
     return caps.tools
 
@@ -113,6 +117,8 @@ _TOOL_USE_TAIL = (
     "ends the turn.\n"
 )
 
+_FORMATTING = "\nWrite replies in Markdown, and write links as [text](url).\n"
+
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"
 
 SECTIONS: tuple[Section, ...] = (
@@ -152,6 +158,7 @@ SECTIONS: tuple[Section, ...] = (
         _tools,
         _const(_TOOL_USE_TAIL),
     ),
+    Section("formatting", "Formatting", "always", _always, _const(_FORMATTING)),
 )
 
 

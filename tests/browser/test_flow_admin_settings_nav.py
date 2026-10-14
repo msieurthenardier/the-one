@@ -286,9 +286,16 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     expect(
         page.locator('[data-testid="platform-section-tools-identity-applies-when"]')
     ).to_contain_text("Applies when")
-    for sid in ("tool_discovery", "knowledge", "tool_use", "execution", "tool_use_tail"):
+    for sid in (
+        "tool_discovery",
+        "knowledge",
+        "tool_use",
+        "execution",
+        "tool_use_tail",
+        "formatting",
+    ):
         expect(page.locator(f'[data-testid="platform-section-tools-{sid}"]')).to_be_visible()
-    for sid in ("identity_tool_free",):
+    for sid in ("identity_tool_free", "formatting"):
         expect(page.locator(f'[data-testid="platform-section-tool_free-{sid}"]')).to_be_visible()
     # The tool-free blocks never name a tool.
     free_text = page.locator('[data-testid^="platform-section-tool_free-"][data-testid$="-text"]')

@@ -23,8 +23,12 @@ network; request host access only when the task concretely needs the user's real
 files or network.
 - To keep working in another step, call `continue`; otherwise your text reply ends \
 the turn.
+
+Write replies in Markdown, and write links as [text](url).
 """
 
 OLD_PLATFORM_TOOL_FREE = """\
 You are an AI assistant. Reply directly and concisely.
+
+Write replies in Markdown, and write links as [text](url).
 """

@@ -125,8 +125,9 @@ def test_fragments_do_not_tile_and_ui_rows():
         "tool_use",
         "execution",
         "tool_use_tail",
+        "formatting",
     ]
-    assert free == ["identity_tool_free"]
+    assert free == ["identity_tool_free", "formatting"]
     assert set(rows[0]) == {"id", "title", "applies_when", "text", "variant"}
     knowledge = next(r for r in rows if r["id"] == "knowledge")
     assert KB_LINE.strip() == knowledge["text"]
@@ -165,6 +166,7 @@ def test_section_ids_unique_and_sections_for_matches_render():
     assert [i for i, _t in sections_for(caps)][0] == "identity"
     assert [i for i, _t in sections_for(Capabilities(tools=False))] == [
         "identity_tool_free",
+        "formatting",
     ]
 
 
