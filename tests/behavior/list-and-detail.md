@@ -38,8 +38,10 @@ with the prefix `lnd-`.
   example:
 
   ```
-  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-lnd-scratch THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 make up
+  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-lnd-scratch THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve
   ```
+
+  Start it from a scratch working directory, not the repo root (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`; CLAUDE.md "SAFETY RULE"), detached with the PID recorded; stop it by that PID.
 
   - Create the credential first with
     `THE_ONE_DATA_DIR=/tmp/the-one-lnd-scratch the-one rotate-api-credential`.

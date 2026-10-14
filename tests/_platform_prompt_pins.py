@@ -1,12 +1,12 @@
-"""The platform prompt constants as test literals (names kept from Flight 2 leg 1b).
+"""Byte-for-byte pins of the CURRENT platform prompt renders, written out by hand.
 
-Flight 2 candidate 1 replaced the wording: these literals now pin the CURRENT
-all-on tool-capable render and tool-free render, written out by hand so a wording
-change must edit them. ``OLD_`` is a historical prefix, not a statement that the
-text is old. ``test_platform_prompt.py`` pins the sectioned renderer against them.
+``PLATFORM_TOOLS_ALL_ON_PIN`` is the all-capabilities tool-capable render and
+``PLATFORM_TOOL_FREE_PIN`` the tool-free render. Changing platform prompt text must
+edit these literals, and requires an eval run (CLAUDE.md "Prompt evals").
+``test_platform_prompt.py`` pins the sectioned renderer against them.
 """
 
-OLD_PLATFORM_TOOLS = """\
+PLATFORM_TOOLS_ALL_ON_PIN = """\
 You are an AI agent. Use your tools to do what you're asked, and reply directly and \
 concisely.
 
@@ -27,7 +27,7 @@ the turn.
 Write replies in Markdown, and write links as [text](url).
 """
 
-OLD_PLATFORM_TOOL_FREE = """\
+PLATFORM_TOOL_FREE_PIN = """\
 You are an AI assistant. Reply directly and concisely.
 
 Write replies in Markdown, and write links as [text](url).

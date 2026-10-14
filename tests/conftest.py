@@ -490,3 +490,24 @@ def expected_date_layer(tool_available: bool) -> str:
         time_zones.EffectiveZone("America/Los_Angeles", ZoneInfo("America/Los_Angeles")),
         tool_available=tool_available,
     )
+
+
+class _EveryAgent:
+    """Stands in for the set of connector-bound agent names: every agent is bound."""
+
+    def __contains__(self, _name: object) -> bool:
+        return True
+
+
+@pytest.fixture
+def all_agents_connector_bound(monkeypatch):
+    """For tests that build ``AgentFactory`` over a bare ``AsyncMock`` connection.
+
+    That connection cannot run the real bindings query (``async with conn.execute(...)``
+    raises TypeError, which the factory rightly does not swallow), so treat every agent
+    as connector-bound, i.e. the connector tool pair is seeded."""
+
+    async def _all(_conn):
+        return _EveryAgent()
+
+    monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", _all)

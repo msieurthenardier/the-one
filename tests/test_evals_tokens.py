@@ -16,8 +16,8 @@ import pytest
 
 from evals import tokens
 from evals.tokens import StandInCounter, extract_parts
-from tests._old_prompts import OLD_PLATFORM_TOOL_FREE as PLATFORM_TOOL_FREE
-from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
+from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from the_one.agent.platform_prompt import Capabilities, sections_for
 
 evals_isolation = h.evals_isolation
@@ -423,6 +423,27 @@ def test_platform_prompt_sections_handle_every_conditional_render(caplog):
     with caplog.at_level("WARNING"):
         assert platform_prompt_sections("custom text") == [("platform", "custom text")]
     assert "matches no capability combination" in caplog.text
+
+
+def test_unattributable_platform_text_fails_measurement_loudly():
+    import pytest
+
+    from evals.tokens import (
+        PlatformAttributionError,
+        RawConfig,
+        measure_configs,
+        platform_prompt_sections,
+    )
+    from the_one.agent.platform_prompt import render_platform
+
+    with pytest.raises(PlatformAttributionError):
+        platform_prompt_sections("custom text", strict=True)
+    ok = render_platform(Capabilities.all_on())
+    rc = RawConfig("c", ok, [], None, "", [], [], [])
+    assert "totals" in measure_configs({"c": rc}, C)["c"]
+    bad = RawConfig("c", "custom text", [], None, "", [], [], [])
+    with pytest.raises(PlatformAttributionError):
+        measure_configs({"c": bad}, C)
 
 
 def test_tool_free_notes_variant_needs_no_extra_matching():

@@ -39,8 +39,10 @@ It runs in both themes (see Variants) and creates data, all named with the prefi
   example:
 
   ```
-  THE_ONE_PORT=8487 THE_ONE_DATA_DIR=/tmp/the-one-sac-scratch THE_ONE_DEV_MODE=true make up
+  THE_ONE_PORT=8487 THE_ONE_DATA_DIR=/tmp/the-one-sac-scratch THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve
   ```
+
+  Start it from a scratch working directory, not the repo root (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`; CLAUDE.md "SAFETY RULE"), detached with the PID recorded; stop it by that PID.
 
   **Never** port 8484, and never the operator's default data directory (CLAUDE.md,
   "Behavior-test credential convention"). The orchestrator states `{base}` and the scratch

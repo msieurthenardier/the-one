@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from tests._old_prompts import OLD_PLATFORM_TOOLS as PLATFORM_TOOLS
+from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from the_one.agent.config import compose_system_prompt
 from the_one.agent.core import Agent, _executed_key, _synthesize_closing
 from the_one.llm.base import (

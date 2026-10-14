@@ -12,7 +12,7 @@ Verify that a Claude Plan (Token) provider, created with a real token from `clau
 
 ## Preconditions
 
-- A dev instance of this branch is running on **port 8487 with a scratch data directory outside the repo** (e.g. `THE_ONE_PORT=8487 THE_ONE_DATA_DIR=/tmp/the-one-sortie03-scratch make up`). Never the operator's default `:8484` instance or default data directory (see CLAUDE.md's "Behavior-test credential convention" safety rule).
+- A dev instance of this branch is running on **port 8487 with a scratch data directory outside the repo** (e.g. `THE_ONE_PORT=8487 THE_ONE_DATA_DIR=$HOME/the-one-sortie03-scratch/data <repo>/.venv/bin/the-one serve`, started detached from a scratch working directory `$HOME/the-one-sortie03-scratch/cwd` and not the repo root, PID recorded, stopped by that PID). Never the operator's default `:8484` instance or default data directory (see CLAUDE.md's "Behavior-test credential convention" safety rule).
 - The operator has placed a real `setup-token` token in a file outside the repo and named its path for this run (`TOKEN_FILE`). **The token is never typed, printed, quoted or written by any agent.** It enters the app only through the step-1 shell command, which reads the file itself.
 - **Credential**: shell steps send `Authorization: Bearer <credential>` read from `<data_dir>/api-credential`; the browser session is reached through a handoff mint (`POST /api/session/handoff`), one mint per fresh navigation, per CLAUDE.md's convention.
 - The operator names a model the plan allows (recorded in the run log); default `claude-haiku-4-5`, which the live list exposes under its dated id `claude-haiku-4-5-20251001` (either id meets the step).

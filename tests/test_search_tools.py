@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import MCPSource
@@ -835,6 +837,7 @@ async def test_filter_mcp_tools_by_override_stdio_vs_http() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("all_agents_connector_bound")
 async def test_real_impl_in_factory_wiring() -> None:
     """AgentFactory.create() registers SearchTools (not the stub) under 'search_tools'."""
 
@@ -892,6 +895,7 @@ async def test_real_impl_in_factory_wiring() -> None:
     assert "search_mcps" not in agent.tools.tool_names
 
 
+@pytest.mark.usefixtures("all_agents_connector_bound")
 async def test_real_impl_per_agent_filter_applied_at_registry_level() -> None:
     """enabled_tools=['read_file', 'write_file'] → empty search returns only those."""
 
