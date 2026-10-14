@@ -1,118 +1,88 @@
 # Leg: platform-prompt-structure
 
-**Status**: planning
+**Status**: ready
 **Flight**: [The platform prompt](../flight.md)
 
 ## Objective
-Replace the fixed `BASE_PROMPT`/`CHAT_ONLY_PROMPT` with a sectioned, capability-conditioned platform prompt. Do it in two steps: first a byte-identical restructure, then the conditions switched on.
-- Build both the tool-capable and the tool-free system prompts at build time.
-- Seed the connector tools only for agents a connector uses.
-- Show each section and its condition on Settings › Prompts.
+Replace the fixed `BASE_PROMPT`/`CHAT_ONLY_PROMPT` constants with a sectioned platform prompt whose rendered output is **byte-identical** to today's for both variants. Also:
+- build both the tool-capable and the tool-free system prompts at build time, with no prefix recovery
+- migrate every consumer
+- prove with tiktoken that the evals still measure today's sizes
 
-No wording is tuned in this leg; leg 2 does that.
+No condition is switched on and no wording changes in this leg. That is leg 1c (`conditions-and-ui`).
 
 ## Context
-- Flight DD1, DD2, DD3, DD7, DD8 and DD10 are authoritative; read them in `../flight.md`.
-- Leg 1a (`evals-readiness`) made `evals/tokens.py::extract_parts` structural, with a section hook defaulting to one `platform` part. This leg plugs `platform_prompt`'s section ids into that hook.
-- **Two steps, in order:**
-  1. **Byte-identical.** `platform_prompt` holds today's text split verbatim into sections, all conditions effectively true for an all-on tool-capable agent. Tests pin that `render_platform(all-on caps)` equals today's `BASE_PROMPT` and that the tool-free render equals today's `CHAT_ONLY_PROMPT`. Pin them **before** deleting the old constants; keep the old strings as test-local literals copied from `the_one/agent/config.py` at this leg's base commit. Those literals are not captured model output, so they are not golden files.
-  2. **Conditions on, then DD7.** Run the second tiktoken verification (`measure-prompt` reproduces `m30-today`'s sizes) **after step 1 and before DD7**. Then switch the conditions on (DD3) and the connector seeding on (DD7).
-- The KB mentions sit inside today's "Tool discovery" bullets, so splitting them into a `knowledge` section is a wording change. Keep it minimal and log it as such. Leg 2 owns real rewording.
-- Everything that reads the pending notes must keep working: the `<saved_notes>` block, the `[n]` line format, `NOTES_EMPTY_TEXT`, and the "Rules take precedence over saved notes" coupling.
+- Flight DD1, DD2 and DD10 are authoritative. Leg 1a has landed:
+  - `evals/tokens.py::extract_parts` is structural, with a hook `platform_sections: Callable[[str], list[tuple[str, str]]]` that defaults to a single `platform` part.
+  - The freeze test pins the scoring modules and `evals/measure/`.
+  - The five-configuration prompt fingerprint is `259f0a1e…`.
+- **The design review settled the following.** Each point refines DD1.
+  - **Section text depends on the capabilities, and joins are explicit.** A `Section` has `id`, `title`, `applies_when`, `applies(caps) -> bool` and `text(caps) -> str`. Sections are concatenated **with no separator inserted by the renderer**: each section's text carries its own leading whitespace. That is what lets the box / `host_access` bullet sit mid-way through the "Tool use:" block.
+  - **The `tools` text is split around that bullet:** `tools_discovery_and_use_head` (through Tool use bullet 2), then `execution` (the box bullet with its single leading `\n`), then `tools_use_tail` (from "On failure" through Turn semantics). Names are the Developer's choice.
+  - **KB phrases are not a section.** They sit mid-bullet in Tool discovery bullet 2 ("AND search tools for any knowledge bases…", `kb:<name>: …`, "internal docs"). In this leg they stay inside the tools text verbatim. Leg 1c makes them conditional fragments of that text (`caps.knowledge`) and registers `knowledge` as an informational row for the UI.
+  - **Trailing newline.** `BASE_PROMPT` and `CHAT_ONLY_PROMPT` each end in `"\n"`. The `closing` section carries that final newline. The byte-identical tests compare against literals copied **exactly**, trailing newline included.
+  - **`build_system_prompt` keeps its `str` return** (the tool-capable prompt), so direct test callers are untouched. A new `build_system_prompts(...) -> SystemPrompts(tool_capable, tool_free)` is what the factory and `pending` call. Both take the new keyword arguments `knowledge`, `time_tool` and `exec_tools`, all defaulting to today's effective behaviour.
+  - **One helper derives the capabilities.** `capabilities_from_registry(registry, *, notes, rules, time_tool)` lives in `platform_prompt.py` and is used by both the factory and `pending`. A `None` registry gives all-False tool capabilities.
+  - **`pending` must also set `agent.degraded_system_prompt`.** Today it sets `system_prompt` and `messages[0]` only.
+- No captured model output is committed. The byte-identical literals are copies of source constants, not golden files.
 
 ## Inputs
-- Leg 1a landed, uncommitted, on `flight/02-platform-prompt`.
-- Product code as of `085c15d` plus the Flight 2 planning commits.
+- Leg 1a landed, uncommitted. Product code as of `085c15d`.
 
 ## Outputs
-- `the_one/agent/platform_prompt.py` (new): `Capabilities`, `Section`, `SECTIONS`, `render_platform`, plus `sections_for(caps)` for UI and evals use.
-- `the_one/agent/config.py`: `BASE_PROMPT` and `CHAT_ONLY_PROMPT` removed. `compose_system_prompt` unchanged in shape: it takes the rendered platform text as `base`.
-- `the_one/agent/prompt_layers.py`: `build_system_prompt(..., knowledge, time_tool, exec_tools, ...) -> SystemPrompts(tool_capable, tool_free)`. The rules and notes rendering take `Capabilities`; the tool-free notes layer never mentions calling `update_note`/`forget_note`.
-- `the_one/agent/core.py`: `Agent` gains `degraded_system_prompt: str | None`, and `_build_degraded_messages` uses it, with no prefix logic.
-- `the_one/agent/factory.py`: computes the capabilities, passes both prompts, and does connector-conditional seeding through `connector_bindings`.
-- `the_one/self_configuration/pending.py`: the main path and the fallback rebuild both prompts from the live agent's registry capabilities.
-- `the_one/db/repositories.py`: a module-level `connector_bindings(conn)` and `agent_names_in_use(conn)`. `ConnectorDirectoryRepository.search` is refactored to use them, and bad rows are skipped and logged.
-- `the_one/db/_notes.py`, `_rules.py`: render functions take `Capabilities` (or a `tools` flag). Headings are unchanged in wording except to remove tool calls from the tool-free notes layer.
-- `the_one/interfaces/web/app.py` `/api/info`: `platform_sections` (and a tool-free entry) replaces `base_prompt`.
-- `the_one/interfaces/web/static/js/areas/admin/system-page.js`: one block per section with "Applies when …", DOM APIs only. The intro copy is updated.
-- `evals/tokens.py`: the section hook is wired to `platform_prompt.sections_for`.
-- Tests: every listed consumer is updated, plus new tests. `docs/ui-testid-registry.md` is updated.
-- Docs: `the_one/agents.md` gets a "Platform prompt" section, and the CLAUDE.md "Settings › Prompts" paragraph is updated.
+- `the_one/agent/platform_prompt.py` (new):
+  - `Capabilities`: a frozen dataclass with `tools, knowledge, notes, rules, time_tool, exec_tools` and an `all_on()` classmethod
+  - `Section`
+  - `SECTIONS`
+  - `render_platform(caps)`
+  - `render_tool_free(caps)` (or `render_platform` with `tools=False`, `time_tool=False`)
+  - `sections_for(caps) -> list[tuple[id, text]]`
+  - `capabilities_from_registry(...)`
+- `the_one/agent/config.py`: `BASE_PROMPT` and `CHAT_ONLY_PROMPT` removed.
+- `the_one/agent/prompt_layers.py`: `build_system_prompts` and `SystemPrompts`. `build_system_prompt` becomes a thin wrapper.
+- `the_one/agent/core.py`: `Agent(..., degraded_system_prompt: str | None = None)`. `_build_degraded_messages` returns it when set, else `system_prompt` verbatim, with no `startswith`. Stale comments are updated.
+- `the_one/agent/factory.py`: builds both prompts through `build_system_prompts` and passes `degraded_system_prompt`. Seeding is unchanged in this leg.
+- `the_one/self_configuration/pending.py`: the main path and the fallback build both prompts from `capabilities_from_registry(agent.tools, …)` and set `system_prompt`, `messages[0]` and `degraded_system_prompt`.
+- `the_one/interfaces/web/app.py` `/api/info`: **unchanged in shape this leg.** It keeps returning `base_prompt`, now `render_platform(Capabilities.all_on())`, so the UI and its tests are untouched until leg 1c.
+- `evals/tokens.py`: the `platform_sections` hook is wired to `platform_prompt.sections_for` for the platform layer; the tool-free layer uses the tool-free sections. **The category totals must stay identical.**
+- Tests: every consumer migrated (list below) plus new tests.
+- Docs: `evals/README.md` stops naming the removed constants. `evals/measure/tool-free.toml` is **frozen** (DD12) and is not edited; its comment's mention of `CHAT_ONLY_PROMPT` stays as history. `the_one/agents.md`'s references (around lines 858, 862, 879, 916, 1641 and 2504) are updated to describe `platform_prompt` and the two built prompts.
 
 ## Acceptance Criteria
-- [ ] **Byte-identical step.** Tests pin `render_platform(Capabilities(all true))` == the old `BASE_PROMPT` literal and the tool-free render == the old `CHAT_ONLY_PROMPT` literal. They pass at the byte-identical step, are recorded in the flight log, and are then deliberately updated when the conditions switch on.
-- [ ] **Second tiktoken verification.** At the byte-identical step, before DD7, `make eval ARGS="measure-prompt"` reproduces `m30-today`'s sizes (595 / 862 / 84; 1308 / 1789 / 84). The output is in the flight log.
-- [ ] **Old constants gone.** No reference to `BASE_PROMPT` or `CHAT_ONLY_PROMPT` remains in `the_one/`, `tests/`, `evals/` or `scripts/`: `grep -rn "BASE_PROMPT\|CHAT_ONLY_PROMPT"` returns only historical prose in `missions/`/`squawks/`.
-- [ ] **Two prompts per agent (DD2).**
-  - The factory builds both prompts.
-  - `Agent._build_degraded_messages` sends `degraded_system_prompt` when `supports_tools()` is False.
-  - With the attribute absent (an `Agent` constructed directly), it falls back to `system_prompt` verbatim.
-  - Tests cover: a tool-free model with KB, notes and rules on (no tool guidance, no `current_time` wording, no `update_note`/`forget_note` mention, the persona, rules and notes present), and a tool-capable model.
-- [ ] **Conditions (DD3).** Tests cover a matrix of capabilities: none, each alone, all.
-  - A bare agent's prompt contains no knowledge, notes or rules guidance.
-  - The `execution` section appears only when `shell` or `python_exec` is registered.
-  - The `knowledge` section appears only when a `kb__` tool is registered after filtering. A disabled KB tool means no section.
-- [ ] **Pending (DD2).** `pending.apply_pending_revision`'s main path and its error fallback rebuild both prompts from the live agent's registry capabilities. Tests pin the fallback no longer referencing a removed constant, and the existing self-configuration write tests pass with updated expectations.
-- [ ] **Connector seeding (DD7).**
-  - `connector_bindings(conn)` returns `{connector_id: {agent names}}`, and a row whose config fails to parse is skipped with a log line.
-  - `ConnectorDirectoryRepository.search` behaves identically (existing tests pass).
-  - An agent named as `default_agent` or in a `channel_map` gets `send_to_platform_channel`/`find_platform_destination` in its starting schemas. An unmapped agent does not, but can still find them through `search_tools`. Tests cover both.
-  - The inbound connector path's existing tests pass.
-- [ ] **Settings › Prompts (DD8).**
-  - `/api/info` returns `platform_sections: [{id, title, applies_when, text}]` covering both variants, and no longer returns `base_prompt`. The existing rules, notes and date examples still render through the real functions.
-  - `renderPromptsPage` renders one titled block per section with its "Applies when …" line, built with DOM APIs.
-  - `docs/ui-testid-registry.md` retires `base-prompt-content` and lists the new testids.
-  - Updated: `tests/test_prompt_layers.py`'s `/api/info` assertions, `tests/test_aiat.py`'s key check, and the browser test `tests/browser/test_flow_admin_settings_nav.py::test_general_pages_each_render_their_own_block`.
-  - The static guards (`tests/test_ui_guards.py`, `tests/test_token_definitions.py`, `tests/test_design_tokens_a11y.py`) pass.
-  - `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane settings` passes.
-- [ ] **Evals section hook.** `evals/tokens.py` attributes platform parts by section id, and `measure-prompt` prints per-section parts. Leg 1a's freeze test still passes; the scoring modules are unchanged.
-- [ ] **Docs.** `the_one/agents.md` has a "Platform prompt" section (structure, capabilities, the two variants, where each consumer reads it), and the CLAUDE.md Settings › Prompts paragraph matches the new page.
-- [ ] **Regression checks.**
-  - `make test-unit` passes (expected 12 skips).
-  - The `settings` browser lane passes under `THE_ONE_TEST_NETNS=1`.
-  - Ruff is clean on `the_one/ tests/ scripts/ evals/`.
-  - `make eval ARGS="measure-prompt"` after the switch is recorded in the flight log; the sizes are expected to shrink.
+- [ ] **Byte-identical renders.** Tests pin `render_platform(Capabilities.all_on())` == the exact old `BASE_PROMPT` literal (trailing newline included), and the tool-free render == the exact old `CHAT_ONLY_PROMPT` literal.
+- [ ] **Unchanged composed prompts.** A test pins that the composed system prompt of an all-on agent (persona, rules, notes, date) is byte-identical to what `compose_system_prompt(<old BASE_PROMPT literal>, …)` produces. Another pins that its degraded prompt equals the old `CHAT_ONLY_PROMPT + rest` construction.
+- [ ] **`build_system_prompts`.** It returns `SystemPrompts`. The factory passes `degraded_system_prompt` to `Agent`, and `_build_degraded_messages` uses it, with no `startswith` anywhere in `core.py`. Tests:
+  - a tool-free model gets the tool-free prompt
+  - an `Agent` constructed directly without the attribute sends `system_prompt` verbatim
+  - the existing degraded-injection tests are rewritten to the new mechanism with equivalent assertions
+- [ ] **`pending`.** The main path and the fallback both set `degraded_system_prompt`. A test applies a `next_turn` revision and then takes a tool-free turn, and sees the revised persona in the degraded prompt. The fallback test no longer references a removed constant.
+- [ ] **`capabilities_from_registry`.** Unit-tested: a `kb__` tool gives `knowledge`, `shell`/`python_exec` give `exec_tools`, and `None` gives all-False. Both the factory and `pending` use it.
+- [ ] **Constants gone.** `grep -rn "BASE_PROMPT\|CHAT_ONLY_PROMPT" the_one tests evals scripts` returns only the frozen comment in `evals/measure/tool-free.toml`. That covers `.py`, `.md` and `.toml`, including `the_one/agents.md` and `evals/README.md`.
+- [ ] **Evals measurement.** The `platform_sections` hook is wired, and `make eval ARGS="measure-prompt"` (tiktoken) still reports exactly 595 / 862 / 84 prompt sections, 1308 / 1789 / 84 platform text, and the connector variants 1308 / 1789. The per-section parts are shown. The output is pasted into the flight log as the **second one-time verification**.
+- [ ] **Unchanged surfaces.** The freeze test passes, and `/api/info` and Settings › Prompts are unchanged.
+- [ ] **Regression check.** `make test-unit` passes (expected 12 skips), and ruff is clean on `the_one/ tests/ scripts/ evals/`.
 
 ## Verification Steps
-- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_prompt_layers.py tests/test_config.py tests/test_agent_degraded_injection.py tests/test_self_configuration_write.py tests/test_connectors_inbound.py tests/test_factory.py -x --timeout 60`
+- `.venv/bin/python -m pytest tests/test_prompt_layers.py tests/test_config.py tests/test_agent_degraded_injection.py tests/test_self_configuration_write.py tests/test_connectors_inbound.py tests/test_factory.py tests/test_evals_tokens.py tests/test_evals_harness.py -x -q --timeout 60`
 - `make test-unit`
-- `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane settings -x`
-- The static guards listed above.
-- `make eval ARGS="measure-prompt"`, run twice: before DD7 (byte-identical) and after the switch.
+- `make eval ARGS="measure-prompt"`
 - `grep -rn "BASE_PROMPT\|CHAT_ONLY_PROMPT" the_one tests evals scripts`
 
 ## Implementation Guidance
-1. **Write `platform_prompt.py`** with today's text split verbatim:
-   - `core` (two variants by `tools`)
-   - `tools` (the Tool discovery, Tool use minus the box bullet, and Turn semantics blocks)
-   - `execution` (the box / `host_access` bullet)
-   - `closing` (the persona-append sentence)
-   - the tool-free core text from `CHAT_ONLY_PROMPT`
-
-   Make sure joining the applicable sections reproduces the original whitespace exactly; that is what the byte-identical tests are for. KB mentions inside the discovery bullets stay in `tools` at step 1. At step 2, move them to a `knowledge` section (`tools and knowledge`), with minimal wording change, logged.
-2. **Change `build_system_prompt`'s signature** and update both callers. In the factory, compute:
-   - `knowledge` = any registered tool name starting with `kb__`
-   - `exec_tools` = `shell` or `python_exec` in `registry.tool_names`
-   - `time_tool` = the existing `time_tool_available`
-3. **Give `Agent.__init__`** an optional `degraded_system_prompt`. Keep `system_prompt` as the tool-capable text (persisted as `messages[0]`, as today).
-4. **`connector_bindings`** follows the parse logic of the existing inline scan in `ConnectorDirectoryRepository.search` (`default_agent` plus `channel_map` values), wrapped in try/except per row.
-5. **UI.** Follow the existing `system-page.js` DOM-building style and the "Settings item pages" conventions in CLAUDE.md. The page keeps one `h1`; sections are `h2`/`h3` like today's layer titles.
-6. **Run the order exactly as the Context describes,** and record each step in the flight log.
+1. **Copy the two old constants into a test module as literals first.** Write the byte-identical tests, then build `platform_prompt.py` until they pass. Only then remove the constants and migrate consumers.
+2. **Consumers to migrate**, found by grep:
+   - `core.py`, `pending.py`, `factory.py` (through `build_system_prompts`), `app.py` (`/api/info`'s `base_prompt` value)
+   - `evals/tokens.py`, `evals/README.md` (never `evals/measure/`, which is frozen)
+   - Tests: `test_config.py`, `test_prompt_layers.py`, `test_agent_degraded_injection.py`, `test_self_configuration_write.py`, `test_connectors_inbound.py`, `test_governor.py`, `test_agent_redundant_backstop.py`, `test_factory.py`, `test_agent_search_integration.py`, `test_evals_tokens.py`, `test_evals_harness.py`
+   - Docs: `the_one/agents.md`
+3. **Keep `compose_system_prompt`'s signature unchanged.** It receives the rendered platform text as `base`.
 
 ## Edge Cases
-- **An agent attached to a KB whose tool is disabled** (`disabled_tools`) gets no `knowledge` section.
-- **An agent whose model's `supports_tools()` times out at build.** `time_tool` is False; both prompts are still built, and the per-turn choice decides.
-- **A connector row with an invalid JSON config** is skipped; `create()` still succeeds.
-- **The `"default"` synthesized agent** (no stored row) works and is unmapped unless a connector names it.
+- **A `None` registry in `pending`** (an agent in a broken state) gives all-False capabilities, and both prompts are still built.
+- **An agent whose `supports_tools()` times out at build** gets `time_tool=False`, and both prompts are built.
 
 ## Files Affected
-- `the_one/agent/platform_prompt.py` (new), `config.py`, `prompt_layers.py`, `core.py`, `factory.py`
-- `the_one/self_configuration/pending.py`
-- `the_one/db/repositories.py`, `the_one/db/_notes.py`, `the_one/db/_rules.py`
-- `the_one/interfaces/web/app.py`, `the_one/interfaces/web/static/js/areas/admin/system-page.js` (and CSS if needed)
-- `evals/tokens.py`
-- Tests: `test_config.py`, `test_prompt_layers.py`, `test_agent_degraded_injection.py`, `test_self_configuration_write.py`, `test_connectors_inbound.py`, `test_governor.py`, `test_agent_redundant_backstop.py`, `test_factory.py`, `test_agent_search_integration.py`, `test_notes_tools.py`, `test_evals_tokens.py`, `test_evals_harness.py`, `test_aiat.py`, `tests/browser/test_flow_admin_settings_nav.py`, plus new tests
-- `docs/ui-testid-registry.md`, `the_one/agents.md`, `CLAUDE.md`
+See Outputs and Guidance step 2.
 
 ---
 
@@ -120,14 +90,12 @@ No wording is tuned in this leg; leg 2 does that.
 Completion steps — status transitions, flight-log update, checking off in the parent flight, and commit — are Flight Control protocol, driven by the execution workflow. Not repeated here.
 
 ## Citation Audit
-From the Flight 2 code interrogation and the Architect's two cycles (2026-10-14):
-- `core.py::Agent._build_degraded_messages` uses `startswith(BASE_PROMPT)`.
-- `pending.py` falls back to `compose_system_prompt(BASE_PROMPT, …)`.
-- `app.py` `/api/info` returns `base_prompt`.
-- The factory seeds the connector pair and `current_time`.
-- `ConnectorDirectoryRepository.search` scans inline.
-- `system-page.js::renderPromptsPage` renders five `<pre>` blocks.
-- The browser test checks five blocks.
-- `tests/test_notes_tools.py` counts `(unverified)` occurrences in the heading.
-
-Line numbers are deliberately omitted; re-locate them by symbol.
+Checked by the leg design review, 2026-10-14:
+- Production `build_system_prompt` callers: `factory.py`, `pending.py`.
+- `Agent(` is constructed only in `factory.py`.
+- `_build_degraded_messages` is called from one site in `core.py`.
+- Both constants end in `"\n"`.
+- The box bullet is the third "Tool use" bullet.
+- The KB phrases sit mid-bullet in Tool discovery bullet 2.
+- `registry.tool_names` is a list property (`tools/base.py`).
+- `tests/test_notes_tools.py` and `tests/test_prompt_layers.py` call `build_system_prompt` directly, hence the kept `str` wrapper.
