@@ -66,7 +66,7 @@ FALLBACK_EXPIRES_IN_SECONDS = 300
 
 class ReauthRequiredError(Exception):
     """Automatic token refresh can no longer succeed — the operator must
-    re-authenticate the provider in Administration.
+    re-authenticate the provider in Library › Model providers.
 
     Carries ``provider_id`` so API handlers and UI surfaces can key the
     re-auth affordance without message-parsing.
@@ -78,7 +78,7 @@ class ReauthRequiredError(Exception):
             message
             or (
                 f"Anthropic plan provider '{provider_id}' requires re-authentication. "
-                "Open the provider in Administration and sign in again."
+                "Open the provider in Library › Model providers and sign in again."
             )
         )
 
@@ -162,7 +162,7 @@ class PlanCredentialSource:
                     self.provider_id,
                     (
                         f"Anthropic plan provider '{name}' has no stored sign-in "
-                        "credentials. Open the provider in Administration and "
+                        "credentials. Open the provider in Library › Model providers and "
                         "sign in with your Anthropic account."
                     ),
                 )
@@ -185,7 +185,7 @@ class PlanCredentialSource:
                             f"Anthropic plan provider '{name}' could not renew its "
                             f"credentials (token endpoint rejected the refresh, "
                             f"HTTP {status}). Re-authenticate the provider in "
-                            "Administration."
+                            "Library › Model providers."
                         ),
                     ) from exc
                 # Network error / 5xx: transient — re-raise the existing

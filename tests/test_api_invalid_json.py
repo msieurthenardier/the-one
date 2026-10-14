@@ -52,6 +52,28 @@ async def test_malformed_json_is_422(client: AsyncClient, method: str, path: str
     assert "secret-marker" not in r.text
 
 
+@pytest.mark.parametrize("body", ["[]", "5", '"x"', "null"])
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("PUT", "/api/knowledge-settings"),
+        ("POST", "/api/agents"),
+        ("POST", "/api/providers"),
+        ("POST", "/api/knowledge-bases"),
+        ("POST", "/api/mcp-sources"),
+        ("POST", "/api/connectors"),
+    ],
+)
+async def test_non_object_json_is_422(
+    client: AsyncClient, method: str, path: str, body: str
+) -> None:
+    r = await client.request(
+        method, path, content=body, headers={"content-type": "application/json"}
+    )
+    assert r.status_code == 422
+    assert r.json() == {"detail": "Request body must be a JSON object."}
+
+
 async def test_time_settings_keeps_its_own_sentence(client: AsyncClient) -> None:
     r = await client.put(
         "/api/time-settings", content=BAD, headers={"content-type": "application/json"}

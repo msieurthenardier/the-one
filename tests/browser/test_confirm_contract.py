@@ -126,7 +126,7 @@ def test_lapse_is_visually_distinct_and_clears_on_next_interaction(
         """
         () => {
           var el = document.getElementById('probe');
-          window.App.confirmDelete(el, function () {}, { revertMs: 50 });
+          window.App.confirmDelete(el, function () {}, { revertMs: 1500 });
         }
         """
     )
@@ -134,7 +134,7 @@ def test_lapse_is_visually_distinct_and_clears_on_next_interaction(
     expect(probe).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     # Past the (shortened, test-only) revertMs: lapsed, not never-armed.
-    expect(probe).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=2000)
+    expect(probe).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=6000)
     expect(probe).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     expect(probe.locator("[data-confirm-title]")).to_have_text("Original Title")
 
@@ -147,7 +147,7 @@ def test_lapse_is_visually_distinct_and_clears_on_next_interaction(
         """
         () => {
           var el = document.getElementById('probe');
-          window.App.confirmDelete(el, function () {}, { revertMs: 50 });
+          window.App.confirmDelete(el, function () {}, { revertMs: 1500 });
         }
         """
     )

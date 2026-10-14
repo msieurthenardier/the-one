@@ -3771,7 +3771,7 @@ class TestPlanConnectionTest:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "reauth_required"
-        assert "Administration" in body["detail"]
+        assert "Library › Model providers" in body["detail"]
         mock_mod.AsyncAnthropic.assert_not_called()
 
     async def test_upstream_error_is_status_error(self, plan_source_env) -> None:

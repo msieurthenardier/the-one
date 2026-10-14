@@ -201,7 +201,10 @@ async def test_unexpected_status_then_401_signs_in_via_discover(
     assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "oauth"
     # DD10 amendment: sign-in triggered with server/discover + the modern header.
     assert captured["json"]["method"] == "server/discover"
-    assert captured["headers"] == {"MCP-Protocol-Version": "2026-07-28"}
+    assert captured["headers"] == {
+        "MCP-Protocol-Version": "2026-07-28",
+        "Accept": "application/json, text/event-stream",
+    }
 
 
 async def test_normal_phase_b_driver_sends_initialize_with_handshake_header(
@@ -244,7 +247,7 @@ async def test_normal_phase_b_driver_sends_initialize_with_handshake_header(
     assert resp.json()["status"] == "auth_required"
     assert captured["json"]["method"] == "initialize"
     assert captured["json"]["params"]["protocolVersion"] == "9999-01-01"
-    assert captured["headers"] == {"MCP-Protocol-Version": "9999-01-01"}
+    assert captured["headers"]["MCP-Protocol-Version"] == "9999-01-01"
 
 
 # --- AC2 (c): an unreachable URL fails fast, without the SDK --------------------

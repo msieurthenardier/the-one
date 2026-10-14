@@ -13,9 +13,12 @@ can sit on in BOTH themes —
 
 - fg ladder (``fg`` … ``fg_muted``, ``fg_tool_msg``) × bg / surface /
   surface-elevated / surface-tool at the 4.5:1 body threshold
-- ``fg_faint`` — DELIBERATE EXCEPTION, band-pinned 3.0 ≤ r < 4.5 on all
-  three ladder surfaces (see the exception tests at the bottom)
-- accent / accent-api / status-danger-muted × bg / surface /
+- ``fg_faint`` is part of the same sweep (squawk 0206 retired its band
+  exception); the ladder is also pinned strictly ordered by contrast on every
+  surface (``test_fg_ladder_is_strictly_ordered``)
+- ``status_danger_muted`` (used as delete-affordance text) × the ladder
+  surfaces at the 4.5:1 body threshold
+- accent / accent-api / control-border × bg / surface /
   surface-elevated at the 3.0:1 large-text/UI threshold
 - on-color pairs (text on accent / accent-api / danger fills; code-block
   fg on code-block bg) at the 4.5:1 body threshold
@@ -38,7 +41,7 @@ WCAG AA thresholds (per WCAG 2.1):
   non-text (success criteria 1.4.3 / 1.4.11)
 
 See ``the_one/agents.md`` ("Color contrast (WCAG AA)" subsection) for the
-audit summary and any documented deliberate exceptions.
+audit summary. There are no deliberate sub-AA exceptions (squawk 0206).
 """
 
 from __future__ import annotations
@@ -125,8 +128,20 @@ THEMES = ("dark", "light")
 _LADDER_SURFACES = ("bg", "surface", "surface_elevated", "surface_tool")
 
 # fg ladder tokens that must clear BODY AA on every ladder surface.
-# fg_faint is deliberately absent — see the exception tests below.
-_BODY_FG_TOKENS = ("fg", "fg_secondary", "fg_tertiary", "fg_muted", "fg_tool_msg")
+# fg_faint is included: no deliberate exceptions remain (squawk 0206).
+# status_danger_muted is text (delete affordances), so it is gated at body AA.
+_BODY_FG_TOKENS = (
+    "fg",
+    "fg_secondary",
+    "fg_tertiary",
+    "fg_muted",
+    "fg_faint",
+    "fg_tool_msg",
+    "status_danger_muted",
+)
+
+# The fg ladder, strongest to weakest.
+_FG_LADDER = ("fg", "fg_secondary", "fg_tertiary", "fg_muted", "fg_faint")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +155,7 @@ _BODY_FG_TOKENS = ("fg", "fg_secondary", "fg_tertiary", "fg_muted", "fg_tool_msg
 def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
     """Body text contrast ≥ 4.5:1 (WCAG 2.1 AA, success criterion 1.4.3).
 
-    Every non-faint fg-ladder tier must hold body AA on every ladder
+    Every fg-ladder tier (faint included) must hold body AA on every ladder
     surface: the tiers are used interchangeably across bg (page prose),
     surface (panels, sidebar), and surface-elevated (chips, code wells —
     e.g. ``.pending-queued-chip`` puts --fg-muted on --surface-elevated).
@@ -150,6 +165,19 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
     assert ratio >= 4.5, (
         f"{theme} body text fails AA: {fg_key} on {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
     )
+
+
+@pytest.mark.parametrize("bg_key", _LADDER_SURFACES)
+@pytest.mark.parametrize("theme", THEMES)
+def test_fg_ladder_is_strictly_ordered(theme: str, bg_key: str) -> None:
+    """fg > secondary > tertiary > muted > faint by contrast on every surface,
+    with a perceptible step (>= 0.3:1) between adjacent tiers."""
+    palette = _palette(theme)
+    ratios = [contrast_ratio(palette[k], palette[bg_key]) for k in _FG_LADDER]
+    for hi, lo, rhi, rlo in zip(_FG_LADDER, _FG_LADDER[1:], ratios, ratios[1:]):
+        assert rhi - rlo >= 0.3, (
+            f"{theme} on {bg_key}: {hi} ({rhi:.2f}) is not clearly above {lo} ({rlo:.2f})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -167,15 +195,8 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         # accent_api: badge-tier differentiator, also rides bare surfaces
         # as a text/border tint in chat.
         "accent_api",
-        # status_danger_muted: idle-state color for delete affordances
-        # (text + border), used on body bg AND inside surface contexts
-        # (session-delete on session-item, .list-item-delete). NOTE (M18 F3
-        # L1 A3 fix): .chip-remove no longer uses this token at rest — it
-        # was retuned to --status-danger (body AA on the composited chip
-        # fill; see test_chip_remove_danger_on_chip_fill_passes_body_aa
-        # below), so it's no longer an example consumer of this UI-threshold
-        # pair.
-        "status_danger_muted",
+        # status_danger_muted is TEXT (delete affordances): gated at body AA
+        # in the _BODY_FG_TOKENS sweep, not here (squawk 0206).
         # control_border: unchecked-checkbox border + off track of every toggle
         # (M25 F1 L3, DD7) — a control boundary is non-text UI, 3.0 on all
         # three ladder surfaces.
@@ -243,7 +264,7 @@ def test_text_on_color(theme: str, fg_key: str, bg_key: str, threshold: float) -
 def test_accent_fill_vs_bg_and_surface_passes_ui_aa(theme: str, bg_key: str) -> None:
     """`--accent-fill` ≥ 3.0:1 against bg and surface (checked checkbox / on toggle
     identify state by the fill). surface_elevated is handled separately below
-    (light gated, dark band-pinned) — it cannot share this two-surface list.
+    (both themes gated) below.
 
     NOTE: `accent_fill_hover` vs surfaces is deliberately NOT gated: it is below
     3.0 in dark, and no state-bearing control uses the hover fill (checked
@@ -254,28 +275,14 @@ def test_accent_fill_vs_bg_and_surface_passes_ui_aa(theme: str, bg_key: str) -> 
     assert ratio >= 3.0, f"{theme}: accent_fill on {bg_key} = {ratio:.2f}:1 (need ≥ 3.0:1)"
 
 
-def test_accent_fill_vs_surface_elevated_light_passes_ui_aa() -> None:
-    """Light `--accent-fill` ≥ 3.0:1 against surface-elevated (6.46:1)."""
-    ratio = contrast_ratio(LIGHT["accent_fill"], LIGHT["surface_elevated"])
-    assert ratio >= 3.0, f"light: accent_fill on surface_elevated = {ratio:.2f}:1"
-
-
-def test_accent_fill_vs_surface_elevated_dark_band_exception() -> None:
-    """DELIBERATE EXCEPTION (M25 F1 L3, DD7) — dark `--accent-fill` (#7c3aed) on
-    `--surface-elevated` is 2.95:1, a hair under the 3.0 UI threshold. Band-pinned
-    2.9 ≤ r < 3.0 so a retune that drifts either way fails loudly.
-
-    Rationale: the checked/on state is carried by the WHITE tick or thumb
-    (`--fg-on-accent-fill`, 5.70:1 against the fill), so the fill-to-surface edge
-    is not the only cue. The same band also covers `.chip-attached` on elevated
-    tiles: it carries text, and white on `accent_fill` is 5.70:1, so the text is
-    fine. Retuning the fill lighter would break the approved deep-violet look; the
-    operator approved the hexes."""
-    ratio = contrast_ratio(DARK["accent_fill"], DARK["surface_elevated"])
-    assert 2.9 <= ratio < 3.0, (
-        f"dark accent_fill on surface_elevated drifted out of the deliberate-exception "
-        f"band: {ratio:.2f}:1 (band: 2.9 ≤ r < 3.0)"
-    )
+@pytest.mark.parametrize("theme", THEMES)
+def test_accent_fill_vs_surface_elevated_passes_ui_aa(theme: str) -> None:
+    """`--accent-fill` >= 3.0:1 against surface-elevated, both themes (squawk 0206
+    retired the dark 2.95:1 band exception; white ink on the fill and on its
+    hover stays >= 4.5 via test_text_on_color)."""
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["accent_fill"], palette["surface_elevated"])
+    assert ratio >= 3.0, f"{theme}: accent_fill on surface_elevated = {ratio:.2f}:1"
 
 
 @pytest.mark.parametrize("theme", THEMES)
@@ -1254,7 +1261,7 @@ def test_telemetry_ghost_value_holds_annotation_floor(theme: str) -> None:
     The telemetry overlay is DELIBERATELY de-emphasized at rest (opacity 0.7);
     hover/focus-within lifts it to opacity 1.0, where --fg-secondary on --bg is
     fully body-AA via the fg-ladder sweep. This gate pins the RESTING ghost to
-    the same ≥3.0 annotation floor the deliberate --fg-faint exception uses:
+    the same ≥3.0 annotation floor:
     legible-enough as a glanceable readout, and it fails loudly if a retune
     drops the resting value below glanceability. Opacity over an opaque base is
     an alpha composite of the text color onto the base.
@@ -1359,35 +1366,12 @@ def test_badge_ink_passes_body_aa(theme: str, badge: str, fill_key: str, ink_key
 
 
 # ---------------------------------------------------------------------------
-# Deliberate exceptions (documented — not a failure to fix)
+# Retired exceptions
 # ---------------------------------------------------------------------------
 
 
-# DELIBERATE EXCEPTION: --fg-faint is the de-emphasis tier and is pinned
-# BETWEEN the UI floor and body AA (3.0 ≤ ratio < 4.5) on all three
-# ladder surfaces, in both themes:
-#
-# - dark  #6b6d78 → 3.67 / 3.45 / 3.27 on bg / surface / surface-elevated
-# - light #898993 → 3.46 / 3.32 / 3.15 on bg / surface / surface-elevated
-#
-# Rationale (flight DD "fg-faint exception re-evaluated"): a faint tier
-# pinned at ≥4.5 stops being faint — the AA-passing hex would sit above
-# the muted target and invert the ladder. The consumer rule: fg-faint is
-# for de-emphasized ANNOTATIONS ONLY (.msg-attribution sender/timestamp
-# labels, telemetry eyebrows) — never body prose, never an interactive
-# affordance. The band's lower bound (3.0) keeps it legible as an
-# annotation; the upper bound fails loudly if a retune drifts it into a
-# different intent class (no-longer-faint).
-@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
-@pytest.mark.parametrize("theme", THEMES)
-def test_fg_faint_band_exception(theme: str, bg_key: str) -> None:
-    """`--fg-faint` holds the deliberate 3.0 ≤ ratio < 4.5 band on every ladder surface."""
-    palette = _palette(theme)
-    ratio = contrast_ratio(palette["fg_faint"], palette[bg_key])
-    assert 3.0 <= ratio < 4.5, (
-        f"{theme} --fg-faint drifted out of the deliberate-exception band on {bg_key}: "
-        f"ratio={ratio:.2f}:1 (band: 3.0 ≤ r < 4.5)"
-    )
+# (No deliberate exceptions remain: squawk 0206 retired the --fg-faint band and
+# the dark --accent-fill-on-elevated band; both now sit under the plain gates.)
 
 
 # ---------------------------------------------------------------------------

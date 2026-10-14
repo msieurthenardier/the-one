@@ -620,7 +620,7 @@ RENDER_CASES: list[tuple[str, str]] = [
     # --- links: safe + XSS-stripped ---
     (
         "[ok](https://example.com)",
-        '<p><a href="https://example.com" rel="noopener noreferrer">ok</a></p>',
+        '<p><a href="https://example.com" rel="noopener noreferrer" target="_blank">ok</a></p>',
     ),
     (
         "[click me](javascript:alert(1))",
@@ -648,7 +648,7 @@ RENDER_CASES: list[tuple[str, str]] = [
     ),
     (
         "[wiki](https://en.wikipedia.org/wiki/Foo_(bar))",
-        '<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)" rel="noopener noreferrer">wiki</a></p>',  # noqa: E501
+        '<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)" rel="noopener noreferrer" target="_blank">wiki</a></p>',  # noqa: E501
     ),
     # --- code blocks (with + without lang) ---
     # Note: the SVG icon is parsed via DOMParser then re-serialized when read

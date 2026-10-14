@@ -41,7 +41,7 @@ PALETTE: dict[str, dict[str, str]] = {
     "light": {
         "caption": "#fafafa",  # --surface
         "text": "#18181b",  # --fg
-        "text_inactive": "#6e6e77",  # --fg-muted
+        "text_inactive": "#65656e",  # --fg-muted
         "border": "#e4e4e7",  # --border
         "bg": "#ffffff",  # --bg
         "fg_secondary": "#52525b",  # --fg-secondary
@@ -49,10 +49,10 @@ PALETTE: dict[str, dict[str, str]] = {
     "dark": {
         "caption": "#17181c",
         "text": "#ededf0",
-        "text_inactive": "#85878f",
+        "text_inactive": "#8f9199",
         "border": "#26272c",
         "bg": "#101114",
-        "fg_secondary": "#a1a3ad",
+        "fg_secondary": "#adafb7",
     },
 }
 

@@ -1,10 +1,10 @@
 # Squawk 0137: `App.formatBytes` divides by 1024 but labels the result "GB"
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-10-13
 
 ## Report
 
@@ -23,15 +23,17 @@ Deferred from sortie 01 by design (DD8: "`App.formatBytes` is not changed in thi
 - **The decimal formatter it should match:** `provider-models.js::formatSize` (sortie 01), `< 1e9` → whole MB, else one-decimal GB.
 
 ## Corrective Action
-*(written at completion)*
+`App.formatBytes` (`static/js/app.js`) now divides by 1000, so the label matches the maths and sizes agree with ollama.com and `ollama pull` (decimal chosen over relabelling "GiB", which would no longer match Ollama). Its only caller is the agent editor's VRAM warning (`areas/studio.js`, two uses), a size display where decimal is right. The Ollama panel's `formatSize` was left separate: its output differs (whole MB under 1 GB, empty string for an unknown size, no TB tier, versus `formatBytes`' B/KB whole, MB onward one decimal, '0 B' for unknown), so it is not a drop-in. Its comment was updated to say so. Added `tests/test_format_bytes_static.py` (runs the real function under node).
 
 ## Verification
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_format_bytes_static.py tests/test_ui_guards.py tests/test_token_definitions.py tests/test_design_tokens_a11y.py -x --timeout 30`: 286 passed. `App.formatBytes(13793441244)` gives "13.8 GB". The `warningEl.innerHTML = msg` line is untouched.
+- ruff check/format clean on the new test. No existing test referenced formatBytes, "12.8" or "13.8".
+Planned at logging (`make test-unit` and the agents lane run in the batch gate):
 - `App.formatBytes(13793441244)` gives "13.8 GB", the same as the provider panel.
 - The VRAM warning's existing tests are updated, and the static guards pass: the warning's `warningEl.innerHTML = msg` sink is in the baseline, so check its 80-character snippet is unchanged.
 - `make test-unit` and the agents browser lane are green.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (Sonnet; the batch includes the OAuth sign-in path, 0202), batch review of the 2026-10-13 squawk turnaround
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-10-13` commit on `squawk/turnaround-2026-10-13`. The final gate passed: unit 6287 passed and 14 skipped (the expected count under `THE_ONE_TEST_NETNS=1`); `PARALLEL_RESULT rc=0 total=998s lanes=9 failed=-`, every lane within budget.

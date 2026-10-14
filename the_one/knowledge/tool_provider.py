@@ -201,8 +201,24 @@ def compute_tool_names(kbs: list[KnowledgeBase], *, agent_name: str) -> dict[str
 
     # Exhausted widening — astronomically unlikely for real sha256
     # digests. Best-effort: return the last computed set rather than
-    # raising, so the rest of the attachment still builds.
-    return {kb.id: _build_name(slugs[kb.id], hash_len_by_id[kb.id], kb.id) for kb in kbs}
+    # raising, so the rest of the attachment still builds. But a colliding
+    # name makes tool registration (a plain dict assignment) silently drop
+    # all but one of the claimants, so say so loudly (squawk 0097).
+    final = {kb.id: _build_name(slugs[kb.id], hash_len_by_id[kb.id], kb.id) for kb in kbs}
+    final_by_name: dict[str, list[str]] = {}
+    for kb_id, name in final.items():
+        final_by_name.setdefault(name, []).append(kb_id)
+    for name, ids in final_by_name.items():
+        if len(ids) > 1:
+            logger.error(
+                "agent %r: knowledge bases %s still share the tool name %r after "
+                "exhausting every discriminator length; only one of them will "
+                "keep a working search tool",
+                agent_name,
+                sorted(ids),
+                name,
+            )
+    return final
 
 
 class KBToolProvider:

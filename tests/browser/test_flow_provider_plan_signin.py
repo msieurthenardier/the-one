@@ -368,7 +368,9 @@ def test_seeded_tokens_render_connected_state_and_stubbed_reauth_message(
     assert "secrets" not in masked
 
     _stub_models(page, provider_id)
-    reauth_detail = "Re-authentication required: sign in to Anthropic again from Administration."
+    reauth_detail = (
+        "Re-authentication required: sign in to Anthropic again from Library › Model providers."
+    )
     page.route(
         f"**/api/providers/{provider_id}/test",
         lambda route: route.fulfill(

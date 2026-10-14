@@ -220,6 +220,24 @@ class TestComputeToolNames:
         assert names["kb-docs-1"] != names["kb-docs-2"]
         assert any("still" in r.message and "widening" in r.message for r in caplog.records)
 
+    def test_exhausted_widening_logs_error_naming_colliding_ids(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Squawk 0097: a discriminator that collapses at every length
+        # exhausts widening; the best-effort set is still returned, but
+        # the collision must be logged naming every colliding kb_id.
+        monkeypatch.setattr(provider_mod, "_discriminator", lambda kb_id, hash_len: "deadbeef")
+        kbs = [_kb("kb-docs-1", "Docs"), _kb("kb-docs-2", "Docs"), _kb("kb-other", "Other")]
+        with caplog.at_level(logging.WARNING):
+            names = compute_tool_names(kbs, agent_name="agent")
+        assert names["kb-docs-1"] == names["kb-docs-2"]
+        records = [r for r in caplog.records if "exhausting" in r.getMessage()]
+        assert len(records) == 1
+        assert records[0].levelno == logging.ERROR
+        msg = records[0].getMessage()
+        assert "kb-docs-1" in msg and "kb-docs-2" in msg
+        assert "kb-other" not in msg
+
 
 # ---------------------------------------------------------------------------
 # KBToolProvider.get_tools_for_agent

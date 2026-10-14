@@ -361,6 +361,23 @@ def chat_row(page: Page, session_id: str) -> Locator:
     return page.locator(f"{_ROW}[data-id={_css_str(session_id)}]")
 
 
+def wait_row_has_focus(page: Page, session_id: str, timeout: float = 10000) -> None:
+    """Wait until the Chats list row for *session_id* is ``document.activeElement``.
+
+    Asserts element identity, not window focus: Playwright's ``to_be_focused``
+    reads "inactive" when a parallel, loaded headless run leaves the page
+    without window focus (squawk 0204).  Bounded by *timeout* (ms)."""
+    page.wait_for_function(
+        """(id) => {
+          const a = document.activeElement;
+          return !!a && a.getAttribute('data-testid') === 'chat-row'
+            && a.getAttribute('data-id') === id;
+        }""",
+        arg=session_id,
+        timeout=timeout,
+    )
+
+
 def chat_row_delete(page: Page, session_id: str) -> Locator:
     """The delete action (``chat-row-delete``) of session *session_id*'s row: a
     sibling of the row link in its ``<li>``, shown on hover and focus-within."""

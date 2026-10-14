@@ -33,18 +33,12 @@ from typing import Any
 
 import anthropic
 
-from the_one.llm import anthropic_oauth
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.base import Message, StreamChunk
 from the_one.llm.registry import register_provider
 
 # Beta flag Anthropic requires for consumer-OAuth (plan) bearer tokens.
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
-
-# A ``claude setup-token`` token lasts about a year; the editor shows
-# "expires around" = the server-stamped paste date + this many days.
-# Defined in ``anthropic_oauth`` (SDK-free, importable from the API layer).
-PLAN_TOKEN_LIFETIME_DAYS = anthropic_oauth.PLAN_TOKEN_LIFETIME_DAYS
 
 
 class PlanTokenMissingError(Exception):
@@ -136,7 +130,7 @@ class AnthropicPlanProvider(AnthropicProvider):
                 (
                     "Anthropic plan provider was constructed without an access "
                     "token or a provider config id — sign in to the provider "
-                    "in Administration and rebuild the agent."
+                    "in Library › Model providers and rebuild the agent."
                 ),
             )
         source = get_credential_source(self.provider_config_id)

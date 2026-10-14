@@ -357,7 +357,7 @@ def test_theme_change_while_inactive_uses_text_inactive(win: Any) -> None:
     win.handlers["deactivate"](object(), object())
     win.calls.clear()
     chrome.request("dark")
-    assert _text_value(win.calls) == chrome.colorref("#85878f")
+    assert _text_value(win.calls) == chrome.colorref("#8f9199")
     win.handlers["activated"](object(), object())
     assert _text_value(win.calls) == chrome.colorref("#ededf0")
     assert chrome.snapshot()["active"] is True

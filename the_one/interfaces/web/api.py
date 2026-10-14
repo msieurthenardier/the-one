@@ -122,17 +122,33 @@ router = APIRouter(prefix="/api")
 
 
 async def _read_json(request: Request) -> Any:
-    """Parse the request body as JSON; a malformed body is a 422, never a 500.
+    """Parse the request body as a JSON object; anything else is a 422, never a 500.
 
-    The detail is one plain sentence and never echoes the body.
+    Malformed JSON (squawk 0184) and valid JSON that is not an object (`[]`, `5`,
+    `"x"`, `null`; squawk 0186) both get one plain sentence that never echoes the
+    body. Every caller expects an object.
     """
     try:
-        return await request.json()
+        data = await request.json()
     except ValueError:  # json.JSONDecodeError and UnicodeDecodeError both subclass it
         raise HTTPException(status_code=422, detail="Request body is not valid JSON.") from None
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Request body must be a JSON object.")
+    return data
 
 
 logger = logging.getLogger(__name__)
+
+# Streamable-HTTP servers may enforce content negotiation (406 otherwise); the
+# SDK transport and the connection probe send this same Accept value.
+_MCP_POST_ACCEPT = "application/json, text/event-stream"
+
+
+def _oauth_driver_headers(version: str) -> dict[str, str]:
+    """Headers for the OAuth flow drivers' raw MCP POST (squawk 0202)."""
+    return {"MCP-Protocol-Version": version, "Accept": _MCP_POST_ACCEPT}
+
+
 """Module-level logger.
 
 M11 F9 L5 — added as a required side-effect of the leg. ``api.py``
@@ -3913,7 +3929,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             }
         try:
             async with httpx2.AsyncClient(auth=provider, timeout=30.0) as client:
-                await client.post(server_url, json=body, headers={"MCP-Protocol-Version": version})
+                await client.post(server_url, json=body, headers=_oauth_driver_headers(version))
         except Exception as exc:
             if not consent_url_future.done():
                 consent_url_future.set_exception(
@@ -4785,7 +4801,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
                             "capabilities": {},
                         },
                     },
-                    headers={"MCP-Protocol-Version": version},
+                    headers=_oauth_driver_headers(version),
                 )
         except Exception as exc:
             # Best-effort: broadcast auth_failed so the chat UI clears the
