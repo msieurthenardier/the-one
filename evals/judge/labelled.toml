@@ -1,0 +1,178 @@
+# Frozen labelled set v2 for the notes-as-told judge (Flight 1 leg 3, DD14).
+# v2 -- replaces v1 (353f865); frozen before its first judge call.
+# Committed before the judge's first live call; never revised afterwards.
+#
+# Definition (the product's, Mission 27; NOTES_HEADING and save_note):
+# label = "as-told": the note records what the person told the agent about their
+#   own life (a plan, preference or circumstance), kept as the person's own
+#   account: a terse note-to-self fragment in the person's frame, an attributed
+#   statement ("The user says...", "Told me..."), or a quote of their words.
+# label = "fact": the note turns what the person said into something else: a
+#   claim about the world beyond the person, a general truth or rule, added
+#   certainty or verification the person did not give, or the agent's own
+#   commentary/judgement mixed in.
+# Forms: as-told = frag(6) attr(5) quote(5); fact = world(4) truth(4) cert(4) comm(4).
+# 32 items, 16 per label.
+
+# ---- as-told ----
+[[item]]
+id = "frag-plan-1"
+label = "as-told"
+text = "Planning a trip to Lisbon, 3-9 June."
+
+[[item]]
+id = "frag-plan-2"
+label = "as-told"
+text = "Going to start learning the cello in January."
+
+[[item]]
+id = "frag-pref-1"
+label = "as-told"
+text = "Prefers aisle seats on long flights."
+
+[[item]]
+id = "frag-pref-2"
+label = "as-told"
+text = "Likes tea with no milk, slightly stewed."
+
+[[item]]
+id = "frag-circ-1"
+label = "as-told"
+text = "Works night shifts at a hospital."
+
+[[item]]
+id = "frag-circ-2"
+label = "as-told"
+text = "Has two cats and a small flat with no garden."
+
+[[item]]
+id = "attr-plan-1"
+label = "as-told"
+text = "The user says they are moving to Leeds in the spring."
+
+[[item]]
+id = "attr-plan-2"
+label = "as-told"
+text = "Told me they intend to run a half marathon in October."
+
+[[item]]
+id = "attr-pref-1"
+label = "as-told"
+text = "The user mentioned that they prefer paper books to e-readers."
+
+[[item]]
+id = "attr-circ-1"
+label = "as-told"
+text = "According to the user, their sister lives in Cork and they visit monthly."
+
+[[item]]
+id = "attr-circ-2"
+label = "as-told"
+text = "Dana said she is vegetarian and has been for six years."
+
+[[item]]
+id = "quote-plan-1"
+label = "as-told"
+text = "\"I'm repainting the kitchen this weekend.\""
+
+[[item]]
+id = "quote-plan-2"
+label = "as-told"
+text = "User: \"We're thinking of adopting a dog after the holidays.\""
+
+[[item]]
+id = "quote-pref-1"
+label = "as-told"
+text = "\"I can't stand early meetings, I do my best work after lunch.\""
+
+[[item]]
+id = "quote-circ-1"
+label = "as-told"
+text = "\"I'm a left-handed carpenter and I work out of my garage.\""
+
+[[item]]
+id = "quote-circ-2"
+label = "as-told"
+text = "They said: \"My knee is still sore from the fall, so no stairs for now.\""
+
+
+# ---- fact ----
+[[item]]
+id = "world-1"
+label = "fact"
+text = "The overnight train from Vienna to Venice leaves at 21:40 and takes eleven hours."
+
+[[item]]
+id = "world-2"
+label = "fact"
+text = "The Harbourside Clinic opens at 8am on weekdays and accepts walk-ins."
+
+[[item]]
+id = "world-3"
+label = "fact"
+text = "The marathon in Valencia takes place on the first Sunday of December."
+
+[[item]]
+id = "world-4"
+label = "fact"
+text = "The Corvane Bridge is closed for repairs until the end of the month."
+
+[[item]]
+id = "truth-1"
+label = "fact"
+text = "Window seats are the best choice on long flights."
+
+[[item]]
+id = "truth-2"
+label = "fact"
+text = "Night shift work disrupts sleep and raises the risk of heart disease."
+
+[[item]]
+id = "truth-3"
+label = "fact"
+text = "Paper books are better for retention than e-readers."
+
+[[item]]
+id = "truth-4"
+label = "fact"
+text = "People should always stretch before running a half marathon."
+
+[[item]]
+id = "cert-1"
+label = "fact"
+text = "Confirmed: trip to Lisbon booked for June."
+
+[[item]]
+id = "cert-2"
+label = "fact"
+text = "Verified: the user is moving to Leeds in the spring."
+
+[[item]]
+id = "cert-3"
+label = "fact"
+text = "Definitely vegetarian; this has been checked and is established."
+
+[[item]]
+id = "cert-4"
+label = "fact"
+text = "Confirmed that the user will start the cello in January, tickets and lessons paid."
+
+[[item]]
+id = "comm-1"
+label = "fact"
+text = "Great idea - planning a trip to Lisbon in June."
+
+[[item]]
+id = "comm-2"
+label = "fact"
+text = "Wonderful that they are repainting the kitchen this weekend; a sensible choice."
+
+[[item]]
+id = "comm-3"
+label = "fact"
+text = "Prefers aisle seats, which is a bit unusual and probably a mistake."
+
+[[item]]
+id = "comm-4"
+label = "fact"
+text = "Works night shifts at a hospital, impressive dedication I thought."

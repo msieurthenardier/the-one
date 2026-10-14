@@ -1,0 +1,17 @@
+id = "remember-plan"
+class = "improve"
+description = "Save a plan stated in passing."
+
+[agent]
+notes_enabled = true
+
+[variants]
+phrasings = ["I'm off to {place} next week.", "Heading to {place} soon, by the way."]
+facts = [{place = "Lisbon"}, {place = "Oslo"}]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "note_saved"
+pattern = "{place}"

@@ -19,12 +19,12 @@ Every agent starts from a short platform prompt that tells it how to use the par
 - Nothing in the repo runs prompt evals yet. Mission 27's model behaviour lives in two behavior specs (`agent-notes-round-trip`, `agent-rules-round-trip`), which prove the feature end to end but do not measure how often a model does the right thing.
 
 ## Success Criteria
-- [ ] The operator can run a fixed set of scenarios against one or more configured models with one command. For each scenario and model, the run reports:
+- [x] The operator can run a fixed set of scenarios against one or more configured models with one command. For each scenario and model, the run reports:
   - a pass rate over repeated runs, with its uncertainty
   - the transcript of every failed run
   - the run's time and token use
   - the size in tokens of the platform text the agent received, broken down by part (each prompt section and each tool description in the agent's starting set). Sizes use one fixed reference count for comparing wordings, plus each model's own reported count.
-- [ ] The scenarios cover at least the following, each scored by checks a program can decide, plus a model judge only where wording has to be graded:
+- [x] The scenarios cover at least the following, each scored by checks a program can decide, plus a model judge only where wording has to be graded:
   - finding and using a tool
   - finding and answering from an attached knowledge base
   - saving a note unprompted when told a plan (the Puerto Rico case)
@@ -35,8 +35,8 @@ Every agent starts from a short platform prompt that tells it how to use the par
   - formatting links as markdown links
   - not trying to use a capability the agent lacks
   - with tool use switched off, answering sensibly and not trying to call tools
-- [ ] A baseline for today's prompt text on both models is recorded and committed as summary numbers before any prompt text changes, and the runner compares every later run with it.
-- [ ] The per-scenario bars, the statistical rule for "no worse" and the token-size target are derived from the baseline data by a rule written down before the baseline run, and recorded with it.
+- [x] A baseline for today's prompt text on both models is recorded and committed as summary numbers before any prompt text changes, and the runner compares every later run with it.
+- [x] The per-scenario bars, the statistical rule for "no worse" and the token-size target are derived from the baseline data by a rule written down before the baseline run, and recorded with it.
 - [ ] An agent's system prompt carries guidance only for what it has. There is no knowledge-base guidance without an attached knowledge base, no notes guidance with notes off, no rules guidance without rules, and no tool guidance when the model cannot use tools. An agent with everything on still gets one consistent prompt, and its own prompt is appended unchanged.
 - [ ] The platform's prompt text is as short as it can be while still meeting the bars:
   - For an agent with no knowledge bases, notes or rules, the platform text is substantially smaller than today's base prompt. The target is set from the baseline measurement.
@@ -55,7 +55,7 @@ Every agent starts from a short platform prompt that tells it how to use the par
 ## Constraints
 - **Terseness is a goal in its own right** (operator, 2026-10-13). Fewer tokens is better. A change that adds tokens must show a scenario gain that justifies them.
 - **Real models, real assembly.** Evals drive real models through the app's real prompt assembly and agent loop, so they measure what ships rather than a copy of the prompt. Scripted (mock) models are for testing the eval runner itself, never for scoring.
-- **Target models.** Claude Haiku 5.5 through the operator's Claude plan (the "Claude Plan (Token)" provider type), and `gpt-oss:20b` on local Ollama.
+- **Target models.** Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) through the operator's Claude plan (the "Claude Plan (Token)" provider type), and `gpt-oss:20b` on local Ollama. The plan token is refused (bare 429) for every other Claude model, Haiku 5.5 included (sortie 03; operator, 2026-10-13).
   - Plan usage is uncapped (operator, 2026-10-13). A run still reports its call and token counts. It saves progress so that a run cut short by rate limits can resume, and runs cut short are reported as such, never counted as failures.
   - The tool-free scenario runs on both models with tool use switched off (operator decision), not on a third model.
 - **Scoring.** Program-decidable checks first. Haiku judges wording only (operator decision). Because Haiku then grades its own output in Haiku runs, the judge is checked against a small hand-labelled set before its verdicts count, and judge-scored scenarios stay few.
@@ -88,6 +88,7 @@ Every agent starts from a short platform prompt that tells it how to use the par
 - Does Discord render `[text](url)` in a bot's message? If not, does the prompt word formatting by surface, or does the connector convert links? Check early. (Flight 2)
 - Do agent self-configuration and the `current_time` tool get their own conditional sections, or stay where they are today? (Flight 2)
 - Is the closing sentence about a persona being appended still needed, or can it go? (Flight 2)
+- Today every agent starts with the connector tools (`send_to_platform_channel`, `find_platform_destination`, about 2,300 characters of descriptions) and `current_time` in context, whether or not it is mapped to a connector. Should seeding follow "guidance only for what it has"? Their descriptions are outside this mission's change list, but the all-on size target counts them. (Flight 2; found by the Flight 1 Architect review)
 
 ## Known Issues
 
@@ -95,5 +96,5 @@ Every agent starts from a short platform prompt that tells it how to use the par
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: Prompt evals and baseline. Build the scenario runner, scoring (checks plus a checked Haiku judge for wording), token measurement, reports, local fixtures and the scenario set. Run today's prompt text on Haiku and `gpt-oss:20b` and commit the baseline. Derive the per-scenario bars, the statistical rule and the size target from it by a rule fixed before the run.
+- [x] Flight 1: Prompt evals and baseline. Build the scenario runner, scoring (checks plus a checked Haiku judge for wording), token measurement, reports, local fixtures and the scenario set. Run today's prompt text on Haiku and `gpt-oss:20b` and commit the baseline. Derive the per-scenario bars, the statistical rule and the size target from it by a rule fixed before the run.
 - [ ] Flight 2: The platform prompt. Rebuild the base prompt as sections that each apply only when the agent has the capability, read by every place that assembles or shows the prompt. Trim and revise the rules and notes headings, the tool-free prompt and the notes and knowledge-base tool descriptions. Add markdown link formatting (#282) and show the parts on Settings › Prompts. Measure against the baseline on both models, run the live connector check, and record the evals convention.

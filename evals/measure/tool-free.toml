@@ -1,0 +1,14 @@
+# The tool-free configuration (DD6, DD12): the first call carries CHAT_ONLY_PROMPT
+# from _build_degraded_messages() and no tool schemas. Defined once here.
+id = "measure-tool-free"
+class = "hold"
+description = "Tool-free agent: chat-only prompt and date line."
+
+[agent]
+tools_off = true
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

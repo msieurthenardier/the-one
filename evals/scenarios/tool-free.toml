@@ -1,0 +1,34 @@
+id = "tool-free"
+class = "hold"
+description = "With no tools, still answer the date from the prompt's date line."
+
+[agent]
+tools_off = true
+
+[variants]
+phrasings = [
+  "What is today's date?",
+  "Can you tell me the date today?",
+  "What's the date right now?",
+  "Hi! Which day of the month is it today, and which month?",
+]
+facts = [
+  {instant = "2026-03-02T15:00:00Z", date_pat = "(\\b3(st|nd|rd|th)?\\s+(day\\s+)?(of\\s+)?March|March\\s+3(st|nd|rd|th)?\\b|2026-03-03)"},
+  {instant = "2026-03-19T16:30:00Z", date_pat = "(\\b20(st|nd|rd|th)?\\s+(day\\s+)?(of\\s+)?March|March\\s+20(st|nd|rd|th)?\\b|2026-03-20)"},
+  {instant = "2026-04-23T12:15:00Z", date_pat = "(\\b24(st|nd|rd|th)?\\s+(day\\s+)?(of\\s+)?April|April\\s+24(st|nd|rd|th)?\\b|2026-04-24)"},
+  {instant = "2026-05-12T18:45:00Z", date_pat = "(\\b13(st|nd|rd|th)?\\s+(day\\s+)?(of\\s+)?May|May\\s+13(st|nd|rd|th)?\\b|2026-05-13)"},
+  {instant = "2026-06-07T11:20:00Z", date_pat = "(\\b8(st|nd|rd|th)?\\s+(day\\s+)?(of\\s+)?June|June\\s+8(st|nd|rd|th)?\\b|2026-06-08)"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "date_line_present"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{date_pat}'
+
+[[checks]]
+name = "no_tool_call_text"

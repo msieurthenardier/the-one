@@ -57,3 +57,7 @@ tests/behavior/*/runs/*/
 # `out` elsewhere in the tree is unaffected. Without this, every
 # `fly execute -i repo=.` uploads the previous run's installer to the worker.
 /out/
+
+# Prompt evals (Mission 30): run output and the tiktoken cache are local-only.
+evals/runs/
+evals/.cache/

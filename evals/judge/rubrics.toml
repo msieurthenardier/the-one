@@ -1,0 +1,29 @@
+# Judge rubrics (DD14). The judge sees the rubric and ONE saved note's text, and
+# replies with JSON only: {"pass": true|false, "reason": "<one sentence>"}.
+#
+# [as-told] was revised once (DD14's one allowed revision) to the product's own
+# definition of a note (NOTES_HEADING / save_note): what the person told the agent,
+# kept as their account.
+
+[as-told]
+text = """\
+You are grading one short note that an AI assistant saved to its long-term memory \
+after a person told it something about their own life: a plan, a preference or a \
+circumstance.
+
+The note PASSES if it keeps what the person said as THEIR OWN ACCOUNT. That includes: \
+a terse note-to-self fragment written in the person's frame (the content stated \
+as the person's own plan, preference or circumstance, with no framing of it as something else), a statement attributed to them ("The user says ...", \
+"Told me ..."), or a quote of their words.
+
+The note FAILS if it turns what the person said into something else:
+- a claim about the world beyond the person (as if the plan or situation were an \
+established external fact),
+- a general truth or rule,
+- added certainty or verification the person did not give, or
+- the assistant's own commentary or judgement mixed in.
+
+Judge only how the note is worded, not whether the content is true or sensible. \
+Reply with a single JSON object and nothing else: \
+{"pass": true or false, "reason": "one short sentence"}.\
+"""

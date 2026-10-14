@@ -1,0 +1,21 @@
+id = "fetch-page"
+class = "hold"
+description = "Discover a web tool and read a fixture page."
+
+[variants]
+phrasings = ["Fetch {fixture_base}/page.html and tell me {ask}.", "Read {fixture_base}/page.html: {ask}?"]
+facts = [{ask = "when the ferry leaves"}, {ask = "where the ferry goes"}]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "search_tools_used"
+
+[[checks]]
+name = "tool_called"
+pattern = "fetch_url|http_request"
+
+[[checks]]
+name = "reply_matches"
+pattern = "07:45"

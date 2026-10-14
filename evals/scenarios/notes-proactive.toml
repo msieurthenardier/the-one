@@ -1,0 +1,28 @@
+id = "notes-proactive"
+class = "improve"
+description = "A plan stated in passing while asking for something else."
+
+[agent]
+notes_enabled = true
+
+[variants]
+phrasings = [
+  "Can you suggest a name for a new houseplant? Also, I'm off to {place} {when}, so it will need to cope without me.",
+  "Quick maths: what is 15% of 240? It's for a tip. We're having dinner before our trip to {place} {when}.",
+  "Give me a synonym for 'tired'. I'm heading to {place} {when} and want to wrap up this email first.",
+  "How do you spell 'necessary'? I'm writing a postcard before my trip to {place} {when}.",
+]
+facts = [
+  {place = "Lisbon", place_pat = "Lisbon", when = "next month"},
+  {place = "Osaka", place_pat = "Osaka", when = "in March"},
+  {place = "Reykjavik", place_pat = "Reykjav[ií]k", when = "next Friday"},
+  {place = "Nairobi", place_pat = "Nairobi", when = "in two weeks"},
+  {place = "Valparaiso", place_pat = "Valpara[ií]so", when = "this autumn"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "note_saved"
+pattern = '{place_pat}'

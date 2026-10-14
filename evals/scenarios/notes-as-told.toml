@@ -1,0 +1,32 @@
+id = "notes-as-told"
+class = "hold"
+description = "Asked to remember a plan; the note must be worded as the user's own account."
+
+[agent]
+notes_enabled = true
+
+[variants]
+phrasings = [
+  "Please remember this: {plan}.",
+  "Can you make a note that {plan}?",
+  "Remember for later: {plan}.",
+  "Keep in mind that {plan}. Please remember it.",
+]
+facts = [
+  {plan = "I'm taking the night ferry to Skellig Cove on the 9th"},
+  {plan = "I'll be repotting the fig tree on Saturday"},
+  {plan = "I plan to switch my broadband to Marrow Net in April"},
+  {plan = "I'm meeting Odalys at the Pellam Street market on Thursday"},
+  {plan = "I intend to start cycling to work from June"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "note_saved"
+pattern = '.+'
+
+[[checks]]
+name = "judge"
+rubric = "as-told"

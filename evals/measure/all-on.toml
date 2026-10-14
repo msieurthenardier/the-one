@@ -1,0 +1,29 @@
+# The all-on configuration (DD11, DD12): one knowledge base, notes on with two
+# notes, two rules, every built-in enabled except the ones DD19 disables (the
+# runner's containment rows apply, as in a real run). Defined once here.
+id = "measure-all-on"
+class = "hold"
+description = "All-on agent: knowledge base, notes, rules, every built-in."
+
+[agent]
+notes_enabled = true
+rules = [
+  "RULE-ONE: Keep every answer under four sentences.",
+  "RULE-TWO: Never use exclamation marks.",
+]
+
+[[agent.kb]]
+name = "Measurement KB"
+fixture = "measure-kb"
+
+[[agent.seeded_notes]]
+text = "NOTE-ONE: The operator prefers metric units."
+
+[[agent.seeded_notes]]
+text = "NOTE-TWO: The operator's project is called Atlas."
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"
