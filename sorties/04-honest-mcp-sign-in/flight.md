@@ -1,6 +1,6 @@
 # Sortie: Honest MCP sign-in in the desktop app
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -176,7 +176,7 @@ One build leg changes the two JS sign-in paths (chat, MCP editor) and adds the s
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged
 - [x] Tests passing
 - [x] Documentation updated
 
