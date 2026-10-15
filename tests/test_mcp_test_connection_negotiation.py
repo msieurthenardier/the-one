@@ -371,3 +371,191 @@ async def test_stdio_helper_receives_record_era_gate(client_and_repo) -> None:
             json={"config": {"command": "other", "args": []}},
         )
     assert seen == [True, True, False]
+
+
+# --- Sortie 04 DD4: a rejected operator key is "credentials rejected" -----------
+
+_KEY_HEADERS = {"Authorization": "Bearer revoked-key"}
+
+
+async def _give_headers(repo, secrets: dict | None = None, config_extra: dict | None = None):
+    src = await repo.get(SID)
+    config = {**src.config, "headers": dict(_KEY_HEADERS), **(config_extra or {})}
+    await repo.update(
+        src.model_copy(update={"config": config, "secrets": {**src.secrets, **(secrets or {})}})
+    )
+
+
+def _expected_envelope(name: str = "neg") -> str:
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    return f"MCPCredentialsRejected: {MCPCredentialsRejected(SID, name)}"
+
+
+async def test_path_a_cached_no_auth_rejected_key_reports_rejection_and_keeps_posture(
+    client_and_repo, monkeypatch
+) -> None:
+    c, repo = client_and_repo
+    await _give_headers(repo, config_extra={"_cache": {"auth_posture": "no_auth"}})
+    wrapper = Auth401Wrapper(
+        make_http_app(), fail_methods={"server/discover", "initialize"}, resource_metadata=None
+    )
+    async with serve_asgi(monkeypatch, wrapper):
+        resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    body = resp.json()
+    assert body == {"status": "error", "error": _expected_envelope()}, body
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "no_auth"
+
+
+async def test_path_b_fallthrough_rejection_defers_to_phase_b(client_and_repo, monkeypatch) -> None:
+    """DD9 fall-through: the typed rejection is treated like a sign-in signal, so
+    Phase B decides. Phase B's own discovery is a bare 401 too, so it ends in the
+    path (c) rejection envelope."""
+    c, repo = client_and_repo
+    await _give_headers(repo)
+    wrapper = Auth401Wrapper(
+        make_http_app(), fail_methods={"server/discover", "initialize"}, resource_metadata=None
+    )
+    handler = _all_401_handler()
+    async with serve_asgi(monkeypatch, wrapper):
+        with (
+            _probe("unexpected_status"),
+            patch("the_one.interfaces.web.api.httpx2", _httpx2_proxy(_mock_driver_client(handler))),
+        ):
+            resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json() == {"status": "error", "error": _expected_envelope()}, resp.json()
+    # Path (c) removed the posture the fall-through had persisted.
+    assert "auth_posture" not in ((await repo.get(SID)).config.get("_cache") or {})
+
+
+def _all_401_handler(prm=None, calls=None):
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if calls is not None:
+            calls.append((request.method, request.url.path))
+        if prm is not None and request.url.path.startswith("/.well-known/oauth-protected"):
+            return prm
+        return httpx2.Response(401)
+
+    return handler
+
+
+def _mock_driver_client(handler):
+    real_client = httpx2.AsyncClient
+
+    def factory(*args, **kwargs):
+        if kwargs.get("auth") is not None and kwargs.get("timeout") == 30.0:
+            return real_client(*args, transport=httpx2.MockTransport(handler), **kwargs)
+        return real_client(*args, **kwargs)
+
+    return factory
+
+
+async def _phase_b(c, handler, *, verdict="oauth"):
+    with (
+        _probe(verdict),
+        patch("the_one.interfaces.web.api.httpx2", _httpx2_proxy(_mock_driver_client(handler))),
+    ):
+        return (await c.post(f"/api/mcp-sources/{SID}/test/connect")).json()
+
+
+async def test_path_c_probe_oauth_bare_401_everywhere_reports_rejection(client_and_repo) -> None:
+    c, repo = client_and_repo
+    await _give_headers(repo)
+    body = await _phase_b(c, _all_401_handler())
+    # The envelope text is exactly the typed error's own message.
+    assert body == {"status": "error", "error": _expected_envelope()}, body
+    assert "auth_posture" not in ((await repo.get(SID)).config.get("_cache") or {})
+
+
+async def test_path_c_no_operator_headers_stays_auth_flow_error(client_and_repo) -> None:
+    c, repo = client_and_repo
+    body = await _phase_b(c, _all_401_handler())
+    assert body["status"] == "error"
+    assert body["error"].startswith("auth_flow_error:"), body
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "oauth"
+
+
+async def test_path_c_metadata_found_is_not_rejection(client_and_repo) -> None:
+    c, repo = client_and_repo
+    await _give_headers(repo)
+    prm = httpx2.Response(
+        200, json={"resource": URL, "authorization_servers": ["http://localhost"]}
+    )
+    body = await _phase_b(c, _all_401_handler(prm=prm))
+    assert not body.get("error", "").startswith("MCPCredentialsRejected"), body
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "oauth"
+
+
+async def test_path_c_prm_5xx_is_not_rejection(client_and_repo) -> None:
+    c, repo = client_and_repo
+    await _give_headers(repo)
+    body = await _phase_b(c, _all_401_handler(prm=httpx2.Response(500)))
+    assert not body.get("error", "").startswith("MCPCredentialsRejected"), body
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "oauth"
+
+
+async def test_path_c_transport_error_is_not_rejection(client_and_repo) -> None:
+    c, repo = client_and_repo
+    await _give_headers(repo)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("boom", request=request)
+
+    body = await _phase_b(c, handler)
+    assert body["status"] == "error"
+    assert body["error"].startswith("auth_flow_error:"), body
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "oauth"
+
+
+async def test_path_c_not_applied_when_phase_b_entered_from_stale_token_fallthrough(
+    client_and_repo,
+) -> None:
+    """Phase A's stale-token fall-through sent no operator-header evidence this
+    request, so Phase B's failed /register is NOT a rejection."""
+    c, repo = client_and_repo
+    await _give_headers(
+        repo, secrets={"dcr_credentials": {"client_id": "cid"}, "access_token": "stale"}
+    )
+    from the_one.mcp.errors import MCPAuthRequired
+
+    class _StaleClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            self._source = source
+
+        async def __aenter__(self):
+            raise MCPAuthRequired(source_id=self._source.id)
+
+        async def __aexit__(self, *args):
+            pass
+
+    with patch("the_one.mcp.client.MCPClient", _StaleClient):
+        body = await _phase_b(c, _all_401_handler(), verdict="oauth")
+    assert not body.get("error", "").startswith("MCPCredentialsRejected"), body
+
+
+async def test_self_configuration_loopback_401_reads_rejected_and_stays_no_auth(
+    client_and_repo, monkeypatch
+) -> None:
+    """AC8: the loopback source carries ``secrets["Authorization"]`` (its minted
+    credential) and is cached ``no_auth``; a 401 from it is a rejection, not a login."""
+    c, repo = client_and_repo
+    src = await repo.get(SID)
+    await repo.update(
+        src.model_copy(
+            update={
+                "config": {
+                    **src.config,
+                    "self_configuration": {"agent": "someone"},
+                    "_cache": {"auth_posture": "no_auth"},
+                },
+                "secrets": {"Authorization": "Bearer minted-credential"},
+            }
+        )
+    )
+    wrapper = Auth401Wrapper(
+        make_http_app(), fail_methods={"server/discover", "initialize"}, resource_metadata=None
+    )
+    async with serve_asgi(monkeypatch, wrapper):
+        resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json() == {"status": "error", "error": _expected_envelope()}
+    assert (await repo.get(SID)).config["_cache"]["auth_posture"] == "no_auth"

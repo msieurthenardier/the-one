@@ -107,6 +107,13 @@ def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Pag
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
+    # The Refresh connection row is left-aligned with the editor's stacked
+    # fields (HAT: it was indented by the legacy .field-row label gutter).
+    refresh_box = page.locator('[data-testid="mcp-test-connection"]').bounding_box()
+    name_box = page.locator('[data-field="name"]').bounding_box()
+    assert refresh_box is not None and name_box is not None
+    assert abs(refresh_box["x"] - name_box["x"]) <= 2, (refresh_box, name_box)
+
     # Sensitive env var pre-fills with the masked tail (***...alue).
     kv_value = page.locator('.kv-value-input[data-field="kv-value"]').first
     expect(kv_value).to_have_value("***...alue")
@@ -1474,6 +1481,16 @@ def test_create_streamable_http_auto_run_auth_required_does_not_open_popup(
     popup_count = page.evaluate("() => window.__popupOpens")
     assert popup_count == 0, f"auto-run must not open popup; got {popup_count}"
 
+    # Sortie 04: clicking "Sign in" is the user gesture; it shows the link block
+    # (the stubbed window.open returns null, which is not an error) and tries
+    # window.open exactly once.
+    consent_btn.click()
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_value(
+        "https://example.com/oauth/authorize?fake=1", timeout=8000
+    )
+    expect(page.locator('[data-testid="mcp-test-status"]')).not_to_contain_text("Popup blocked")
+    assert page.evaluate("() => window.__popupOpens") == 1
+
 
 @pytest.mark.browser
 def test_create_streamable_http_auto_run_error_renders_inline(app_clean: str, page: Page) -> None:
@@ -1939,3 +1956,229 @@ def test_library_editor_connection_error_plain_headline(app_clean: str, page: Pa
     expect(err.locator('[data-testid="mcp-error-raw"]')).not_to_be_visible()
     err.locator("summary").click()
     assert err.locator('[data-testid="mcp-error-raw"]').inner_text() == raw_error
+
+
+# ─── Sortie 04: honest sign-in (the link block; a null popup is not a failure) ───
+
+_CONSENT_URL = "https://idp.example.com/authorize?state=ST&client_id=x"
+_OK_TOOLS = {
+    "status": "ok",
+    "tools": [{"name": "echo", "description": "", "input_schema": {}}],
+    "capabilities": {"tools": {}},
+}
+
+
+def _seed_oauth_source(base_url: str, name: str) -> str:
+    return _seed_mcp_source(
+        base_url,
+        {
+            "name": name,
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+
+
+def _stub_signin_routes(page: Page, base_url: str, sid: str) -> dict:
+    """First /test/connect answers auth_required, later ones ok; the per-id GET
+    (the editor's token poll) reports ``has_access_token`` from ``state``."""
+    state = {"token": False, "connects": 0, "polls": 0}
+    real = _get_source(base_url, sid)
+
+    def handle_connect(route):
+        state["connects"] += 1
+        body = (
+            {"status": "auth_required", "consent_url": _CONSENT_URL}
+            if state["connects"] == 1
+            else _OK_TOOLS
+        )
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    def handle_get(route):
+        if route.request.method != "GET":
+            return route.continue_()
+        state["polls"] += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({**real, "has_access_token": state["token"]}),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_connect)
+    page.route(re.compile(rf".*/api/mcp-sources/{re.escape(sid)}$"), handle_get)
+    return state
+
+
+def _open_editor(page: Page, base_url: str, sid: str) -> None:
+    _nav.goto_settled(page, base_url, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_visible(timeout=8000)
+
+
+@pytest.mark.browser
+def test_null_popup_shows_link_block_keeps_polling_and_lists_tools(
+    app_clean: str, page: Page
+) -> None:
+    """window.open -> null (the desktop webview, or a popup blocker) shows the link
+    block and keeps waiting; once the token lands the tools list with no re-test."""
+    sid = _seed_oauth_source(app_clean, "null-popup")
+    state = _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate(
+        "() => { window.__opens = []; window.open = (u) => { __opens.push(u); return null; }; }"
+    )
+
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    url_input = page.locator('[data-testid="mcp-consent-link-url"]')
+    expect(url_input).to_have_value(_CONSENT_URL, timeout=8000)
+    anchor = page.locator('[data-testid="mcp-consent-link-open"]')
+    expect(anchor).to_have_attribute("href", _CONSENT_URL)
+    expect(anchor).to_have_attribute("target", "_blank")
+    expect(anchor).to_have_attribute("rel", "noopener noreferrer")
+    status = page.locator('[data-testid="mcp-test-status"]')
+    expect(status).not_to_contain_text("Popup blocked")
+    expect(status).to_contain_text("Awaiting sign-in")
+    assert page.evaluate("() => window.__opens") == [_CONSENT_URL]
+
+    state["token"] = True
+    expect(status).to_contain_text("Server exposes", timeout=10000)
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible()
+    assert state["connects"] == 2
+
+
+@pytest.mark.browser
+def test_status_live_region_exists_empty_before_its_first_text(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "live-region")
+    _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate(
+        """() => {
+          window.open = () => null;
+          window.__seen = [];
+          new MutationObserver((muts) => {
+            for (const m of muts) for (const n of m.addedNodes) {
+              if (n.nodeType === 1 && n.classList.contains('mcp-consent-status-text')) {
+                window.__seen.push({role: n.getAttribute('role'), text: n.textContent});
+              }
+            }
+          }).observe(document.body, {childList: true, subtree: true});
+        }"""
+    )
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    status = page.locator('[data-testid="mcp-test-status"]')
+    expect(status).to_contain_text("Awaiting sign-in", timeout=8000)
+    seen = page.evaluate("() => window.__seen")
+    assert seen and seen[0] == {"role": "status", "text": ""}
+
+
+@pytest.mark.browser
+def test_success_after_sign_in_moves_focus_from_the_block_to_refresh(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_oauth_source(app_clean, "focus-success")
+    state = _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate("() => { window.open = () => null; }")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    anchor = page.locator('[data-testid="mcp-consent-link-open"]')
+    expect(anchor).to_be_visible(timeout=8000)
+    anchor.focus()
+    expect(anchor).to_be_focused()
+    state["token"] = True
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Server exposes", timeout=10000
+    )
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_focused()
+
+
+@pytest.mark.browser
+def test_link_block_survives_status_text_and_popup_closing(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "popup-closes")
+    state = _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate(
+        "() => { window.__p = { closed: false, close() { this.closed = true; } };"
+        " window.open = () => window.__p; }"
+    )
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    status = page.locator('[data-testid="mcp-test-status"]')
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible(timeout=8000)
+    page.evaluate("() => { window.__p.closed = true; }")
+    expect(status).to_contain_text("Finalizing sign-in", timeout=8000)
+    # The status text changed; the block is still there, and polling goes on
+    # well past the old 3s popup-close grace window.
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible()
+    polls = state["polls"]
+    page.wait_for_timeout(4000)
+    assert state["polls"] > polls + 2
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible()
+    state["token"] = True
+    expect(status).to_contain_text("Server exposes", timeout=10000)
+
+
+@pytest.mark.browser
+def test_failed_sign_in_removes_the_block_and_offers_retry(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "signin-fails")
+    _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate("() => { window.open = () => null; }")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible(timeout=8000)
+    page.evaluate(
+        "() => window.postMessage({type: 'mcp-oauth-result', status: 'failed',"
+        " description: 'denied'}, window.location.origin)"
+    )
+    status = page.locator('[data-testid="mcp-test-status"]')
+    expect(status).to_contain_text("Sign-in failed: denied", timeout=8000)
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
+    expect(page.locator('[data-testid="mcp-consent-btn"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_credentials_rejected_renders_plain_headline(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "rejected-key")
+    raw = (
+        "MCPCredentialsRejected: rejected-key rejected the configured credentials (401). "
+        "Check the headers for this MCP server in Library › MCP servers, or the agent's "
+        "MCPs tab if it overrides them."
+    )
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": raw}),
+        ),
+    )
+    _open_editor(page, app_clean, sid)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    err = page.locator('[data-testid="mcp-connection-error"]')
+    expect(err).to_contain_text(
+        "The server rejected the configured credentials. Check the headers on this MCP server.",
+        timeout=8000,
+    )
+    expect(page.locator('[data-testid="mcp-consent-btn"]')).to_have_count(0)
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_non_web_consent_url_opens_nothing_and_renders_no_link(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "unsafe-consent")
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "auth_required", "consent_url": "javascript:alert(1)"}),
+        ),
+    )
+    _open_editor(page, app_clean, sid)
+    page.evaluate(
+        "() => { window.__opens = []; window.open = (u) => { __opens.push(u); return null; }; }"
+    )
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator(".consent-link-unsafe")).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="mcp-consent-link-open"]')).to_have_count(0)
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
+    assert page.evaluate("() => window.__opens") == []

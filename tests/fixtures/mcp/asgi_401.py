@@ -7,6 +7,10 @@ and the other handshake POSTs pass through; only POSTs whose JSON-RPC ``method``
 is in ``fail_methods`` (while ``remaining`` > 0, when set) get the 401.
 
 Lifespan and non-POST scopes pass through untouched.
+
+``resource_metadata=None`` models a Goldfinch-shaped server (sortie 04): every
+401 is bare (no ``WWW-Authenticate``), and GET ``/.well-known/*`` and POST
+``/register`` answer 401 too, so there is no OAuth metadata to discover.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ class Auth401Wrapper:
         *,
         fail_methods: set[str] | None = None,
         remaining: int | None = None,
-        resource_metadata: str = RESOURCE_METADATA,
+        resource_metadata: str | None = RESOURCE_METADATA,
         json_rpc_body: bool = False,
     ) -> None:
         self.app = app
@@ -38,7 +42,24 @@ class Auth401Wrapper:
         self.hang_methods: set[str] = set()
         self.seen: list[tuple[str | None, int]] = []  # (method, status)
 
+    async def _bare_401(self, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [(b"content-length", b"0")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
+
     async def __call__(self, scope, receive, send):
+        if self.resource_metadata is None and scope["type"] == "http":
+            path = scope.get("path", "")
+            if (scope["method"] == "GET" and path.startswith("/.well-known/")) or (
+                scope["method"] == "POST" and path == "/register"
+            ):
+                self.seen.append((path, 401))
+                return await self._bare_401(send)
         if scope["type"] != "http" or scope["method"] != "POST":
             return await self.app(scope, receive, send)
 
@@ -63,13 +84,15 @@ class Auth401Wrapper:
                 self.remaining -= 1
             self.seen.append((method, 401))
             payload = b""
-            headers = [
-                (
-                    b"www-authenticate",
-                    f'Bearer resource_metadata="{self.resource_metadata}"'.encode(),
-                ),
-                (b"content-length", b"0"),
-            ]
+            headers = [(b"content-length", b"0")]
+            if self.resource_metadata is not None:
+                headers.insert(
+                    0,
+                    (
+                        b"www-authenticate",
+                        f'Bearer resource_metadata="{self.resource_metadata}"'.encode(),
+                    ),
+                )
             if self.json_rpc_body:
                 payload = json.dumps(
                     {
@@ -79,13 +102,17 @@ class Auth401Wrapper:
                     }
                 ).encode()
                 headers = [
-                    (
-                        b"www-authenticate",
-                        f'Bearer resource_metadata="{self.resource_metadata}"'.encode(),
-                    ),
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(payload)).encode()),
                 ]
+                if self.resource_metadata is not None:
+                    headers.insert(
+                        0,
+                        (
+                            b"www-authenticate",
+                            f'Bearer resource_metadata="{self.resource_metadata}"'.encode(),
+                        ),
+                    )
             await send({"type": "http.response.start", "status": 401, "headers": headers})
             await send({"type": "http.response.body", "body": payload})
             return None

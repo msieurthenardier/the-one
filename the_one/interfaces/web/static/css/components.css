@@ -2095,3 +2095,23 @@
   color: var(--status-warning);
 }
 .note-flag svg { width: 14px; height: 14px; }
+
+/* Sortie 04 DD1: the MCP sign-in link block (App.consentLink, consent-link.js),
+   shared by chat and the studio, so unscoped. */
+.consent-link { display: flex; flex-direction: column; gap: var(--space-2); max-width: 560px; }
+.consent-link-row { display: flex; align-items: center; gap: var(--space-2); }
+.consent-link-row .consent-link-url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-caption);
+  color: var(--fg-secondary);
+}
+a.consent-link-open:any-link { color: var(--fg); text-decoration: none; white-space: nowrap; }
+.consent-link-copy { white-space: nowrap; }
+.consent-link-help {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  line-height: var(--line-height-normal);
+}

@@ -276,6 +276,28 @@ class TestMCPClientTool:
         assert "github" in result
         assert "SandboxError" in result
 
+    async def test_execute_reports_credentials_rejected_on_acquire_as_error_string(
+        self, monkeypatch
+    ) -> None:
+        from the_one.mcp.errors import MCPCredentialsRejected
+
+        tool = MCPClientTool(
+            _stub_mcp_tool(name="do_thing"),
+            source_id="src-1",
+            source_name="github",
+            agent_name="agent-a",
+            effective_source=_stub_source(name="github"),
+        )
+
+        async def _rejecting_acquire(*args, **kwargs):
+            raise MCPCredentialsRejected("src-1", "github")
+
+        monkeypatch.setattr("the_one.mcp._tool.acquire", _rejecting_acquire)
+        result = await tool.execute()
+        assert result.startswith("[error]")
+        assert "MCPCredentialsRejected" in result
+        assert "rejected the configured credentials" in result
+
     async def test_execute_propagates_mcp_auth_required(self, monkeypatch) -> None:
         """Cycle-1 test gap #1: MCPAuthRequired must NOT be swallowed
         by the failure-class #3 catch — the agent loop's _execute_tool
@@ -630,6 +652,37 @@ class TestMCPToolProvider:
             "failed to connect" in r.getMessage() and "github" in r.getMessage()
             for r in caplog.records
         )
+
+    async def test_get_tools_for_agent_graceful_skips_on_credentials_rejected(
+        self, patch_provider_deps, monkeypatch, caplog
+    ) -> None:
+        """Sortie 04: a rejected source is skipped like any MCPConnectionError (no
+        crash, no auth_required log line); other sources' tools are still returned."""
+        from the_one.mcp.errors import MCPCredentialsRejected
+
+        src1 = _stub_source(source_id="src-1", name="github")
+        src2 = _stub_source(source_id="src-2", name="filesystem")
+
+        async def _get(source_id):
+            return {"src-1": src1, "src-2": src2}[source_id]
+
+        patch_provider_deps.get = AsyncMock(side_effect=_get)
+        client1 = _stub_mcp_client(MCPCredentialsRejected("src-1", "github"))
+        client2 = _stub_mcp_client([_stub_mcp_tool("read_file")])
+
+        async def _stub_acquire(agent_name, source_id, **kwargs):
+            return {"src-1": client1, "src-2": client2}[source_id]
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+        cfg = AgentConfig(name="a", mcp_source_ids=["src-1", "src-2"])
+        with caplog.at_level(logging.WARNING, logger="the_one.mcp._tool_provider"):
+            tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        assert [t.name for t in tools] == ["mcp__filesystem__read_file"]
+        assert any(
+            "failed to connect" in r.getMessage() and "MCPCredentialsRejected" in r.getMessage()
+            for r in caplog.records
+        )
+        assert not any("auth_required" in r.getMessage() for r in caplog.records)
 
     async def test_failure_class_4_prefix_collision_first_wins(
         self, patch_provider_deps, monkeypatch, caplog

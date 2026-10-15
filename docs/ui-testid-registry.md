@@ -91,6 +91,9 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-attach-btn` | chat | The composer's Attach images (`btn-ghost btn-sm btn-icon`, the paperclip icon, `aria-label="Attach images"`); opens the hidden `chat-image-input` (M25 F4 L5; a plus-icon `btn-outlined-primary` "Attach image" before) |
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
+| `chat-consent-link-url` | chat | The sign-in link block's read-only URL field in a chat's login-required group, shown once the consent URL is known (`App.consentLink.build(url, {surface: 'chat'})`, `consent-link.js`; sortie 04 DD1) |
+| `chat-consent-link-open` | chat | The block's "Open sign-in page" `<a target="_blank" rel="noopener noreferrer">` styled as a button (sortie 04 DD1) |
+| `chat-consent-link-copy` | chat | The block's Copy button (clipboard, `execCommand` fallback; sortie 04 DD1) |
 | `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.composer`; above the old `.input-area` row before M25 F4 L5) |
 | `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
@@ -219,6 +222,9 @@ caught — but it cannot see where the attribute is emitted.
 | `library-add-mcp` | studio | Library Add menu item "MCP server" -> `#library/mcp/~new` (M25 F3 L4a) |
 | `library-start` | studio | The Library start page (`#library`, the one Library root: a card per group, each with a `library-start-{group}-add` button) (model-providers sortie, DD6; it replaced `library-empty-{group}`) |
 | `library-list` | studio | Library list column root, the grouped `App.ui.listPane` `<section>` in the aside (M25 F3 L4a, DD5) |
+| `mcp-consent-link-url` | studio | The sign-in link block's read-only URL field in the MCP editor's status panel (`App.consentLink.build(url, {surface: 'mcp'})`; sortie 04 DD1) |
+| `mcp-consent-link-open` | studio | The block's "Open sign-in page" anchor (`target="_blank"`; sortie 04 DD1) |
+| `mcp-consent-link-copy` | studio | The block's Copy button (sortie 04 DD1) |
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
 | `mcp-command-runtime` | studio | |

@@ -13,6 +13,9 @@
     var headline;
     if (/^(fetchMcpSourceTools: HTTP|Server error)\b/.test(text.trim())) {
       headline = "The app couldn't check this server (the request failed).";
+    } else if (cls === 'MCPCredentialsRejected') {
+      headline = 'The server rejected the configured credentials. ' +
+        'Check the headers on this MCP server.';
     } else if (cls === 'MCPConnectionError' && /did not respond within/.test(text)) {
       headline = "The server didn't respond in time. Check that it's running, then try Refresh.";
     } else if (cls === 'MCPConnectionError') {

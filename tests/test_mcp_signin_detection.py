@@ -634,3 +634,176 @@ async def test_a_registration_stored_by_1x_without_an_issuer_still_loads() -> No
     assert info is not None
     assert info.client_id == "stored-by-1x"
     assert info.issuer is None
+
+
+# ---------------------------------------------------------------------------
+# Sortie 04 DD4: operator headers + bare 401 + no provider = MCPCredentialsRejected
+# ---------------------------------------------------------------------------
+
+
+def _keyed_source(
+    *, headers=None, secrets=None, source_type="streamable-http", sid="src-asgi"
+) -> MCPSource:
+    return MCPSource(
+        id=sid,
+        name="asgi",
+        type=source_type,
+        config={"url": ASGI_URL, "headers": headers if headers is not None else {}},
+        secrets=secrets or {},
+    )
+
+
+_KEY = {"Authorization": "Bearer revoked"}
+
+
+async def test_connect_bare_401_with_operator_headers_is_credentials_rejected(monkeypatch) -> None:
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    async with _wrapped_asgi(
+        monkeypatch, fail_methods={"server/discover", "initialize"}, resource_metadata=None
+    ):
+        c = MCPClient(_keyed_source(headers=_KEY))
+        with pytest.raises(MCPCredentialsRejected) as exc_info:
+            await c.connect()
+    assert isinstance(exc_info.value, MCPConnectionError)
+    assert not isinstance(exc_info.value, MCPAuthRequired)
+    assert "rejected the configured credentials" in str(exc_info.value)
+    assert exc_info.value.source_id == "src-asgi"
+
+
+async def test_operator_secret_header_counts_as_operator_supplied(monkeypatch) -> None:
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    async with _wrapped_asgi(
+        monkeypatch, fail_methods={"server/discover", "initialize"}, resource_metadata=None
+    ):
+        c = MCPClient(_keyed_source(secrets={"X-Api-Key": "k"}))
+        with pytest.raises(MCPCredentialsRejected):
+            await c.connect()
+
+
+@pytest.mark.parametrize(
+    ("label", "source_kwargs", "wrapper_kwargs"),
+    [
+        ("no operator headers", {}, {"resource_metadata": None}),
+        (
+            "oauth-managed secrets only",
+            {"secrets": {"access_token": "t", "dcr_credentials": {"client_id": "c"}}},
+            {"resource_metadata": None},
+        ),
+        ("resource_metadata present", {"headers": _KEY}, {}),
+    ],
+)
+async def test_other_401_shapes_stay_auth_required(
+    monkeypatch, label, source_kwargs, wrapper_kwargs
+) -> None:
+    async with _wrapped_asgi(
+        monkeypatch, fail_methods={"server/discover", "initialize"}, **wrapper_kwargs
+    ):
+        c = MCPClient(_keyed_source(**source_kwargs))
+        with pytest.raises(MCPAuthRequired):
+            await c.connect()
+
+
+async def test_provider_attached_never_yields_credentials_rejected() -> None:
+    with OAuthASStub(always_401_methods={"server/discover", "initialize"}, bare_401=True) as stub:
+        provider, _ = build_provider(stub.base_url)
+        source = http_source(stub.base_url)
+        source.config["headers"] = dict(_KEY)
+        c = MCPClient(source, auth_provider=provider, timeout_seconds=10)
+        with pytest.raises(MCPAuthRequired):
+            await c.connect()
+
+
+async def test_discover_route_without_era_yields_credentials_rejected(monkeypatch) -> None:
+    """The DiscoverSignInRequired route (no remembered era): discover 401, initialize 400."""
+    from the_one.mcp import _era
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    _era._clear_for_test()
+    wrapper = Auth401Wrapper(
+        _Reject400(make_http_app()), fail_methods={"server/discover"}, resource_metadata=None
+    )
+    async with _serve(monkeypatch, wrapper):
+        c = MCPClient(_keyed_source(headers=_KEY, sid="src-disc"))
+        with pytest.raises(MCPCredentialsRejected):
+            await c.connect()
+
+
+async def test_remembered_era_route_yields_credentials_rejected(monkeypatch) -> None:
+    from the_one.mcp import _era
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    _era._clear_for_test()
+    _era.remember_era("src-era", "2025-11-25")
+    try:
+        async with _wrapped_asgi(monkeypatch, fail_methods={"initialize"}, resource_metadata=None):
+            c = MCPClient(_keyed_source(headers=_KEY, sid="src-era"))
+            with pytest.raises(MCPCredentialsRejected):
+                await c.connect()
+    finally:
+        _era._clear_for_test()
+
+
+async def test_list_tools_rejection_marks_the_client_dead(monkeypatch) -> None:
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    async with _wrapped_asgi(monkeypatch, fail_methods={"tools/list"}, resource_metadata=None):
+        c = MCPClient(_keyed_source(headers=_KEY))
+        await c.connect()
+        try:
+            assert c.is_alive is True
+            with pytest.raises(MCPCredentialsRejected):
+                await c.list_tools()
+            assert c.is_alive is False
+        finally:
+            await c.disconnect()
+
+
+async def test_call_tool_rejection_marks_the_client_dead_but_auth_required_does_not(
+    monkeypatch,
+) -> None:
+    from the_one.mcp.errors import MCPCredentialsRejected
+
+    async with _wrapped_asgi(monkeypatch, fail_methods={"tools/call"}, resource_metadata=None):
+        c = MCPClient(_keyed_source(headers=_KEY))
+        await c.connect()
+        try:
+            await c.list_tools()
+            with pytest.raises(MCPCredentialsRejected):
+                await c.call_tool("echo", {"message": "hi"})
+            assert c.is_alive is False
+        finally:
+            await c.disconnect()
+    async with _wrapped_asgi(monkeypatch, fail_methods={"tools/call"}):
+        c = MCPClient(_keyed_source(headers=_KEY))
+        await c.connect()
+        try:
+            await c.list_tools()
+            with pytest.raises(MCPAuthRequired):
+                await c.call_tool("echo", {"message": "hi"})
+            assert c.is_alive is True
+        finally:
+            await c.disconnect()
+
+
+def test_signin_signal_never_inspects_headers_for_stdio() -> None:
+    source = MCPSource(
+        id="s", name="s", type="stdio", config={"command": "x", "args": []}, secrets={"K": "v"}
+    )
+    signal = MCPClient(source)._signin_signal(None)
+    assert isinstance(signal, MCPAuthRequired)
+
+
+async def test_oauth_stub_bare_401_mode_answers_bare_everywhere() -> None:
+    with OAuthASStub(bare_401=True) as stub:
+        async with httpx2.AsyncClient() as client:
+            for method, path in (
+                ("POST", "/mcp"),
+                ("GET", "/.well-known/oauth-protected-resource"),
+                ("GET", "/.well-known/oauth-authorization-server"),
+                ("POST", "/register"),
+            ):
+                r = await client.request(method, stub.base_url + path, json={})
+                assert r.status_code == 401, (method, path)
+                assert "www-authenticate" not in r.headers

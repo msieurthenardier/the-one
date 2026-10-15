@@ -3331,6 +3331,29 @@ async def _persist_oauth_posture(repo: MCPSourceRepository, source_id: str) -> N
         pass
 
 
+async def _clear_auth_posture(repo: MCPSourceRepository, source_id: str) -> None:
+    """Remove ``_cache.auth_posture`` (best-effort).
+
+    Used when Phase B proves a rejected key and no request ever succeeded: the app
+    does not know what the server is, so the next Test classifies it fresh.
+    """
+    try:
+        persisted = await repo.get(source_id)
+        persisted_config = dict(persisted.config or {})
+        persisted_cache = dict(persisted_config.get("_cache") or {})
+        persisted_cache.pop("auth_posture", None)
+        persisted_config["_cache"] = persisted_cache
+        await repo.update(persisted.model_copy(update={"config": persisted_config}))
+    except Exception:
+        pass
+
+
+class _CredentialsRejectedSignal(Exception):  # noqa: N818
+    """Private sentinel set on Phase B's ``consent_url_future`` when its failed ``/register``
+    plus the absence of any discovered OAuth metadata proves the server rejected the operator's
+    headers and offers no sign-in (DD4 path (c))."""
+
+
 async def _build_and_test_no_auth_mcp(
     source: MCPSource,
     source_id: str,
@@ -3371,6 +3394,7 @@ async def _build_and_test_no_auth_mcp(
         MCPAuthRequired,
         MCPCapabilityMissing,
         MCPConnectionError,
+        MCPCredentialsRejected,
         MCPVersionMismatch,
     )
 
@@ -3420,9 +3444,14 @@ async def _build_and_test_no_auth_mcp(
             "tools": tools_cache_payload,
             "capabilities": capabilities,
         }
-    except MCPAuthRequired as e:
+    except (MCPAuthRequired, MCPCredentialsRejected) as e:
         if from_fallthrough:
+            # A bare 401 from a server that may still be OAuth-only (2026-07-28 with no
+            # metadata): Phase B decides with its own discovery evidence.
             return _SIGNIN_REQUIRED
+        if isinstance(e, MCPCredentialsRejected):
+            # Path (a): cached no_auth, key now rejected. Posture stays no_auth.
+            return {"status": "error", "error": f"{type(e).__name__}: {e}"}
         # Defensive: probe said no_auth but server now wants auth (race).
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
     except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing) as e:
@@ -3608,6 +3637,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         TOKEN_FAILURE_MARKERS,
         MCPAuthRequired,
         MCPConnectionError,
+        MCPCredentialsRejected,
         MCPVersionMismatch,
     )
     from the_one.mcp.oauth import build_oauth_provider_for_source
@@ -3705,6 +3735,10 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     )
 
     signin_via_discover = False
+    # True when Phase B was entered from THIS request's operator-header requests
+    # getting 401 (probe verdict "oauth", or DD9's fall-through): the rejection
+    # evidence for DD4 path (c). Phase A's stale-token fall-through leaves it False.
+    rejection_evidence = False
     cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
     has_live_tokens = bool(
         source.secrets.get("dcr_credentials") and source.secrets.get("access_token")
@@ -3748,12 +3782,14 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             # triggers sign-in with `server/discover` (DD10 amendment).
             await _persist_oauth_posture(repo, source_id)
             signin_via_discover = True
+            rejection_evidence = True
         else:
             # posture == "oauth": persist the hint BEFORE Phase B fires so a
             # Phase B failure still leaves a definitive signal for the pool
             # worker (rather than inferring auth-required from dcr_credentials
             # presence). Then fall through to Phase B below.
             await _persist_oauth_posture(repo, source_id)
+            rejection_evidence = True
 
     # Phase A: tokens present → build provider WITH consent_url_future=None
     # (test path doesn't kick the OAuth flow yet) and try connect + list_tools.
@@ -3898,6 +3934,22 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 
     server_url = source.config.get("url", "")
 
+    def _is_credentials_rejection(exc: Exception) -> bool:
+        """DD4 path (c): a failed ``/register`` with no discovered OAuth metadata, after
+        this request's operator-header requests already got 401."""
+        from mcp.client.auth import OAuthClientProvider, OAuthRegistrationError
+
+        if not rejection_evidence or not build_request_headers(source):
+            return False
+        if not isinstance(exc, OAuthRegistrationError):
+            return False
+        if not str(exc).startswith("Registration failed:"):
+            return False
+        if not isinstance(provider, OAuthClientProvider):
+            return False
+        ctx = provider.context
+        return ctx.protected_resource_metadata is None and ctx.oauth_metadata is None
+
     async def _drive_flow_test() -> None:
         """Hit the source URL with the provider attached; SDK runs auth flow."""
         # Lazy import; both versions are read at call time (DD10).
@@ -3932,9 +3984,12 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                 await client.post(server_url, json=body, headers=_oauth_driver_headers(version))
         except Exception as exc:
             if not consent_url_future.done():
-                consent_url_future.set_exception(
-                    RuntimeError(f"auth flow failed before consent_url surfaced: {exc}")
-                )
+                if _is_credentials_rejection(exc):
+                    consent_url_future.set_exception(_CredentialsRejectedSignal())
+                else:
+                    consent_url_future.set_exception(
+                        RuntimeError(f"auth flow failed before consent_url surfaced: {exc}")
+                    )
 
     task = asyncio.create_task(_drive_flow_test())
     _inflight_resume_tasks.add(task)
@@ -3946,6 +4001,10 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         )
     except asyncio.TimeoutError:
         return {"status": "error", "error": "consent_url_timeout"}
+    except _CredentialsRejectedSignal:
+        await _clear_auth_posture(repo, source_id)
+        rejected = MCPCredentialsRejected(source_id=source_id, source_name=source.name)
+        return {"status": "error", "error": f"MCPCredentialsRejected: {rejected}"}
     except Exception as e:
         return {"status": "error", "error": f"auth_flow_error: {e}"}
 

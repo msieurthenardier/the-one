@@ -34,6 +34,9 @@ so the original surface is unchanged. ``OAuthASStub(**config)`` accepts:
   - ``mcp_after_signin`` - what an authenticated ``tools/list`` answers:
     ``"ok"`` (an empty tool list) or ``"rpc_error"`` (an ordinary JSON-RPC
     error, AC7c).
+  - ``bare_401`` - Goldfinch-shaped server (sortie 04): an unauthorized ``/mcp``
+    request gets a bare 401 (no ``WWW-Authenticate``) and the PRM, AS-metadata and
+    ``POST /register`` routes answer 401 too, so there is no sign-in to offer.
 
 The server also answers a minimal MCP JSON-RPC endpoint on ``POST /mcp``: 401
 with ``WWW-Authenticate: Bearer resource_metadata=...`` until the request
@@ -79,6 +82,10 @@ class _OAuthASHandler(BaseHTTPRequestHandler):
 
     def _send_401(self, base: str) -> None:
         self.send_response(401)
+        if self.server.cfg.get("bare_401"):
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         prm_url = f"{base}/.well-known/oauth-protected-resource"
         self.send_header(
             "WWW-Authenticate",
@@ -152,6 +159,8 @@ class _OAuthASHandler(BaseHTTPRequestHandler):
         path = parsed.path
         base = f"http://127.0.0.1:{self.server.server_port}"
         cfg = self.server.cfg
+        if cfg.get("bare_401") and path.startswith("/.well-known/"):
+            return self._send_401(base)
         if path == "/.well-known/oauth-protected-resource":
             return self._json(200, {"resource": f"{base}/mcp", "authorization_servers": [base]})
         if path == "/.well-known/oauth-authorization-server":
@@ -211,6 +220,8 @@ class _OAuthASHandler(BaseHTTPRequestHandler):
         cfg = self.server.cfg
         if path == "/mcp":
             return self._handle_mcp_post(base, body_raw)
+        if cfg.get("bare_401") and path == "/register":
+            return self._send_401(base)
         if path == "/register":
             return self._json(
                 201,
