@@ -711,3 +711,104 @@ async def test_execute_tool_translates_mcp_auth_required_to_metadata() -> None:
         "tool_call_id": "tc1",
         "consent_url": None,
     }
+
+
+class _SwitchableAuthTool(Tool):
+    """Raises ``MCPAuthRequired`` until ``signed_in`` is flipped, then succeeds."""
+
+    def __init__(self) -> None:
+        self.name = "mcp__x__echo"
+        self.description = "auth-gated"
+        self.parameters: dict[str, Any] = {"type": "object", "properties": {}}
+        self.signed_in = False
+
+    async def execute(self, **kwargs: Any) -> str:
+        if not self.signed_in:
+            raise MCPAuthRequired(source_id="s1", resource_metadata_url=None)
+        return "signed-in ok"
+
+
+def _is_auth_msg(m: Message) -> bool:
+    return bool(m.tool_result and (m.tool_result.metadata or {}).get("is_auth_required"))
+
+
+class TestPauseStateSetBeforeYield:
+    """The deferred state must exist even if the consumer stops at the pause message."""
+
+    async def test_consumer_that_breaks_at_pause_message_sees_deferred_calls(self) -> None:
+        tc = ToolCall(id="tc1", name="mcp__x__echo", arguments={})
+        llm = FakeLLM([Message.assistant("", tool_calls=[tc])])
+        agent = Agent(llm=llm, tools=_make_registry(_SwitchableAuthTool()), system_prompt="t")
+
+        gen = agent.step("hi")
+        async for m in gen:
+            if _is_auth_msg(m):
+                break  # the WebSocket layer does exactly this
+
+        assert agent._deferred_tool_calls == [tc]
+
+    async def test_draining_consumer_sees_same_deferred_calls(self) -> None:
+        tc = ToolCall(id="tc1", name="mcp__x__echo", arguments={})
+        llm = FakeLLM([Message.assistant("", tool_calls=[tc])])
+        agent = Agent(llm=llm, tools=_make_registry(_SwitchableAuthTool()), system_prompt="t")
+
+        await _collect(agent, "hi")
+
+        assert agent._deferred_tool_calls == [tc]
+
+    async def test_repause_during_resume_with_breaking_consumer_sets_state_again(self) -> None:
+        tc = ToolCall(id="tc1", name="mcp__x__echo", arguments={})
+        llm = FakeLLM([Message.assistant("", tool_calls=[tc])])
+        agent = Agent(llm=llm, tools=_make_registry(_SwitchableAuthTool()), system_prompt="t")
+        async for m in agent.step("hi"):
+            if _is_auth_msg(m):
+                break
+
+        gen = agent.resume_after_auth()
+        async for m in gen:
+            if _is_auth_msg(m):
+                break  # still signed out: re-pauses
+
+        assert agent._deferred_tool_calls == [tc]
+
+
+def _tool_result_ids(messages: list[Message]) -> list[str]:
+    return [m.tool_result.tool_call_id for m in messages if m.tool_result is not None]
+
+
+class TestResumeDropsAuthPlaceholder:
+    """Providers reject two tool results for one tool_use id."""
+
+    async def test_resume_leaves_one_result_per_call_and_no_placeholder(self) -> None:
+        tool = _SwitchableAuthTool()
+        tc = ToolCall(id="tc1", name="mcp__x__echo", arguments={})
+        llm = FakeLLM([Message.assistant("", tool_calls=[tc]), Message.assistant("done")])
+        agent = Agent(llm=llm, tools=_make_registry(tool), system_prompt="t")
+        await _collect(agent, "hi")
+        assert _tool_result_ids(agent.messages) == ["tc1"]  # the placeholder
+
+        tool.signed_in = True
+        await _collect_resume(agent)
+
+        assert _tool_result_ids(agent.messages) == ["tc1"]
+        assert not any(_is_auth_msg(m) for m in agent.messages)
+        assert [m.tool_result.content for m in agent.messages if m.tool_result] == ["signed-in ok"]
+        # What the provider actually received must not carry duplicates.
+        sent = _tool_result_ids(llm.calls[-1]["messages"])
+        assert sent == ["tc1"]
+
+    async def test_repause_leaves_exactly_one_placeholder(self) -> None:
+        tc = ToolCall(id="tc1", name="mcp__x__echo", arguments={})
+        llm = FakeLLM([Message.assistant("", tool_calls=[tc])])
+        agent = Agent(llm=llm, tools=_make_registry(_SwitchableAuthTool()), system_prompt="t")
+        await _collect(agent, "hi")
+
+        await _collect_resume(agent)  # still signed out
+
+        assert _tool_result_ids(agent.messages) == ["tc1"]
+        assert sum(_is_auth_msg(m) for m in agent.messages) == 1
+        assert agent._deferred_tool_calls == [tc]
+
+
+async def _collect_resume(agent: Agent) -> list[Message]:
+    return [m async for m in agent.resume_after_auth()]

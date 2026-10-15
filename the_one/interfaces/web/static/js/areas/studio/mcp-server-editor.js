@@ -544,8 +544,9 @@
     // so the existing OAuth-state-dependent UI hides itself for stdio without
     // additional changes here.
     if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
-      html += '<div class="field-row admin-pf-row mcp-test-row">';
-      html += '<label></label>';
+      // De-guttered (HAT): dropped the empty label-slot + `.field-row` wrapper
+      // so the actions left-align with the stacked fields.
+      html += '<div class="mcp-test-row">';
       html += '<div class="mcp-connection-actions">';
       html += '<button type="button" class="btn-outlined-primary mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
               window.App.icon('refresh-cw') + ' Refresh connection</button>';
@@ -1801,6 +1802,10 @@
     // popup-blockers reject popups not triggered by direct interaction.
     // Default false preserves the manual-Refresh-click behavior verbatim.
     var noAutoPopup = !!(opts && opts.noAutoPopup);
+    // Focus inside the status panel (the sign-in link block) is lost when the
+    // panel is rewritten; on success it is handed to Refresh connection.
+    var focusWasInStatus = !!(document.activeElement &&
+      statusEl.contains(document.activeElement));
     statusEl.textContent = 'Testing connection…';
     statusEl.hidden = false;
     listEl.hidden = true;
@@ -1852,7 +1857,6 @@
       statusEl.appendChild(textEl);
       statusEl.appendChild(retryEl);
       statusEl.appendChild(blockEl);
-      textEl.textContent = 'Opening sign-in…';
       blockEl.appendChild(App.consentLink.build(consentUrl, {
         surface: 'mcp',
         sourceName: (document.getElementById('mf-name') || {}).value || '',
@@ -1976,7 +1980,11 @@
       }
       window.addEventListener('message', onOAuthMessage);
 
-      textEl.textContent = 'Awaiting sign-in…';
+      // The live region (textEl) is in the DOM empty; its first text goes in on
+      // the next tick so assistive tech sees the change rather than a new node.
+      setTimeout(function () {
+        if (state === 'POLLING' && !textEl.textContent) textEl.textContent = 'Awaiting sign-in…';
+      }, 0);
 
       pollTimer = setInterval(function () {
         if (state === 'DONE') return;
@@ -2089,6 +2097,8 @@
             try { onSuccess(); } catch (e) { /* swallow */ }
           }
           settle();
+          var ae = document.activeElement;
+          if (focusWasInStatus && (!ae || ae === document.body)) testBtn.focus();
         } else if (data.status === 'auth_required') {
           if (noAutoPopup) {
             // Auto-run-after-create path: render an explicit "Sign in"

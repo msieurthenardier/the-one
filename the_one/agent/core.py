@@ -500,16 +500,19 @@ class Agent:
             result = await self._execute_tool(tc)
             tool_msg = Message.tool(result)
             self.messages.append(tool_msg)
-            yield tool_msg
 
-            # F5 L3: pause/resume check — must be AFTER append+yield so
-            # chat history reflects the auth_required surface and the
-            # WebSocket layer can broadcast the event. Capture current +
-            # remaining tool calls so ``resume_after_auth`` can re-dispatch
-            # them in order (slice-from-current-index pattern works at
-            # index 0 too — covered by A8b).
-            if result.metadata and result.metadata.get("is_auth_required"):
+            # F5 L3: pause/resume check. Capture current + remaining tool
+            # calls so ``resume_after_auth`` can re-dispatch them in order
+            # (slice-from-current-index pattern works at index 0 too —
+            # covered by A8b). The state MUST be set BEFORE the yield:
+            # consumers (the WebSocket layer) stop iterating as soon as they
+            # see the auth-required message, so the generator never resumes
+            # past the yield and code placed after it would never run.
+            paused = bool(result.metadata and result.metadata.get("is_auth_required"))
+            if paused:
                 self._deferred_tool_calls = list(tcs[i:])
+            yield tool_msg
+            if paused:
                 return
 
     async def resume_after_auth(self) -> AsyncIterator[Message]:
@@ -533,6 +536,24 @@ class Agent:
 
         deferred = self._deferred_tool_calls
         self._deferred_tool_calls = None  # consumed before re-dispatch
+
+        # The pause left an auth-required placeholder tool message in the
+        # history for each deferred call it paused on. The re-dispatch below
+        # appends the real result, and providers reject two tool results for
+        # one tool_use id, so drop the placeholders first. Match on BOTH the
+        # call id and the is_auth_required metadata so a real result is never
+        # removed.
+        deferred_ids = {tc.id for tc in deferred}
+        self.messages[:] = [
+            m
+            for m in self.messages
+            if not (
+                m.role == Role.TOOL
+                and m.tool_result is not None
+                and m.tool_result.tool_call_id in deferred_ids
+                and (m.tool_result.metadata or {}).get("is_auth_required")
+            )
+        ]
 
         async for tool_msg in self._dispatch_tool_calls(deferred):
             yield tool_msg

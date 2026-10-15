@@ -107,6 +107,13 @@ def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Pag
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
+    # The Refresh connection row is left-aligned with the editor's stacked
+    # fields (HAT: it was indented by the legacy .field-row label gutter).
+    refresh_box = page.locator('[data-testid="mcp-test-connection"]').bounding_box()
+    name_box = page.locator('[data-field="name"]').bounding_box()
+    assert refresh_box is not None and name_box is not None
+    assert abs(refresh_box["x"] - name_box["x"]) <= 2, (refresh_box, name_box)
+
     # Sensitive env var pre-fills with the masked tail (***...alue).
     kv_value = page.locator('.kv-value-input[data-field="kv-value"]').first
     expect(kv_value).to_have_value("***...alue")
@@ -2038,6 +2045,51 @@ def test_null_popup_shows_link_block_keeps_polling_and_lists_tools(
     expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible()
     assert state["connects"] == 2
+
+
+@pytest.mark.browser
+def test_status_live_region_exists_empty_before_its_first_text(app_clean: str, page: Page) -> None:
+    sid = _seed_oauth_source(app_clean, "live-region")
+    _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate(
+        """() => {
+          window.open = () => null;
+          window.__seen = [];
+          new MutationObserver((muts) => {
+            for (const m of muts) for (const n of m.addedNodes) {
+              if (n.nodeType === 1 && n.classList.contains('mcp-consent-status-text')) {
+                window.__seen.push({role: n.getAttribute('role'), text: n.textContent});
+              }
+            }
+          }).observe(document.body, {childList: true, subtree: true});
+        }"""
+    )
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    status = page.locator('[data-testid="mcp-test-status"]')
+    expect(status).to_contain_text("Awaiting sign-in", timeout=8000)
+    seen = page.evaluate("() => window.__seen")
+    assert seen and seen[0] == {"role": "status", "text": ""}
+
+
+@pytest.mark.browser
+def test_success_after_sign_in_moves_focus_from_the_block_to_refresh(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_oauth_source(app_clean, "focus-success")
+    state = _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    page.evaluate("() => { window.open = () => null; }")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    anchor = page.locator('[data-testid="mcp-consent-link-open"]')
+    expect(anchor).to_be_visible(timeout=8000)
+    anchor.focus()
+    expect(anchor).to_be_focused()
+    state["token"] = True
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Server exposes", timeout=10000
+    )
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_focused()
 
 
 @pytest.mark.browser

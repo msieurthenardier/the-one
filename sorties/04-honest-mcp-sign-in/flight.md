@@ -1,6 +1,6 @@
 # Sortie: Honest MCP sign-in in the desktop app
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -11,10 +11,10 @@ In the desktop app, signing in to an MCP server works through the system browser
 On 2026-10-14 a revoked key on the Goldfinch MCP source showed up as a "Log in" button and then "Popup blocked", and a long session went into tracing it to a 401 on the key (after first chasing a protocol problem).
 
 ### Success Criteria
-- [ ] In the desktop app, "Log in to {source}" in a chat opens the consent page in the system browser; finishing consent resumes the tool call; "Popup blocked" never appears.
-- [ ] In the desktop app, MCP editor sign-in opens the system browser and notices completion by itself, then lists the tools without a manual re-test.
-- [ ] A source whose configured key is rejected (401) by a server with no OAuth metadata shows a plain "the server rejected the configured credentials" error in the MCP editor and in chat: no sign-in button, and the source is not recorded as a sign-in server.
-- [ ] In a normal browser, sign-in behaves as it does today, and real OAuth servers still sign in.
+- [x] In the desktop app, "Log in to {source}" in a chat opens the consent page in the system browser; finishing consent resumes the tool call; "Popup blocked" never appears.
+- [x] In the desktop app, MCP editor sign-in opens the system browser and notices completion by itself, then lists the tools without a manual re-test.
+- [x] A source whose configured key is rejected (401) by a server with no OAuth metadata shows a plain "the server rejected the configured credentials" error in the MCP editor and in chat: no sign-in button, and the source is not recorded as a sign-in server.
+- [x] In a normal browser, sign-in behaves as it does today, and real OAuth servers still sign in.
 
 ### Constraints
 - pywebview stays on 5.x (6.x is blocked by the title-bar work).
@@ -34,7 +34,7 @@ Make MCP sign-in work in the desktop app, and make a rejected key look like a re
 - [x] Server-side "open in system browser" route, or `window.open`? → `window.open`; no new route (operator agreed the leaning, 2026-10-14; DD2)
 - [x] HAT server for the real sign-in path → the repo's OAuth fixture (`tests/fixtures/oauth/OAuthASStub`) run against a Windows test copy (operator; DD8)
 - [x] Leg shape → one build leg plus an optional HAT leg (operator)
-- [ ] Does a `window.open` called from a WebSocket handler (no user gesture) reach pywebview's `NewWindowRequested` in WebView2? → not verified; the design does not depend on it (DD2), the HAT observes it
+- [x] Does a `window.open` called from a WebSocket handler (no user gesture) reach pywebview's `NewWindowRequested` in WebView2? → yes: observed in the HAT (H2), the system browser opened by itself
 
 ### Design Decisions
 
@@ -50,6 +50,7 @@ Make MCP sign-in work in the desktop app, and make a rejected key look like a re
 **DD2 — `window.open` stays the way to reach the system browser; `null` never ends the flow.**
 - No new server route: Mission 19 DD-1 kept "open in system browser" out of the API, and a route that opens a URL on the host from any authenticated caller is a new capability this sortie does not need. pywebview 5.x already sends a `window.open(url)` to the system browser (`webview/platforms/edgechromium.py::on_new_window_request`, `OPEN_EXTERNAL_LINKS_IN_BROWSER` default True; the shell sets no `webview.settings`, `shell.py:637-680`, `:852-856`).
 - **Chat:** `startLoginFlow` no longer returns on a `null` popup. In a browser it keeps today's click-time `about:blank` pre-open (to keep the gesture) and navigates that popup when the consent URL arrives, as now. In the desktop webview (DD3) it skips the pre-open. It keeps today's early return when the consent URL is already known (`chat.js:1228`: open/navigate, no second `/api/oauth/start`); otherwise it POSTs `/api/oauth/start`.
+  - *In-flight amendment (HAT H2, 2026-10-14, operator decision): the link block renders only for a flow this client started (`startedHere`); a consent URL from a frame this client did not start (the SDK's in-band flow, which dies at the 30 s connect timeout) is neither stored nor rendered, "Log in" stays, and its click starts a fresh `/api/oauth/start` flow. See the flight log's H2 root cause.*
   - **Per-flow state:** a map keyed by chat session id + source id holds `{consentUrl, startedHere, autoOpened}`. `startLoginFlow` sets `startedHere`. A frame with `consent_url` stores it and renders DD1's block in place of the "Log in" button (the block owns any further click while the flow is pending). It makes one best-effort `window.open(consent_url, '_blank')` only when `startedHere`, no popup is held, and not `autoOpened`.
   - **Replays:** the frame replayed on join/reconnect is rebuilt from the tool result's metadata (`app.py:1928`, `:2588`), so its `consent_url` is always `None`; the consent frame itself is broadcast once (`mcp/oauth/handlers.py:129-141`). When a replay with no URL arrives for a source whose state holds a `consentUrl`, the group is re-rendered with the block from the map, not the "Log in" button, so a reconnect neither loses the link nor offers a second `/api/oauth/start` (which would evict the pool, `api.py:4774`).
   - **Clearing:** the map entry is cleared on `auth_resolved` and `auth_failed` in the ungated part of the handler, beside `closeOauthPopup` (above the frame gate at `chat.js:1775`), so a session switch cannot strand it. On `auth_failed` the block is removed (its URL is dead); the group's "Log in" button and today's "OAuth failed: …" message stay for a retry.
@@ -129,13 +130,13 @@ Verified against the working tree at `d2c98b1`:
 ### Prerequisites
 - [x] pywebview 5.4 in the venv; `<6` pin in `pyproject.toml` (verified)
 - [x] OAuth fixture `tests/fixtures/oauth/` exists and serves PRM/AS metadata/DCR/authorize/token (verified)
-- [ ] Windows test copy apparatus works on this host (`scripts/windows_test_copy.py`): re-verify at the HAT leg's start (external session: the operator's Windows desktop)
+- [x] Windows test copy apparatus works on this host (`scripts/windows_test_copy.py`): re-verified at the HAT leg's start (a fresh root was needed; see the flight log)
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved (the WebView2 auto-open question is HAT-observed by design)
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified (Windows apparatus: at HAT time)
+- [x] Prerequisites verified (Windows apparatus: at HAT time)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -147,10 +148,10 @@ Verified against the working tree at `d2c98b1`:
 One build leg changes the two JS sign-in paths (chat, MCP editor) and adds the shared consent-link module and `App.desktop.isWebview`; adds `MCPCredentialsRejected` and its classification points (the single `_signin_signal` factory in `MCPClient`; the fall-through branch in `_build_and_test_no_auth_mcp`; the sentinel in `_drive_flow_test`); adds the fixture options; adds the `mcp-error.js` rule; updates docs and tests. The optional HAT leg walks the result on the Windows desktop against the OAuth fixture and a no-metadata 401 server.
 
 ### Checkpoints
-- [ ] Unit tier green with the new classification tests
-- [ ] Browser lanes `shared` and `mcp` green with the new sign-in tests
-- [ ] Full gate green
-- [ ] HAT on Windows: all four walk items pass
+- [x] Unit tier green with the new classification tests
+- [x] Browser lanes `shared` and `mcp` green with the new sign-in tests
+- [x] Full gate green
+- [x] HAT on Windows: all four walk items pass
 
 ### Adaptation Criteria
 
@@ -167,17 +168,17 @@ One build leg changes the two JS sign-in paths (chat, MCP editor) and adds the s
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses.
 
 - [x] `honest-sign-in` - DD1-DD7: sign-in link and no "Popup blocked" in chat and the MCP editor; desktop check; `MCPCredentialsRejected` through the single `_signin_signal` factory and test-connect paths (a)-(c); error headline; fixture option; tests; docs. Mid-leg checkpoint: the backend classification (DD4) lands with its unit tests green before the JS work starts.
-- [ ] `hat-and-alignment` *(optional)* - DD8: guided HAT on the Windows desktop with the OAuth fixture, fixes as needed
+- [x] `hat-and-alignment` *(optional)* - DD8: guided HAT on the Windows desktop with the OAuth fixture, fixes as needed
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 The charter's four criteria, observed in the HAT (DD8) on the Windows desktop app, plus the unit and browser tests named in DD6.

@@ -90,8 +90,14 @@
       live.textContent = ok ? 'Link copied'
         : 'Copy failed — select the link and copy it';
       if (ok) {
+        // Visual feedback only: the accessible name stays "Copy" so the
+        // live region's "Link copied" is the one announcement.
+        copy.setAttribute('aria-label', 'Copy');
         copy.textContent = 'Copied';
-        setTimeout(function () { copy.textContent = 'Copy'; }, 2000);
+        setTimeout(function () {
+          copy.textContent = 'Copy';
+          copy.removeAttribute('aria-label');
+        }, 2000);
       }
     }
     copy.addEventListener('click', function () {

@@ -17,12 +17,14 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from conftest import FakeLLM
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
+from the_one.agent.core import Agent
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.api import router
@@ -32,8 +34,10 @@ from the_one.interfaces.web.app import (
     _send_pause_snapshot_if_needed,
 )
 from the_one.llm.base import Message, ToolCall, ToolResult
+from the_one.mcp.errors import MCPAuthRequired
 from the_one.mcp.oauth import _state
 from the_one.sessions import add_subscriber
+from the_one.tools.base import Tool, ToolRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -600,3 +604,92 @@ async def test_pause_snapshot_emits_parent_message_id() -> None:
     assert payload["parent_message_id"] == "cs-L02c-msg-2"
     # tool_call_id preserved from metadata (existing behaviour)
     assert payload["tool_call_id"] == "tc_L02c"
+
+
+# ---------------------------------------------------------------------------
+# Real Agent through the real broadcast helpers (the StubAgent presets its
+# deferred state, so it can never catch a yield-then-set ordering bug).
+# ---------------------------------------------------------------------------
+
+
+class _SwitchableAuthTool(Tool):
+    name = "mcp__x__echo"
+    description = "auth-gated"
+    parameters: dict[str, Any] = {"type": "object", "properties": {}}  # noqa: RUF012
+
+    def __init__(self) -> None:
+        self.signed_in = False
+
+    async def execute(self, **kwargs: Any) -> str:
+        if not self.signed_in:
+            raise MCPAuthRequired(source_id="s1", resource_metadata_url=None)
+        return "signed-in ok"
+
+
+def _real_agent_session(monkeypatch, tool: _SwitchableAuthTool, sid: str):
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
+    captured: list[dict[str, Any]] = []
+
+    async def capture(session, payload, exclude=None):  # noqa: ARG001
+        captured.append(payload)
+
+    monkeypatch.setattr(web_app, "_send_to_session", capture)
+
+    registry = ToolRegistry()
+    registry.register(tool)
+    tc = ToolCall(id="tc_real", name=tool.name, arguments={})
+    llm = FakeLLM(
+        [
+            Message.assistant("", tool_calls=[tc]),
+            Message.assistant("all done"),
+        ]
+    )
+    agent = Agent(llm=llm, tools=registry, system_prompt="t")
+    session = Session(id=sid, agent=agent, created="2026-10-14T00:00:00+00:00")  # type: ignore[arg-type]
+    return session, agent, tc, captured
+
+
+async def test_real_agent_pause_through_broadcast_then_resume_completes(monkeypatch) -> None:
+    tool = _SwitchableAuthTool()
+    session, agent, tc, captured = _real_agent_session(monkeypatch, tool, "cs-real-resume")
+
+    await _process_and_broadcast(session, "go")
+
+    types = [p.get("type") for p in captured]
+    assert "auth_required" in types
+    assert "done" not in types
+    # The oauth_callback route schedules a resume only when this is not None.
+    assert agent._deferred_tool_calls == [tc]
+
+    tool.signed_in = True
+    captured.clear()
+    await web_app._resume_paused_session(session)
+
+    assert agent._deferred_tool_calls is None
+    assert any(
+        p.get("type") == "tool_result" and p.get("tool_call_id") == "tc_real" for p in captured
+    )
+    # One result per tool_use id, no placeholder: providers reject duplicates.
+    results = [m.tool_result for m in agent.messages if m.tool_result is not None]
+    assert [r.tool_call_id for r in results] == ["tc_real"]
+    assert results[0].content == "signed-in ok"
+    sent = [m.tool_result.tool_call_id for m in agent.llm.calls[-1]["messages"] if m.tool_result]
+    assert sent == ["tc_real"]
+    assert "done" in [p.get("type") for p in captured]
+
+
+async def test_real_agent_repause_during_resume_keeps_deferred_state(monkeypatch) -> None:
+    tool = _SwitchableAuthTool()
+    session, agent, tc, captured = _real_agent_session(monkeypatch, tool, "cs-real-repause")
+
+    await _process_and_broadcast(session, "go")
+    assert agent._deferred_tool_calls == [tc]
+
+    captured.clear()
+    await web_app._resume_paused_session(session)  # still signed out
+
+    assert agent._deferred_tool_calls == [tc]
+    types = [p.get("type") for p in captured]
+    assert "auth_required" in types
+    assert "done" not in types

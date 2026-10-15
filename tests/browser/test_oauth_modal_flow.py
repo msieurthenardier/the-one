@@ -285,6 +285,22 @@ def _stub_oauth_start(page: Page) -> list:
     return posts
 
 
+def _wait_for_posts(page: Page, posts: list, count: int, timeout_ms: int = 5000) -> None:
+    """Block until the route handler has recorded ``count`` POSTs.
+
+    ``expect_request`` returns on the page's ``request`` event, which can fire
+    before the route handler has run and appended to ``posts``; reading
+    ``len(posts)`` straight after it is racy under load. Poll instead.
+    """
+    waited = 0
+    while len(posts) < count and waited < timeout_ms:
+        page.wait_for_timeout(25)
+        waited += 25
+    assert len(posts) == count, (
+        f"expected {count} recorded POST /api/oauth/start, saw {len(posts)} after {waited} ms"
+    )
+
+
 def _auth_frame(source_id: str, consent_url: str | None = None) -> dict:
     return {
         "type": "auth_required",
@@ -312,7 +328,7 @@ def test_null_popup_still_starts_the_flow_and_shows_the_link_block(
     _emit_ws_event(page, _auth_frame("src-n1"))
     with page.expect_request("**/api/oauth/start"):
         page.locator(".login-required-btn").click()
-    assert len(posts) == 1
+    _wait_for_posts(page, posts, 1)
     expect(page.locator(".msg.system", has_text="Popup blocked")).to_have_count(0)
     _emit_ws_event(page, _auth_frame("src-n1", CONSENT))
     url = page.locator('[data-testid="chat-consent-link-url"]')
@@ -340,7 +356,7 @@ def test_desktop_webview_skips_the_about_blank_pre_open(
     _emit_ws_event(page, _auth_frame("src-d1"))
     with page.expect_request("**/api/oauth/start"):
         page.locator(".login-required-btn").click()
-    assert len(posts) == 1
+    _wait_for_posts(page, posts, 1)
     assert page.evaluate("() => window.__openCalls") == []
     _emit_ws_event(page, _auth_frame("src-d1", CONSENT))
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_value(CONSENT)
@@ -368,7 +384,7 @@ def test_replayed_frame_keeps_the_block_and_does_not_reopen(
     expect(page.locator(".login-required-group")).to_have_count(1)
     expect(page.locator(".login-required-btn")).to_be_hidden()
     assert [c["url"] for c in page.evaluate("() => window.__openCalls")] == [CONSENT]
-    assert len(posts) == 1
+    _wait_for_posts(page, posts, 1)
 
 
 @pytest.mark.browser
@@ -397,12 +413,52 @@ def test_auth_failed_removes_the_block_and_offers_log_in_again(
 @pytest.mark.browser
 def test_auth_resolved_clears_the_block(app_with_agent: SeededApp, page: Page) -> None:
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    _stub_oauth_start(page)
+    _install_null_window_open(page)
+    # The block shows only for a flow this tab started, so click "Log in" first.
+    _emit_ws_event(page, _auth_frame("src-ok1"))
+    with page.expect_request("**/api/oauth/start"):
+        page.locator(".login-required-btn").click()
     _emit_ws_event(page, _auth_frame("src-ok1", CONSENT))
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_value(CONSENT)
-    # No click here: this tab did not start the flow, so nothing auto-opens.
     _emit_ws_event(page, {"type": "auth_resolved", "source_id": "src-ok1"})
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
     expect(page.locator(".login-required-group")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_in_band_consent_frame_is_ignored_and_log_in_starts_a_fresh_flow(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """HAT H2: the SDK's in-band flow broadcasts a consent_url this tab did not
+    start; it dies at the connect timeout. It must not render a link block, and
+    "Log in" must start a fresh /api/oauth/start rather than reopen it."""
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    posts = _stub_oauth_start(page)
+    _install_null_window_open(page)
+    page.evaluate("() => { window.App.desktop.isWebview = () => true; }")
+    _emit_ws_event(page, _auth_frame("src-ib1", CONSENT))
+    expect(page.locator(".login-required-btn")).to_be_visible()
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
+    assert page.evaluate("() => window.__openCalls") == []
+    # The pause frame replays with consent_url null.
+    _emit_ws_event(page, _auth_frame("src-ib1", None))
+    expect(page.locator(".login-required-btn")).to_be_visible()
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
+    # Negative case: the UI expects above prove the frames were handled; add a
+    # short bounded settle so a (wrongly) started flow would have reached the
+    # route handler before we assert nothing was posted.
+    page.wait_for_timeout(500)
+    assert posts == []
+    with page.expect_request("**/api/oauth/start"):
+        page.locator(".login-required-btn").click()
+    _wait_for_posts(page, posts, 1)
+    assert page.evaluate("() => window.__openCalls") == []
+    # The fresh flow's own consent frame now renders the block.
+    fresh = "https://idp.example.com/authorize?state=FRESH"
+    _emit_ws_event(page, _auth_frame("src-ib1", fresh))
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_value(fresh)
+    expect(page.locator(".login-required-btn")).to_be_hidden()
 
 
 UNSAFE = "javascript:alert(1)"
@@ -433,6 +489,64 @@ def test_non_web_consent_url_is_never_opened_or_linked(
 
 
 @pytest.mark.browser
+def test_auth_resolved_moves_focus_from_the_block_to_the_composer(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    _stub_oauth_start(page)
+    _install_null_window_open(page)
+    _emit_ws_event(page, _auth_frame("src-f1"))
+    with page.expect_request("**/api/oauth/start"):
+        page.locator(".login-required-btn").click()
+    _emit_ws_event(page, _auth_frame("src-f1", CONSENT))
+    anchor = page.locator('[data-testid="chat-consent-link-open"]')
+    anchor.focus()
+    expect(anchor).to_be_focused()
+    _emit_ws_event(page, {"type": "auth_resolved", "source_id": "src-f1"})
+    expect(page.locator(".login-required-group")).to_have_count(0)
+    expect(page.locator('[data-testid="chat-input"]')).to_be_focused()
+
+
+@pytest.mark.browser
+def test_auth_resolved_does_not_steal_focus_from_elsewhere(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    _stub_oauth_start(page)
+    _install_null_window_open(page)
+    _emit_ws_event(page, _auth_frame("src-f2"))
+    with page.expect_request("**/api/oauth/start"):
+        page.locator(".login-required-btn").click()
+    _emit_ws_event(page, _auth_frame("src-f2", CONSENT))
+    page.locator('[data-testid="chat-send-btn"]').focus()
+    _emit_ws_event(page, {"type": "auth_resolved", "source_id": "src-f2"})
+    expect(page.locator(".login-required-group")).to_have_count(0)
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_focused()
+
+
+@pytest.mark.browser
+def test_copy_keeps_its_accessible_name_while_the_live_region_announces(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    _stub_oauth_start(page)
+    _install_null_window_open(page)
+    _emit_ws_event(page, _auth_frame("src-c1"))
+    with page.expect_request("**/api/oauth/start"):
+        page.locator(".login-required-btn").click()
+    _emit_ws_event(page, _auth_frame("src-c1", CONSENT))
+    page.evaluate("() => { navigator.clipboard.writeText = () => Promise.resolve(); }")
+    copy = page.locator('[data-testid="chat-consent-link-copy"]')
+    copy.click()
+    expect(copy).to_have_text("Copied")
+    # Immediate, non-retrying reads: the "Copied" flash lasts 2s and an auto-retrying
+    # expect would pass once it reverts. The name stays "Copy" while it shows.
+    assert copy.get_attribute("aria-label") == "Copy"
+    assert page.get_by_role("button", name="Copy", exact=True).count() == 1
+    expect(page.locator(".consent-link-live")).to_have_text("Link copied")
+
+
+@pytest.mark.browser
 def test_keyboard_log_in_moves_focus_to_the_sign_in_link(
     app_with_agent: SeededApp, page: Page
 ) -> None:
@@ -450,3 +564,42 @@ def test_keyboard_log_in_moves_focus_to_the_sign_in_link(
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_attribute(
         "aria-label", "Sign-in address for Goldfinch"
     )
+
+
+@pytest.mark.browser
+def test_sign_in_group_sits_after_the_trace_shell_not_inside_it(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Operator HAT decision (sortie 04): the sign-in control must not hide in the
+    collapsible "Tool activity" panel. It is the trace shell's next sibling."""
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    _emit_ws_event(
+        page,
+        {
+            "type": "tool_call",
+            "name": "probe",
+            "arguments": {},
+            "tool_call_id": "tc-1",
+            "parent_message_id": "pm-1",
+        },
+    )
+    shell = page.locator(".trace-shell")
+    expect(shell).to_have_count(1)
+    frame = _auth_frame("src-t1") | {"parent_message_id": "pm-1"}
+    _emit_ws_event(page, frame)
+    group = page.locator(".login-required-group")
+    expect(group).to_have_count(1)
+    expect(page.locator(".trace-shell .login-required-group")).to_have_count(0)
+    adjacent = page.locator(".trace-shell + .login-required-group")
+    expect(adjacent).to_have_count(1)
+    # The trace's item count is the tool activity only (the one tool call).
+    expect(page.locator(".trace-count")).to_have_text("1")
+    # Collapsing the trace leaves the control visible.
+    page.evaluate("() => { document.querySelector('.trace-shell details').open = false; }")
+    expect(page.locator(".login-required-btn")).to_be_visible()
+    # A replay keeps exactly one group, in the same place.
+    _emit_ws_event(page, frame)
+    expect(group).to_have_count(1)
+    expect(adjacent).to_have_count(1)
+    expect(page.locator(".trace-shell .login-required-group")).to_have_count(0)
+    expect(page.locator(".trace-count")).to_have_text("1")

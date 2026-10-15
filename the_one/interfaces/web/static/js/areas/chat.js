@@ -1083,19 +1083,6 @@ App.registerArea({
         var toRemove = group || btn;
         var parent = toRemove.parentNode;
         if (parent) parent.removeChild(toRemove);
-        // L03: if the removal left an empty trace-body, also drop the
-        // enclosing trace shell so an empty chrome doesn't linger.
-        // (Unchanged from pre-L05 — the wrapper sits inside .trace-body
-        // exactly like the bare button did, so `parent` is still the
-        // .trace-body in the trace-mount path.)
-        if (parent && parent.classList && parent.classList.contains('trace-body') && parent.children.length === 0) {
-          var shell = parent.closest('.trace-shell');
-          if (shell && shell.parentNode) {
-            var key = shell.dataset.parentMsgId;
-            shell.parentNode.removeChild(shell);
-            if (key) delete traceShells[key];
-          }
-        }
       }
     }
 
@@ -1213,9 +1200,11 @@ App.registerArea({
       return window.open(url || 'about:blank', name, features);
     }
 
-    // Sortie 04 DD2: per-(chat session, source) sign-in state. A frame with a
-    // consent_url stores it; the login-required group then shows the link block
-    // (App.consentLink) instead of the "Log in" button. Replayed auth_required
+    // Sortie 04 DD2: per-(chat session, source) sign-in state. A consent_url
+    // frame for a flow THIS client started (startedHere, set by its "Log in"
+    // click) stores it; the login-required group then shows the link block
+    // (App.consentLink) instead of the "Log in" button. Any other consent_url
+    // is ignored. Replayed auth_required
     // frames carry consent_url=null (rebuilt from tool-result metadata), so the
     // map is what keeps the link across a reconnect and stops a second
     // /api/oauth/start. Cleared on auth_resolved / auth_failed.
@@ -1241,7 +1230,9 @@ App.registerArea({
       var known = loginFlows[key];
       // The consent URL is already known (idempotent re-emission): open it
       // again and do not POST /api/oauth/start a second time.
-      if (known && known.consentUrl) {
+      // Only for a flow THIS client started: an in-band consent URL (or another
+      // client's) is never stored, so every other click starts a fresh flow.
+      if (known && known.startedHere && known.consentUrl) {
         if (App.consentLink.isSafeUrl(known.consentUrl)) {
           var again = openConsentPopup(known.consentUrl, sourceId);
           if (again) oauthPopups[sourceId] = again;
@@ -1319,8 +1310,8 @@ App.registerArea({
       if (data.source_id && data.source_name) {
         sourceNames[data.source_id] = data.source_name;
       }
-      // L05: wrapper groups the attribution + button so appendToTrace
-      // increments the trace-count by 1 per auth_required event (NOT 2).
+      // L05: wrapper groups the attribution + button into one node (one
+      // thing to find, replace and remove per auth_required event).
       var group = document.createElement('div');
       group.className = 'login-required-group';
       group.dataset.sourceId = data.source_id || '';
@@ -1360,13 +1351,20 @@ App.registerArea({
         });
         group.appendChild(linkBlock);
       }
-      // L03: mount in the trace shell for this turn, if its parent_message_id
-      // is present (the M07 OAuth event carries it). Fall back to a direct
-      // .messages append for legacy/null cases (e.g. synthetic auth_required
-      // events injected by tests).
-      var authTrace = getOrCreateTrace(data.parent_message_id);
-      if (authTrace) {
-        App.chat.appendToTrace(authTrace, group);
+      // Sortie 04 (operator HAT decision): the sign-in control must not hide
+      // in a collapsed panel. The "Tool activity" trace is a collapsible
+      // disclosure, so the group goes in .messages as the NEXT SIBLING of this
+      // turn's trace shell (reads right after that turn's tool activity),
+      // never inside it (and so never counted by the trace's item count).
+      // The shell is only looked up, never created, here. With no
+      // parent_message_id, or no shell for it, append to .messages instead
+      // (legacy/null cases, e.g. synthetic auth_required events in tests).
+      var authShell = data.parent_message_id
+        ? (traceShells[data.parent_message_id] || messagesEl.querySelector(
+            '.trace-shell[data-parent-msg-id="' + cssEscape(data.parent_message_id) + '"]'))
+        : null;
+      if (authShell && authShell.parentNode === messagesEl) {
+        messagesEl.insertBefore(group, authShell.nextSibling);
       } else {
         messagesEl.appendChild(group);
       }
@@ -1981,17 +1979,17 @@ App.registerArea({
           currentStreamingVisibility = null;
           var flowKey = data.source_id ? loginFlowKey(data.source_id) : null;
           var flow = flowKey ? loginFlows[flowKey] : null;
-          if (data.consent_url && flowKey) {
-            if (!flow) {
-              flow = loginFlows[flowKey] = {
-                consentUrl: null, startedHere: false, autoOpened: false,
-              };
-            }
+          // Sortie 04 DD2 amendment: store a consent URL only for a flow this
+          // client started (its own "Log in" click). An in-band frame (the SDK's
+          // own flow, killed by the connect timeout) or another client's flow is
+          // ignored: the normal "Log in" group renders and a click starts fresh.
+          var ownFlow = !!(flow && flow.startedHere);
+          if (data.consent_url && flowKey && ownFlow) {
             flow.consentUrl = data.consent_url;
           }
           var popupHeld = false;
           var consentSafe = App.consentLink.isSafeUrl(data.consent_url);
-          if (data.consent_url && oauthPopups[data.source_id]) {
+          if (data.consent_url && ownFlow && oauthPopups[data.source_id]) {
             var p = oauthPopups[data.source_id];
             if (!consentSafe) {
               // Never navigate the pre-opened popup to a non-web address.
@@ -2011,7 +2009,7 @@ App.registerArea({
           // from this page's click, only when no popup is held and not yet tried.
           // The desktop webview hands this to the system browser (it may be
           // swallowed without a user gesture; the link block is the fallback).
-          if (consentSafe && flow && flow.startedHere && !popupHeld && !flow.autoOpened) {
+          if (consentSafe && ownFlow && !popupHeld && !flow.autoOpened) {
             flow.autoOpened = true;
             try { window.open(data.consent_url, '_blank'); } catch (e) { /* link block remains */ }
           }
@@ -2021,8 +2019,13 @@ App.registerArea({
           // "Resuming…" placeholder until the resumed tool_result arrives.
           // (The popup was closed above the frame gate: the callback page's
           // own window.close() usually fires first; that is a fallback.)
+          // Focus inside the removed link block would fall to <body>; hand it
+          // to the composer (the stable place the user continues from).
+          var ar = document.activeElement;
+          var arLost = !!(ar && ar.closest && ar.closest('.login-required-group'));
           clearLoginRequiredButton(data);
           renderResumingPlaceholder(data);
+          if (arLost && !inputEl.disabled) inputEl.focus();
         }
         else if (data.type === 'auth_failed') {
           // F5 L5: surface the OAuth-flow failure as a system error
