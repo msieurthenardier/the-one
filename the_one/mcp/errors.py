@@ -49,6 +49,28 @@ class MCPConnectionError(MCPClientError):
     """Spawn failed, stream closed, network unreachable, transport-level error."""
 
 
+class MCPCredentialsRejected(MCPConnectionError):  # noqa: N818  (a result, not an "Error" semantically; subclass of MCPConnectionError)
+    """The server answered 401 to the operator's configured headers and offers no sign-in.
+
+    Raised in place of :class:`MCPAuthRequired` exactly when the source carries
+    operator-supplied request headers, the 401 named no ``resource_metadata``, and
+    the client has no OAuth provider attached (``MCPClient._signin_signal``).
+    Subclasses :class:`MCPConnectionError` so every existing graceful-skip catch
+    (agent build, ``_tool.py``, Test connection's typed arm) handles it; it
+    carries no ``is_auth_required`` metadata, so chat offers no login button.
+    """
+
+    def __init__(self, source_id: str, source_name: str | None = None) -> None:
+        self.source_id = source_id
+        self.source_name = source_name
+        label = source_name or source_id
+        super().__init__(
+            f"{label} rejected the configured credentials (401). Check the headers for "
+            "this MCP server in Library \u203a MCP servers, or the agent's MCPs tab if it "
+            "overrides them."
+        )
+
+
 class MCPToolNotFoundError(MCPClientError):
     """call_tool was invoked with a tool name not present in the server's tool list."""
 

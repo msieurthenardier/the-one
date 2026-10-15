@@ -50,6 +50,7 @@ from the_one.mcp.errors import (
     MCPCapabilityMissing,
     MCPClientError,
     MCPConnectionError,
+    MCPCredentialsRejected,
     MCPToolNotFoundError,
     MCPVersionMismatch,
 )
@@ -363,8 +364,8 @@ class MCPClient:
 
     def _auth_required_since(
         self, record: AuthRecord | None, baseline: int
-    ) -> MCPAuthRequired | None:
-        """DD1: an :class:`MCPAuthRequired` iff the most recent MCP-POST
+    ) -> MCPClientError | None:
+        """DD1: a sign-in signal (see :meth:`_signin_signal`) iff the most recent MCP-POST
         response after ``baseline`` was a 401, else None.
 
         ``record`` is the connection's :func:`auth_record_for` entry (None for a
@@ -375,10 +376,31 @@ class MCPClient:
         """
         if record is None or not saw_401_since(record, baseline):
             return None
+        return self._signin_signal(record.last_resource_metadata)
+
+    def _signin_signal(self, resource_metadata_url: str | None) -> MCPClientError:
+        """The ONE place a 401 becomes a typed result.
+
+        :class:`MCPCredentialsRejected` exactly when the source carries
+        operator-supplied request headers, the 401 named no ``resource_metadata``
+        and no OAuth provider is attached (the operator gave a key, the server
+        refused it and offers no sign-in); otherwise :class:`MCPAuthRequired`.
+        """
+        if (
+            resource_metadata_url is None
+            and self._auth_provider is None
+            and self.source.type == "streamable-http"
+        ):
+            from the_one.mcp.transports.streamable_http import build_request_headers
+
+            if build_request_headers(self.source):
+                return MCPCredentialsRejected(
+                    source_id=self.source.id, source_name=self.source.name
+                )
         return MCPAuthRequired(
             source_id=self.source.id,
             source_name=self.source.name,
-            resource_metadata_url=record.last_resource_metadata,
+            resource_metadata_url=resource_metadata_url,
             consent_url=None,
         )
 
@@ -411,10 +433,12 @@ class MCPClient:
 
         ``op`` is ``"connect"``, ``"list_tools"`` or ``"call_tool"``. First match
         wins: (0) ``DiscoverSignInRequired`` (negotiation's deferred discover 401) gives
-        ``MCPAuthRequired``; (1) ``UrlElicitationRequiredError`` passes through unchanged in
+        ``MCPAuthRequired`` or ``MCPCredentialsRejected`` (``_signin_signal``); (1)
+        ``UrlElicitationRequiredError`` passes through unchanged in
         ``list_tools``/``call_tool`` (``connect`` leaves it to its generic arm, which
         wraps it); (2) a 401 as the last MCP-POST response since ``baseline`` gives
-        ``MCPAuthRequired``; (3) a -32022 protocol-version rejection; (4) the SSE
+        ``MCPAuthRequired`` or ``MCPCredentialsRejected`` (``_signin_signal``); (3) a -32022
+        protocol-version rejection; (4) the SSE
         size cap; (5) a terminated session. Row 6 (input required) is a result
         branch in ``call_tool``. ``None`` means the caller's own arm applies. The
         caller keeps its cleanup and must have read ``record`` before it.
@@ -424,15 +448,15 @@ class MCPClient:
         if isinstance(exc, DiscoverSignInRequired):
             # Leg discover-401-signin: discover was answered 401 and the handshake
             # failed after it, so the record's last status no longer shows the 401.
-            return MCPAuthRequired(
-                source_id=self.source.id,
-                source_name=self.source.name,
-                resource_metadata_url=exc.resource_metadata_url,
-                consent_url=None,
-            )
-        auth_required = self._auth_required_since(record, baseline)
-        if auth_required is not None:
-            return auth_required
+            signal = self._signin_signal(exc.resource_metadata_url)
+        else:
+            signal = self._auth_required_since(record, baseline)
+        if signal is not None:
+            if isinstance(signal, MCPCredentialsRejected) and op != "connect":
+                # A corrected header (or agent override) takes effect on the next
+                # acquire, not after the pool reaps this entry.
+                self._mark_dead()
+            return signal
         if not isinstance(exc, MCPError):
             return None
         if exc.code == UNSUPPORTED_PROTOCOL_VERSION:

@@ -1830,11 +1830,38 @@
     //   - 'failed' / 'expired' → render error + "Sign in" retry button.
     //     The IdP's error_description is surfaced so the operator can
     //     diagnose. NO re-POST.
-    //   - no message received (user cancelled the popup before OAuth
-    //     resolved, or browser blocked the postMessage) → render
-    //     "Sign-in did not complete" + retry button. NO re-POST.
+    //   - no message received (the postMessage was blocked, or the user
+    //     never finished) → keep polling for the token to CONSENT_WAIT_MS,
+    //     then render "Sign-in timed out" + retry button. NO re-POST.
     function launchConsentPopup(consentUrl) {
-      statusEl.textContent = 'Opening consent popup…';
+      // Sortie 04 DD1/DD2: the status panel (testid mcp-test-status, kept on the
+      // outer element) gets a status-text child, a retry area and the sign-in
+      // link block, so the text updates below never wipe the link. A fresh
+      // launch (including the retry "Sign in") rebuilds all three.
+      var focusWasInStatus = !!(document.activeElement &&
+        statusEl.contains(document.activeElement));
+      statusEl.replaceChildren();
+      var textEl = document.createElement('span');
+      textEl.className = 'mcp-consent-status-text';
+      textEl.setAttribute('role', 'status');
+      var retryEl = document.createElement('span');
+      retryEl.className = 'mcp-consent-retry';
+      retryEl.setAttribute('role', 'status');
+      var blockEl = document.createElement('div');
+      blockEl.className = 'mcp-consent-block';
+      statusEl.appendChild(textEl);
+      statusEl.appendChild(retryEl);
+      statusEl.appendChild(blockEl);
+      textEl.textContent = 'Opening sign-in…';
+      blockEl.appendChild(App.consentLink.build(consentUrl, {
+        surface: 'mcp',
+        sourceName: (document.getElementById('mf-name') || {}).value || '',
+      }));
+      if (focusWasInStatus) {
+        var landing = App.consentLink.focusTarget(blockEl);
+        if (landing) landing.focus();
+      }
+
       var popupW = 600;
       var popupH = 700;
       var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
@@ -1848,11 +1875,17 @@
         ',left=' + Math.round(popupLeft) +
         ',top=' + Math.round(popupTop)
       );
-      var popup = window.open(consentUrl, 'mcp-oauth-consent', features);
-      if (!popup) {
-        statusEl.textContent = 'Popup blocked — please allow popups and retry.';
-        settle();
-        return;
+      // A null from window.open is NOT a failure: the desktop webview always
+      // returns null (it hands the URL to the system browser), and a real
+      // popup blocker leaves the link block as the way in. Either way keep
+      // waiting for the token. Every use of the handle below is null-guarded.
+      var popup = App.consentLink.isSafeUrl(consentUrl)
+        ? window.open(consentUrl, 'mcp-oauth-consent', features) : null;
+      function popupClosed() {
+        try { return !!popup && popup.closed; } catch (e) { return false; }
+      }
+      function closePopup() {
+        try { if (popup && !popup.closed) popup.close(); } catch (e) { /* */ }
       }
       // F4 L3 — postMessage-independent polling. Earlier iterations
       // gated polling on a `success` postMessage from /oauth/callback,
@@ -1863,20 +1896,16 @@
       // closes, UI shows "did not complete" even though OAuth succeeded.
       //
       // Decoupled design: poll `GET /api/mcp-sources/{id}` for
-      // `has_access_token: true` from popup-open. Polling is the source
-      // of truth for success. postMessage demotes to a fast-fail signal
+      // `has_access_token: true` from the moment the block shows. Polling
+      // is the source of truth for success, whether or not a popup exists
+      // or closes (sortie 04: a user can finish through the link after
+      // closing the popup). postMessage demotes to a fast-fail signal
       // for failed/expired (short-circuits the wait to give the
       // operator the IdP's error text immediately).
       //
       // States:
-      //   POLLING — popup open or recently closed; checking for tokens.
+      //   POLLING — checking for tokens, up to CONSENT_WAIT_MS.
       //   DONE    — final action taken (re-POST or retry-UI). Idempotent.
-      //
-      // Popup-close handling: when popup.closed flips, we don't bail
-      // immediately — give a short grace window (a few more polls) in
-      // case tokens are still landing. If polling still misses, render
-      // retry. If user cancelled, polling never finds tokens and falls
-      // through to retry after the grace window.
       var state = 'POLLING';
       var pollTimer = null;
       var pollAttempts = 0;
@@ -1886,8 +1915,6 @@
       var CONSENT_WAIT_MS = 120000;
       var POLL_INTERVAL_MS = 500;
       var maxPollAttempts = CONSENT_WAIT_MS / POLL_INTERVAL_MS; // 240
-      var graceAfterClose = 6; // 3s extra polls after popup-close
-      var attemptsCapAfterClose = null; // set on close; bails when reached
 
       function cleanup() {
         if (pollTimer) clearInterval(pollTimer);
@@ -1902,11 +1929,15 @@
       }
 
       function renderRetryUi(headerText) {
-        statusEl.innerHTML = '';
+        // The link's URL is dead once the flow failed/expired/timed out.
+        var focusWasInBlock = blockEl.contains(document.activeElement);
+        blockEl.replaceChildren();
+        textEl.textContent = '';
+        retryEl.replaceChildren();
         var msg = document.createElement('span');
         msg.className = 'mcp-tools-error';
         msg.textContent = headerText + ' ';
-        statusEl.appendChild(msg);
+        retryEl.appendChild(msg);
         var retryBtn = document.createElement('button');
         retryBtn.type = 'button';
         retryBtn.className = 'btn-outlined-primary';
@@ -1915,7 +1946,8 @@
         retryBtn.addEventListener('click', function () {
           launchConsentPopup(consentUrl);
         });
-        statusEl.appendChild(retryBtn);
+        retryEl.appendChild(retryBtn);
+        if (focusWasInBlock) retryBtn.focus();
       }
 
       function onOAuthMessage(evt) {
@@ -1930,13 +1962,13 @@
         if (d.status === 'failed') {
           var failMsg = d.description || d.error || 'sign-in failed';
           finalize(function () {
-            if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
+            closePopup();
             renderRetryUi('✗ Sign-in failed: ' + failMsg + '.');
             settle();
           });
         } else if (d.status === 'expired') {
           finalize(function () {
-            if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
+            closePopup();
             renderRetryUi('✗ Sign-in window expired.');
             settle();
           });
@@ -1944,17 +1976,14 @@
       }
       window.addEventListener('message', onOAuthMessage);
 
-      statusEl.textContent = 'Awaiting sign-in…';
+      textEl.textContent = 'Awaiting sign-in…';
 
       pollTimer = setInterval(function () {
         if (state === 'DONE') return;
 
-        // Track popup-close transition (first observation only).
-        var popupNowClosed = popup.closed;
-        if (popupNowClosed && attemptsCapAfterClose === null) {
-          attemptsCapAfterClose = pollAttempts + graceAfterClose;
-          statusEl.textContent = 'Finalizing sign-in…';
-        }
+        // A popup that closed while we still wait only changes the wording:
+        // the token can still land through the link.
+        if (popupClosed()) textEl.textContent = 'Finalizing sign-in…';
 
         pollAttempts++;
 
@@ -1964,30 +1993,19 @@
             if (state === 'DONE') return;
             if (src && src.has_access_token === true) {
               finalize(function () {
-                if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
-                // Phase A re-POST. noAutoPopup defensive — if something
+                closePopup();
+                // Phase A re-POST (it rewrites the whole panel, so the link
+                // block goes with it). noAutoPopup defensive — if something
                 // weird leaves Phase A still failing, retry UI surfaces
                 // instead of looping.
                 handleTestConnection(sourceId, container, testBtn, formData, onSuccess, { noAutoPopup: true });
               });
               return;
             }
-            var hitOverallCap = pollAttempts >= maxPollAttempts;
-            var hitGraceCap = attemptsCapAfterClose !== null && pollAttempts >= attemptsCapAfterClose;
-            if (hitOverallCap || hitGraceCap) {
+            if (pollAttempts >= maxPollAttempts) {
               finalize(function () {
-                var label;
-                if (hitGraceCap && !hitOverallCap) {
-                  // Popup closed without tokens landing in the grace
-                  // window — likely manual cancel or IdP rejection
-                  // whose postMessage didn't reach us (cross-origin
-                  // opener severed).
-                  label = 'Sign-in did not complete.';
-                } else {
-                  label = 'Sign-in timed out — tokens did not persist within '
-                    + (CONSENT_WAIT_MS / 1000) + 's.';
-                }
-                renderRetryUi(label);
+                renderRetryUi('Sign-in timed out — tokens did not persist within '
+                  + (CONSENT_WAIT_MS / 1000) + 's.');
                 settle();
               });
             }

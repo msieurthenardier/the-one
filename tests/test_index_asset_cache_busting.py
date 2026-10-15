@@ -79,11 +79,12 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # M28 F2 L3 adds areas/admin/date-time-page.js, to 87; sortie 02 L1 adds
     # areas/studio/providers-section.js, to 88; provider-editor.js and provider-models.js
     # move from areas/admin/ to areas/studio/, still 88; sortie 02 L2 deletes
-    # areas/admin/providers-list.js with the Settings Providers page, to 87.)
+    # areas/admin/providers-list.js with the Settings Providers page, to 87; sortie 04
+    # adds consent-link.js, to 88.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 87
+    assert len(refs) == 88
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

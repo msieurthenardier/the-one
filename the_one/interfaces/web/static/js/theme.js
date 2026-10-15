@@ -63,8 +63,18 @@
   var chromeFailTheme = null;
   var chromeFailures = 0;
 
-  function isDesktopWebview() {
+  // The one desktop-webview check, shared as App.desktop.isWebview() (sortie 04
+  // DD3). theme.js loads first and creates window.App; later scripts extend it
+  // in place. Chat's sign-in is the only other caller (it skips its about:blank
+  // pre-open in the webview, where window.open hands the URL to the system browser).
+  window.App = window.App || {};
+  window.App.desktop = window.App.desktop || {};
+  window.App.desktop.isWebview = function () {
     return !!((window.chrome && window.chrome.webview) || window.pywebview);
+  };
+
+  function isDesktopWebview() {
+    return window.App.desktop.isWebview();
   }
 
   function chromePump() {

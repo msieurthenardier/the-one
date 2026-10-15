@@ -175,6 +175,38 @@ class TestToolError:
         assert "kaboom" in msgs[1].content
 
 
+class TestCredentialsRejected:
+    async def test_rejected_credentials_is_an_error_result_without_auth_metadata(self) -> None:
+        """Sortie 04 DD4: MCPCredentialsRejected (an MCPConnectionError) reaches the
+        generic arm: an error tool result, no ``is_auth_required`` metadata, so chat
+        offers no login button."""
+        from the_one.mcp.errors import MCPCredentialsRejected
+
+        class _Rejected(Tool):
+            name = "rejected_tool"
+            description = "always rejected"
+            parameters: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+
+            async def execute(self, **kwargs: Any) -> str:
+                raise MCPCredentialsRejected("src-1", "goldfinch")
+
+        llm = FakeLLM(
+            [
+                Message.assistant(
+                    "", tool_calls=[ToolCall(id="1", name="rejected_tool", arguments={})]
+                ),
+                Message.assistant("done"),
+            ]
+        )
+        agent = Agent(llm=llm, tools=_make_registry(_Rejected()), system_prompt="test")
+        msgs = await _collect(agent, "go")
+        result = msgs[1].tool_result
+        assert result is not None
+        assert result.is_error is True
+        assert not (result.metadata or {}).get("is_auth_required")
+        assert "rejected the configured credentials" in msgs[1].content
+
+
 class TestReset:
     async def test_reset_clears_to_system_prompt(self) -> None:
         """After step, reset() leaves only the system prompt."""
