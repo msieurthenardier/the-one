@@ -130,7 +130,7 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
     first = page.locator('.form-actions > [data-testid="editor-unsaved"]:first-child')
     expect(first).to_have_count(1)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
-    expect(page.locator(".form-actions .test-provider-btn")).to_be_visible()
+    expect(page.locator('.form-actions [data-testid="test-connection-btn"]')).to_be_visible()
     expect(page.locator(".form-actions .editor-error")).to_have_count(1)
 
 
@@ -141,7 +141,7 @@ def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) 
     expect(page.locator(".form-actions .back-btn")).to_have_count(0)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
     # No Test button in create mode.
-    expect(page.locator(".form-actions .test-provider-btn")).to_have_count(0)
+    expect(page.locator('.form-actions [data-testid="test-connection-btn"]')).to_have_count(0)
     expect(page.locator(".form-actions .editor-error")).to_have_count(1)
 
 
@@ -261,7 +261,7 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     # First click arms the button. No agents use this provider, so no
     # hard-block.
     delete_btn.click()
-    expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
+    expect(delete_btn).to_have_text(re.compile(r"Confirm delete\?", re.IGNORECASE))
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
     # Second click actually deletes: back to the Library root; the list had one
     # provider row, so focus goes to the Add menu (M25 F3 L5b, DD8).
@@ -315,7 +315,7 @@ def test_delete_confirm_lapse_is_visually_distinct(
     expect(delete_btn).to_be_visible(timeout=8000)
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     delete_btn.click()
-    expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
+    expect(delete_btn).to_have_text(re.compile(r"Confirm delete\?", re.IGNORECASE))
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
@@ -346,7 +346,7 @@ def test_delete_confirm_lapse_via_fail_open_path_is_visually_distinct(
     expect(delete_btn).to_be_visible(timeout=8000)
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     delete_btn.click()
-    expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE), timeout=5000)
+    expect(delete_btn).to_have_text(re.compile(r"Confirm delete\?", re.IGNORECASE), timeout=5000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
@@ -384,8 +384,10 @@ def test_test_result_uses_canonical_class(app_with_provider: SeededApp, page: Pa
     test_btn = page.locator('[data-testid="test-connection-btn"]')
     expect(test_btn).to_be_visible(timeout=8000)
     test_btn.click()
-    # Mock provider returns ok; result rendered as .test-result-ok inside .test-result.
-    expect(page.locator(".test-result .test-result-ok")).to_be_visible(timeout=5000)
+    # Mock provider returns ok; the result is the success status line.
+    expect(
+        page.locator('[data-testid="provider-test-result"][data-state="success"]')
+    ).to_be_visible(timeout=5000)
 
 
 # ── API-key eye toggle ──────────────────────────────────────────────────
@@ -399,11 +401,73 @@ def test_api_key_eye_toggle(app_clean: str, page: Page) -> None:
     page.locator("#pf-type").select_option("openai")
     api_key = page.locator("#pf-api-key")
     expect(api_key).to_have_attribute("type", "password")
-    eye = page.locator(".api-key-eye")
+    eye = page.get_by_role("button", name="Show password")
+    expect(eye).to_have_attribute("aria-pressed", "false")
     eye.click()
     expect(api_key).to_have_attribute("type", "text")
-    eye.click()
+    expect(page.get_by_role("button", name="Hide password")).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    page.get_by_role("button", name="Hide password").click()
     expect(api_key).to_have_attribute("type", "password")
+
+
+@pytest.mark.browser
+def test_masked_key_round_trip_and_remask_after_save(app_clean: str, page: Page) -> None:
+    """The `__MASKED__` contract, and the re-mask fix: an untouched key is sent as the
+    sentinel; a changed key is sent as typed and the field shows the server's masked value
+    after Save (hidden again), so the plaintext is not re-sent by the next Save; Cancel
+    after typing restores the masked value."""
+    pid = _seed_openai_compatible_provider(app_clean)
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(pid)}")
+    name = page.locator("#pf-name")
+    key = page.locator("#pf-api-key")
+    expect(name).to_have_value("compat-orig", timeout=8000)
+    masked = key.input_value()
+    assert masked and "seedkey" not in masked
+
+    bodies: list[dict] = []
+
+    def capture(route):
+        if route.request.method == "PUT":
+            bodies.append(route.request.post_data_json)
+        route.continue_()
+
+    page.route(f"**/api/providers/{pid}", capture)
+
+    # 1. Untouched key: the sentinel is sent.
+    name.fill("compat-renamed")
+    page.locator('[data-testid="save-provider-btn"]').click()
+    expect(page.locator(".editor-title")).to_have_text("compat-renamed", timeout=8000)
+    assert bodies[-1]["api_key"] == "__MASKED__"
+
+    # 2. A changed key is sent as typed; afterwards the field is masked and hidden again.
+    page.get_by_role("button", name="Show password").click()
+    expect(key).to_have_attribute("type", "text")
+    key.fill("sk-brand-new-key-9999")
+    page.locator('[data-testid="save-provider-btn"]').click()
+    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled(timeout=8000)
+    assert bodies[-1]["api_key"] == "sk-brand-new-key-9999"
+    expect(key).to_have_attribute("type", "password")
+    expect(page.get_by_role("button", name="Show password")).to_have_attribute(
+        "aria-pressed", "false"
+    )
+    remasked = key.input_value()
+    assert "brand-new" not in remasked
+    assert remasked != "sk-brand-new-key-9999"
+
+    # 3. The next Save sends the sentinel again, not the earlier plaintext.
+    name.fill("compat-renamed-2")
+    page.locator('[data-testid="save-provider-btn"]').click()
+    expect(page.locator(".editor-title")).to_have_text("compat-renamed-2", timeout=8000)
+    assert bodies[-1]["api_key"] == "__MASKED__"
+
+    # 4. Cancel after typing restores the masked value (and hides it).
+    page.get_by_role("button", name="Show password").click()
+    key.fill("sk-typed-then-cancelled")
+    page.locator('[data-testid="cancel-provider-btn"]').click()
+    expect(key).to_have_value(remasked)
+    expect(key).to_have_attribute("type", "password")
 
 
 # ── Context Window (num_ctx) field — F09-05 polish ───────────────────────
@@ -425,12 +489,20 @@ def test_num_ctx_field_shown_for_ollama_with_default_prefill(app_clean: str, pag
     expect(page.locator('label[for="pf-num-ctx"]')).to_have_text("Context Window")
 
 
+def _assert_described_by(page: Page, selector: str, desc: str) -> None:
+    """The control's aria-describedby names the info button's visually hidden description."""
+    ids = (page.locator(selector).get_attribute("aria-describedby") or "").split()
+    assert ids, selector
+    texts = [page.locator(f"#{i}").text_content() for i in ids]
+    assert desc in texts, (selector, texts)
+
+
 @pytest.mark.browser
 def test_num_ctx_field_hidden_for_non_ollama(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
-    expect(page.locator(".admin-pf-num-ctx")).to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-num-ctx")).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -449,8 +521,7 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
     expect(icon).to_be_visible()
     expect(icon).to_have_attribute("title", desc)
     assert icon.get_attribute("aria-describedby") is None  # label carries the hint
-    expect(page.locator("#pf-num-ctx-desc")).to_have_text(desc)
-    expect(page.locator("#pf-num-ctx")).to_have_attribute("aria-describedby", "pf-num-ctx-desc")
+    _assert_described_by(page, "#pf-num-ctx", desc)
 
 
 # ── Extended thinking (config.thinking_enabled) toggle — F10-06 ──────────
@@ -477,7 +548,7 @@ def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) ->
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
-    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-thinking-enabled")).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -496,10 +567,12 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     expect(icon).to_be_visible()
     expect(icon).to_have_attribute("title", desc)
     assert icon.get_attribute("aria-describedby") is None  # label carries the hint
-    expect(page.locator("#pf-thinking-enabled-desc")).to_have_text(desc)
-    expect(page.locator("#pf-thinking-enabled")).to_have_attribute(
-        "aria-describedby", "pf-thinking-enabled-desc"
-    )
+    _assert_described_by(page, "#pf-thinking-enabled", desc)
+
+
+def _flip_thinking(page: Page) -> None:
+    """Flip the Extended thinking switch the way a user does: click its visible label."""
+    page.locator("label", has=page.locator("#pf-thinking-enabled")).click()
 
 
 @pytest.mark.browser
@@ -516,7 +589,7 @@ def test_thinking_toggle_flips_save_from_disabled_to_enabled(app_clean: str, pag
     expect(toggle).not_to_be_checked()
     # Clean form → Save disabled.
     expect(page.locator(".save-btn")).to_be_disabled()
-    toggle.check()
+    _flip_thinking(page)
     # Checkbox toggle must mark the form dirty.
     expect(page.locator(".save-btn")).not_to_be_disabled()
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
@@ -531,7 +604,7 @@ def test_thinking_toggle_saves_and_reopens_checked(app_clean: str, page: Page) -
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).not_to_be_checked()
-    toggle.check()
+    _flip_thinking(page)
     save_btn = page.locator(".save-btn")
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
@@ -551,7 +624,7 @@ def test_thinking_toggle_cancel_reverts(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).not_to_be_checked()
-    toggle.check()
+    _flip_thinking(page)
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
     expect(page.locator("#pf-thinking-enabled")).not_to_be_checked()

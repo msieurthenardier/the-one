@@ -525,7 +525,7 @@ def test_auth_resolved_does_not_steal_focus_from_elsewhere(
 
 
 @pytest.mark.browser
-def test_copy_keeps_its_accessible_name_while_the_live_region_announces(
+def test_copy_name_follows_its_text_while_the_live_region_announces(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
@@ -540,9 +540,9 @@ def test_copy_keeps_its_accessible_name_while_the_live_region_announces(
     copy.click()
     expect(copy).to_have_text("Copied")
     # Immediate, non-retrying reads: the "Copied" flash lasts 2s and an auto-retrying
-    # expect would pass once it reverts. The name stays "Copy" while it shows.
-    assert copy.get_attribute("aria-label") == "Copy"
-    assert page.get_by_role("button", name="Copy", exact=True).count() == 1
+    # expect would pass once it reverts. The name follows the visible text (WCAG 2.5.3).
+    assert copy.get_attribute("aria-label") is None
+    assert page.get_by_role("button", name="Copied", exact=True).count() == 1
     expect(page.locator(".consent-link-live")).to_have_text("Link copied")
 
 

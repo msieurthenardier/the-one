@@ -38,14 +38,9 @@
      field-row. Currently scoped to .area-studio per F5 scope; if other
      areas adopt the same pattern this rule can be lifted to
      components.css. */
-  .area-studio .section-description {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    margin-top: -4px;
-    margin-bottom: 12px;
-  }
+  /* .section-description lifted to components.css (M31 F1 L4). */
   .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
-  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+  .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
@@ -1321,9 +1316,8 @@
   .area-studio .kb-folders-list { margin-top: var(--space-3); }
 
   /* L6-D3 (amended): the ARMED two-step-confirm state on a folder's
-     `<summary>`. components.css's canonical `.list-item.confirm-delete`
-     pair does not reach here — those selectors are scoped to
-     `.list-item` / `.delete-btn`, and neither matches a `<summary>`, so
+     `<summary>`. components.css's canonical confirm-delete rules
+     do not match a `<summary>`, so
      without these rules the "Confirm delete?" text would swap in with no
      danger affordance at all. Same pair, re-expressed for this panel and
      using the same tokens: the danger colour lands on the `<details>`'s
@@ -1623,9 +1617,7 @@
   /* === Provider editor and model list in Library (sortie 02, DD7) === */
   /* The provider editor's and model list's rules (originally admin.css, from
      when Settings hosted providers). The `admin-pf-*` / `plan-*` class names
-     are accepted naming debt. `.cap-chip*` is unscoped, in components.css. */
-  .area-studio .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
-  .area-studio .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+     are accepted naming debt. The capability chips are App.ui.chip, the pull progress App.ui.progress. */
   .area-studio .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
   .area-studio .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
@@ -1642,39 +1634,31 @@
   .area-studio .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
   .area-studio .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
   .area-studio .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
-  .area-studio .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
+  .area-studio .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; flex-wrap: wrap; }
   .area-studio .admin-pf-model-row:last-child { border-bottom: none; }
   .area-studio .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .area-studio .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
   .area-studio .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  /* admin-pf-model-btn retained as a JS hook only — styling comes from
-     canonical .btn-outlined-primary / .btn-muted-destructive + .btn-sm. */
-  .area-studio .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
+  /* admin-pf-model-btn retained as a JS hook only — styling comes from App.ui.button. */
+  .area-studio .admin-pf-model-led { gap: 0; }
+  .area-studio .admin-pf-model-error { width: 100%; }
   .area-studio .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
   .area-studio .admin-pf-pull-name { flex: 1; }
   .area-studio .admin-pf-pull-go { padding: 6px 14px; font-size: var(--font-size-caption); }
-  .area-studio .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
-  .area-studio .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
-  .area-studio .admin-pf-pull-text { position: relative; font-size: var(--font-size-caption); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; flex: 1; }
-  .area-studio .admin-pf-pull-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
-  .area-studio .admin-pf-pull-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
-  .area-studio .admin-pf-pull-cancel svg { width: 12px; height: 12px; display: block; }
   .area-studio .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
-  .area-studio .admin-pf-pull-size:not(.test-result-warning) { color: var(--fg-secondary); }
+  .area-studio .admin-pf-pull-size { color: var(--fg-secondary); }
+  /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px dot the
+     retired .test-result-warning retrofit drew. */
+  .area-studio .admin-pf-pull-size--warn { color: var(--status-warning); }
+  .area-studio .admin-pf-pull-size--warn::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background-color: var(--status-warning); }
   .area-studio .admin-pf-pull-size:empty { padding: 0; }
-  .area-studio .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
-  .area-studio .plan-signin-body { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-studio .plan-signin-body, .area-studio .plan-signin-state { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-studio .plan-signin-consent { display: flex; flex-direction: column; gap: var(--space-2); }
+  /* The switch row sits in the field stack: the same gap a .field-group leaves. */
+  .area-studio .admin-pf-thinking-enabled { margin-bottom: var(--space-3); }
   .area-studio .plan-signin-desc { margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: var(--line-height-normal); }
   .area-studio .plan-signin-actions { display: flex; align-items: center; gap: var(--space-3); }
-  .area-studio .plan-signin-hint { font-size: var(--font-size-caption); color: var(--fg-muted); }
   .area-studio .plan-connected-row { display: flex; align-items: center; gap: var(--space-3); }
-  .area-studio .plan-connected-text { font-size: var(--font-size-body-sm); color: var(--fg); }
-  .area-studio .plan-signin-url-row, .area-studio .plan-code-row { display: flex; align-items: center; gap: var(--space-2); }
-  .area-studio .plan-signin-url-row .field-input, .area-studio .plan-code-row .field-input { flex: 1; min-width: 0; }
-  .area-studio .plan-signin-url { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); }
-
-  /* === Claude Plan (Token) expiry line (sortie 03 DD6) ===================
-     `.field-hint` supplies the muted caption; soon/past recolour it. */
-  .area-studio .token-expiry--soon { color: var(--status-warning); }
-  .area-studio .token-expiry--past { color: var(--status-danger); }
+  .area-studio .plan-code-row { display: flex; align-items: center; gap: var(--space-2); max-width: 560px; } /* aligned with the consent link's own width */
+  .area-studio .plan-code-row > input { flex: 1; min-width: 0; }
 }

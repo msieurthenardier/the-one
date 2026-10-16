@@ -13,8 +13,6 @@ history, Stay/Continue and joins; squawk 0082.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from browser import _chats, _nav
 from browser.seeders import SeededApp
@@ -109,7 +107,6 @@ ROUND_TRIP_SPECS = [
     {"destination": "settings", "section": "encryption"},
     {"destination": "settings", "section": "tools", "id": "web search"},
     {"destination": "settings", "section": "knowledge-indexing"},
-    {"destination": "settings", "section": "design-language"},
 ]
 
 
@@ -487,31 +484,21 @@ def test_no_destination_id_equals_an_element_id(app_clean: str, page: Page) -> N
     assert clashes == []
 
 
-def test_design_language_route_follows_dev_mode_rules(app_clean: str, page: Page) -> None:
-    """The browser-lane app runs in dev mode, so the route is known there; with
-    dev_mode forced off it follows the unknown-hash rules (boot -> chats, after
-    boot -> restore current)."""
-    _boot(page, app_clean, "#settings/design-language")
-    _nav.expect_route(page, "settings/design-language")
-    page.evaluate("App.config.dev_mode = false")
-    page.evaluate("location.hash = '#settings/design-language'")  # no-op: same route
+@pytest.mark.parametrize("raw", ["#settings/design-language", "#admin/design-language"])
+def test_design_language_is_an_unknown_route_even_in_dev_mode(
+    app_clean: str, page: Page, raw: str
+) -> None:
+    """The page is retired (M31 F1 L1): with dev mode ON its hash, and the
+    `admin` alias spelling, follow the unknown-hash rules (boot -> chats,
+    after boot -> restore the current route)."""
+    _boot(page, app_clean, raw)
+    assert page.evaluate("App.config.dev_mode") is True
+    assert page.evaluate("location.hash").startswith("#chats"), raw
     page.evaluate("location.hash = '#settings/appearance'")
     page.wait_for_function("App.router.current().route === 'settings/appearance'")
-    page.evaluate("location.hash = '#settings/design-language'")
+    page.evaluate(f"location.hash = '{raw}'")
     page.wait_for_function("location.hash === '#settings/appearance'")
-
-
-def test_design_language_unknown_at_boot_without_dev_mode(app_clean: str, page: Page) -> None:
-    page.route(
-        "**/api/config",
-        lambda route: route.fulfill(
-            status=200,
-            content_type="application/json",
-            body=json.dumps({"dev_mode": False, "version": "x"}),
-        ),
-    )
-    _boot(page, app_clean, "#settings/design-language")
-    assert page.evaluate("location.hash").startswith("#chats")
+    _nav.expect_route(page, "settings/appearance")
 
 
 # ── AC5: the commit sequence ─────────────────────────────────────────────────

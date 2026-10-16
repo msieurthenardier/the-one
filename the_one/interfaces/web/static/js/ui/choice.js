@@ -15,6 +15,8 @@
     input.setAttribute('data-ui-own-label', 'true');
     if (opts.checked) input.checked = true;
     if (opts.disabled) input.disabled = true;
+    if (opts.name) input.name = opts.name;
+    util.applyDataset(input, opts.dataset);
     if (opts.testid) input.setAttribute('data-testid', opts.testid);
     var parts = [input];
     var i;
@@ -27,6 +29,15 @@
     var label = util.el('label', { className: labelClass }, parts);
     label.htmlFor = input.id;
     var root = util.el('div', { className: rootClass + (opts.disabled ? ' is-disabled' : '') }, [label]);
+    var describedBy = [];
+    if (opts.info) {
+      // The info button follows the label element (a sibling, never inside
+      // it); label and button share one row.
+      var info = App.ui.infoButton({ description: opts.info, label: opts.label });
+      var head = util.el('div', { className: 'ui-choice-head' }, [label, info.el]);
+      root.appendChild(head);
+      describedBy.push(info.descriptionId);
+    }
     if (opts.hint) {
       var hint = util.el('div', {
         className: 'field-hint ui-choice-hint',
@@ -34,20 +45,27 @@
         text: opts.hint
       });
       root.appendChild(hint);
-      input.setAttribute('aria-describedby', hint.id);
+      describedBy.push(hint.id);
     }
+    if (describedBy.length) input.setAttribute('aria-describedby', describedBy.join(' '));
     if (typeof opts.onChange === 'function') {
       input.addEventListener('change', function () {
         opts.onChange(input.checked);
       });
     }
-    return { input: input, root: root };
+    function setDisabled(value) {
+      input.disabled = !!value;
+      root.classList.toggle('is-disabled', !!value);
+    }
+    return { input: input, root: root, setDisabled: setDisabled };
   }
 
   // App.ui.checkbox(opts) -> controller {el, control, setChecked(bool),
   // setIndeterminate(bool)}.
-  //   label (required), id, checked, indeterminate, disabled, hint,
-  //   onChange(checked).
+  //   label (required), id, name, checked, indeterminate, disabled, hint,
+  //   info (description; an infoButton follows the label in div.ui-choice-head,
+  //   its description id joins the input's aria-describedby), dataset,
+  //   onChange(checked). setDisabled(bool) also toggles the root's is-disabled.
   //   el is div.ui-checkbox > label.ui-checkbox-label wrapping
   //   input.checkbox-primary and the label text; the optional .field-hint is a
   //   sibling after the label, wired by aria-describedby. The input carries
@@ -65,6 +83,7 @@
     return {
       el: built.root,
       control: input,
+      setDisabled: built.setDisabled,
       setChecked: function (value) {
         input.checked = !!value;
         input.indeterminate = false;
@@ -78,7 +97,8 @@
   // App.ui.toggle(opts) -> controller {el, control, setChecked(bool)}. On/off
   // only (no indeterminate state).
   //   label (required), labelHidden (label stays the accessible name but is
-  //   visually hidden), id, checked, disabled, hint, onChange(checked).
+  //   visually hidden), id, name, checked, disabled, hint, info, dataset,
+  //   onChange(checked). Controller also has setDisabled(bool).
   //   el is div.ui-toggle > label.ui-toggle-label wrapping a visually hidden
   //   input[type=checkbox][role=switch].ui-toggle-input, a decorative
   //   span.ui-toggle-track (aria-hidden; the thumb is its ::after) and the
@@ -93,6 +113,7 @@
     return {
       el: built.root,
       control: built.input,
+      setDisabled: built.setDisabled,
       setChecked: function (value) {
         built.input.checked = !!value;
       }

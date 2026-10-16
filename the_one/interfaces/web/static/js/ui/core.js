@@ -59,30 +59,61 @@
     return node;
   };
 
+  // applyDataset(node, dataset) - copies a plain object onto node.dataset. A
+  // `testid` key is ignored: the test id option owns data-testid (M31 F1 L4).
+  App.ui.util.applyDataset = function (node, dataset) {
+    if (!dataset) return;
+    var key;
+    for (key in dataset) {
+      if (!Object.prototype.hasOwnProperty.call(dataset, key) || key === 'testid') continue;
+      node.dataset[key] = dataset[key];
+    }
+  };
+
   // uid(prefix) - a monotonic, page-unique id: ui-<prefix>-<n>.
   App.ui.util.uid = function (prefix) {
     uidCounter += 1;
     return 'ui-' + (prefix || 'id') + '-' + uidCounter;
   };
 
-  // icon(name) - an SVGElement parsed from App.icons[name] with DOMParser and
-  // imported into the document. Throws on an unknown name or a parse failure
-  // (App.icon only warns and returns an empty string). The node is hidden
-  // from assistive technology and not focusable.
-  App.ui.util.icon = function (name) {
+  // buildIcon(name, who) - an SVGElement parsed from App.icons[name] with
+  // DOMParser and imported into the document. Throws on an unknown name or a
+  // parse failure (App.icon only warns and returns an empty string). The node
+  // is hidden from assistive technology and not focusable.
+  function buildIcon(name, who) {
     var source = window.App.icons && window.App.icons[name];
-    if (!source) throw new Error('App.ui.util.icon: unknown icon "' + name + '"');
+    if (!source) throw new Error(who + ': unknown icon "' + name + '"');
     var doc = new DOMParser().parseFromString(source, 'image/svg+xml');
     var root = doc && doc.documentElement;
     // A failed parse yields a parser-error document (root element varies by
     // engine: some nest the error inside an svg root), so check both.
     if (!root || root.nodeName !== 'svg' || root.getElementsByTagName('parsererror').length) {
-      throw new Error('App.ui.util.icon: icon "' + name + '" did not parse as svg');
+      throw new Error(who + ': icon "' + name + '" did not parse as svg');
     }
     var svg = document.importNode(root, true);
     svg.setAttribute('aria-hidden', 'true');
     svg.setAttribute('focusable', 'false');
     return svg;
+  }
+
+  // App.ui.icon(name, opts) - the icon control (M31 F1 L2, DD6). Returns an
+  // aria-hidden, non-focusable SVG node carrying the owned class `ui-icon`
+  // (16px). opts.size 'sm' adds `ui-icon--sm` (14px); opts.className is
+  // appended. Throws on an unknown name.
+  App.ui.icon = function (name, opts) {
+    opts = opts || {};
+    var svg = buildIcon(name, 'App.ui.icon');
+    var cls = 'ui-icon' + (opts.size === 'sm' ? ' ui-icon--sm' : '');
+    if (opts.className) cls += ' ' + opts.className;
+    svg.setAttribute('class', cls);
+    return svg;
+  };
+
+  // util.icon(name) - the unsized form the library's own callers use: the same
+  // node as App.ui.icon without the size classes, so a host's own `svg` rule
+  // keeps sizing it. Shares App.ui.icon's builder.
+  App.ui.util.icon = function (name) {
+    return buildIcon(name, 'App.ui.util.icon');
   };
 
   // rovingFocus(container, itemSelector, opts) - roving-tabindex keyboard

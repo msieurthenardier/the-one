@@ -12,8 +12,8 @@
 //
 // ctx (studio -> module):
 //   host()                      the detail pane element (sectionContentEl)
-//   getDirty() / setDirty(b)    the shared dirty mirror
-//   editorGen() / bumpEditorGen()  the discard generation (closeOpenItem bumps)
+//   setDirty(b)                 the shared dirty mirror
+//   editorGen()                 the discard generation (closeOpenItem bumps)
 //   isActive()                  studio's section is `providers`
 //   discardOpen()               the App.nav discard teardown (never a URL write)
 //   reloadLibrary(name)         invalidate-then-refetch + list render; Promise
@@ -98,7 +98,7 @@
     function render() {
       var token = ++mountToken;
       var host = ctx.host();
-      host.innerHTML = '';
+      host.replaceChildren();
       if (!formMode && pMode === 'add') {
         formMode = 'add';
         editing = null;

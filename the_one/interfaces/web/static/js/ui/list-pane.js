@@ -164,13 +164,13 @@
   //   written, so a stale "N results" never lingers). A no-op without a
   //   filter. App.studio.clearAgentFilter calls it with ''.
   //   Armed rows: App.confirmDelete arms by adding .confirm-delete to the
-  //     <li> and swapping its [data-confirm-title] child's text (confirm.js).
+  //     <li> and swapping its [data-confirm-title] child's text (ui/confirm.js).
   //     setItems REUSES an armed <li> (row and action nodes, so the armed
   //     title and the revert timer survive) for the same item id, updating
   //     the entry's item to the new one; it still goes through the view pass
   //     (aria-current, tabindex, hidden). Its label may be stale until it
   //     disarms (at most the 3s revert window). If the armed item is absent
-  //     from the new list its <li> is dropped; confirm.js's timer then runs
+  //     from the new list its <li> is dropped; ui/confirm.js's timer then runs
   //     on a detached node, which is harmless. The next setItems after it
   //     disarms rebuilds it normally.
   App.ui.listPane = function (opts) {

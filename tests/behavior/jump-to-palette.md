@@ -101,7 +101,7 @@ It runs in both themes (see Variants) and creates data prefixed `jtp-`.
 ## Out of Scope
 
 - **The picker and the pending-chat flow:** `start-a-chat`.
-- **Palette ordering edge cases, the cap with mixed kinds, the dev-only Design language row,
+- **Palette ordering edge cases, the cap with mixed kinds,
   macOS (Meta K), IME and modifier variants, and the picker-open and confirm-open no-ops:**
   the flow and contract tests (`test_flow_jump_to`, `test_ui_search_list_contract`,
   `test_ui_modal_contract`).

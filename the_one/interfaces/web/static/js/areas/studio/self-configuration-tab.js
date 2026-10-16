@@ -1248,7 +1248,7 @@
       };
       actions.appendChild(rotateBtn);
 
-      // Revoke uses the canonical two-step in-place confirm (confirm.js):
+      // Revoke uses the canonical two-step in-place confirm (ui/confirm.js):
       // first click arms ("Confirm revoke?"), second click within the
       // window commits. Keyboard-operable (it is a <button>).
       var revokeBtn = document.createElement('button');

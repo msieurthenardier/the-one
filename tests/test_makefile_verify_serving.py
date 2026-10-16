@@ -22,6 +22,6 @@ def test_derivation_yields_existing_files():
     out = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, check=True).stdout
     files = out.split()
     assert "admin/system-page.js" in files
-    assert "admin/design-language/tokens-section.js" in files
+    assert "admin/date-time-page.js" in files
     for f in ["admin.js", *files]:
         assert (JS_ROOT / f).is_file(), f

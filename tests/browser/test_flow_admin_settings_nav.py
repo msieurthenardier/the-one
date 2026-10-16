@@ -28,22 +28,19 @@ Falls in the ``settings`` lane (``test_flow_admin_*`` in ``scripts/run-tests.sh`
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from browser import _lists, _nav
 from browser.conftest import credentialed_context
-from playwright.sync_api import Page, Route, expect
+from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
 DIALOG = '[data-testid="confirm-dialog-overlay"]'
 
-# Reference spec section 8.1, in order. Developer is dev-mode only.
+# Reference spec section 8.1, in order.
 GROUPS = [
     ("General", ["appearance", "date-and-time", "prompts", "encryption"]),
     ("Defaults for agents", ["tools", "knowledge-indexing"]),
-    ("Developer", ["design-language"]),
 ]
 
 # The nav as rendered: [{caption, links: [[text, href, testid, tag]]}].
@@ -132,22 +129,16 @@ def test_settings_nav_groups_links_heading_and_mount(app_clean: str, page: Page)
         assert links.nth(k).get_attribute("role") is None
 
 
-def test_settings_nav_without_dev_mode_has_two_groups(app_clean: str, page: Page) -> None:
-    """Dev mode off: the Developer group (Design language) is absent."""
-
-    def no_dev_mode(route: Route) -> None:
-        response = route.fetch()
-        body = response.json()
-        body["dev_mode"] = False
-        route.fulfill(response=response, body=json.dumps(body))
-
-    page.route("**/api/config", no_dev_mode)
+def test_settings_nav_has_no_developer_group_even_in_dev_mode(app_clean: str, page: Page) -> None:
+    """The Design language page is retired (M31 F1 L1): the nav is two groups with
+    dev mode ON, and no Developer caption or design-language link exists."""
     _nav.goto(page, app_clean, "settings/appearance")
     expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
-    assert page.evaluate("App.config.dev_mode") is False
+    assert page.evaluate("App.config.dev_mode") is True
     shape = page.evaluate(_NAV_SHAPE_JS)
-    assert shape["groups"] == _expected_links(GROUPS[:2]), shape["groups"]
+    assert shape["groups"] == _expected_links(GROUPS), shape["groups"]
     expect(page.locator('[data-testid="settings-nav-design-language"]')).to_have_count(0)
+    expect(_lists.settings_nav(page).get_by_text("Developer")).to_have_count(0)
 
 
 def test_settings_nav_has_no_models_group_or_providers_link(app_clean: str, page: Page) -> None:
@@ -184,7 +175,7 @@ def test_settings_nav_geometry_in_both_engines(
         assert all(abs(h - 28) <= 1 for h in g["itemH"]), g
         assert all(abs(x - g["headingText"]) <= 1 for x in g["itemText"]), g
         assert abs(g["headingText"] - (g["asideLeft"] + 20)) <= 1, g
-        # The Developer group's link is inside the column, unclipped.
+        # The last link is inside the column, unclipped.
         assert g["lastBottom"] <= g["asideBottom"] + 0.5, g
         assert g["lastRight"] <= g["asideRight"] + 0.5, g
     finally:
@@ -338,22 +329,6 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     expect(page.locator(".content-panel.active .banner-warning")).to_be_visible()
     expect(theme).to_have_count(0)
     expect(prompt).to_have_count(0)
-
-
-def test_design_language_page_has_no_section_nav_sample(app_clean: str, page: Page) -> None:
-    """AC5: the retired section nav left no sample on the Design language page;
-    the navGroups demo (Library: lists and navigation) stands in for it."""
-    _nav.goto(page, app_clean, "settings/design-language")
-    surfaces = page.locator('.design-language-section[data-section="surfaces"]')
-    expect(surfaces.locator(".list-item").first).to_be_visible(timeout=8000)
-    assert (
-        page.evaluate(
-            "() => document.querySelectorAll('.content-panel.active [class*=\"section-nav\"]').length"
-        )
-        == 0
-    )
-    demo = page.locator('.design-language-section[data-section="uiLists"] .ui-nav-groups')
-    expect(demo.first).to_be_visible()
 
 
 def test_theme_flip_works_on_appearance(app_clean: str, page: Page) -> None:

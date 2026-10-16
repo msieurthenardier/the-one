@@ -32,8 +32,8 @@ MOUNT_JS = """(opts) => {
       {id: 'tools', label: 'Built-in tools', href: '#x-tools', testid: 'ng-tools'},
       {id: 'knowledge-indexing', label: 'Knowledge indexing', href: '#x-ki', testid: 'ng-knowledge-indexing'},
     ]},
-    {label: 'Developer', items: [
-      {id: 'design-language', label: 'Design language', href: '#x-dl', testid: 'ng-design-language'},
+    {label: 'Extras', items: [
+      {id: 'extra-page', label: 'Extra page', href: '#x-extra', testid: 'ng-extra-page'},
     ]},
   ];
   const root = document.getElementById('harness-root');
@@ -56,7 +56,7 @@ ITEM_IDS = [
     "providers",
     "tools",
     "knowledge-indexing",
-    "design-language",
+    "extra-page",
 ]
 
 
@@ -118,7 +118,7 @@ def test_nav_groups_api_and_markup(engine_page: Page) -> None:
         "DIV:General",
         "DIV:Models",
         "DIV:Defaults for agents",
-        "DIV:Developer",
+        "DIV:Extras",
     ]
     assert all(g["labelled"] and g["bare"] for g in out["groups"])
     links = [link for g in out["groups"] for link in g["links"]]
@@ -202,7 +202,7 @@ def test_nav_groups_items_are_plain_tab_stops(engine_page: Page) -> None:
     assert seen == [f"ng-{i}" for i in ITEM_IDS]  # every item, in group order
     # Arrow keys are not handled (no roving): focus stays put.
     p.keyboard.press("ArrowUp")
-    assert p.evaluate("() => document.activeElement.dataset.testid") == "ng-design-language"
+    assert p.evaluate("() => document.activeElement.dataset.testid") == "ng-extra-page"
 
 
 # ── edge rules ──────────────────────────────────────────────────────────────

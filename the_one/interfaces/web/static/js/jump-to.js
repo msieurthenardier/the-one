@@ -30,7 +30,7 @@
 // (`sessions` by updated_at, stable; an empty title reads "Untitled chat"; the
 // agent is the stored agent_name, "Default agent" for none); the New chat…
 // action; model providers, knowledge bases, MCP servers and connectors (each A-Z); the Settings
-// pages in nav order (App.settingsPages; a devOnly page only in dev mode).
+// pages in nav order (App.settingsPages).
 // Rows (testid `jump-to-result`, data-kind / data-id) show the label and the
 // "where" text (`meta`, not mono). Matching is a case-insensitive substring
 // over `label + " " + where`, trimmed; the first 8 matching candidates show.
@@ -83,10 +83,6 @@
     } catch (e) {
       return [];
     }
-  }
-
-  function devMode() {
-    return !!(App.config && App.config.dev_mode);
   }
 
   function isNamed(row) {
@@ -157,9 +153,7 @@
       }
     }
     var pages = arr(App.settingsPages);
-    var dev = devMode();
     for (i = 0; i < pages.length; i++) {
-      if (pages[i].devOnly && !dev) continue;
       out.push({ kind: 'settings', key: pages[i].section, label: pages[i].label, where: settingsWhere(pages[i]) });
     }
     return out;

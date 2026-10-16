@@ -53,7 +53,6 @@ SETTINGS_PAGES = [
     ("encryption", "Encryption", "Settings · General"),
     ("tools", "Built-in tools", "Settings · Defaults for agents"),
     ("knowledge-indexing", "Knowledge indexing", "Settings · Defaults for agents"),
-    ("design-language", "Design language", "Settings · Developer"),
 ]
 
 _ROWS_JS = """() => Array.from(document.querySelectorAll('[data-testid="jump-to-result"]')).map((r) => [
@@ -683,7 +682,7 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
     expect(page.locator(RESULT)).to_have_count(2)
     assert [r[1] for r in _rows(page)] == ["tools", "knowledge-indexing"]
     inp.fill("settings")
-    # Seven pages now (Providers moved to Library), under the 8-match cap.
+    # Six pages (Providers moved to Library), under the 8-match cap.
     expect(page.locator(RESULT)).to_have_count(len(SETTINGS_PAGES))
     assert [[r[1], r[2], r[3]] for r in _rows(page)] == [list(p) for p in SETTINGS_PAGES]
     inp.fill("default agent")
@@ -707,42 +706,12 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
 def test_an_empty_install_lists_new_chat_and_the_settings_pages(app_clean: str, page: Page) -> None:
     _boot(page, app_clean, "chats")
     _open_with_keys(page)
-    expect(page.locator(RESULT)).to_have_count(8)
+    expect(page.locator(RESULT)).to_have_count(1 + len(SETTINGS_PAGES))
     page.wait_for_timeout(300)  # every collection has resolved (empty)
-    # New chat plus all seven pages: the empty mix is capped at 8.
+    # New chat plus all six pages: seven rows, under the empty mix's cap of 8.
     assert _rows(page) == [["action", "new-chat", "New chat…", "Action"]] + [
-        ["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:7]
+        ["settings", s, label, where] for s, label, where in SETTINGS_PAGES
     ]
-
-
-def test_design_language_is_a_candidate_only_in_dev_mode(app_clean: str, page: Page) -> None:
-    _boot(page, app_clean, "settings/appearance")
-    _open_with_keys(page)
-    page.locator(INPUT).fill("design")
-    assert _rows(page) == [
-        ["settings", "design-language", "Design language", "Settings · Developer"]
-    ]
-    page.keyboard.press("Enter")
-    _nav.expect_route(page, "settings/design-language")
-    page.wait_for_selector("[data-ui-demo]")
-
-
-def test_design_language_is_not_a_candidate_without_dev_mode(app_clean: str, page: Page) -> None:
-    def no_dev_mode(route: Route) -> None:
-        response = route.fetch()
-        body = response.json()
-        body["dev_mode"] = False
-        route.fulfill(response=response, body=json.dumps(body))
-
-    page.route("**/api/config", no_dev_mode)
-    _boot(page, app_clean, "settings/appearance")
-    assert page.evaluate("App.config.dev_mode") is False
-    _open_with_keys(page)
-    page.locator(INPUT).fill("design")
-    expect(page.locator(RESULT)).to_have_count(0)
-    expect(page.locator(f"{PALETTE} [role=status]")).to_have_text('No matches for "design".')
-    page.locator(INPUT).fill("settings")
-    expect(page.locator(RESULT)).to_have_count(len(SETTINGS_PAGES) - 1)
 
 
 # ── Opening a result (AC10) ──────────────────────────────────────────────────

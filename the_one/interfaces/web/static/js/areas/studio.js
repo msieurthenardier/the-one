@@ -613,10 +613,8 @@ App.registerArea({
     // (the ungated subscription below).
     var providersSection = App.studio.providersSection.create({
       host: function () { return sectionContentEl; },
-      getDirty: function () { return dirty; },
       setDirty: function (b) { dirty = !!b; },
       editorGen: function () { return editorGen; },
-      bumpEditorGen: function () { editorGen += 1; },
       isActive: function () { return self._activeSection === 'providers'; },
       discardOpen: function () { discardOpen_(); },
       reloadLibrary: function (name) { return reloadLibrary(name); },
@@ -3198,24 +3196,32 @@ App.registerArea({
       var caps = modelCapsBy[modelId];
       var ctx = modelCtxBy[modelId];
       var renderer = window.App.studio && window.App.studio.renderCapabilityChips;
-      var capsHtml = (modelId && renderer && caps !== undefined && caps !== null)
+      var chips = (modelId && renderer && caps !== undefined && caps !== null)
         ? renderer(caps)
-        : '';
+        : null;
       var ctxLabel = fmtCtxTokens(ctx);
-      var ctxHtml = ctxLabel
-        ? '<span class="model-capabilities-label">Max context:</span> ' +
-          '<span class="model-ctx-chip" data-testid="model-ctx-chip">' + ctxLabel + '</span>'
-        : '';
-      if (!capsHtml && !ctxHtml) {
-        capsEl.innerHTML = '';
-        return;
+      capsEl.textContent = '';
+      if (chips) {
+        var capsLabel = document.createElement('span');
+        capsLabel.className = 'model-capabilities-label';
+        capsLabel.textContent = 'Capabilities:';
+        capsEl.appendChild(capsLabel);
+        capsEl.appendChild(document.createTextNode(' '));
+        capsEl.appendChild(chips);
       }
-      var parts = [];
-      if (capsHtml) {
-        parts.push('<span class="model-capabilities-label">Capabilities:</span> ' + capsHtml);
+      if (ctxLabel) {
+        if (chips) capsEl.appendChild(document.createTextNode(' \u00b7 '));
+        var ctxText = document.createElement('span');
+        ctxText.className = 'model-capabilities-label';
+        ctxText.textContent = 'Max context:';
+        capsEl.appendChild(ctxText);
+        capsEl.appendChild(document.createTextNode(' '));
+        var ctxChip = document.createElement('span');
+        ctxChip.className = 'model-ctx-chip';
+        ctxChip.setAttribute('data-testid', 'model-ctx-chip');
+        ctxChip.textContent = ctxLabel;
+        capsEl.appendChild(ctxChip);
       }
-      if (ctxHtml) parts.push(ctxHtml);
-      capsEl.innerHTML = parts.join(' &middot; ');
     }
 
     // Race-condition guard for fetchModelsForProvider (review I6). Rapid

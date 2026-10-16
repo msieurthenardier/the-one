@@ -3,7 +3,7 @@
   /* The App.ui.navGroups host, a child of the admin sidebar panel. The panel
      is a flex column with overflow: hidden (base.css), so the host is the
      column's own scroller (flex: 1 + min-height: 0 + overflow-y: auto): the
-     Developer group must not clip at 1024x768. It carries the column padding
+     last group must not clip at 1024x768. It carries the column padding
      (14px 10px); the aside's width is --settings-nav-w and its padding-top is
      zeroed for settings (base.css). The nav's heading and item text both sit
      20px from the column edge (10px here + 10px inside the factory, A3). */
@@ -157,29 +157,6 @@
   }
   .area-admin .tool-tile-link:hover { text-decoration: underline; }
   .area-admin .tool-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* Quiet vocabulary (M17 F6 L1, SC1): the v2 mono + UPPERCASE + letter-spaced
-     eyebrow is retired. Because the shared `.entity-tile-badge` base
-     (components.css) still declares mono/uppercase/letter-spacing and this
-     area-scoped selector outranks it (0,2,0 > 0,1,0), quieting is an explicit
-     OVERRIDE (sans / none / normal), not a mere deletion of the three
-     declarations. Per-type ink stays on the `--badge-ink-*`-gated
-     `.admin-provider-badge--{type}` modifiers below. */
-  .area-admin .admin-provider-badge { font-family: var(--font-family-sans); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: none; letter-spacing: normal; }
-  /* === Provider Type Badges === */
-  /* Per-badge ink (M17 F3 L4): each modifier overrides the base
-     `.admin-provider-badge { color: var(--fg-on-accent) }` with a fill-tuned
-     ink so text clears body AA on that fill in BOTH themes (gated in
-     tests/test_design_tokens_a11y.py). Modifiers follow the base rule in
-     source order at equal specificity, so the ink override wins. */
-  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
-  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
-  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
-  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
-  .area-admin .admin-provider-badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
-  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
-  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
-  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
-
   /* === Tool Category Badges (F6 leg 02) === */
   /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced
      eyebrow is retired — mirrors the L1 provider-badge quiet. Because the
@@ -627,75 +604,6 @@
     line-height: 1.4;
     white-space: pre-wrap;
   }
-
-  /* Mission 08 F2 — Design Language gallery (dev-mode-only Admin category) */
-  .area-admin .design-language-sections { display: flex; flex-direction: column; gap: 24px; padding: 0 32px 40px; }
-  .area-admin .design-language-section { display: flex; flex-direction: column; gap: 8px; }
-  .area-admin .design-language-section-body { display: flex; flex-direction: column; gap: 12px; }
-  .area-admin .design-language-token-swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--space-1); }
-  .area-admin .design-language-token-swatch-color { width: 100%; height: 40px; border-radius: 4px; border: 1px solid var(--border); }
-  .area-admin .design-language-token-swatch-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); word-break: break-all; }
-  /* Control-library living reference (M25 F1 L6): each [data-ui-demo] root holds
-     a dark and a light pane. A pane sets its own colour and background because
-     the theme tokens are [data-theme]-scoped and inherited colour resolves at
-     <body>. */
-  .area-admin .design-language-ui-demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
-  .area-admin .design-language-ui-pane { display: flex; flex-direction: column; gap: 12px; padding: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); }
-  .area-admin .design-language-ui-pane--menu { min-height: 240px; }
-  .area-admin .design-language-ui-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  /* A stand-in for the workbench aside (M25 F3 L1): the list-column demos get
-     the --list-w column on --sidebar-bg, height-bound so the list body scrolls;
-     the nav demo gets the --settings-nav-w column with the host's 14px 10px. */
-  .area-admin .design-language-ui-column { display: flex; flex-direction: column; max-width: 100%; overflow: hidden; background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: var(--radius-md); }
-  .area-admin .design-language-ui-column--list { width: var(--list-w); height: 360px; }
-  .area-admin .design-language-ui-column--nav { width: var(--settings-nav-w); padding: 14px 10px; }
-  /* The searchList demo (M25 F4 L1): the dialog's --surface ground, height-bound
-     so the listbox scrolls. */
-  .area-admin .design-language-ui-column--search { width: 100%; height: 320px; padding: 12px; background: var(--surface); }
-  .area-admin .design-language-ui-column--short { height: auto; }
-  /* The drawer demo (M25 F4 L6): a frame standing in for the app shell row
-     (position: relative, a flex row), the drawer narrowed through
-     --drawer-w so it fits the pane; the main area is the chat pane's
-     stand-in. */
-  .area-admin .design-language-ui-drawer-frame {
-    --drawer-w: 220px;
-    position: relative;
-    display: flex;
-    height: 220px;
-    overflow: hidden;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-  .area-admin .design-language-ui-drawer-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; }
-  .area-admin .design-language-ui-drawer-text { margin: 0 0 12px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
-  .area-admin .design-language-ui-drawer-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: var(--font-size-body-sm); }
-  .area-admin .design-language-ui-drawer-facts dt { color: var(--fg-muted); }
-  .area-admin .design-language-ui-drawer-facts dd { margin: 0; }
-  .area-admin .design-language-caption { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); }
-
-  /* Telemetry strip (Mission 08 F2 L5 — T1 layout). Gallery-only until a
-     downstream polish flight consumes it; rules stay in admin.css scope. */
-  .area-admin .telemetry-strip {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .area-admin .telemetry-strip .section-title { margin: 0; }  /* also .section-title--plain in markup */
-  .area-admin .telemetry-strip .telemetry-value {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-body-sm);
-    text-transform: uppercase;
-    color: var(--fg);
-    letter-spacing: 0.5px;
-  }
-
 
   /* ── F4 L2 (M08): MCP source tile subtitle (agent-editor MCPs tab) ──
      Lives in admin.css despite scoping to .area-studio because studio.css

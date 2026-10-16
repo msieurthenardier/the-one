@@ -2,8 +2,7 @@
 
 Cheap source-level invariants that keep the per-area guard copies from creeping
 back: one `beforeunload`, no area `confirmLeave`, and `App.confirmDialog(`
-called only by nav.js, the design-language modal demo, and the Notes
-section's Clear all.
+called only by nav.js and the Notes section's Clear all.
 """
 
 from __future__ import annotations
@@ -25,13 +24,13 @@ def _code(path: Path) -> str:
     return re.sub(r"(?m)^\s*//.*$|(?<=\s)//\s.*$", "", text)
 
 
-def test_confirm_dialog_called_only_by_nav_the_modal_demo_and_notes_clear_all():
+def test_confirm_dialog_called_only_by_nav_and_notes_clear_all():
     callers = {
         p.name for p in _files() if re.search(r"App\.confirmDialog\s*\(", _code(p)) is not None
     }
     # rules-notes-tab.js (M27 F2 L3, DD10): the Notes section's Clear all is a
     # blocking "this can't be undone" decision, not a leave guard.
-    assert callers <= {"ui-modal-section.js", "rules-notes-tab.js"}
+    assert callers <= {"rules-notes-tab.js"}
     # nav.js reaches it through a lazily-resolved local, never a literal call site.
     assert "window.App.confirmDialog" in (JS / "nav.js").read_text()
 

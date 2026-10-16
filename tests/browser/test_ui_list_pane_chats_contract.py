@@ -7,7 +7,7 @@ and the label's ``data-confirm-title``.
 
 Every Flight 3 ``listPane`` contract stays in ``test_ui_library_contract.py``.
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``
-(plus ``confirm.js`` for the armed-row tests; no app spawn). Falls in the
+(armed-row tests use the harness-loaded ui/confirm.js; no app spawn). Falls in the
 ``contracts`` browser lane.
 """
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 from browser._a11y_resolvers import assert_controls_labelled_and_described
-from browser._ui_engines import STATIC_DIR, load_harness
+from browser._ui_engines import load_harness
 from browser.design_tokens import DARK, LIGHT
 from playwright.sync_api import Page
 
@@ -60,7 +60,6 @@ MOUNT_JS = """(opts) => {
 
 def _mount(page: Page, opts: str = "{}", theme: str = "dark") -> None:
     load_harness(page, theme)
-    page.add_script_tag(path=str(STATIC_DIR / "js" / "confirm.js"))
     page.evaluate(f"({MOUNT_JS})({opts})")
 
 
@@ -563,7 +562,6 @@ def test_the_armed_row_shows_the_danger_cue_and_its_action(engine_page: Page) ->
 def test_list_pane_with_actions_installs_no_document_listener(engine_page: Page) -> None:
     load_harness(engine_page)
     p = engine_page
-    p.add_script_tag(path=str(STATIC_DIR / "js" / "confirm.js"))
     p.evaluate(
         """() => {
           window.__docListeners = 0;
