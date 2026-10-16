@@ -7,7 +7,7 @@
 //     document title speak, lazily, inside describeRoute);
 //   - the jump-to palette (jump-to.js lists every visible page).
 //
-// Each row is {section, label, group, devOnly}, in nav order:
+// Each row is {section, label, group}, in nav order:
 //   section  the ROUTE segment as the router knows it (`#settings/{section}`),
 //            never the admin area's internal category id (the Knowledge
 //            indexing page is `knowledge-indexing` here, `knowledge` inside
@@ -16,20 +16,17 @@
 //   label    the page's name (the nav item, the router's spoken label, the
 //            palette row).
 //   group    the nav group it sits under (the palette's "Settings · {group}").
-//   devOnly  shown only in dev mode. Readers filter at CALL time, never here:
-//            App.config.dev_mode is set by the boot fetch, after this loads.
 (function () {
   'use strict';
   window.App = window.App || {};
 
   var PAGES = [
-    { section: 'appearance', label: 'Appearance', group: 'General', devOnly: false },
-    { section: 'date-and-time', label: 'Date and time', group: 'General', devOnly: false },
-    { section: 'prompts', label: 'Prompts', group: 'General', devOnly: false },
-    { section: 'encryption', label: 'Encryption', group: 'General', devOnly: false },
-    { section: 'tools', label: 'Built-in tools', group: 'Defaults for agents', devOnly: false },
-    { section: 'knowledge-indexing', label: 'Knowledge indexing', group: 'Defaults for agents', devOnly: false },
-    { section: 'design-language', label: 'Design language', group: 'Developer', devOnly: true }
+    { section: 'appearance', label: 'Appearance', group: 'General' },
+    { section: 'date-and-time', label: 'Date and time', group: 'General' },
+    { section: 'prompts', label: 'Prompts', group: 'General' },
+    { section: 'encryption', label: 'Encryption', group: 'General' },
+    { section: 'tools', label: 'Built-in tools', group: 'Defaults for agents' },
+    { section: 'knowledge-indexing', label: 'Knowledge indexing', group: 'Defaults for agents' }
   ];
   for (var i = 0; i < PAGES.length; i++) Object.freeze(PAGES[i]);
 

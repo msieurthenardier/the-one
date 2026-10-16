@@ -114,10 +114,10 @@ def test_type_list_and_create_flow_shows_token_field_without_signin(
     help_line = page.locator('[data-testid="provider-api-key-help"]')
     expect(help_line).to_be_visible()
     expect(help_line).to_contain_text("claude setup-token")
-    expect(key).to_have_attribute("aria-describedby", "pf-api-key-help")
-    expect(page.locator(".admin-pf-base-url")).to_have_class(re.compile(r"\bis-hidden\b"))
-    expect(page.locator(".admin-pf-plan-signin")).to_have_class(re.compile(r"\bis-hidden\b"))
-    expect(page.locator(".admin-pf-api-key")).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(key).to_have_attribute("aria-describedby", help_line.get_attribute("id") or "")
+    expect(page.locator(".admin-pf-base-url")).to_be_hidden()
+    expect(page.locator(".admin-pf-plan-signin")).to_be_hidden()
+    expect(page.locator(".admin-pf-api-key")).to_be_visible()
     expect(page.locator('[data-testid="provider-token-expiry"]')).to_have_count(0)
 
     # Switching the type relabels the same row and clears the help.
@@ -186,7 +186,8 @@ def test_expiry_line_soon_and_past_states(
     line = page.locator('[data-testid="provider-token-expiry"]')
     expect(line).to_be_visible(timeout=8000)
     expect(line).to_have_attribute("data-state", state)
-    expect(line).to_have_class(re.compile(rf"\btoken-expiry--{state}\b"))
+    led = {"soon": "warning", "past": "danger"}[state]
+    expect(line.locator(f".indicator-led--{led}")).to_have_count(1)
     expect(line).to_contain_text(wording)
     expect(line).to_contain_text("Run claude setup-token and paste a new token.")
 
@@ -243,7 +244,9 @@ def test_test_button_reports_ok_with_stubbed_response(app_clean: str, page: Page
     _stub_network(page)
     _open_edit(page, app_clean, provider_id)
     page.locator('[data-testid="test-connection-btn"]').click()
-    expect(page.locator(".test-result-ok")).to_contain_text("Connected", timeout=5000)
+    expect(
+        page.locator('[data-testid="provider-test-result"][data-state="success"]')
+    ).to_contain_text("Connected", timeout=5000)
 
 
 @pytest.mark.browser

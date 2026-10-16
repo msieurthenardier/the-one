@@ -7,6 +7,7 @@
      variant keeps the surface but takes danger ink + a danger hairline.
      --fg on --surface and --status-danger on --surface both clear body AA
      (gated in test_design_tokens_a11y.py). */
+  /* === App.ui.flash (M31 F1 L5): the transient message === */
   .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--surface); color: var(--fg); border: 1px solid var(--border); padding: 10px 48px; border-radius: var(--radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: var(--shadow-popover); }
   .app-flash.visible { opacity: 1; }
   .app-flash.error { color: var(--status-danger); border-color: var(--status-danger); }
@@ -118,53 +119,6 @@
   }
   .ui-rail-footer .btn-icon { width: 44px; height: 44px; padding: 0; }
 
-  /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
-  /* Sources consolidated: chat .session-item, admin .admin-category-item.
-     Studio's agent inventory migrated from .list-item.agent-item rows to
-     .entity-tile (CSS-grid cell) in F5 leg 02; .entity-tile is a sibling
-     primitive (not a list-item consumer). The legacy class names persist
-     on emit sites for test-selector / styling-hook continuity. */
-  .list-item {
-    /* M17 F3 list vocabulary: 40-44px rows, hover = surface shift,
-       separators (where a consumer draws them) are hairlines only. */
-    min-height: 40px;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    color: var(--fg-secondary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .list-item:hover { background: var(--surface); color: var(--fg); }
-  .list-item.active {
-    /* Selected pill: accent-translucent wash + accent border. */
-    background-color: var(--accent-translucent);
-    color: var(--fg);
-    border: 1px solid var(--accent);
-  }
-  /* Inset ring: negative offset keeps the ring inside scroll/clip containers. */
-  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-
-  .list-item-delete {
-    display: none;
-    margin-left: auto;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--status-danger-muted);
-    font-size: var(--font-size-tiny);
-    padding: 2px 4px;
-    flex-shrink: 0;
-    transition: color 0.2s;
-  }
-  .list-item:hover .list-item-delete,
-  .list-item:focus-within .list-item-delete { display: block; }
-  .list-item-delete:hover { color: var(--status-danger); }
-  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .list-item-delete svg { width: 12px; height: 12px; display: block; }
-
   /* === Form Field Primitives (editable form rows) === */
   .field-row {
     display: flex;
@@ -249,7 +203,7 @@
      :hover/:checked. Padding works in Firefox, mostly ignored in Chrome.
      Rounded corners on the dropdown popup ITSELF are browser-controlled and
      not stylable in pure CSS — a custom dropdown component would be needed
-     for full design-language consistency. */
+     for full visual consistency. */
   .field-select option {
     background-color: var(--surface-elevated);
     color: var(--fg);
@@ -335,6 +289,10 @@
   .field-info-icon:hover { color: var(--accent); }
   .field-info-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .field-info-icon svg { width: 14px; height: 14px; display: block; }
+  /* === App.ui.infoButton (M31 F1 L4) ===
+     The wrapper keeps the button and its visually hidden description together
+     as one flex item wherever a field or choice row places it. */
+  .ui-info { display: inline-flex; align-items: center; position: relative; }
 
   /* === Checkbox Primary (form checkbox primitive) ===
      Lifted from .area-studio .mcp-tools-checkbox-group input[type="checkbox"]
@@ -580,6 +538,9 @@
      so chips read as part of the brand vocabulary without competing with
      buttons/tiles' raised treatment. */
   .chip { background: var(--accent-translucent); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+  /* === App.ui.chip (M31 F1 L5): display-only; .chip--danger and .chip--sm follow .chip === */
+  .chip--danger { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
+  .chip--sm { font-size: var(--font-size-tiny); padding: 2px 8px; }
   .chip-remove { cursor: pointer; color: var(--status-danger); font-size: var(--font-size-tiny); border-radius: 3px; transition: color 0.2s, background-color 0.2s; background: transparent; border: none; padding: 0; }
   /* Resting color is --status-danger (M18 F3 L1 A3 contrast fix — must clear
      4.5:1 on .chip's --accent-translucent fill, gated in
@@ -592,12 +553,9 @@
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
   /* Capability chips (moved from admin.css, sortie 02): surfaced on each Ollama
      model row in the provider editor and reused by the agent editor under the
-     model selector. Positive capabilities use the canonical grey .chip;
-     .cap-chip-no-tools uses the danger palette so the absence of tool support
-     stands out at a glance. After .chip: same specificity, later source wins. */
+     model selector. The chips are App.ui.chip (size sm; the "no tools" chip is
+     tone danger). .cap-chip-row is their panel layout wrapper. */
   .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; }
-  .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
 
   /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
      A navigation list: <section> > header (h2, optional count, actions),
@@ -1170,7 +1128,7 @@
     white-space: nowrap;
   }
   /* Entity-tile badge slot — absolute-positioned top-right corner.
-     Composes with per-area color classes (e.g. .admin-provider-badge--ollama). */
+     Composes with per-area color classes (e.g. a `.badge--{type}` class). */
   .entity-tile-badge {
     position: absolute;
     top: 8px;
@@ -1182,7 +1140,7 @@
     border-radius: 4px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    /* Color comes from per-area .admin-provider-badge--{type} composition. */
+    /* Color comes from a per-type badge class composed alongside. */
   }
   /* Tile-grid layout container. Used by entity inventories that render
      tiles as the primary view. Lifted from studio's per-area tile-grid
@@ -1197,22 +1155,34 @@
     align-content: start;
   }
   /* === Confirm-delete (canonical two-step state) === */
-  /* Lifted from chat.css's `.session-item.confirm-delete` rules. Chat
-     session items compose with .list-item; the descendant combinator finds
-     the per-row .list-item-delete X-button. Studio tiles do not use this
+  /* Lifted from chat.css's `.session-item.confirm-delete` rules. The
+     retired `.list-item` rows composed with it; Studio tiles do not use this
      state — agent deletion lives in the editor's Danger Zone (F5 leg 05). */
-  .list-item.confirm-delete { border: 1px solid var(--status-danger); }
-  .list-item.confirm-delete [data-confirm-title] { color: var(--status-danger); }
-  .list-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
 
-  /* === Lapse cue (App.confirmDelete auto-revert, M24 F07 confirm-lapse) === */
-  /* Set by confirm.js's timer-expiry-only `lapse()` callback — never by
+  /* === App.ui.confirm (M31 F1 L4): the armed look and the lapse cue ===
+     Two-step confirm (alias App.confirmDelete) adds .confirm-delete to the
+     armed control. One armed style serves every button: solid danger fill,
+     semibold label. The selector list carries :hover and :focus-visible at
+     (0,2,1) so no variant's own hover rule (.btn-outlined-primary:hover,
+     .btn-muted-destructive:hover, both (0,2,0)) can undo the armed look. The
+     list-row and folder-summary armed states stay with their owners. */
+  button.confirm-delete,
+  button.confirm-delete:hover,
+  button.confirm-delete:focus-visible {
+    background: var(--status-danger);
+    color: var(--fg-on-danger);
+    border-color: var(--status-danger);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  /* Lapse cue (auto-revert, M24 F07 confirm-lapse) */
+  /* Set by ui/confirm.js's timer-expiry-only `lapse()` callback — never by
      `revert()` itself, since revert() also runs as the revertFn callers
      invoke on transport failure and (system-page.js's credential rotation)
      on SUCCESS; decorating revert() would mislabel a successful commit as
      lapsed. Cleared unconditionally on the control's next confirmDelete
      call (arm or commit alike). Element-shape-agnostic on purpose — the 13
-     call sites arm a <button>, a <li class="list-item">, or a <summary>,
+     call sites arm a <button>, a list-row <li>, or a <summary>,
      and outline works identically on all three with no assumption about
      internal layout, so this one rule reaches every site through the
      shared helper with no call site special-cased. */
@@ -1295,7 +1265,8 @@
     overflow-y: auto;
   }
 
-  /* === Editor header (canonical entity-name + description block) === */
+  /* === App.ui.editorShell (M31 F1 L4): editor header, breadcrumb, form actions === */
+  /* Editor header (canonical entity-name + description block) */
   /* Used above the agent editor's tablist (F5 leg 03) and any future
      entity-editor (admin's provider editor in F6). Lifts the per-area
      `.area-studio .editor-header` rule from studio.css and generalizes. */
@@ -1391,7 +1362,8 @@
   .test-result-warning { color: var(--status-warning); }
   .test-result-pending { color: var(--fg-secondary); }
 
-  /* === Indicator LED ===
+  /* === App.ui.status (M31 F1 L5): the LED and the status line ===
+     .ui-status is the line (body-sm, muted); .indicator-led is the LED.
      10px flat round status dot. Color is never the only signal — every
      LED is paired with a text label (see accessibility contract below).
      Use directly as `<span class="indicator-led indicator-led--success">`,
@@ -1426,6 +1398,7 @@
   .indicator-led--warning { background-color: var(--status-warning); }
   .indicator-led--danger { background-color: var(--status-danger); }
   .indicator-led--idle { background-color: var(--fg-muted); }
+  .ui-status { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
 
   /* Retrofit: .test-result-* gets the LED dot via ::before so existing
      connection-test consumers (provider editor, agent editor) pick it up
@@ -1474,19 +1447,20 @@
   .refresh-btn svg { width: 14px; height: 14px; }
   .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* === Delete button (App.confirmDelete armed state) === */
+  /* === Delete button (App.ui.dangerZone's .delete-btn; armed state is App.ui.confirm's) === */
   /* Delete-btn — area-agnostic; cosmetics from .btn-muted-destructive.
-     The .delete-btn.confirm-delete class is set by App.confirmDelete
+     The armed look (.confirm-delete) is set by App.confirmDelete
      (chat session items, studio agent editor, provider editor — 3 consumers
      post-F6 leg 04). 3-second revert + accessibility behavior owned by the
-     helper at confirm.js. The capital-D 'Confirm Delete?' label is
+     helper at ui/confirm.js. The capital-D 'Confirm Delete?' label is
      preserved by passing the confirmLabel option per call site. */
   /* M25 F1 L3 (DD6): the rest state takes the vocabulary's own padding, radius
      and 13px label (no pins here). The ARMED state below is a deliberate
      solid-danger, semibold confirmation state and stays. */
-  .delete-btn.confirm-delete { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+  /* The armed look is the generic button.confirm-delete rule (App.ui.confirm banner). */
 
-  /* === Editor section (lifted from .area-studio in F6 leg 03) === */
+  /* === App.ui.section (M31 F1 L4) === */
+  /* Editor section (lifted from .area-studio in F6 leg 03) */
   /* Vertical rhythm + section divider for entity editors (studio's
      agent-editor + admin's provider-editor). Sibling-adjacent rule provides
      the section divider; admin's editor uses three sections (Connection /
@@ -1498,8 +1472,17 @@
      section with no leading title keeps its divider. */
   .editor-section + .editor-section:has(> .section-title:first-child),
   .editor-section + .editor-section:has(> .section-title-row:first-child) { border-top: 0; }
+  /* Friendly description flush under a section title (lifted from studio.css,
+     M31 F1 L4): body-sm muted text with a modest bottom margin. */
+  .section-description {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-top: -4px;
+    margin-bottom: 12px;
+  }
 
-  /* === Danger Zone (editor section variant) === */
+  /* === App.ui.dangerZone (M31 F1 L4) === */
+  /* Danger Zone (editor section variant) */
   /* Lifted from .area-studio .danger-zone-title (F6 leg 03). The section
      itself uses `class="editor-section danger-zone"`; the title uses
      `class="section-title danger-zone-title"`. The .danger-zone class
@@ -1543,16 +1526,20 @@
     color: var(--accent);
   }
 
+  /* The dangerZone notice is a role=alert region kept rendered while empty (so a
+     screen reader announces the text when it arrives); empty, it takes no space. */
+  .action-blocked-message:empty { height: 0; padding: 0; margin: 0; border: 0; overflow: hidden; }
+
   /* Legacy class .action-blocked-message — retained so existing JS query
      selectors (provider-editor.js:379) keep working. Compose .banner +
      .banner-error in markup; this class is only a JS-query handle now,
      with no visual styling of its own. */
 
-  /* === API-key wrapper (input + show/hide eye toggle) === */
-  /* API-key field wrapper — lifted from admin's .admin-pf-password-wrap
-     (F6 leg 03). The eye button is a toggle that swaps password<->text on
-     the adjacent input. Used by admin's provider editor (Connection
-     section). */
+  /* === App.ui.secretInput (M31 F1 L7) === */
+  /* The password field and its Show/Hide eye toggle (the owned classes
+     .api-key-wrap and .api-key-eye, kept under their original names). The eye
+     swaps the input between password and text. The unmigrated tools and MCP
+     editors still hand-build the same shell. */
   .api-key-wrap { flex: 1; display: flex; gap: 6px; align-items: center; }
   .api-key-wrap .field-input { flex: 1; }
   .api-key-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -1880,6 +1867,14 @@
   }
 
 
+  /* === App.ui.icon (M31 F1 L2, DD6) ===
+     The icon table in icons.js stays as data; the control returns an
+     aria-hidden SVG node. Default 16px, --sm 14px. Stroke inherits
+     currentColor from the SVG's own attributes. */
+  .ui-icon { width: 16px; height: 16px; flex: none; }
+  .ui-icon--sm { width: 14px; height: 14px; }
+
+
   /* === App.ui.badge (M25 F1 L4) ===
      Neutral base plus one --<kind> modifier per kind. The twelve token kinds
      pair --badge-<kind> with --badge-ink-<kind> (gated by
@@ -1948,6 +1943,8 @@
   .ui-toggle.is-disabled .ui-toggle-label { cursor: not-allowed; }
   .ui-checkbox .ui-choice-hint,
   .ui-toggle .ui-choice-hint { margin: 0; }
+  /* With an info option, the label and its info button share one row. */
+  .ui-choice-head { display: flex; align-items: center; gap: var(--space-1); }
   /* The switch input is visually hidden with the clip technique (never
      display:none or opacity alone) so it stays focusable and role-reachable. */
   .ui-toggle-input {
@@ -2076,6 +2073,27 @@
     .entity-tile[aria-selected="true"],
     .entity-tile.active { border-color: Highlight; outline: 1px solid Highlight; }
   }
+
+  /* === App.ui.progress (M31 F1 L5): a labelled bar with an optional cancel === */
+  .ui-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
+  .ui-progress-track { position: absolute; inset: 0; border-radius: 4px; overflow: hidden; }
+  .ui-progress-fill { position: absolute; top: 0; left: 0; height: 100%; width: 0; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
+  .ui-progress--indeterminate .ui-progress-fill { width: 40%; animation: ui-progress-slide 1.4s ease-in-out infinite alternate; transition: none; }
+  @keyframes ui-progress-slide { from { left: 0; } to { left: 60%; } }
+  @media (prefers-reduced-motion: reduce) { .ui-progress--indeterminate .ui-progress-fill { animation: none; width: 100%; } }
+  .ui-progress-text { position: relative; font-size: var(--font-size-caption); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; flex: 1; }
+  .ui-progress-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
+  .ui-progress-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
+  .ui-progress-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-progress-cancel:disabled { opacity: 0.5; cursor: default; }
+  .ui-progress-cancel svg { width: 12px; height: 12px; display: block; }
+
+  /* === App.ui.copyButton / App.ui.copyField (M31 F1 L5) === */
+  .ui-copy { display: inline-flex; }
+  .ui-copy-field { display: flex; align-items: center; gap: var(--space-2); }
+  .ui-copy-field .field-input { flex: 1; min-width: 0; }
+  .ui-copy-field--mono .field-input { font-family: var(--font-family-mono); font-size: var(--font-size-caption); }
+  .ui-copy-field .btn-outlined-primary { white-space: nowrap; }
 }
 
 @layer utilities {
@@ -2096,7 +2114,7 @@
 }
 .note-flag svg { width: 14px; height: 14px; }
 
-/* Sortie 04 DD1: the MCP sign-in link block (App.consentLink, consent-link.js),
+/* Sortie 04 DD1: the MCP sign-in link block (App.ui.consentLink, ui/consent-link.js),
    shared by chat and the studio, so unscoped. */
 .consent-link { display: flex; flex-direction: column; gap: var(--space-2); max-width: 560px; }
 .consent-link-row { display: flex; align-items: center; gap: var(--space-2); }

@@ -23,7 +23,15 @@ _NAMESPACE_LINES = {
     "App.ui.util = App.ui.util || {};",
 }
 _UI_ASSIGN = re.compile(r"^\s*App\.ui\.(?!util\b)(\w+)\s*=")
-_FACTORY_LINE = re.compile(r"^  App\.ui\.(\w+) = function \(opts\) \{$")
+_FACTORY_LINE = re.compile(
+    r"^  App\.ui\.(\w+) = function \((?:name, |itemEl, onConfirm, |message, |url, )?opts\) \{$"
+)
+# The sanctioned app globals: aliases of library controls for non-library callers
+# (App.confirmDelete, M31 F1 L4; App.consentLink, M31 F1 L5).
+_ALIAS_LINES = {
+    "window.App.confirmDelete = App.ui.confirm;",
+    "window.App.consentLink = App.ui.consentLink;",
+}
 
 
 def test_ui_dir_has_the_four_spike_files() -> None:
@@ -45,6 +53,8 @@ def test_file_is_es5_strict_iife(path) -> None:
 def test_file_touches_no_app_globals(path) -> None:
     for lineno, line in enumerate(path.read_text().splitlines(), start=1):
         code = line.split("//")[0]
+        if code.strip() in _ALIAS_LINES:
+            continue
         assert not _APP_GLOBAL.search(code), f"{path.name}:{lineno}: app global: {line.strip()}"
 
 

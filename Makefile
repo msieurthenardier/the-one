@@ -120,10 +120,10 @@ reset-db: ## Wipe the host data dir + restart (DESTRUCTIVE — requires CONFIRM=
 verify-serving: ## Sanity-check that the host-native app serves the current source AND owns its port
 	@# Credential setup (Mission 20 Flight 1 Leg 5, DD6/DD11): the gate now
 	@# requires an Authorization header on /api/info AND on every one of the
-	@# 18 static-asset paths below. The credential MUST NOT be passed as a
+	@# static-asset paths below. The credential MUST NOT be passed as a
 	@# curl `-H "Authorization: Bearer ..."` ARGUMENT: on Linux, /proc/<pid>/
 	@# cmdline is world-readable, so a bare `-H` would publish the credential
-	@# to every local account for the lifetime of each of the 19 curl
+	@# to every local account for the lifetime of each curl
 	@# processes this target spawns — defeating, inside the verification
 	@# target itself, the exact protection this mission adds. Instead we
 	@# write a curl `--config` file (one `header = "..."` line) with an

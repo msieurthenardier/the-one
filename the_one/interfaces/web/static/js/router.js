@@ -17,7 +17,6 @@
 //                          settings/encryption           encryption
 //                          settings/tools[/{name}]       tools[/{name}]
 //                          settings/knowledge-indexing   knowledge
-//                          settings/design-language      design-language  (dev mode)
 //
 // `#library` is Library's own route (the start page). A bare section URL
 // (`library/providers`, `library/knowledge`, `library/mcp`, `library/connectors`: no id, no `~new`)
@@ -89,16 +88,15 @@
     { dest: 'library', area: 'studio', route: 'mcp', sub: 'mcp-sources', create: true },
     { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: true },
     // General is three pages (M25 F3 L5a, DD6); `settings/general` is an alias
-    // in resolve(), not a row. The Settings rows' routes (and `dev`) equal
-    // App.settingsPages' sections (and `devOnly`), in order: a static test
+    // in resolve(), not a row. The Settings rows' routes equal
+    // App.settingsPages' sections, in order: a static test
     // pins it (tests/test_settings_pages_static.py, M25 F4 L7).
     { dest: 'settings', area: 'admin', route: 'appearance', sub: 'appearance', create: false },
     { dest: 'settings', area: 'admin', route: 'date-and-time', sub: 'date-and-time', create: false },
     { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },
     { dest: 'settings', area: 'admin', route: 'encryption', sub: 'encryption', create: false },
     { dest: 'settings', area: 'admin', route: 'tools', sub: 'tools', create: false },
-    { dest: 'settings', area: 'admin', route: 'knowledge-indexing', sub: 'knowledge', create: false },
-    { dest: 'settings', area: 'admin', route: 'design-language', sub: 'design-language', create: false, dev: true }
+    { dest: 'settings', area: 'admin', route: 'knowledge-indexing', sub: 'knowledge', create: false }
   ];
 
   var RESERVED_NEW = '~new';
@@ -216,10 +214,6 @@
   }
 
   // ── Alias mapping: route <-> (area, sub) ────────────────────────────────
-
-  function devMode() {
-    return !!(window.App && window.App.config && window.App.config.dev_mode);
-  }
 
   // area-level (area, sub) -> route string (no '#'), or null when unmapped.
   function areaSubToRoute(areaId, sub) {
@@ -360,7 +354,7 @@
     for (var i = 0; i < SECTIONS.length; i++) {
       if (SECTIONS[i].dest === head && SECTIONS[i].route === segs[1]) { row = SECTIONS[i]; break; }
     }
-    if (!row || (row.dev && !devMode())) return unknownOrElement(raw);
+    if (!row) return unknownOrElement(raw);
     var rest = segs.slice(2);
     var subParts = [row.sub];
     for (var k = 0; k < rest.length; k++) {

@@ -185,6 +185,25 @@ def test_fg_ladder_is_strictly_ordered(theme: str, bg_key: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# M31 F1 flight review: non-text pins for the `.confirm-lapsed` outline
+# (`--status-warning`) and the `.indicator-led` state colours (success, warning,
+# danger, idle = `--fg-muted`) on the surfaces they sit on, 3.0:1 (WCAG 1.4.11).
+@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
+@pytest.mark.parametrize(
+    "fg_key", ("status_warning", "status_success", "status_danger", "fg_muted")
+)
+@pytest.mark.parametrize("theme", THEMES)
+def test_lapsed_outline_and_led_colours_pass_non_text_ui_aa(
+    theme: str, fg_key: str, bg_key: str
+) -> None:
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette[fg_key], palette[bg_key])
+    assert ratio >= 3.0, (
+        f"{theme}: {fg_key} on {bg_key} = {ratio:.2f}:1 (need >= 3.0:1 for the "
+        ".confirm-lapsed outline / .indicator-led)"
+    )
+
+
 @pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
 @pytest.mark.parametrize(
     "fg_key",
@@ -414,8 +433,9 @@ def test_chip_remove_danger_on_chip_fill_passes_body_aa(theme: str, bg_key: str)
     )
 
 
-def test_cap_chip_no_tools_consumes_the_gated_danger_pair() -> None:
-    """`.cap-chip-no-tools` (components.css) must paint `var(--status-danger)` text on
+def test_chip_danger_consumes_the_gated_danger_pair() -> None:
+    """`.chip--danger` (components.css, the App.ui.chip danger tone) must paint
+    `var(--status-danger)` text on
     the `var(--status-danger-bg-soft)` fill — the EXACT pair already gated by
     ``test_danger_text_on_soft_fill_passes_body_aa`` above.
 
@@ -432,16 +452,16 @@ def test_cap_chip_no_tools_consumes_the_gated_danger_pair() -> None:
         Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/components.css"
     )
     css = components_css.read_text(encoding="utf-8")
-    # Isolate the `.cap-chip-no-tools { ... }` declaration block.
-    m = re.search(r"\.cap-chip-no-tools\s*\{([^}]*)\}", css)
-    assert m, ".cap-chip-no-tools rule not found in components.css"
+    # Isolate the `.chip--danger { ... }` declaration block.
+    m = re.search(r"\.chip--danger\s*\{([^}]*)\}", css)
+    assert m, ".chip--danger rule not found in components.css"
     body = m.group(1)
     assert "var(--status-danger-bg-soft)" in body, (
-        ".cap-chip-no-tools must fill with var(--status-danger-bg-soft) (the "
+        ".chip--danger must fill with var(--status-danger-bg-soft) (the "
         "already-gated soft pair); a novel fill needs its own composite gate"
     )
     assert "var(--status-danger)" in body, (
-        ".cap-chip-no-tools text/border must use var(--status-danger) (the "
+        ".chip--danger text/border must use var(--status-danger) (the "
         "already-gated pair); a novel color needs its own composite gate"
     )
 
@@ -1554,3 +1574,21 @@ def test_radio_card_description_on_surface_passes_body_aa(theme: str) -> None:
     palette = _palette(theme)
     ratio = contrast_ratio(palette["fg_secondary"], palette["surface"])
     assert ratio >= 4.5, f"{theme} radio description on surface = {ratio:.2f}:1"
+
+
+def test_armed_confirm_button_consumes_the_gated_on_danger_pair() -> None:
+    """`button.confirm-delete` (the App.ui.confirm banner in components.css, M31 F1 L4)
+    paints `var(--fg-on-danger)` on `var(--status-danger)`: the pair gated by
+    ``test_text_on_color`` in both themes. The rule must cover the hover and
+    focus-visible states too, so no variant's own hover rule undoes the armed look."""
+    css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/components.css"
+    ).read_text(encoding="utf-8")
+    m = re.search(
+        r"button\.confirm-delete,\s*button\.confirm-delete:hover,\s*"
+        r"button\.confirm-delete:focus-visible\s*\{([^}]*)\}",
+        css,
+    )
+    assert m, "the armed-button rule (with :hover and :focus-visible) was not found"
+    assert "background: var(--status-danger)" in m.group(1)
+    assert "color: var(--fg-on-danger)" in m.group(1)

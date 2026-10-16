@@ -111,7 +111,7 @@ def test_rotate_success_never_carries_the_lapse_cue(app_clean: str, page: Page) 
     """AC-6a: `revert()` has three callers — timer expiry (a true lapse),
     a transport-failure `.catch`, and the Encryption page's (`system-page.js`) SUCCESS
     path, which also calls `revertFn()` (with a comment saying so). Only
-    the timer's own callback marks `.confirm-lapsed` (confirm.js's
+    the timer's own callback marks `.confirm-lapsed` (ui/confirm.js's
     `lapse()`) — the shared `revert()` never does. This is exactly the
     scenario AC-6a exists to protect: a successful, COMMITTED rotation
     must never render as "lapsed", which would contradict AC-4 at the

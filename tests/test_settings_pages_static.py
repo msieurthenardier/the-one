@@ -6,8 +6,7 @@ palette (``jump-to.js``) read. These checks keep it the ONE copy:
 
 * it loads before ``router.js`` in ``index.html`` (the router reads it lazily, but
   the table must exist before any route is described);
-* the router's Settings ``SECTIONS`` routes equal the table's sections, in order,
-  and its dev-only row is the table's ``devOnly`` row;
+* the router's Settings ``SECTIONS`` routes equal the table's sections, in order;
 * ``admin.js`` and ``router.js`` hold no copy of a page label or a group name.
 """
 
@@ -19,18 +18,15 @@ from pathlib import Path
 STATIC = Path(__file__).resolve().parent.parent / "the_one" / "interfaces" / "web" / "static"
 JS = STATIC / "js"
 
-_ROW = re.compile(
-    r"\{ section: '([^']+)', label: '([^']+)', group: '([^']+)', devOnly: (true|false) \}"
-)
+_ROW = re.compile(r"\{ section: '([^']+)', label: '([^']+)', group: '([^']+)' \}")
 _SETTINGS_SECTION = re.compile(
     r"\{ dest: 'settings', area: 'admin', route: '([^']+)', sub: '[^']+', "
-    r"create: (?:true|false)(, dev: true)? \}"
+    r"create: (?:true|false) \}"
 )
 
 
-def table() -> list[tuple[str, str, str, bool]]:
-    rows = _ROW.findall((JS / "settings-pages.js").read_text())
-    return [(s, label, group, dev == "true") for s, label, group, dev in rows]
+def table() -> list[tuple[str, str, str]]:
+    return _ROW.findall((JS / "settings-pages.js").read_text())
 
 
 def _code(path: Path) -> str:
@@ -44,21 +40,20 @@ def _code(path: Path) -> str:
     return "\n".join(out)
 
 
-def test_the_table_is_the_seven_settings_pages_in_nav_order() -> None:
+def test_the_table_is_the_six_settings_pages_in_nav_order() -> None:
     assert table() == [
-        ("appearance", "Appearance", "General", False),
-        ("date-and-time", "Date and time", "General", False),
-        ("prompts", "Prompts", "General", False),
-        ("encryption", "Encryption", "General", False),
-        ("tools", "Built-in tools", "Defaults for agents", False),
-        ("knowledge-indexing", "Knowledge indexing", "Defaults for agents", False),
-        ("design-language", "Design language", "Developer", True),
+        ("appearance", "Appearance", "General"),
+        ("date-and-time", "Date and time", "General"),
+        ("prompts", "Prompts", "General"),
+        ("encryption", "Encryption", "General"),
+        ("tools", "Built-in tools", "Defaults for agents"),
+        ("knowledge-indexing", "Knowledge indexing", "Defaults for agents"),
     ]
     # Providers moved to Library (sortie 02): no Providers page, no Models group.
-    assert "providers" not in [s for s, _, _, _ in table()]
-    assert "Models" not in {g for _, _, g, _ in table()}
+    assert "providers" not in [s for s, _, _ in table()]
+    assert "Models" not in {g for _, _, g in table()}
     # Each group's pages are contiguous (the nav builds its groups in table order).
-    groups = [g for _, _, g, _ in table()]
+    groups = [g for _, _, g in table()]
     seen: list[str] = []
     for g in groups:
         if not seen or seen[-1] != g:
@@ -77,14 +72,12 @@ def test_settings_pages_loads_before_the_router() -> None:
 
 def test_router_settings_routes_equal_the_table_sections() -> None:
     router = (JS / "router.js").read_text()
-    rows = _SETTINGS_SECTION.findall(router)
-    assert [r for r, _ in rows] == [s for s, _, _, _ in table()]
-    dev_routes = [r for r, dev in rows if dev]
-    assert dev_routes == [s for s, _, _, dev in table() if dev]
+    routes = _SETTINGS_SECTION.findall(router)
+    assert routes == [s for s, _, _ in table()]
 
 
 def test_admin_and_router_hold_no_copy_of_the_labels() -> None:
-    names = {label for _, label, _, _ in table()} | {group for _, _, group, _ in table()}
+    names = {label for _, label, _ in table()} | {group for _, _, group in table()}
     for path in (JS / "areas" / "admin.js", JS / "router.js"):
         code = _code(path)
         dupes = sorted(n for n in names if f"'{n}'" in code or f'"{n}"' in code)

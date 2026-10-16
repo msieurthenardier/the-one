@@ -63,7 +63,9 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     # 8-9. Click Test Connection. The mock branch (leg 02) returns
     #      {"status": "ok", "detail": "Mock provider (dev mode)"}.
     test_btn.click()
-    expect(page.locator(".test-result")).to_contain_text("Mock", timeout=5000)
+    expect(page.locator('[data-testid="provider-test-result"]')).to_contain_text(
+        "Mock", timeout=5000
+    )
 
     # 10. Navigate back to Chat. Welcome guidance now reflects the next setup
     #     gap (provider exists, agent does not).

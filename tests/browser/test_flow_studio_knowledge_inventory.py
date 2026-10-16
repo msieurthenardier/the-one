@@ -221,7 +221,7 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
 
     delete_btn.click()  # arm
     # Wait for the armed state before the second click — App.confirmDelete
-    # is a two-step in-place control (confirm.js), and the existing
+    # is a two-step in-place control (ui/confirm.js), and the existing
     # MCP-source precedent (test_flow_studio_mcp_editor.py) asserts this
     # transition explicitly before committing, rather than firing both
     # clicks back-to-back.
@@ -1365,7 +1365,7 @@ def test_folder_delete_confirm_lapse_is_visually_distinct(
     """Mission 24 Flight 7 confirm-lapse leg, AC-4: a lapsed folder-delete
     confirm is distinguishable on screen from one that was never armed.
     `App.confirmDelete`'s timer-expiry-only `lapse()` marks
-    `.confirm-lapsed` (confirm.js) before reverting; this asserts the
+    `.confirm-lapsed` (ui/confirm.js) before reverting; this asserts the
     call site actually receives it, waiting past the real 3s `revertMs`
     rather than a shortened test-only value (leg AC-6/guidance: the
     default is not touched)."""

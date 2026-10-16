@@ -145,7 +145,7 @@ def test_pull_button_states_and_status_line(
     expect(pull_btn(page)).to_have_text("Pull · 2.0 GB")
     expect(pull_btn(page)).to_be_enabled()
     expect(size_line).to_have_text("Download: 2.0 GB, from the Ollama registry.")
-    expect(size_line).not_to_have_class("test-result-warning")
+    expect(size_line).not_to_have_attribute("data-state", "warn")
 
     choose(page, "nomic-embed-text")
     expect(pull_btn(page)).to_have_text("Pull · 274 MB")
@@ -156,7 +156,8 @@ def test_pull_button_states_and_status_line(
     expect(size_line).to_have_text(
         "Size unknown: the Ollama registry couldn't be reached. Pull will ask before it starts."
     )
-    expect(size_line).to_have_class("admin-pf-pull-size test-result-warning")
+    expect(size_line).to_have_class("admin-pf-pull-size admin-pf-pull-size--warn")
+    expect(size_line).to_have_attribute("data-state", "warn")
 
     choose(page, "")
     expect(pull_btn(page)).to_be_disabled()

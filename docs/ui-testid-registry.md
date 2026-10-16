@@ -45,6 +45,7 @@ caught — but it cannot see where the attribute is emitted.
 | `root-heading` | studio | The page `h1` ("Agents" / "Library") at an Agents or Library root with no editor open, visible as the start page's title since M25 F6 L4c (DD15; it was visually hidden in L1a, DD11); absent with an item open |
 | `provider-models-help` | admin | The provider editor's one line of help under "Available models" (M25 F6 L1a, DD10) |
 | `provider-api-key-help` | admin | The provider editor's help line under the API-key / Token field (hidden when the selected type has none; sortie 03 DD6) |
+| `provider-test-result` | admin | The provider editor's Test result line (`App.ui.status`, `data-state` success / warning / danger / pending; hidden until a test runs). On a `reauth_required` result its text span also carries `plan-test-reauth` (M31 F1 L7) |
 | `provider-token-expiry` | admin | The Claude Plan (Token) editor's "Token added … · expires around …" line (edit mode, `data-state` ok/soon/past; absent otherwise; sortie 03 DD6) |
 | `provider-models-agents-link` | admin | Its "Agents" link -> `#agents` (M25 F6 L1a) |
 | `agent-item` | studio | Agents list row: an `App.ui.listPane` `<a href="#agents/{name}">` (M25 F3 L3; kept from the retired tile grid) |
@@ -287,14 +288,14 @@ caught — but it cannot see where the attribute is emitted.
 | `pending-queued-region` | chat | |
 | `plan-code-input` | admin | anthropic-plan sign-in: consent-code paste field (no `data-field` — deliberately outside the dirty snapshot) |
 | `plan-code-submit-btn` | admin | anthropic-plan sign-in: submit pasted code → POST /oauth/code |
-| `plan-connected-indicator` | admin | anthropic-plan sign-in: connected-state label |
+| `plan-connected-indicator` | admin | anthropic-plan sign-in: connected-state status line (`App.ui.status`) |
 | `plan-reauth-btn` | admin | anthropic-plan sign-in: standing re-auth affordance (connected state) |
 | `plan-reset-btn` | admin | anthropic-plan sign-in: reset connection (two-step confirm) → DELETE /oauth |
 | `plan-signin-btn` | admin | anthropic-plan sign-in: sign-in affordance (create mode auto-saves the provider first, then starts the OAuth flow) |
 | `plan-signin-consent` | admin | anthropic-plan sign-in: consent block wrapper (URL + code paste) |
 | `plan-signin-copy-btn` | admin | anthropic-plan sign-in: copy authorize URL |
 | `plan-signin-error` | admin | anthropic-plan sign-in: inline error area |
-| `plan-signin-open-btn` | admin | anthropic-plan sign-in: gesture-context popup opener |
+| `plan-signin-open-btn` | admin | anthropic-plan sign-in: the "Open sign-in page" link (`<a target="_blank">`, from `App.ui.consentLink`) |
 | `plan-signin-url` | admin | anthropic-plan sign-in: copyable authorize URL (readonly input) |
 | `plan-test-reauth` | admin | provider /test result: distinct reauth_required message span |
 | `provider-card` | studio | A Library list row in the first group, "Model providers" (`<a href="#library/providers/{id}">` with the name, a type badge and "{n} agents" meta; the list pane marks the open one selected). Sortie 02: the Settings tile's name link (an `admin` row) retired with the Providers page |
@@ -385,11 +386,6 @@ caught — but it cannot see where the attribute is emitted.
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
 | `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
 | `trace-shell` | chat | |
-| `ui-demo-chooser` | admin | Design language reference page — the live `App.ui.modal` chooser-layout demo's `<dialog>` ("Open chooser": width 640, top 72, an `App.ui.searchList` body) (M25 F4 L1) |
-| `ui-demo-chooser-close` | admin | The chooser demo's header close button ("Esc", accessible name "Close (Esc)"), the modal's `closeButton` option (M25 F4 L1) |
-| `ui-demo-chooser-row` | admin | Every option row of the chooser demo's `App.ui.searchList` (its `rowTestid` option) (M25 F4 L1) |
-| `ui-demo-chooser-search` | admin | The chooser demo's `App.ui.searchList` combobox input (its `inputTestid` option) (M25 F4 L1) |
-| `ui-demo-modal` | admin | Design language reference page — the live `App.ui.modal` demo's `<dialog>` (M25 F2 L2) |
 
 ## Parametric prefix families
 
@@ -416,10 +412,8 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
-| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`, and `-design-language` in dev mode); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
+| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin | |
-| `ui-demo-drawer-` | admin | Design language reference page — the `App.ui.drawer` demo's `<aside>`s, suffixed `{theme}-{push|overlay}` (`ui-demo-drawer-dark-push`, …) (M25 F4 L6) |
-| `ui-demo-drawer-toggle-` | admin | The drawer demo's ghost icon-only toggles (`aria-pressed`, `aria-controls` the demo drawer), suffixed `{theme}-{push|overlay}` (M25 F4 L6) |
 
 ## Manual exceptions (variable-carried literals)
 
@@ -480,3 +474,10 @@ again. A retired id cannot come back.
 | `new-mcp-source-btn` | studio | M25 F3 L4a (DD5) — the MCP Servers grid is retired; the Library list's Add menu (`library-add-mcp`) replaces it |
 | `new-provider-btn` | admin | Model-providers sortie (DD8) — the Settings Providers page is gone; providers are created from the Library Add menu (`library-add-provider`) and the start-page card (`library-start-providers-add`) |
 | `providers-empty` | admin | Model-providers sortie (DD8) — the Settings Providers page and its empty state are gone. A prefix, so it also covers `providers-empty-add`; the Library start page's Model providers card replaces it |
+| `ui-demo-chooser` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-chooser-close` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-chooser-row` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-chooser-search` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-drawer-` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-drawer-toggle-` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `ui-demo-modal` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |

@@ -69,10 +69,6 @@ App.registerArea({
     }
 
     var validIds = this.GENERAL_SUBS.concat(['tools', 'knowledge']);
-    // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
-    if (window.App && window.App.config && window.App.config.dev_mode) {
-      validIds.push('design-language');
-    }
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -143,15 +139,11 @@ App.registerArea({
         testid: 'settings-nav-' + page.section
       };
     }
-    // Groups in table order. A devOnly page (the Design language gallery,
-    // Mission 08 F2 L1) shows only in dev mode, filtered here at init: the
-    // boot-blocking fetch in app.js populates window.App.config before it.
-    var devMode = !!(window.App && window.App.config && window.App.config.dev_mode);
+    // Groups in table order.
     var navGroups = [];
     var groupByLabel = {};
     for (var pg = 0; pg < App.settingsPages.length; pg++) {
       var navPage = App.settingsPages[pg];
-      if (navPage.devOnly && !devMode) continue;
       if (!Object.prototype.hasOwnProperty.call(groupByLabel, navPage.group)) {
         groupByLabel[navPage.group] = { label: navPage.group, items: [] };
         navGroups.push(groupByLabel[navPage.group]);
@@ -243,8 +235,6 @@ App.registerArea({
         renderToolsPanel();
       } else if (currentCategory === 'knowledge') {
         renderKnowledgePanel();
-      } else if (currentCategory === 'design-language') {
-        App.admin.renderDesignLanguagePage(contentEl);
       }
     }
 

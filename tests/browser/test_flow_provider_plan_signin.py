@@ -138,17 +138,13 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     )
     page.locator("#pf-type").select_option("anthropic-plan")
     # No API key, no base URL (default submitted invisibly).
-    expect(page.locator(".admin-pf-api-key")).to_have_class(re.compile(r"\bis-hidden\b"))
-    expect(page.locator(".admin-pf-base-url")).to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-api-key")).to_be_hidden()
+    expect(page.locator(".admin-pf-base-url")).to_be_hidden()
     # Thinking/reasoning surface mirrors the anthropic type (AC 7a).
-    expect(page.locator(".admin-pf-thinking-enabled")).not_to_have_class(
-        re.compile(r"\bis-hidden\b")
-    )
-    expect(page.locator(".admin-pf-reasoning-effort")).not_to_have_class(
-        re.compile(r"\bis-hidden\b")
-    )
+    expect(page.locator(".admin-pf-thinking-enabled")).to_be_visible()
+    expect(page.locator(".admin-pf-reasoning-effort")).to_be_visible()
     # Sign-in section visible; affordance ENABLED, no save-first hint.
-    expect(page.locator(".admin-pf-plan-signin")).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-plan-signin")).to_be_visible()
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible()
     expect(signin_btn).not_to_be_disabled()
@@ -206,18 +202,49 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
 @pytest.mark.browser
 def test_plan_section_hides_when_type_switched_away(app_clean: str, page: Page) -> None:
     """Type switched away from anthropic-plan mid-create: the plan section
-    hides via the existing is-hidden toggle pattern (leg edge case)."""
+    hides via the hidden attribute (leg edge case)."""
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic-plan")
-    expect(page.locator(".admin-pf-plan-signin")).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-plan-signin")).to_be_visible()
     page.locator("#pf-type").select_option("openai")
-    expect(page.locator(".admin-pf-plan-signin")).to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-plan-signin")).to_be_hidden()
     # And the openai fields reassert themselves (api key shown).
-    expect(page.locator(".admin-pf-api-key")).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-api-key")).to_be_visible()
 
 
 # ── Save → sign-in → consent UI ──────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_auto_start_is_one_shot_and_only_after_a_sign_in_initiated_create(
+    app_clean: str, page: Page
+) -> None:
+    """Pins the pendingAutoSignInId hand-off: a sign-in-initiated create starts the
+    flow once on the edit mount; a manual Create does not start it; reopening the
+    saved provider afterwards shows the signed-out block again."""
+    _providers.block_claude_ai(page)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
+    page.locator("#pf-name").fill("Manual")
+    page.locator("#pf-type").select_option("anthropic-plan")
+    page.locator(".save-btn").click()
+    expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible(timeout=8000)
+    # Manual create: the signed-out block, no consent block, no error.
+    expect(page.locator('[data-testid="plan-signin-btn"]')).to_be_visible()
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_have_count(0)
+    # A sign-in-initiated create on a second provider starts the flow once.
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
+    page.locator("#pf-name").fill("Auto")
+    page.locator("#pf-type").select_option("anthropic-plan")
+    page.locator('[data-testid="plan-signin-btn"]').click()
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="plan-signin-error"]')).to_be_hidden()
+    # Reopen: the one-shot is spent, so the signed-out block returns.
+    page.reload()
+    expect(page.locator('[data-testid="plan-signin-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -254,8 +281,22 @@ def test_create_save_enables_signin_and_click_shows_consent_ui(app_clean: str, p
     url_input = page.locator('[data-testid="plan-signin-url"]')
     expect(url_input).to_be_visible()
     expect(url_input).to_have_value(re.compile(r"^https://claude\.ai/oauth/authorize\?"))
-    expect(page.locator('[data-testid="plan-signin-open-btn"]')).to_be_visible()
-    expect(page.locator('[data-testid="plan-signin-copy-btn"]')).to_be_visible()
+    # Open is a real link (works where window.open is refused); Copy gives visible
+    # feedback and an announcement.
+    open_link = page.locator('[data-testid="plan-signin-open-btn"]')
+    expect(open_link).to_be_visible()
+    assert open_link.evaluate("e => e.tagName") == "A"
+    expect(open_link).to_have_attribute("target", "_blank")
+    expect(open_link).to_have_attribute(
+        "href", re.compile(r"^https://claude\.ai/oauth/authorize\?")
+    )
+    copy_btn = page.locator('[data-testid="plan-signin-copy-btn"]')
+    expect(copy_btn).to_be_visible()
+    copy_btn.click()
+    expect(copy_btn).to_have_text(re.compile(r"Copied|Copy failed"))
+    expect(consent.locator('[role="status"]')).to_contain_text(
+        re.compile(r"Link copied|Copy failed")
+    )
     expect(page.locator('[data-testid="plan-code-input"]')).to_be_visible()
     expect(page.locator('[data-testid="plan-code-submit-btn"]')).to_be_visible()
     # No error rendered (popup-blocked/aborted degrades silently).
@@ -391,8 +432,11 @@ def test_seeded_tokens_render_connected_state_and_stubbed_reauth_message(
     reauth_msg = page.locator('[data-testid="plan-test-reauth"]')
     expect(reauth_msg).to_be_visible(timeout=8000)
     expect(reauth_msg).to_have_text(reauth_detail)
-    # Distinct from the generic-error branch: no fail-styled span rendered.
-    expect(page.locator(".test-result .test-result-fail")).to_have_count(0)
+    # Distinct from the generic-error branch: a danger line, but carried by the reauth testid.
+    expect(page.locator('[data-testid="provider-test-result"]')).to_have_attribute(
+        "data-state", "danger"
+    )
+    expect(page.locator('[data-testid="provider-test-result"]')).to_contain_text(reauth_detail)
 
 
 @pytest.mark.browser
@@ -522,8 +566,8 @@ def test_legacy_anthropic_provider_renders_no_plan_ui(app_clean: str, page: Page
     provider_id = r.json()["id"]
     _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude API", timeout=8000)
-    expect(page.locator(".admin-pf-plan-signin")).to_have_class(re.compile(r"\bis-hidden\b"))
-    expect(page.locator(".admin-pf-api-key")).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(page.locator(".admin-pf-plan-signin")).to_be_hidden()
+    expect(page.locator(".admin-pf-api-key")).to_be_visible()
 
 
 # ── Studio functional assertion (AC 7c) ──────────────────────────────────

@@ -38,7 +38,6 @@ Route table (new scheme -> legacy hash)::
     settings/encryption            -> #admin/encryption
     settings/tools[/{name}]        -> #admin/tools[/...]
     settings/knowledge-indexing    -> #admin/knowledge
-    settings/design-language       -> #admin/design-language
 
 ``~new`` is the reserved create segment (DD1) and is rewritten to ``/new`` ONLY
 for the four Library sections (providers, knowledge bases, MCP sources and
@@ -218,8 +217,6 @@ def legacy_hash(route: str) -> str:
             return "#" + _join(["admin", "tools", *tail])
         if sec == "knowledge-indexing":
             return "#admin/knowledge"
-        if sec == "design-language":
-            return "#admin/design-language"
         raise ValueError(f"unknown settings route: {route!r}")
     raise ValueError(f"unknown route destination: {route!r}")
 

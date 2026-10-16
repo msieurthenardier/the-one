@@ -6,9 +6,9 @@ has ``gi`` + WebKit2 4.1; the repo venv has neither. ``gi`` imports live inside
 ``main()`` so the module imports anywhere (and ruff E402 stays quiet).
 
     /usr/bin/python3 scripts/webkitgtk_probe.py \\
-        --url 'http://127.0.0.1:8486/#settings/design-language' \\
+        --url 'http://127.0.0.1:8486/#settings/appearance' \\
         --data-dir /tmp/the-one-probe-scratch \\
-        --root-selector '[data-ui-demo]' --theme dark
+        --root-selector 'main' --theme dark
 
 Safety: this tool authenticates with the long-lived credential in ``--data-dir``.
 It REFUSES port 8484 and the platformdirs default data directory (the operator's

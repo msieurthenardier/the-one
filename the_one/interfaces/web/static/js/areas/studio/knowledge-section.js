@@ -94,7 +94,7 @@
 //     irreversible, server-side cascading DELETE of the folder, its file
 //     items, and their chunks. The two-step confirm therefore SURVIVES
 //     the restyle, rendered through the canonical `App.confirmDelete`
-//     (`static/js/confirm.js`) with the folder's `<summary>` as the
+//     (`static/js/ui/confirm.js`) with the folder's `<summary>` as the
 //     state element and the folder-path span as its
 //     `[data-confirm-title]` target — the same helper and the same shape
 //     as this page's own Danger Zone delete and as chat.js's session

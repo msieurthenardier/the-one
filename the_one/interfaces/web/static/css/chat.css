@@ -565,8 +565,6 @@
     font-size: var(--font-size-body-sm);
     font-style: italic;
   }
-  /* Two-step delete confirm state on session items lifted to components.css
-     in F5 leg 02 as the canonical .list-item.confirm-delete rule. */
   /* === Chat Area: Composer (M25 F4 L5; reference spec 5.3, 5.5; DD6, A25) ===
      .composer is the wrapper under the message log (areas/chat/composer.js):
      the telemetry row, the staged-image chicklets and their status, the

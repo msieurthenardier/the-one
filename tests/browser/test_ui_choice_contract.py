@@ -149,7 +149,7 @@ def test_checkbox_structure_hint_sibling_and_name(engine_page: Page) -> None:
         "rootCls": "ui-checkbox", "labelCls": "ui-checkbox-label", "inLabel": True,
         "inputCls": "checkbox-primary", "type": "checkbox", "tid": "cb-1", "own": "true",
         "hintInLabel": False, "hintSibling": True, "desc": True, "span": "Enable thing",
-        "ctl": ["control", "el", "setChecked", "setIndeterminate"],
+        "ctl": ["control", "el", "setChecked", "setDisabled", "setIndeterminate"],
     }  # fmt: skip
     # exact accessible name: the hint text is not part of it
     box = engine_page.get_by_role("checkbox", name="Enable thing", exact=True)
@@ -250,7 +250,7 @@ def test_toggle_structure_role_and_hidden_input(engine_page: Page) -> None:
         "rootCls": "ui-toggle", "labelCls": "ui-toggle-label", "role": "switch", "type": "checkbox",
         "inLabel": True, "trackHidden": "true", "tid": "tg-1", "own": "true", "hintSibling": True,
         "desc": True, "width": "1px", "display": "block",
-        "ctl": ["control", "el", "setChecked"],
+        "ctl": ["control", "el", "setChecked", "setDisabled"],
     }  # fmt: skip
     sw = engine_page.get_by_role("switch", name="Auto save", exact=True)
     expect(sw).to_have_count(1)
@@ -418,6 +418,25 @@ def test_empty_state_pane_structure_and_defaults(engine_page: Page) -> None:
     assert "headingLevel" in _throws(
         engine_page, "App.ui.emptyState({title: 'x', headingLevel: 7})"
     )
+
+
+def test_empty_state_title_tag_p_renders_a_paragraph_not_a_heading(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        """() => {
+          const e = App.ui.emptyState({title: 'No models found.', body: 'Pull one.', titleTag: 'p',
+                                       testid: 'es-tt'});
+          document.getElementById('harness-root').appendChild(e);
+          return true;
+        }""",
+    )
+    out = engine_page.evaluate(
+        """() => { const e = document.querySelector('[data-testid=es-tt]');
+          const t = e.querySelector('.ui-empty-title');
+          return {tag: t.tagName, text: t.textContent, headings: e.querySelectorAll('h1,h2,h3,h4,h5,h6').length}; }"""
+    )
+    assert out == {"tag": "P", "text": "No models found.", "headings": 0}
+    assert "titleTag" in _throws(engine_page, "App.ui.emptyState({title: 'x', titleTag: 'h2'})")
 
 
 # ── field around every control ──────────────────────────────────────────────

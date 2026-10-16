@@ -283,27 +283,9 @@
     return (i >= 2 ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
   }
 
+  // App.ui.flash owns the markup, roles and timing; this keeps the old signature.
   function showFlash(container, msg, isError) {
-    var el = document.createElement('div');
-    el.className = 'app-flash' + (isError ? ' error' : '');
-    if (isError) {
-      el.setAttribute('role', 'alert');
-    } else {
-      el.setAttribute('role', 'status');
-      el.setAttribute('aria-live', 'polite');
-    }
-    el.textContent = msg;
-    container.appendChild(el);
-    setTimeout(function () { el.classList.add('visible'); }, 10);
-    // F2 Leg 2 (A.5): extend auto-dismiss from 2s to 5s. role=alert/
-    // role=status already handles SR announcement immediately, but the
-    // visual dwell time was below WCAG 2.2.1's minimum-for-reading
-    // threshold. 5s covers typical English reading speed for the short
-    // status strings we emit (≈8-12 words).
-    setTimeout(function () {
-      el.classList.remove('visible');
-      setTimeout(function () { el.remove(); }, 300);
-    }, 5000);
+    App.ui.flash(msg, { error: !!isError, container: container || document.body });
   }
 
   window.App = window.App || {};

@@ -63,8 +63,8 @@ declare -A BUDGET=(
   [mcp]=360
   [routing]=600
   [settings]=300
-  [providers]=300
-  [contracts]=270
+  [providers]=420
+  [contracts]=390
   [shared]=300
 )
 

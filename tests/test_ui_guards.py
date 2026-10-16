@@ -95,28 +95,8 @@ KNOWN_DEAD_SELECTORS: set[str] = set()
 #    sites are exempt and not recorded.
 #    ─────────────────────────────────────────────────────────────────────────
 DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
-    "areas/admin/design-language/markdown-section.js": [
-        "' host.innerHTML = \\'<p>hello design language</p>\\';', ' }', '};', '```', '', 'A",
-    ],
-    "areas/admin/design-language/status-section.js": [
-        "host.innerHTML = // --- badges (provider / tool category) --- // Per-badge ink (",
-    ],
     "areas/admin/knowledge-settings-page.js": [
         'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
-    ],
-    "areas/studio/provider-editor.js": [
-        "container.innerHTML = html;",
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "resultEl.innerHTML = '<span class=\"test-result-fail\">' + window.App.escapeHtml(e",
-    ],
-    "areas/studio/provider-models.js": [
-        "modelsEl.innerHTML = '<div class=\"admin-pf-models-header\">' + '<button class=\"bt",
-        "listEl.innerHTML = html;",
-        "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",
-        "container.innerHTML = '<div class=\"admin-pf-models-header\">' + '<button class=\"b",
-        "listEl.innerHTML = html;",
-        "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",
     ],
     "areas/admin/tools-editor.js": [
         "container.innerHTML = html;",
@@ -137,7 +117,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # (test_chat_area_has_no_baselined_sink pins it).
     "areas/studio.js": [
         "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
-        "capsEl.innerHTML = parts.join(' &middot; ');",
         "selectEl.innerHTML = optsHtml;",
         "selectEl.insertAdjacentHTML('beforeend', customOpt);",
         "warningEl.innerHTML = msg;",
@@ -176,6 +155,31 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "expandLabel.innerHTML = '<strong>' + toolNames.length + '</strong> tool' + (tool",
         "bodyEl.innerHTML = html;",
     ],
+}
+
+# ── Exact per-file count of EVERY HTML-string sink (M31 F1 L2, flight DD5) ──
+#    Unlike DYNAMIC_SINK_BASELINE (text freeze, static literals exempt, removals
+#    never fail), this counts every ``innerHTML``/``outerHTML`` assignment and
+#    ``insertAdjacentHTML`` call that ``classify_sinks`` finds, dynamic plus static
+#    (clears and single literals too), and fails on ANY difference, up or down.
+#    A clear becomes ``replaceChildren()``; the mission's target is zero in every
+#    file. Lower a count in the same change that removes a sink; never raise one
+#    without a flight-log reason. A sink moved by a file split is a row change.
+HTML_SINK_ALLOWANCE: dict[str, int] = {
+    "areas/admin.js": 1,
+    "areas/admin/knowledge-settings-page.js": 1,
+    "areas/admin/tools-editor.js": 8,
+    "areas/admin/tools-grid.js": 3,
+    "areas/chat.js": 5,
+    "areas/studio.js": 15,
+    "areas/studio/agent-editor.js": 1,
+    "areas/studio/connector-editor.js": 3,
+    "areas/studio/general-tab.js": 1,
+    "areas/studio/mcp-server-editor.js": 18,
+    "areas/studio/mcps-tab.js": 8,
+    "areas/studio/self-configuration-tab.js": 5,
+    "areas/studio/tools-tab.js": 5,
+    "theme.js": 1,
 }
 
 
@@ -410,6 +414,31 @@ def test_no_new_dynamic_innerhtml_sinks() -> None:
             "Render via createElement/textContent or a static template instead of\n"
             "adding a dynamic sink. Sites found beyond baseline:\n" + "\n".join(lines)
         )
+
+
+def test_html_sink_count_matches_allowance() -> None:
+    """Every HTML-string sink, per file, exactly (M31 F1 L2, DD5): dynamic plus static,
+    clears and single literals included. Fails both ways and prints a paste-ready dict."""
+    dynamic, static = classify_sinks()
+    live = {
+        rel: len(dynamic.get(rel, [])) + len(static.get(rel, []))
+        for rel in sorted(set(dynamic) | set(static))
+    }
+    if live == HTML_SINK_ALLOWANCE:
+        return
+    diffs = [
+        f"  {rel}: found {live.get(rel, 0)}, allowed {HTML_SINK_ALLOWANCE.get(rel, 0)}"
+        for rel in sorted(set(live) | set(HTML_SINK_ALLOWANCE))
+        if live.get(rel, 0) != HTML_SINK_ALLOWANCE.get(rel, 0)
+    ]
+    corrected = "\n".join(f'    "{rel}": {n},' for rel, n in live.items())
+    raise AssertionError(
+        "HTML-string sink counts differ from HTML_SINK_ALLOWANCE. Lower it in the same\n"
+        "change that removes a sink; never raise it without a flight-log reason.\n"
+        + "\n".join(diffs)
+        + "\n\nCorrected dict body (paste into HTML_SINK_ALLOWANCE):\n"
+        + corrected
+    )
 
 
 def test_chat_area_has_no_baselined_sink() -> None:

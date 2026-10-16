@@ -205,7 +205,6 @@ _SETTINGS_NAV_ORDER = (
     "encryption",
     "tools",
     "knowledge-indexing",
-    "design-language",  # the browser lanes run in dev mode
 )
 
 

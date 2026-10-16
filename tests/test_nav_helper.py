@@ -56,7 +56,6 @@ DD2_ROWS = [
     ("settings/tools", "#admin/tools"),
     ("settings/tools/web_search", "#admin/tools/web_search"),
     ("settings/knowledge-indexing", "#admin/knowledge"),
-    ("settings/design-language", "#admin/design-language"),
 ]
 
 
@@ -405,6 +404,13 @@ def test_settings_providers_guard_self_test():
 # "Retired testids" table.
 RETIRED_SELECTORS = (
     "base-prompt-content",
+    "ui-demo-chooser",
+    "ui-demo-chooser-close",
+    "ui-demo-chooser-row",
+    "ui-demo-chooser-search",
+    "ui-demo-drawer-",
+    "ui-demo-drawer-toggle-",
+    "ui-demo-modal",
     "entity-tile",
     "section-nav-item",
     "back-agent-btn",

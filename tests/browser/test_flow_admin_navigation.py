@@ -39,7 +39,7 @@ def test_admin_picker_click_from_tools_redirects_to_appearance(app_clean: str, p
 
 @pytest.mark.browser
 def test_admin_settings_nav_renders_the_stable_pages(app_clean: str, page: Page) -> None:
-    """The nav's five always-present pages (Design language is dev-mode only).
+    """The nav's five always-present pages .
 
     MCP Servers was originally an admin section (M07 F1 L5) but was relocated
     to Studio (now the Library) post-F2 retrofit (admin = system settings,

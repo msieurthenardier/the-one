@@ -24,6 +24,7 @@ so no live OpenRouter network call is needed. See conftest.py for the
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -65,7 +66,7 @@ def test_studio_openrouter_no_tools_chip(
     page: Page,
 ) -> None:
     """Selecting a model without 'tools' in supported_parameters renders the
-    .cap-chip-no-tools chip in the capabilities panel."""
+    "no tools" chip in the capabilities panel."""
     base_url = app_with_openrouter_models.base_url
     provider_id = app_with_openrouter_models.provider_id
 
@@ -77,8 +78,9 @@ def test_studio_openrouter_no_tools_chip(
 
     page.locator("#studio-model").select_option("no-tools-model")
 
-    chip = page.locator(".cap-chip-no-tools")
+    chip = page.locator(".model-capabilities").get_by_text("no tools", exact=True)
     expect(chip).to_be_visible(timeout=3000)
+    expect(chip).to_have_attribute("title", re.compile("does not support tool calling"))
 
 
 @pytest.mark.browser
@@ -87,7 +89,7 @@ def test_studio_openrouter_tools_model_no_no_tools_chip(
     page: Page,
 ) -> None:
     """Selecting a model that HAS 'tools' in supported_parameters does NOT
-    render the .cap-chip-no-tools chip."""
+    render the "no tools" chip."""
     base_url = app_with_openrouter_models.base_url
     provider_id = app_with_openrouter_models.provider_id
 
@@ -99,7 +101,9 @@ def test_studio_openrouter_tools_model_no_no_tools_chip(
 
     page.locator("#studio-model").select_option("anthropic/claude-3.5-sonnet")
 
-    expect(page.locator(".cap-chip-no-tools")).to_have_count(0, timeout=2000)
+    expect(page.locator(".model-capabilities").get_by_text("no tools", exact=True)).to_have_count(
+        0, timeout=2000
+    )
 
 
 @pytest.mark.browser
@@ -120,7 +124,9 @@ def test_studio_openrouter_empty_caps_no_chip(
 
     page.locator("#studio-model").select_option("empty-caps-model")
 
-    expect(page.locator(".cap-chip-no-tools")).to_have_count(0, timeout=2000)
+    expect(page.locator(".model-capabilities").get_by_text("no tools", exact=True)).to_have_count(
+        0, timeout=2000
+    )
 
 
 @pytest.mark.browser

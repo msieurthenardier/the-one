@@ -56,8 +56,8 @@ segment links to its root ("Agents" -> ``#agents``, "Knowledge bases" ->
 
 Settings (leg 5a) is a grouped nav of plain links (``App.ui.navGroups``, testid
 ``settings-nav``) beside the page; its items are ``settings-nav-{section}``, one
-per page (``SETTINGS_PAGES``: the four General pages, Built-in tools,
-Knowledge indexing and, in dev mode, Design language):
+per page (``SETTINGS_PAGES``: the four General pages, Built-in tools and
+Knowledge indexing):
 
 * ``settings_nav(page)`` -- the ``<nav aria-label="Settings">``;
 * ``settings_nav_link(page, section)`` -- one page's link;
@@ -248,7 +248,6 @@ SETTINGS_PAGE_TITLES: dict[str, str] = {
     "encryption": "Encryption",
     "tools": "Built-in tools",
     "knowledge-indexing": "Knowledge indexing",
-    "design-language": "Design language",
 }
 SETTINGS_PAGES = tuple(SETTINGS_PAGE_TITLES)
 

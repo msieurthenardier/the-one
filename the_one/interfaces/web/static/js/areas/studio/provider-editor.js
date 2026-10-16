@@ -1,332 +1,494 @@
-// App.studio.renderProviderEditor — provider-editor scaffold (F6 leg 03).
+// App.studio.renderProviderEditor — the provider editor, built once per mount
+// from App.ui library controls (M31 F1 L7, flight DD1).
 //
-// Builds the editor surface mirroring studio's agent-editor (F5 leg 03):
-//   <div class="editor-header">
-//     <div class="editor-header-text">
-//       <div class="editor-breadcrumb"><a href="#library">Library</a> / Model providers</div>
-//       <h1 class="editor-title" tabindex="-1">{name | "New model provider"}</h1>
-//       <p class="editor-subtitle">{type · base_url}</p>  (edit only)
-//     </div>
-//     <div class="form-actions">
-//       <span class="editor-unsaved" role="status"></span>
-//       <button class="cancel-btn">Cancel</button>  (disabled while clean, edit only)
-//       <button class="save-btn" disabled>{Save | Create}</button>
-//       <button class="test-provider-btn">Test</button>  (edit only)
-//       <span class="editor-error"></span>
-//     </div>
-//   </div>
-//   <div class="editor-section">
-//     <div class="section-title">Connection</div>
-//     {name + type + base_url + api_key fields}
-//     <div class="test-result"></div>
-//   </div>
-//   <div class="editor-section">                    (edit only)
-//     <div class="section-title">Available models</div>
-//     <p class="admin-pf-models-help">…Agents link…</p>
-//     <div class="provider-models"></div>
-//   </div>
-//   <div class="editor-section danger-zone">        (edit only)
-//     <div class="section-title danger-zone-title">Danger Zone</div>
-//     <button class="delete-btn">Delete Provider</button>
-//   </div>
+//   renderProviderEditor(container, provider, providerTypes, callbacks)
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange, getTypeDefaults }
 //
-// Sortie 02 (providers in Library): the editor lives in areas/studio/ and has
-// one host, the Library detail pane (studio's providers-section.js). Library
-// editor chrome: the pane's one h1 as the title, the "Library / Model
-// providers" breadcrumb (Library is the link to #library), and no "Provider
-// created" flash (the create re-mounts the editor, as the connector
-// convention).
+// One handle object per mount (`h`) holds every control handle (the shell, the
+// fields, the status line, the sections, the danger zone and the models
+// controller); after the mount a type change, Save, Cancel and Test patch the
+// DOM through those handles and never rebuild it. Only the create-to-edit
+// transition re-mounts (providers-section.js re-renders, keeping its mountToken
+// and editorGen guards).
 //
-// The breadcrumb (inserted after innerHTML) is the visible way to close the
-// item, routed by studio.js. The title carries tabindex="-1" so studio.js can
-// move focus to it when an intent opens the item. The unsaved caption is a stable span at the start of .form-actions
-// whose text checkDirty sets or clears (the same value it reports through
-// onDirtyChange, which feeds the App.nav dirty source).
+//   App.ui.editorShell   header: breadcrumb "Library / Model providers", title,
+//                        `type · base_url` subtitle, Cancel / Save (Create) / Test,
+//                        the unsaved caption and the error slot
+//   App.ui.section       Connection, Anthropic Account, Available models
+//   App.ui.field + the form controls (textInput, select, toggle, secretInput)
+//   App.ui.status        the Test result line (provider-test-result)
+//   App.ui.dangerZone    Delete Provider (agent-usage block, then arm and commit)
 //
-// Editor Delete uses App.confirmDelete (canonical destructive-confirm helper)
-// since F6 leg 04. The agent-usage hard-block remains as a pre-confirmDelete
-// gate (no confirm flow when agents reference the provider).
+// Fields keep their ids (#pf-*), testids and data-field attributes, so the dirty
+// snapshot and the payload builder read them unchanged. The breadcrumb link
+// carries no handler: studio's router interception closes the item. The title
+// has tabindex -1 so studio.js can focus it on an intent open.
+//
+// Secret handling: the API key is only ever written to the input through its
+// .value property (App.ui.secretInput), never into an attribute, a title, an
+// aria-label or a log line; no request payload is logged.
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  function renderProviderEditor(container, provider, providerTypes, callbacks) {
-    callbacks = callbacks || {};
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-    var isCreate = !provider;
-    var name = isCreate ? 'New model provider' : (provider.name || '');
-    var titleTag = 'h1';
+  var MASKED_SENTINEL = '__MASKED__';
+  // The handle object of the most recent mount. A create re-mounts the editor in
+  // edit mode, and the deferred focus after that Save targets the NEW mount's
+  // title through this handle (the closure that saved is gone by then).
+  var latestMount = null;
+  var DEFAULT_NUM_CTX = 32768;
+  var NUM_CTX_DESC = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
+  var THINKING_DESC = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
+  var EFFORT_DESC = 'Guides how much the model reasons before answering (reasoning-capable models). Leave on Provider default to omit.';
+  var EFFORT_OPTIONS = [
+    { value: '', label: 'Provider default' },
+    { value: 'low', label: 'low' },
+    { value: 'medium', label: 'medium' },
+    { value: 'high', label: 'high' }
+  ];
 
-    // ── Header HTML ─────────────────────────────────────────────────
-    var html = '';
-    html += '<div class="editor-header">';
-    html += '<div class="editor-header-text">';
-    html += '<' + titleTag + ' class="editor-title" tabindex="-1">' + escapeHtml(name) + '</' + titleTag + '>';
-    if (!isCreate) {
-      var subtitleParts = [escapeHtml(provider.type)];
-      if (provider.base_url) subtitleParts.push(escapeHtml(provider.base_url));
-      html += '<p class="editor-subtitle">' + subtitleParts.join(' · ') + '</p>';
-    }
-    html += '</div>';
-
-    // ── Action cluster ──────────────────────────────────────────────
-    // M25 F3 L5b (DD2): Back is retired; the cluster opens with the stable
-    // unsaved caption (checkDirty sets or clears its text). Cancel on the
-    // create form abandons creation (DD8), so it is enabled from first
-    // render, clean or dirty (the M25 F3 behavior-gate fix); in edit mode it
-    // reverts, and checkDirty keeps it disabled while there is nothing to
-    // revert.
-    html += '<div class="form-actions">';
-    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
-    if (!isCreate) {
-      html += '<button type="button" class="btn-outlined-primary test-provider-btn" data-testid="test-connection-btn">Test</button>';
-    }
-    html += '<span class="editor-error"></span>';
-    html += '</div>';
-    html += '</div>'; // .editor-header
-
-    // ── Connection section ──────────────────────────────────────────
-    html += '<div class="editor-section">';
-    html += '<div class="section-title">Connection</div>';
-    html += renderConnectionFields(provider, providerTypes, callbacks);
-    html += '<div class="test-result" aria-live="polite"></div>';
-    html += '</div>';
-
-    // ── Anthropic Account section (M19 F01 L03) ─────────────────────
-    // Rendered for ALL modes/types but hidden unless the selected type's
-    // TYPE_DEFAULTS carries showPlanSignIn (the anthropic-plan OAuth type only; the
-    // anthropic-plan-token type pastes a token instead and has no sign-in) —
-    // same is-hidden toggle pattern as the base_url/api_key rows. The
-    // body is populated by wirePlanSignIn; nothing inside carries a
-    // data-field attribute (no-trap rule: the dirty snapshot selects
-    // [data-field], so the sign-in machinery stays out of it entirely).
-    html += renderPlanSignInShell(provider, callbacks);
-
-    // ── Models section (edit only) ──────────────────────────────────
-    if (!isCreate) {
-      html += '<div class="editor-section">';
-      html += '<div class="section-title">Available models</div>';
-      html += '<p class="admin-pf-models-help" data-testid="provider-models-help"></p>';
-      html += '<div class="provider-models"></div>';
-      html += '</div>';
-    }
-
-    // ── Danger Zone section (edit only) ─────────────────────────────
-    if (!isCreate) {
-      html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      html += '<button type="button" class="btn-muted-destructive delete-btn" data-testid="delete-provider-btn" data-name="' + escapeAttr(provider.name || '') + '"><span data-confirm-title>Delete Provider</span></button>';
-      // Hard-block message banner — shown when the provider is in use by
-      // ≥1 agents. Sibling of the button (NOT inside it) so long agent-name
-      // lists don't deform the button. aria-live="assertive" announces
-      // when revealed. F6 HAT refinement.
-      html += '<div class="action-blocked-message banner banner-error" data-testid="delete-blocked-message" role="status" aria-live="assertive" hidden></div>';
-      html += '</div>';
-    }
-
-    container.innerHTML = html;
-
-    // The breadcrumb (M25 F3 DD2): "Library / Model providers", inserted with
-    // DOM APIs after the markup is in place (this editor is string-built), as
-    // the first child of .editor-header-text, in edit and create modes. Its
-    // "Library" segment links to #library: with Back retired it is the visible
-    // way to close the item. studio.js routes the click (the router's guard
-    // asks once about a dirty editor) and focuses the item's row after the
-    // close (DD8).
-    var headerText = container.querySelector('.editor-header-text');
-    var crumb = document.createElement('div');
-    crumb.className = 'editor-breadcrumb';
-    var crumbLink = document.createElement('a');
-    crumbLink.className = 'editor-breadcrumb-link';
-    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
-    // "Library / Model providers": Library is the link to #library (DD3).
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library' }));
-    crumbLink.textContent = 'Library';
-    crumb.appendChild(crumbLink);
-    crumb.appendChild(document.createTextNode(' / Model providers'));
-    headerText.insertBefore(crumb, headerText.firstChild);
-
-    // DD10: the Models list is information, not a picker. Its one line of help
-    // is built with DOM APIs (this editor is string-built) so "Agents" can link.
-    var modelsHelp = container.querySelector('.admin-pf-models-help');
-    if (modelsHelp) {
-      modelsHelp.appendChild(document.createTextNode('Each agent chooses one of these in its Model section. '));
-      var agentsLink = document.createElement('a');
-      agentsLink.setAttribute('href', window.App.router.href({ destination: 'agents' }));
-      agentsLink.setAttribute('data-testid', 'provider-models-agents-link');
-      agentsLink.textContent = 'Agents';
-      modelsHelp.appendChild(agentsLink);
-    }
-
-    wireEditorEvents(container, provider, providerTypes, callbacks);
-
-    // Mount the Models panel synchronously in edit mode (mirrors agent-editor's
-    // synchronous General-tab mount so tests find selectors immediately).
-    if (!isCreate && window.App.studio.renderProviderModels) {
-      var modelsHost = container.querySelector('.provider-models');
-      if (modelsHost) {
-        window.App.studio.renderProviderModels(modelsHost, provider);
-      }
-    }
+  function subtitleText(row) {
+    var parts = [row.type];
+    if (row.base_url) parts.push(row.base_url);
+    return parts.join(' · ');
   }
 
-  function renderConnectionFields(provider, providerTypes, callbacks) {
-    /* Render the four field rows: name, type, base_url, api_key.
-       Reuses pre-leg-03 admin.js:314-351 markup verbatim (DOM/selectors
-       preserved for backward compat with tests that locate by #pf-name etc.). */
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
+  function renderProviderEditor(container, provider, providerTypes, callbacks) {
+    callbacks = callbacks || {};
+    var util = window.App.ui.util;
     var isCreate = !provider;
+    var isEdit = !isCreate;
     var type = isCreate ? '' : provider.type;
-    var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(type)) || { base_url: '', showBaseUrl: false, showApiKey: false };
+    var h = { modelsCtl: null, fieldEls: [] };
+    latestMount = h;
 
-    var html = '';
-    // Name — stacked `.field-group` (label above control), M17 F6 L1 migration
-    // from the label-left `.field-row admin-pf-row` layout.
-    html += '<div class="field-group">';
-    html += '<label for="pf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : provider.name) + '" placeholder="My Provider" />';
-    html += '</div>';
-
-    // Type
-    html += '<div class="field-group">';
-    html += '<label for="pf-type">Type</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
-    if (isCreate) html += '<option value="" disabled selected>Select a provider…</option>';
-    for (var t = 0; t < providerTypes.length; t++) {
-      var pt = providerTypes[t];
-      html += '<option value="' + escapeAttr(pt.value) + '"' + (!isCreate && type === pt.value ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
+    function typeDefaults(t) {
+      return (callbacks.getTypeDefaults && callbacks.getTypeDefaults(t)) ||
+        { base_url: '', showBaseUrl: false, showApiKey: false };
     }
-    html += '</select>';
-    html += '</div>';
+    var defaults = typeDefaults(type);
 
-    // Base URL
-    var baseUrlValue = isCreate ? defaults.base_url : provider.base_url;
-    html += '<div class="field-group admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-base-url">Base URL</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue || '') + '" placeholder="https://..." />';
-    html += '</div>';
+    var snapshot = '';
+    var dirty = false;
+    // Capture the pre-filled (masked) key so an untouched field is sent as the
+    // sentinel and the stored key survives. Empty in create mode.
+    var originalMaskedApiKey = isEdit ? (provider.api_key || '') : '';
+    // The expiry line renders from the last SAVED row (an edit-mode Save
+    // replaces it with the PUT response, since the editor does not re-mount).
+    var expiryRow = provider || null;
 
-    // API Key (canonical .api-key-wrap + .api-key-eye)
-    var apiKeyValue = isCreate ? '' : (provider.api_key || '');
-    html += '<div class="field-group admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
-    // Label, placeholder and help line come from TYPE_DEFAULTS (sortie 03 DD6:
-    // the token type relabels this row "Token"); the type-change handler updates
-    // the same nodes with textContent/setAttribute.
-    html += '<label for="pf-api-key">' + escapeHtml(defaults.apiKeyLabel || 'API Key') + '</label>';
-    html += '<div class="api-key-wrap">';
-    html += '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="' + escapeAttr(defaults.apiKeyPlaceholder || 'sk-...') + '"' + (defaults.apiKeyHelp ? ' aria-describedby="pf-api-key-help"' : '') + ' />';
-    html += '<button class="api-key-eye" type="button" title="Show/Hide" aria-label="Show password">' + window.App.icon('eye') + '</button>';
-    html += '</div>';
-    html += '<p class="field-hint admin-pf-api-key-help" id="pf-api-key-help" data-testid="provider-api-key-help"' + (defaults.apiKeyHelp ? '' : ' hidden') + '>' + escapeHtml(defaults.apiKeyHelp || '') + '</p>';
+    function checkDirty() {
+      dirty = getFormSnapshot(h) !== snapshot;
+      // Cancel follows `dirty` in edit mode only; the create form's Cancel
+      // (abandon creation) stays enabled whether or not anything was typed.
+      h.shell.setDirty(dirty);
+      // Notify the orchestrator's mirror so the leave guard (App.nav) reads the
+      // same logical state.
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
+    }
+    function watch(el) {
+      h.fieldEls.push(el);
+      el.addEventListener('input', checkDirty);
+      el.addEventListener('change', checkDirty);
+      return el;
+    }
+
+    // ── Header ──────────────────────────────────────────────────────
+    h.shell = App.ui.editorShell({
+      breadcrumb: {
+        label: 'Library',
+        href: window.App.router.href({ destination: 'library' }),
+        trail: ' / Model providers'
+      },
+      title: isCreate ? 'New model provider' : (provider.name || ''),
+      subtitle: isCreate ? null : subtitleText(provider),
+      actions: {
+        cancel: { testid: 'cancel-provider-btn', enabledWhenClean: isCreate, onClick: onCancelClick },
+        save: { label: isCreate ? 'Create' : 'Save', testid: 'save-provider-btn', onClick: function () { performSave(); } },
+        test: isCreate ? null : { label: 'Test', testid: 'test-connection-btn', className: 'provider-test-btn', onClick: onTestClick }
+      }
+    });
+
+    // ── Connection fields ───────────────────────────────────────────
+    var nameInput = watch(App.ui.textInput({
+      id: 'pf-name', value: isCreate ? '' : provider.name, placeholder: 'My Provider', dataset: { field: 'name' }
+    }));
+    h.name = App.ui.field({ label: 'Name', control: nameInput });
+
+    var typeOptions = [];
+    if (isCreate) typeOptions.push({ value: '', label: 'Select a provider…', disabled: true });
+    var known = false;
+    var t;
+    for (t = 0; t < providerTypes.length; t++) {
+      if (providerTypes[t].value === type) known = true;
+      typeOptions.push({ value: providerTypes[t].value, label: providerTypes[t].label });
+    }
+    // A saved type the server no longer offers (a mock provider with dev mode
+    // off) still shows as itself.
+    if (isEdit && !known) typeOptions.push({ value: type, label: type });
+    var typeSelect = watch(App.ui.select({
+      id: 'pf-type', options: typeOptions, value: type, dataset: { field: 'type' }
+    }));
+    h.type = App.ui.field({ label: 'Type', control: typeSelect });
+
+    var baseUrlInput = watch(App.ui.textInput({
+      id: 'pf-base-url', value: (isCreate ? defaults.base_url : provider.base_url) || '',
+      placeholder: 'https://...', dataset: { field: 'base_url' }
+    }));
+    h.baseUrl = App.ui.field({ label: 'Base URL', control: baseUrlInput });
+    h.baseUrl.el.classList.add('admin-pf-base-url');
+    h.baseUrl.el.hidden = !defaults.showBaseUrl;
+
+    // The API key. Label, placeholder and help line come from TYPE_DEFAULTS (the
+    // token type relabels this row "Token"); a type change patches the same
+    // nodes through the field handle.
+    h.secret = App.ui.secretInput({
+      id: 'pf-api-key', value: isCreate ? '' : (provider.api_key || ''),
+      placeholder: defaults.apiKeyPlaceholder || 'sk-...', dataset: { field: 'api_key' }
+    });
+    watch(h.secret.input);
+    h.apiKey = App.ui.field({
+      label: defaults.apiKeyLabel || 'API Key', control: h.secret.input, host: h.secret.el,
+      hint: defaults.apiKeyHelp, hintTestid: 'provider-api-key-help'
+    });
+    h.apiKey.el.classList.add('admin-pf-api-key');
+    h.apiKey.el.hidden = !defaults.showApiKey;
     // The token's added/expires line (edit mode); filled by renderTokenExpiry.
-    if (!isCreate) html += '<div class="admin-pf-token-expiry" hidden></div>';
-    html += '</div>';
+    h.expiryHost = null;
+    if (isEdit) {
+      h.expiryHost = util.el('div', { className: 'admin-pf-token-expiry', hidden: true });
+      h.apiKey.el.appendChild(h.expiryHost);
+    }
 
-    // Context Window (config.num_ctx) — Ollama-only override (F09-05). Rides in
-    // the free-form config dict (config.num_ctx), same pattern as the OpenRouter
-    // referer/title config fields. Required + always carries a value: pre-filled
-    // with the default window (DEFAULT_NUM_CTX, mirrors _DEFAULT_NUM_CTX in
-    // ollama_provider.py) for new providers, or the provider's stored value when
-    // editing one that has it. Description is a tooltip on a focusable info-icon
-    // button. M17 F6 L1: migrated to the stacked `.field-group` + shared
-    // `.field-group-label` vocabulary — label + info-icon sit on one line ABOVE
-    // the control (the `.field-group-label` primitive keeps the <button> a
-    // SIBLING of the <label>, never nested). The `.admin-pf-num-ctx` marker
-    // class is preserved so the type-driven show/hide (wireEditorEvents) keeps
-    // working; the info-icon stays a descendant of that row so the a11y wiring
-    // (`aria-describedby` → `#pf-num-ctx-desc`) is unchanged.
-    var DEFAULT_NUM_CTX = 32768;
-    var numCtx = (!isCreate && provider.config && provider.config.num_ctx != null) ? provider.config.num_ctx : DEFAULT_NUM_CTX;
-    var numCtxDesc = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
-    var numCtxIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
-    if (!numCtxIcon) numCtxIcon = 'ⓘ';
-    html += '<div class="field-group admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
-    html += '<div class="field-group-label">';
-    html += '<label for="pf-num-ctx">Context Window</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-label="' + escapeAttr(numCtxDesc) + '">' + numCtxIcon + '</button>';
-    html += '</div>';
-    html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
-    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
-    html += '</div>';
+    // Context Window (config.num_ctx): Ollama-only, required, always carries a
+    // value (the default window for a new provider, else the stored one).
+    var numCtx = (isEdit && provider.config && provider.config.num_ctx != null)
+      ? provider.config.num_ctx : DEFAULT_NUM_CTX;
+    var numCtxInput = watch(App.ui.textInput({
+      id: 'pf-num-ctx', type: 'number', value: String(numCtx), required: true,
+      dataset: { field: 'config.num_ctx' }
+    }));
+    numCtxInput.min = '1';
+    numCtxInput.step = '1';
+    h.numCtx = App.ui.field({ label: 'Context Window', control: numCtxInput, info: NUM_CTX_DESC });
+    h.numCtx.el.classList.add('admin-pf-num-ctx');
+    h.numCtx.el.hidden = !defaults.showNumCtx;
 
-    // Extended thinking (config.thinking_enabled) — Anthropic-only on/off toggle
-    // (F10-06). Rides the free-form config dict (config.thinking_enabled), same
-    // pattern as num_ctx. Off by default: a fresh Anthropic provider has thinking
-    // disabled; the operator opts in. The native checkbox .checked bool is written
-    // straight to payload.config.thinking_enabled — no numeric validation; the
-    // backend's _coerce_bool (anthropic_provider.py) reads the key.
-    //
-    // HAT inline fix (F10-07): rendered as the canonical iOS-style toggle switch
-    // (`.tool-enable-switch` + `.tool-enable-switch-track`, CSS in admin.css under
-    // `.area-admin`/`.area-studio`) — the same widget the tools editor/grid and
-    // the per-agent admit-DMs toggle use, for cross-screen consistency. The REAL
-    // <input type="checkbox"> (id/data-field/`field-input` preserved) is
-    // visually-hidden inside the switch label but stays keyboard-operable and
-    // drives the collect + dirty machinery via `.checked`. The info-icon follows
-    // the LABEL (`label (i) field` order) to match the established icon-tooltip
-    // pattern, not the num_ctx `label | input | ⓘ` order.
-    var thinkingEnabled = !!(!isCreate && provider.config && provider.config.thinking_enabled);
-    var teDesc = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
-    var teIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
-    if (!teIcon) teIcon = 'ⓘ';
-    // M17 F6 L1 DOCUMENTED LABEL-LEFT EXCEPTION: the text fields above migrated
-    // to the stacked `.field-group` vocabulary, but the Extended-thinking toggle
-    // stays on the label-left `.field-row` layout (`label | ⓘ | switch` on one
-    // row). Stacking a single iOS-style toggle under its own label reads worse
-    // than the compact label-left form (the F5 chrome-row precedent). The
-    // `.admin-pf-thinking-enabled` marker class is preserved for the type-driven
-    // show/hide.
-    html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-thinking-enabled">Extended thinking</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-label="' + escapeAttr(teDesc) + '">' + teIcon + '</button>';
-    html += '<span id="pf-thinking-enabled-desc" class="visually-hidden">' + escapeHtml(teDesc) + '</span>';
-    html += '<label class="tool-enable-switch">';
-    html += '<input class="field-input" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
-    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
-    html += '</label>';
-    html += '</div>';
+    // Extended thinking (config.thinking_enabled): an Anthropic on/off switch.
+    // The native checkbox drives collect and dirty through .checked.
+    h.thinking = App.ui.toggle({
+      id: 'pf-thinking-enabled', label: 'Extended thinking', info: THINKING_DESC,
+      checked: !!(isEdit && provider.config && provider.config.thinking_enabled),
+      dataset: { field: 'config.thinking_enabled' }
+    });
+    watch(h.thinking.control);
+    h.thinking.el.classList.add('admin-pf-thinking-enabled');
+    h.thinking.el.hidden = !defaults.showThinkingEnabled;
 
-    // Reasoning effort (config.reasoning_effort) — F11-06. Rides the free-form
-    // config dict (config.reasoning_effort), same pattern as num_ctx. Shown for
-    // reasoning-capable provider types (anthropic, anthropic-plan,
-    // anthropic-plan-token, openai,
-    // openrouter, ollama, openai-compatible — see
-    // TYPE_DEFAULTS.showReasoningEffort in providers-section.js).
-    // Optional: the empty "Provider default" option means omit the key
-    // entirely (server-side _coerce_effort('') -> None), so an operator who
-    // never touches this field gets prior behavior unchanged.
-    var reasoningEffort = (!isCreate && provider.config && provider.config.reasoning_effort) ? provider.config.reasoning_effort : '';
-    var reDesc = 'Guides how much the model reasons before answering (reasoning-capable models). Leave on Provider default to omit.';
-    var reIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
-    if (!reIcon) reIcon = 'ⓘ';
-    html += '<div class="field-group admin-pf-reasoning-effort' + (defaults.showReasoningEffort ? '' : ' is-hidden') + '">';
-    html += '<div class="field-group-label">';
-    html += '<label for="pf-reasoning-effort">Reasoning Effort</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-label="' + escapeAttr(reDesc) + '">' + reIcon + '</button>';
-    html += '</div>';
-    html += '<span id="pf-reasoning-effort-desc" class="visually-hidden">' + escapeHtml(reDesc) + '</span>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-reasoning-effort" data-field="config.reasoning_effort" aria-describedby="pf-reasoning-effort-desc">';
-    html += '<option value=""' + (reasoningEffort === '' ? ' selected' : '') + '>Provider default</option>';
-    html += '<option value="low"' + (reasoningEffort === 'low' ? ' selected' : '') + '>low</option>';
-    html += '<option value="medium"' + (reasoningEffort === 'medium' ? ' selected' : '') + '>medium</option>';
-    html += '<option value="high"' + (reasoningEffort === 'high' ? ' selected' : '') + '>high</option>';
-    html += '</select>';
-    html += '</div>';
+    // Reasoning effort (config.reasoning_effort): optional; the empty "Provider
+    // default" option omits the key server-side.
+    var effortSelect = watch(App.ui.select({
+      id: 'pf-reasoning-effort', options: EFFORT_OPTIONS,
+      value: (isEdit && provider.config && provider.config.reasoning_effort) || '',
+      dataset: { field: 'config.reasoning_effort' }
+    }));
+    h.effort = App.ui.field({ label: 'Reasoning Effort', control: effortSelect, info: EFFORT_DESC });
+    h.effort.el.classList.add('admin-pf-reasoning-effort');
+    h.effort.el.hidden = !defaults.showReasoningEffort;
 
-    return html;
+    // The Test result line (edit only); shown once a test starts.
+    h.testStatus = App.ui.status({ testid: 'provider-test-result' });
+    h.testStatus.el.hidden = true;
+
+    h.connection = App.ui.section({
+      title: 'Connection',
+      children: [h.name.el, h.type.el, h.baseUrl.el, h.apiKey.el, h.numCtx.el, h.thinking.el, h.effort.el, h.testStatus.el]
+    });
+
+    // ── Anthropic Account (M19 F01 L03) ─────────────────────────────
+    // Present in every mode and type, hidden unless the selected type carries
+    // showPlanSignIn (the OAuth type only). The body is populated by
+    // wirePlanSignIn; nothing inside carries a data-field (the dirty snapshot
+    // selects [data-field], so the sign-in machinery stays out of it).
+    // The state node is replaced per state; the error line is built once, outside
+    // it, so an error shown after a re-render is not lost.
+    h.planState = util.el('div', { className: 'plan-signin-state' });
+    h.planErr = util.el('div', {
+      className: 'plan-signin-error banner banner-error',
+      'data-testid': 'plan-signin-error',
+      role: 'status',
+      'aria-live': 'polite',
+      hidden: true
+    });
+    h.planBody = util.el('div', { className: 'plan-signin-body' }, [h.planState, h.planErr]);
+    h.planSection = App.ui.section({
+      title: 'Anthropic Account', className: 'admin-pf-plan-signin', children: [h.planBody]
+    });
+    h.planSection.el.hidden = !defaults.showPlanSignIn;
+
+    var sections = [h.shell.el, h.connection.el, h.planSection.el];
+
+    // ── Models (edit only) ──────────────────────────────────────────
+    if (isEdit) {
+      // DD10: the list is information, not a picker; one line of help whose
+      // "Agents" word links.
+      var modelsHelp = util.el('p', { className: 'admin-pf-models-help', 'data-testid': 'provider-models-help' }, [
+        'Each agent chooses one of these in its Model section. ',
+        util.el('a', {
+          href: window.App.router.href({ destination: 'agents' }),
+          'data-testid': 'provider-models-agents-link',
+          text: 'Agents'
+        })
+      ]);
+      h.modelsHost = util.el('div', { className: 'provider-models' });
+      sections.push(App.ui.section({ title: 'Available models', children: [modelsHelp, h.modelsHost] }).el);
+
+      h.danger = App.ui.dangerZone({
+        title: 'Danger Zone',
+        action: {
+          label: 'Delete Provider', testid: 'delete-provider-btn', dataset: { name: provider.name || '' },
+          beforeArm: beforeDeleteArm, onConfirm: doDelete
+        },
+        notice: { testid: 'delete-blocked-message' }
+      });
+      sections.push(h.danger.el);
+    }
+
+    container.replaceChildren.apply(container, sections);
+
+    // Mount the Models panel synchronously (so tests find selectors at once). It
+    // returns a controller {refresh, destroy}; Test success refreshes it in place.
+    if (isEdit && window.App.studio.renderProviderModels) {
+      h.modelsCtl = window.App.studio.renderProviderModels(h.modelsHost, provider);
+    }
+
+    snapshot = getFormSnapshot(h);
+    h.shell.setDirty(false);
+
+    // ── Type change ─────────────────────────────────────────────────
+    // Show or hide the rows, reset base_url to the type's default and relabel the
+    // key row. api_key is NOT clobbered, so values survive a type switch. The
+    // models panel is not re-dispatched.
+    typeSelect.addEventListener('change', function () {
+      var d = typeDefaults(typeSelect.value);
+      h.baseUrl.el.hidden = !d.showBaseUrl;
+      h.apiKey.el.hidden = !d.showApiKey;
+      h.numCtx.el.hidden = !d.showNumCtx;
+      h.thinking.el.hidden = !d.showThinkingEnabled;
+      h.effort.el.hidden = !d.showReasoningEffort;
+      h.planSection.el.hidden = !d.showPlanSignIn;
+      baseUrlInput.value = d.base_url || '';
+      applyApiKeyCopy(d);
+      renderExpiry();
+      checkDirty();
+    });
+
+    // The API-key row's label, placeholder and help line follow the selected type.
+    function applyApiKeyCopy(d) {
+      h.apiKey.setLabel(d.apiKeyLabel || 'API Key');
+      h.secret.input.placeholder = d.apiKeyPlaceholder || 'sk-...';
+      h.apiKey.setHint(d.apiKeyHelp || null);
+      // The hint is inserted at the end of the group: keep the expiry line below it.
+      if (h.expiryHost) h.apiKey.el.appendChild(h.expiryHost);
+    }
+
+    function renderExpiry() {
+      renderTokenExpiry(h.expiryHost, expiryRow, typeSelect.value);
+    }
+    renderExpiry();
+    // The dates follow the operator zone live (squawk 0196). The editor has no
+    // teardown hook, so the listener is owner-scoped to the Connection section,
+    // which stays connected for the editor's lifetime; App.time drops it when
+    // the section leaves the page.
+    if (h.expiryHost) {
+      window.App.time.onChange(renderExpiry, h.connection.el);
+    }
+
+    // Anthropic plan sign-in section (M19 F01 L03): owns its own OAuth fetches,
+    // deliberately outside the dirty machinery. performSave is handed in so the
+    // create-mode sign-in button can run the auto-save-then-start path.
+    wirePlanSignIn(h, container, provider, performSave);
+
+    // ── Cancel ──────────────────────────────────────────────────────
+    // Edit mode reverts in place; create mode delegates to onCancel (the
+    // orchestrator discards and returns to the page root), enabled from the first
+    // render so it runs on a pristine form too.
+    function onCancelClick() {
+      if (isEdit) {
+        var cancelTok = App.focusAfter.begin(h.shell.cancelButton);
+        var snap = JSON.parse(snapshot);
+        for (var j = 0; j < h.fieldEls.length; j++) {
+          var el = h.fieldEls[j];
+          // Checkbox-aware revert: .checked for checkboxes, .value otherwise.
+          if (el.type === 'checkbox') {
+            el.checked = !!snap[el.dataset.field];
+          } else {
+            el.value = snap[el.dataset.field] || '';
+          }
+        }
+        h.secret.setRevealed(false);
+        checkDirty();
+        App.focusAfter.restore(cancelTok, h.shell.titleEl);
+      } else if (callbacks.onCancel) {
+        callbacks.onCancel();
+      }
+    }
+
+    // ── Save ────────────────────────────────────────────────────────
+    // Factored into performSave so the create-mode plan sign-in button reuses the
+    // EXACT same path (validation, seed-before-overlay payload, error rendering).
+    // onCreateSuccess (optional) fires only on a successful CREATE and BEFORE
+    // onSaveSuccess, so the pendingAutoSignInId handoff is in place when the
+    // create-to-edit re-render mounts the new editor.
+    function performSave(onCreateSuccess) {
+      h.shell.setError('');
+      var payload = collectFormData(h, callbacks, originalMaskedApiKey, isEdit, provider, h.shell.setError);
+      if (!payload) return; // validation failed; collectFormData wrote the error
+      var saveTok = App.focusAfter.begin(h.shell.saveButton);
+      var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
+      var method = isEdit ? 'PUT' : 'POST';
+      // fetchJson flattens a 422 detail list to "field: message" (squawk 0112).
+      App.api.fetchJson(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (updated) {
+          App.store.invalidate('providers');
+          // A flash across the create re-mount is dropped (DD7).
+          if (isEdit) App.ui.flash('Provider saved', { container: container });
+          if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
+          // Create re-mounts the editor in edit mode asynchronously (the
+          // orchestrator's `ready` promise): park the restore for that mount.
+          // The target resolves at the NEW mount: the latest mount's shell title.
+          if (!isEdit) App.focusAfter.defer(saveTok, function () { return latestMount && latestMount.shell.titleEl; });
+          if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
+          // Create to edit replaces this closure (the orchestrator re-renders).
+          // On edit to edit the editor stays mounted: patch the display-only
+          // header, the expiry line and the snapshot through the handles.
+          if (isEdit) {
+            h.shell.setTitle(updated.name || '');
+            h.shell.setSubtitle(subtitleText(updated));
+            // KEY RE-MASK FIX: show the server's masked value again and hide it, so
+            // the typed plaintext does not linger in the field and is not re-sent
+            // by the next Save.
+            h.secret.setValue(updated.api_key || '');
+            originalMaskedApiKey = updated.api_key || '';
+            expiryRow = updated;
+            renderTokenExpiry(h.expiryHost, expiryRow, updated.type);
+            snapshot = getFormSnapshot(h);
+            checkDirty();
+            App.focusAfter.restore(saveTok, h.shell.titleEl);
+          }
+        })
+        .catch(function (err) {
+          // Keep the trace for DevTools; log the error only, never the payload.
+          console.error('provider save failed', err);
+          h.shell.setError(err.message || String(err));
+          App.focusAfter.defer(null);
+          App.focusAfter.restore(saveTok, h.shell.saveButton);
+        });
+    }
+
+    // ── Test (edit only) ────────────────────────────────────────────
+    function setTestResult(state, text, reauth) {
+      h.testStatus.set(state, text);
+      var label = h.testStatus.el.lastChild;
+      if (reauth) label.setAttribute('data-testid', 'plan-test-reauth');
+      else label.removeAttribute('data-testid');
+      h.testStatus.el.hidden = false;
+    }
+
+    function onTestClick() {
+      var testBtn = h.shell.testButton;
+      setTestResult('pending', 'Testing…');
+      // Recorded before the disable below (M25 F6 L1b, DD2).
+      var testTok = App.focusAfter.begin(testBtn);
+      testBtn.disabled = true;
+      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/test', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (result) {
+          testBtn.disabled = false;
+          App.focusAfter.restore(testTok, testBtn);
+          if (result.status === 'ok') {
+            setTestResult('success', result.detail || 'Connected');
+            App.ui.flash('Connection successful', { container: container });
+            if (h.modelsCtl) h.modelsCtl.refresh();
+          } else if (result.status === 'warning') {
+            // Reachable but non-functional (e.g. openrouter with no key).
+            setTestResult('warning', result.detail || 'Warning');
+            App.ui.flash('Connection reachable, action required', { container: container, error: true });
+            if (h.modelsCtl) h.modelsCtl.refresh();
+          } else if (result.status === 'reauth_required') {
+            // anthropic-plan only (M19 F01 L03): renewal is no longer possible.
+            // EXPLICIT branch: never the generic failure below. This line is the
+            // one revoked signal; the standing affordance is the connected
+            // state's Re-authenticate control.
+            setTestResult('danger', result.detail ||
+              'Re-authentication required — use Re-authenticate in the Anthropic Account section to sign in again.', true);
+            App.ui.flash('Re-authentication required', { container: container, error: true });
+          } else {
+            setTestResult('danger', result.detail || 'Failed');
+            App.ui.flash('Connection failed', { container: container, error: true });
+          }
+        })
+        .catch(function (err) {
+          testBtn.disabled = false;
+          App.focusAfter.restore(testTok, testBtn);
+          setTestResult('danger', err.message || 'Request failed');
+          App.ui.flash('Connection test error', { container: container, error: true });
+        });
+    }
+
+    // ── Delete (edit only) ──────────────────────────────────────────
+    // Agent-usage pre-gate on the first click: a provider that agents use is
+    // blocked (a sibling banner, not inside the button), else the zone arms.
+    var deleteBlockTimer = null;
+    function beforeDeleteArm(proceed) {
+      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/agents')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var agents = data.agents || [];
+          if (agents.length > 0) {
+            h.danger.setNotice('Used by: ' + agents.join(', '));
+            h.danger.setDisabled(true);
+            if (deleteBlockTimer) clearTimeout(deleteBlockTimer);
+            deleteBlockTimer = setTimeout(function () {
+              h.danger.setDisabled(false);
+              h.danger.setNotice(null);
+            }, 3000);
+          } else {
+            proceed();
+          }
+        })
+        .catch(function () {
+          // Network failure on the agent-usage check: fail open and arm anyway.
+          proceed();
+        });
+    }
+
+    function doDelete(revertFn) {
+      fetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
+          App.store.invalidate('providers');
+          App.ui.flash('Provider deleted', { container: container });
+          if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
+        })
+        .catch(function (err) {
+          revertFn();
+          App.ui.flash('Error: ' + err.message, { container: container, error: true });
+        });
+    }
   }
 
   // ── Claude Plan (Token) expiry line (sortie 03 DD6) ───────────────────
   var PLAN_TOKEN_TYPE = 'anthropic-plan-token';
   var DAY_MS = 86400000;
   var SOON_MS = 30 * DAY_MS;
+  var EXPIRY_LED = { ok: 'success', soon: 'warning', past: 'danger' };
 
   /* Pure: the expiry line's state and wording from the server-stamped dates
      (ISO strings) and a clock reading. `past` when now >= expires, `soon`
@@ -351,22 +513,21 @@
   /* Fill (or hide) the expiry line from the last saved provider row. Shown
      only for a saved token-type row with a stamp while the type select still
      reads the token type. DOM APIs only. */
-  function renderTokenExpiry(container, row, selectedType) {
-    var host = container.querySelector('.admin-pf-token-expiry');
+  function renderTokenExpiry(host, row, selectedType) {
     if (!host) return;
-    host.textContent = '';
+    host.replaceChildren();
     var info = null;
     if (row && row.type === PLAN_TOKEN_TYPE && selectedType === PLAN_TOKEN_TYPE &&
         row.token_set_at && row.token_expires_around) {
       info = planTokenExpiry(row.token_set_at, row.token_expires_around, Date.now());
     }
     if (!info) { host.hidden = true; return; }
-    var line = document.createElement('p');
-    line.className = 'field-hint token-expiry token-expiry--' + info.state;
-    line.setAttribute('data-testid', 'provider-token-expiry');
-    line.setAttribute('data-state', info.state);
-    line.textContent = info.text;
-    host.appendChild(line);
+    // The status line: ok is a success LED, soon a warning, past a danger. Its
+    // own data-state follows the token's wording (ok | soon | past).
+    var line = App.ui.status({ testid: 'provider-token-expiry' });
+    line.set(EXPIRY_LED[info.state], info.text);
+    line.el.setAttribute('data-state', info.state);
+    host.appendChild(line.el);
     host.hidden = false;
   }
 
@@ -406,22 +567,9 @@
   // create-to-edit cannot fire a sign-in on a later mount (sortie 02, DD4).
   window.App.studio.clearProviderSignInHandoff = function () { pendingAutoSignInId = null; };
 
-  function renderPlanSignInShell(provider, callbacks) {
-    var isCreate = !provider;
-    var type = isCreate ? '' : provider.type;
-    var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(type)) || {};
-    var html = '';
-    html += '<div class="editor-section admin-pf-plan-signin' + (defaults.showPlanSignIn ? '' : ' is-hidden') + '">';
-    html += '<div class="section-title">Anthropic Account</div>';
-    html += '<div class="plan-signin-body"></div>';
-    html += '</div>';
-    return html;
-  }
 
-  function wirePlanSignIn(container, provider, requestCreateSave) {
+  function wirePlanSignIn(h, container, provider, requestCreateSave) {
     var isEdit = !!provider;
-    var body = container.querySelector('.admin-pf-plan-signin .plan-signin-body');
-    if (!body) return;
 
     // Local sub-state: non-null while the consent (URL + code paste) UI is
     // shown. Cleared on success/reset; survives nothing (an editor reload
@@ -433,22 +581,14 @@
       return !!(isEdit && provider && provider.oauth_active);
     }
 
-    function errorEl() {
-      return body.querySelector('[data-testid="plan-signin-error"]');
-    }
-
     function showError(msg) {
-      var el = errorEl();
-      if (!el) return;
-      el.textContent = msg;
-      el.removeAttribute('hidden');
+      h.planErr.textContent = msg;
+      h.planErr.hidden = false;
     }
 
     function clearError() {
-      var el = errorEl();
-      if (!el) return;
-      el.textContent = '';
-      el.setAttribute('hidden', '');
+      h.planErr.textContent = '';
+      h.planErr.hidden = true;
     }
 
     function readErrorResponse(r, fallback) {
@@ -528,7 +668,7 @@
           Object.assign(provider, updated);
           awaitingUrl = null;
           renderState();
-          window.App.showFlash(container, 'Signed in to Anthropic');
+          App.ui.flash('Signed in to Anthropic', { container: container });
         })
         .catch(function (err) {
           // Inline (not a vanishing toast); the paste field stays usable.
@@ -548,7 +688,7 @@
           Object.assign(provider, updated);
           awaitingUrl = null;
           renderState();
-          window.App.showFlash(container, 'Connection reset');
+          App.ui.flash('Connection reset', { container: container });
         })
         .catch(function (err) {
           revertFn();
@@ -557,20 +697,15 @@
     }
 
     function buildSignedOutBlock() {
-      var block = document.createElement('div');
-      block.className = 'plan-signin-start';
-      var desc = document.createElement('p');
-      desc.className = 'plan-signin-desc';
-      desc.textContent = 'Sign in with your Anthropic account to use your Claude plan. No API key is needed.';
-      block.appendChild(desc);
-      var row = document.createElement('div');
-      row.className = 'plan-signin-actions';
-      var signInBtn = document.createElement('button');
-      signInBtn.type = 'button';
-      signInBtn.className = 'btn-outlined-primary';
-      signInBtn.setAttribute('data-testid', 'plan-signin-btn');
-      signInBtn.textContent = 'Sign in with Anthropic';
-      row.appendChild(signInBtn);
+      var util = App.ui.util;
+      var signInBtn = App.ui.button({ label: 'Sign in with Anthropic', testid: 'plan-signin-btn' });
+      var block = util.el('div', { className: 'plan-signin-start' }, [
+        util.el('p', {
+          className: 'plan-signin-desc',
+          text: 'Sign in with your Anthropic account to use your Claude plan. No API key is needed.'
+        }),
+        util.el('div', { className: 'plan-signin-actions' }, [signInBtn])
+      ]);
       if (!isEdit) {
         // Auto-save-then-start (HAT fix): run the shared create path first
         // (the row must exist for /oauth/start). Validation failure renders
@@ -589,136 +724,74 @@
       } else {
         signInBtn.addEventListener('click', function () { startFlow(signInBtn); });
       }
-      block.appendChild(row);
-      return block;
+      return { el: block, signInBtn: signInBtn };
     }
 
     function buildConnectedRow() {
-      var row = document.createElement('div');
-      row.className = 'plan-connected-row';
-      var led = document.createElement('span');
-      led.className = 'indicator-led indicator-led--success';
-      led.setAttribute('aria-hidden', 'true');
-      row.appendChild(led);
-      var label = document.createElement('span');
-      label.className = 'plan-connected-text';
-      label.setAttribute('data-testid', 'plan-connected-indicator');
-      label.textContent = 'Connected to Anthropic';
-      row.appendChild(label);
-      var reauthBtn = document.createElement('button');
-      reauthBtn.type = 'button';
-      reauthBtn.className = 'btn-outlined-primary';
-      reauthBtn.setAttribute('data-testid', 'plan-reauth-btn');
-      reauthBtn.textContent = 'Re-authenticate';
+      var util = App.ui.util;
+      var status = App.ui.status({ testid: 'plan-connected-indicator' });
+      status.set('success', 'Connected to Anthropic');
+      var reauthBtn = App.ui.button({ label: 'Re-authenticate', testid: 'plan-reauth-btn' });
       reauthBtn.addEventListener('click', function () { startFlow(reauthBtn); });
-      row.appendChild(reauthBtn);
-      var resetBtn = document.createElement('button');
-      resetBtn.type = 'button';
-      resetBtn.className = 'btn-outlined-primary';
-      resetBtn.setAttribute('data-testid', 'plan-reset-btn');
-      resetBtn.innerHTML = '<span data-confirm-title>Reset connection</span>';
+      var resetBtn = App.ui.button({ testid: 'plan-reset-btn' });
+      resetBtn.appendChild(util.el('span', { 'data-confirm-title': '', text: 'Reset connection' }));
       resetBtn.addEventListener('click', function () {
-        // Two-step inline confirm — the canonical destructive-confirm
-        // helper (MCP reset-connection precedent). Existing tokens are
-        // cleared locally only; no upstream revocation.
-        window.App.confirmDelete(resetBtn, doReset, { confirmLabel: 'Confirm Reset?' });
+        // Two-step inline confirm (the library's armed style; the MCP reset-
+        // connection precedent). Existing tokens are cleared locally only; no
+        // upstream revocation. A state re-render replaces an armed button (it
+        // returns to "Reset connection"), as before.
+        App.ui.confirm(resetBtn, doReset, { confirmLabel: 'Confirm reset?' });
       });
-      row.appendChild(resetBtn);
-      return row;
+      return util.el('div', { className: 'plan-connected-row' }, [status.el, reauthBtn, resetBtn]);
     }
 
     function buildConsentBlock(url) {
-      var block = document.createElement('div');
-      block.className = 'plan-signin-consent';
-      block.setAttribute('data-testid', 'plan-signin-consent');
-
-      var desc = document.createElement('p');
-      desc.className = 'plan-signin-desc';
-      desc.textContent = 'Approve access in the sign-in window — if none opened, open or copy the link below in any browser. Then paste the code shown after approval.';
-      block.appendChild(desc);
-
-      var urlRow = document.createElement('div');
-      urlRow.className = 'plan-signin-url-row';
-      var urlInput = document.createElement('input');
-      urlInput.className = 'field-input plan-signin-url';
-      urlInput.setAttribute('data-testid', 'plan-signin-url');
-      urlInput.readOnly = true;
-      urlInput.value = url;
-      urlInput.setAttribute('aria-label', 'Sign-in page URL');
-      urlRow.appendChild(urlInput);
-      var openBtn = document.createElement('button');
-      openBtn.type = 'button';
-      openBtn.className = 'btn-outlined-primary';
-      openBtn.setAttribute('data-testid', 'plan-signin-open-btn');
-      openBtn.textContent = 'Open sign-in page';
-      openBtn.addEventListener('click', function () {
-        // Direct user click — gesture context restored, so this popup is
-        // NOT subject to the post-fetch blocking noted in openConsentPopup.
-        openConsentPopup(url);
+      var util = App.ui.util;
+      // The library consent link supplies the read-only URL, the Open anchor
+      // (a real link, target=_blank) and the Copy button with its "Copied" /
+      // "Link copied" feedback. The URL is the only sensitive-looking value and
+      // it is public authorize-endpoint text; the code below is never written to
+      // an attribute.
+      var link = App.ui.consentLink(url, {
+        surface: 'chat',
+        help: false,
+        urlTestid: 'plan-signin-url',
+        openTestid: 'plan-signin-open-btn',
+        copyTestid: 'plan-signin-copy-btn'
       });
-      urlRow.appendChild(openBtn);
-      var copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'btn-outlined-primary';
-      copyBtn.setAttribute('data-testid', 'plan-signin-copy-btn');
-      copyBtn.textContent = 'Copy';
-      copyBtn.addEventListener('click', function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            window.App.showFlash(container, 'Sign-in link copied');
-          }, function () { fallbackCopy(); });
-        } else {
-          fallbackCopy();
-        }
-        function fallbackCopy() {
-          urlInput.select();
-          try { document.execCommand('copy'); } catch (e) { /* selection remains for manual copy */ }
-          window.App.showFlash(container, 'Sign-in link copied');
-        }
+      var codeInput = App.ui.textInput({
+        placeholder: 'Paste the code here', autocomplete: 'off', testid: 'plan-code-input'
       });
-      urlRow.appendChild(copyBtn);
-      block.appendChild(urlRow);
-
-      var codeRow = document.createElement('div');
-      codeRow.className = 'plan-code-row';
-      var codeInput = document.createElement('input');
-      codeInput.className = 'field-input plan-code-input';
-      codeInput.setAttribute('data-testid', 'plan-code-input');
-      codeInput.setAttribute('placeholder', 'Paste the code here');
       codeInput.setAttribute('aria-label', 'Sign-in code');
-      codeRow.appendChild(codeInput);
-      var submitBtn = document.createElement('button');
-      submitBtn.type = 'button';
-      submitBtn.className = 'btn-filled-primary';
-      submitBtn.setAttribute('data-testid', 'plan-code-submit-btn');
-      submitBtn.textContent = 'Confirm code';
+      var submitBtn = App.ui.button({ variant: 'primary', label: 'Confirm code', testid: 'plan-code-submit-btn' });
       submitBtn.addEventListener('click', function () { submitCode(codeInput, submitBtn); });
-      codeRow.appendChild(submitBtn);
-      block.appendChild(codeRow);
-
-      return block;
+      return util.el('div', { className: 'plan-signin-consent', 'data-testid': 'plan-signin-consent' }, [
+        util.el('p', {
+          className: 'plan-signin-desc',
+          text: 'Approve access in the sign-in window — if none opened, open or copy the link below in any browser. Then paste the code shown after approval.'
+        }),
+        link,
+        util.el('div', { className: 'plan-code-row' }, [codeInput, submitBtn])
+      ]);
     }
 
     function renderState() {
-      body.innerHTML = '';
-      if (isConnected()) body.appendChild(buildConnectedRow());
+      var nodes = [];
+      var signedOut = null;
+      if (isConnected()) nodes.push(buildConnectedRow());
       if (awaitingUrl) {
         // Re-authenticate renders the consent flow OVER the connected
         // state — existing tokens survive until the new exchange succeeds.
-        body.appendChild(buildConsentBlock(awaitingUrl));
+        nodes.push(buildConsentBlock(awaitingUrl));
       } else if (!isConnected()) {
-        body.appendChild(buildSignedOutBlock());
+        signedOut = buildSignedOutBlock();
+        nodes.push(signedOut.el);
       }
-      var err = document.createElement('div');
-      err.className = 'plan-signin-error banner banner-error';
-      err.setAttribute('data-testid', 'plan-signin-error');
-      err.setAttribute('role', 'status');
-      err.setAttribute('aria-live', 'polite');
-      err.setAttribute('hidden', '');
-      body.appendChild(err);
+      h.planState.replaceChildren.apply(h.planState, nodes);
+      return signedOut;
     }
 
-    renderState();
+    var initial = renderState();
 
     // Consume the create→edit auto-start handoff (HAT fix): this edit-mode
     // mount is the re-render that immediately follows a sign-in-initiated
@@ -727,527 +800,92 @@
     // (and its sign-in button) is on screen when this fires.
     if (isEdit && provider && pendingAutoSignInId === provider.id) {
       pendingAutoSignInId = null;
-      startFlow(body.querySelector('[data-testid="plan-signin-btn"]'));
+      startFlow(initial && initial.signInBtn);
     }
   }
 
-  function getFormSnapshot(container) {
+  function getFormSnapshot(h) {
     var data = {};
-    var fields = container.querySelectorAll('[data-field]');
-    for (var i = 0; i < fields.length; i++) {
-      var el = fields[i];
+    for (var i = 0; i < h.fieldEls.length; i++) {
+      var el = h.fieldEls[i];
       // Checkbox-aware: read .checked for checkboxes (the thinking_enabled
       // toggle), .value otherwise. Without this the checkbox is invisible to
-      // the dirty machinery (Save never enables). Backward-compatible for all
-      // existing .value-based fields.
+      // the dirty machinery (Save never enables).
       data[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
     }
     return JSON.stringify(data);
   }
 
-  function wireEditorEvents(container, provider, providerTypes, callbacks) {
-    /* Wire: type-change show/hide, eye-toggle, dirty tracking, Cancel,
-       Save, Test, Delete (Back retired in M25 F3 L5b). Replaces pre-leg-03
-       admin.js:385-558 with these substitutions:
-         - .admin-pf-cancel        → .cancel-btn
-         - .admin-pf-save          → .save-btn
-         - .admin-pf-test          → .test-provider-btn
-         - .admin-pf-eye           → .api-key-eye
-         - .admin-pf-error         → .editor-error
-         - .admin-pf-test-result   → .test-result
-         - .admin-pf-testing       → .test-result-pending (span class)
-         - .admin-pf-test-ok       → .test-result-ok      (span class)
-         - .admin-pf-test-fail     → .test-result-fail    (span class)
-       Adds: MASKED_SENTINEL capture (originalMaskedApiKey); dirty-tracking
-       shim (snapshot + checkDirty); .delete-btn handler
-       with agent-usage hard-block + inline two-step. Sub-module owns the
-       fetch (POST/PUT/DELETE/test); onSaveSuccess + onDeleteSuccess
-       callbacks notify orchestrator AFTER successful response. */
-    var isEdit = !!provider;
-    var snapshot = getFormSnapshot(container);
-    var dirty = false;
-    /* MASKED_SENTINEL preservation (preserves admin.js:466-470 behavior).
-       Capture the originally pre-filled (masked) api-key value so we can
-       detect "user did not modify the field" on submit. In create mode this
-       is empty. */
-    var MASKED_SENTINEL = '__MASKED__';
-    var originalMaskedApiKey = isEdit ? (provider.api_key || '') : '';
-
-    function checkDirty() {
-      var current = getFormSnapshot(container);
-      dirty = current !== snapshot;
-      var saveBtn = container.querySelector('.save-btn');
-      var cancelBtn = container.querySelector('.cancel-btn');
-      if (saveBtn) saveBtn.disabled = !dirty;
-      // Cancel follows `dirty` in edit mode only; the create form's Cancel
-      // (abandon creation, DD8) stays enabled whether or not anything was
-      // typed.
-      if (cancelBtn) cancelBtn.disabled = isEdit && !dirty;
-      // The header's unsaved caption (M25 F3 DD2) follows the same value.
-      var unsavedEl = container.querySelector('.editor-unsaved');
-      if (unsavedEl) unsavedEl.textContent = dirty ? 'Unsaved changes' : '';
-      // F6 leg 04 bridge: notify orchestrator's mirror so the leave guard
-      // (App.nav: the breadcrumb, a Settings nav link, any routed leave,
-      // beforeunload) can read the same logical state.
-      if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
-    }
-
-    /* Wire input/change listeners on all .field-input + .field-select */
-    var inputs = container.querySelectorAll('.field-input, .field-select');
-    for (var i = 0; i < inputs.length; i++) {
-      inputs[i].addEventListener('input', checkDirty);
-      inputs[i].addEventListener('change', checkDirty);
-    }
-
-    /* Type-change: show/hide base_url + api_key rows + reset base_url
-       default. Does NOT clobber api_key so values are preserved across
-       provider-type switches. */
-    var typeSelect = container.querySelector('[data-field="type"]');
-    var baseUrlRow = container.querySelector('.admin-pf-base-url');
-    var baseUrlInput = container.querySelector('[data-field="base_url"]');
-    var apiKeyRow = container.querySelector('.admin-pf-api-key');
-    var numCtxRow = container.querySelector('.admin-pf-num-ctx');
-    var thinkingEnabledRow = container.querySelector('.admin-pf-thinking-enabled');
-    var reasoningEffortRow = container.querySelector('.admin-pf-reasoning-effort');
-    var planSignInSection = container.querySelector('.admin-pf-plan-signin');
-    if (typeSelect) {
-      typeSelect.addEventListener('change', function () {
-        var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
-        baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
-        apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
-        if (numCtxRow) numCtxRow.classList.toggle('is-hidden', !defaults.showNumCtx);
-        if (thinkingEnabledRow) thinkingEnabledRow.classList.toggle('is-hidden', !defaults.showThinkingEnabled);
-        if (reasoningEffortRow) reasoningEffortRow.classList.toggle('is-hidden', !defaults.showReasoningEffort);
-        if (planSignInSection) planSignInSection.classList.toggle('is-hidden', !defaults.showPlanSignIn);
-        baseUrlInput.value = defaults.base_url || '';
-        applyApiKeyCopy(defaults);
-        renderTokenExpiry(container, expiryRow, typeSelect.value);
-        checkDirty();
-      });
-    }
-
-    /* The API-key row's label, placeholder and help line follow the selected
-       type (sortie 03 DD6). textContent / setAttribute only. */
-    function applyApiKeyCopy(defaults) {
-      var keyLabel = container.querySelector('label[for="pf-api-key"]');
-      var keyInput = container.querySelector('#pf-api-key');
-      var keyHelp = container.querySelector('#pf-api-key-help');
-      if (keyLabel) keyLabel.textContent = defaults.apiKeyLabel || 'API Key';
-      if (keyInput) {
-        keyInput.setAttribute('placeholder', defaults.apiKeyPlaceholder || 'sk-...');
-        if (defaults.apiKeyHelp) keyInput.setAttribute('aria-describedby', 'pf-api-key-help');
-        else keyInput.removeAttribute('aria-describedby');
-      }
-      if (keyHelp) {
-        keyHelp.textContent = defaults.apiKeyHelp || '';
-        keyHelp.hidden = !defaults.apiKeyHelp;
-      }
-    }
-
-    /* The expiry line renders from the last SAVED row (starts as the mounted
-       provider; an edit-mode Save replaces it with the PUT response, since
-       the editor does not re-mount). */
-    var expiryRow = provider || null;
-    if (typeSelect) renderTokenExpiry(container, expiryRow, typeSelect.value);
-    /* The dates follow the operator zone live (squawk 0196). The editor has no
-       teardown hook, so the listener is owner-scoped: App.time drops it once the
-       expiry host leaves the page. Re-renders in place from the last saved row. */
-    var expiryHost = container.querySelector('.admin-pf-token-expiry');
-    if (typeSelect && expiryHost) {
-      window.App.time.onChange(function () {
-        renderTokenExpiry(container, expiryRow, typeSelect.value);
-      }, expiryHost);
-    }
-
-    /* Anthropic plan sign-in section (M19 F01 L03) — mounted for every
-       editor instance; visibility is type-driven (above). Owns its own
-       OAuth fetches; deliberately outside the dirty machinery. performSave
-       (hoisted declaration below) is handed in so the create-mode sign-in
-       button can run the auto-save-then-start path (HAT fix). */
-    wirePlanSignIn(container, provider, performSave);
-
-    /* Eye toggle. */
-    var eyeBtn = container.querySelector('.api-key-eye');
-    var passwordInput = container.querySelector('.admin-pf-password');
-    if (eyeBtn && passwordInput) {
-      eyeBtn.addEventListener('click', function () {
-        if (passwordInput.type === 'password') {
-          passwordInput.type = 'text';
-          eyeBtn.innerHTML = window.App.icon('eye-off');
-          eyeBtn.setAttribute('aria-label', 'Hide password');
-        } else {
-          passwordInput.type = 'password';
-          eyeBtn.innerHTML = window.App.icon('eye');
-          eyeBtn.setAttribute('aria-label', 'Show password');
-        }
-      });
-    }
-
-    /* Cancel: edit mode reverts in place; create mode delegates to onCancel
-       (the orchestrator discards and returns to the page root). The create
-       form's Cancel is enabled from first render, so onCancel runs on a
-       pristine form as well as a dirty one. */
-    var cancelBtn = container.querySelector('.cancel-btn');
-    /* Focus after an in-place action (M25 F6 L1b, DD2): the title and Save are
-       re-resolved when the focus timer fires. */
-    function focusTitle() { return container.querySelector('.editor-title'); }
-    function focusSave() { return container.querySelector('.save-btn'); }
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', function () {
-        if (isEdit) {
-          var cancelTok = App.focusAfter.begin(cancelBtn);
-          // Revert to snapshot.
-          var snap = JSON.parse(snapshot);
-          var fields2 = container.querySelectorAll('[data-field]');
-          for (var j = 0; j < fields2.length; j++) {
-            var el2 = fields2[j];
-            // Checkbox-aware revert: restore .checked (bool) for checkboxes,
-            // .value otherwise. Mirrors the getFormSnapshot checkbox branch.
-            if (el2.type === 'checkbox') {
-              el2.checked = !!snap[el2.dataset.field];
-            } else {
-              el2.value = snap[el2.dataset.field] || '';
-            }
-          }
-          dirty = false;
-          checkDirty();
-          App.focusAfter.restore(cancelTok, focusTitle);
-        } else if (callbacks.onCancel) {
-          callbacks.onCancel();
-        }
-      });
-    }
-
-    /* Save: editor sub-module owns the fetch. Orchestrator's
-       onSaveSuccess callback handles state mutation + URL update.
-       Factored into performSave (HAT fix) so the create-mode plan sign-in
-       button reuses the EXACT same path — validation, payload construction
-       (seed-before-overlay), error rendering. onCreateSuccess (optional)
-       fires only on a successful CREATE, and BEFORE onSaveSuccess so the
-       pendingAutoSignInId handoff is in place when the create→edit
-       re-render (a microtask behind onSaveSuccess) mounts the new editor. */
-    function performSave(onCreateSuccess) {
-      var errorEl = container.querySelector('.editor-error');
-      errorEl.textContent = '';
-      var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
-      if (!payload) return; // validation failed; collectFormData wrote error
-      var saveTok = App.focusAfter.begin(focusSave());
-      var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
-      var method = isEdit ? 'PUT' : 'POST';
-      // fetchJson flattens a 422 detail list to "field: message" (squawk 0112).
-      App.api.fetchJson(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-        .then(function (updated) {
-          App.store.invalidate('providers');
-          // A flash across the create re-mount is dropped (DD7).
-          if (isEdit) window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
-          if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
-          // Create re-mounts the editor in edit mode asynchronously (the
-          // orchestrator's `ready` promise): park the restore for that mount.
-          if (!isEdit) App.focusAfter.defer(saveTok, focusTitle);
-          if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
-          // For create→edit transition the orchestrator re-renders the
-          // editor with the new provider — closure is replaced. The
-          // snapshot reset below only matters for the edit→edit case
-          // where the editor stays mounted.
-          if (isEdit) {
-            // Re-render the WHOLE display-only header text block (title +
-            // subtitle) from the freshly saved provider. On edit→edit the
-            // editor stays mounted and nothing else refreshes the header,
-            // so an edited Name / Base URL / Type would otherwise leave the
-            // title and the `type · base_url` subtitle stale. These nodes carry
-            // no data-field, so getFormSnapshot / dirty tracking are
-            // unaffected — textContent-only writes.
-            var titleEl = container.querySelector('.editor-title');
-            if (titleEl) titleEl.textContent = updated.name || '';
-            var subtitleEl = container.querySelector('.editor-subtitle');
-            if (subtitleEl) {
-              var subtitleParts = [updated.type];
-              if (updated.base_url) subtitleParts.push(updated.base_url);
-              subtitleEl.textContent = subtitleParts.join(' · ');
-            }
-            expiryRow = updated;
-            renderTokenExpiry(container, expiryRow, updated.type);
-            snapshot = getFormSnapshot(container);
-            dirty = false;
-            checkDirty();
-            App.focusAfter.restore(saveTok, focusTitle);
-          }
-        })
-        .catch(function (err) {
-          // Surface the trace to DevTools so backend stacks (which
-          // would otherwise die with the next click as errorEl.textContent
-          // is overwritten) survive for debugging.
-          console.error('provider save failed', err);
-          errorEl.textContent = err.message || String(err);
-          App.focusAfter.defer(null);
-          App.focusAfter.restore(saveTok, focusSave);
-        });
-    }
-
-    var saveBtn = container.querySelector('.save-btn');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', function () { performSave(); });
-    }
-
-    /* Test: only in edit mode. */
-    var testBtn = container.querySelector('.test-provider-btn');
-    if (testBtn && isEdit) {
-      testBtn.addEventListener('click', function () {
-        var resultEl = container.querySelector('.test-result');
-        resultEl.innerHTML = '<span class="test-result-pending">Testing…</span>';
-        // Recorded before the disable below (M25 F6 L1b, DD2).
-        var testTok = App.focusAfter.begin(testBtn);
-        testBtn.disabled = true;
-        fetch('/api/providers/' + encodeURIComponent(provider.id) + '/test', { method: 'POST' })
-          .then(function (r) { return r.json(); })
-          .then(function (result) {
-            testBtn.disabled = false;
-            App.focusAfter.restore(testTok, testBtn);
-            // Render via DOM API (textContent on a class-tagged span) so
-            // operator-supplied detail text cannot break out of the
-            // surrounding markup. Three states: ok / warning / error.
-            var span = document.createElement('span');
-            // Glyph prefixes (✓/⚠/✗) intentionally absent — the .test-result-*
-            // ::before LED retrofit from M08F2L5 already conveys status visually.
-            if (result.status === 'ok') {
-              span.className = 'test-result-ok';
-              span.textContent = result.detail || 'Connected';
-              resultEl.replaceChildren(span);
-              window.App.showFlash(container, 'Connection successful');
-              var modelsHost = container.querySelector('.provider-models');
-              if (modelsHost && window.App.studio.renderProviderModels) {
-                window.App.studio.renderProviderModels(modelsHost, provider);
-              }
-            } else if (result.status === 'warning') {
-              // Reachable but non-functional (e.g., openrouter with no key).
-              // Distinct LED color from the green ok state cues incomplete config.
-              span.className = 'test-result-warning';
-              span.textContent = result.detail || 'Warning';
-              resultEl.replaceChildren(span);
-              window.App.showFlash(container, 'Connection reachable, action required', true);
-              var modelsHost2 = container.querySelector('.provider-models');
-              if (modelsHost2 && window.App.studio.renderProviderModels) {
-                window.App.studio.renderProviderModels(modelsHost2, provider);
-              }
-            } else if (result.status === 'reauth_required') {
-              // anthropic-plan only (M19 F01 L03): renewal is no longer
-              // possible (refresh token revoked/expired). EXPLICIT branch —
-              // must never fall into the generic else-fail below. This
-              // rendered message is the one revoked signal; the standing
-              // affordance is the connected state's Re-authenticate control.
-              span.className = 'test-result-warning';
-              span.setAttribute('data-testid', 'plan-test-reauth');
-              span.textContent = result.detail ||
-                'Re-authentication required — use Re-authenticate in the Anthropic Account section to sign in again.';
-              resultEl.replaceChildren(span);
-              window.App.showFlash(container, 'Re-authentication required', true);
-            } else {
-              span.className = 'test-result-fail';
-              span.textContent = result.detail || 'Failed';
-              resultEl.replaceChildren(span);
-              window.App.showFlash(container, 'Connection failed', true);
-            }
-          })
-          .catch(function (err) {
-            testBtn.disabled = false;
-            App.focusAfter.restore(testTok, testBtn);
-            resultEl.innerHTML = '<span class="test-result-fail">' + window.App.escapeHtml(err.message || 'Request failed') + '</span>';
-            window.App.showFlash(container, 'Connection test error', true);
-          });
-      });
-    }
-
-    /* Delete: only in edit mode. Agent-usage hard-block pre-gate +
-       App.confirmDelete for the confirm flow (F6 leg 04). */
-    var deleteBtn = container.querySelector('.delete-btn');
-    if (deleteBtn && isEdit) {
-      var deleteHardBlockTimer = null;
-      var blockedMsgEl = container.querySelector('.action-blocked-message');
-
-      function doDelete(btn, revertFn) {
-        fetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
-            App.store.invalidate('providers');
-            window.App.showFlash(container, 'Provider deleted');
-            if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
-          })
-          .catch(function (err) {
-            revertFn();
-            window.App.showFlash(container, 'Error: ' + err.message, true);
-          });
-      }
-
-      deleteBtn.addEventListener('click', function () {
-        // OQ2 RESOLUTION: explicit "already armed → commit" branch removed.
-        // App.confirmDelete (confirm.js:58-67) handles the second-click
-        // commit internally when the button already has the .confirm-delete
-        // class. The agent-usage pre-gate fetch on the second click is
-        // wasted work but functionally harmless (result is ignored on the
-        // commit path because the helper's class check beats us to
-        // onConfirm).
-        //
-        // Pre-gate: agent-usage hard-block.
-        fetch('/api/providers/' + encodeURIComponent(provider.id) + '/agents')
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            var agents = data.agents || [];
-            if (agents.length > 0) {
-              // Hard-block: surface the message in a sibling banner (NOT
-              // inside the button, which would deform with long agent-name
-              // lists). Button text stays "Delete Provider".
-              if (blockedMsgEl) {
-                blockedMsgEl.textContent = 'Used by: ' + agents.join(', ');
-                blockedMsgEl.removeAttribute('hidden');
-              }
-              deleteBtn.disabled = true;
-              if (deleteHardBlockTimer) clearTimeout(deleteHardBlockTimer);
-              deleteHardBlockTimer = setTimeout(function () {
-                deleteBtn.disabled = false;
-                if (blockedMsgEl) {
-                  blockedMsgEl.setAttribute('hidden', '');
-                  blockedMsgEl.textContent = '';
-                }
-              }, 3000);
-            } else {
-              // No agent usage: arm via App.confirmDelete.
-              window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
-            }
-          })
-          .catch(function () {
-            // Network failure on agent-usage check: fail open — arm anyway.
-            window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
-          });
-      });
-    }
-  }
-
-  function collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider) {
-    /* Validate + collect payload. Mirrors pre-leg-03 admin.js:440-477 (Save
-       handler's prologue) but returns null + writes error when invalid.
-       Preserves the MASKED_SENTINEL substitution from admin.js:466-470. */
-    var errorEl = container.querySelector('.editor-error');
-    var nameInput = container.querySelector('[data-field="name"]');
-    var name = nameInput.value.trim();
+  /* Validate and collect the payload from the control handles; returns null and
+     calls setError when invalid. An unmodified pre-filled (masked) API key is
+     sent as the MASKED_SENTINEL so the backend preserves the stored key. */
+  function collectFormData(h, callbacks, originalMaskedApiKey, isEdit, provider, setError) {
+    var name = h.name.control.value.trim();
     if (!name) {
-      errorEl.textContent = 'Name is required.';
+      setError('Name is required.');
       return null;
     }
-    var typeSelect = container.querySelector('[data-field="type"]');
-    var selectedType = typeSelect.value;
+    var selectedType = h.type.control.value;
     if (!selectedType) {
-      errorEl.textContent = 'Type is required.';
+      setError('Type is required.');
       return null;
     }
     var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(selectedType)) || {};
-    var baseUrlInput = container.querySelector('[data-field="base_url"]');
-    var baseUrl = baseUrlInput.value.trim();
+    var baseUrl = h.baseUrl.control.value.trim();
     if (!defaults.showBaseUrl) baseUrl = defaults.base_url || '';
     if (!baseUrl && defaults.showBaseUrl) {
-      errorEl.textContent = 'Base URL is required.';
+      setError('Base URL is required.');
       return null;
     }
-    var apiKeyInput = container.querySelector('[data-field="api_key"]');
-    var apiKey = apiKeyInput ? apiKeyInput.value : null;
+    var apiKey = h.secret.input.value;
     /* Trim whitespace BEFORE the truthy check so a paste like "  sk-x  "
        canonicalizes to "sk-x" client-side, and a whitespace-only paste
-       collapses to null instead of silently round-tripping to a 401.
-       The backend Pydantic validator does the same on the server side
-       (defense in depth + UX: avoids the round-trip to discover the
-       whitespace was a no-op). */
+       collapses to null instead of silently round-tripping to a 401. The
+       backend validator does the same (defense in depth). */
     if (apiKey !== null) apiKey = apiKey.trim();
     if (!apiKey) apiKey = null;
-    /* MASKED_SENTINEL: if editing and the user did not modify the pre-filled
-       (masked) value, send the sentinel so the backend preserves the existing
-       stored key. Mirrors admin.js:466-470. */
     if (isEdit && originalMaskedApiKey && apiKey === originalMaskedApiKey) {
       apiKey = MASKED_SENTINEL;
     }
     var payload = { name: name, type: selectedType, base_url: baseUrl, api_key: apiKey };
 
-    /* Config-preservation seed (Phase-2d review fix, F11). The backend's
-       update_provider does existing.model_copy(update=data) — a field-level
-       REPLACE, not a deep merge. So whatever `config` object this function
-       sends becomes the ENTIRE stored config; any key the UI doesn't render
-       (e.g. config/env-only response_format + stop, DD6) would otherwise be
+    /* Config-preservation seed. The backend's update_provider does
+       existing.model_copy(update=data), a field-level REPLACE, not a deep merge.
+       So whatever `config` this sends becomes the ENTIRE stored config; any key
+       the UI does not render (config/env-only response_format + stop) would be
        silently wiped on every Save. Seed from a shallow clone of the existing
-       provider config (edit mode) so the type-specific blocks below only
-       overlay the fields they own, preserving everything else. Create mode
-       has no existing provider, so it starts from {}. */
+       config (edit mode) so the blocks below only overlay the fields they own. */
     payload.config = (isEdit && provider && provider.config) ? Object.assign({}, provider.config) : {};
 
-    // OpenRouter optional ranking-header inputs (Task 9) — read values,
-    // validate client-side (server re-validates), drop empty values so
-    // the saved config doesn't carry empty-string keys. Overlays onto the
-    // seeded payload.config (add/delete only the keys this branch owns)
-    // rather than replacing it outright.
-    if (selectedType === 'openrouter') {
-      var refererInput = container.querySelector('[data-field="config.referer"]');
-      var titleInput = container.querySelector('[data-field="config.title"]');
-      var orReferer = refererInput ? refererInput.value.trim() : '';
-      var orTitle = titleInput ? titleInput.value.trim() : '';
-
-      if (orReferer && /[\r\n\x00]/.test(orReferer)) {
-        errorEl.textContent = 'App URL contains an invalid control character.';
-        return null;
-      }
-      if (orReferer && !/^https?:\/\//i.test(orReferer)) {
-        errorEl.textContent = 'App URL must start with http:// or https://.';
-        return null;
-      }
-      if (orTitle && /[\r\n\x00]/.test(orTitle)) {
-        errorEl.textContent = 'App Name contains an invalid control character.';
-        return null;
-      }
-
-      if (orReferer) payload.config.referer = orReferer; else delete payload.config.referer;
-      if (orTitle) payload.config.title = orTitle; else delete payload.config.title;
-    }
-
-    // Ollama Context Window (config.num_ctx) — F09-05. Now REQUIRED and always
-    // persisted (the field is pre-filled with the default, so a blank means the
-    // operator cleared it). Same config.* precedent: parse + validate
-    // client-side (server re-validates / coerces); reject empty + non-positive +
-    // non-integer.
+    // Ollama Context Window (config.num_ctx): REQUIRED and always persisted (the
+    // field is pre-filled with the default, so a blank means the operator cleared
+    // it). Validated client-side (the server re-validates): non-empty, a positive
+    // whole number.
     if (defaults.showNumCtx) {
-      var numCtxInput = container.querySelector('[data-field="config.num_ctx"]');
-      var numCtxRaw = numCtxInput ? numCtxInput.value.trim() : '';
+      var numCtxRaw = h.numCtx.control.value.trim();
       if (!numCtxRaw) {
-        errorEl.textContent = 'Context Window is required.';
+        setError('Context Window is required.');
         return null;
       }
       var numCtxVal = Number(numCtxRaw);
       if (!Number.isInteger(numCtxVal) || numCtxVal <= 0) {
-        errorEl.textContent = 'Context Window must be a positive whole number.';
+        setError('Context Window must be a positive whole number.');
         return null;
       }
-      payload.config = payload.config || {};
       payload.config.num_ctx = numCtxVal;
     }
 
-    // Anthropic Extended thinking (config.thinking_enabled) — F10-06. Collected
-    // only when the field is shown (anthropic). Always persist the explicit bool
-    // (matches num_ctx's always-persist; makes the edit round-trip deterministic).
-    // The native .checked is a real bool; no validation/coercion.
+    // Extended thinking (config.thinking_enabled): collected only when shown
+    // (Anthropic). Always persist the explicit bool.
     if (defaults.showThinkingEnabled) {
-      var teInput = container.querySelector('[data-field="config.thinking_enabled"]');
-      payload.config = payload.config || {};
-      payload.config.thinking_enabled = !!(teInput && teInput.checked);
+      payload.config.thinking_enabled = !!h.thinking.control.checked;
     }
 
-    // Reasoning effort (config.reasoning_effort) — F11-06. Collected only when
-    // the field is shown (reasoning-capable types). Always persist the
-    // explicit value (matches thinking_enabled's always-persist; makes the
-    // edit round-trip deterministic). The empty string is a valid, harmless
-    // value — the server-side _coerce_effort('') falls through to None.
+    // Reasoning effort (config.reasoning_effort): collected only when shown
+    // (reasoning-capable types). The empty string is a valid, harmless value (the
+    // server-side _coerce_effort('') falls through to None).
     if (defaults.showReasoningEffort) {
-      var reInput = container.querySelector('[data-field="config.reasoning_effort"]');
-      payload.config = payload.config || {};
-      payload.config.reasoning_effort = reInput ? reInput.value : '';
+      payload.config.reasoning_effort = h.effort.control.value;
     }
 
     return payload;

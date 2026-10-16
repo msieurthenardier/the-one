@@ -1,8 +1,8 @@
-"""Control-inventory and living-reference source guards (M25 F1 L6, DD10/DD11).
+"""Control-inventory source guards (M25 F1 L6, DD10/DD11; reshaped by M31 F1 L1, DD7).
 
-The inventory (``docs/ui-control-inventory.md``) and the ``App.ui`` factories in
-``static/js/ui/*.js`` must agree in both directions, and the library sections of the
-Design language page must be built only through the library.
+The catalogue (``docs/ui-control-inventory.md``) and the ``App.ui`` factories in
+``static/js/ui/*.js`` must agree in both directions, and every factory must be called by at
+least one engine-parametrized contract test (``tests/browser/test_ui_*.py``).
 """
 
 from __future__ import annotations
@@ -10,13 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 from tests._ui_guard_helpers import UI_DIR
 
 REPO = Path(__file__).resolve().parent.parent
 INVENTORY = REPO / "docs" / "ui-control-inventory.md"
-SECTIONS_DIR = UI_DIR.parent / "areas" / "admin" / "design-language"
 
 _FACTORY = re.compile(r"^\s*App\.ui\.(?!util\b)(\w+)\s*=\s*function\b", re.MULTILINE)
 _CITATION = re.compile(r"\bApp\.ui\.(?!util\b)(\w+)\b")
@@ -52,18 +49,39 @@ def test_inventory_matches_factories() -> None:
     assert not problems, "\n".join(problems)
 
 
-def test_inventory_rows_are_classified() -> None:
-    """Every table row's status cell is ``library: App.ui.<x>`` or ``not yet defined``."""
-    rows = 0
-    for line in INVENTORY.read_text().splitlines():
-        if not line.startswith("| ") or line.startswith("| Control") or line.startswith("|---"):
+def control_table_rows(text: str) -> list[list[str]]:
+    """Cells of every row of every control table (a table whose header starts ``| Control |``).
+
+    Other tables (colour tokens, "Owned by controls built later") are not control rows.
+    """
+    rows: list[list[str]] = []
+    in_control_table = False
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            in_control_table = False
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        assert len(cells) == 5, line
-        status = cells[2]
-        assert status == "not yet defined" or re.fullmatch(r"library: App\.ui\.\w+", status), line
-        rows += 1
-    assert rows >= 20
+        if line.startswith("| Control |"):
+            in_control_table = True
+            continue
+        if line.startswith("|---") or not in_control_table:
+            continue
+        rows.append([c.strip() for c in line.strip().strip("|").split("|")])
+    return rows
+
+
+def test_inventory_rows_are_classified() -> None:
+    """Six cells per control row; status is ``library: App.ui.<x>`` or ``not yet defined``;
+    a ``library:`` row lists at least one owned class (M31 F1 L2, DD3)."""
+    rows = control_table_rows(INVENTORY.read_text())
+    for cells in rows:
+        assert len(cells) == 6, cells
+        status, owned = cells[2], cells[4]
+        if status == "not yet defined":
+            assert owned == "\u2014", cells
+        else:
+            assert re.fullmatch(r"library: App\.ui\.\w+", status), cells
+            assert re.fullmatch(r"`[\w-]+`(, `[\w-]+`)*", owned), cells
+    assert len(rows) >= 20
 
 
 def test_guard_probe_fails_on_missing_row_and_stale_citation(tmp_path: Path) -> None:
@@ -82,30 +100,12 @@ def test_guard_probe_fails_on_missing_row_and_stale_citation(tmp_path: Path) -> 
     assert stale == ["inventory cites App.ui.gone, which is not a factory"]
 
 
-# ── Living-reference source rules (AC2) ─────────────────────────────────────
-
-LIBRARY_SECTIONS = sorted(SECTIONS_DIR.glob("ui-*-section.js"))
-_RAW_CONTROL = re.compile(
-    r"createElement\(\s*['\"](button|input|select|textarea)['\"]\s*\)|className\s*=\s*['\"]btn-"
-)
+# ── Contract-test rule (M31 F1 L1, flight DD7) ────────
 
 
-def test_library_sections_exist() -> None:
-    # M25 F4 L1 adds ui-search-section.js (App.ui.searchList), to 8; L6 adds
-    # ui-drawer-section.js (App.ui.drawer), to 9.
-    assert len(LIBRARY_SECTIONS) == 9
-
-
-@pytest.mark.parametrize("path", LIBRARY_SECTIONS, ids=lambda p: p.name)
-def test_library_section_uses_only_the_library(path: Path) -> None:
-    text = path.read_text()
-    assert not _RAW_CONTROL.search(text), path.name
-    assert "innerHTML" not in text, path.name
-
-
-def test_every_factory_is_demonstrated_in_source() -> None:
-    """Each factory name appears as a ``demo(host, '<name>'`` call in a library section."""
-    demoed: set[str] = set()
-    for path in LIBRARY_SECTIONS:
-        demoed.update(re.findall(r"\.demo\(host,\s*'(\w+)'", path.read_text()))
-    assert demoed == factory_names()
+def test_every_factory_has_a_contract_test() -> None:
+    """Each factory is called as ``App.ui.<name>(`` in at least one ``test_ui_*.py``."""
+    browser_dir = REPO / "tests" / "browser"
+    text = "\n".join(p.read_text() for p in sorted(browser_dir.glob("test_ui_*.py")))
+    untested = [n for n in sorted(factory_names()) if not re.search(rf"App\.ui\.{n}\(", text)]
+    assert not untested, f"no tests/browser/test_ui_*.py calls App.ui.<name>( for: {untested}"

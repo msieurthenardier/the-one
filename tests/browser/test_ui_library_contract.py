@@ -67,7 +67,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
         " fact: ['button','textInput','field','listPane'].map(n => typeof App.ui[n])})"
     )
     assert shape["ui"] == "object"
-    assert shape["util"] == ["el", "icon", "rovingFocus", "uid"]
+    assert shape["util"] == ["applyDataset", "el", "icon", "rovingFocus", "uid"]
     assert shape["fact"] == ["function"] * 4
 
 

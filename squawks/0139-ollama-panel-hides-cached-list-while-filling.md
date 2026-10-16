@@ -1,10 +1,10 @@
 # Squawk 0139: The Ollama Pull list hides a cached list while a fill runs
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-10-15
 
 ## Report
 
@@ -23,15 +23,16 @@ Found in the sortie 01 debrief (Developer and Architect).
 - No test pairs `loading: true` with a non-empty `models`. `tests/browser/test_flow_provider_ollama_pull.py`'s loading test stubs `{"loading": true, "models": []}`.
 
 ## Corrective Action
-*(written at completion)*
+Fixed on the panel side in the M31 F1 L6 rebuild of `provider-models.js` (the file moved from `areas/admin/` to `areas/studio/` earlier). `loadLibrary` now calls `showLibrary(models)` whenever the response carries any `models`, even with `loading: true`, so the cached list is offered (select enabled) while the 2 s poll continues through the one library timer. The loading copy (`LOADING_COPY`) is shown only when `models` is empty. The chosen model also survives each poll while it is still offered. The optional listing-TTL change was not made.
 
 ## Verification
 - A browser test stubs `/api/ollama-library/search` with `loading: true` and a non-empty `models`, and asserts the list renders and is selectable at once.
 - The existing empty-list loading test still shows the loading copy and re-requests.
 - `make test-unit` and the settings lane are green, and the static guards pass.
 
+Run 2026-10-15: `tests/browser/test_flow_provider_models_patch.py::test_loading_response_with_models_shows_them_while_polling` (stubbed `loading: true` with one cached model: the select is enabled with "Select a model…" and "cached:1b (1.0 GB)" at once, the loading copy is absent, the second poll replaces it with the 7-option catalog) passes; `test_flow_provider_ollama_pull.py::test_loading_response_keeps_select_disabled_then_the_list_appears` (empty `models`) still passes. The `providers` lane and the static guards are recorded in the flight log's `provider-models-pilot` entry.
+
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Mission 31 Flight 1 Reviewer (Sonnet)
+**Verdict**: confirmed
+**Commit**: Mission 31 Flight 1 commit (flight/01-library-completion-and-pilot)

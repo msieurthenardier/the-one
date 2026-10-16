@@ -7,17 +7,17 @@ from pathlib import Path
 
 STATIC = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static"
 INDEX = STATIC / "index.html"
-MODULE = STATIC / "js/consent-link.js"
+MODULE = STATIC / "js/ui/consent-link.js"
 
 
 def _srcs() -> list[str]:
     return re.findall(r'<script src="/static/js/([^"]+)"></script>', INDEX.read_text())
 
 
-def test_consent_link_loads_after_button_and_before_its_consumers() -> None:
+def test_consent_link_loads_after_copy_field_and_before_its_consumers() -> None:
     srcs = _srcs()
-    at = srcs.index("consent-link.js")
-    assert srcs.index("ui/button.js") < at
+    at = srcs.index("ui/consent-link.js")
+    assert srcs.index("ui/copy.js") < at
     for consumer in (
         "areas/chat.js",
         "areas/studio/mcp-server-editor.js",

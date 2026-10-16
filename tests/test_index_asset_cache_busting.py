@@ -47,7 +47,7 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # A CSS ref is versioned too.
     assert f'href="/static/css/base.css?v={__version__}"' in body
 
-    # All 80 /static js/css refs are versioned and none are double-suffixed.
+    # All 73 /static js/css refs are versioned and none are double-suffixed.
     # (Mission 23 Flight 1 Leg 2 deleted the 9 connector-subsystem script
     # tags, dropping the count from 62 to 53; Mission 23 Flight 2 Leg 2 adds
     # the ONE new connector-editor.js script tag back, to 54; Mission 24
@@ -80,11 +80,14 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # areas/studio/providers-section.js, to 88; provider-editor.js and provider-models.js
     # move from areas/admin/ to areas/studio/, still 88; sortie 02 L2 deletes
     # areas/admin/providers-list.js with the Settings Providers page, to 87; sortie 04
-    # adds consent-link.js, to 88.)
+    # adds consent-link.js, to 88; M31 F1 L1 deletes the Design language page's 17
+    # scripts (design-language-page.js and the 16 design-language/*.js), to 71;
+    # M31 F1 L4 adds ui/editor.js and moves confirm.js to ui/confirm.js (neutral), to 72;
+    # M31 F1 L5 adds ui/copy.js and moves consent-link.js to ui/consent-link.js, to 73.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 88
+    assert len(refs) == 73
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix
