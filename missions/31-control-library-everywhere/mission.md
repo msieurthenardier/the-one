@@ -40,7 +40,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - No release is cut while the mission is active.
 
 ## Success Criteria
-- [ ] The app has no design-language page. Its route, its Settings navigation entry and its Jump to entry are gone, along with the scripts, styles, tests and spec steps that only it used. The old address shows no page.
+- [x] The app has no design-language page. Its route, its Settings navigation entry and its Jump to entry are gone, along with the scripts, styles, tests and spec steps that only it used. The old address shows no page.
 - [ ] Every kind of control the app renders is defined once in the shared control library. The control catalogue lists no control as "not yet defined", and every surface (Chats, Agents, Library, Settings and the shell) builds its controls through the library.
 - [ ] A change to one control's definition reaches every place that control appears. This is enforced by a unit-tier check that fails when a control's owned class names appear in application code or stylesheets outside that control's own definition. At mission close the check's exception list is empty.
 - [ ] No UI markup is built from HTML strings outside the markdown renderer. The unit-tier sink check (assignments to `innerHTML` or `outerHTML`, and `insertAdjacentHTML`) has an empty baseline outside the markdown renderer, and an icon is placed in the page only as a node.
@@ -91,7 +91,7 @@ Every control the app shows has exactly one definition in the shared control lib
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: **Library completion and a stateful pilot.**
+- [x] Flight 1: **Library completion and a stateful pilot.**
   - Retire the Design language page in an early leg, with every dependency: tests, the script-count pin, `verify-serving`, the registry, behavior-spec amendments and docs. Rewrite the inventory guard's demo rule as "every control has a catalogue entry and contract tests". Move the tokens and typography reference into the catalogue.
   - Settle the open questions: re-mount policy, style ownership, the reuse check and the icon node.
   - Catalogue every variant of each shared shape and get the operator's approval of the canonical choices. This is the checkpoint where the mission's visible changes are decided.

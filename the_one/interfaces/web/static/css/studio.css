@@ -1642,9 +1642,10 @@
   /* admin-pf-model-btn retained as a JS hook only — styling comes from App.ui.button. */
   .area-studio .admin-pf-model-led { gap: 0; }
   .area-studio .admin-pf-model-error { width: 100%; }
-  .area-studio .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+  .area-studio .admin-pf-pull-input { display: flex; align-items: stretch; gap: 8px; padding: 8px 0; }
   .area-studio .admin-pf-pull-name { flex: 1; }
-  .area-studio .admin-pf-pull-go { padding: 6px 14px; font-size: var(--font-size-caption); }
+  /* The Pull button is the standard button, stretched to the select's height in this row. */
+  .area-studio .admin-pf-pull-go { height: auto; }
   .area-studio .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
   .area-studio .admin-pf-pull-size { color: var(--fg-secondary); }
   /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px dot the

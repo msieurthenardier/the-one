@@ -484,23 +484,6 @@ def test_no_destination_id_equals_an_element_id(app_clean: str, page: Page) -> N
     assert clashes == []
 
 
-@pytest.mark.parametrize("raw", ["#settings/design-language", "#admin/design-language"])
-def test_design_language_is_an_unknown_route_even_in_dev_mode(
-    app_clean: str, page: Page, raw: str
-) -> None:
-    """The page is retired (M31 F1 L1): with dev mode ON its hash, and the
-    `admin` alias spelling, follow the unknown-hash rules (boot -> chats,
-    after boot -> restore the current route)."""
-    _boot(page, app_clean, raw)
-    assert page.evaluate("App.config.dev_mode") is True
-    assert page.evaluate("location.hash").startswith("#chats"), raw
-    page.evaluate("location.hash = '#settings/appearance'")
-    page.wait_for_function("App.router.current().route === 'settings/appearance'")
-    page.evaluate(f"location.hash = '{raw}'")
-    page.wait_for_function("location.hash === '#settings/appearance'")
-    _nav.expect_route(page, "settings/appearance")
-
-
 # ── AC5: the commit sequence ─────────────────────────────────────────────────
 
 _SPY_JS = """

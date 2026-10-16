@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Library completion and a stateful pilot](../flight.md)
 
 ## Objective

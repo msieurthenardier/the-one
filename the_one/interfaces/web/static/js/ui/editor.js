@@ -52,8 +52,8 @@
   //       cancel-btn; disabled at first unless enabledWhenClean (create forms).
   //     save {label, testid, onClick}: btn-filled-primary save-btn; disabled in
   //       every mode until setDirty(true).
-  //     test {label 'Test', testid, onClick, className}: secondary, small, with
-  //       the play icon; class test-provider-btn unless className overrides.
+  //     test {label 'Test', testid, onClick, className}: secondary, default size
+  //       (same as Cancel and Save), with the play icon; no shrinking class.
   //     extra: nodes placed before Cancel.
   //   div.form-actions holds span.editor-unsaved[role=status] first and
   //   span.editor-error last.
@@ -115,10 +115,9 @@
     if (actions.test) {
       testButton = App.ui.button({
         variant: 'secondary',
-        size: 'sm',
         icon: 'play',
         label: actions.test.label || 'Test',
-        className: actions.test.className || 'test-provider-btn',
+        className: actions.test.className,
         testid: actions.test.testid,
         onClick: actions.test.onClick
       });

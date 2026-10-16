@@ -265,7 +265,6 @@
 
     var pullBtn = App.ui.button({
       variant: 'primary',
-      size: 'sm',
       label: 'Pull',
       disabled: true,
       className: 'admin-pf-pull-go',

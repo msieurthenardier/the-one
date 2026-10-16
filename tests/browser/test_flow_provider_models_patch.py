@@ -233,6 +233,12 @@ def test_pull_select_choice_survives_a_refresh(
     )
     expect(select(page)).to_have_value("llama3.2:3b")
     expect(page.get_by_test_id("admin-pf-pull-btn")).to_have_text("Pull · 2.0 GB")
+    # HAT fix 3: the Pull button is the standard size, level with the pull select.
+    heights = page.evaluate(
+        "() => ['admin-pf-pull-btn', 'admin-pf-pull-select'].map(t =>"
+        " document.querySelector('[data-testid=' + t + ']').getBoundingClientRect().height)"
+    )
+    assert abs(heights[0] - heights[1]) < 1, heights
     expect(page.get_by_test_id("admin-pf-pull-size")).to_have_text(
         "Download: 2.0 GB, from the Ollama registry."
     )

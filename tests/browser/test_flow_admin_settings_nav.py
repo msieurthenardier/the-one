@@ -129,18 +129,6 @@ def test_settings_nav_groups_links_heading_and_mount(app_clean: str, page: Page)
         assert links.nth(k).get_attribute("role") is None
 
 
-def test_settings_nav_has_no_developer_group_even_in_dev_mode(app_clean: str, page: Page) -> None:
-    """The Design language page is retired (M31 F1 L1): the nav is two groups with
-    dev mode ON, and no Developer caption or design-language link exists."""
-    _nav.goto(page, app_clean, "settings/appearance")
-    expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
-    assert page.evaluate("App.config.dev_mode") is True
-    shape = page.evaluate(_NAV_SHAPE_JS)
-    assert shape["groups"] == _expected_links(GROUPS), shape["groups"]
-    expect(page.locator('[data-testid="settings-nav-design-language"]')).to_have_count(0)
-    expect(_lists.settings_nav(page).get_by_text("Developer")).to_have_count(0)
-
-
 def test_settings_nav_has_no_models_group_or_providers_link(app_clean: str, page: Page) -> None:
     """Providers moved to Library (sortie 02): the former Models group and its
     Providers link are gone (inverted from the test that asserted them)."""

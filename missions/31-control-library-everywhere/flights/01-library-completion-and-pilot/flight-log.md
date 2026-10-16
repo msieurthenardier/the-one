@@ -355,3 +355,30 @@ Results: `make test-unit` equivalent (6748 passed, 15 skipped; includes ownershi
 - **Browser lanes** (wall, passed): routing 525s, 186; agents 520s, 190 (OVER BUDGET by 10s, budget 510s; warning only); providers 314s, 129; contracts 320s, 846 passed + 4 skipped; chats 356s, 181; mcp 352s, 110; library 258s, 50; settings 240s, 108; shared 275s, 255.
 - **Accepted flakes**: none; no failures occurred.
 - commit: see `git log -1` on flight/01-library-completion-and-pilot
+
+### flight-hat
+**Status**: in-flight
+**Started**: 2026-10-15
+
+- Flight committed as `c732ecb`; draft PR #298 opened (base `main`, including the mission plan commit from #297).
+- HAT dev instance:
+  - Port 8486 (PID recorded in `~/the-one-m31-hat/cwd/serve.pid`).
+  - Data dir `~/the-one-m31-hat/data`, cwd `~/the-one-m31-hat/cwd`, `THE_ONE_DEV_MODE=true`, confirmed from `/proc/<pid>/environ`. The default data dir (`~/.local/share/the-one`) is untouched.
+  - Seeded with one provider of each type, through `scripts/ui_capture.py`'s seeder (named "HAT …"), plus an agent.
+  - A local Ollama 0.34.0 is reachable at 127.0.0.1:11434, so step 6 can run live.
+- HAT step 1 (fresh app, Settings nav): pass. Operator note: the old `#settings/design-language` address should have no special treatment, so the leg-01 tests and docs that name it are being removed (HAT fix 1).
+- HAT step 2 (create provider: shell, switch-first toggle, info button, Cancel): pass.
+- HAT step 3 (edit provider: header, unsaved caption, Save flash, Test status line): pass, apart from the Test button's size. The operator found it smaller than Cancel and Save; its placement is fine. This contradicts DD8, because leg 04's spec built it at `sm`. HAT fix 2 (in the library, `editorShell`) is in progress, and the step is re-checked once it lands.
+- HAT step 4 (key masking: re-mask after Save, untouched key saves, Cancel restores): pass.
+- HAT step 5 (danger zone: trash icon, arm, armed style while hovered, lapse, blocked notice for an in-use provider): pass.
+- HAT fix 1 (design-language): removed the specific retired-address tests from tests/browser/test_router_core.py and test_flow_admin_settings_nav.py (generic unknown-hash tests remain) and the two route clauses in the_one/agents.md. Only history mentions remain. make test-unit 6707 passed / 12 skipped; ruff check and format clean; router_core + settings_nav browser run 53 passed.
+- HAT step 6 (models panel, live Ollama): pass. The operator kept the canonical `field-select` for the pull select (item 7 decided) and asked for a standard-size Pull button, which is HAT fix 3.
+- HAT re-check: the operator confirmed both button sizes are fixed on the live instance (Test in fix 2, Pull in fix 3), after a hard reload.
+- HAT step 7 (plan sign-in: consent link, Copy reads "Copied", token expiry status line): pass.
+- HAT step 8 (the other theme): pass.
+- HAT step 9 (captures): the operator approved the before/after set as is. That meets the mission's capture criterion for Flight 1. The after set predates HAT fixes 2-3; their recaptures are in `m31-f1-hatfix2/` and `m31-f1-hatfix3/`.
+- HAT step 10 (DD8 re-confirmation): the operator confirmed every recommended canonical version (editor header, errors, danger zone, armed style, tiles, chips, status, disclosures, icons). They bind Flights 2-4.
+- HAT step 11 (desktop window, optional): skipped at the operator's call ("let's call it").
+- HAT closed 2026-10-15. Fixes: 1 (old-route special treatment removed), 2 (Test button standard size, in `editorShell`), 3 (Pull button standard size). Recorded decisions: the pull select keeps the canonical `field-select`.
+- HAT fix 2 (step 3, Test button size): `editorShell` built Test at `sm`, and its default `test-provider-btn` class carried a padding/icon override meant for the agent General tab. Now Test is the default size with no shrinking class (play icon sized by the button factory; `className` option still honoured). Added `test_shell_test_button_matches_cancel_and_save` (equal height, font-size, padding-block; icon present; name "Test"; both engines) and updated the DOM-shape class pin. Results: static guards 324 passed; editor contract 32 passed (chromium + webkit); providers lane 129 passed under netns; recapture `provider-edit-openai-compatible` shows three matching buttons.
+- HAT fix 3 (step 6, Pull button size): Pull in the provider models panel is now the default-size primary button (dropped `size: 'sm'` in `provider-models.js` and the `.admin-pf-pull-go` padding/font override). The pull row uses `align-items: stretch` and `.admin-pf-pull-go { height: auto }` so the standard 32px button stretches to the select's height (35px) with no offset; the operator kept the canonical `field-select` for the pull select. Refresh and the per-row buttons stay `sm`. Added a Pull-button vs pull-select height assertion in `test_pull_select_choice_survives_a_refresh`. Results: static guards 324 passed (ratchets unmoved); providers lane 129 passed under netns; recapture `m31-f1-hatfix3/ollama-models-panel--light.png` shows the row aligned.

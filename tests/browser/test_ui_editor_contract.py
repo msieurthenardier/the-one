@@ -75,12 +75,12 @@ def test_shell_dom_shape_and_classes(engine_page: Page) -> None:
         "SPAN.editor-unsaved",
         "BUTTON.btn-outlined-primary cancel-btn",
         "BUTTON.btn-filled-primary save-btn",
-        "BUTTON.btn-outlined-primary btn-sm test-provider-btn",
+        "BUTTON.btn-outlined-primary",
         "SPAN.editor-error",
     ]
     assert out["unsaved"] == ["status", "editor-unsaved"]
     assert out["cancel"] == [True, True]
-    assert out["test"] == [1, "Test", True]
+    assert out["test"] == [1, "Test", False]
 
 
 def test_shell_roles_and_names(engine_page: Page) -> None:
@@ -236,6 +236,25 @@ def test_shell_tab_order(engine_page: Page) -> None:
     page.locator(".editor-breadcrumb-link").focus()
     page.keyboard.press("Tab")
     assert page.evaluate("() => document.activeElement.textContent") == "Test"
+
+
+def test_shell_test_button_matches_cancel_and_save(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page)
+    out = page.evaluate(
+        """() => {
+          const m = (b) => { const c = getComputedStyle(b); return [c.height, c.fontSize,
+            c.paddingTop, c.paddingBottom]; };
+          const t = window.__shell.testButton;
+          const c = document.querySelector('.cancel-btn');
+          const s = document.querySelector('.save-btn');
+          return {t: m(t), c: m(c), s: m(s), icon: !!t.querySelector('svg'),
+                  name: t.textContent.trim(), label: t.getAttribute('aria-label')};
+        }"""
+    )
+    assert out["t"] == out["c"] == out["s"]
+    assert out["icon"] and out["name"] == "Test"
+    assert out["label"] in (None, "Test")
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])

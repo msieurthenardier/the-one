@@ -1,6 +1,6 @@
 # Flight: Library completion and a stateful pilot
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
@@ -143,6 +143,8 @@ Recommended at the checkpoint; the operator raised no objection. The HAT re-conf
 - **Icons.** `refresh-cw` everywhere. Icon size follows the button size.
 
 Every visible difference a migration produces must trace to a line here, or to a named squawk fix.
+
+**HAT outcome (2026-10-15).** The operator confirmed every recommended version above and approved the before/after capture set. Two corrections were made in the HAT: the shell's Test button and the models panel's Pull button are standard size (DD8 always said Test matches Cancel/Save; leg 04's spec had wrongly made it `sm`). The pull select keeps the canonical `field-select`.
 
 **DD9: Build each control with its first consumer.**
 - **This flight builds** the controls the provider surfaces use:
@@ -314,7 +316,7 @@ Verified against the working tree at `59992fd`:
 
   The plan sign-in machinery is re-attached through handles, not rebuilt.
 - [x] `provider-signin-and-close`: rebuild plan sign-in on `consentLink` and `confirm`, and the token-expiry line, bringing both files to zero sinks and zero reuse exceptions. Then the "after" captures, the full gate and the contracts-lane re-budget (DD13), and the pilot's docs. Split from `provider-editor-pilot` at design review, 2026-10-15.
-- [ ] `flight-hat` *(optional; the operator asked to run to here)*: a guided HAT on a scratch instance in both themes:
+- [x] `flight-hat` *(optional; the operator asked to run to here)*: a guided HAT on a scratch instance in both themes:
   - the Settings nav without the page, and the old address dropped;
   - every provider type's editor, the models panel (stubbed or live Ollama: refresh, pull with cancel, load, unload, delete), sign-in, Test and delete;
   - the before and after capture set;
