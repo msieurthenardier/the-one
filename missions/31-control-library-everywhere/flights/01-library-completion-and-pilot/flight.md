@@ -1,6 +1,6 @@
 # Flight: Library completion and a stateful pilot
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria

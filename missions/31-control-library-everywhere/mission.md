@@ -87,6 +87,10 @@ Every control the app shows has exactly one definition in the shared control lib
 
 ## Known Issues
 
+- [ ] **Flight 2 is overloaded as listed** (discovered in Flight 1's debrief; affects Flights 2-4). It bundles the agent editor and six tabs, the connector and knowledge editors, the Settings pages, the `studio.js` (4181 lines → ≤ 800) and `admin.js` splits, five new controls and four squawks. Re-plan it before it starts: split it, or lead with a behaviour-free `studio.js` restructure leg. Also assign the largest allowance and sink files to Flights 2-4 explicitly. At Flight 1's close the reuse allowance stood at 243 rows / 504 uses and the sinks at 75 in 14 files.
+- [ ] **Alias shims to retire as their callers migrate** (Flight 1): `App.confirmDelete` (14 calls), `App.consentLink` (7), `App.showFlash` (41), `App.icon` (30). Each flight names the aliases it retires; all are gone by Flight 4.
+- [ ] **The `agents` browser lane is at its budget** (495-520 / 510 s; squawk 0217). Resolve it before Flight 2 adds agent-editor tests.
+
 ## Flights
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
