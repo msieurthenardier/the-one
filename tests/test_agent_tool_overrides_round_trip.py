@@ -149,3 +149,34 @@ class TestAgentToolOverridesRoundTrip:
         assert resp.json()["mcp_overrides"] is None
         resp = await client.get("/api/agents/test-empty-mcp-post")
         assert resp.json()["mcp_overrides"] is None
+
+
+class TestToolOverridesPreservedOnOmit:
+    """Squawk 0223: an agent PUT that omits `tool_overrides` keeps the stored map."""
+
+    _OV = {"read_file": {"path_denylist": ["/secret"]}}
+
+    async def _seed(self, client: AsyncClient, name: str) -> None:
+        r = await client.post("/api/agents", json={"name": name, "tool_overrides": self._OV})
+        assert r.status_code in (200, 201), r.text
+
+    async def test_omitted_key_preserves(self, client: AsyncClient) -> None:
+        await self._seed(client, "keep")
+        r = await client.put("/api/agents/keep", json={"name": "keep", "description": "new"})
+        assert r.status_code == 200, r.text
+        body = (await client.get("/api/agents/keep")).json()
+        assert body["description"] == "new"
+        assert body["tool_overrides"] == self._OV
+
+    async def test_explicit_null_clears(self, client: AsyncClient) -> None:
+        await self._seed(client, "clear")
+        r = await client.put("/api/agents/clear", json={"name": "clear", "tool_overrides": None})
+        assert r.status_code == 200, r.text
+        assert (await client.get("/api/agents/clear")).json()["tool_overrides"] is None
+
+    async def test_supplied_map_replaces(self, client: AsyncClient) -> None:
+        await self._seed(client, "repl")
+        new = {"http_request": {"extra_allowed_hosts": ["a.com"]}}
+        r = await client.put("/api/agents/repl", json={"name": "repl", "tool_overrides": new})
+        assert r.status_code == 200, r.text
+        assert (await client.get("/api/agents/repl")).json()["tool_overrides"] == new

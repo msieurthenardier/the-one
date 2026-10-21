@@ -972,6 +972,11 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # it; omission and empty are distinguishable and mean different things.
     if "kb_ids" not in data:
         data["kb_ids"] = existing.kb_ids
+    # Squawk 0223: `tool_overrides` omitted from the PUT body preserves the
+    # stored map (same pattern as `kb_ids`). An explicit `null` still clears
+    # it and a supplied map replaces it.
+    if "tool_overrides" not in data:
+        data["tool_overrides"] = existing.tool_overrides
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
