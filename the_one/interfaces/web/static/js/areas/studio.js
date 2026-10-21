@@ -3611,7 +3611,23 @@ App.registerArea({
         if (!overrides[toolName]) overrides[toolName] = {};
         overrides[toolName][fieldName] = v;
       }
-      data.tool_overrides = Object.keys(overrides).length > 0 ? overrides : null;
+      // Squawk 0223: the override inputs exist only for tools whose panel
+      // was opened this mount. If none was, OMIT the key (the server keeps
+      // the stored map). If some were, the edited tools replace their stored
+      // entry and tools never opened keep theirs; `{}` = everything cleared.
+      var loadedTools = {};
+      for (var li = 0; li < overrideEls.length; li++) {
+        if (overrideEls[li].dataset.toolOverrideTool) {
+          loadedTools[overrideEls[li].dataset.toolOverrideTool] = true;
+        }
+      }
+      if (Object.keys(loadedTools).length > 0) {
+        var stored = (self._selectedAgent && self._selectedAgent.tool_overrides) || {};
+        Object.keys(stored).forEach(function (tn) {
+          if (!loadedTools[tn]) overrides[tn] = stored[tn];
+        });
+        data.tool_overrides = overrides;
+      }
 
       // F8 L3 — Walk mcp_overrides selectors. Mirrors the tool_overrides
       // walk above, but groups by source-name (data-mcp-override-source)
