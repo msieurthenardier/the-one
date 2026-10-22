@@ -1,11 +1,11 @@
 # Flight: Agents on the library
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **The area code is organised by surface** (≤ 800 lines per area entry module). This flight brings `studio.js` from 4181 lines to ≤ 800 by moving each section into its own module. `admin.js` (760) is Flight 3's.
-- [ ] **Every kind of control is defined once in the library** (partial). This flight adds:
+- [x] **The area code is organised by surface** (≤ 800 lines per area entry module). This flight brings `studio.js` from 4181 lines to ≤ 800 by moving each section into its own module. `admin.js` (760) is Flight 3's.
+- [x] **Every kind of control is defined once in the library** (partial). This flight adds:
   - tabs;
   - the group tile;
   - the tool row;
@@ -14,12 +14,12 @@
   - a multi-action danger zone.
 
   The agent editor and its six tabs are then built only from library controls.
-- [ ] **A change to one control's definition reaches every place it appears** (partial). Every agent-editor file reaches zero reuse-allowance rows.
-- [ ] **No UI markup is built from HTML strings** (partial). Every agent-editor file reaches zero sinks, `studio.js` included.
-- [ ] **Each control's styles are owned by that control** (partial). The agent-tab CSS is folded into the owning controls, and the dead rules are removed.
-- [ ] **Every migrated surface looks as it did before, apart from approved differences.** There are before and after captures of the agent editor's tabs, and the operator approves them at the HAT.
-- [ ] **Every library control works by keyboard and by role in both engines.** This covers the new controls, plus two library behaviour fixes: squawks 0220 and 0221.
-- [ ] **Existing behaviour holds.** Two live defects found in planning are fixed, each with a test that reproduces it first (DD9).
+- [x] **A change to one control's definition reaches every place it appears** (partial). Every agent-editor file reaches zero reuse-allowance rows.
+- [x] **No UI markup is built from HTML strings** (partial). Every agent-editor file reaches zero sinks, `studio.js` included.
+- [x] **Each control's styles are owned by that control** (partial). The agent-tab CSS is folded into the owning controls, and the dead rules are removed.
+- [x] **Every migrated surface looks as it did before, apart from approved differences.** There are before and after captures of the agent editor's tabs, and the operator approves them at the HAT.
+- [x] **Every library control works by keyboard and by role in both engines.** This covers the new controls, plus two library behaviour fixes: squawks 0220 and 0221.
+- [x] **Existing behaviour holds.** Two live defects found in planning are fixed, each with a test that reproduces it first (DD9).
 
 ---
 
@@ -235,14 +235,14 @@ Verified at `dbcd458` (planning surveys, 2026-10-15/16):
 ### Prerequisites
 - [x] Flight 1 is completed and merged (`main` at `dbcd458`); the branch is `flight/02-agents-on-the-library`.
 - [x] The operator approved the canvas (2026-10-16): https://claude.ai/artifact/Pzn35KdwV9gsTrnCPRCcqo
-- [ ] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of **every** leg that runs browser tests.
-- [ ] The before captures of the agent surfaces are taken in leg 01, before any agent file changes.
+- [x] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of **every** leg that runs browser tests.
+- [x] The before captures of the agent surfaces are taken in leg 01, before any agent file changes.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -254,12 +254,12 @@ Verified at `dbcd458` (planning surveys, 2026-10-15/16):
 Restructure first, then controls, then surfaces: the order Flight 1 proved. Leg 01 takes the before captures. Legs 02-03 split `studio.js` with no behaviour change, introducing the state object on its own before the editor modules move. Legs 04-05 build and fix library controls in the harness. Legs 06-10 move the editor and each tab onto them, removing their files' allowance rows and sinks. Leg 11 closes the counts, captures the after set, re-budgets the lanes and updates the docs. Leg 12 is the HAT.
 
 ### Checkpoints
-- [ ] `studio.js` ≤ 800 lines; the full gate is green with no test behaviour change; before captures taken.
-- [ ] The new controls are contract-tested in both engines.
-- [ ] The 0220/0221 fixes are live; the mount slot replaces the Flight 1 singletons.
-- [ ] The agent editor and every tab are on the library; the DD9 defects are fixed.
-- [ ] Every agent-editor file is at zero sinks and zero allowance rows; budgets re-measured; full gate green.
-- [ ] HAT passed.
+- [x] `studio.js` ≤ 800 lines; the full gate is green with no test behaviour change; before captures taken.
+- [x] The new controls are contract-tested in both engines.
+- [x] The 0220/0221 fixes are live; the mount slot replaces the Flight 1 singletons.
+- [x] The agent editor and every tab are on the library; the DD9 defects are fixed.
+- [x] Every agent-editor file is at zero sinks and zero allowance rows; budgets re-measured; full gate green.
+- [x] HAT passed.
 
 ### Adaptation Criteria
 
@@ -294,7 +294,7 @@ Restructure first, then controls, then surfaces: the order Flight 1 proved. Leg 
 - [x] `self-config-split` (10b): a mechanical split into four ≤ 800-line modules around a shared context, with no behaviour change.
 - [x] `self-config-library` (10c): the modules on library controls (switches, status, emptyState, section, button, copyField copy-once, confirm; the history stays a native `<details>`), with the token-attribute test. Leg 10 was split into 10a-10c at design review (2026-10-21).
 - [x] `agents-close`: zero counts on every agent file, after captures (including the admin editor guard), the lane re-budget (0217), the full gate, docs.
-- [ ] `flight-hat` *(optional)*: the operator walks each tab in both themes, the DD4 differences, the 0220/0221 behaviours and the DD9 fixes, and approves the capture set.
+- [x] `flight-hat` *(optional)*: the operator walks each tab in both themes, the DD4 differences, the 0220/0221 behaviours and the DD9 fixes, and approves the capture set.
 
 > Leg design greps every moved path, renamed class and retired selector across `tests/`, `scripts/`, `Makefile` and `docs/ui-testid-registry.md`, and pastes the hits into the leg (Flight 1 debrief).
 
@@ -303,10 +303,10 @@ Restructure first, then controls, then surfaces: the order Flight 1 proved. Leg 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `wc -l the_one/interfaces/web/static/js/areas/studio.js` ≤ 800, and every new studio module ≤ 800.

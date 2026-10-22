@@ -898,3 +898,17 @@ Six non-blocking items from the code and accessibility reviews, fixed before the
    - Area guard (`self._activeSection === 'agents'` removed): the area test still PASSES, and also with the `!!d.handle` test removed. It is not independently falsifiable: leaving Agents for a Library section closes the open item (destroys the editor) and clears `_selectedAgent`, so `d`/`sameAgent` already stop the patch. Finding: `_activeSection` stays `'agents'` while the user is on Chats or Settings (those are other area modules), so for those destinations the area guard does not apply and the hidden editor IS patched in place (harmless and arguably desirable: the stored value is there on return). The test therefore uses Library, the one destination where the area is left; it pins "nothing throws, stored value on return" but cannot prove the guard line itself.
 
 **Gates.** `make test-unit` 6719 passed, 12 skipped. Netns browser: `test_ui_tile_contract` + `test_ui_feedback_contract` (both engines, REQUIRE_WEBKIT) 62 passed; `test_studio_self_configuration_dirty` + `test_studio_mcps_tab` + `test_studio_self_configuration_external` 47 passed. Lanes (3 concurrent): `agents` 161 passed, `agent-tabs` 115 passed, `contracts` 1005 passed / 5 skipped (WebKit required). Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_ui_ownership`, `test_ui_control_inventory`) pass; no allowance added. `ruff check` / `ruff format --check` clean on the touched Python. No known flake (0229, 0230) appeared.
+
+### flight-hat
+
+**Status**: completed
+**Started**: 2026-10-22
+**Completed**: 2026-10-22
+
+The operator ran the review (`legs/12-flight-hat.md`; the results are in that file) on a dev instance at port 8496 with scratch data under `$HOME/the-one-m31f2-hat`.
+- Steps 1-11 passed, and step 12 (VoiceOver) was skipped. HAT items 1-12 are approved, and no code change was needed.
+- The capture set was approved through the live walk-through.
+- **Outside the flight (not squawks of this repo unless the operator asks):**
+  - **Goldfinch:** a main-thread stall of 0.8-1.8 s on every real press, in the tab under test, which grew while the tab stayed open. The same page was instant in Chrome and in Playwright Chromium.
+  - **This repo:** the Filesystem tools' override fields carry no `description`, so their Overrides panels show no info buttons (a candidate squawk).
+

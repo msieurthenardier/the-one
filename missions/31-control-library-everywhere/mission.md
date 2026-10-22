@@ -89,7 +89,7 @@ Every control the app shows has exactly one definition in the shared control lib
 
 - [x] **Flight 2 is overloaded as listed** (resolved 2026-10-15: split into Flights 2 and 3; the operator chose two flights) (discovered in Flight 1's debrief; affects Flights 2-4). It bundles the agent editor and six tabs, the connector and knowledge editors, the Settings pages, the `studio.js` (4181 lines → ≤ 800) and `admin.js` splits, five new controls and four squawks. Re-plan it before it starts: split it, or lead with a behaviour-free `studio.js` restructure leg. Also assign the largest allowance and sink files to Flights 2-4 explicitly. At Flight 1's close the reuse allowance stood at 243 rows / 504 uses and the sinks at 75 in 14 files.
 - [ ] **Alias shims to retire as their callers migrate** (Flight 1): `App.confirmDelete` (14 calls), `App.consentLink` (7), `App.showFlash` (41), `App.icon` (30). Each flight names the aliases it retires; all are gone by Flight 4.
-- [ ] **The `agents` browser lane is at its budget** (495-520 / 510 s; squawk 0217). Resolve it before Flight 2 adds agent-editor tests.
+- [x] **The `agents` browser lane is at its budget** (resolved 2026-10-22 in Flight 2 leg 11: the lane was split into `agents` and `agent-tabs` and every lane re-budgeted; squawk 0217 completed) (495-520 / 510 s; squawk 0217). Resolve it before Flight 2 adds agent-editor tests.
 
 ## Flights
 
@@ -102,7 +102,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - Build the shared controls with contract tests: the editor shell (header, breadcrumb, unsaved caption, Save/Cancel with focus-after, error blocks), danger zone, tiles, toggle, info and copy buttons (including the consent link's), chips, the key-value table, tabs, the status LED and line, the flash message, the two-step confirm's visual states and the icon.
   - Land the reuse check with its starting exception list.
   - Migrate the pilot end to end: the provider editor and its model panel (model list, Pull with streaming progress, Test), absorbing squawk 0139.
-- [ ] Flight 2: **Agents on the library.** (Re-planned 2026-10-15 after the Flight 1 debrief: the old Flight 2 was split into Flights 2 and 3.)
+- [x] Flight 2: **Agents on the library.** (Re-planned 2026-10-15 after the Flight 1 debrief: the old Flight 2 was split into Flights 2 and 3.)
   - Lead with a behaviour-free split of `studio.js` (4181 lines → modules of ≤ 800).
   - Migrate the agent editor and its six tabs (General, Rules and notes, Tools, MCPs, Knowledge, Self-configuration).
   - Build tabs, the merged source/category tile, the tristate switch and the editable chip list, as previewed on the operator's mock-up canvas.

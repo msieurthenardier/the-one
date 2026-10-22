@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective
@@ -60,10 +60,10 @@ The operator walks the agent editor on a dedicated dev instance, in both themes:
 4. **[mcps] Inspect MCPs.**
    - The MCP tile: flush rows and the chip order (item 4). Refresh is the small button.
    - The "N tools" expand opens the tool rows.
-   - Turn one tool off: the master shows half-on, with the accent edge (item 12). Collapse and re-expand the source, and the choice is kept (DD9-1, item 9).
+   - Turn one tool off. The master is attach-only (leg 07b), so it stays on, and the chip reads "1 / 2 enabled". Collapse and re-expand the source, and the choice is kept (DD9-1, item 9). (Corrected at the HAT: an earlier draft of this step wrongly expected the half-on state here; the half-on state belongs to the Tools tab's category masters, step 5.)
    - Save.
 5. **[tools] Inspect Tools.**
-   - Category tiles have tristate masters. Open one tool's Overrides, set a value and Save.
+   - Category tiles have tristate masters: turning off one tool in a category puts its master half-on, with the accent edge (item 12). Open one tool's Overrides, set a value and Save.
    - Edit only the description on General and Save again. Then reopen Overrides: the override is still there (DD9-2, item 9).
    - The chip "×" is muted and turns red on hover and focus (DD4 item 2).
    - Info buttons open on press, not hover, and close on Escape (0221, item 8).
@@ -85,9 +85,24 @@ The operator walks the agent editor on a dedicated dev instance, in both themes:
 12. **Optional: [voiceover]** item 11, on a Mac.
 
 ## Acceptance Criteria
-- [ ] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
-- [ ] HAT items 1-12 are approved or changed by the operator.
-- [ ] The before and after capture set is approved (the mission's capture criterion for this flight).
+- [x] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
+- [x] HAT items 1-12 are approved or changed by the operator.
+- [x] The before and after capture set is approved (the mission's capture criterion for this flight).
+
+## Results (2026-10-22)
+The operator walked the review in Goldfinch and Chrome on a dev instance (port 8496, scratch data, seeded: one mock provider, Agent A and Agent B, the "Team handbook" knowledge base, the stdio "Hello server" MCP source, and a rule on Agent A).
+- Steps 1-10 passed. No code fix was needed.
+- **Step 2:** the amber lapse outline after an arm times out is the Mission 24 `confirm-lapsed` cue. The operator kept it as is.
+- **Step 4:** an earlier draft of this checklist wrongly expected a half-on state on the MCP master, which is attach-only by design (leg 07b). The step was corrected, and the half-on state was checked on the Tools tab in step 5 instead.
+- **Step 5:** no info buttons appear on `read_file`'s Overrides, because the Filesystem tools' override fields have no descriptions on the server. This is not from this flight.
+  - On Execution › `shell`, the toggletip worked press-only.
+  - In Goldfinch, opening and closing it took about 2 s. Measurement showed the time going to a browser main-thread stall of 0.8-1.8 s on every real press in that tab, outside the app's code. The app's handlers run in under 0.1 ms, and the bubble opens under 1 ms after the click.
+  - Plain Chromium (Playwright) opened and closed it in 16-35 ms, and the operator confirmed it was instant in Chrome. This is recorded as a Goldfinch issue, outside this flight.
+- **Step 8:** the self-configuration write was a proposal queued through an external grant labelled "hat-driver" (the `update_my_description` tool, approval mode on). The operator approved it while General had unsaved typing.
+  - The typed text was kept, with the stored-value note, and Save stayed enabled.
+  - Cancel showed the approved value and cleared the note.
+- **Step 11:** the operator skipped the side-by-side capture review and approved the set on the strength of the live walk-through.
+- **Step 12** (VoiceOver) was skipped by the operator. Item 11 stays an open manual check, and there is no Mac on hand.
 
 ## Edge Cases
 - **Step 8 needs a write the UI cannot make on its own.** The Flight Director makes it through the API against the dev instance, or with approval mode on, the operator approves a pending revision from the Self-configuration tab in a second window.
