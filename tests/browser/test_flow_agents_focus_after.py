@@ -80,3 +80,90 @@ def test_agent_save_never_steals_focus_the_user_moved(
     expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled(timeout=8000)
     page.wait_for_timeout(800)
     expect(page.locator('[data-testid="agents-filter"]')).to_be_focused()
+
+
+def _model_value(page: Page) -> str:
+    return page.locator("#studio-model").evaluate("el => el.value")
+
+
+def test_slow_model_list_after_a_save_leaves_the_form_clean(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """A same-identity Save re-fetches the model list; however late it lands, the
+    form it fills in must read clean (Save disabled, no unsaved caption) and the
+    select must show the stored model."""
+    _open_agent(app_with_agent, page)
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.locator('[data-field="description"]').fill("saved with a slow model list")
+    held: list = []
+    page.route("**/api/providers/*/models", lambda route: held.append(route))
+    _press(page, "save-agent-btn")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled(timeout=8000)
+    page.wait_for_timeout(500)
+    assert held, "the model list request was not held"
+    page.unroute("**/api/providers/*/models")
+    for route in held:
+        route.fallback()
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.wait_for_timeout(500)
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_be_hidden()
+
+
+def test_slow_model_list_on_first_open_leaves_the_form_clean(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    held: list = []
+    page.route("**/api/providers/*/models", lambda route: held.append(route))
+    _nav.goto(page, app_with_agent.base_url, f"agents/{_nav.seg(app_with_agent.agent_name)}")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_visible(timeout=8000)
+    page.wait_for_timeout(500)
+    assert held, "the model list request was not held"
+    page.unroute("**/api/providers/*/models")
+    for route in held:
+        route.fallback()
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.wait_for_timeout(500)
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_be_hidden()
+
+
+def test_slow_model_list_then_cancel_leaves_the_form_clean(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _open_agent(app_with_agent, page)
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.locator('[data-field="description"]').fill("to be cancelled")
+    held: list = []
+    page.route("**/api/providers/*/models", lambda route: held.append(route))
+    _press(page, "cancel-agent-btn")
+    expect(page.locator('[data-testid="cancel-agent-btn"]')).to_be_disabled(timeout=8000)
+    page.wait_for_timeout(500)
+    page.unroute("**/api/providers/*/models")
+    for route in held:
+        route.fallback()
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.wait_for_timeout(500)
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_be_hidden()
+
+
+def test_save_before_the_first_model_list_lands(app_with_agent: SeededApp, page: Page) -> None:
+    """Edit and Save while the first-open model list is still loading: the Save must
+    settle clean and keep the stored model."""
+    held: list = []
+    page.route("**/api/providers/*/models", lambda route: held.append(route))
+    _nav.goto(page, app_with_agent.base_url, f"agents/{_nav.seg(app_with_agent.agent_name)}")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_visible(timeout=8000)
+    page.locator('[data-field="description"]').fill("edited before the models landed")
+    page.wait_for_timeout(300)
+    assert held, "the model list request was not held"
+    _press(page, "save-agent-btn")
+    page.wait_for_timeout(800)
+    page.unroute("**/api/providers/*/models")
+    for route in held:
+        route.fallback()
+    expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    page.wait_for_timeout(800)
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_be_hidden()

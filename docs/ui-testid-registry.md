@@ -278,7 +278,7 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-row-text` | studio | the note's text paragraph (M27 F2 L3) |
 | `notes-row-time` | studio | the note's time ("Updated …" when edited) (M27 F2 L3) |
 | `notes-section` | studio | the Notes section of the Rules and notes tab (M27 F2 L3) |
-| `notes-status` | studio | the Notes section's visually hidden polite status line (delete arm, limit) (M27 F2 L3) |
+| `notes-status` | studio | the Notes section's visually hidden polite status line (the limit; the delete arm moved to `ui-confirm-live`) (M27 F2 L3, M31 F2 L5) |
 | `notes-usage` | studio | the "{used} of {total} characters" line (M27 F2 L3) |
 | `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
 | `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
@@ -353,7 +353,7 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-create-mode` | studio | create-mode notice "Save the agent first to add rules." (M27 F1 L2) |
 | `rules-empty` | studio | the Rules list's "No rules yet." empty state (M27 F1 L2) |
 | `rules-error` | studio | the Rules section's inline error area (`role=alert`, hidden when empty); shows a 422's `detail` (M27 F1 L2) |
-| `rules-status` | studio | the Rules section's visually hidden polite status line: announces the delete arm and crossing the per-rule limit (M27 F1 review) |
+| `rules-status` | studio | the Rules section's visually hidden polite status line: announces crossing the per-rule limit; the delete arm moved to `ui-confirm-live` (M27 F1 review, M31 F2 L5) |
 | `rules-list` | studio | the ordered rule list (`<ol>`) (M27 F1 L2) |
 | `rules-row` | studio | one rule row (`<li>`, `data-id`, `data-enabled`); `.rules-row--off` when disabled (M27 F1 L2) |
 | `rules-row-cancel` | studio | inline edit Cancel; restores the text (M27 F1 L2) |
@@ -371,12 +371,6 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `settings-nav` | admin | The Settings nav (`<nav aria-label="Settings">`, an `App.ui.navGroups` in the Settings column, reference spec section 8.1); its items are `settings-nav-{section}` links (M25 F3 L5a, DD6) |
 | `studio-knowledge-inventory` | studio | Knowledge-base detail view root (L1-D5, M24 F06 L01; retires the F5 placeholder testid). Since M25 F3 L4a it marks the detail view only: the grid is retired, and the create form at `#library/knowledge/~new` does not carry it |
-| `tab-general` | studio | |
-| `tab-knowledge` | studio | |
-| `tab-mcps` | studio | |
-| `tab-rules-and-notes` | studio | the agent editor's second tab (after General), label "Rules and notes" (or "Rules" if it cannot fit at 1024px), `data-tab-id="rules-and-notes"`, route `#agents/{name}/rules-and-notes` (M27 F1 L2) |
-| `tab-self-configuration` | studio | last (sixth) agent-editor tab (M21 F01 L02) |
-| `tab-tools` | studio | |
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |
 | `test-provider-result` | studio | |
@@ -386,6 +380,7 @@ caught — but it cannot see where the attribute is emitted.
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
 | `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
 | `trace-shell` | chat | |
+| `ui-confirm-live` | shared | M31 F2 L5 (squawk 0220) — the one shared polite live region `App.ui.confirm` appends to `document.body` on the first arm; announces arm, lapse and commit |
 
 ## Parametric prefix families
 
@@ -408,12 +403,11 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-source-subtitle-` | studio | |
 | `mcp-source-toggle-` | studio | |
 | `mcp-tool-toggle-` | studio | |
-| `mcp-tools-body-` | studio | |
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
-| `tab-` | admin | |
+| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items: the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)
 

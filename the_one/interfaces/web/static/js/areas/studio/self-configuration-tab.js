@@ -1283,22 +1283,13 @@
           });
         };
         if (window.App && window.App.confirmDelete) {
-          // The persistent aria-label ("Revoke external access …") overrides
-          // the button's visible text as its accessible name, so confirmDelete
-          // swapping the visible [data-confirm-title] text to "Confirm revoke?"
-          // is invisible to screen-reader users. Detect the arm (the first
-          // click, before the class is added) and announce the armed state via
-          // externalStatus (role=status), which the section already uses for
-          // every other action, so the armed state IS conveyed (WCAG 4.1.2).
-          var arming = !revokeBtn.classList.contains('confirm-delete');
+          // The persistent aria-label ("Revoke external access ...") is the
+          // announced subject: App.ui.confirm announces the arm, the lapse and
+          // the commit through its shared live region.
           window.App.confirmDelete(revokeBtn, commit, {
             titleSelector: '[data-confirm-title]',
             confirmLabel: 'Confirm revoke?'
           });
-          if (arming && revokeBtn.classList.contains('confirm-delete')) {
-            externalStatus.textContent = 'Confirm revoke of external access “' +
-              labelSnippet + '”? Activate Revoke again to confirm.';
-          }
         } else {
           commit();
         }

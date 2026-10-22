@@ -392,14 +392,11 @@
   .area-studio .mcp-attach-chip-list .chip-attached { background: var(--accent-fill); color: var(--fg-on-accent-fill); border-color: var(--accent-fill); }
   .area-studio .mcp-attach-chip-list .chip-attached:hover { opacity: 0.85; }
   .area-studio .mcp-attach-chip-list .chip-transport-badge { font-size: 10px; opacity: 0.7; }
-  .area-studio .mcp-empty-state { padding: 24px; text-align: center; color: var(--fg-secondary); }
-  .area-studio .mcp-empty-state a { color: var(--accent); text-decoration: underline; }
   .area-studio .mcp-editor-back-btn { margin-bottom: 12px; }
   .area-studio .mcp-attachment-editor { display: flex; flex-direction: column; gap: 12px; }
   .area-studio .mcp-editor-title { margin: 0; font-size: var(--font-size-body); }
   .area-studio .mcp-editor-section { margin-top: 12px; }
   .area-studio .mcp-editor-section h4 { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-  .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; }
 
   /* === Agent-editor MCPs tab — MCP source TILE ============================
      Each MCP source on the agent-editor MCPs tab renders as a tile echoing
@@ -413,23 +410,19 @@
     gap: 12px;
     padding: 12px 0;
   }
-  .area-studio .mcp-source-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    position: relative;
+  /* The tool rows of one source (inside App.ui.groupTile's body): the rows stack with
+     the same gap as the tile body (M31 F2 L07b). */
+  .area-studio .mcp-tool-group { display: flex; flex-direction: column; gap: 6px; }
+  .area-studio .mcp-tool-group[data-mcp-tool-group]:empty { display: none; }
+  /* The server's instructions hang off the subtitle as a tooltip (a help cursor and a
+     dotted underline say so), as the admin.css rule did for the old subtitle. */
+  .area-studio span.has-instructions {
+    cursor: help;
+    text-decoration: underline dotted var(--border, currentColor);
+    text-underline-offset: 3px;
   }
   /* Row 1 — toggle, name, protocol badge, Refresh. Refresh sits at the far
      right via `margin-left:auto`; everything else clusters left. */
-  .area-studio .mcp-source-tile-row1 {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
   .area-studio .mcp-source-tile-toggle {
     display: inline-flex;
     align-items: center;
@@ -443,80 +436,12 @@
        `.area-studio .tool-switch` rule already supplies the pill chrome.
        This selector exists for specificity nudges if needed. */
   }
-  .area-studio .mcp-source-tile-name {
-    font-size: var(--font-size-body-lg);
-    font-weight: var(--font-weight-bold);
-    color: var(--fg);
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .area-studio .mcp-source-tile-protocol {
-    flex-shrink: 0;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-semibold);
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: var(--surface-elevated);
-    color: var(--fg-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
   /* DOCUMENTED EXCEPTION to the DD6 button treatment (M25 F1 L3): the tile
      row is a compact header strip; the refresh button keeps its caption size
      and 4px/12px padding here (CSS-only; no JS markup change in this leg). */
-  .area-studio .mcp-source-tile-row1 .mcp-refresh-tools-btn {
-    margin-bottom: 0;
-    padding: 4px 12px;
-    font-size: var(--font-size-caption);
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .area-studio .mcp-source-tile-row1 .mcp-refresh-tools-btn svg {
-    width: 12px;
-    height: 12px;
-    display: block;
-  }
   /* Expand row — tool-count + chevron acting as a single clickable affordance
      to open/close the per-source tools panel. Reads as a meta line at rest,
      gains accent on hover. */
-  .area-studio .mcp-source-tile-expand-btn {
-    background: transparent;
-    border: 0;
-    padding: 4px 0;
-    color: var(--fg-secondary);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    text-align: left;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: color var(--motion-fast);
-  }
-  .area-studio .mcp-source-tile-expand-btn:hover { color: var(--accent); }
-  .area-studio .mcp-source-tile-expand-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 2px;
-  }
-  .area-studio .mcp-source-tile-tool-count strong { color: var(--fg); }
-  .area-studio .mcp-source-tile-chevron {
-    display: inline-block;
-    transition: transform var(--motion-fast);
-    color: var(--fg-tertiary);
-  }
-  .area-studio .mcp-source-tile[aria-expanded="true"] .mcp-source-tile-chevron {
-    transform: rotate(90deg);
-  }
-  .area-studio .mcp-source-tile-tools {
-    padding-top: 4px;
-  }
 
   /* === Agent-editor Tools tab — CATEGORY TILES =============================
      Built-in tool categories (Filesystem / Execution / Web / …) render as
@@ -665,32 +590,13 @@
     padding: 8px 12px 10px;
     border-top: 1px dashed var(--border);
   }
-  .area-studio .mcp-tools-body { margin-top: 4px; }
   /* MCP per-source tool list — each tool is a full-width tile (Mission 08
      F4 L2 vibe). Replaces the prior flat-row treatment. */
-  .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
-  .area-studio .mcp-tool-toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font-size: var(--font-size-body-sm);
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    transition: border-color var(--motion-fast), background var(--motion-fast);
-  }
-  .area-studio .mcp-tool-toggle-label:hover {
-    border-color: var(--accent);
-    background: var(--surface-elevated);
-  }
   /* Per-tool tile: single-line layout. Checkbox + tool-name (mono) + " — " +
      description (caption, secondary) on one line; overflow clipped with an
      ellipsis when the description exceeds the tile width (in addition to
      the 100-char JS-side truncation). The full description still lives on
      `title=` for hover discoverability. */
-  .area-studio .mcp-tool-toggle-label .checkbox-primary { flex-shrink: 0; }
   .area-studio .mcp-tool-text {
     flex: 1;
     min-width: 0;
@@ -712,10 +618,7 @@
     padding: 0;
     line-height: inherit;
   }
-  .area-studio .mcp-tool-toggle-hint { color: var(--fg-faint); font-size: 11px; }
   /* Per-tool checkbox treatment lifted to .checkbox-primary in components.css (Mission 08 F2 L2). */
-  .area-studio .mcp-auth-required-notice { padding: 12px; background: var(--surface-elevated); border-left: 3px solid var(--accent); border-radius: 4px; font-size: var(--font-size-body-sm); }
-  .area-studio .mcp-auth-required-notice a { color: var(--accent); text-decoration: underline; }
 
   /* === F9 L1: MCP source-editor — KV table polish ============================
      - thead hidden when the table has zero rows (empty state); revealed at
@@ -1400,24 +1303,12 @@
     border-bottom: 1px solid var(--border);
   }
   .area-studio .agent-knowledge-row:last-child { border-bottom: none; }
-  .area-studio .agent-knowledge-row-toggle {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-  }
-  .area-studio .agent-knowledge-row-name { font-weight: 500; }
   .area-studio .agent-knowledge-row-tool-name {
     margin-left: auto;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
   .area-studio .agent-knowledge-row-tool-name-placeholder { font-style: italic; }
-  .area-studio .agent-knowledge-load-error {
-    font-size: var(--font-size-body-sm);
-    color: var(--status-danger);
-    padding: 8px 0;
-  }
 
   /* === Studio Agent Editor: fresh-agent load failure (squawk 0090) === */
   /* Same treatment as the Knowledge tab's load-failure line above, one

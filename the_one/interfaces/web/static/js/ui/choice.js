@@ -94,30 +94,50 @@
     };
   };
 
-  // App.ui.toggle(opts) -> controller {el, control, setChecked(bool)}. On/off
-  // only (no indeterminate state).
+  // App.ui.toggle(opts) -> controller {el, control, setChecked(bool)} (plus
+  // setIndeterminate(bool) when tristate is set). On/off, or a mixed state too.
   //   label (required), labelHidden (label stays the accessible name but is
   //   visually hidden), id, name, checked, disabled, hint, info, dataset,
-  //   onChange(checked). Controller also has setDisabled(bool).
+  //   onChange(checked), tristate (M31 F2 L4), indeterminate (initial mixed
+  //   state, tristate only). Controller also has setDisabled(bool).
   //   el is div.ui-toggle > label.ui-toggle-label wrapping a visually hidden
   //   input[type=checkbox][role=switch].ui-toggle-input, a decorative
   //   span.ui-toggle-track (aria-hidden; the thumb is its ::after) and the
   //   text. The optional .field-hint is a sibling after the label.
   //   The test id option is placed on the native input (supplied by the caller).
+  //   tristate: role=switch is NOT set, so the control keeps native checkbox
+  //   semantics in every state (the mixed state is `indeterminate`, exposed as
+  //   checked=mixed); the mixed track is the accent wash with the accent thumb
+  //   at the halfway position. A user click on a mixed control resolves it to
+  //   checked (native behaviour) and calls onChange(true). setChecked and
+  //   setIndeterminate are silent (no onChange); setChecked clears the mixed
+  //   state. The consumer, never the control, changes any children.
   App.ui.toggle = function (opts) {
     var track = App.ui.util.el('span', { className: 'ui-toggle-track', 'aria-hidden': 'true' });
+    var tristate = !!(opts && opts.tristate);
     var built = build(opts, 'toggle', 'ui-toggle', 'ui-toggle-label', 'ui-toggle-input', {
       before: [track]
     });
-    built.input.setAttribute('role', 'switch');
-    return {
+    if (!tristate) {
+      built.input.setAttribute('role', 'switch');
+    } else if (opts.indeterminate) {
+      built.input.indeterminate = true;
+    }
+    var controller = {
       el: built.root,
       control: built.input,
       setDisabled: built.setDisabled,
       setChecked: function (value) {
         built.input.checked = !!value;
+        built.input.indeterminate = false;
       }
     };
+    if (tristate) {
+      controller.setIndeterminate = function (value) {
+        built.input.indeterminate = !!value;
+      };
+    }
+    return controller;
   };
 
   // App.ui.radioGroup(opts) -> controller {el, value(), setValue(v),

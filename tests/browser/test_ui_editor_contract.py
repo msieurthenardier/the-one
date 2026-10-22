@@ -424,3 +424,112 @@ def test_danger_zone_without_notice(engine_page: Page) -> None:
                    return [!!z.el.querySelector('.action-blocked-message'), z.el.children.length]; }"""
     )
     assert out == [False, 2]
+
+
+# ── dangerZone: actions (M31 F2 L4) ─────────────────────────────────────────
+
+MOUNT_ZONE_ACTIONS = """(extra) => {
+  window.__dz = [];
+  window.__zone = App.ui.dangerZone(Object.assign({
+    actions: [
+      {label: 'Delete agent', testid: 'del-agent', revertMs: 400, onConfirm: () => window.__dz.push('agent')},
+      {label: 'Clear history', testid: 'clear-hist', icon: 'refresh', confirmLabel: 'Really clear?', revertMs: 400,
+       beforeArm: (proceed) => { window.__dz.push('before'); if (window.__allow) proceed(); },
+       onConfirm: () => window.__dz.push('history')}
+    ],
+    notice: {testid: 'blocked'}
+  }, extra || {}));
+  document.getElementById('harness-root').appendChild(window.__zone.el);
+  return true;
+}"""
+
+
+def _mount_actions(page: Page, extra: str = "null") -> None:
+    load_harness(page)
+    page.evaluate(f"({MOUNT_ZONE_ACTIONS})({extra})")
+
+
+def test_danger_zone_actions_render_in_order_with_icons_and_notice_last(engine_page: Page) -> None:
+    _mount_actions(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const z = window.__zone;
+          return {kids: Array.from(z.el.children).map((k) => k.tagName + '.' + k.className),
+            tids: z.buttons.map((b) => b.getAttribute('data-testid')), first: z.button === z.buttons[0],
+            labels: z.buttons.map((b) => b.querySelector('[data-confirm-title]').textContent),
+            icons: z.buttons.map((b) => b.querySelector('svg').getBoundingClientRect().width),
+            api: Object.keys(z).sort()};
+        }"""
+    )
+    assert out["kids"] == [
+        "DIV.section-title danger-zone-title", "BUTTON.btn-muted-destructive delete-btn",
+        "BUTTON.btn-muted-destructive delete-btn", "DIV.action-blocked-message banner banner-error",
+    ]  # fmt: skip
+    assert out["tids"] == ["del-agent", "clear-hist"] and out["first"] is True
+    assert out["labels"] == ["Delete agent", "Clear history"] and out["icons"] == [16, 16]
+    assert out["api"] == ["button", "buttons", "el", "setDisabled", "setNotice"]
+
+
+def test_danger_zone_action_buttons_have_equal_height_and_gap(engine_page: Page) -> None:
+    _mount_actions(engine_page)
+    out = engine_page.evaluate(
+        """() => { const r = window.__zone.buttons.map((b) => b.getBoundingClientRect());
+          return {h: r.map((x) => x.height), gap: r[1].left - r[0].right, top: r.map((x) => x.top)}; }"""
+    )
+    assert len(set(out["h"])) == 1 and out["h"][0] > 0  # equal height
+    assert out["gap"] > 0  # side by side, not touching
+
+
+def test_danger_zone_actions_each_arm_and_commit_on_their_own(engine_page: Page) -> None:
+    _mount_actions(engine_page)
+    p = engine_page
+    p.get_by_test_id("del-agent").click()
+    expect(p.get_by_test_id("del-agent").locator("[data-confirm-title]")).to_have_text(
+        "Confirm delete?"
+    )
+    expect(p.get_by_test_id("clear-hist").locator("[data-confirm-title]")).to_have_text(
+        "Clear history"
+    )
+    p.get_by_test_id("del-agent").click()
+    assert p.evaluate("() => window.__dz") == ["agent"]
+
+
+def test_danger_zone_per_action_before_arm_gates_only_its_own_first_click(
+    engine_page: Page,
+) -> None:
+    _mount_actions(engine_page)
+    p = engine_page
+    hist = p.get_by_test_id("clear-hist")
+    hist.click()  # beforeArm runs and does not proceed: not armed
+    assert p.evaluate("() => window.__dz") == ["before"]
+    expect(hist.locator("[data-confirm-title]")).to_have_text("Clear history")
+    p.evaluate("window.__allow = true")
+    hist.click()
+    expect(hist.locator("[data-confirm-title]")).to_have_text("Really clear?")
+    hist.click()  # the second click commits without asking again
+    assert p.evaluate("() => window.__dz") == ["before", "before", "history"]
+    # The first action has no beforeArm: arming works with a single click.
+    p.get_by_test_id("del-agent").click()
+    expect(p.get_by_test_id("del-agent")).to_have_class(
+        "btn-muted-destructive delete-btn confirm-delete"
+    )
+
+
+def test_danger_zone_set_disabled_all_or_by_index(engine_page: Page) -> None:
+    _mount_actions(engine_page)
+    p = engine_page
+    p.evaluate("window.__zone.setDisabled(true, 1)")
+    assert p.evaluate("() => window.__zone.buttons.map((b) => b.disabled)") == [False, True]
+    p.evaluate("window.__zone.setDisabled(true)")
+    assert p.evaluate("() => window.__zone.buttons.map((b) => b.disabled)") == [True, True]
+    p.evaluate("window.__zone.setDisabled(false, 0)")
+    assert p.evaluate("() => window.__zone.buttons.map((b) => b.disabled)") == [False, True]
+    p.evaluate("window.__zone.setDisabled(false)")
+    assert p.evaluate("() => window.__zone.buttons.map((b) => b.disabled)") == [False, False]
+
+
+def test_danger_zone_singular_action_form_is_the_one_item_form(engine_page: Page) -> None:
+    _mount_danger(engine_page)
+    assert engine_page.evaluate(
+        "() => [window.__zone.buttons.length, window.__zone.buttons[0] === window.__zone.button]"
+    ) == [1, True]

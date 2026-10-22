@@ -365,8 +365,8 @@ def test_delete_is_armed_then_confirmed_and_arm_is_announced(
     assert btn.get_attribute("aria-label") == "Delete note 2"
     btn.click()
     expect(btn).to_have_class(re.compile("confirm-delete"))
-    expect(page.locator('[data-testid="notes-status"]')).to_contain_text(
-        "Press Delete again to confirm"
+    expect(page.locator('[data-testid="ui-confirm-live"]')).to_have_text(
+        "Press Delete note 2 again to confirm delete."
     )
     assert len(_stored(base, agent)["notes"]) == 2  # armed only
     btn.click()

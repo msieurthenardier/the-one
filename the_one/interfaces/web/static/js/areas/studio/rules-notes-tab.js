@@ -198,8 +198,8 @@
     return { label: label, input: input, foot: foot, save: save, cancel: cancel, count: count };
   }
 
-  // A delete button that arms, then confirms, through App.confirmDelete, with
-  // the arm announced (its persistent aria-label overrides the swapped text).
+  // A delete button that arms, then confirms, through App.confirmDelete (the
+  // library announces the arm from the button's aria-label).
   function buildDeleteButton(cfg) {
     var del = App.ui.button({
       variant: 'danger',
@@ -209,9 +209,7 @@
     });
     del.appendChild(el('span', null, 'Delete')).setAttribute('data-confirm-title', '');
     del.addEventListener('click', function () {
-      cfg.announce('');
       window.App.confirmDelete(del, function (btn, revert) { cfg.onConfirm(revert); });
-      if (del.classList.contains('confirm-delete')) cfg.announce(cfg.armMessage);
     });
     return del;
   }
@@ -236,9 +234,8 @@
     errorEl.hidden = true;
     section.appendChild(errorEl);
 
-    // Polite, visually hidden status line: announces the delete arm (the delete
-    // button's persistent aria-label overrides the swapped "Confirm delete?"
-    // text, as in self-configuration-tab.js) and crossing the per-rule limit.
+    // Polite, visually hidden status line: announces crossing the per-rule limit
+    // (the delete arm is announced by App.ui.confirm).
     var liveEl = el('p', 'visually-hidden');
     liveEl.setAttribute('data-testid', 'rules-status');
     liveEl.setAttribute('role', 'status');
@@ -415,8 +412,6 @@
       });
       var del = buildDeleteButton({
         ariaLabel: 'Delete ' + label.toLowerCase(),
-        announce: announce,
-        armMessage: 'Press Delete again to confirm deleting ' + label.toLowerCase() + '.',
         onConfirm: function (revert) {
           var neighbour = rules[index + 1] || rules[index - 1] || null;
           mutate(function () {
@@ -770,8 +765,6 @@
       edit.setAttribute('data-note-id', note.id);
       var del = buildDeleteButton({
         ariaLabel: 'Delete ' + label,
-        announce: announce,
-        armMessage: 'Press Delete again to confirm deleting ' + label + '.',
         onConfirm: function (revert) {
           var idx = notes.indexOf(note);
           var neighbour = notes[idx + 1] || notes[idx - 1] || null;

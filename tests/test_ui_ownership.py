@@ -49,6 +49,7 @@ RETIRED_APIS = {
     "api:App.showFlash(": re.compile(r"(?<![\w$.])(?:window\.)?App\.showFlash\("),
     "api:App.confirmDelete(": re.compile(r"(?<![\w$.])(?:window\.)?App\.confirmDelete\("),
     "api:App.consentLink.": re.compile(r"(?<![\w$.])(?:window\.)?App\.consentLink\."),
+    "api:App.tabs(": re.compile(r"(?<![\w$.])(?:window\.)?App\.tabs\("),
 }
 
 # ── Tokenizer ───────────────────────────────────────────────────────────────
@@ -372,6 +373,7 @@ def test_retired_api_calls_count_in_code_only() -> None:
         "// App.icon('x')\nvar a = 'App.icon(';\n"
         "var b = window.App.icon('x') + App.icon('y') + App.iconNode('z');\n"
         "App.confirmDelete(row, fn); App.consentLink.create(); App.ui.icon('x');\n"
+        "var h = window.App.tabs(a, b) + App.tabs(c, d); App.ui.tabs({}); // App.tabs(e)\n"
     )
     counts = count_retired_api(scan_js(js).code)
     assert counts == {
@@ -379,4 +381,5 @@ def test_retired_api_calls_count_in_code_only() -> None:
         "api:App.iconNode(": 1,
         "api:App.confirmDelete(": 1,
         "api:App.consentLink.": 1,
+        "api:App.tabs(": 2,
     }

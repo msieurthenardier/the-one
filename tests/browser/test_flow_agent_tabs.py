@@ -14,11 +14,12 @@ Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 - Knowledge tab renders the real attach surface (M24 F06 L03)
 - Advanced collapsible: visible, disabled inputs, "Coming soon" caption
 - Test button: disabled when no provider; click triggers fetch and renders
-  the result in the .test-result span
+  the result in the status line (data-state)
 """
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 
 import pytest
@@ -272,7 +273,7 @@ def test_knowledge_tab_renders_attach_surface(app_with_agent: SeededApp, page: P
 
 @pytest.mark.browser
 def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> None:
-    """Test button click triggers fetch; result renders in .test-result span.
+    """Test button click triggers fetch; the result renders in the status line.
 
     The seeded mock provider's /test endpoint returns ok with a deterministic
     detail message — exercises the success path. The button is also enabled
@@ -289,11 +290,10 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
     test_btn.click()
 
     result = page.locator('[data-testid="test-provider-result"]')
-    # Wait for the test to resolve — either ok or fail; both render text.
-    expect(result).not_to_have_text("Testing…", timeout=8000)
-    # Should carry the .test-result-ok or .test-result-fail modifier.
-    cls = result.get_attribute("class") or ""
-    assert "test-result-ok" in cls or "test-result-fail" in cls
+    # Wait for the test to resolve: the status line leaves "pending" and lands on
+    # success or danger (library App.ui.status states); both render text.
+    expect(result).to_have_attribute("data-state", re.compile(r"^(success|danger)$"), timeout=8000)
+    expect(result).not_to_have_text("Testing…")
 
 
 @pytest.mark.browser

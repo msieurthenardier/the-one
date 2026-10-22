@@ -31,13 +31,13 @@ def test_info_button_dom_and_name(engine_page: Page) -> None:
           document.getElementById('harness-root').appendChild(i.el);
           const d = document.getElementById(i.descriptionId);
           return {wrap: i.el.tagName + '.' + i.el.className, btn: i.button.className, type: i.button.type,
-                  title: i.button.title, aria: i.button.getAttribute('aria-label'),
+                  title: i.button.getAttribute('title') === null ? '' : 'has-title', aria: i.button.getAttribute('aria-label'),
                   tid: i.button.getAttribute('data-testid'), desc: d.textContent, descCls: d.className,
                   svg: i.button.querySelectorAll('svg.ui-icon.ui-icon--sm').length, parent: d.parentNode === i.el};
         }""",
     )
     assert out == {
-        "wrap": "SPAN.ui-info", "btn": "field-info-icon", "type": "button", "title": DESC,
+        "wrap": "SPAN.ui-info", "btn": "field-info-icon", "type": "button", "title": "",
         "aria": "More information about Context Window", "tid": "info-1", "desc": DESC, "descCls": "visually-hidden", "svg": 1,
         "parent": True,
     }  # fmt: skip
@@ -184,3 +184,215 @@ def test_choice_name_and_set_disabled(engine_page: Page) -> None:
         "name": "tg", "before": [False, False], "during": [True, True, True, True],
         "after": [False, False, False, False],
     }  # fmt: skip
+
+
+# ── M31 F2 L5 (squawk 0221): the press-only toggletip ─────────────────────
+
+MOUNT_TIP = """() => {
+  const root = document.getElementById('harness-root');
+  const a = App.ui.infoButton({description: 'A larger window allows longer chats', label: 'Context Window', testid: 'tip-a'});
+  const b = App.ui.infoButton({description: 'Second description', label: 'Other', testid: 'tip-b'});
+  const out = document.createElement('button'); out.id = 'outside'; out.textContent = 'outside';
+  root.appendChild(a.el); root.appendChild(b.el); root.appendChild(out);
+  window.__a = a; window.__b = b;
+}"""
+
+
+def _bubble(page: Page, testid: str):
+    return page.locator(
+        f"#{page.locator(f'[data-testid={testid}]').get_attribute('aria-controls')}"
+    )
+
+
+def test_toggletip_press_opens_announces_and_has_role_structure(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    btn = page.locator("[data-testid=tip-a]")
+    assert btn.get_attribute("title") is None
+    expect(btn).to_have_attribute("aria-expanded", "false")
+    bubble = _bubble(page, "tip-a")
+    expect(bubble).to_be_hidden()
+    assert bubble.get_attribute("class") == "ui-info-bubble"
+    btn.click()
+    expect(btn).to_have_attribute("aria-expanded", "true")
+    expect(bubble).to_be_visible()
+    # Announced once: the bubble's own live region carries the text.
+    live = bubble.locator("[role=status][aria-live=polite]")
+    expect(live).to_have_text(DESC)
+    # The button controls the bubble, the bubble sits inside span.ui-info.
+    assert page.evaluate(
+        "() => window.__a.el.contains(document.getElementById(window.__a.button.getAttribute('aria-controls')))"
+    )
+    # The hidden description is still there for aria-describedby.
+    assert (
+        page.evaluate("() => document.getElementById(window.__a.descriptionId).textContent") == DESC
+    )
+    # Anchored below the button without shifting layout.
+    box = btn.bounding_box()
+    bbox = bubble.bounding_box()
+    assert bbox["y"] >= box["y"] + box["height"] - 1
+    assert bbox["width"] <= 281
+
+
+def test_toggletip_keyboard_toggle_and_escape_keep_focus(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    btn = page.locator("[data-testid=tip-a]")
+    bubble = _bubble(page, "tip-a")
+    btn.focus()
+    page.keyboard.press("Enter")
+    expect(bubble).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(bubble).to_be_hidden()
+    expect(btn).to_have_attribute("aria-expanded", "false")
+    assert page.evaluate("() => document.activeElement === window.__a.button")
+    page.keyboard.press("Space")
+    expect(bubble).to_be_visible()
+    page.keyboard.press("Space")
+    expect(bubble).to_be_hidden()
+    assert page.evaluate("() => document.activeElement === window.__a.button")
+
+
+def test_toggletip_outside_press_closes_and_no_listener_remains(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    page.evaluate(
+        """() => {
+          window.__adds = []; window.__removes = [];
+          const add = document.addEventListener.bind(document);
+          const rem = document.removeEventListener.bind(document);
+          document.addEventListener = (t, h, c) => { window.__adds.push(t); return add(t, h, c); };
+          document.removeEventListener = (t, h, c) => { window.__removes.push(t); return rem(t, h, c); };
+        }"""
+    )
+    btn = page.locator("[data-testid=tip-a]")
+    bubble = _bubble(page, "tip-a")
+    btn.click()
+    expect(bubble).to_be_visible()
+    page.locator("#outside").click()
+    expect(bubble).to_be_hidden()
+    assert page.evaluate("() => window.__adds.slice().sort().join()") == "keydown,pointerdown"
+    assert page.evaluate("() => window.__removes.slice().sort().join()") == "keydown,pointerdown"
+    # After close an outside press and Escape do nothing (and re-add nothing).
+    page.locator("#outside").click()
+    page.keyboard.press("Escape")
+    assert page.evaluate("() => window.__adds.length") == 2
+    # Press the button again to close, then destroy while open removes the listeners.
+    btn.click()
+    btn.click()
+    expect(bubble).to_be_hidden()
+    btn.click()
+    page.evaluate("() => window.__a.destroy()")
+    expect(bubble).to_be_hidden()
+    assert page.evaluate("() => window.__adds.length") == page.evaluate(
+        "() => window.__removes.length"
+    )
+
+
+def test_toggletip_only_one_open_at_a_time(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    page.locator("[data-testid=tip-a]").click()
+    expect(_bubble(page, "tip-a")).to_be_visible()
+    page.locator("[data-testid=tip-b]").click()
+    expect(_bubble(page, "tip-b")).to_be_visible()
+    expect(_bubble(page, "tip-a")).to_be_hidden()
+    expect(page.locator("[data-testid=tip-a]")).to_have_attribute("aria-expanded", "false")
+
+
+def test_toggletip_tab_order_is_unchanged(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    page.locator("[data-testid=tip-a]").click()
+    # Open or closed, Tab goes from the button straight to the next button.
+    page.locator("[data-testid=tip-a]").focus()
+    page.keyboard.press("Tab")
+    assert page.evaluate("() => document.activeElement === window.__b.button")
+    # Focus left the first wrapper: its bubble closed.
+    expect(_bubble(page, "tip-a")).to_be_hidden()
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("() => document.activeElement === window.__a.button")
+    assert (
+        page.evaluate(
+            "() => document.querySelectorAll('.ui-info-bubble button, .ui-info-bubble a, .ui-info-bubble [tabindex]').length"
+        )
+        == 0
+    )
+
+
+def test_toggletip_in_a_modal_escape_closes_only_the_bubble(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate(
+        """() => {
+          window.__closed = [];
+          const i = App.ui.infoButton({description: 'Modal help', label: 'Thing', testid: 'tip-m'});
+          const opener = document.createElement('button'); opener.textContent = 'o';
+          document.getElementById('harness-root').appendChild(opener);
+          const m = App.ui.modal({title: 'Sample', body: i.el, testid: 'm-dialog', cancelValue: 'cancelled',
+            actions: [{label: 'Go', variant: 'primary', value: 'go', testid: 'm-go'}],
+            onClose: (v) => window.__closed.push(v)});
+          m.open(opener);
+        }"""
+    )
+    btn = page.locator("[data-testid=tip-m]")
+    btn.click()
+    bubble = _bubble(page, "tip-m")
+    expect(bubble).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(bubble).to_be_hidden()
+    expect(page.locator("[data-testid=m-dialog]")).to_be_visible()
+    assert page.evaluate("() => window.__closed.length") == 0
+    page.keyboard.press("Escape")
+    expect(page.locator("[data-testid=m-dialog]")).to_have_count(0)
+    assert page.evaluate("() => window.__closed") == ["cancelled"]
+
+
+def test_toggletip_inside_summary_does_not_toggle_details(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const d = document.createElement('details'); d.id = 'dt';
+          const s = document.createElement('summary'); s.appendChild(document.createTextNode('Overrides '));
+          s.appendChild(App.ui.infoButton({description: 'Inside summary', label: 'Row', testid: 'tip-s'}).el);
+          d.appendChild(s); d.appendChild(document.createTextNode('panel'));
+          root.appendChild(d);
+        }"""
+    )
+    page.locator("[data-testid=tip-s]").click()
+    expect(_bubble(page, "tip-s")).to_be_visible()
+    assert page.evaluate("() => document.getElementById('dt').open") is False
+
+
+def test_toggletip_bubble_styling_uses_tokens(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page, MOUNT_TIP)
+    page.locator("[data-testid=tip-a]").click()
+    got = _bubble(page, "tip-a").evaluate(
+        """e => { const cs = getComputedStyle(e); const probe = document.createElement('div');
+          probe.style.background = 'var(--surface-elevated)'; document.getElementById('harness-root').appendChild(probe);
+          const bg = getComputedStyle(probe).backgroundColor; probe.remove();
+          return {bg: cs.backgroundColor === bg, pos: cs.position, bw: cs.borderTopWidth, sh: cs.boxShadow !== 'none'}; }"""
+    )
+    assert got == {"bg": True, "pos": "absolute", "bw": "1px", "sh": True}
+
+
+def test_toggletip_flips_above_near_the_viewport_bottom(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const pad = document.createElement('div'); pad.style.height = (window.innerHeight - 40) + 'px';
+          root.appendChild(pad);
+          root.appendChild(App.ui.infoButton({description: 'A long description that wraps onto several lines in the bubble so it cannot fit below the button here', label: 'Low', testid: 'tip-low'}).el);
+        }"""
+    )
+    page.locator("[data-testid=tip-low]").click()
+    bubble = _bubble(page, "tip-low")
+    expect(bubble).to_be_visible()
+    box = bubble.bounding_box()
+    vh = page.evaluate("() => window.innerHeight")
+    assert box["y"] + box["height"] <= vh + 1

@@ -79,7 +79,10 @@ def test_provider_info_icons_have_accessible_names(app_clean: str, page: Page) -
     assert icons.count() >= 1
     for i in range(icons.count()):
         assert (icons.nth(i).get_attribute("aria-label") or "").strip(), i
-        assert icons.nth(i).get_attribute("title")
+        # Press-only toggletip (squawk 0221): no hover title; it controls a bubble.
+        assert icons.nth(i).get_attribute("title") is None, i
+        assert icons.nth(i).get_attribute("aria-expanded") == "false", i
+        assert icons.nth(i).get_attribute("aria-controls"), i
         # Named once: the label carries the hint, so no second description.
         assert icons.nth(i).get_attribute("aria-describedby") is None, i
 

@@ -1,30 +1,40 @@
-// App.studio.renderGeneralTab — agent-editor General tab content (F5 leg 03).
+// App.studio.renderGeneralTab -- the agent editor's General tab (M31 F2 L06b).
 //
-// Carries the existing form fields (name [create-only], description,
-// system_prompt, provider_config_id, llm_model, max_iterations) using the
-// M17 F3 stacked .field-group (label ABOVE the control) + .field-input /
-// .field-textarea / .field-select vocabulary. Migrated from the legacy
-// label-left .field-row (100px gutter) in F5 leg 01; each field-group's
-// label carries `for` matched to its control `id` for label association.
-// Includes the Ollama VRAM warning placeholder + a Test button that POSTs
-// to /api/providers/{id}/test (handler in studio.js — this module just
-// wires the click) + an Advanced collapsible section with disabled
-// temperature/top_p/max_tokens stubs.
+// Built once per editor identity from library controls (App.ui.section, field,
+// textInput, textarea, select, button, status, dangerZone) into `panel`, and
+// returned as a handle:
 //
-// All existing data-field, id, and selector hooks preserved so
-// collectFormData() and the VRAM warning logic continue to work without
-// modification regardless of which tab is mounted.
+//   { providerSelect, modelSelect, testButton, setAgent(agent, providers),
+//     setTestResult(state, text), clearTestResult() }
+//
+// setAgent patches every value in place (name, description, provider options, the
+// model select back to its placeholder, the capability line and the VRAM warning
+// cleared, the prompt and the two numbers, Test's disabled state and result). The
+// controller re-wires the picker after it, which refetches the model list with
+// dataset.pendingValue set to the stored model (App.studio.agentModelPicker).
+//
+// The field ids (studio-name ... studio-max-iterations), data-field attributes and
+// field classes are the contract collectFormData and the browser tests read.
+// Each control's own onInput/onChange calls callbacks.onChange (the editor's dirty
+// check) directly: the picker's listener sweep does not see these controls.
+//
+// callbacks: { onChange, onTestProvider, onDelete(revert), onPurge(revert) }.
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  function renderGeneralTab(panel, agent, providers, callbacks) {
-    callbacks = callbacks || {};
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-    var isCreate = !agent;
-    var cfg = agent || {
+  function option(value, label, flags) {
+    var o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    if (flags && flags.disabled) o.disabled = true;
+    if (flags && flags.selected) o.selected = true;
+    return o;
+  }
+
+  function defaults(providers) {
+    return {
       name: '',
       description: '',
       provider_config_id: providers && providers.length > 0 ? providers[0].id : null,
@@ -33,143 +43,247 @@
       max_iterations: 20,
       chat_history_retention_days: 30
     };
+  }
 
-    var html = '';
+  function renderGeneralTab(panel, agent, providers, callbacks) {
+    callbacks = callbacks || {};
+    var ui = window.App.ui;
+    var isCreate = !agent;
+    var cfg = agent || defaults(providers);
 
-    // Identity — Name is rendered for BOTH create and edit modes (F4 L02
-    // functional batch added rename support). The save path (studio.js)
-    // detects a name change for existing agents and POSTs to the
-    // /api/agents/{name}/rename endpoint before the regular PUT save.
-    html += '<div class="editor-section"><div class="section-title">Identity</div>';
-    html += '<div class="field-group"><label for="studio-name">Name</label>' +
-      '<input id="studio-name" class="field-input" data-field="name" value="' +
-      escapeAttr(cfg.name || '') + '" placeholder="agent-name" />' +
-      '</div>';
-    html += '<div class="field-group"><label for="studio-description">Description</label>' +
-      '<input id="studio-description" class="field-input" data-field="description" value="' + escapeAttr(cfg.description || '') + '" placeholder="What does this agent do?" />' +
-      '</div>';
-    html += '</div>';
-
-    // LLM Configuration
-    html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
-
-    // Provider dropdown
-    html += '<div class="field-group"><label for="studio-provider">Provider</label>';
-    html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
-    if (!cfg.provider_config_id) {
-      html += '<option value="" disabled selected>No provider — add one in Library</option>';
+    function dirty() { if (callbacks.onChange) callbacks.onChange(); }
+    // The picker's sweep skips a control that already carries its own listeners.
+    function own(control) {
+      control._dirtyWired = true;
+      control.addEventListener('change', dirty);
+      return control;
     }
-    var providerFound = false;
-    for (var p = 0; p < providers.length; p++) {
-      var prov = providers[p];
-      var provSelected = cfg.provider_config_id === prov.id ? ' selected' : '';
-      if (cfg.provider_config_id === prov.id) providerFound = true;
-      html += '<option value="' + escapeAttr(prov.id) + '"' + provSelected + '>' +
-        escapeHtml(prov.name) + ' (' + escapeHtml(prov.type) + ')</option>';
+
+    // ── Identity ────────────────────────────────────────────────────
+    // Name is rendered for BOTH create and edit (rename: the save path POSTs
+    // /api/agents/{name}/rename before the regular PUT).
+    var nameInput = own(ui.textInput({
+      id: 'studio-name',
+      value: cfg.name || '',
+      placeholder: 'agent-name',
+      dataset: { field: 'name' },
+      onInput: dirty
+    }));
+    var descriptionInput = own(ui.textInput({
+      id: 'studio-description',
+      value: cfg.description || '',
+      placeholder: 'What does this agent do?',
+      dataset: { field: 'description' },
+      onInput: dirty
+    }));
+    var identity = ui.section({
+      title: 'Identity',
+      children: [
+        ui.field({ label: 'Name', control: nameInput }).el,
+        ui.field({ label: 'Description', control: descriptionInput }).el
+      ]
+    });
+
+    // ── LLM Configuration ───────────────────────────────────────────
+    var providerSelect = own(ui.select({
+      id: 'studio-provider',
+      options: [{ value: '', label: 'placeholder' }],
+      dataset: { field: 'provider_config_id' }
+    }));
+    // Native <select> for every provider type: free type-ahead, and it scales to
+    // OpenRouter's ~370 models (a datalist variant trapped operators with a stale
+    // selection).
+    var modelSelect = own(ui.select({
+      id: 'studio-model',
+      options: [{ value: '', label: 'Select a provider first', disabled: true }],
+      dataset: { field: 'llm_model' }
+    }));
+    var loadingEl = document.createElement('span');
+    loadingEl.className = 'model-loading';
+    loadingEl.setAttribute('aria-live', 'polite');
+    var modelWrap = document.createElement('div');
+    modelWrap.className = 'field-model-wrap';
+    modelWrap.appendChild(modelSelect);
+    modelWrap.appendChild(loadingEl);
+
+    // Ollama models surface their /api/show capabilities here.
+    var capsEl = document.createElement('div');
+    capsEl.className = 'model-capabilities';
+    capsEl.setAttribute('data-testid', 'model-capabilities');
+    capsEl.setAttribute('role', 'status');
+    capsEl.setAttribute('aria-live', 'polite');
+
+    var vramEl = document.createElement('div');
+    vramEl.className = 'studio-vram-warning';
+    vramEl.setAttribute('role', 'status');
+    vramEl.setAttribute('aria-live', 'polite');
+
+    // Test: next to the provider fields. Its disabled state follows the LIVE
+    // provider select (the picker's recomputeTestDisabled), so an unsaved provider
+    // change can be tested before saving.
+    var testButton = ui.button({
+      variant: 'secondary',
+      icon: 'play',
+      label: 'Test',
+      testid: 'test-provider-btn',
+      onClick: function () { if (callbacks.onTestProvider) callbacks.onTestProvider(); }
+    });
+    testButton.title = 'Tests provider connectivity. Does not validate the agent’s full config.';
+    var testStatus = ui.status({ testid: 'test-provider-result' });
+    testStatus.el.hidden = true;
+    var testRow = document.createElement('div');
+    testRow.className = 'test-provider-row';
+    testRow.appendChild(testButton);
+    testRow.appendChild(testStatus.el);
+
+    var llm = ui.section({
+      title: 'LLM Configuration',
+      children: [
+        ui.field({ label: 'Provider', control: providerSelect }).el,
+        ui.field({ label: 'Model', control: modelSelect, host: modelWrap }).el,
+        capsEl,
+        vramEl,
+        testRow
+      ]
+    });
+
+    // ── System Prompt ───────────────────────────────────────────────
+    // The section title is the visible heading; the field's label is visually
+    // hidden (the programmatic association, WCAG 1.3.1/4.1.2).
+    var promptInput = own(ui.textarea({
+      id: 'studio-system-prompt',
+      rows: 8,
+      value: cfg.system_prompt || '',
+      placeholder: 'Instructions for the agent...',
+      dataset: { field: 'system_prompt' },
+      onInput: dirty
+    }));
+    var promptSection = ui.section({
+      title: 'System Prompt',
+      children: [ui.field({ label: 'System Prompt', labelHidden: true, control: promptInput }).el]
+    });
+
+    // ── Behavior ────────────────────────────────────────────────────
+    function numberInput(id, field, value, min, max) {
+      var input = own(ui.textInput({
+        id: id,
+        type: 'number',
+        value: value,
+        dataset: { field: field },
+        onInput: dirty
+      }));
+      input.min = String(min);
+      input.max = String(max);
+      input.classList.add('field-input-short');
+      return input;
     }
-    if (cfg.provider_config_id && !providerFound) {
-      html += '<option value="' + escapeAttr(cfg.provider_config_id) + '" selected>Unknown provider (' + escapeAttr(cfg.provider_config_id) + ')</option>';
-    }
-    html += '</select></div>';
+    var retentionInput = numberInput('studio-retention-days', 'chat_history_retention_days',
+      cfg.chat_history_retention_days || 30, 1, 365);
+    var iterationsInput = numberInput('studio-max-iterations', 'max_iterations',
+      cfg.max_iterations || 20, 1, 100);
+    var behavior = ui.section({
+      title: 'Behavior',
+      children: [
+        ui.field({ label: 'Chat History Retention (days)', control: retentionInput }).el,
+        ui.field({ label: 'Max Iterations', control: iterationsInput }).el
+      ]
+    });
 
-    // Model picker — native <select> for all provider types. Browsers
-    // provide free type-ahead jump (start typing letters to jump to a
-    // matching option), which scales acceptably even for OpenRouter's
-    // ~370 models. A prior datalist+input variant was tried but its
-    // value-driven filter trapped operators with a stale selection (the
-    // dropdown showed only the previously-picked match).
-    html += '<div class="field-group"><label for="studio-model">Model</label>';
-    html += '<div class="field-model-wrap">';
-    html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
-    html += '<option value="" disabled selected>Select a provider first</option>';
-    html += '</select>';
-    html += '<span class="model-loading" aria-live="polite"></span>';
-    html += '</div></div>';
+    panel.appendChild(identity.el);
+    panel.appendChild(llm.el);
+    panel.appendChild(promptSection.el);
+    panel.appendChild(behavior.el);
 
-    // Capability panel — Ollama models surface their /api/show capabilities
-    // here so operators see at a glance whether the selected model supports
-    // tools (and get a load-bearing warning when it doesn't).
-    html += '<div class="model-capabilities" data-testid="model-capabilities" role="status" aria-live="polite"></div>';
-
-    // VRAM warning placeholder (ollama only) — preserved verbatim so
-    // checkVramForModel logic in studio.js continues to find this element.
-    html += '<div class="studio-vram-warning" role="status" aria-live="polite"></div>';
-
-    // Test button — disabled state computed from the LIVE provider-select
-    // value (NOT cfg.provider_config_id), so an unsaved provider change
-    // can be tested before save. Click handler delegates to studio.js
-    // (callbacks.onTestProvider) to keep network logic + flash messaging
-    // co-located with the rest of studio's transport code.
-    var testDisabled = !cfg.provider_config_id ? ' disabled' : '';
-    html += '<div class="test-provider-row">';
-    html += '<button type="button" class="btn-outlined-primary test-provider-btn" ' +
-      'data-testid="test-provider-btn"' + testDisabled +
-      ' title="Tests provider connectivity. Does not validate the agent’s full config.">' +
-      window.App.icon('play') + ' Test</button>';
-    html += '<span class="test-result" aria-live="polite" data-testid="test-provider-result"></span>';
-    html += '</div>';
-
-    html += '</div>'; // .editor-section LLM
-
-    // System Prompt — the visible section-title gives the human-readable
-    // heading; the visually-hidden <label for> supplies the programmatic
-    // label association (WCAG 1.3.1/4.1.2) without a duplicate VISIBLE label.
-    // Uses the project's `.visually-hidden` global utility (NOT `sr-only`,
-    // which does not exist in this codebase).
-    html += '<div class="editor-section"><div class="section-title">System Prompt</div>';
-    html += '<label for="studio-system-prompt" class="visually-hidden">System Prompt</label>';
-    html += '<textarea id="studio-system-prompt" class="field-textarea" data-field="system_prompt" rows="8" placeholder="Instructions for the agent...">' +
-      escapeHtml(cfg.system_prompt || '') + '</textarea>';
-    html += '</div>';
-
-    // Behavior — max_iterations stays here (real AgentConfig storage).
-    html += '<div class="editor-section"><div class="section-title">Behavior</div>';
-    html += '<div class="field-group"><label for="studio-retention-days">Chat History Retention (days)</label>' +
-      '<input id="studio-retention-days" class="field-input field-input-short" ' +
-      'data-field="chat_history_retention_days" type="number" value="' +
-      (cfg.chat_history_retention_days || 30) + '" min="1" max="365" /></div>';
-    html += '<div class="field-group"><label for="studio-max-iterations">Max Iterations</label>' +
-      '<input id="studio-max-iterations" class="field-input field-input-short" data-field="max_iterations" type="number" value="' +
-      (cfg.max_iterations || 20) + '" min="1" max="100" /></div>';
-    html += '</div>';
-
-// Danger Zone (existing agents only). The Delete button uses
-    // App.confirmDelete (F6 leg 04 migration): first click arms
-    // `.delete-btn.confirm-delete` with capital-D "Confirm Delete?" via the
-    // helper's confirmLabel option; second click within 3s fires DELETE.
+    // ── Danger zone (existing agents only) ──────────────────────────
+    // Both actions arm through the library (App.ui.confirm) and commit through
+    // the controller's callbacks. They read the stored name from the controller,
+    // not the button.
+    var danger = null;
     if (!isCreate) {
-      html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      html += '<button type="button" class="btn-muted-destructive delete-btn" ' +
-        'data-testid="delete-agent-btn" data-name="' + escapeAttr(cfg.name || '') + '">' +
-        '<span data-confirm-title>Delete Agent</span></button>';
-      // Carries `delete-btn` in ADDITION to `purge-history-btn` so it inherits
-      // the shared destructive armed-state styling (`.delete-btn.confirm-delete`
-      // → red, components.css:1000) — NOT because it deletes the agent. Distinct
-      // visible text + data-testid keep it unmistakable from Delete Agent.
-      // Delete Agent is emitted FIRST so the existing
-      // `panel.querySelector('.delete-btn')` still resolves to it; purge wiring
-      // keys on the unique `.purge-history-btn` selector.
-      html += '<button type="button" class="btn-muted-destructive delete-btn purge-history-btn" ' +
-        'data-testid="purge-history-btn" data-name="' + escapeAttr(cfg.name || '') + '">' +
-        '<span data-confirm-title>Purge now</span></button>';
-      html += '</div>';
+      danger = ui.dangerZone({
+        actions: [
+          {
+            label: 'Delete Agent',
+            testid: 'delete-agent-btn',
+            confirmLabel: 'Confirm delete?',
+            dataset: { name: cfg.name || '' },
+            onConfirm: function (revert) { if (callbacks.onDelete) callbacks.onDelete(revert); }
+          },
+          {
+            label: 'Purge now',
+            testid: 'purge-history-btn',
+            confirmLabel: 'Confirm purge?',
+            dataset: { name: cfg.name || '' },
+            onConfirm: function (revert) { if (callbacks.onPurge) callbacks.onPurge(revert); }
+          }
+        ]
+      });
+      panel.appendChild(danger.el);
     }
 
-    panel.innerHTML = html;
+    // ── Patching ────────────────────────────────────────────────────
+    function fillProviders(c, provs) {
+      var nodes = [];
+      var found = false;
+      if (!c.provider_config_id) {
+        nodes.push(option('', 'No provider — add one in Library', { disabled: true, selected: true }));
+      }
+      for (var p = 0; p < provs.length; p++) {
+        var prov = provs[p];
+        var isSel = c.provider_config_id === prov.id;
+        if (isSel) found = true;
+        nodes.push(option(prov.id, prov.name + ' (' + prov.type + ')', { selected: isSel }));
+      }
+      if (c.provider_config_id && !found) {
+        nodes.push(option(c.provider_config_id, 'Unknown provider (' + c.provider_config_id + ')',
+          { selected: true }));
+      }
+      providerSelect.replaceChildren.apply(providerSelect, nodes);
+    }
 
-    var testBtn = panel.querySelector('.test-provider-btn');
-    if (testBtn && callbacks.onTestProvider) {
-      testBtn.addEventListener('click', function () { callbacks.onTestProvider(); });
+    function setTestResult(state, text) {
+      testStatus.set(state, text);
+      testStatus.el.hidden = false;
     }
-    var deleteBtn = panel.querySelector('.delete-btn');
-    if (deleteBtn && callbacks.onDelete) {
-      deleteBtn.addEventListener('click', function () { callbacks.onDelete(deleteBtn); });
+
+    function clearTestResult() {
+      testStatus.el.hidden = true;
+      testStatus.set('idle', '');
     }
-    var purgeBtn = panel.querySelector('.purge-history-btn');
-    if (purgeBtn && callbacks.onPurge) {
-      purgeBtn.addEventListener('click', function () { callbacks.onPurge(purgeBtn); });
+
+    function setAgent(a, provs) {
+      var c = a || defaults(provs);
+      nameInput.value = c.name || '';
+      descriptionInput.value = c.description || '';
+      fillProviders(c, provs || []);
+      // The model list is refetched by the picker's wire (pendingValue = the stored
+      // model); until it lands the select shows its placeholder.
+      modelSelect.replaceChildren(option('', 'Select a provider first',
+        { disabled: true, selected: true }));
+      delete modelSelect.dataset.pendingValue;
+      loadingEl.textContent = '';
+      capsEl.textContent = '';
+      vramEl.textContent = '';
+      vramEl.classList.remove('visible');
+      promptInput.value = c.system_prompt || '';
+      retentionInput.value = String(c.chat_history_retention_days || 30);
+      iterationsInput.value = String(c.max_iterations || 20);
+      testButton.disabled = !providerSelect.value;
+      clearTestResult();
     }
+
+    // Initial values: the same path as a patch, so the two cannot drift.
+    setAgent(agent, providers);
+
+    return {
+      providerSelect: providerSelect,
+      modelSelect: modelSelect,
+      testButton: testButton,
+      dangerZone: danger,
+      setAgent: setAgent,
+      setTestResult: setTestResult,
+      clearTestResult: clearTestResult
+    };
   }
 
   window.App.studio.renderGeneralTab = renderGeneralTab;

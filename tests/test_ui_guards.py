@@ -71,6 +71,7 @@ from tests._ui_guard_helpers import (
     find_markdown_html_sink_tokens,
     find_testid_value_violations,
     find_ui_dir_sink_tokens,
+    find_unpaired_document_listeners,
     id_appears_as_string_literal,
     normalize_css_color,
     parse_registry,
@@ -117,15 +118,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # (test_chat_area_has_no_baselined_sink pins it).
     "areas/studio.js": [
         "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
-        "selectEl.innerHTML = optsHtml;",
-        "selectEl.insertAdjacentHTML('beforeend', customOpt);",
-        "warningEl.innerHTML = msg;",
-    ],
-    "areas/studio/agent-editor.js": [
-        "container.innerHTML = html;",
-    ],
-    "areas/studio/general-tab.js": [
-        "panel.innerHTML = html;",
     ],
     "areas/studio/mcp-server-editor.js": [
         # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
@@ -145,11 +137,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths', (sou",
         "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
         "listEl.innerHTML = renderToolsListHtml(data.tools);",
-    ],
-    "areas/studio/mcps-tab.js": [
-        "div.innerHTML = 'No MCP sources registered yet. ' + '<a href=\"#studio/mcp-source",
-        "refreshBtn.innerHTML = window.App.icon('refresh') + ' Refresh';",
-        "countSpan.innerHTML = '<strong>' + total + '</strong> tool' + (total === 1 ? '' ",
     ],
     "areas/studio/tools-tab.js": [
         "expandLabel.innerHTML = '<strong>' + toolNames.length + '</strong> tool' + (tool",
@@ -171,12 +158,12 @@ HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/admin/tools-editor.js": 8,
     "areas/admin/tools-grid.js": 3,
     "areas/chat.js": 5,
-    "areas/studio.js": 15,
-    "areas/studio/agent-editor.js": 1,
+    "areas/studio.js": 4,
     "areas/studio/connector-editor.js": 3,
-    "areas/studio/general-tab.js": 1,
+    "areas/studio/connector-glue.js": 1,
+    "areas/studio/knowledge-glue.js": 3,
+    "areas/studio/mcp-glue.js": 1,
     "areas/studio/mcp-server-editor.js": 18,
-    "areas/studio/mcps-tab.js": 8,
     "areas/studio/self-configuration-tab.js": 5,
     "areas/studio/tools-tab.js": 5,
     "theme.js": 1,
@@ -736,3 +723,23 @@ def test_ui_dir_has_no_html_sink_tokens(tmp_path) -> None:
     _write(ui, "b.js", "el.textContent = '';\n")
     count, hits = find_ui_dir_sink_tokens(ui)
     assert count == 2 and [(h[0], h[2]) for h in hits] == [("a.js", "innerHTML")]
+
+
+def test_ui_dir_document_listeners_are_paired(tmp_path) -> None:
+    """M31 F2 L5: no permanent document listener in static/js/ui. Every
+    document.addEventListener(evt, handler) has a matching removeEventListener of
+    the same handler in the same file (the menu and infoButton pairs)."""
+    seen, bad = find_unpaired_document_listeners()
+    assert seen >= 2, "expected the menu and infoButton document listeners"
+    assert bad == [], "unpaired document listeners in static/js/ui: " + repr(bad)
+
+    ui = tmp_path / "ui"
+    _write(
+        ui,
+        "good.js",
+        "document.addEventListener('keydown', onKey, true);\n"
+        "document.removeEventListener('keydown', onKey, true);\n",
+    )
+    _write(ui, "bad.js", "document.addEventListener('keydown', onKey, true);\n")
+    seen, bad = find_unpaired_document_listeners(ui)
+    assert seen == 2 and bad == [("bad.js", "keydown", "onKey")]

@@ -67,7 +67,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
         " fact: ['button','textInput','field','listPane'].map(n => typeof App.ui[n])})"
     )
     assert shape["ui"] == "object"
-    assert shape["util"] == ["applyDataset", "el", "icon", "rovingFocus", "uid"]
+    assert shape["util"] == ["applyDataset", "el", "icon", "mountSlot", "rovingFocus", "uid"]
     assert shape["fact"] == ["function"] * 4
 
 
@@ -1452,3 +1452,79 @@ def test_probe_mount_script_mounts_and_resolves(engine_page: Page) -> None:
     # idempotent: a second run replaces, never duplicates, the probe root
     assert engine_page.evaluate(f"(function () {{ {src}\n;return true; }})()") is True
     assert engine_page.evaluate("() => document.querySelectorAll('#ui-probe-root').length") == 1
+
+
+# ── M31 F2 L5 (DD2): App.ui.util.mountSlot ────────────────────────────────
+
+
+def test_mount_slot_order_tokens_and_current(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const log = [];
+          const slot = App.ui.util.mountSlot();
+          const none = {current: slot.current(), destroyEmpty: (slot.destroy(), 'ok')};
+          const t1 = slot.mount(() => log.push('d1'), {n: 1});
+          const cur1 = slot.current();
+          const t2 = slot.mount(() => log.push('d2'), {n: 2});
+          const after = {
+            order: log.slice(), t1Current: slot.isCurrent(t1), t2Current: slot.isCurrent(t2),
+            data: slot.current().data.n, tokenIsCurrent: slot.current().token === t2, cur1: cur1.data.n,
+          };
+          slot.release(t1);                       // stale token: no effect
+          const stillThere = slot.isCurrent(t2);
+          slot.destroy();
+          return {none, after, stillThere, log: log.slice(), cleared: slot.current(), t2Gone: slot.isCurrent(t2)};
+        }"""
+    )
+    assert out["none"] == {"current": None, "destroyEmpty": "ok"}
+    assert out["after"] == {
+        "order": ["d1"], "t1Current": False, "t2Current": True, "data": 2, "tokenIsCurrent": True, "cur1": 1,
+    }  # fmt: skip
+    assert out["stillThere"] is True
+    assert out["log"] == ["d1", "d2"]
+    assert out["cleared"] is None and out["t2Gone"] is False
+
+
+def test_mount_slot_throwing_destroy_is_logged_and_remount_goes_on(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const errors = [];
+          const orig = console.error; console.error = (...a) => errors.push(String(a[0]));
+          const slot = App.ui.util.mountSlot();
+          slot.mount(() => { throw new Error('boom'); }, 'a');
+          const t2 = slot.mount(() => {}, 'b');
+          console.error = orig;
+          return {current: slot.isCurrent(t2), data: slot.current().data, logged: errors.length};
+        }"""
+    )
+    assert out == {"current": True, "data": "b", "logged": 1}
+
+
+def test_mount_slot_reentrancy_release_and_late_binding(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const slot = App.ui.util.mountSlot();
+          const log = [];
+          // destroyFn that calls back into the slot is safe and does nothing.
+          const t1 = slot.mount(() => { log.push('d1'); slot.destroy(); slot.release(t1); });
+          const t2 = slot.mount(() => log.push('d2'));
+          const reentrant = {log: log.slice(), t2Current: slot.isCurrent(t2)};
+          // release clears without calling destroyFn, only for the current token.
+          slot.release(t2);
+          const released = {current: slot.current(), log: log.slice()};
+          // Late binding with a mount that throws: release in a catch, re-throw.
+          let ctl = null; let thrown = '';
+          const t3 = slot.mount(() => { if (ctl) log.push('ctl.destroy'); });
+          try { throw new Error('mount failed'); } catch (e) { slot.release(t3); thrown = e.message; }
+          return {reentrant, released, thrown, after: slot.current(), log: log.slice()};
+        }"""
+    )
+    assert out["reentrant"] == {"log": ["d1"], "t2Current": True}
+    assert out["released"] == {"current": None, "log": ["d1"]}
+    assert out["thrown"] == "mount failed" and out["after"] is None and out["log"] == ["d1"]

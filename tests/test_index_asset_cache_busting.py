@@ -83,11 +83,16 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # adds consent-link.js, to 88; M31 F1 L1 deletes the Design language page's 17
     # scripts (design-language-page.js and the 16 design-language/*.js), to 71;
     # M31 F1 L4 adds ui/editor.js and moves confirm.js to ui/confirm.js (neutral), to 72;
-    # M31 F1 L5 adds ui/copy.js and moves consent-link.js to ui/consent-link.js, to 73.)
+    # M31 F1 L5 adds ui/copy.js and moves consent-link.js to ui/consent-link.js, to 73;
+    # M31 F2 L02a adds areas/studio/studio-route.js and areas/studio/agent-data.js, to 75
+    # (2026-10-21); M31 F2 L02b adds areas/studio/{library-pane,knowledge-glue,mcp-glue,
+    # connector-glue}.js, to 79 (2026-10-21); M31 F2 L03 adds areas/studio/{agent-form-data,
+    # agent-model-picker,agent-editor-controller,agents-list}.js, to 83 (2026-10-21);
+    # M31 F2 L04 adds ui/{tabs,tile,chip-list}.js, to 86 (2026-10-21).)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 73
+    assert len(refs) == 86
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

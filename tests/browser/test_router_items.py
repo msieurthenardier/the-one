@@ -765,8 +765,8 @@ def test_mcp_tab_focus_follows_the_url_for_the_same_agent(
         base, "/api/mcp-sources", {"name": "s-two", "type": "stdio", "config": {"command": "y"}}
     )["id"]
     _nav.goto_settled(page, base, f"agents/{_nav.seg(name)}/mcps/{_nav.seg(s1)}")
-    row1 = page.locator(f'[data-testid="mcp-source-row-{s1}"]')
-    row2 = page.locator(f'[data-testid="mcp-source-row-{s2}"]')
+    row1 = page.locator(f'[data-testid="mcp-source-expand-{s1}"]')
+    row2 = page.locator(f'[data-testid="mcp-source-expand-{s2}"]')
     expect(row1).to_have_attribute("aria-expanded", "true", timeout=8000)
     expect(row2).to_have_attribute("aria-expanded", "false")
 

@@ -17,7 +17,7 @@
   //     The revertFn argument lets transport-failure paths roll back the UI
   //     (e.g., studio's DELETE fetch's .catch calls revertFn() to restore the
   //     tile's name + remove the confirm-delete class).
-  //   - opts: { titleSelector?, confirmLabel?, revertMs? }
+  //   - opts: { titleSelector?, confirmLabel?, revertMs?, announceName? }
   //     defaults: '[data-confirm-title]', 'Confirm delete?', 3000.
   //
   // Behavior:
@@ -61,17 +61,67 @@
   // cleanup — so the two callers that invoke `revert` as `revertFn` (success,
   // transport failure) never touch `.confirm-lapsed` at all.
   //
-  // Purely visual — no aria-live announcement. `self-configuration-tab.js`
-  // already announces the ARM transition via its own `role=status` region
-  // (added for WCAG 4.1.2, since its persistent aria-label overrides the
-  // swapped title text as the accessible name); wiring an equivalent
-  // announcement for LAPSE would mean either a per-call-site opt-in (which
-  // AC-5 forbids — no call site may be special-cased) or the helper owning
-  // a generic live-region contract, which is a larger surface than this leg
-  // covers. Recorded as a deliberate decision, not an omission.
+  // Announcement (M31 F2 L5, squawk 0220; reverses the old "purely visual" decision).
+  // Arming, lapsing and committing are announced through ONE shared polite live
+  // region (div.visually-hidden[role=status][aria-live=polite],
+  // data-testid="ui-confirm-live"), appended to document.body lazily on the first
+  // arm, cached, and re-appended if detached. The wording lives in one place
+  // (armSentence / lapseSentence):
+  //   arm:    "Press {subject} again to {confirmLabel lower-cased, no trailing ?}."
+  //   lapse:  "{subject}: not confirmed"
+  //   commit: the region is cleared.
+  // {subject} is opts.announceName, else the control's aria-label, else the
+  // original title text, read at arm time, so the item identity survives a
+  // persistent aria-label that overrides the swapped title as the accessible name.
+  // Every write goes through one pending-timeout handle: the region is cleared,
+  // then written on the next tick (so a repeated identical arm re-announces), and
+  // each new write cancels the previous one, so a lapse cannot race a following arm.
+  // Visual behaviour is unchanged. No call site opts in.
 
   // Moved into the library from static/js/confirm.js (M31 F1 L4); the
   // behaviour is unchanged. App.confirmDelete stays as the same function.
+  var liveRegion = null;
+  var livePending = null;
+
+  function ensureRegion() {
+    if (!liveRegion) {
+      liveRegion = document.createElement('div');
+      liveRegion.className = 'visually-hidden';
+      liveRegion.setAttribute('role', 'status');
+      liveRegion.setAttribute('aria-live', 'polite');
+      liveRegion.setAttribute('data-testid', 'ui-confirm-live');
+    }
+    if (!liveRegion.isConnected) document.body.appendChild(liveRegion);
+    return liveRegion;
+  }
+
+  // Writes text (or clears it, for empty text) through the single pending handle.
+  function announce(text) {
+    if (livePending) {
+      clearTimeout(livePending);
+      livePending = null;
+    }
+    if (!text) {
+      if (liveRegion) liveRegion.textContent = '';
+      return;
+    }
+    var region = ensureRegion();
+    region.textContent = '';
+    livePending = setTimeout(function () {
+      livePending = null;
+      region.textContent = text;
+    }, 0);
+  }
+
+  function armSentence(subject, confirmLabel) {
+    var action = String(confirmLabel).replace(/\?\s*$/, '').toLowerCase();
+    return 'Press ' + subject + ' again to ' + action + '.';
+  }
+
+  function lapseSentence(subject) {
+    return subject + ': not confirmed';
+  }
+
   App.ui.confirm = function (itemEl, onConfirm, opts) {
     if (!itemEl) return;
     opts = opts || {};
@@ -103,7 +153,9 @@
     // failure, and system-page.js's success path) never marks lapse.
     function lapse() {
       itemEl.classList.add('confirm-lapsed');
+      var subject = itemEl._confirmSubject;
       revert();
+      announce(lapseSentence(subject));
     }
 
     if (itemEl.classList.contains('confirm-delete')) {
@@ -112,6 +164,7 @@
         clearTimeout(itemEl._confirmRevertTimer);
         itemEl._confirmRevertTimer = null;
       }
+      announce('');
       // revertFn lets transport-failure callers roll the UI back.
       if (typeof onConfirm === 'function') onConfirm(itemEl, revert);
       return;
@@ -119,8 +172,11 @@
 
     // First click — arm. Capture the original title NOW (before swap).
     itemEl._confirmOriginalTitle = titleEl ? titleEl.textContent : '';
+    itemEl._confirmSubject = opts.announceName || itemEl.getAttribute('aria-label') ||
+      itemEl._confirmOriginalTitle || 'this control';
     itemEl.classList.add('confirm-delete');
     if (titleEl) titleEl.textContent = confirmLabel;
+    announce(armSentence(itemEl._confirmSubject, confirmLabel));
     itemEl._confirmRevertTimer = setTimeout(lapse, revertMs);
   };
   window.App.confirmDelete = App.ui.confirm;

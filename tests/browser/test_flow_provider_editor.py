@@ -507,7 +507,7 @@ def test_num_ctx_field_hidden_for_non_ollama(app_clean: str, page: Page) -> None
 
 @pytest.mark.browser
 def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
-    """The description is a focusable info-icon button (title= tooltip) with a
+    """The description is a focusable info-icon button (a press-only toggletip) with a
     visually-hidden span wired via aria-describedby — mirrors the
     field-info-icon pattern used by the tools editor."""
     _nav.goto(page, app_clean, "library/providers/~new")
@@ -519,7 +519,15 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
     )
     icon = page.locator(".admin-pf-num-ctx .field-info-icon")
     expect(icon).to_be_visible()
-    expect(icon).to_have_attribute("title", desc)
+    assert icon.get_attribute("title") is None  # press-only: no hover tooltip
+    expect(icon).to_have_attribute("aria-expanded", "false")
+    icon.click()
+    expect(icon).to_have_attribute("aria-expanded", "true")
+    bubble = page.locator(f"#{icon.get_attribute('aria-controls')}")
+    expect(bubble).to_be_visible()
+    expect(bubble).to_have_text(desc)
+    icon.click()
+    expect(bubble).to_be_hidden()
     assert icon.get_attribute("aria-describedby") is None  # label carries the hint
     _assert_described_by(page, "#pf-num-ctx", desc)
 
@@ -553,7 +561,7 @@ def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
-    """The description is a focusable info-icon button (title= tooltip) with a
+    """The description is a focusable info-icon button (a press-only toggletip) with a
     visually-hidden span wired via aria-describedby — mirrors the num_ctx
     field-info-icon a11y idiom."""
     _nav.goto(page, app_clean, "library/providers/~new")
@@ -565,7 +573,15 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     )
     icon = page.locator(".admin-pf-thinking-enabled .field-info-icon")
     expect(icon).to_be_visible()
-    expect(icon).to_have_attribute("title", desc)
+    assert icon.get_attribute("title") is None  # press-only: no hover tooltip
+    expect(icon).to_have_attribute("aria-expanded", "false")
+    icon.click()
+    expect(icon).to_have_attribute("aria-expanded", "true")
+    bubble = page.locator(f"#{icon.get_attribute('aria-controls')}")
+    expect(bubble).to_be_visible()
+    expect(bubble).to_have_text(desc)
+    icon.click()
+    expect(bubble).to_be_hidden()
     assert icon.get_attribute("aria-describedby") is None  # label carries the hint
     _assert_described_by(page, "#pf-thinking-enabled", desc)
 

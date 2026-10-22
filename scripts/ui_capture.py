@@ -260,6 +260,40 @@ def _plan_awaiting_code(ctx: Ctx) -> None:
             extra.close()
 
 
+def _stub_mcp_tools(page) -> None:
+    page.route(
+        "**/api/mcp-sources/*/test/connect",
+        lambda r: r.fulfill(
+            json={
+                "status": "ok",
+                "tools": [{"name": n, "description": d} for n, d in CAPTURE_MCP_TOOLS],
+            }
+        ),
+    )
+
+
+def _mcps_expanded(ctx: Ctx) -> None:
+    _stub_mcp_tools(ctx.page)
+    ctx.page.locator(f'[data-testid="mcp-source-expand-{ctx.ids["mcpsrc"]}"]').click()
+    ctx.page.locator('[data-testid^="mcp-tool-toggle-"]').first.wait_for(timeout=10000)
+
+
+def _tools_override_open(ctx: Ctx) -> None:
+    page = ctx.page
+    tile = page.locator('.tools-category-tile[data-category="Filesystem"]')
+    tile.locator(".tools-category-tile-expand-btn").click()
+    panel = page.locator('details.tool-row-overrides[data-tool="read_file"]')
+    panel.locator(".tool-tile-overrides-affordance").click()
+    panel.locator(
+        '.chip-list-editor[data-tool-override-field="path_denylist"] .chip'
+    ).first.wait_for(timeout=10000)
+    panel.scroll_into_view_if_needed()
+
+
+def _admin_tool_chips(ctx: Ctx) -> None:
+    ctx.page.locator(".chip-list-editor .chip").first.wait_for(timeout=10000)
+
+
 def _flash_after_save(ctx: Ctx) -> None:
     page = ctx.page
     page.locator("#pf-name").fill("Capture Flash demo (edited)")
@@ -328,6 +362,65 @@ SURFACES += [
         '[data-testid="save-provider-btn"]',
         "The flash shown after a Save",
         prepare=_flash_after_save,
+    ),
+    Surface(
+        "agent-general",
+        "#agents/{agent}/general",
+        '[data-testid="tab-general"][aria-selected="true"]',
+        "Agent editor, General tab (description, system prompt filled)",
+    ),
+    Surface(
+        "agent-rules-and-notes",
+        "#agents/{agent}/rules-and-notes",
+        '[data-testid="rules-row"]',
+        "Agent editor, Rules and notes tab: two rules (one off), notes on, no notes",
+    ),
+    Surface(
+        "agent-knowledge",
+        "#agents/{agent}/knowledge",
+        '[data-testid^="agent-knowledge-row-"]',
+        "Agent editor, Knowledge tab: one knowledge base attached",
+    ),
+    Surface(
+        "agent-mcps",
+        "#agents/{agent}/mcps",
+        '[data-testid^="mcp-source-expand-"]',
+        "Agent editor, MCPs tab: the source expanded, four tools (stubbed)",
+        prepare=_mcps_expanded,
+    ),
+    Surface(
+        "agent-tools",
+        "#agents/{agent}/tools",
+        '.tools-category-tile[data-category="Filesystem"]',
+        "Agent editor, Built-in Tools tab: Filesystem expanded, read_file Overrides open",
+        prepare=_tools_override_open,
+    ),
+    Surface(
+        "agent-self-configuration",
+        "#agents/{agent}/self-configuration",
+        '[data-testid="self-configuration-toggle-btn"]',
+        "Agent editor, Self-configuration tab, enabled (no pending revision)",
+    ),
+    Surface(
+        "agent-self-configuration-pending",
+        "",
+        "",
+        "Self-configuration tab with a pending revision",
+        skipped="a pending revision needs the agent to act (no operator API path creates one)",
+    ),
+    Surface(
+        "agent-rules-and-notes-with-note",
+        "",
+        "",
+        "Rules and notes tab with a kept note",
+        skipped="notes are written only by the agent (no create route); seeding needs direct SQL",
+    ),
+    Surface(
+        "admin-builtin-tool-editor",
+        "#settings/tools/read_file",
+        ".chip-list-editor",
+        "Settings > Built-in tools, read_file editor (shared chip-list rules guard)",
+        prepare=_admin_tool_chips,
     ),
     Surface(
         "chat-consent-link",
@@ -472,6 +565,75 @@ def seed(base: str, token: str) -> dict[str, str]:
             "system_prompt": "You are a capture-seed agent.",
         },
     )
+    seed_tabs_agent(base, token, ids)
+    return ids
+
+
+TABS_AGENT = "capture-tabs"
+CAPTURE_MCP_TOOLS = [
+    ("search_docs", "Search the documentation index."),
+    ("get_page", "Fetch one page by its path."),
+    ("list_spaces", "List the available spaces."),
+    ("create_ticket", "Open a ticket in the tracker."),
+]
+
+
+def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
+    """One agent that exercises every tab of the agent editor (Flight 2 DD10)."""
+    ids["agent"] = TABS_AGENT
+    ids["kb"] = _api(
+        base,
+        token,
+        "POST",
+        "/api/knowledge-bases",
+        {"name": "Capture knowledge", "description": "A knowledge base for the capture."},
+    )["id"]
+    ids["mcpsrc"] = _api(
+        base,
+        token,
+        "POST",
+        "/api/mcp-sources",
+        {
+            "name": "Capture docs server",
+            "type": "streamable-http",
+            "config": {
+                "url": "http://127.0.0.1:9/mcp",
+                "_cache": {"tools": [{"name": n, "description": d} for n, d in CAPTURE_MCP_TOOLS]},
+            },
+            "secrets": {},
+        },
+    )["id"]
+    _api(
+        base,
+        token,
+        "POST",
+        "/api/agents",
+        {
+            "name": TABS_AGENT,
+            "description": "An agent that fills every tab, for the UI capture.",
+            "provider_config_id": ids["mock"],
+            "llm_model": "mock-default",
+            "system_prompt": "You answer questions about the capture fixtures, briefly.",
+            "kb_ids": [ids["kb"]],
+            "mcp_source_ids": [ids["mcpsrc"]],
+            # Filesystem is mixed (3 of 9 on), Web is mixed, Execution is all off.
+            "enabled_tools": ["read_file", "glob", "list_dir", "fetch_url", "http_request"],
+            "disabled_tools": ["delete_file"],
+            "tool_overrides": {
+                "read_file": {"path_denylist": ["~/.ssh", "~/.aws", "/etc/shadow"]},
+            },
+        },
+    )
+    _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/rules", {"text": "Answer in plain words."})
+    _api(
+        base,
+        token,
+        "POST",
+        f"/api/agents/{TABS_AGENT}/rules",
+        {"text": "Never guess a file path.", "enabled": False},
+    )
+    _api(base, token, "PUT", f"/api/agents/{TABS_AGENT}/notes/settings", {"enabled": True})
+    _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/self-configuration")
     return ids
 
 
