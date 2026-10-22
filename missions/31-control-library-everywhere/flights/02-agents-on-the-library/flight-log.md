@@ -552,3 +552,31 @@ Only the switch (DD4 item 1): the library toggle (slightly larger track and thum
 - Static guards, ownership, token, a11y, control inventory, nav helper, cache busting, store static: 428 passed. ruff check and format clean.
 - `THE_ONE_TEST_NETNS=1 make test-unit`: 6716 passed, 14 skipped (281 s).
 - Lanes (netns): `contracts` (`THE_ONE_REQUIRE_WEBKIT=1`) 985 passed, 5 skipped, 300 s; `agents` first run 222 passed, 1 failed, 511 s (run beside contracts): `test_flow_agents_focus_after.py::test_agent_save_never_steals_focus_the_user_moved` (Save stayed enabled after a held PUT) passed in isolation four times and the whole `agents` lane then passed alone, 223 passed, 483 s. It is not tied to the MCPs tab (the agent has no sources) and no squawk records it; a probable load race around General's model refetch after a patch (not investigated further; flagged for the flight review). `test_router_items.py` (routing lane) failed once on the old `aria-expanded`-on-tile assertion and the collapse-on-deep-link behaviour (both fixed above); then `routing` 184 passed, 443 s and `shared` 255 passed, 244 s.
+
+### main-merge-and-overrides-port
+
+**Status**: landed (merge staged, uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### Merge resolution (`git merge --no-ff --no-commit origin/main`, MERGE_HEAD in place)
+- `the_one/interfaces/web/static/js/areas/studio.js`: the only conflict; `git checkout --ours` (the branch's split version), staged.
+- `CLAUDE.md`: auto-merged cleanly, both sides kept (main's `tool_overrides` clause in the MCP-overrides watch-out is present).
+- From main unchanged: `the_one/interfaces/web/api.py`, `squawks/0223-*.md`, `squawks/0224-*.md`, `tests/test_agent_tool_overrides_round_trip.py`, `tests/browser/test_flow_studio_tool_overrides_preserved.py`, `pyproject.toml` (pillow floor), `uv.lock` (squawk 0224).
+
+#### Port diff summary
+`js/areas/studio/agent-form-data.js::collectFormData`: replaced `data.tool_overrides = Object.keys(overrides).length > 0 ? overrides : null;` with main's block verbatim: `loadedTools` from the override elements; empty set omits the key; otherwise the stored entries of unopened tools (`self._selectedAgent.tool_overrides`) are merged and the map sent. `self` is the form-data ctx's `self`, same object as main's. `agents.md` form-data paragraph notes the rule.
+
+#### `{}` outcome
+A PUT with `"tool_overrides": {}` is stored and read back as `{}` (not cleared to null; the server writes it as given). Pinned by a new test, beside the existing `{}` round-trip test.
+
+#### Tests added
+- `tests/test_agent_tool_overrides_round_trip.py::TestToolOverridesPreservedOnOmit::test_empty_map_is_stored_as_empty_map`.
+- `tests/browser/test_flow_studio_tool_overrides_preserved.py`: `test_partial_open_merges_stored_entries_of_unopened_tools`, `test_second_save_does_not_use_stale_stored_entries`, `test_locked_operator_chips_are_sent_and_save_accepted`.
+- Main's two 0223 test files pass unchanged.
+
+#### Venv sync
+`uv sync --frozen` alone stripped the extras; `uv sync --frozen --all-extras` restored them. The venv now matches the merged `uv.lock`: Pillow 13.0.0, certifi 2026.10.19.
+
+#### Verification
+ruff check and format clean. `make test-unit`: 6722 passed, 12 skipped (294 s). `agents` lane (netns): 231 passed, 503 s, no flake. The two override browser files: 16 passed.
