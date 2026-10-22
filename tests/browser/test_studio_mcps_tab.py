@@ -33,6 +33,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import ENABLE_SWITCH, click_switch
 from playwright.sync_api import Page, expect
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -1020,7 +1021,7 @@ def test_self_configuration_enable_then_save_keeps_the_surface(app_clean: str, p
     _nav.goto(page, app_clean, "agents/sc-keep-agent/self-configuration")
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked(timeout=8000)
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
     expect(toggle).to_be_checked(timeout=8000)
     surface = _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"][0]
 
@@ -1035,7 +1036,7 @@ def test_self_configuration_enable_then_save_keeps_the_surface(app_clean: str, p
 
     # Disable, then Save: the deleted id is not sent back.
     page.locator('[data-testid="tab-self-configuration"]').click()
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
     expect(toggle).not_to_be_checked(timeout=8000)
     page.locator('[data-testid="tab-mcps"]').click()
     expect(page.locator('[data-testid="mcp-empty-state"]')).to_be_visible(timeout=8000)
@@ -1063,7 +1064,7 @@ def test_set_sources_keeps_an_expanded_unsaved_tile(app_clean: str, page: Page) 
     page.locator('[data-testid="tab-self-configuration"]').click()
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked(timeout=8000)
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
     expect(toggle).to_be_checked(timeout=8000)
     surface = [i for i in _get_agent(app_clean, "keep-agent")["mcp_source_ids"] if i != sid][0]
 

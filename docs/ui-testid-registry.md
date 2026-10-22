@@ -58,6 +58,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-picker-close` | chat | The agent picker's "Esc" close button (accessible name "Close (Esc)"; the modal's `closeButton`, M25 F4 L4a) |
 | `agent-picker-row` | chat | One agent option in the picker (`role=option`, `data-agent`; the `searchList` `rowTestid`; an agent in both "Recently used" and "All agents" has two, M25 F4 L4a) |
 | `agent-picker-search` | chat | The agent picker's search input ("Find an agent"; the `searchList` `inputTestid`, focused on open, M25 F4 L4a) |
+| `agent-stored-value-changed` | studio | Agent editor General tab — a `App.ui.status` note (hidden unless set) shown when a self-configuration approval or restore changed the stored description or system prompt while the operator had typed over that field: "The stored description changed. Save will replace it with your text." (or "system prompt"). Cleared by Save, Cancel and a new editor identity, and hidden once the field is clean again (M31 F2 L10a) |
 | `agent-select-empty` | studio | Agents start page node WITH agents (the description plus "Pick an agent from the list to edit it."; M25 F3 L3, copy changed in M25 F6 L4c) |
 | `agents-filter` | studio | Agents list filter input ("Filter agents"; matches name, model id and provider type slug) (M25 F3 L3) |
 | `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |

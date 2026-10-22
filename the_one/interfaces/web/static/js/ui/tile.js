@@ -20,6 +20,7 @@
   //   testid, dataset (applied to the root), expandTestid, bodyTestid.
   //   master.tristate (default true; false = a plain on/off switch with
   //   role=switch, never mixed: setMaster('mixed') then reads as off) and
+  //   master.describedBy (id of an outside element that describes the master) and
   //   master.dataset (applied to the master's native input, M31 F2 L07b).
   //   el is div.ui-group-tile: div.ui-group-tile-row (the master App.ui.toggle
   //   with tristate, span.ui-group-tile-name, span.ui-group-tile-chip for the
@@ -48,12 +49,18 @@
         tristate: master.tristate !== false,
         dataset: master.dataset,
         disabled: !!master.disabled,
+        describedBy: master.describedBy,
         testid: master.testid,
         onChange: master.onChange
       });
       row.appendChild(toggle.el);
     }
-    row.appendChild(util.el('span', { className: 'ui-group-tile-name', text: opts.name }));
+    var nameEl = util.el('span', {
+      className: 'ui-group-tile-name',
+      id: util.uid('gt-name'),
+      text: opts.name
+    });
+    row.appendChild(nameEl);
     var countEl = null;
     if (opts.count !== undefined && opts.count !== null && opts.count !== '') {
       countEl = util.el('span', { className: 'ui-group-tile-chip', text: opts.count });
@@ -96,6 +103,9 @@
       type: 'button',
       className: 'ui-group-tile-expand',
       'aria-expanded': 'false',
+      // The tile's name joins the button's name through the description, so "3 tools"
+      // is not the whole of what a screen reader hears (SC 2.4.6, 4.1.2).
+      'aria-describedby': nameEl.id,
       'data-testid': opts.expandTestid
     });
     var labelEl = util.el('span', { className: 'ui-group-tile-expand-label' });

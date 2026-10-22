@@ -42,10 +42,11 @@ def _open_tools(page: Page, app: SeededApp) -> None:
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    tile = page.locator('.tools-category-tile[data-category="Time"]')
+    tile = page.locator('.ui-group-tile[data-category="Time"]')
     expect(tile).to_be_visible(timeout=8000)
-    tile.locator(".tools-category-tile-expand-btn").click()
-    expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
+    expand = tile.locator(".ui-group-tile-expand")
+    expand.click()
+    expect(expand).to_have_attribute("aria-expanded", "true", timeout=2000)
 
 
 def _save(page: Page) -> None:
@@ -63,8 +64,8 @@ def test_whitelisted_agent_shows_time_checked_and_note(
     _put(app_with_agent.base_url, app_with_agent.agent_name, enabled_tools=["read_file"])
     _open_tools(page, app_with_agent)
     expect(page.locator(TOOL)).to_be_checked()
-    tile = page.locator('.tools-category-tile[data-category="Time"]')
-    expect(tile.locator(".tools-category-tile-count")).to_have_text("1 / 1 enabled")
+    tile = page.locator('.ui-group-tile[data-category="Time"]')
+    expect(tile.locator(".ui-group-tile-chip")).to_have_text("1 / 1 enabled")
     expect(page.locator('[data-testid="time-tool-note"]')).to_contain_text(
         "Always available to the agent"
     )
@@ -117,10 +118,8 @@ def test_category_master_unticks_time(app_with_agent: SeededApp, page: Page) -> 
     base, name = app_with_agent.base_url, app_with_agent.agent_name
     _open_tools(page, app_with_agent)
     master = page.locator('[data-category-master="Time"]')
-    expect(master).to_have_attribute("aria-label", "Enable all Time tools")
-    page.locator(
-        '.tools-category-tile[data-category="Time"] label.tools-category-tile-toggle'
-    ).click()
+    expect(master).to_have_accessible_name("Enable all Time tools")
+    page.locator('.ui-group-tile[data-category="Time"] .ui-group-tile-row .ui-toggle-label').click()
     expect(page.locator(TOOL)).not_to_be_checked()
     _save(page)
     assert "current_time" in _get(base, name)["disabled_tools"]
@@ -137,9 +136,7 @@ def test_create_mode_shows_time_checked_and_saves_no_gating(
     expect(page.locator('#studio-model option[value="mock-default"]')).to_be_attached(timeout=8000)
     page.locator("#studio-model").select_option("mock-default")
     page.locator('[data-testid="tab-tools"]').click()
-    page.locator(
-        '.tools-category-tile[data-category="Time"] .tools-category-tile-expand-btn'
-    ).click()
+    page.locator('.ui-group-tile[data-category="Time"] .ui-group-tile-expand').click()
     expect(page.locator(TOOL)).to_be_checked()
     page.locator(SAVE).click()
     _nav.expect_route(page, "agents/clock-agent/general", timeout=8000)
@@ -155,8 +152,8 @@ def test_globally_disabled_time_is_operator_disabled_in_the_tab(
     seed_tool_config(app_with_agent.base_url, "current_time", enabled=False)
     _open_tools(page, app_with_agent)
     expect(page.locator(TOOL)).to_be_disabled()
-    expect(page.locator('details.tool-tile[data-tool="current_time"]')).to_have_class(
-        re.compile(r"tool-row-disabled")
+    expect(page.locator('.ui-tool-row[data-tool="current_time"]')).to_have_class(
+        re.compile(r"\bis-disabled\b")
     )
 
 

@@ -5,7 +5,15 @@
 // returned as a handle:
 //
 //   { providerSelect, modelSelect, testButton, setAgent(agent, providers),
+//     applyStored(stored, baseline), setStoredChangeNote(fields | null),
 //     setTestResult(state, text), clearTestResult() }
+//
+// applyStored and setStoredChangeNote serve a stored change that lands while the
+// form is open (a self-configuration approval or restore, M31 F2 L10a): the stored
+// description / system prompt is written into a CLEAN field only (its value equals
+// the snapshot baseline), a field the operator has edited keeps their text and is
+// reported, and the note (testid agent-stored-value-changed) says Save will replace
+// the stored value. setAgent clears the note.
 //
 // setAgent patches every value in place (name, description, provider options, the
 // model select back to its placeholder, the capability line and the VRAM warning
@@ -189,6 +197,12 @@
       ]
     });
 
+    // The stored-value-changed note: shown only while a field the operator edited
+    // had its stored value change underneath it (see applyStored).
+    var storedNote = ui.status({ testid: 'agent-stored-value-changed' });
+    storedNote.el.hidden = true;
+
+    panel.appendChild(storedNote.el);
     panel.appendChild(identity.el);
     panel.appendChild(llm.el);
     panel.appendChild(promptSection.el);
@@ -251,7 +265,62 @@
       testStatus.set('idle', '');
     }
 
+    var STORED_FIELDS = [
+      { key: 'description', label: 'description', input: descriptionInput },
+      { key: 'system_prompt', label: 'system prompt', input: promptInput }
+    ];
+
+    // Write `stored` ({description, system_prompt}) into the clean fields. `baseline`
+    // is the parsed snapshot. A field whose stored value did not change is left
+    // alone; a changed one is written when the field is clean; a changed one the
+    // operator edited is left and its key returned (the conflicts).
+    function applyStored(stored, baseline) {
+      var conflicts = [];
+      STORED_FIELDS.forEach(function (f) {
+        if (!stored || typeof stored[f.key] !== 'string') return;
+        var next = stored[f.key];
+        var base = baseline && typeof baseline[f.key] === 'string' ? baseline[f.key] : null;
+        if (base === next || f.input.value === next) return;
+        if (f.input.value === base) {
+          f.input.value = next;
+        } else {
+          conflicts.push(f.key);
+        }
+      });
+      return conflicts;
+    }
+
+    var noteTimer = null;
+    // Show the note for the given field keys, or hide it for null / none.
+    function setStoredChangeNote(fields) {
+      var parts = [];
+      STORED_FIELDS.forEach(function (f) {
+        if (fields && fields.indexOf(f.key) !== -1) {
+          parts.push('The stored ' + f.label + ' changed. Save will replace it with your text.');
+        }
+      });
+      noteTimer = clearTimeout(noteTimer);
+      if (parts.length === 0) {
+        storedNote.el.hidden = true;
+        storedNote.set('idle', '');
+        return;
+      }
+      // A live region announces a change of its text, not its appearance: show the
+      // empty node first and fill it one tick later (SC 4.1.3).
+      if (storedNote.el.hidden) {
+        storedNote.set('warning', '');
+        storedNote.el.hidden = false;
+        noteTimer = setTimeout(function () {
+          noteTimer = null;
+          storedNote.set('warning', parts.join(' '));
+        }, 0);
+      } else {
+        storedNote.set('warning', parts.join(' '));
+      }
+    }
+
     function setAgent(a, provs) {
+      setStoredChangeNote(null);
       var c = a || defaults(provs);
       nameInput.value = c.name || '';
       descriptionInput.value = c.description || '';
@@ -281,6 +350,8 @@
       testButton: testButton,
       dangerZone: danger,
       setAgent: setAgent,
+      applyStored: applyStored,
+      setStoredChangeNote: setStoredChangeNote,
       setTestResult: setTestResult,
       clearTestResult: clearTestResult
     };

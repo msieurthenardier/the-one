@@ -26,6 +26,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import APPROVAL_SWITCH, click_switch
 from playwright.sync_api import Page, expect
 
 
@@ -212,7 +213,7 @@ def test_approval_mode_toggle_persists(app_with_data_dir: tuple[str, Path], page
     status = page.locator('[data-testid="approval-mode-status"]')
     expect(toggle).not_to_be_checked(timeout=8000)
     expect(status).to_contain_text("off", timeout=8000)
-    toggle.click()
+    click_switch(page, APPROVAL_SWITCH)
 
     # After re-render the toggle reflects the on state.
     expect(toggle).to_be_checked(timeout=8000)

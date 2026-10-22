@@ -82,6 +82,84 @@ Planned 2026-10-15/16 on branch `flight/02-agents-on-the-library` (from `main` a
 - **The suspected regression was investigated, and its cause is unexplained.** The hypothesis was refuted: the model-fetch callback already retakes the snapshot when the form is clean, and superseded fetches are aborted. Four regression pins were added, holding the models response through a Save, a first open, a Cancel, and a Save before the list lands. The original test passed 8 of 8 under CPU throttling and 15 of 15 under heavy CPU load, and the agents lane passed 227 of 227 in 501 s. It is recorded as squawk 0229, the known-flake record. The investigation found a pre-existing bug instead: a Save before the first model list loads stores `llm_model: ""`, the same at HEAD. That is logged as squawk 0228 and kept out of this flight: it is not a regression, and the fix needs a small UX decision.
 - **Squawks 0225-0227 were logged** at the operator's request, from squawk 0224's findings: six tests fail on an unlocked install, there is no certifi CVE floor, and the Pillow comment's CVE ranges are wrong. All are open and routine, and they belong to main, not this flight.
 - **The intermediate commit of legs 01-07b** is made before leg 08a, as 08a's spec requires. The legs stay `landed`: the flight review still covers the whole flight at the end.
+- **The intermediate commit is 54112f5.** **Leg 08a landed and its merge was committed by the FD** (5ad49a1; main at 867cfeb, squawks 0223 and 0224). The only conflict was `studio.js`, taken from the branch, with 0223's rule ported into `agent-form-data.js`. `api.py`, `pyproject.toml` and `uv.lock` are identical to main's. The repo venv is now `uv sync --frozen --all-extras` (Pillow 13, certifi 2026.10.19). The agents lane passed 231 tests in 503 s; squawk 0229 did not recur.
+- **Leg 08b: tiered high-risk** (a shared form-data contract for `tool_overrides`, and a new module). Its design review is done. The Developer has been spawned.
+- **Leg 08b landed.** FD calls:
+  - The chip rules reproduce today's client behaviour exactly; there is still no client-side Narrow-subset or NarrowPrefix check, and the server's 422 remains the gate. Adding one would be a behaviour change outside this flight, so it is accepted as is.
+  - The master switch is named by its visually hidden label, not an `aria-label`. Two assertions moved to `to_have_accessible_name` with the same wording. Accepted: the accessible name is unchanged.
+  - The admin Built-in tools editor is pixel-identical. The agent Tools differences are DD4 items 1 and 2 only, so nothing new goes on the HAT list.
+  - `make test-unit` was not re-run end to end after the ownership fix; the static guards were. Leg 11's full gate covers it.
+  - The agents lane measured 569 s; leg 11 decides the split.
+- **Leg 09: tiered high-risk** (it leaves the rebuild list with no `setAgent`, and may add a `role` option to `App.ui.status`, a shared factory). Its design review is done (one cycle, approve with changes, applied). The Developer has been spawned.
+- **Leg 09 landed.** One FD ruling: the Developer kept the old look of "No notes yet." with a consumer rule in `studio.css`, `.rules-notes-empty > p`. It is written that way because the guards forbid naming `.ui-empty-title` outside the library. That works around DD10's ownership rule (a consumer restyling a library control's inner node), and leg 10c's five empty states would repeat it. **Ruling:** `App.ui.emptyState` gains an inline variant in leg 10c, and leg 09's override moves onto it there (10c's spec is amended). Accepted for now, because the capture below the header strip is pixel-identical. The error line's danger LED (shown only on an error) goes on the HAT list. Also: `App.ui.status` gained `role: 'alert'`, with a contract case in both engines.
+- **Leg 10a: tiered high-risk** (security-sensitive surface, a state-machine change, a shared handle contract). Its design review ran two cycles; cycle 2's edits are applied, and two cycles is the limit. The Developer has been spawned, and the flight review uses the Sonnet Reviewer tier.
+- **Leg 10a landed.** Tests 1 and 3 failed before the fix and passed after; all 9 DD9-3 tests pass. The interim rebuild list is now empty. FD calls:
+  - A local `announce()` replaces the planned "mount-local `pendingAction`". Accepted, since nothing crosses a render any more, and leg 10b is told there is nothing to move.
+  - Two cases have no browser test: the note clearing on a new identity (it follows from the remount) and disable while the MCPs tab is dirty (07b's `setSources` tests cover it). Both are accepted and named for the flight review.
+  - The controller gained a `saveInFlight` flag for the guard.
+  - The unit run reported 15 skips, against the expected 12 off netns. The FD is running `-rs` to name the extra 3 before the flight review.
+- **Leg 10b: tiered high-risk** (security-sensitive code moved). Its design review is done (cycle 2, approve with changes, applied). The Developer has been spawned.
+- **The skip count is explained (FD check, during 10b).** 15 skips is what a run with an explicit `-m` gives, because it overrides `addopts`' `not requires_bwrap` and adds the three documented `test_mcp_sandbox_integration.py` skips (CLAUDE.md). That FD run also showed 3 failures. Two clean runs followed:
+  - the canonical unit set: 6720 passed, 12 skipped, 0 failed;
+  - `-m requires_bwrap` alone: 41 passed, 3 skipped, the documented WSL baseline.
+
+  So the 3 failures were static pins caught mid-edit by 10b's concurrent split, not a regression. Leg 10b's own final `make test-unit` is the record.
+- **Leg 10b landed** (modules of 146/302/339/367/445 lines, no test edits beyond the pins and rows, agents lane 271 passed in 557 s, the tab body pixel-identical). **Carried to the flight review:** the moved security branches could not be diffed line by line, because 10a's working-tree version was overwritten in place by the split, and HEAD predates 10a. The Developer checked them by grep and by reading. The flight Reviewer (Sonnet) must verify against HEAD's `self-configuration-tab.js` plus 10a's recorded changes:
+  - stale fail-closed approve;
+  - `?override=true` only from the override button;
+  - restore only from `applied` rows, with `side`;
+  - mint, rotate and revoke never reach `onSelfConfigChanged`;
+  - the token is never in an attribute.
+
+  The recurring capture difference at (294,14)-(317,38), outside the tab, is the list-pane "New" control already carried from 06a.
+- **Leg 10c: tiered high-risk** (security-sensitive UI, shared factory changes: `status` `led:false`, an `emptyState` inline variant). Its design review is done (cycle 2, plus the FD's leg 09 ruling). The Developer has been spawned.
+- **Leg 10c landed** (zero rows and sinks on every self-configuration file; the token-attribute test passes; agents 273 passed in 578 s; contracts 991 passed). FD calls:
+  - The `emptyState` variant is named `plain`, because `size: 'inline'` already exists. Accepted.
+  - The copy announcement goes to a dedicated visually hidden `role=status` node, not the action-status line. `copyButton` writes `liveEl.textContent`, which would break that line's label, and the action line has no live role on purpose. Accepted, and noted for the flight review.
+  - **Not accepted:** the Rules and notes empty-state roots are now styled through `[data-testid="rules-empty"]`/`[data-testid="notes-empty"]` in `studio.css`. Testids are test hooks. Leg 11 moves it onto the library and bans `[data-testid` in CSS.
+  - The visible switch labels in Self-configuration (DD4 item 1, DD7) go on the HAT list.
+- **Leg 11 `agents-close`: tiered low-risk** (close-out within decided rules: counts, dead CSS, captures, lane re-budget by the script's headroom rule, docs). The one shared-surface change, a possible lane split, is pre-decided by its 1.3× rule. No design review is run; the flight Reviewer covers the code. Leg 11 is set to `ready` with the flight's carried items. The Developer has been spawned.
+- **The HAT list so far:**
+  1. "Confirm delete?" / "Confirm purge?" sentence case (06b);
+  2. the standard-size Test button (06b);
+  3. the switch label typography (07a);
+  4. the MCP tile layout: flush rows, chip order, the dimmed locked switch (07b);
+  5. the error line's danger LED on Rules and notes (09);
+  6. the visible self-configuration switch labels (10c);
+  7. the stored-value note on a self-configuration conflict (10a, the operator's choice);
+  8. the 0220/0221 behaviours (05);
+  9. the DD9 fixes: collapsing an MCP source (07b), tool overrides preserved (08a), unsaved edits kept (10a);
+  10. the carried capture differences that leg 11 resolves;
+  11. a VoiceOver check of a tool row's checkbox inside its Overrides `<summary>` (an a11y review finding).
+- **2026-10-21 ~23:25: leg 11's Developer was killed mid-leg by an authentication error** (the login expired; the operator re-logged in). It left the leg `in-flight`, no flight-log entry, and partial edits. These included a Rules and notes split (`rules-notes-shared.js`, `notes-section.js`), `list-pane.js`, `feedback.js` and `button.js` changes (a compact-icon option in progress), and a capture set taken mid-edit. No test or capture processes were left running. Per the error-handling rule, a new Developer was spawned with the inherited file list. It is to reconstruct the partial work against the 08b-10c entries, finish or fix it, retake the captures, and run the full gate. The leg stays the same leg (it was not aborted): the requirements did not change.
+- **2026-10-22: leg 11 landed (resumed Developer).** It kept the interrupted run's partial work after checking it, and added the catalogue text. The testid-styled CSS is gone (`emptyState` `variant: 'flush'`; no `[data-testid` in `static/css`). No unexplained capture difference remains, and the toggletip is not clipped. The first `make gate` was green (browser 1187 s; unit 6717 passed, 14 skipped under netns). `agents` ran 672 s against 510 s (1.32×, past the 1.3× rule), so it was split into `agents` and `agent-tabs` per the pre-decided rule, and squawk 0217 records the re-budget. In the next parallel run, two `agents` failures passed alone:
+  - a hash race in `test_library_roots_have_one_hidden_h1[connectors]`, fixed in the test;
+  - a load-sensitive ratio in `test_filter_keystroke_cost_ratio_60_vs_10_throttled`, logged as **squawk 0230** (routine, open).
+
+  Squawk 0229 did not recur. Next: the flight review. The Reviewer runs on **Sonnet**, because the diff touches self-configuration identity and the token reveal. The Accessibility Reviewer runs in parallel, since the flight changes user-facing UI.
+- **2026-10-22: flight review, cycle 1.** Both reviewers signalled [HANDOFF:confirmed] with no blocking issues.
+  - **The code Reviewer (Sonnet)** verified the carried items:
+    - (A) 10b's moved security branches are intact: stale approve fails closed, override comes only from its button, restore is `applied`-only with `side`, credential mint/rotate/revoke never reach `onSelfConfigChanged`, and the token is never in an attribute and is cleared on every exit;
+    - (B) the copy announcement is fine;
+    - (C) three `onSelfConfigChanged` guards (area, identity, Save in flight) have no test; they fail safe and are not blocking;
+    - (D) the 0223 `tool_overrides` rule is intact.
+  - **The Accessibility Reviewer (Sonnet)** raised seven non-blocking findings.
+  - **FD call: fix before the commit, as one fix pass.** The pass covers:
+    - the mixed-state track edge (1.4.11);
+    - the stored-value note announcement (4.1.3);
+    - the expand-button group name (2.4.6, 4.1.2);
+    - `aria-describedby` on the locked master;
+    - clearing `copyLive` on hide;
+    - tests for guard C, each proven by removing the guard.
+  - The remaining three findings are accepted:
+    - a checkbox inside `<summary>`: a VoiceOver concern, which goes on the HAT list as a manual check;
+    - `title`-only truncated descriptions: these predate the flight;
+    - 2.5.8 target sizes: a WCAG 2.2 criterion, outside the 2.1 AA bar.
+- **2026-10-22: flight review, cycle 2.** The fix pass (`### Flight review fixes`) was re-reviewed by a Sonnet Reviewer, which signalled [HANDOFF:confirmed]: static guards 327 passed, tile contract 40 passed, dirty 12 passed.
+  - **Area guard:** the guard is not independently testable. Leaving Agents for Library destroys the editor first, so the identity guard and the `d.handle` check cover the case.
+  - **FD call:** keep the test as a behaviour pin. The commit step renames it, so its name no longer claims the guard drops the write, and its docstring states the gap.
+  - **Hidden-editor patch:** `_activeSection` stays `'agents'` on Chats and Settings, so a write resolving there patches the hidden editor in place. This is accepted as the intended DD9-3 behaviour, since the editor still exists.
+  - The review is complete, after 2 of the allowed 3 cycles. Legs 01-11 move to `completed`. Squawks 0094, 0217, 0220 and 0221 are signed off by the flight review. Leg 12 `flight-hat` is `ready` for the operator.
 
 ### before-set
 
@@ -580,3 +658,243 @@ A PUT with `"tool_overrides": {}` is stored and read back as `{}` (not cleared t
 
 #### Verification
 ruff check and format clean. `make test-unit`: 6722 passed, 12 skipped (294 s). `agents` lane (netns): 231 passed, 503 s, no flake. The two override browser files: 16 passed.
+
+### tools-tab
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### Changes Made
+- **`studio/tools-tab.js`** rebuilt on the library: `renderToolsTab(panel, agent, callbacks)` returns `{setAgent(agent, opts), destroy}`. One `App.ui.groupTile` per category (root dataset `{category}`, tristate master with dataset `{categoryMaster}`, count chip through `setCount`), one `App.ui.toolRow` per tool (row dataset and `inputDataset` `{tool}`; "Overrides" disclosure on operator-enabled tools; the `time-tool-note` through `note: {text, testid}`; disabled rows get the library's strike, title and no affordance). No sinks, no allowance rows.
+- **`studio/tool-override-fields.js`** (new, script added to `index.html` before `tools-tab.js`): `App.studio.toolOverrideFields.render/seedValue/allowed`. Boolean, integer (number input, min/max under Narrow), integer dropdown (filtered `<=` operator, "(custom)" option), string dropdown, string, password (`secretInput`), array (`chipList`, NarrowSuperset operator items locked and sent as part of the union, `data-marker`), unknown (JSON text), info as the `field` toggletip. The markers `data-tool-override-tool/-field`, `data-field-type`, `data-marker` are on the control element itself, so 08a's `loadedTools` rule and `readFieldValue` are unchanged. `tools-form-helpers.js` is untouched (`git diff` empty); its rows are Flight 3 debt.
+- **No node versions of `renderFieldErrors`/`applyShowIf`: none needed.** Grep confirmed nothing in `studio/` calls them, agent-mode fields carry no `show_if`, and no agent-editor PUT-422 path paints per-override errors.
+- **Chip rules (each tested)**: the string path had NO client-side subset or prefix check (`tools-tab.js` passed only `onChange`; the helper's `onChipAttempt` was never supplied), so "exactly" is: Narrow (subset) and NarrowPrefix accept any non-empty, non-duplicate entry (the server answers 422 on Save), NarrowSuperset locks the operator items, empty and duplicate entries are rejected for all. The leg text's "reproduces NarrowPrefix and Narrow-subset" is read as reproducing this behaviour, not adding a new client rule; a real client-side check would be a behaviour change and is left for the HAT list if wanted.
+- **Cancel vs Save**: both reach `patch`, so the controller's `cancelEdit` now calls `renderEditor(agent, {revert: true})`, which `patchEditor_` passes to `handle.patch(agent, providers, bag, opts)` and on to `tools.setAgent(a, {revert, disabledTools, operatorConfigs, fetchToolSchema})`. Save (no flag) keeps loaded bodies; Cancel drops every loaded body, closes the disclosure and re-arms the lazy load (the tab owns its own `toggle` listener and a per-row generation counter, so a late schema reply is ignored; a failed fetch shows a danger status and retries on the next open). A changed operator-disabled set rebuilds the tab's own content.
+- **`agent-editor.js`**: `buildPanel('tools')` returns the handle (`h.tools`); the `rebuildPanels` keep list is now `general, knowledge, mcps, tools` (Tools left 06a's interim list; Rules and notes and Self-configuration remain).
+- **CSS**: `studio.css` lost `.tool-toggle`/`.tool-switch` (and their indeterminate rules), `.tool-actions`, `.tool-row`/`.tool-name`/`.tool-desc` (grep: no user), `.tool-row-disabled`, `.tool-name-strike`, `.tool-row-overrides*`, `.mcp-source-tile-toggle`, `.tools-category-tile*`, `.tool-tile*`, `.mcp-tool-text`/`-toggle-name`/`-description`; added `.area-studio .tool-override-field` (8px spacing), `.area-studio .tools-categories-list .loading` and a own `.tools-tab-intro` rule (the intro no longer borrows the owned `.section-description`). `.area-admin .tool-tile*` is untouched. Comment copies in `components.css` and `admin.css` updated. The legacy rules the tile and chip-list contract tests compare against moved to `tests/browser/_legacy_tool_css.py` (a frozen fixture, not product CSS).
+- **`scripts/ui_capture.py`**: the `agent-tools` surface now uses the library locators.
+- **Docs**: `the_one/agents.md` gained a "Built-in Tools tab (M31 F2 L08b)" block and the frame block's patch description is updated. No `js/ui` factory changed, so the control catalogue needed no row.
+
+#### setAgent coverage
+Checked states, masters and counts from `enabled_tools`/`disabled_tools` (incl. the whitelist-exempt `current_time`); loaded override bodies kept on Save; `revert` (Cancel) drops them; a changed disabled set rebuilds. Tests: `test_save_keeps_the_open_override_body_and_its_focus` (same node, open, focused: the Save click is dispatched so focus stays where the user left it), `test_save_with_changed_overrides_reflects_saved_values_in_open_bodies` (and a second change saves from the patched body), `test_cancel_drops_override_edits_and_rearms_the_lazy_load`, `test_cancel_restores_checked_state_and_counts`, `test_stored_override_on_an_operator_disabled_tool_survives_a_save`.
+
+#### Tests changed / added
+- Moved to the new locators without weakening: `test_flow_studio_tools_overrides.py`, `test_flow_studio_time_tool.py`, `test_flow_agent_tabs.py` (`.tool-switch` -> `.ui-toggle-track` visible; `.tool-toggle` count -> master and tool checkbox counts), `test_flow_studio_tool_overrides_preserved.py` (08a), `test_flow_agents_root_heading.py` (the master's `aria-label` attribute is now its accessible name, since the library names the switch by its visually hidden label: `to_have_accessible_name`, the same wording; found by the first `agents` lane run). The `.chip-remove` count-0 assertion became `button` count 0 (stricter: the library's remove class is `ui-chip-remove`).
+- `test_design_tokens_a11y.py`: the studio `.tool-switch` pins replaced by the library toggle's mixed-state track and thumb pins (the indeterminate contrast check itself is unchanged; the checked, off and thumb pins already existed for `.ui-toggle-*`). `test_deep_violet_computed_styles.py`: the switch fixture is the library toggle (same expected colours); the `.tool-actions` compact-button check was dropped with its dead rule.
+- `test_ui_tile_contract.py`, `test_ui_chip_list_contract.py`: legacy CSS now comes from `_legacy_tool_css.py`.
+- Added: `test_flow_studio_tool_override_fields.py` (every field kind and each chip rule, accept and reject, Chromium and WebKit, 22 cases) and `test_flow_studio_tools_tab_patch.py` (real-click dirty tracking for a tool checkbox, a category master and an override field; patch on Save; Cancel; operator-disabled override preserved; 8 tests).
+
+#### Allowance deltas (all lowered or neutral, none raised)
+- `HTML_SINK_ALLOWANCE` and `DYNAMIC_SINK_BASELINE`: `areas/studio/tools-tab.js` 5 -> 0 (entries removed).
+- Ownership: the four `tools-tab.js` rows removed (`checkbox-primary`, `chip-list-editor`, `empty-state`, `section-description`); `css/studio.css` `btn-outlined-primary` 1 -> 0, `empty-state` 1 -> 0, `field-group` 1 -> 0, `chip` 3 -> 2. `tools-form-helpers.js` rows unchanged (Flight 3 debt).
+- `test_index_asset_cache_busting.py` pin 86 -> 87 (the new `tool-override-fields.js`, reason recorded in its comment).
+- Accessible-name note for the review: a first CSS draft scoped the field spacing through the owned `ui-tool-row-body` and `ui-checkbox` classes (two ownership rows raised); it was changed to the tab's own `tool-override-field` class instead, so nothing rose.
+
+#### Capture differences (`$HOME/.cache/the-one-ui-capture/m31-f2-after-08b/`, against `m31-f2-before`)
+- `admin-builtin-tool-editor--{light,dark}`: pixel-identical to the before set (computed diff empty).
+- `agent-tools--{light,dark}`: the category masters and the tool-row layout are as before except (a) the master is the library's 36x20 switch (each tile header 2px taller, the name 4px to the right): DD4 item 1; (b) the chip "x" is muted: DD4 item 2; (c) page height 1336 -> 1346 (five tiles x 2px). The "Allow Binary Files" boolean keeps its label-above layout on purpose (App.ui.checkbox's input in a stacked `App.ui.field`); a first draft that used the checkbox's own label row differed visibly and was rejected under DD4. The info buttons carry the toggletip (DD4 item 4; no info icon is shown on this capture's fields).
+
+#### Verification
+- Static guards, ownership, token, a11y, control inventory, nav helper, cache busting, run-tests lanes pin: 419 passed. ruff check and format clean.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: 6717 passed, 1 failed (`test_ui_ownership.py`, fixed by the allowance rows above and re-run green), 14 skipped, 277 s.
+- Lanes (netns, at most three at a time): `agents` first run 260 passed, 1 failed (`test_flow_agents_root_heading.py`, the master `aria-label` assertion, fixed above), 561 s; `agents` re-run 261 passed, 569 s; `settings` 107 passed, 226 s; `contracts` (`THE_ONE_REQUIRE_WEBKIT=1`) 985 passed, 5 skipped, 323 s; `routing` 184 passed, 465 s; `shared` 255 passed, 262 s. No squawk-0229 flake this time.
+
+### rules-and-notes-tab
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### Changes Made
+- **`studio/rules-notes-tab.js`**: zero sinks, zero allowance rows. Sections are `App.ui.section({titleTag: 'h3', className: 'rules-notes-section'})` (the `rules-section`/`notes-section` testids are set on the returned element); the four `role=alert`/polite lines are `App.ui.status` (`buildErrorLine`: danger state, `role: 'alert'`, hidden until there is a message; `buildLiveLine`: idle state, `visually-hidden`), testids `rules-error`/`notes-error`/`rules-status`/`notes-status` set literally at the call site (the registry guard needs literals); empty and create-mode notices are `App.ui.emptyState({titleTag: 'p'})` through one `buildEmpty` helper (testids `rules-empty`, `notes-empty`, `rules-create-mode`, `notes-create-mode`, text unchanged); delete is a library `App.ui.button` (danger, sm, same `aria-label`, `data-confirm-title` span) armed by `App.ui.confirm` (no `delete-btn` class; the shared `ui-confirm-live` announcement is unchanged); the `.ui-toggle` class query is `toggle.el.classList.add(...)` on the handle. "Clear all" stays `App.confirmDialog` (DD7). Note text is still `textContent` only (`test_note_text_with_markup_renders_literally` passes).
+- **No `setAgent`; left out of the patch.** `agent-editor.js`: `rules-and-notes` added to `patch`'s `rebuildPanels` keep list (it covers Cancel, which goes through `patch` with `{revert: true}`); only Self-configuration still rebuilds (leg 10). Header comment updated.
+- **`ui/feedback.js`**: `App.ui.status` gains `role` (`'status'` default, `'alert'`; any other value throws; ignored with `live: 'off'`). Contract case `test_status_role_option` in `tests/browser/test_ui_feedback_contract.py` (both engines); catalogue row in `docs/ui-control-inventory.md` updated. There is no separate demo page in the tree, so no demo note.
+- **`css/studio.css`**: `.rules-error` and `.rules-empty` removed (no consumer); a scoped `.rules-notes-empty` rule (added in JS to the emptyState root) keeps the tab's own quiet look (flush-left body-sm muted in the list, centred padded body-size for create mode, the library's medium-weight title inherits).
+- `the_one/agents.md` Rules and notes block updated.
+
+#### Tests changed / added
+- Added `tests/browser/test_flow_agent_rules_notes_patch.py`: unsaved Add-rule text survives a General description edit and Save, the Add button stays enabled, and no `GET .../rules` or `.../notes` is made during the Save. Falsified: with `rules-and-notes` removed from the keep list it fails.
+- Added `test_status_role_option` (contracts).
+- `test_flow_agent_rules.py` and `test_flow_agent_notes.py`: no selector changes were needed (grep of `rules-error|rules-empty|notes-empty|delete-btn|ui-toggle|aria-live` shows only testid selectors that are kept; the one `aria-live` assertion is a negative on the count node).
+
+#### Allowance deltas (all lowered, none raised)
+- `tests/_ui_ownership_allowance.py`: removed all six `rules-notes-tab.js` rows (`api:App.confirmDelete(`, `delete-btn`, `editor-section`, `empty-state` x2, `section-title`, `ui-toggle`). No sink-allowance row existed for the file. No ratchet rose.
+
+#### Capture differences (`$HOME/.cache/the-one-ui-capture/m31-f2-after-09/agent-rules-and-notes--{light,dark}.png`, against `m31-f2-before`)
+- First capture showed "No notes yet." centred, medium-weight and primary ink (the library's `emptyState` look). Fixed with the scoped `.rules-notes-empty` CSS above; after the fix the tab content region (everything below y=38) is pixel-identical to `m31-f2-before` in both themes.
+- Remaining difference is only the top strip (y 12-38): the Agents list "New" button and, in dark, the header action buttons. Not this leg's surface; carried from earlier legs (DD1/DD3 chrome work), not changed here.
+- The error line now shows a danger LED before its text (library `status`); not visible in the capture (the error is hidden at rest). Justified by DD8 (status through the library).
+
+#### Verification
+- Static guards, ownership, token, a11y, control inventory, nav guard, cache busting: 335 passed.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: 6718 passed, 14 skipped (278-283 s), re-run after the last CSS change (see below).
+- Lanes (netns, three at a time): `agents` 262 passed (571 s), `chats` 181 passed (325 s, includes `test_flow_chat_drawer.py`), `contracts` (`THE_ONE_REQUIRE_WEBKIT=1`) 987 passed, 5 skipped (337 s). No flakes (0229 did not appear).
+- Rules/notes/patch files re-run after the CSS fix: 27 passed.
+- Correction after the CSS fix: the first post-CSS `make test-unit` failed 3 guards (testid literals passed through `buildEmpty`, and `.ui-empty-title` named in `studio.css`). Fixed (testids set literally at the call site; CSS targets `.rules-notes-empty > p`), guards green, captures re-taken (tab region still pixel-identical), `make test-unit` re-run green end to end: 6718 passed, 14 skipped (278 s). Rules/notes/patch/drawer files re-run: 56 passed. Lanes were run before the CSS selector tweak; the tweak is style-only and the affected files above were re-run.
+
+### self-config-refresh
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### DD9-3 before/after
+- New `tests/browser/test_studio_self_configuration_dirty.py` (9 tests), written first and run on the pre-fix tree: 5 failed, 3 passed (of 8 at that point). Tests 1 (approval toggle keeps typed General edits) and 3 (conflict keeps the typed text, with the note) failed as required; the regression guards 2 (enable then Save keeps the loopback id), 4 (clean field takes the approved value, subtitle updates, form clean) and 5 (disable then Save drops the id) passed. The other failures were the tests that need the new behaviour (note cleared by Cancel / when the field is clean again, the snapshot rebase with a typed edit, the patch test's same-`<details>`-node / no-GET check).
+- After the fix: 9 passed.
+
+#### Changes Made
+- **Controller** (`agent-editor-controller.js`): `onSelfConfigChanged(updated)` with the guard (active section `agents`, slot key `'edit:'+name`, no Save in flight; `saveInFlight` is new, set from a PUT/POST start to the end of its handling since the controller had no such flag); otherwise only `_selectedAgent` (name match) and the list row. Acts through handles only (`general.applyStored`, `shell.setSubtitle`, `mcps.setSources`, `selfConfig.setAgent`); never `doSelect`/`patch`/`General.setAgent`/`MCPs.setAgent`, never `selectSeq`/`state.dirty`/`_selectedAgentLoaded`. Snapshot rebase: clean -> retake; dirty -> parse, change `description`/`system_prompt`, `mcp_source_ids` (surface id added or removed, kept in DOM order) and `mcp_overrides` (the surface source's entry follows the form; the source name is the server constant `self-configuration`), stringify, `checkDirty()`. Noted fields accumulate across refreshes and drop through the dirty callback (`recheckStoredNote_`) once the field equals the rebased baseline. `studio.js` wires `agentData`'s `onSelfConfigChanged` to it (call-time).
+- **General** (`general-tab.js`): `applyStored(stored, baseline)` (writes clean fields only, returns the edited-and-changed keys) and `setStoredChangeNote(keys|null)` (`App.ui.status`, testid `agent-stored-value-changed`, registered in `docs/ui-testid-registry.md`); `setAgent` clears the note.
+- **Self-configuration tab** (`self-configuration-tab.js`): returns `{setAgent, destroy}` (a no-op handle in create mode); `pendingAction` replaced by a local `announce(message)` (written to `self-configuration-action-status`, focus moved, on success BEFORE the refetch); per-kind refetches (`refetchStatus` for enable/disable with External access and a result-based fallback, approval mode status-only; `refetchRevisions` for approve/override/dismiss/restore) behind sequence counters and a `destroyed` flag; disable hides the token reveal via `renderExternalState(false)`; `destroy` hides it too. A failed revisions refetch clears the queue so no stale actionable card remains. Security branches (stale fail-closed approve, `?override=true` only from the override button, restore only on applied rows, credential mint/rotate/revoke skipping `onSelfConfigChanged`) are untouched.
+- **Frame** (`agent-editor.js`): the tab's handle is `h.selfConfig`; `patch` calls its `setAgent`; the interim rebuild list is empty (the post-patch `rebuildPanels` call is gone); `h.destroy` calls `selfConfig.destroy()`. Cancel goes through `patch`, which skips the tab rebuild.
+- **Clean-up**: `fetchPendingCount` removed from `agent-editor.js`, `agent-editor-controller.js`, `agent-data.js` (the wrapper and its handle entry) and the tab's header; stale "studio.js re-renders the tab" comments corrected. agents.md updated (frame paragraph, the self-configuration refresh block, funnel table row, queue paragraph).
+
+#### Handle coverage
+General (`applyStored`, `setStoredChangeNote`, `setAgent` clears the note), MCPs (`setSources` only), Self-configuration (`setAgent`, `destroy`), shell (`setSubtitle`). Knowledge, Tools, Rules and notes are not called by the refresh. Not covered by a browser test: the note clearing on a new identity (remount; by construction, the dirty-leave guard makes it awkward to reach) and disable while the MCPs tab is dirty (`setSources` is covered by the 07b tests and the existing enable/disable MCPs-tab tests, which pass).
+
+#### Tests and gates
+- New file (9): approval toggle keeps edits; enable then Save keeps the loopback id; conflict note + clean-field takes the stored value + Save stores the typed text; note clears on Cancel; note clears when the field is clean again; clean field takes the approved value; disable then Save drops the id; enable with a typed edit adds no spurious change (rebase); patch test (same history `<details>` node, still open, no `GET .../self-configuration*` during a General Save).
+- The four self-configuration files, `test_flow_dirty_confirm`, `test_flow_agent_editor_frame`, `test_studio_mcps_tab`: 82 passed with the new file.
+- `agents` lane 271 passed in 547 s (one run, three concurrent-free after a mis-started parallel routing run); `routing` lane 184 passed in 434 s. No squawk-0229 flake seen.
+- `make test-unit` equivalent (`pytest tests/ -m 'not browser and not live and not pixel'`): 6761 passed, 15 skipped (not netns; the expected count is 12, so 3 timing/platform skips beyond it were not triaged with `-rs`). `test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_ui_ownership`, `test_index_asset_cache_busting` pass; ruff check and format clean.
+
+#### Allowance deltas
+None. A new `queueList.innerHTML = ''` was changed to `textContent = ''` so `self-configuration-tab.js` stays at 5 sinks; no new ownership rows. One new testid registry row.
+
+### self-config-split
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### Function to module map
+- `self-configuration-tab.js` (entry, 146 lines): header, the `!agent` notice, the per-mount `ctx` (`panel`, `agent`, `callbacks`, `destroyed`, `statusSeq`, `revisionsSeq`, `approvalReady`), the four `build(ctx)` calls in panel order (status, revisions, history, external), the initial `refetchStatus({})` / `refetchRevisions()`, and the returned `{setAgent, destroy}`.
+- `self-config-status.js` (`App.studio.selfConfigStatus`): `actionStatus`, the enable section and approval section DOM, `announce`, `renderState`, `renderApprovalState`, `refetchStatus`, `refetchRevisions`, `setAgent`, `destroy`.
+- `self-config-revisions.js` (`selfConfigRevisions`): pure `commonPrefixLen`, `commonSuffixLen`, `diffSegments`, `applyDiffSpans`, `renderDiffedValues` (module level, exported); queue section DOM, `renderCard` (with `renderStale`, approve, override, dismiss), `renderQueue`.
+- `self-config-history.js` (`selfConfigHistory`): `formatTimeAgo`, `formatRevisionTimestamp` (module level, exported); history section DOM, `fieldName`, `statusLedVariant`, `renderRestoreNodeRow`, `RESTORE_FIELD_ORDER`, `renderHistory`.
+- `self-config-external.js` (`selfConfigExternal`): External access DOM, error helpers, `hideTokenReveal`, `showTokenReveal`, copy/dismiss handlers, `renderCredentialRow` (rotate, revoke), `renderExternalList`, `refreshExternalList`, grant handler, `renderExternalState`.
+- Shared through `ctx`, read at call time: `announce`, `refetchStatus`, `refetchRevisions`, `renderQueue`, `renderHistory`, `renderExternalState`, `hideTokenReveal`, `fieldName`, `setAgent`, `destroy`, and the nodes `queueList`, `countLine`, `historyList`, `externalStatus` (the status module's failure text writes to them). No module-level per-mount state; the only window state is the four namespaces.
+
+#### Identifier rewrites (no condition, `side` or `onApproveRevision(..., true)` line changed except by these)
+- `agent.name` -> `ctx.agent.name` (all handlers: enable/disable, approval mode, approve false, override true, dismiss, restore, mint, rotate, revoke, `fetchStatus`, `fetchRevisions`, `fetchExternalCredentials`); `agent = a` -> `ctx.agent = a` in `setAgent`.
+- `destroyed` -> `ctx.destroyed` (the `announce` guard, the three `.then` guards, `live()` in both refetches, `setAgent`, `destroy`); `statusSeq` / `revisionsSeq` -> `ctx.statusSeq` / `ctx.revisionsSeq`; `approvalReady` -> `ctx.approvalReady` (its `var` line became `ctx.approvalReady = false;`, also initialised in the entry).
+- Cross-module calls prefixed: in status `renderExternalState(`, `renderQueue(`, `renderHistory(`, `hideTokenReveal(`, and `externalStatus` / `queueList` / `countLine` / `historyList` writes -> `ctx.`; in revisions and history `announce(` and `refetchRevisions()` -> `ctx.announce(` / `ctx.refetchRevisions()`; in revisions `fieldName(` -> `ctx.fieldName(`.
+- Aliases added (new lines, no rewrite): `var callbacks = ctx.callbacks;`, `var panel = ctx.panel;`, history's `renderDiffedValues` and external's `formatRevisionTimestamp` read from the exporting namespace at build.
+- Verified by grep: `onApproveRevision(ctx.agent.name, revision.id, true)` only inside the override button, `false` in approve; `onRestoreRevision(ctx.agent.name, node.revisionId, node.side)`; restore nodes only from `r.status === 'applied'`; the `result.stale` branches; mint, rotate, revoke call no `onSelfConfigChanged`.
+
+#### Sizes (`wc -l`)
+entry 146, status 302, revisions 339, history 367, external 445 (all under 800).
+
+#### Pin and rows
+- `index.html` loads history, revisions, external, status, then the entry. `tests/test_index_asset_cache_busting.py`: 87 -> 91 (+4 scripts), comment line added.
+- `tests/test_ui_guards.py` `HTML_SINK_ALLOWANCE`: `self-configuration-tab.js` 5 -> entry 1 + revisions 1 + history 2 + external 1 (total 5 unchanged).
+- `tests/_ui_ownership_allowance.py`: the 12 `self-configuration-tab.js` rows rekeyed to the module each class moved to; per-class totals unchanged (confirmDelete 1, btn-filled-primary 3, btn-ghost 1, btn-muted-destructive 1, btn-outlined-primary 4, btn-sm 4, delete-btn 1, editor-section 5, empty-state 5, field-input 2, indicator-led 1, section-title 5). These and the pin are the only test-file edits; no behavioural test was touched.
+
+#### Tests and gates
+- The four self-configuration files plus the dirty file: 30 passed (netns). `agents` lane (netns): 271 passed in 557 s; no squawk-0229 flake seen.
+- `test_ui_guards`, `test_ui_ownership`, `test_token_definitions`, `test_design_tokens_a11y`, `test_index_asset_cache_busting`: pass. ruff check and format clean.
+- `make test-unit` equivalent (`-m 'not browser and not live and not pixel' -rs`): 6761 passed, 15 skipped: 11 Windows-only PTY (10 `test_pty_windows.py` + `test_pty_dispatch.py`), 1 `test_time_zones.py` locale, and 3 `test_mcp_sandbox_integration.py` (two F6-A5 deadlock deferrals, one no-privilege-grants WSL2 skip), the 3 appearing because the explicit `-m` omits `not requires_bwrap` (documented count 15).
+
+#### Capture
+`$HOME/.cache/the-one-ui-capture/m31-f2-after-10b/agent-self-configuration--{light,dark}.png`. No 10a capture was taken, so compared with `m31-f2-before`: same size (1440x1054), the only differing region is (294,14)-(317,38) in both themes (outside the tab, from earlier legs); the tab body is pixel-identical.
+
+#### Allowance deltas
+None in totals; rows rekeyed as above.
+
+### self-config-library
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21
+**Completed**: 2026-10-21
+
+#### Changes Made
+- **Library additions.** `App.ui.status` gains `led: false` (no LED node; `data-state` still set; `set` skips the LED); contract case `test_status_led_false_draws_no_led` (both engines). `App.ui.emptyState` gains `variant: 'plain'` (inline size; root `empty-state empty-state--plain`; the title inherits the container's size, weight and ink; unknown variant throws), CSS in `components.css`; contract case `test_empty_state_plain_variant_...` (both engines). Catalogue rows updated (status, empty state, legacy toggle row no longer lists the tab). The leg's "inline variant" is named `plain`: the existing `size: 'inline'` already means the non-pane layout, and the Rules and notes consumer rule only needed the title to read as running text (the root layout there stays as before), so the variant owns only the title.
+- **Rules and notes** moved onto the variant: `rules-notes-empty` class and the `.rules-notes-empty > p` rule removed. The list-notice root rule (flush, left, body-sm, muted) stays, now selected by `[data-testid="rules-empty"]` / `[data-testid="notes-empty"]` because `.empty-state` is an owned class that consumer CSS may not name (ownership guard).
+- **Switches**: `App.ui.toggle` for enable and approval, labels "Enable self-configuration" / "Require approval for self-revisions" now visible beside the switch (DD4 item 1); testids on the input; `self-configuration-toggle-switch` kept on the root.
+- **Lines**: every status, error and count line is `App.ui.status({led: false})` (alerts `role: 'alert'`, hidden until used; helpers `showError`/`clearError`, `setCountLine`, `setExternalStatus` on `ctx`, replacing `ctx.countLine` / `ctx.externalStatus`); the history meta line is `App.ui.status` WITH its LED (`live: 'off'`, class `history-entry-meta` on the root, title kept on it; the old `indicator-led` and `.history-entry-meta-text` are gone). Empty notices: `emptyState({titleTag: 'p', variant: 'plain'})` (incl. the create-mode "Save the agent first"). Sections: `App.ui.section({titleTag: 'h3'})`. Buttons: `App.ui.button` throughout (revision cards, restore, grant, rotate, dismiss; revoke is a danger button armed by `App.ui.confirm`). Grant input `App.ui.textInput` (plain `<label for>` kept so the row layout is unchanged). History stays a native `<details class="advanced-collapsible">`. The `innerHTML =` clears became `textContent`.
+- **Token reveal** is `App.ui.copyField` created with no value, filled by `setValue(token)`, no dataset; `aria-describedby` on its input and its button; `copyTestid`/`testid` as before; focus lands on the copy control. Hand-rolled clipboard code deleted. The copy announcement ("Token copied to the clipboard.") goes to a dedicated visually hidden `role=status` node in the section, NOT the status line and not `actionStatus`: `copyButton` writes `liveEl.textContent`, which would replace the status line's label child and break later `set()` calls, and `actionStatus` has no live role by design (focus move conveys its summaries). Clearing: `hideTokenReveal` (`setValue('')`, reveal hidden) on dismiss, disable, destroy and the new `deactivate()` on the handle, called by the controller's `setActiveTab` when leaving `self-configuration` and by Studio's area `deactivate` (via `controller.deactivateSelfConfig`).
+- CSS: dead rules removed (`.history-entry-meta-text`, `.self-configuration-external-token-value`, the reveal row's own flex, the switch comment); the `.tool-enable-switch` rules stay in `admin.css` (other consumers: tools-grid, tools-editor, knowledge-settings-page, connector editor).
+- Security properties: stale approve fail-closed, `?override=true` only from the override button, restore only from `applied` nodes, mint/rotate/revoke skipping `onSelfConfigChanged`: handlers unchanged (only the DOM construction moved).
+
+#### Test selector changes (from a grep)
+- Switch clicks (`.click()` on the hidden input) became `click_switch(page, ENABLE_SWITCH|APPROVAL_SWITCH)` (new `tests/browser/_self_config.py`: `get_by_role('switch', name=...)` then the drawn track): `test_studio_self_configuration_tab.py` (3 sites), `_queue.py` (1), `_external.py` (1), `_dirty.py` (4), `test_studio_mcps_tab.py` (3, found by the grep beyond the leg's list). Expectations on the testid input (`to_be_checked`) unchanged.
+- `.history-entry-meta-text` -> `.history-entry-meta` (3 uses in `_history.py`).
+- No other selector changed (empty-state, status, error and button testids are all kept).
+
+#### Token-attribute test
+`test_token_never_written_to_an_attribute` (external file): after a grant, scans every attribute of every element (`document.querySelectorAll('*')`) for the full token and for its secret half: no hit; the field has no `data-field`; `aria-describedby` points at the warning on both the field and the Copy control; after dismiss the field is empty and the scan is clean again. Also `test_token_cleared_when_the_tab_is_left` (switch tabs, return: reveal hidden, field empty).
+
+#### Allowance deltas (all lowered, none raised)
+`HTML_SINK_ALLOWANCE`: four `self-config*` rows removed (entry 1, revisions 1, history 2, external 1). `OWNERSHIP_ALLOWANCE`: all 31 `self-config-*`/`self-configuration-tab.js` rows removed. The self-configuration files have zero rows in all three ratchets. Verification grep (`innerHTML|outerHTML|insertAdjacentHTML|tool-enable-switch|navigator.clipboard`) on the five files: no output.
+
+#### Capture differences (`$HOME/.cache/the-one-ui-capture/m31-f2-after-10c/`, against `m31-f2-after-10b`)
+- Self-configuration (light and dark): page 18px shorter (1036 vs 1054). Differences: the two switches show their label beside them and are slightly shorter than the old track (DD4 item 1, expected). Everything else matches by eye (sections, lines, empty notices, grant row). The copy button's "Copied" feedback and the revealed token row are not in the static capture (no reveal at rest) and are DD4's copy feedback.
+- Rules and notes: light pixel-identical to `m31-f2-after-09`; dark identical except (1198,12)-(1270,15), a header-strip sliver outside the tab (not this leg's surface; earlier-leg chrome).
+
+#### Verification
+- Static guards, ownership, inventory, tokens, a11y, nav, cache-busting: 409 passed. ruff check and format clean.
+- Self-configuration files (5, incl. the two new tests): 32 passed. Rules/notes/patch files: 27 passed.
+- `agents` lane (netns): 273 passed in 578 s. `contracts` lane (`THE_ONE_REQUIRE_WEBKIT=1`, netns): 991 passed, 5 skipped in 306 s. No squawk-0229 flake seen.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: 6718 passed, 14 skipped (the documented netns count), 279 s.
+
+### agents-close
+
+**Status**: landed (uncommitted; the Flight Director commits)
+**Started**: 2026-10-21 (the first Developer was killed by an authentication error ~23:25; resumed 2026-10-22)
+**Completed**: 2026-10-22
+
+#### Inherited from the interrupted run (reconstructed and kept)
+- `rules-notes-tab.js` split into `rules-notes-shared.js` and `notes-section.js` (entry 370 lines); `index.html`, the cache-busting and nav-guard pins updated. Correct and complete.
+- Library additions, all with contract cases in both engines (305 passed across the five changed contract files): `App.ui.badge.dot(kind)` (replaces two hand-built provider dots in `agents-list.js` and `agent-picker.js`), `listPane` handle `rows(visibleOnly)` (the focus helpers in `agents-list.js` and `library-pane.js` no longer name `.ui-list-pane-row`), `App.ui.emptyState` `variant: 'flush'` (moves the Rules and notes `[data-testid="rules-empty"|"notes-empty"]` CSS onto the library; `[data-testid` no longer appears anywhere in `static/css`), `App.ui.button` `compactIcon` (14px icon; used by the MCP Refresh, which fixed the 06a "New" icon difference: the standard small button is 16px again). The unfinished tile contract test (it built a Refresh with a 14px expectation) now passes with `compactIcon: true`.
+- I added the missing catalogue text: `badge.dot` (Badge row), `flush` and `empty-state--flush` (Empty state row), `rows(visibleOnly)` (List pane row); `test_ui_control_inventory` passes.
+
+#### Stragglers
+None: `HTML_SINK_ALLOWANCE`, `DYNAMIC_SINK_BASELINE` and `OWNERSHIP_ALLOWANCE` have no row for `studio.js`, any studio module created in 02a/02b/03, the tab files or the self-configuration modules (grep; the only `innerHTML` text in them is a comment). `wc -l`: `studio.js` 746, controller 748, `studio/*.js` all <= 550 except the pre-existing Flight 3/4 files (`connector-editor` 724, `provider-editor` 896, `provider-models` 1014, `knowledge-section` 1493, `mcp-server-editor` 2153), which this flight did not create.
+- Pre-existing test race fixed: `test_library_roots_have_one_hidden_h1[connectors]` read `location.hash` once right after the route committed (the alias redirect is a `replaceState` that can land just after) and failed once under gate load; it now polls the hash.
+
+#### Dead-CSS report (`css/studio.css`, 276 class tokens)
+Token grep of each class over `static/js` (comments stripped), `index.html`, the other CSS files and `tests/`: 0 tokens with no consumer in built markup after the earlier legs' deletions (the one non-hit, `area-studio`, is applied as `'area-' + areaId` in `app.js`). Nothing left to delete. Remaining legacy rules with consumers, named Flight 3/4 debt: the admin `.tool-tile*` (`admin.js`, `tools-grid.js`), the MCP editor's `.mcp-tool-item*` (`mcp-server-editor.js`, `knowledge-section.js`) and the chip-list copies the admin string path uses. `studio.css` rows in `OWNERSHIP_ALLOWANCE` (confirm-delete 3, editor-section 1, field-info-icon 1, field-input 2, indicator-led 2, tabpanel 1, ui-list-pane 2) are CSS-side and belong to the MCP/Knowledge/Connector editors (Flight 3/4).
+
+#### Capture comparison (`m31-f2-after` vs `m31-f2-before`, 44 PNGs, 0 failed; both themes read)
+- Pixel-identical: `admin-builtin-tool-editor` (light and dark: the admin Built-in tools editor shows no difference), `ollama-models-panel`, `plan-signin-awaiting-code`, `provider-create`, `provider-edit-ollama` and the dark `provider-edit-openai`/light `provider-edit-openrouter`/`provider-test-ok`. The remaining provider and flash pairs differ only by 2-9 pixels of 1-2 levels at a rounded corner (391,184-186), (619,38-40): anti-aliasing noise, no provider code changed.
+- `agent-rules-and-notes`: identical beyond a 1-2 level, 3px sliver in the header strip (`<= 2` levels).
+- `agent-general` (+7px): the Test button at the library's standard size (HAT 2); the Danger zone's trash icons and the gap between Delete Agent / Purge now are `dangerZone`'s canonical layout from Flight 1 DD8 (carried item 2: explained, not a defect).
+- `agent-knowledge`: the switch's label is the library toggle's typography (DD4 item 1; HAT 3). The knowledge-base id in the tool name is random per capture.
+- `agent-mcps`: DD4 items 1 and 3 (the Refresh button, smaller with a 14px icon), flush tool rows, chip order and the dimmed locked switch (DD3 `groupTile`, HAT 4).
+- `agent-tools` (+10px): DD3 group-tile layout, DD4 item 1 (switch) and item 2 (the chip "x"), with the tool rows flush to the tile body (HAT 4).
+- `agent-self-configuration` (-18px): the two switches with visible labels (DD4 item 1, DD7; HAT 6); everything else matches.
+- **Carried difference 1 (the (294,14)-(317,38) list-pane "New"/header strip): gone.** No agent capture differs there any more; `compactIcon` restored the standard 16px "New" icon.
+- No unexplained difference remains.
+
+#### Toggletip clipping check
+New `tests/browser/test_flow_toggletip_clipping.py` (2 tests): with a bubble open, its rect lies inside the viewport and inside every ancestor whose overflow is not `visible`, for the provider editor's context-window info and an agent Tools override field's info. Both pass: the bubble is not clipped by the editor pane's scroll container, so no positioning fix was needed.
+
+#### Gate and lane times (`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 make gate`, 1187 s browser phase, all green; unit 6717 passed, 14 skipped, the netns count)
+First run (budgets then): routing 502/600, agents 672/510 (OVER, 1.32x), providers 303/420, contracts 374/390, chats 340/360, mcp 328/360, library 242/300, settings 232/300, shared 268/300.
+`agents` exceeded 1.3x, so it was split into `agents` and `agent-tabs` (13 files: self-configuration, rules and notes, tools overrides, time tool). A second `--parallel 3` run: routing 503, agents 427, contracts 367, chats 346, mcp 341, providers 306, agent-tabs 233, library 246, settings 234, shared 270. Budgets (measured +25%, rounded to 30 s): agents 540, agent-tabs 300, contracts 480, chats 450, mcp 450; the rest unchanged. Squawk 0217 completed (corrective action and verification written; sign-off left to the flight review).
+Second-run failures, triaged: `test_library_roots_have_one_hidden_h1[connectors]` (a test race, fixed above) and `test_flow_agents_scale.py::test_filter_keystroke_cost_ratio_60_vs_10_throttled` (a timing ratio, 0.057 ms vs 3 x 0.019 ms): both passed 3 of 3 alone, and the whole `agents` lane then passed alone (161 passed, 378 s). The scale test is a load-sensitive timing flake, not a regression; no squawk exists for it (the Flight Director may want one). Squawk 0229 did not recur. Final `make test-unit`: 6717 passed, 14 skipped; ruff check and format clean.
+
+#### Docs updated
+`docs/ui-control-inventory.md` (rows above), `the_one/agents.md` (a "Flight 2 close (M31 F2 L11)" paragraph after the Tools tab block), `CLAUDE.md` (lane table with measured times and the `agent-tabs` lane, aliases, lane list, the self-configuration refresh note), `scripts/run-tests.sh`, `tests/test_run_tests_lanes.py`, `squawks/0217-...md`.
+
+### Flight review fixes
+
+Six non-blocking items from the code and accessibility reviews, fixed before the commit. Leg statuses are unchanged.
+
+1. **Mixed switch track edge (SC 1.4.11).** `components.css`: the indeterminate `.ui-toggle-track` gains `box-shadow: inset 0 0 0 1px var(--accent)` (no layout space; the forced-colors rule already draws a `Highlight` border). Contract case `test_group_tile_mixed_track_has_a_visible_accent_edge` (36x20 unchanged).
+2. **Stored-value-changed note announced (SC 4.1.3).** `general-tab.js::setStoredChangeNote`: when the note is hidden it is first shown empty and filled one tick later (a live region announces a text change, not an appearance); an already-visible note updates at once; a pending fill is cancelled on hide. Fixed in the editor rather than in the `status` factory: the library `status` has no hidden state of its own. `agent-stored-value-changed` testid kept; `test_studio_self_configuration_dirty.py` passes unchanged (its expects auto-wait).
+3. **Tile expand button group name (SC 2.4.6, 4.1.2).** `ui/tile.js`: the name span gets a `util.uid('gt-name')` id and the expand button `aria-describedby` points at it; the visible text is unchanged. Catalogue row updated. Contract case `test_group_tile_expand_button_is_described_by_the_group_name` (both engines; accessible description "Filesystem").
+4. **Locked MCP master says why.** New library option `master.describedBy` on `groupTile`, passed through a new `describedBy` option on the shared choice builder (`ui/choice.js`, appended to the input's `aria-describedby`). `mcps-tab.js` gives the "managed on the Self-configuration tab" hint an id and passes it. Catalogue row updated; contract case `test_group_tile_master_describedby_option` (both engines).
+5. **`copyLive` cleared on hide.** `self-config-external.js::hideTokenReveal` empties the copy-announcement node.
+6. **Three `onSelfConfigChanged` guard tests** in `test_studio_self_configuration_dirty.py` (the request is route-held, then released):
+   - `test_write_resolving_after_leaving_agents_does_not_throw_and_stored_value_shows_on_return` (area): approve held, user goes to Library, release; no page error, and on return the editor shows the approved value.
+   - `test_write_resolving_after_selecting_another_agent_patches_nothing_there` (identity): approve held for agent A, agent B selected, release; B's field, subtitle and note are untouched and clean; reselecting A shows the new value.
+   - `test_write_landing_during_a_general_save_leaves_no_stale_note` (save in flight): Save PUT held, an approve lands, and before release the typed text stays with no note; after release the editor is clean, Save disabled, stored value is the typed one.
+
+   **Guard-removal checks** (controller edited temporarily, restored byte-identical from a backup):
+   - Identity guard (`d.key === ... && sameAgent` removed): the identity test FAILS. Good.
+   - Save-in-flight guard (`!saveInFlight` removed): the save test FAILS. (An earlier draft of that test only checked the end state and passed without the guard; it now asserts before the Save is released.) Good.
+   - Area guard (`self._activeSection === 'agents'` removed): the area test still PASSES, and also with the `!!d.handle` test removed. It is not independently falsifiable: leaving Agents for a Library section closes the open item (destroys the editor) and clears `_selectedAgent`, so `d`/`sameAgent` already stop the patch. Finding: `_activeSection` stays `'agents'` while the user is on Chats or Settings (those are other area modules), so for those destinations the area guard does not apply and the hidden editor IS patched in place (harmless and arguably desirable: the stored value is there on return). The test therefore uses Library, the one destination where the area is left; it pins "nothing throws, stored value on return" but cannot prove the guard line itself.
+
+**Gates.** `make test-unit` 6719 passed, 12 skipped. Netns browser: `test_ui_tile_contract` + `test_ui_feedback_contract` (both engines, REQUIRE_WEBKIT) 62 passed; `test_studio_self_configuration_dirty` + `test_studio_mcps_tab` + `test_studio_self_configuration_external` 47 passed. Lanes (3 concurrent): `agents` 161 passed, `agent-tabs` 115 passed, `contracts` 1005 passed / 5 skipped (WebKit required). Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_ui_ownership`, `test_ui_control_inventory`) pass; no allowance added. `ruff check` / `ruff format --check` clean on the touched Python. No known flake (0229, 0230) appeared.

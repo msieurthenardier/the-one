@@ -15,6 +15,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import ENABLE_SWITCH, click_switch
 from playwright.sync_api import Page, expect
 
 
@@ -57,7 +58,7 @@ def test_enable_shows_locked_row_on_mcps_tab(app_clean: str, page: Page) -> None
 
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked(timeout=8000)
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
 
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("enabled", timeout=8000)
@@ -92,10 +93,10 @@ def test_disable_removes_row_from_mcps_tab(app_clean: str, page: Page) -> None:
 
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked(timeout=8000)
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
     expect(toggle).to_be_checked(timeout=8000)
 
-    toggle.click()
+    click_switch(page, ENABLE_SWITCH)
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("disabled", timeout=8000)
     expect(toggle).not_to_be_checked()

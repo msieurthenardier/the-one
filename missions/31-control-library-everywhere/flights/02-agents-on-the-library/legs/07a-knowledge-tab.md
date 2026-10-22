@@ -1,6 +1,6 @@
 # Leg: knowledge-tab
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

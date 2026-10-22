@@ -1,6 +1,6 @@
 # Leg: studio-state-and-editor-split
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

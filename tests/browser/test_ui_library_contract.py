@@ -247,6 +247,24 @@ def test_button_defaults_variants_and_sizes(engine_page: Page) -> None:
     assert out["ico"] == "svg"
 
 
+def test_button_compact_icon_is_14px_and_a_small_button_keeps_16px(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const mk = (o) => { const b = App.ui.button(Object.assign({label: 'Go', icon: 'plus'}, o)); root.appendChild(b); return b; };
+          const sm = mk({size: 'sm'});
+          const compact = mk({size: 'sm', compactIcon: true});
+          const px = (b) => getComputedStyle(b.querySelector('svg')).width;
+          return {smCls: sm.className, compactCls: compact.className, sm: px(sm), compact: px(compact),
+                  plain: px(mk({}))};
+        }"""
+    )
+    assert out["smCls"] == "btn-outlined-primary btn-sm"
+    assert out["compactCls"] == "btn-outlined-primary btn-sm btn-icon-compact"
+    assert (out["sm"], out["compact"], out["plain"]) == ("16px", "14px", "16px")
+
+
 def test_button_icon_only_requires_aria_label(engine_page: Page) -> None:
     _load(engine_page)
     assert "ariaLabel" in _throws(engine_page, "App.ui.button({iconOnly: true, icon: 'plus'});")

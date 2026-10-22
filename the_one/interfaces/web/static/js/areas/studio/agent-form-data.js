@@ -84,7 +84,7 @@
     // tool toggles on Tools) are all reachable from editorEl.
     function collectFormData() {
       var data = {};
-      var fields = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select');
+      var fields = editorEl.querySelectorAll('input[data-field], textarea[data-field], select[data-field]');
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i];
         if (f.disabled) continue; // skip Advanced-stub disabled inputs

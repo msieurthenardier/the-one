@@ -1,6 +1,6 @@
 # Leg: self-config-split
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

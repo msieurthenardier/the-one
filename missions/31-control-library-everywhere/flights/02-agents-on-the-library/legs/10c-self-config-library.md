@@ -1,6 +1,6 @@
 # Leg: self-config-library
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective
@@ -19,7 +19,7 @@ Move the four Self-configuration modules (from leg 10b) onto library controls, w
     - `_queue.py:211`;
     - `_external.py:365`.
   - **Status and alert lines** are `App.ui.status`. `App.ui.status` always draws an LED (`feedback.js` about `:131-158`), which would be a visible change on about 7 lines outside DD4. Add a `led: false` option (with a contract case in both engines and the catalogue row updated) and use it where today has no LED. For `role="alert"` lines, use the `role` option leg 09 added (or add it, if leg 09 did not).
-  - **Empty states** are `App.ui.emptyState` (with `titleTag: 'p'` where a heading would be wrong).
+  - **Empty states** are `App.ui.emptyState` (with `titleTag: 'p'` where a heading would be wrong). Today's empty states are plain inline text, not the centred bold `emptyState` look. **`App.ui.emptyState` gains an inline variant** (for example `variant: 'inline'`: left-aligned, regular weight, secondary ink, no extra padding), owned by the factory's CSS, with a contract case in both engines and the catalogue row. **Leg 09's consumer override moves onto it:** `css/studio.css` `.rules-notes-empty > p` and the `rules-notes-empty` class in `rules-notes-tab.js` are removed, and Rules and notes uses the variant. The leg 09 capture must stay pixel-identical. No consumer CSS may restyle a library control's inner nodes (FD ruling, 2026-10-21).
   - **Section headings** (`editor-section`/`section-title`, 5 each) are `App.ui.section({titleTag: 'h3'})`.
   - **Buttons:** every `btn-*` button is `App.ui.button`, with today's `aria-label`s and testids. That covers grant, copy, dismiss, rotate, restore, and the revision cards' approve, dismiss and override. The revision cards keep their structure.
   - **Restore LEDs** are `App.ui.status` variants.

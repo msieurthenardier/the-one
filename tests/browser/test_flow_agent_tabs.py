@@ -200,10 +200,10 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
 
     expected = f"agents/{_nav.seg(agent_name)}/tools"
     _nav.expect_route(page, expected)
-    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
-    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
-    # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator(".tool-switch").first).to_be_visible()
+    # The Built-in Tools tab is category group tiles with library switch masters
+    # (M31 F2 L08b). The native input is visually hidden; its track is the visible
+    # switch.
+    expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible()
 
 
 @pytest.mark.browser
@@ -229,10 +229,10 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/tools")
     _wait_editor_ready(page, expected_tab="tools")
 
-    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
-    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
-    # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator(".tool-switch").first).to_be_visible(timeout=8000)
+    # The Built-in Tools tab is category group tiles with library switch masters
+    # (M31 F2 L08b). The native input is visually hidden; its track is the visible
+    # switch.
+    expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 
@@ -245,9 +245,10 @@ def test_tools_tab_renders_builtin_checkboxes(app_with_agent: SeededApp, page: P
 
     page.locator('[data-testid="tab-tools"]').click()
 
-    # The "Built-in tools" section shows checkboxes via .tool-toggle.
-    toggles = page.locator(".tool-toggle")
-    assert toggles.count() > 0
+    # The "Built-in tools" section shows a master switch per category and a
+    # checkbox per tool.
+    assert page.locator("input[data-category-master]").count() > 0
+    assert page.locator("input[type=checkbox][data-tool]").count() > 0
 
 
 @pytest.mark.browser

@@ -1,16 +1,15 @@
 """Studio agent-editor Tools-tab override tests (F6 leg 05/07 behaviors).
 
-Rewritten against post-M08-F4-rebrand markup in M17 F1 L02. The Tools tab
-now renders per-CATEGORY tiles (`.tools-category-tile[data-category]`,
-Filesystem/Execution/Web) with a master toggle, an `X / Y enabled` count
-badge, and an expand button that un-hides the category's tools body. Each
-tool inside is a `<details class="tool-tile tool-row-overrides"
-data-tool="...">`: the summary carries the visible checkbox
-(`input.checkbox-primary[data-tool]`) + name (`.mcp-tool-toggle-name`),
-and — for operator-enabled tools — an "Overrides" affordance that toggles
-the details open, lazy-loading the override fields into
-`.tool-row-overrides-body` (F6 L5 behavior preserved through the F4 L2
-restructure).
+Rewritten against post-M08-F4-rebrand markup in M17 F1 L02 and moved to the
+control library in M31 F2 L08b. The Tools tab renders per-CATEGORY
+`App.ui.groupTile`s (`.ui-group-tile[data-category]`, Filesystem/Execution/Web/
+Connectors/Time) with a tristate master, an `X / Y enabled` count chip
+(`.ui-group-tile-chip`) and an expand button (`.ui-group-tile-expand`,
+`aria-expanded`). Each tool is an `App.ui.toolRow`
+(`.ui-tool-row[data-tool]`; a `<details>` for an operator-enabled tool): the
+summary carries the checkbox (`input[data-tool]`), the name (`.ui-tool-row-name`)
+and an "Overrides" affordance (`.ui-tool-row-affordance`) that opens the body
+(`.ui-tool-row-body`), lazy-loading the override fields on first open.
 
 Covers: operator-disabled-tool surfacing, the per-tool override panel
 (lazy-load dedupe, marker-aware widgets, NarrowSuperset locked chips), and
@@ -27,10 +26,10 @@ Notes on tricky patterns:
   request counting (NOT DOM-stability heuristics) — Reviewer-flagged
   as the only reliable signal.
 - NarrowSuperset locked chips render WITHOUT a remove button entirely
-  — the assertion checks ``.chip[data-locked] .chip-remove`` count is
+  — the assertion checks ``.chip[data-locked] button`` count is
   0 (NOT just visually hidden via CSS).
 - Opening a tool's override panel clicks the summary's
-  ``.tool-tile-overrides-affordance`` (NOT the summary center): per the
+  ``.ui-tool-row-affordance`` (NOT the summary center): per the
   HTML spec, clicks on the checkbox-label part of the summary toggle
   only the checkbox, so the affordance area is the reliable open/close
   target.
@@ -69,10 +68,11 @@ def _open_tools_tab(app: SeededApp, page: Page) -> None:
 
 def _expand_category(page: Page, category: str) -> None:
     """Expand a category tile so its tool tiles become visible/clickable."""
-    tile = page.locator(f'.tools-category-tile[data-category="{category}"]')
+    tile = page.locator(f'.ui-group-tile[data-category="{category}"]')
     expect(tile).to_be_visible(timeout=8000)
-    tile.locator(".tools-category-tile-expand-btn").click()
-    expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
+    expand = tile.locator(".ui-group-tile-expand")
+    expand.click()
+    expect(expand).to_have_attribute("aria-expanded", "true", timeout=2000)
 
 
 def _open_override_panel(page: Page, tool: str) -> None:
@@ -82,8 +82,8 @@ def _open_override_panel(page: Page, tool: str) -> None:
     affordance (part of the `<summary>`, outside the checkbox label)
     toggles the `<details>` open, which fires the lazy-load.
     """
-    panel = page.locator(f'details.tool-row-overrides[data-tool="{tool}"]')
-    panel.locator(".tool-tile-overrides-affordance").click()
+    panel = page.locator(f'details.ui-tool-row[data-tool="{tool}"]')
+    panel.locator(".ui-tool-row-affordance").click()
 
 
 # ── Tests ───────────────────────────────────────────────────────────
@@ -102,29 +102,31 @@ def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page
     M23 F4 L3's `find_platform_destination`, which no copy had, to 22.
     """
     _open_tools_tab(app_with_agent, page)
-    tiles = page.locator(".tools-category-tile")
+    tiles = page.locator(".ui-group-tile")
     expect(tiles.first).to_be_visible()
     expect(tiles).to_have_count(5)
     for category in ("Filesystem", "Execution", "Web", "Connectors", "Time"):
-        expect(page.locator(f'.tools-category-tile[data-category="{category}"]')).to_be_visible()
+        expect(page.locator(f'.ui-group-tile[data-category="{category}"]')).to_be_visible()
     # Tool tiles are built up-front (hidden until category expand) — count
     # attached, not visible.
-    expect(page.locator("details.tool-tile")).to_have_count(23)
+    expect(page.locator(".ui-tool-row[data-tool]")).to_have_count(23)
 
 
 @pytest.mark.browser
 def test_studio_disabled_tool_renders_with_strikethrough(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Operator-disabled tool: its tile carries `.tool-row-disabled`, the
-    name span carries `.tool-name-strike`, and the checkbox is `disabled`.
+    """Operator-disabled tool: its row carries `.is-disabled`, the
+    name span carries `.ui-tool-row-name--strike`, and the checkbox is `disabled`.
     """
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
-    row = page.locator('details.tool-tile[data-tool="web_search"]')
-    expect(row).to_have_class(re.compile(r"\btool-row-disabled\b"))
-    expect(row.locator(".mcp-tool-toggle-name")).to_have_class(re.compile(r"\btool-name-strike\b"))
+    row = page.locator('.ui-tool-row[data-tool="web_search"]')
+    expect(row).to_have_class(re.compile(r"\bis-disabled\b"))
+    expect(row.locator(".ui-tool-row-name")).to_have_class(
+        re.compile(r"\bui-tool-row-name--strike\b")
+    )
     expect(row.locator('input[data-tool="web_search"]')).to_be_disabled()
 
 
@@ -133,7 +135,7 @@ def test_studio_disabled_tool_tooltip(app_with_agent: SeededApp, page: Page) -> 
     """Disabled tool tile's `title` attribute reads "Disabled by operator"."""
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
-    row = page.locator('details.tool-tile[data-tool="web_search"]')
+    row = page.locator('.ui-tool-row[data-tool="web_search"]')
     expect(row).to_be_attached()
     title = row.get_attribute("title") or ""
     assert "Disabled by operator" in title, f"unexpected title: {title!r}"
@@ -150,8 +152,8 @@ def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page
     """
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
-    row = page.locator('details.tool-tile[data-tool="web_search"]')
-    expect(row).to_have_class(re.compile(r"\btool-row-disabled\b"))
+    row = page.locator('.ui-tool-row[data-tool="web_search"]')
+    expect(row).to_have_class(re.compile(r"\bis-disabled\b"))
 
     # Operator re-enables via API (no UI; mirrors a different-tab edit).
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=True)
@@ -161,30 +163,30 @@ def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    row_after = page.locator('details.tool-tile[data-tool="web_search"]')
+    row_after = page.locator('.ui-tool-row[data-tool="web_search"]')
     expect(row_after).to_be_attached()
     # No longer carries the disabled class.
     cls = row_after.get_attribute("class") or ""
-    assert "tool-row-disabled" not in cls, f"row still disabled: {cls!r}"
+    assert "is-disabled" not in cls, f"row still disabled: {cls!r}"
     expect(row_after.locator('input[data-tool="web_search"]')).not_to_be_disabled()
 
 
 @pytest.mark.browser
 def test_studio_override_panel_collapsed_by_default(app_with_agent: SeededApp, page: Page) -> None:
     """Each operator-enabled tool renders as a `<details
-    class="tool-tile tool-row-overrides">` collapsed by default (no `open`
+    class="ui-tool-row">` collapsed by default (no `open`
     attr). The body contains a `<p class="loading">Loading…</p>` placeholder
     (seeded by tools-tab.js) — confirms the lazy-load seed is in place
     for the dedupe test below.
     """
     _open_tools_tab(app_with_agent, page)
-    panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
+    panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
     expect(panel).to_be_attached()
     # Not opened by default — the open attribute should be absent.
     open_attr = panel.get_attribute("open")
     assert open_attr is None, f"override panel unexpectedly open: {open_attr!r}"
     # The body has the Loading… placeholder pre-condition for lazy-fetch.
-    expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_text("Loading…")
+    expect(panel.locator(".ui-tool-row-body p.loading")).to_have_text("Loading…")
 
 
 @pytest.mark.browser
@@ -200,7 +202,7 @@ def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
-    panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
+    panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
 
     requests_seen: list[str] = []
 
@@ -216,20 +218,20 @@ def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page
     # First open — fires the fetch + renders fields. Click the Overrides
     # affordance (clicks on the checkbox-label part of the summary would
     # toggle the checkbox instead of the details).
-    panel.locator(".tool-tile-overrides-affordance").click()
+    panel.locator(".ui-tool-row-affordance").click()
     # Wait for at least one rendered field as the "fields rendered" signal.
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
         timeout=5000
     )
     # Loading… placeholder gone after the fetch resolves.
-    expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
+    expect(panel.locator(".ui-tool-row-body p.loading")).to_have_count(0)
 
     # Close + reopen — second open should NOT trigger a second fetch.
-    panel.locator(".tool-tile-overrides-affordance").click()
-    panel.locator(".tool-tile-overrides-affordance").click()
+    panel.locator(".ui-tool-row-affordance").click()
+    panel.locator(".ui-tool-row-affordance").click()
     # Field is already in the DOM (no Loading… placeholder ever appeared).
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible()
-    expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
+    expect(panel.locator(".ui-tool-row-body p.loading")).to_have_count(0)
 
     # The schema fetch fired exactly once across both opens.
     assert len(requests_seen) == 1, f"expected exactly one schema fetch, saw: {requests_seen}"
@@ -251,7 +253,7 @@ def test_studio_override_narrow_int_uses_operator_max(
     )
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
-    panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
+    panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
     _open_override_panel(page, "http_request")
     field = panel.locator(
         'input[data-tool-override-field="timeout_seconds_max"]'
@@ -269,7 +271,7 @@ def test_studio_override_unmarked_field_hidden(app_with_agent: SeededApp, page: 
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
-    panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
+    panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
     _open_override_panel(page, "http_request")
     # Wait for at least one field to confirm the panel rendered.
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
@@ -295,14 +297,14 @@ def test_studio_override_narrow_superset_locked_chips(
     )
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Execution")
-    panel = page.locator('details.tool-row-overrides[data-tool="shell"]')
+    panel = page.locator('details.ui-tool-row[data-tool="shell"]')
     _open_override_panel(page, "shell")
     chip_list = panel.locator('.chip-list-editor[data-tool-override-field="command_denylist"]')
     expect(chip_list).to_be_visible(timeout=5000)
     locked_chips = chip_list.locator('.chip[data-locked="true"]')
     expect(locked_chips).to_have_count(2)
     # Locked chips render WITHOUT the remove button — not just hidden.
-    expect(chip_list.locator('.chip[data-locked="true"] .chip-remove')).to_have_count(0)
+    expect(chip_list.locator('.chip[data-locked="true"] button')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -313,7 +315,7 @@ def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, pag
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
-    panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
+    panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
     _open_override_panel(page, "http_request")
     chip_list = panel.locator('.chip-list-editor[data-tool-override-field="extra_allowed_hosts"]')
     expect(chip_list).to_be_visible(timeout=5000)
@@ -359,15 +361,15 @@ def test_studio_connectors_category_renders_both_tools(
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Connectors")
-    tile = page.locator('.tools-category-tile[data-category="Connectors"]')
-    expect(tile.locator(".tools-category-tile-count")).to_have_text("3 / 3 enabled")
+    tile = page.locator('.ui-group-tile[data-category="Connectors"]')
+    expect(tile.locator(".ui-group-tile-chip")).to_have_text("3 / 3 enabled")
 
     for tool_name in (
         "send_to_platform_channel",
         "fetch_channel_history",
         "find_platform_destination",
     ):
-        row = page.locator(f'details.tool-tile[data-tool="{tool_name}"]')
+        row = page.locator(f'.ui-tool-row[data-tool="{tool_name}"]')
         expect(row).to_be_visible()
         checkbox = row.locator(f'input[data-tool="{tool_name}"]')
         expect(checkbox).to_be_checked()
@@ -390,8 +392,8 @@ def test_studio_connectors_category_checkbox_toggle_round_trips_via_api(
     expect(checkbox).to_be_checked()
     checkbox.uncheck()
 
-    tile = page.locator('.tools-category-tile[data-category="Connectors"]')
-    expect(tile.locator(".tools-category-tile-count")).to_have_text("2 / 3 enabled")
+    tile = page.locator('.ui-group-tile[data-category="Connectors"]')
+    expect(tile.locator(".ui-group-tile-chip")).to_have_text("2 / 3 enabled")
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
     expect(save_btn).to_be_enabled(timeout=5000)

@@ -376,14 +376,9 @@
   /* Chip-list editor primitive — chips are direct children of the
      wrapper (no .chip-list-chips wrapper, per leg-03 design Reviewer).
      F6 HAT scenario 8 inline fix: selectors extended to ALSO match
-     `.area-studio .tool-row-overrides .chip-list-editor` so the per-agent
-     tool-override panel inherits the same visual scaffolding (border,
-     padding, chip pill styling, input field) as the admin per-tool editor.
-     Without this extension, the override-panel chip-list rendered as
-     unstyled raw HTML. The studio-only carve-out for NarrowSuperset locked
-     chips (`.area-studio .tool-row-overrides .chip[data-locked]`, in
-     studio.css) is preserved as it overrides only the single rule it
-     needs to. */
+     `.area-studio .chip-list-editor`. The per-agent override panel now uses
+     App.ui.chipList (M31 F2 L08b), whose own rules (components.css) carry the
+     locked-chip look. */
   /* Chip-list editor — input affordance for array-typed fields (e.g.,
      host_allowlist). Treated as part of the .field-input family: hairline
      border + small radius, matching .field-input visually. Chips inside

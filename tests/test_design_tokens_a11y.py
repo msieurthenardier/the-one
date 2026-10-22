@@ -541,9 +541,10 @@ def test_warning_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> No
 # Indeterminate tool-switch thumb (≥ 3.0:1 UI) — both themes (M17 F5 L1)
 # ---------------------------------------------------------------------------
 #
-# The studio tools-tab master (category) toggle renders a TRISTATE switch: at
-# the partial-enabled state (0 < enabled < total) the track becomes
-# --accent-translucent (studio.css:66) and the thumb (::after) is solid
+# The Tools tab master (category) toggle (the tristate App.ui.toggle of
+# App.ui.groupTile) renders a TRISTATE switch: at the partial-enabled state
+# (0 < enabled < total) the track becomes --accent-translucent (components.css,
+# `.ui-toggle-input:indeterminate`) and the thumb (::after) is solid
 # --accent, parked at the halfway position. The thumb is a non-text UI mark, so
 # it must clear the ≥3.0:1 UI/non-text threshold (WCAG 1.4.11) against its own
 # translucent track — otherwise the halfway thumb vanishes into the track and
@@ -638,23 +639,19 @@ _FILL_SITES = [
         ("--accent-fill",),
         ("var(--accent)",),
     ),
+    # M31 F2 L08b: the studio pill (.tool-switch) is gone; the library toggle's
+    # mixed (tristate master) track and thumb carry the indeterminate pin.
     (
-        "studio.css",
-        ".area-studio .tool-toggle:checked + .tool-switch",
-        ("--accent-fill",),
+        "components.css",
+        ".ui-toggle-input:indeterminate + .ui-toggle-track",
+        ("--accent-translucent",),
+        ("var(--accent-fill)",),
+    ),
+    (
+        "components.css",
+        ".ui-toggle-input:indeterminate + .ui-toggle-track::after",
         ("var(--accent)",),
-    ),
-    (
-        "studio.css",
-        ".area-studio .tool-toggle:checked + .tool-switch::after",
-        ("--control-thumb",),
         ("var(--fg-on-accent)",),
-    ),
-    (
-        "studio.css",
-        ".area-studio .mcp-attach-chip-list .chip-attached",
-        ("--accent-fill", "--fg-on-accent-fill"),
-        ("var(--accent)", "var(--fg-on-accent)", "white"),
     ),
     (
         "chat.css",
@@ -676,8 +673,6 @@ _FILL_SITES = [
         ("--control-thumb",),
         ("--fg-on-accent",),
     ),
-    ("studio.css", ".area-studio .tool-switch", ("--control-border",), ("--surface-elevated",)),
-    ("studio.css", ".area-studio .tool-switch::after", ("--control-thumb",), ("--fg-tertiary",)),
     # M25 F1 L4: the indeterminate dash and the library toggle consume the same
     # gated pairs as the tick and the legacy switches.
     (

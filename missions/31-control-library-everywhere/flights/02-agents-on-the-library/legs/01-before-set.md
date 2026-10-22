@@ -1,6 +1,6 @@
 # Leg: before-set
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

@@ -47,6 +47,7 @@
       root.appendChild(hint);
       describedBy.push(hint.id);
     }
+    if (opts.describedBy) describedBy.push(opts.describedBy);
     if (describedBy.length) input.setAttribute('aria-describedby', describedBy.join(' '));
     if (typeof opts.onChange === 'function') {
       input.addEventListener('change', function () {
@@ -63,7 +64,8 @@
   // App.ui.checkbox(opts) -> controller {el, control, setChecked(bool),
   // setIndeterminate(bool)}.
   //   label (required), id, name, checked, indeterminate, disabled, hint,
-  //   info (description; an infoButton follows the label in div.ui-choice-head,
+  //   describedBy (id(s) of an element outside the control that also describes it,
+  //   appended to aria-describedby), info (description; an infoButton follows the label in div.ui-choice-head,
   //   its description id joins the input's aria-describedby), dataset,
   //   onChange(checked). setDisabled(bool) also toggles the root's is-disabled.
   //   el is div.ui-checkbox > label.ui-checkbox-label wrapping

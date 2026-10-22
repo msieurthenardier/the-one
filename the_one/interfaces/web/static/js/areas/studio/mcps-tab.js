@@ -151,6 +151,7 @@
       // Refresh keeps its visible label at the small size; its name says which source.
       var refreshBtn = ui.button({
         size: 'sm',
+        compactIcon: true,
         icon: 'refresh-cw',
         label: 'Refresh',
         ariaLabel: 'Refresh tools for ' + source.name,
@@ -168,6 +169,7 @@
       });
 
       var actions = [];
+      var lockedHintId = null;
       if (locked) {
         // The surface's OWN attach switch is locked checked and disabled: it is
         // managed from the Self-configuration tab. A disabled checked input still
@@ -175,7 +177,9 @@
         var hint = document.createElement('span');
         hint.className = 'mcp-source-tile-self-configuration-hint';
         hint.setAttribute('data-testid', 'mcp-source-self-configuration-hint-' + source.id);
+        hint.id = ui.util.uid('sc-hint');
         hint.textContent = 'managed on the Self-configuration tab';
+        lockedHintId = hint.id;
         actions.push(hint);
       }
       actions.push(refreshBtn);
@@ -207,6 +211,7 @@
           tristate: false,
           state: 'off',
           disabled: locked,
+          describedBy: lockedHintId || undefined,
           testid: 'mcp-source-toggle-' + source.id,
           dataset: { mcpSourceToggle: '', mcpSourceId: source.id },
           onChange: function () { onChange(); }

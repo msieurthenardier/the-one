@@ -680,6 +680,12 @@
       scrollToGroup: scrollToGroup,
       setQuery: setQuery,
       getItems: getItems,
+      // The row elements in item order (hidden rows included unless visibleOnly), so a
+      // consumer can move focus without naming the row class.
+      rows: function (visibleOnly) {
+        return Array.prototype.slice.call(root.querySelectorAll(
+          visibleOnly ? ROW_SELECTOR : 'li > .ui-list-pane-row'));
+      },
       destroy: destroy
     };
   };

@@ -64,13 +64,14 @@ def _open_tools(page: Page, base: str, name: str) -> None:
 
 
 def _open_panel(page: Page, category: str, tool: str):
-    tile = page.locator(f'.tools-category-tile[data-category="{category}"]')
+    tile = page.locator(f'.ui-group-tile[data-category="{category}"]')
     expect(tile).to_be_visible(timeout=8000)
-    if tile.get_attribute("aria-expanded") != "true":
-        tile.locator(".tools-category-tile-expand-btn").click()
-        expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
-    panel = page.locator(f'details.tool-row-overrides[data-tool="{tool}"]')
-    panel.locator(".tool-tile-overrides-affordance").click()
+    expand = tile.locator(".ui-group-tile-expand")
+    if expand.get_attribute("aria-expanded") != "true":
+        expand.click()
+        expect(expand).to_have_attribute("aria-expanded", "true", timeout=2000)
+    panel = page.locator(f'details.ui-tool-row[data-tool="{tool}"]')
+    panel.locator(".ui-tool-row-affordance").click()
     return panel
 
 

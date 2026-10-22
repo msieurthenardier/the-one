@@ -430,7 +430,7 @@
     // read BEFORE a delete removes it.
     function libraryRowIndex(id) {
       if (!libraryList) return 0;
-      var rows = libraryList.el.querySelectorAll('li > .ui-list-pane-row');
+      var rows = libraryList.rows();
       var items = libraryList.getItems();
       var n = 0;
       for (var i = 0; i < items.length && i < rows.length; i++) {
@@ -445,7 +445,7 @@
     // previous one, else Add.
     function focusLibraryRowNear(index) {
       if (!libraryList) return;
-      var rows = libraryList.el.querySelectorAll('li:not([hidden]) > .ui-list-pane-row');
+      var rows = libraryList.rows(true);
       var target = rows.length ? rows[Math.max(0, Math.min(index, rows.length - 1))] : null;
       if (!target) {
         if (libraryAddMenu) libraryAddMenu.trigger.focus();
@@ -462,7 +462,7 @@
       var group = libraryGroupFor(section);
       var first = null;
       var items = libraryList.getItems();
-      var rows = libraryList.el.querySelectorAll('li > .ui-list-pane-row');
+      var rows = libraryList.rows();
       for (var i = 0; i < items.length && i < rows.length; i++) {
         if (group && String(items[i].id).indexOf(group.prefix) === 0 && !rows[i].parentNode.hidden) {
           first = rows[i];
@@ -473,7 +473,7 @@
         if (libraryAddMenu) libraryAddMenu.trigger.focus();
         return;
       }
-      var all = libraryList.el.querySelectorAll('li:not([hidden]) > .ui-list-pane-row');
+      var all = libraryList.rows(true);
       for (var k = 0; k < all.length; k++) all[k].setAttribute('tabindex', all[k] === first ? '0' : '-1');
       first.focus();
     }

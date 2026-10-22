@@ -84,15 +84,7 @@
   }
 
   function providerDot(type) {
-    var dot = document.createElement('span');
-    dot.setAttribute('aria-hidden', 'true');
-    if (type === null) {
-      dot.className = 'badge badge-dot badge-dot--none';
-    } else {
-      var kind = App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
-      dot.className = 'badge badge--' + kind + ' badge-dot';
-    }
-    return dot;
+    return App.ui.badge.dot(type);
   }
 
   // Up to five live agents, most recently used first (DD4): the latest

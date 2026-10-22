@@ -156,7 +156,7 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
     # Item 4: the history entry shows a formatted relative-time timestamp
     # ("just now" / "N minutes ago" / …) instead of the raw stored
     # timestamp, with the exact instant preserved as a `title=` tooltip.
-    meta_text = page.locator(".history-entry-meta-text").first
+    meta_text = page.locator(".history-entry-meta").first
     expect(meta_text).to_be_visible()
     raw_text = meta_text.inner_text()
     assert re.search(r"(just now|\d+ (minute|hour|day)s? ago)", raw_text), (
@@ -201,15 +201,13 @@ def test_history_labels_external_source_distinctly(
 
     external_entry = page.locator('[data-testid="revision-history-entry"][data-source="external"]')
     expect(external_entry).to_have_count(1)
-    expect(external_entry.locator(".history-entry-meta-text")).to_have_text(
+    expect(external_entry.locator(".history-entry-meta")).to_have_text(
         re.compile(r"^external \(ext_abc123\) ·")
     )
 
     self_entry = page.locator('[data-testid="revision-history-entry"][data-source="self"]')
     expect(self_entry).to_have_count(1)
-    expect(self_entry.locator(".history-entry-meta-text")).to_have_text(
-        re.compile(r"^self-revised ·")
-    )
+    expect(self_entry.locator(".history-entry-meta")).to_have_text(re.compile(r"^self-revised ·"))
 
 
 @pytest.mark.browser

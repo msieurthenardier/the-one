@@ -1,6 +1,6 @@
 # Leg: library-behaviour-fixes
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

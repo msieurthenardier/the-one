@@ -31,6 +31,6 @@ Mission 31 Flight 2 leg 05. `App.ui.confirm` now announces through one shared po
 A contract case in `tests/browser/test_ui_confirm_contract.py` (both engines) asserts that arming produces a polite status announcement and that lapse and commit clear it.
 
 ## Sign-Off
-**Reviewer**: pending (flight review)
-**Verdict**: pending
-**Commit**: pending (flight commit)
+**Reviewer**: Mission 31 Flight 2 flight review (independent Sonnet Reviewer, 2026-10-22; cycles 1-2)
+**Verdict**: [HANDOFF:confirmed]
+**Commit**: the Flight 2 commit for legs 08b-11 on `flight/02-agents-on-the-library` (see the Flight 2 draft PR)

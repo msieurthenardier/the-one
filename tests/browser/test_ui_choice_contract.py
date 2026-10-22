@@ -439,6 +439,77 @@ def test_empty_state_title_tag_p_renders_a_paragraph_not_a_heading(engine_page: 
     assert "titleTag" in _throws(engine_page, "App.ui.emptyState({title: 'x', titleTag: 'h2'})")
 
 
+def test_empty_state_plain_variant_makes_the_title_quiet_running_text(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        """() => {
+          const host = document.getElementById('harness-root');
+          host.style.cssText = 'font-size:13px;color:rgb(10, 20, 30)';
+          const mk = (o, id) => { const e = App.ui.emptyState(Object.assign({title: 'Nothing here.', titleTag: 'p', testid: id}, o)); host.appendChild(e); return e; };
+          mk({}, 'es-d');
+          mk({variant: 'plain'}, 'es-pl');
+          return true;
+        }""",
+    )
+    out = engine_page.evaluate(
+        """() => { const q = (id) => { const e = document.querySelector('[data-testid=' + id + ']');
+            const t = e.querySelector('.ui-empty-title'); const cs = getComputedStyle(t);
+            return {cls: e.className, size: cs.fontSize, weight: cs.fontWeight, color: cs.color, parent: getComputedStyle(e).color, parentSize: getComputedStyle(e).fontSize}; };
+          return {d: q('es-d'), pl: q('es-pl')}; }"""
+    )
+    assert out["d"]["cls"] == "empty-state"
+    assert out["pl"]["cls"] == "empty-state empty-state--plain"
+    # Plain: the title takes the container's size and ink, at regular weight.
+    assert out["pl"]["size"] == out["pl"]["parentSize"]
+    assert out["pl"]["color"] == out["pl"]["parent"]
+    assert int(out["pl"]["weight"]) < int(out["d"]["weight"])
+    assert out["d"]["color"] != out["pl"]["color"]
+    assert "unknown variant" in _throws(
+        engine_page, "App.ui.emptyState({title: 'x', variant: 'loud'})"
+    )
+
+
+def test_empty_state_flush_variant_owns_the_root_spacing(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        """() => {
+          const host = document.getElementById('harness-root');
+          const mk = (o, id) => { const e = App.ui.emptyState(Object.assign({title: 'None yet.', titleTag: 'p', testid: id}, o)); host.appendChild(e); return e; };
+          mk({variant: 'plain'}, 'es-pl');
+          mk({variant: 'flush'}, 'es-fl');
+          return true;
+        }""",
+    )
+    out = engine_page.evaluate(
+        """() => { const q = (id) => { const e = document.querySelector('[data-testid=' + id + ']');
+            const cs = getComputedStyle(e);
+            return {cls: e.className, pad: cs.paddingTop + '/' + cs.paddingLeft, align: cs.textAlign,
+                    margin: cs.marginBottom, size: cs.fontSize}; };
+          return {pl: q('es-pl'), fl: q('es-fl')}; }"""
+    )
+    assert out["fl"]["cls"] == "empty-state empty-state--plain empty-state--flush"
+    assert out["pl"]["align"] == "center" and out["pl"]["pad"] == "16px/16px"
+    assert out["fl"]["pad"] == "0px/0px" and out["fl"]["align"] in ("left", "start")
+    assert out["fl"]["margin"] != "0px"  # the space-3 gap below the line
+    assert out["fl"]["size"] != out["pl"]["size"]  # body-sm, not body
+
+
+def test_badge_dot_is_a_text_less_aria_hidden_disc(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => { const d = (k) => { const n = App.ui.badge.dot(k);
+              return [n.tagName, n.className, n.getAttribute('aria-hidden'), n.textContent]; };
+          return [d('ollama'), d(''), d('not-a-kind'), d(null), d(undefined)]; }"""
+    )
+    assert out == [
+        ["SPAN", "badge badge--ollama badge-dot", "true", ""],
+        ["SPAN", "badge badge--unknown badge-dot", "true", ""],
+        ["SPAN", "badge badge--unknown badge-dot", "true", ""],
+        ["SPAN", "badge badge-dot badge-dot--none", "true", ""],
+        ["SPAN", "badge badge-dot badge-dot--none", "true", ""],
+    ]  # fmt: skip
+
+
 # ── field around every control ──────────────────────────────────────────────
 
 

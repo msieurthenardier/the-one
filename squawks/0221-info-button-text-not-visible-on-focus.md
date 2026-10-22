@@ -28,6 +28,6 @@ Mission 31 Flight 2 leg 05. `App.ui.infoButton` is now a press-only toggletip (t
 A contract case (both engines) shows that focusing or activating the info button reveals the description visibly, that Escape dismisses it, and that the description is announced once.
 
 ## Sign-Off
-**Reviewer**: pending (flight review)
-**Verdict**: pending
-**Commit**: pending (flight commit)
+**Reviewer**: Mission 31 Flight 2 flight review (independent Sonnet Reviewer, 2026-10-22; cycles 1-2)
+**Verdict**: [HANDOFF:confirmed]
+**Commit**: the Flight 2 commit for legs 08b-11 on `flight/02-agents-on-the-library` (see the Flight 2 draft PR)

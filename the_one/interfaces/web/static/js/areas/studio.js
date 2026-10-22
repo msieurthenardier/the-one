@@ -207,11 +207,13 @@ App.registerArea({
     libraryListHost.className = 'studio-library-list is-hidden';
     sidebar.appendChild(libraryListHost);
 
-    content.innerHTML =
-      '<div class="studio-section-content"></div>' +
-      '<div class="studio-editor"></div>';
-    var sectionContentEl = content.querySelector('.studio-section-content');
-    var editorEl = content.querySelector('.studio-editor');
+    content.textContent = '';
+    var sectionContentEl = document.createElement('div');
+    sectionContentEl.className = 'studio-section-content';
+    content.appendChild(sectionContentEl);
+    var editorEl = document.createElement('div');
+    editorEl.className = 'studio-editor';
+    content.appendChild(editorEl);
 
     // The agent form's reading and dirty tracking (M31 F2 L03): collectFormData,
     // getFormSnapshot, checkDirty. Created first -- the model picker and the
@@ -239,7 +241,7 @@ App.registerArea({
       content: content,
       sectionContentEl: sectionContentEl,
       renderAgentList: function (scroll) { agentsListMod.render(scroll); }, // call-time getter into the list
-      onSelfConfigChanged: function (updated) { agentsListMod.doSelect(updated); }
+      onSelfConfigChanged: function (updated) { controller.onSelfConfigChanged(updated); } // call-time: the controller is created after agentData
     });
 
     // The agent editor's controller (M31 F2 L03): renderEditor, tabs, Cancel,
@@ -258,6 +260,7 @@ App.registerArea({
       list: function () { return agentsListMod; } // call-time: the list is created after the controller
     });
     self._setActiveTab = controller.setActiveTab;
+    self._deactivateSelfConfig = controller.deactivateSelfConfig;
 
     // The Library list column (M25 F3 L4a, DD5; moved to libraryPane in M31 F2
     // L02b): the pane, its caches' sync, the gated fill, the selection rule and
@@ -358,7 +361,7 @@ App.registerArea({
     // state shown while no agent is open (the editor host covers it
     // otherwise; updateContentVisibility).
     function renderAgentsSection() {
-      sectionContentEl.innerHTML = '';
+      sectionContentEl.textContent = '';
       agentsListMod.resetEmpty();
       agentsListMod.render(true);
     }
@@ -401,7 +404,7 @@ App.registerArea({
       var section = self._activeSection;
       try {
         closeOpenItem();
-        if (section !== 'agents' && sectionContentEl) sectionContentEl.innerHTML = '';
+        if (section !== 'agents' && sectionContentEl) sectionContentEl.textContent = '';
       } finally {
         state.dirty = false; // even a throwing teardown must not leave a phantom flag
       }
@@ -445,7 +448,7 @@ App.registerArea({
     function onBreadcrumbClick(e) {
       if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       var link = e.target && typeof e.target.closest === 'function'
-        ? e.target.closest('a.editor-breadcrumb-link') : null;
+        ? e.target.closest('a[data-testid="editor-breadcrumb-link"]') : null;
       if (!link || !content.contains(link)) return;
       e.preventDefault();
       var closing = closingItem_();
@@ -520,7 +523,7 @@ App.registerArea({
       agentsListHost.classList.toggle('is-hidden', section !== 'agents');
       libraryListHost.classList.toggle('is-hidden', section === 'agents');
       if (section === 'library') {
-        sectionContentEl.innerHTML = '';
+        sectionContentEl.textContent = '';
         libraryPane.renderEmpty();
         libraryPane.sync(false);
       } else if (section === 'providers') {
@@ -732,6 +735,9 @@ App.registerArea({
   // is gone (the one beforeunload lives in nav.js); this body only
   // stops the knowledge poll.
   deactivate: function () {
+    // The Self-configuration tab's copy-once token never outlives the area being
+    // shown (M31 F2 L10c).
+    if (this._deactivateSelfConfig) this._deactivateSelfConfig();
     if (this._knowledgePollTimer) {
       clearInterval(this._knowledgePollTimer);
       this._knowledgePollTimer = null;

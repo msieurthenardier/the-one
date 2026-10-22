@@ -33,6 +33,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import ENABLE_SWITCH, click_switch
 from playwright.sync_api import Page, expect
 
 
@@ -362,7 +363,7 @@ def test_disabling_surface_clears_grants(app_clean: str, page: Page) -> None:
     ).to_have_count(1, timeout=8000)
 
     # Disable the surface via the tab toggle → whole-editor re-render.
-    page.locator('[data-testid="self-configuration-toggle-btn"]').click()
+    click_switch(page, ENABLE_SWITCH)
     expect(page.locator('[data-testid="self-configuration-status"]')).to_contain_text(
         "disabled", timeout=8000
     )
@@ -378,3 +379,79 @@ def test_disabling_surface_clears_grants(app_clean: str, page: Page) -> None:
         headers=auth_headers_for(app_clean),
     ).json()
     assert re_listing == [], f"disable should cascade-revoke grants, got: {re_listing}"
+
+
+_ATTRIBUTE_SCAN_JS = """
+(needle) => {
+  const hits = [];
+  for (const el of document.querySelectorAll('*')) {
+    for (const attr of el.attributes) {
+      if (attr.value.includes(needle)) {
+        hits.push(el.tagName + '[' + attr.name + ']');
+      }
+    }
+  }
+  return hits;
+}
+"""
+
+
+@pytest.mark.browser
+def test_token_never_written_to_an_attribute(app_clean: str, page: Page) -> None:
+    """The copy-once token lives only in the field's value property: after a reveal
+    no attribute of any element holds it (title, data-*, value, aria-*), and it is
+    gone from the field after dismiss. The reveal's explanatory text is linked to both
+    the field and the Copy control."""
+    _seed_agent(app_clean, "ext-attr-agent")
+    _enable_self_configuration(app_clean, "ext-attr-agent")
+    _navigate_to_self_configuration_tab(page, app_clean, "ext-attr-agent")
+
+    grant_btn = page.locator('[data-testid="self-configuration-external-grant-btn"]')
+    expect(grant_btn).to_be_enabled(timeout=8000)
+    page.locator('[data-testid="self-configuration-external-grant-label"]').fill("attr-bot")
+    grant_btn.click()
+
+    token_field = page.locator('[data-testid="self-configuration-external-token-value"]')
+    expect(token_field).to_be_visible(timeout=8000)
+    token = token_field.input_value()
+    assert token.startswith("ext_") and "." in token
+    secret = token.split(".", 1)[1]
+
+    # Both the full token and its secret half, in every attribute of every element.
+    assert page.evaluate(_ATTRIBUTE_SCAN_JS, token) == []
+    assert page.evaluate(_ATTRIBUTE_SCAN_JS, secret) == []
+    # The field is not swept by the form collector (no data-field), and the warning
+    # is associated with both the field and the Copy control.
+    assert token_field.get_attribute("data-field") is None
+    copy_btn = page.locator('[data-testid="self-configuration-external-token-copy-btn"]')
+    for control in (token_field, copy_btn):
+        expect(control).to_have_attribute(
+            "aria-describedby", "self-configuration-external-token-warning"
+        )
+
+    page.locator('[data-testid="self-configuration-external-token-dismiss-btn"]').click()
+    assert token_field.input_value() == ""
+    assert page.evaluate(_ATTRIBUTE_SCAN_JS, token) == []
+    assert page.evaluate(_ATTRIBUTE_SCAN_JS, secret) == []
+
+
+@pytest.mark.browser
+def test_token_cleared_when_the_tab_is_left(app_clean: str, page: Page) -> None:
+    """Leaving the Self-configuration tab with a token showing clears it: coming back
+    shows no token (the field is empty and the reveal hidden)."""
+    _seed_agent(app_clean, "ext-leave-agent")
+    _enable_self_configuration(app_clean, "ext-leave-agent")
+    _navigate_to_self_configuration_tab(page, app_clean, "ext-leave-agent")
+
+    grant_btn = page.locator('[data-testid="self-configuration-external-grant-btn"]')
+    expect(grant_btn).to_be_enabled(timeout=8000)
+    page.locator('[data-testid="self-configuration-external-grant-label"]').fill("leave-bot")
+    grant_btn.click()
+    reveal = page.locator('[data-testid="self-configuration-external-token-reveal"]')
+    expect(reveal).to_be_visible(timeout=8000)
+
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-testid="tab-self-configuration"]').click()
+    expect(reveal).to_be_hidden()
+    token_field = page.locator('[data-testid="self-configuration-external-token-value"]')
+    assert token_field.input_value() == ""

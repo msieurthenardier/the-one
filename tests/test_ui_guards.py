@@ -116,9 +116,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # areas/chat/composer.js), so no areas/chat* path has an entry: the chat
     # area has no dynamic HTML sink left
     # (test_chat_area_has_no_baselined_sink pins it).
-    "areas/studio.js": [
-        "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
-    ],
     "areas/studio/mcp-server-editor.js": [
         # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
         # re-emits the same escaped renderServerInfoSection output that the
@@ -138,10 +135,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
         "listEl.innerHTML = renderToolsListHtml(data.tools);",
     ],
-    "areas/studio/tools-tab.js": [
-        "expandLabel.innerHTML = '<strong>' + toolNames.length + '</strong> tool' + (tool",
-        "bodyEl.innerHTML = html;",
-    ],
 }
 
 # ── Exact per-file count of EVERY HTML-string sink (M31 F1 L2, flight DD5) ──
@@ -158,14 +151,11 @@ HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/admin/tools-editor.js": 8,
     "areas/admin/tools-grid.js": 3,
     "areas/chat.js": 5,
-    "areas/studio.js": 4,
     "areas/studio/connector-editor.js": 3,
     "areas/studio/connector-glue.js": 1,
     "areas/studio/knowledge-glue.js": 3,
     "areas/studio/mcp-glue.js": 1,
     "areas/studio/mcp-server-editor.js": 18,
-    "areas/studio/self-configuration-tab.js": 5,
-    "areas/studio/tools-tab.js": 5,
     "theme.js": 1,
 }
 

@@ -76,14 +76,7 @@
     function agentItem(agent) {
       var provider = providerFor(agent);
       var type = provider && provider.type ? String(provider.type) : '';
-      var dot = document.createElement('span');
-      dot.setAttribute('aria-hidden', 'true');
-      if (provider) {
-        var kind = App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
-        dot.className = 'badge badge--' + kind + ' badge-dot';
-      } else {
-        dot.className = 'badge badge-dot badge-dot--none';
-      }
+      var dot = App.ui.badge.dot(provider ? type : null);
       var model = agent.llm_model || '';
       return {
         id: agent.name,
@@ -267,7 +260,7 @@
     // the previous one, else the list's "New" action.
     function focusAgentRowNear(index) {
       if (!agentsList) return;
-      var rows = agentsList.el.querySelectorAll('li:not([hidden]) > .ui-list-pane-row');
+      var rows = agentsList.rows(true);
       var target = rows.length ? rows[Math.max(0, Math.min(index, rows.length - 1))] : null;
       if (!target) {
         if (newAgentBtn) newAgentBtn.focus();
@@ -282,7 +275,7 @@
     function visibleIndexOf(name) {
       if (!agentsList) return 0;
       // Every row, hidden or not, in item order (one row per item).
-      var rows = agentsList.el.querySelectorAll('li > .ui-list-pane-row');
+      var rows = agentsList.rows();
       var items = agentsList.getItems();
       var n = 0;
       for (var i = 0; i < items.length && i < rows.length; i++) {

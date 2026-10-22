@@ -105,8 +105,9 @@ App.studio.agentData = {
       // Re-fetch both the MCP sources cache (the surface row was just
       // created/destroyed server-side) AND the agent itself (its
       // mcp_source_ids just changed server-side, outside the Save flow).
-      // doSelect() re-renders the editor while preserving the active tab,
-      // so the MCPs tab reflects the new/removed row without a reload.
+      // The editor controller's onSelfConfigChanged patches the open editor in
+      // place (M31 F2 L10a), so unsaved edits survive and the MCPs tab reflects
+      // the new/removed row without a reload.
       return Promise.all([
         refreshMcpSourcesCache(),
         App.api.fetchJson('/api/agents/' + encodeURIComponent(name))
@@ -156,8 +157,8 @@ App.studio.agentData = {
           return r.json();
         })
         .then(function (result) {
-          // The flag lives outside the Save flow; re-render so the tab
-          // (and its status fetch) reflect the new value.
+          // The flag lives outside the Save flow; the editor is patched and the
+          // tab refetches its status.
           return _refreshAgentAfterSelfConfigurationChange(name).then(function () { return result; });
         });
     }
@@ -166,15 +167,6 @@ App.studio.agentData = {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration/revisions')
         .then(function (r) {
           if (!r.ok) throw new Error('fetch revisions: HTTP ' + r.status);
-          return r.json();
-        });
-    }
-
-    function fetchSelfConfigurationPendingCount(name) {
-      return fetch('/api/agents/' + encodeURIComponent(name) +
-        '/self-configuration/revisions/pending-count')
-        .then(function (r) {
-          if (!r.ok) throw new Error('fetch pending-count: HTTP ' + r.status);
           return r.json();
         });
     }
@@ -459,7 +451,7 @@ App.studio.agentData = {
     // silently stays blank / stops refreshing. Shared renderer for both
     // call sites below. `nonDestructive: true` (the _refresh path) must
     // not clear already-rendered content, so it uses the existing
-    // App.showFlash overlay (admin.js:534 uses the same pattern for a
+    // App.ui.flash overlay (admin.js:534 uses the same pattern for a
     // top-level list-fetch failure) instead of touching sectionContentEl.
     // The init path has nothing worth preserving yet, so it appends a
     // persistent `.admin-loading` line — the same class studio.js already
@@ -471,7 +463,7 @@ App.studio.agentData = {
       var reason = (err && err.message) ? err.message : 'unknown error';
       var msg = 'Unable to load Studio data — ' + reason + '.';
       if (opts && opts.nonDestructive) {
-        App.showFlash(ctx.content, msg, true);
+        App.ui.flash(msg, { container: ctx.content, error: true });
         return;
       }
       var bannerEl = document.createElement('div');
@@ -501,7 +493,6 @@ App.studio.agentData = {
       disableSelfConfiguration: disableSelfConfiguration,
       setSelfConfigurationApprovalMode: setSelfConfigurationApprovalMode,
       fetchSelfConfigurationRevisions: fetchSelfConfigurationRevisions,
-      fetchSelfConfigurationPendingCount: fetchSelfConfigurationPendingCount,
       approveSelfConfigurationRevision: approveSelfConfigurationRevision,
       dismissSelfConfigurationRevision: dismissSelfConfigurationRevision,
       restoreSelfConfigurationRevision: restoreSelfConfigurationRevision,

@@ -12,6 +12,7 @@ The behaviour is a copy of ``areas/admin/tools-form-helpers.js`` (``renderChipLi
 from __future__ import annotations
 
 import pytest
+from browser._legacy_tool_css import LEGACY_LOCKED_CHIP_CSS
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
@@ -285,15 +286,16 @@ def _legacy_chip_html(locked: bool) -> str:
 def test_computed_styles_equal_legacy_area_studio(engine_page: Page, locked: bool) -> None:
     load_harness(engine_page)
     engine_page.evaluate(
-        """([legacy, locked]) => {
-          // The explicit wrapper: area-studio; the locked chip's legacy rule is scoped to .tool-row-overrides.
+        """([legacy, locked, css]) => {
+          // The explicit wrapper: area-studio; the locked chip's legacy rule is scoped to .tool-row-overrides
+          // (the rule itself is a fixture now: it left studio.css in M31 F2 L08b).
           const host = document.createElement('div'); host.className = 'area-studio'; host.id = 'cmp';
-          host.innerHTML = '<div class="tool-row-overrides"><div id="legacy-side">' + legacy + '</div><div id="lib-side"></div></div>';
+          host.innerHTML = css + '<div class="tool-row-overrides"><div id="legacy-side">' + legacy + '</div><div id="lib-side"></div></div>';
           document.getElementById('harness-root').appendChild(host);
           const c = App.ui.chipList({values: ['a'], locked: locked ? ['a'] : []});
           host.querySelector('#lib-side').appendChild(c.el);
         }""",
-        [_legacy_chip_html(locked), locked],
+        [_legacy_chip_html(locked), locked, LEGACY_LOCKED_CHIP_CSS],
     )
     out = engine_page.evaluate(
         """() => {

@@ -1,6 +1,6 @@
 # Leg: self-config-refresh
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

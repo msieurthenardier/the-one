@@ -83,5 +83,6 @@ library's engine-parametrized contract tests (`test_ui_choice_contract.py`), whi
 name for every `App.ui.toggle`. Sign-off is left to the flight review.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Mission 31 Flight 2 flight review (independent Sonnet Reviewer, 2026-10-22; cycles 1-2)
+**Verdict**: [HANDOFF:confirmed]
+**Commit**: the Flight 2 commit for legs 08b-11 on `flight/02-agents-on-the-library` (see the Flight 2 draft PR)

@@ -1,6 +1,6 @@
 # Leg: agent-editor-frame
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective

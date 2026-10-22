@@ -553,8 +553,8 @@
      padding and a 16px svg; with .btn-sm a 24×24 one with a 14px svg. An
      icon-only button must carry an aria-label. Placed after the size
      modifiers and the svg rule so equal-specificity later-wins applies. */
-  /* A text button at .btn-sm takes a 14px icon (M31 F2 L4: the small Refresh). */
-  .btn-sm svg { width: 14px; height: 14px; }
+  /* compactIcon (M31 F2 L4: the small Refresh): a labelled button's icon at 14px. */
+  .btn-icon-compact svg { width: 14px; height: 14px; }
   .btn-icon { width: 32px; height: 32px; padding: 0; }
   .btn-icon svg { width: 16px; height: 16px; }
   .btn-icon.btn-sm { width: 24px; height: 24px; padding: 0; }
@@ -918,6 +918,19 @@
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-medium);
     color: var(--fg);
+  }
+  /* variant 'plain': the title is quiet running text in the container's own ink. */
+  .empty-state--plain .ui-empty-title {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+  }
+  /* variant 'flush': plain, and the root is a flush, left-aligned body-sm line. */
+  .empty-state--flush {
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
   }
   .ui-empty-body { margin: var(--space-1) 0 0; }
   .ui-empty-icon { display: inline-flex; margin-bottom: var(--space-2); }
@@ -2017,7 +2030,12 @@
   /* Tristate (M31 F2 L4): the mixed state of a master toggle. An accent wash
      track with the accent thumb at the halfway position (16px / 2). The off
      and on rules above are unchanged. */
-  .ui-toggle-input:indeterminate + .ui-toggle-track { background: var(--accent-translucent); }
+  .ui-toggle-input:indeterminate + .ui-toggle-track {
+    background: var(--accent-translucent);
+    /* An inset 1px accent edge keeps the track's extent visible (SC 1.4.11) and
+       takes no layout space; forced colors draw a border instead. */
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
   .ui-toggle-input:indeterminate + .ui-toggle-track::after {
     transform: translateX(8px);
     background: var(--accent);
@@ -2025,8 +2043,8 @@
 
   /* === App.ui.groupTile (M31 F2 L4) === */
   /* Copied from the studio tiles (.mcp-source-tile / .tools-category-tile,
-     which are identical); those rules stay in studio.css until the Tools and
-     MCPs tabs migrate (legs 07-08), then are deleted there. */
+     which were identical); the studio rules were deleted when the MCPs and Tools
+     tabs migrated (M31 F2 L07b, L08b). */
   .ui-group-tile {
     display: flex;
     flex-direction: column;
@@ -2106,7 +2124,8 @@
 
   /* === App.ui.toolRow (M31 F2 L4) === */
   /* Copied from .tool-tile (built-in tools) and .mcp-tool-toggle-label (MCP
-     tools), which share one look. The studio rules stay until legs 07-08. */
+     tools), which shared one look; the studio rules were deleted in M31 F2 L07b
+     and L08b. */
   .ui-tool-row {
     border: 1px solid var(--border);
     border-radius: 6px;

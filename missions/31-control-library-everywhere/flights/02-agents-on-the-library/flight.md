@@ -277,23 +277,23 @@ Restructure first, then controls, then surfaces: the order Flight 1 proved. Leg 
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `before-set`: extend `scripts/ui_capture.py` with the agent-editor surfaces and the admin Built-in tools editor (DD10), then take the before set. No source change.
-- [ ] `studio-state-route-data` (02a): the shared `state` object (its own gate), then `studio-route` (stateless) and `agent-data`. Retarget the pins.
-- [ ] `library-pane-and-groups` (02b): `library-pane`, then the knowledge, MCP and connector glue modules. Pins, docs, full gate. Split from leg 02 at design review (2026-10-21); the other leg numbers are unchanged.
-- [ ] `studio-state-and-editor-split`: first introduce the shared `state` object in the shell with no module moves, and run the gate. Then move `agents-list`, `agent-editor-controller`, `agent-form-data` and `agent-model-picker`. `studio.js` ≤ 800; pin the script count and order; full gate.
-- [ ] `tab-and-tile-controls`: `App.ui.tabs`, `groupTile`, `toolRow`, `chipList`, `toggle` tristate, `dangerZone` actions; catalogue rows, owned classes, contract tests with size and role-structure assertions (DD3, DD11).
-- [ ] `library-behaviour-fixes`: the confirm arm announcement (0220), the infoButton toggletip (0221) and its four broken tests, and `mountSlot` with the provider singletons removed (DD2, DD5).
-- [ ] `agent-editor-frame` (06a): `editorShell` and `App.ui.tabs` for the frame, plus the mount slot. Identity is (name, create/edit): a rename remounts. Same-identity saves patch the frame and, in the interim, rebuild the five non-General panels. Includes the load-error node and dirty-tracking wiring per panel.
-- [ ] `general-tab` (06b): the General fields with `setAgent`, the model picker, Test as status (testids kept), the two-action danger zone. Split from leg 06 at design review (2026-10-21).
-- [ ] `knowledge-tab` (07a): a library switch per knowledge base, `setAgent` patch-only; closes 0094.
-- [ ] `mcps-tab` (07b): `groupTile` (attach-only master), `toolRow` rows (input datasets added to the library), keyed Refresh, `setAgent`; DD9-1 test first. Split from leg 07 at design review (2026-10-21).
-- [ ] `main-merge-and-overrides-port` (08a): merge `main` (squawk 0223), port its client rule into `agent-form-data.js`, add the `{}`, partial-merge, stale-stored and locked-chip tests. (DD9-2 is completed by 0223 plus this leg.)
-- [ ] `tools-tab` (08b): `groupTile` (tristate master) and `toolRow` with Overrides; the new `tool-override-fields.js` (`tools-form-helpers.js` untouched); `setAgent`; Cancel re-arms bodies; CSS removals. Split from leg 08 at design review (2026-10-21).
-- [ ] `rules-and-notes-tab`: the remaining hand-built pieces of Rules and notes on the library.
-- [ ] `self-config-refresh` (10a): the DD9-3 fix, test first: the controller's `onSelfConfigChanged` patches General (clean fields silently, dirty fields kept with a note, the operator's choice of 2026-10-21), MCPs and Self-configuration; the tab's `setAgent` and local refetches.
-- [ ] `self-config-split` (10b): a mechanical split into four ≤ 800-line modules around a shared context, with no behaviour change.
-- [ ] `self-config-library` (10c): the modules on library controls (switches, status, emptyState, section, button, copyField copy-once, confirm; the history stays a native `<details>`), with the token-attribute test. Leg 10 was split into 10a-10c at design review (2026-10-21).
-- [ ] `agents-close`: zero counts on every agent file, after captures (including the admin editor guard), the lane re-budget (0217), the full gate, docs.
+- [x] `before-set`: extend `scripts/ui_capture.py` with the agent-editor surfaces and the admin Built-in tools editor (DD10), then take the before set. No source change.
+- [x] `studio-state-route-data` (02a): the shared `state` object (its own gate), then `studio-route` (stateless) and `agent-data`. Retarget the pins.
+- [x] `library-pane-and-groups` (02b): `library-pane`, then the knowledge, MCP and connector glue modules. Pins, docs, full gate. Split from leg 02 at design review (2026-10-21); the other leg numbers are unchanged.
+- [x] `studio-state-and-editor-split`: first introduce the shared `state` object in the shell with no module moves, and run the gate. Then move `agents-list`, `agent-editor-controller`, `agent-form-data` and `agent-model-picker`. `studio.js` ≤ 800; pin the script count and order; full gate.
+- [x] `tab-and-tile-controls`: `App.ui.tabs`, `groupTile`, `toolRow`, `chipList`, `toggle` tristate, `dangerZone` actions; catalogue rows, owned classes, contract tests with size and role-structure assertions (DD3, DD11).
+- [x] `library-behaviour-fixes`: the confirm arm announcement (0220), the infoButton toggletip (0221) and its four broken tests, and `mountSlot` with the provider singletons removed (DD2, DD5).
+- [x] `agent-editor-frame` (06a): `editorShell` and `App.ui.tabs` for the frame, plus the mount slot. Identity is (name, create/edit): a rename remounts. Same-identity saves patch the frame and, in the interim, rebuild the five non-General panels. Includes the load-error node and dirty-tracking wiring per panel.
+- [x] `general-tab` (06b): the General fields with `setAgent`, the model picker, Test as status (testids kept), the two-action danger zone. Split from leg 06 at design review (2026-10-21).
+- [x] `knowledge-tab` (07a): a library switch per knowledge base, `setAgent` patch-only; closes 0094.
+- [x] `mcps-tab` (07b): `groupTile` (attach-only master), `toolRow` rows (input datasets added to the library), keyed Refresh, `setAgent`; DD9-1 test first. Split from leg 07 at design review (2026-10-21).
+- [x] `main-merge-and-overrides-port` (08a): merge `main` (squawk 0223), port its client rule into `agent-form-data.js`, add the `{}`, partial-merge, stale-stored and locked-chip tests. (DD9-2 is completed by 0223 plus this leg.)
+- [x] `tools-tab` (08b): `groupTile` (tristate master) and `toolRow` with Overrides; the new `tool-override-fields.js` (`tools-form-helpers.js` untouched); `setAgent`; Cancel re-arms bodies; CSS removals. Split from leg 08 at design review (2026-10-21).
+- [x] `rules-and-notes-tab`: the remaining hand-built pieces of Rules and notes on the library.
+- [x] `self-config-refresh` (10a): the DD9-3 fix, test first: the controller's `onSelfConfigChanged` patches General (clean fields silently, dirty fields kept with a note, the operator's choice of 2026-10-21), MCPs and Self-configuration; the tab's `setAgent` and local refetches.
+- [x] `self-config-split` (10b): a mechanical split into four ≤ 800-line modules around a shared context, with no behaviour change.
+- [x] `self-config-library` (10c): the modules on library controls (switches, status, emptyState, section, button, copyField copy-once, confirm; the history stays a native `<details>`), with the token-attribute test. Leg 10 was split into 10a-10c at design review (2026-10-21).
+- [x] `agents-close`: zero counts on every agent file, after captures (including the admin editor guard), the lane re-budget (0217), the full gate, docs.
 - [ ] `flight-hat` *(optional)*: the operator walks each tab in both themes, the DD4 differences, the 0220/0221 behaviours and the DD9 fixes, and approves the capture set.
 
 > Leg design greps every moved path, renamed class and retired selector across `tests/`, `scripts/`, `Makefile` and `docs/ui-testid-registry.md`, and pastes the hits into the leg (Flight 1 debrief).

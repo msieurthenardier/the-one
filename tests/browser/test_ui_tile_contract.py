@@ -14,6 +14,7 @@ are identical, so one legacy tile covers both.
 from __future__ import annotations
 
 import pytest
+from browser._legacy_tool_css import LEGACY_TOOLS_CSS
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
@@ -181,7 +182,7 @@ def test_group_tile_never_changes_children_and_set_count(engine_page: Page) -> N
 def test_group_tile_size_assertions(engine_page: Page) -> None:
     _tile(
         engine_page,
-        "{actions: [App.ui.button({label: 'Refresh', size: 'sm', icon: 'refresh', testid: 'gt-refresh'})]}",
+        "{actions: [App.ui.button({label: 'Refresh', size: 'sm', compactIcon: true, icon: 'refresh', testid: 'gt-refresh'})]}",
     )
     out = engine_page.evaluate(
         """() => {
@@ -217,7 +218,7 @@ def test_group_tile_computed_styles_equal_legacy_area_studio(engine_page: Page) 
           t.setExpanded(true);
           host.querySelector('.tools-category-tile-tools').hidden = false;
         }""",
-        LEGACY_TILE,
+        LEGACY_TOOLS_CSS + LEGACY_TILE,
     )
     out = engine_page.evaluate(
         """() => {
@@ -449,7 +450,7 @@ def test_tool_row_computed_styles_equal_legacy_area_studio(engine_page: Page) ->
           side.appendChild(App.ui.toolRow({name: 'read_file', description: short, checked: true, disclosure: {label: 'Overrides'}}).el);
           side.appendChild(App.ui.toolRow({name: 'read_file', description: short, checked: true}).el);
         }""",
-        [LEGACY_MCP_ROW_CSS + LEGACY_ROWS % (short, short), short],
+        [LEGACY_TOOLS_CSS + LEGACY_MCP_ROW_CSS + LEGACY_ROWS % (short, short), short],
     )
     out = engine_page.evaluate(
         """() => {
@@ -537,3 +538,52 @@ def test_tool_row_input_dataset_on_the_checkbox(engine_page: Page) -> None:
           return [i.dataset.mcpToolToggle, i.dataset.mcpSource, i.closest('label').dataset.rowKind, i.closest('label').hasAttribute('data-mcp-tool-toggle')]; }"""
     )
     assert out == ["read_file", "fs", "x", False]
+
+
+def test_group_tile_expand_button_is_described_by_the_group_name(engine_page: Page) -> None:
+    _tile(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => { const b = document.querySelector('.ui-group-tile-expand');
+          const n = document.getElementById(b.getAttribute('aria-describedby'));
+          return [b.textContent, n && n.className, n && n.textContent]; }"""
+    )
+    assert out == ["4 tools▸", "ui-group-tile-name", "Filesystem"]
+    # The accessible description (computed by the engine) carries the group name.
+    expect(p.get_by_role("button", name="4 tools", exact=False)).to_have_accessible_description(
+        "Filesystem"
+    )
+
+
+def test_group_tile_master_describedby_option(engine_page: Page) -> None:
+    _tile(
+        engine_page,
+        "{master: {label: 'Attach src', tristate: false, state: 'on', disabled: true, testid: 'gt-master', describedBy: 'why-locked'}}",
+    )
+    p = engine_page
+    p.evaluate(
+        "() => { const s = document.createElement('span'); s.id = 'why-locked';"
+        " s.textContent = 'managed elsewhere'; document.getElementById('harness-root').appendChild(s); }"
+    )
+    expect(p.get_by_role("switch", name="Attach src")).to_have_accessible_description(
+        "managed elsewhere"
+    )
+    # Without the option the master has no description.
+    _tile(p, "{master: {label: 'Plain', tristate: false, state: 'on', testid: 'gt-master'}}")
+    assert (
+        p.evaluate(
+            "() => document.querySelector('[data-testid=gt-master]').getAttribute('aria-describedby')"
+        )
+        is None
+    )
+
+
+def test_group_tile_mixed_track_has_a_visible_accent_edge(engine_page: Page) -> None:
+    _tile(engine_page)
+    out = engine_page.evaluate(
+        """() => { const t = document.querySelector('.ui-toggle-track');
+          const s = getComputedStyle(t), a = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+          return [s.boxShadow, s.width, s.height, !!a]; }"""
+    )
+    assert "inset" in out[0] and out[0] != "none"
+    assert out[1:3] == ["36px", "20px"]  # no layout shift

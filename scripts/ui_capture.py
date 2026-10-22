@@ -280,10 +280,10 @@ def _mcps_expanded(ctx: Ctx) -> None:
 
 def _tools_override_open(ctx: Ctx) -> None:
     page = ctx.page
-    tile = page.locator('.tools-category-tile[data-category="Filesystem"]')
-    tile.locator(".tools-category-tile-expand-btn").click()
-    panel = page.locator('details.tool-row-overrides[data-tool="read_file"]')
-    panel.locator(".tool-tile-overrides-affordance").click()
+    tile = page.locator('.ui-group-tile[data-category="Filesystem"]')
+    tile.locator(".ui-group-tile-expand").click()
+    panel = page.locator('details.ui-tool-row[data-tool="read_file"]')
+    panel.locator(".ui-tool-row-affordance").click()
     panel.locator(
         '.chip-list-editor[data-tool-override-field="path_denylist"] .chip'
     ).first.wait_for(timeout=10000)
@@ -391,7 +391,7 @@ SURFACES += [
     Surface(
         "agent-tools",
         "#agents/{agent}/tools",
-        '.tools-category-tile[data-category="Filesystem"]',
+        '.ui-group-tile[data-category="Filesystem"]',
         "Agent editor, Built-in Tools tab: Filesystem expanded, read_file Overrides open",
         prepare=_tools_override_open,
     ),

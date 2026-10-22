@@ -14,7 +14,8 @@
 // replaceWithAgentsRoot / replaceWithAgent / focusNear / indexOf, through the
 // local wrappers below.
 //
-// handle (module -> studio): renderEditor(agent), setActiveTab(tab, options).
+// handle (module -> studio): renderEditor(agent), setActiveTab(tab, options),
+// onSelfConfigChanged(updated) (M31 F2 L10a, DD9-3), deactivateSelfConfig() (M31 F2 L10c).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -95,6 +96,119 @@
       slot.destroy();
     }
 
+    // True from the start of a Save's request until its response has been handled
+    // (a self-configuration refresh landing in between is left to the Save).
+    var saveInFlight = false;
+
+    // ── Self-configuration refresh (M31 F2 L10a, DD9-3) ──────────────
+    // The loopback source row's name: a constant of the server (the row each
+    // agent's own surface uses; self_configuration/manage.py SURFACE_ROW_NAME).
+    var SELF_CONFIG_SOURCE_NAME = 'self-configuration';
+
+    function parseSnapshot_() {
+      try { return JSON.parse(state.snapshot); } catch (e) { return null; }
+    }
+
+    function idsOf_(list) { return Array.isArray(list) ? list : []; }
+
+    // Re-derive the stored-value note: a field leaves it once the operator makes it
+    // equal to the (rebased) baseline again. Runs on every input.
+    function recheckStoredNote_() {
+      var d = currentData_();
+      if (!d || !d.noteFields || d.noteFields.length === 0 || !d.handle) return;
+      var base = parseSnapshot_();
+      var cur = null;
+      try { cur = JSON.parse(getFormSnapshot()); } catch (e) { cur = null; }
+      if (!base || !cur) return;
+      var still = d.noteFields.filter(function (f) { return cur[f] !== base[f]; });
+      if (still.length === d.noteFields.length) return;
+      d.noteFields = still;
+      d.handle.general.setStoredChangeNote(still.length ? still : null);
+    }
+
+    // Move a dirty baseline along with a self-configuration change, key by key, so
+    // the unsaved edits stay the only difference: description / system_prompt take
+    // their new stored value, mcp_source_ids gains or loses the surface id (kept in
+    // the form's DOM order) and mcp_overrides follows the surface source's entry.
+    function rebaseBaseline_(prev, updated) {
+      var base = parseSnapshot_();
+      if (!base) { state.snapshot = getFormSnapshot(); return; }
+      var cur = JSON.parse(getFormSnapshot());
+      ['description', 'system_prompt'].forEach(function (k) {
+        if (typeof updated[k] === 'string' && k in base) base[k] = updated[k];
+      });
+      var before = idsOf_(prev && prev.mcp_source_ids);
+      var after = idsOf_(updated.mcp_source_ids);
+      var added = after.filter(function (id) { return before.indexOf(id) === -1; });
+      var removed = before.filter(function (id) { return after.indexOf(id) === -1; });
+      if ((added.length || removed.length) && Array.isArray(base.mcp_source_ids)) {
+        var baseIds = base.mcp_source_ids.filter(function (id) { return removed.indexOf(id) === -1; });
+        var next = [];
+        idsOf_(cur.mcp_source_ids).forEach(function (id) {
+          if (baseIds.indexOf(id) !== -1 || added.indexOf(id) !== -1) next.push(id);
+        });
+        baseIds.forEach(function (id) { if (next.indexOf(id) === -1) next.push(id); });
+        base.mcp_source_ids = next;
+      }
+      if (added.length || removed.length) {
+        var baseOv = base.mcp_overrides || {};
+        var curOv = cur.mcp_overrides || {};
+        var nextOv = {};
+        Object.keys(curOv).forEach(function (k) {
+          if (k === SELF_CONFIG_SOURCE_NAME) nextOv[k] = curOv[k];
+          else if (k in baseOv) nextOv[k] = baseOv[k];
+        });
+        Object.keys(baseOv).forEach(function (k) {
+          if (k !== SELF_CONFIG_SOURCE_NAME && !(k in nextOv)) nextOv[k] = baseOv[k];
+        });
+        base.mcp_overrides = Object.keys(nextOv).length > 0 ? nextOv : null;
+      }
+      state.snapshot = JSON.stringify(base);
+    }
+
+    // A self-configuration write (enable, disable, approval mode, approve, override,
+    // dismiss, restore) changed the stored agent outside the Save flow. agent-data
+    // has already replaced the list row and refreshed the MCP sources cache. The
+    // open editor is patched in place, never rebuilt, so unsaved edits survive; it
+    // never calls doSelect / patch / General.setAgent / MCPs.setAgent and never
+    // touches selectSeq, state.dirty or _selectedAgentLoaded.
+    function onSelfConfigChanged(updated) {
+      var prev = self._selectedAgent;
+      var sameAgent = !!prev && prev.name === updated.name;
+      var d = currentData_();
+      var live = self._activeSection === 'agents' && !!d && !!d.handle &&
+        d.key === 'edit:' + updated.name && !saveInFlight && sameAgent;
+      if (sameAgent) self._selectedAgent = updated;
+      ctx.list().render();
+      if (!live) return;
+
+      var wasClean = getFormSnapshot() === state.snapshot;
+      var h = d.handle;
+      var baseline = parseSnapshot_();
+
+      var conflicts = h.general.applyStored(
+        { description: updated.description, system_prompt: updated.system_prompt }, baseline);
+      if ((prev.description || '') !== (updated.description || '')) {
+        h.shell.setSubtitle(updated.description || '');
+      }
+      h.mcps.setSources(self._allMcpSources, updated.name);
+      h.selfConfig.setAgent(updated);
+
+      if (wasClean) {
+        state.snapshot = getFormSnapshot();
+        d.noteFields = null;
+        h.general.setStoredChangeNote(null);
+      } else {
+        rebaseBaseline_(prev, updated);
+        // Fields already noted stay noted until the operator makes them clean.
+        var noted = (d.noteFields || []).slice();
+        conflicts.forEach(function (f) { if (noted.indexOf(f) === -1) noted.push(f); });
+        d.noteFields = noted.length ? noted : null;
+        h.general.setStoredChangeNote(d.noteFields);
+      }
+      checkDirty();
+    }
+
     function wire_(data, isCreate, agent) {
       data.wireGen += 1;
       var token = data.token;
@@ -108,17 +222,18 @@
       }, guard);
     }
 
-    function renderEditor(agent) {
+    // `opts.revert` marks a Cancel (the Tools tab drops its loaded override bodies).
+    function renderEditor(agent, opts) {
       var isCreate = !agent;
       var key = isCreate ? 'create' : 'edit:' + agent.name;
       var cur = currentData_();
       var bag = buildCallbacks_(isCreate);
       if (cur && cur.key === key && cur.handle && cur.handle.shell.el.parentNode === editorEl) {
-        patchEditor_(cur, agent, bag);
+        patchEditor_(cur, agent, bag, opts);
         return;
       }
       state.tabHandle = null;
-      var data = { key: key, token: null, handle: null, wireGen: 0 };
+      var data = { key: key, token: null, handle: null, wireGen: 0, noteFields: null };
       data.token = slot.mount(function () {
         if (data.handle) data.handle.destroy();
         data.handle = null;
@@ -141,11 +256,12 @@
     }
 
     // The same-identity update (the leg's patch policy): the handle patches the
-    // header, the load-error node and panels (General, Knowledge and MCPs patched, the other three rebuilt: the interim list), then the
+    // header, the load-error node and panels (General, Knowledge, MCPs and Tools patched, the other two rebuilt: the interim list), then the
     // picker is re-wired for the rebuilt General, the requested tab is selected if
     // it differs (a hydrate's pending tab) and the snapshot is reset.
-    function patchEditor_(data, agent, bag) {
-      data.handle.patch(agent, self._allProviders, bag);
+    function patchEditor_(data, agent, bag, opts) {
+      data.noteFields = null; // General's setAgent (inside patch) hides the note
+      data.handle.patch(agent, self._allProviders, bag, opts);
       wire_(data, !agent, agent);
       if (self._activeTab && data.handle.tabs.selected() !== self._activeTab) {
         data.handle.tabs.select(self._activeTab);
@@ -170,7 +286,7 @@
         onTestProvider: testProvider,
         toolCategories: TOOL_CATEGORIES,
         allTools: self._allTools,
-        onChange: checkDirty,
+        onChange: function () { checkDirty(); recheckStoredNote_(); },
         // F6 leg 05 — operator-state surfaces in Tools tab. Caches were
         // refreshed at editor-mount time (see selectAgent / doSelect). The
         // schema fetcher is closure-cached and survives agent changes.
@@ -214,7 +330,6 @@
         // M21 F02 L02 — approval-mode toggle + revision queue.
         onSetSelfConfigurationApprovalMode: agentData.setSelfConfigurationApprovalMode,
         fetchSelfConfigurationRevisions: agentData.fetchSelfConfigurationRevisions,
-        fetchSelfConfigurationPendingCount: agentData.fetchSelfConfigurationPendingCount,
         onApproveSelfConfigurationRevision: agentData.approveSelfConfigurationRevision,
         onDismissSelfConfigurationRevision: agentData.dismissSelfConfigurationRevision,
         // M21 F02 L03 — revision history restore.
@@ -226,6 +341,16 @@
         onRotateExternalCredential: agentData.rotateExternalCredential
       };
     }
+    // Named hook (M31 F2 L10c): the Self-configuration tab drops its copy-once token
+    // when the tab stops being the shown one (a tab switch, or the Studio area
+    // deactivating). No-op without a mounted self-configuration tab.
+    function deactivateSelfConfig() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.selfConfig && d.handle.selfConfig.deactivate) {
+        d.handle.selfConfig.deactivate();
+      }
+    }
+
     // setActiveTab — analogous to setActiveSection. Updates _activeTab,
     // calls the tab handle's activate (which swaps panel visibility +
     // aria-selected + roving tabindex), writes URL via _writeUrl unless
@@ -239,7 +364,10 @@
         self._selectedMcpAgentSourceId = null;
         self._pendingMcpAgentSourceId = null;
       }
+      var leftSelfConfig = self._activeTab === 'self-configuration' && tab !== 'self-configuration';
       self._activeTab = tab;
+      // Leaving the Self-configuration tab clears a copy-once token still showing.
+      if (leftSelfConfig) deactivateSelfConfig();
       if (state.tabHandle && state.tabHandle.selected() !== tab) {
         state.tabHandle.select(tab);
       }
@@ -268,7 +396,7 @@
       }
       if (self._selectedAgent) {
         var cancelTok = App.focusAfter.begin(cancelBtnEl_());
-        renderEditor(self._selectedAgent);
+        renderEditor(self._selectedAgent, { revert: true });
         state.dirty = false;
         checkDirty();
         App.focusAfter.restore(cancelTok, editorTitleEl_);
@@ -307,7 +435,7 @@
         })
         .catch(function (err) {
           revertFn();
-          App.showFlash(editorEl, (err && err.message) || 'Delete failed', true);
+          App.ui.flash((err && err.message) || 'Delete failed', { container: editorEl, error: true });
         });
     }
 
@@ -330,11 +458,11 @@
           var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
           // The agent's sessions are gone (M25 F4 L1, DD4).
           App.store.invalidate('sessions');
-          App.showFlash(editorEl, 'Purged ' + n + ' conversation' + (n === 1 ? '' : 's'), false);
+          App.ui.flash('Purged ' + n + ' conversation' + (n === 1 ? '' : 's'), { container: editorEl });
         })
         .catch(function (err) {
           revertFn();
-          App.showFlash(editorEl, (err && err.message) || 'Purge failed', true);
+          App.ui.flash((err && err.message) || 'Purge failed', { container: editorEl, error: true });
         });
     }
 
@@ -366,19 +494,19 @@
           var isOk = res.ok && res.body && res.body.status === 'ok';
           show(isOk ? 'success' : 'danger', detail || (isOk ? 'Provider test ok' : 'Provider test failed'));
           if (isOk) {
-            App.showFlash(editorEl, detail || 'Provider test ok');
+            App.ui.flash(detail || 'Provider test ok', { container: editorEl });
           } else {
-            // Bypass the local one-arg showFlash wrapper which drops the
-            // error flag — call App.showFlash directly with isError=true
+            // The local one-arg showFlash wrapper drops the
+            // error flag — call App.ui.flash directly with error: true
             // to preserve the error styling.
-            App.showFlash(editorEl, detail || 'Provider test failed', true);
+            App.ui.flash(detail || 'Provider test failed', { container: editorEl, error: true });
           }
         })
         .catch(function (err) {
           if (!live()) return;
           var msg = (err && err.message) || 'Network error';
           show('danger', msg);
-          App.showFlash(editorEl, msg, true);
+          App.ui.flash(msg, { container: editorEl, error: true });
         });
     }
 
@@ -408,6 +536,7 @@
         // the list reload that follows it is in flight. This form is still
         // the open item while no teardown has run since Save (closeOpenItem
         // bumps editorGen) and the router still shows the create route.
+        saveInFlight = true;
         var createGen = state.editorGen;
         var onThisForm = function () {
           var cur = App.router.current();
@@ -457,7 +586,8 @@
             setEditorError_(err.message);
             App.focusAfter.defer(null);
             App.focusAfter.restore(focusTok, saveBtnEl_);
-          });
+          })
+          .then(function () { saveInFlight = false; });
       } else {
         // Squawk 0090 — belt-and-braces behind the disabled Save button
         // (a keyboard/script-driven click, or a save that races the
@@ -480,6 +610,7 @@
         // rename failure, abort and surface the error; do NOT proceed
         // with the PUT (the operator can re-try or revert the name
         // input).
+        saveInFlight = true;
         var renamePromise;
         var effectiveName;
         if (requestedName !== oldName) {
@@ -572,7 +703,8 @@
           .catch(function (err) {
             setEditorError_(err.message);
             App.focusAfter.restore(focusTok, saveBtnEl_);
-          });
+          })
+          .then(function () { saveInFlight = false; });
       }
     }
 
@@ -600,12 +732,14 @@
       return fallback;
     }
 
-    var showFlash = function (msg) { App.showFlash(editorEl, msg); };
+    var showFlash = function (msg) { App.ui.flash(msg, { container: editorEl }); };
 
     return {
       renderEditor: renderEditor,
       setActiveTab: setActiveTab,
+      deactivateSelfConfig: deactivateSelfConfig,
       destroyEditor: destroyEditor,
+      onSelfConfigChanged: onSelfConfigChanged,
       shell: shell
     };
   }

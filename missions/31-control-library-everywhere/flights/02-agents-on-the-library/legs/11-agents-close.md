@@ -1,6 +1,6 @@
 # Leg: agents-close
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Agents on the library](../flight.md)
 
 ## Objective
@@ -14,7 +14,9 @@ Close Flight 2:
 
 ## Context
 - **Flight decisions:** DD10 (captures, budgets, the test contract), plus the Verification section of `flight.md`.
-- **Legs 01-10 have landed.** Read every flight-log entry, especially the allowance deltas, the logged rises with their reasons, and each leg's capture-difference list.
+- **Legs 01-10c have landed** (01-08a committed in 54112f5 and the main merge 5ad49a1; 08b-10c uncommitted). Read every flight-log entry, especially the allowance deltas, the logged rises with their reasons, each leg's capture-difference list, and the Flight Director Notes.
+- **Measured lane times this flight:** `agents` 547-578 s (budget 510), the others within budget. Squawk 0229 (`test_agent_save_never_steals_focus_the_user_moved`) is a known flake that has not recurred since 07b.
+- **Run the capture tool with `.venv/bin/python`** (system `python3` lacks `tzlocal`).
 - **Squawk 0217's evidence has drifted.** The budget table is `scripts/run-tests.sh` (`[agents]=510`, `[shared]=300`; about 25% headroom, rounded to 30 s). CLAUDE.md's table reads 510/497 and 300/286. `tests/test_run_tests_lanes.py` pins the table and the schedule order.
 
 ## Acceptance Criteria
@@ -24,9 +26,14 @@ Close Flight 2:
   - the self-configuration modules.
 
   Any straggler is fixed in this leg.
+- [ ] **No styling through testids.** Leg 10c styles the Rules and notes empty-state roots with `[data-testid="rules-empty"]` and `[data-testid="notes-empty"]` in `css/studio.css`, to avoid naming the library's owned `.empty-state` class. Testids are test hooks, never style hooks. Move that rule onto the library: extend `emptyState`'s `variant: 'plain'` to own the root spacing too, or wrap the notice in a consumer container with its own class. Then grep `static/css` for `[data-testid` and remove every match. The Rules and notes capture stays pixel-identical. (FD ruling, 2026-10-21; no consumer CSS restyles a library control's nodes.)
 - [ ] **No sizes over 800.** `studio.js` and every new studio module are ≤ 800 lines (`wc -l`).
 - [ ] **Dead CSS.** An unused-selector report for `css/studio.css` (a grep of each class token across `static/js` and `tests/`) is recorded in the flight log, and selectors no built markup uses any more are deleted. Rules with remaining consumers (the admin `.tool-tile*`, the MCP editor's `.mcp-tool-item*`, the chip-list copies used by the admin string path) stay, and each is named in the log as Flight 3/4 debt.
-- [ ] **The after set.** `THE_ONE_TEST_NETNS=1 .venv/bin/python scripts/ui_capture.py --out $HOME/.cache/the-one-ui-capture/m31-f2-after` covers all surfaces. Every before/after pair for the agent surfaces and the admin editor guard is read in both themes. Each visible difference is listed in the flight log, with its DD4 item (1 the switch, 2 the chip "×", 3 MCP Refresh, 4 the info toggletip) or its DD8/DD9 line. The admin Built-in tools editor shows no difference. An unexplained difference is fixed before landing.
+- [ ] **The after set.** `THE_ONE_TEST_NETNS=1 .venv/bin/python scripts/ui_capture.py --out $HOME/.cache/the-one-ui-capture/m31-f2-after` covers all surfaces. Every before/after pair for the agent surfaces and the admin editor guard is read in both themes. Each visible difference is listed in the flight log, with its DD4 item (1 the switch, 2 the chip "×", 3 MCP Refresh, 4 the info toggletip) or its DD8/DD9 line. The admin Built-in tools editor shows no difference. An unexplained difference is fixed before landing. **Two carried differences must be explained or fixed:**
+  - the region at about (294,14)-(317,38), the Agents list pane's "New" control and the header strip, which differs from the before set in every agent capture since 06a;
+  - the danger-zone button gap and icon spacing from leg 04 (06a, 06b).
+
+  The HAT list (in the Flight Director Notes) gets the final set.
 - [ ] **Re-budget (squawk 0217).** `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate` runs in the background with an explicit timeout above its length. Every lane's wall time is recorded, and the budgets of lanes over or near budget are re-set by the script's headroom rule.
   - If `agents` would exceed 1.3× its budget, split it into `agents` and `agent-tabs` (the self-configuration, rules and notes, and tools-override files), updating `scripts/run-tests.sh`, `tests/test_run_tests_lanes.py` and CLAUDE.md's lane table and descriptions.
   - Squawk 0217 is completed.

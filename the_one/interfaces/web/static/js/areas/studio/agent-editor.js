@@ -19,9 +19,12 @@
 //   patch(...) is the same-identity update: it sets the shell title, subtitle and
 //   Chat visibility, updates the load-error node, patches General through its
 //   setAgent (mounted once per identity, 06b), patches Knowledge through its
-//   setAgent (07a), patches MCPs through setSources then setAgent (07b) and rebuilds
-//   the content of the other three panels (the interim: those switch to patch-only in
-//   legs 08-10). It does not re-wire listeners or
+//   setAgent (07a), patches MCPs through setSources then setAgent (07b), patches
+//   Tools through its setAgent (08b; a fourth argument `{revert: true}` is Cancel),
+//   leaves Rules and notes alone (09: it saves immediately, keys only on the name
+//   and declares no setAgent) and hands Self-configuration its record through
+//   setAgent (10a: it refetches its own data after its actions; nothing is rebuilt,
+//   so a patch rebuilds no panel). It does not re-wire listeners or
 //   reset the snapshot: the controller does both after it (it owns checkDirty and the picker).
 //
 // callbacks: { onDelete, onPurge, onSave, onCancel, onTabChange, onTestProvider,
@@ -94,7 +97,8 @@
           pendingSourceId: cb.pendingMcpAgentSourceId
         });
       case 'tools':
-        studio.renderToolsTab(panel, agent, {
+        // Built once per identity; patch calls its setAgent (08b).
+        return studio.renderToolsTab(panel, agent, {
           toolCategories: cb.toolCategories,
           allTools: cb.allTools,
           onChange: cb.onChange,
@@ -102,16 +106,14 @@
           operatorConfigs: cb.operatorConfigs,
           fetchToolSchema: cb.fetchToolSchema
         });
-        break;
       case 'self-configuration':
         // `agent` is null in create mode; the tab renders a "save first" notice.
-        studio.renderSelfConfigurationTab(panel, agent, {
+        return studio.renderSelfConfigurationTab(panel, agent, {
           fetchStatus: cb.fetchSelfConfigurationStatus,
           onEnable: cb.onEnableSelfConfiguration,
           onDisable: cb.onDisableSelfConfiguration,
           onSetApprovalMode: cb.onSetSelfConfigurationApprovalMode,
           fetchRevisions: cb.fetchSelfConfigurationRevisions,
-          fetchPendingCount: cb.fetchSelfConfigurationPendingCount,
           onApproveRevision: cb.onApproveSelfConfigurationRevision,
           onDismissRevision: cb.onDismissSelfConfigurationRevision,
           onRestoreRevision: cb.onRestoreSelfConfigurationRevision,
@@ -120,7 +122,6 @@
           onRevokeExternalCredential: cb.onRevokeExternalCredential,
           onRotateExternalCredential: cb.onRotateExternalCredential
         });
-        break;
       default:
         break;
     }
@@ -135,7 +136,7 @@
     callbacks = callbacks || {};
     var ui = window.App.ui;
     var isCreate = !agent;
-    var h = { key: null, shell: null, tabs: null, loadErrorEl: null, chatBtn: null, general: null, knowledge: null, mcps: null };
+    var h = { key: null, shell: null, tabs: null, loadErrorEl: null, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, selfConfig: null };
 
     function chatTarget(a) { return a ? (a.name || '') : ''; }
 
@@ -217,9 +218,10 @@
       h.loadErrorEl.hidden = !on;
     }
 
-    // Rebuild the content of all six panels (the interim list), each into its
-    // cleared panel, from the given agent and callback bag.
-    // `keep` lists the panel ids patched in place instead (General, Knowledge, MCPs).
+    // Build the content of the panels, each into its cleared panel, from the given
+    // agent and callback bag. Since leg 10a every tab is patched in place, so this
+    // runs once at mount (the interim rebuild list is empty); `keep` lists panel ids
+    // to skip (none now; kept for a future rebuild).
     function rebuildPanels(a, provs, cb, keep) {
       for (var i = 0; i < TAB_ITEMS.length; i++) {
         if (keep && keep.indexOf(TAB_ITEMS[i].id) !== -1) continue;
@@ -229,6 +231,8 @@
         if (TAB_ITEMS[i].id === 'general') h.general = built;
         if (TAB_ITEMS[i].id === 'knowledge') h.knowledge = built;
         if (TAB_ITEMS[i].id === 'mcps') h.mcps = built;
+        if (TAB_ITEMS[i].id === 'tools') h.tools = built;
+        if (TAB_ITEMS[i].id === 'self-configuration') h.selfConfig = built;
       }
     }
 
@@ -239,7 +243,8 @@
 
     // Same-identity update (see the header). The controller re-wires the picker
     // and resets the snapshot after it.
-    h.patch = function (a, provs, cb) {
+    // `opts.revert` is Cancel (the Tools tab drops its loaded override bodies).
+    h.patch = function (a, provs, cb, opts) {
       h.agentName = chatTarget(a);
       h.shell.setTitle(a.name || '');
       h.shell.setSubtitle(a.description || '');
@@ -254,11 +259,20 @@
       // appeared or gone), then the agent's choices.
       h.mcps.setSources(cb.allMcpSources, a.name);
       h.mcps.setAgent(a, { pendingSourceId: cb.pendingMcpAgentSourceId });
-      rebuildPanels(a, provs, cb, ['general', 'knowledge', 'mcps']);
+      h.tools.setAgent(a, {
+        revert: !!(opts && opts.revert),
+        disabledTools: cb.disabledTools,
+        operatorConfigs: cb.operatorConfigs,
+        fetchToolSchema: cb.fetchToolSchema
+      });
+      // Self-configuration refetches its own data after its actions (10a): the
+      // patch only hands it the record (the approval flag lives on it).
+      h.selfConfig.setAgent(a);
     };
     h.rebuildPanels = rebuildPanels;
     h.setLoadError = setLoadError;
     h.destroy = function () {
+      if (h.selfConfig) h.selfConfig.destroy();
       h.tabs.destroy();
       clearNode(container);
     };
