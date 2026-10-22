@@ -1,601 +1,510 @@
-// App.studio.renderMcpsTab — agent-editor MCPs tab.
+// App.studio.renderMcpsTab — agent-editor MCPs tab (rebuilt on the control library in
+// M31 F2 L07b; flight DD3, DD4, DD6, DD7, DD9-1).
 //
-// Mirrors the built-in Tools tab pattern (`tool-row` + sibling
-// `tool-row-overrides <details>`): each MCP source is rendered as a
-// single row with an attach toggle on the summary line, and a
-// collapsible details panel below containing the per-tool checkbox
-// group + credential override fields.
+// One App.ui.groupTile per MCP source. The tile's master is the ATTACH switch (a
+// non-tristate role=switch, never mixed: tool selection does not change it). The
+// body is loaded lazily on the first expand and holds a note host (loading, the
+// auth-required notice, a connection error, or the empty state) above a group of
+// App.ui.toolRow rows (`div[data-mcp-tool-group][data-mcp-tool-mode]`).
 //
 // Public API:
-//   App.studio.renderMcpsTab(panel, agent, allSources, callbacks)
+//   var h = App.studio.renderMcpsTab(panel, agent, allSources, callbacks)
 //     panel       — DOM element (the MCPs tabpanel)
-//     agent       — AgentConfig object (may be null for create-mode)
+//     agent       — AgentConfig object (null for create mode)
 //     allSources  — array of MCPSource objects from /api/mcp-sources
 //     callbacks   — { fetchMcpSourceTools, onChange, onSelectedSourceChange,
 //                     pendingSourceId }
+//                   `onChange` is the editor's dirty callback, called from the
+//                   masters' own onChange and one delegated change handler on each
+//                   group (the editor's field-level listener sweep does not see
+//                   library inputs).
+//   h = { setAgent(agent, opts), setSources(sources, agentName), destroy() }.
+//   Mounted once per agent identity. setAgent patches in place: each master from
+//   `mcp_source_ids` (a self-configuration source stays locked on), each group's
+//   `data-mcp-tool-mode` from `mcp_overrides`, every loaded tool's checked state, and
+//   the count chips; `opts.pendingSourceId` (a later deep link) expands that tile.
+//   setSources reconciles tiles by source id (adds the agent's own new
+//   self-configuration surface, removes a deleted one, swaps the empty state and the
+//   list); every other tile is left alone (same node, expanded state, unsaved choices).
 //
-// Save-flow selectors (collected by studio.js::collectFormData):
-//   [data-mcp-source-toggle][data-mcp-source-id]:checked  → mcp_source_ids
-//   [data-mcp-tool-toggle][data-mcp-source]               → enabled_tools/disabled_tools
+// Save-flow selectors (collected by agent-form-data.js, unchanged):
+//   [data-mcp-source-toggle][data-mcp-source-id]   on the master's input → mcp_source_ids
+//   [data-mcp-tool-toggle][data-mcp-source]        on each row's input → enabled/disabled tools
+//   closest('[data-mcp-tool-group]')[data-mcp-tool-mode]
 //
-// Per-agent credential overrides (bearer_token, headers, env) are NOT
-// rendered in this UI — see flight log Anomaly A5 for the rationale.
-// The backend's `mcp_overrides[source_name]` schema still accepts
-// credential fields via API for non-OAuth use cases; a future flight
-// will land a per-agent OAuth re-auth toggle for SSO sources, replacing
-// the manual-paste UX that didn't fit operators.
+// Per-agent credential overrides (bearer_token, headers, env) are NOT rendered here
+// (flight log Anomaly A5); the backend still accepts them via API.
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  // ── Main entry point ──────────────────────────────────────────────────────
-
   function renderMcpsTab(panel, agent, allSources, callbacks) {
-    panel.innerHTML = '';
     callbacks = callbacks || {};
+    var ui = window.App.ui;
     var fetchMcpSourceTools = callbacks.fetchMcpSourceTools;
     var onChange = callbacks.onChange || function () {};
     var onSelectedSourceChange = callbacks.onSelectedSourceChange || function () {};
-    // The focused source is owned by studio (its hydrateState applies the
-    // URL's value); the tab never parses the URL itself.
-    var pendingSourceId = callbacks.pendingSourceId || null;
+    var currentAgent = agent || null;
+    var agentName = agent ? agent.name : null;
+    var sources = allSources || [];
+    var entries = {};        // source id -> entry
+    var listEl = null;
+    var emptyEl = null;
+    var selectedId = null;   // the source this tab last reported as the focused one
+    var destroyed = false;
 
-    if (!allSources || allSources.length === 0) {
-      _renderEmptyState(panel);
-      return;
+    panel.textContent = '';
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function slugify(name) {
+      // LD7 (M21 F01 L03): keep hyphens/underscores so the tooltip-only prefixed
+      // name agrees with `mcp/_tool.py:_normalize_source_name`.
+      return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_|_$/g, '');
     }
 
-    _renderSourcesList(panel, agent, allSources, fetchMcpSourceTools,
-      onChange, onSelectedSourceChange, pendingSourceId);
-
-  }
-
-  // ── Empty state ───────────────────────────────────────────────────────────
-
-  function _renderEmptyState(panel) {
-    var div = document.createElement('div');
-    div.className = 'mcp-empty-state';
-    div.setAttribute('data-testid', 'mcp-empty-state');
-    div.appendChild(document.createTextNode('No MCP sources registered yet. '));
-    var addLink = document.createElement('a');
-    addLink.href = App.router.href({ destination: 'library' });
-    addLink.textContent = 'Add one in the Library.';
-    div.appendChild(addLink);
-    panel.appendChild(div);
-  }
-
-  // ── Sources list (single render branch) ───────────────────────────────────
-  //
-  // Each source = `<div class="tool-row mcp-source-row">` containing:
-  //   - <label> with attach toggle + name + transport badge
-  //   - sibling <details class="tool-row-overrides"> with the per-source
-  //     details panel (per-tool checkboxes + credential overrides)
-  //
-  // Mirrors built-in tools tab look-and-feel exactly.
-
-  function _renderSourcesList(panel, agent, allSources, fetchMcpSourceTools,
-      onChange, onSelectedSourceChange, pendingSourceId) {
-    var attachedIds = _attachedSourceIds(agent);
-    var listContainer = document.createElement('div');
-    listContainer.className = 'mcp-sources-list';
-    listContainer.setAttribute('data-testid', 'mcp-sources-list');
+    function isSelfConfiguration(source) {
+      var marker = source.config && source.config.self_configuration;
+      return !!(marker && typeof marker === 'object');
+    }
 
     // M21 F01 L02 (DD3): the editor's fetch includes every agent's
-    // self-configuration surface row (`?include_agent_surfaces=1`), but
-    // this tab must show an agent ONLY its own — never another agent's.
-    // Create-mode (agent === null) shows none.
-    var visibleSources = [];
-    for (var vi = 0; vi < allSources.length; vi++) {
-      var candidate = allSources[vi];
-      var marker = candidate.config && candidate.config.self_configuration;
-      if (marker && typeof marker === 'object') {
-        if (!agent || marker.agent !== agent.name) continue;
+    // self-configuration surface row, but this tab shows an agent ONLY its own,
+    // never another agent's. Create mode (no name) shows none.
+    function visibleSources() {
+      var out = [];
+      for (var i = 0; i < sources.length; i++) {
+        var marker = sources[i].config && sources[i].config.self_configuration;
+        if (marker && typeof marker === 'object') {
+          if (!agentName || marker.agent !== agentName) continue;
+        }
+        out.push(sources[i]);
       }
-      visibleSources.push(candidate);
+      return out;
     }
 
-    if (visibleSources.length === 0) {
-      _renderEmptyState(panel);
-      return;
+    function attachedIds() {
+      var ids = {};
+      var list = (currentAgent && currentAgent.mcp_source_ids) || [];
+      for (var i = 0; i < list.length; i++) ids[list[i]] = true;
+      return ids;
     }
 
-    for (var i = 0; i < visibleSources.length; i++) {
-      (function (source) {
-        var isAttached = attachedIds[source.id] === true;
-        var isSelfConfigurationRow = !!(source.config && source.config.self_configuration &&
-          typeof source.config.self_configuration === 'object');
+    function overridesFor(source) {
+      return ((currentAgent && currentAgent.mcp_overrides) || {})[source.name] || {};
+    }
 
-        // Each MCP source = a tile echoing .entity-tile (quiet surface +
-        // hairline border). The tile composes: row1 (toggle + name + protocol badge +
-        // Refresh) + expand button (tool count + chevron) + collapsible
-        // tools body (the per-tool tiles). Mission 08 F4 L2 vibe.
-        var tile = document.createElement('div');
-        tile.className = 'mcp-source-tile';
-        tile.setAttribute('data-source-id', source.id);
-        tile.setAttribute('data-testid', 'mcp-source-row-' + source.id);
-        var startsExpanded = pendingSourceId === source.id;
-        tile.setAttribute('aria-expanded', startsExpanded ? 'true' : 'false');
+    function modeFor(source) {
+      return Array.isArray(overridesFor(source).enabled_tools) ? 'allowlist' : 'denylist';
+    }
 
-        // ── Row 1: toggle + name + protocol + Refresh ──────────────────
-        var row1 = document.createElement('div');
-        row1.className = 'mcp-source-tile-row1';
+    // Is a tool checked by the stored overrides, in the given mode?
+    function storedChecked(source, mode, toolName) {
+      var o = overridesFor(source);
+      if (mode === 'allowlist') {
+        return Array.isArray(o.enabled_tools) && o.enabled_tools.indexOf(toolName) !== -1;
+      }
+      return (o.disabled_tools || []).indexOf(toolName) === -1;
+    }
 
-        var toggleLabel = document.createElement('label');
-        toggleLabel.className = 'mcp-source-tile-toggle';
+    function cachedTools(source) {
+      return source.config && source.config._cache && Array.isArray(source.config._cache.tools)
+        ? source.config._cache.tools : null;
+    }
 
-        var checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'tool-toggle mcp-source-toggle';
-        checkbox.setAttribute('data-mcp-source-toggle', '');
-        checkbox.setAttribute('data-mcp-source-id', source.id);
-        checkbox.setAttribute('data-testid', 'mcp-source-toggle-' + source.id);
-        checkbox.checked = isAttached;
-        if (isSelfConfigurationRow) {
-          // M21 F01 L02: the surface's OWN attach toggle is locked
-          // checked+disabled — it is managed exclusively from the
-          // Self-configuration tab, never from here. A disabled checked
-          // checkbox still matches `:checked` in the DOM, so
-          // collectFormData's `[data-mcp-source-toggle]:checked` scan
-          // keeps the id in `mcp_source_ids` on save; the per-tool
-          // checkboxes below stay fully editable (the operator's
-          // per-capability control).
-          checkbox.checked = true;
-          checkbox.disabled = true;
+    function setSelected(id) {
+      selectedId = id;
+      onSelectedSourceChange(id);
+    }
+
+    // ── Empty state ─────────────────────────────────────────────────────────
+
+    function buildEmptyState() {
+      var addLink = document.createElement('a');
+      addLink.href = App.router.href({ destination: 'library' });
+      addLink.textContent = 'Add one in the Library.';
+      return ui.emptyState({
+        title: 'No MCP sources registered yet.',
+        titleTag: 'p',
+        action: addLink,
+        testid: 'mcp-empty-state'
+      });
+    }
+
+    // ── One source tile ─────────────────────────────────────────────────────
+
+    function buildEntry(source) {
+      var locked = isSelfConfiguration(source);
+      var entry = {
+        source: source,
+        locked: locked,
+        tile: null,
+        group: null,
+        noteHost: null,
+        rows: {},
+        order: [],
+        loadStarted: false,
+        gen: 0
+      };
+
+      // Refresh keeps its visible label at the small size; its name says which source.
+      var refreshBtn = ui.button({
+        size: 'sm',
+        compactIcon: true,
+        icon: 'refresh-cw',
+        label: 'Refresh',
+        ariaLabel: 'Refresh tools for ' + source.name,
+        testid: 'mcp-refresh-tools-btn-' + source.id,
+        onClick: function () {
+          // Opens the panel if closed, then force-reloads the tools. The explicit
+          // selected-source callback replaces onExpand, which setExpanded never fires.
+          if (!entry.tile.isExpanded()) {
+            entry.loadStarted = true;
+            entry.tile.setExpanded(true);
+            setSelected(source.id);
+          }
+          loadTools(entry, true);
         }
-        toggleLabel.appendChild(checkbox);
+      });
 
-        var visualSwitch = document.createElement('span');
-        visualSwitch.className = 'tool-switch';
-        toggleLabel.appendChild(visualSwitch);
+      var actions = [];
+      var lockedHintId = null;
+      if (locked) {
+        // The surface's OWN attach switch is locked checked and disabled: it is
+        // managed from the Self-configuration tab. A disabled checked input still
+        // matches `:checked`, so collectFormData keeps the id in `mcp_source_ids`.
+        var hint = document.createElement('span');
+        hint.className = 'mcp-source-tile-self-configuration-hint';
+        hint.setAttribute('data-testid', 'mcp-source-self-configuration-hint-' + source.id);
+        hint.id = ui.util.uid('sc-hint');
+        hint.textContent = 'managed on the Self-configuration tab';
+        lockedHintId = hint.id;
+        actions.push(hint);
+      }
+      actions.push(refreshBtn);
 
-        row1.appendChild(toggleLabel);
-
-        var nameSpan = document.createElement('span');
-        nameSpan.className = 'mcp-source-tile-name';
-        nameSpan.textContent = source.name;
-        row1.appendChild(nameSpan);
-
-        if (isSelfConfigurationRow) {
-          var hint = document.createElement('span');
-          hint.className = 'mcp-source-tile-self-configuration-hint';
-          hint.setAttribute('data-testid', 'mcp-source-self-configuration-hint-' + source.id);
-          hint.textContent = 'managed on the Self-configuration tab';
-          row1.appendChild(hint);
-        }
-
-        // Enabled-count chicklet (matches the built-in Tools tab category
-        // chicklet shape) — shows live `X / Y enabled`. Hidden until the
-        // source has been connected (cache populated). F4 L2.
-        var enabledChicklet = document.createElement('span');
-        enabledChicklet.className = 'mcp-source-tile-enabled-count tools-category-tile-count';
-        enabledChicklet.hidden = true;
-        row1.appendChild(enabledChicklet);
-
-        var protocolBadge = document.createElement('span');
-        protocolBadge.className = 'mcp-source-tile-protocol';
-        protocolBadge.textContent = source.type === 'stdio' ? 'stdio' : 'http';
-        row1.appendChild(protocolBadge);
-
-        var refreshBtn = document.createElement('button');
-        refreshBtn.type = 'button';
-        refreshBtn.className = 'btn-outlined-primary mcp-refresh-tools-btn';
-        refreshBtn.setAttribute('data-testid', 'mcp-refresh-tools-btn-' + source.id);
-        refreshBtn.innerHTML = window.App.icon('refresh') + ' Refresh';
-        row1.appendChild(refreshBtn);
-
-        tile.appendChild(row1);
-
-        // ── Subtitle: server-declared identity (F4 L2, M08) ─────────────
-        // /test/connect writes serverInfo + instructions into
-        // source.config._cache when the operator probes. Only render the
-        // subtitle when the cache is populated (i.e. the source has been
-        // connected at least once) so create-mode tiles stay clean. The
-        // instructions field, when present, hangs off the subtitle as a
-        // `title=` tooltip so hover reveals the full server-supplied prose.
-        var serverInfo = (source && source.config && source.config._cache &&
-                          source.config._cache.server_info) || null;
-        var instructionsText = (source && source.config && source.config._cache &&
-                                source.config._cache.instructions) || null;
-        if (serverInfo) {
-          var subtitle = document.createElement('div');
-          subtitle.className = 'mcp-source-tile-subtitle';
+      // Server-declared identity (F4 L2, M08), shown once /test/connect has cached it.
+      var subtitle = null;
+      var info = source.config && source.config._cache && source.config._cache.server_info;
+      if (info) {
+        var text = (info.title || info.name || '') + (info.version ? ' · v' + info.version : '');
+        if (text.trim()) {
+          subtitle = document.createElement('span');
           subtitle.setAttribute('data-testid', 'mcp-source-subtitle-' + source.id);
-          var labelText = serverInfo.title || serverInfo.name || '';
-          var versionText = serverInfo.version ? ' · v' + serverInfo.version : '';
-          subtitle.textContent = labelText + versionText;
-          if (instructionsText) {
-            // Hover reveals the full instructions prose. The class
-            // .has-instructions lets the CSS hint at the affordance with a
-            // help-cursor without changing the textual content.
-            subtitle.classList.add('has-instructions');
-            subtitle.title = instructionsText;
-          }
-          // Only append if we actually produced visible text — guards
-          // against servers that announce serverInfo with only the icons
-          // field populated (spec-legal but useless to surface).
-          if (subtitle.textContent.trim()) {
-            tile.appendChild(subtitle);
+          subtitle.textContent = text;
+          var instructions = source.config._cache.instructions;
+          if (instructions) {
+            subtitle.className = 'has-instructions';
+            subtitle.title = instructions;
           }
         }
+      }
 
-        // ── Expand button: tool count + chevron ───────────────────────
-        var expandBtn = document.createElement('button');
-        expandBtn.type = 'button';
-        expandBtn.className = 'mcp-source-tile-expand-btn';
-        expandBtn.setAttribute('aria-expanded', startsExpanded ? 'true' : 'false');
-        expandBtn.setAttribute('data-testid', 'mcp-source-expand-' + source.id);
-
-        var countSpan = document.createElement('span');
-        countSpan.className = 'mcp-source-tile-tool-count';
-        var chevron = document.createElement('span');
-        chevron.className = 'mcp-source-tile-chevron';
-        chevron.textContent = '▸';
-
-        function _cachedTotal(src) {
-          return (src && src.config && src.config._cache &&
-                  Array.isArray(src.config._cache.tools))
-            ? src.config._cache.tools.length : null;
-        }
-        // Compute "enabled" count from agent.mcp_overrides + cache, applying
-        // the same allowlist/denylist logic as _renderToolsCheckboxGroup.
-        function _enabledFromCache(src, ag) {
-          if (!_hasCachedTools(src)) return null;
-          var tools = src.config._cache.tools;
-          var overrides = ((ag && ag.mcp_overrides) || {})[src.name] || {};
-          var enabledList = overrides.enabled_tools;
-          var disabledList = overrides.disabled_tools || [];
-          var isAllowlist = Array.isArray(enabledList) && enabledList !== null;
-          var count = 0;
-          for (var i = 0; i < tools.length; i++) {
-            var n = tools[i].name;
-            var checked = isAllowlist
-              ? enabledList.indexOf(n) !== -1
-              : disabledList.indexOf(n) === -1;
-            if (checked) count++;
-          }
-          return count;
-        }
-        function _setCount(enabled, total) {
-          // Expand-button text: total tool count (no enabled).
-          if (total === null) {
-            countSpan.textContent = 'Tools';
-          } else {
-            countSpan.innerHTML = '<strong>' + total + '</strong> tool' + (total === 1 ? '' : 's');
-          }
-          // Chicklet on row 1: `X / Y enabled`, mirroring the built-in
-          // Tools category-tile chicklet. Hidden when no cache (no count).
-          if (total === null || enabled === null) {
-            enabledChicklet.hidden = true;
-            enabledChicklet.textContent = '';
-          } else {
-            enabledChicklet.hidden = false;
-            enabledChicklet.textContent = enabled + ' / ' + total + ' enabled';
-          }
-        }
-        // Re-read counts from the rendered DOM (post-_renderToolsCheckboxGroup).
-        // Used when individual tool toggles change AND after first tool-load.
-        function _recountFromDom() {
-          var checkboxes = toolsBody.querySelectorAll('[data-mcp-tool-toggle]');
-          if (checkboxes.length === 0) {
-            // DOM not yet populated; fall back to cache compute.
-            _setCount(_enabledFromCache(source, agent), _cachedTotal(source));
-            return;
-          }
-          var enabled = 0;
-          for (var i = 0; i < checkboxes.length; i++) {
-            if (checkboxes[i].checked) enabled++;
-          }
-          _setCount(enabled, checkboxes.length);
-        }
-        function _hasCachedTools(src) {
-          return !!(src && src.config && src.config._cache &&
-                    Array.isArray(src.config._cache.tools));
-        }
-        _setCount(_enabledFromCache(source, agent), _cachedTotal(source));
-        expandBtn.appendChild(countSpan);
-        expandBtn.appendChild(chevron);
-
-        tile.appendChild(expandBtn);
-
-        // ── Tools body (collapsed by default; tile-style tools inside) ──
-        var toolsBody = document.createElement('div');
-        toolsBody.className = 'mcp-source-tile-tools tool-row-overrides-body';
-        toolsBody.setAttribute('data-testid', 'mcp-source-details-body-' + source.id);
-        toolsBody.hidden = !startsExpanded;
-        var loadingP = document.createElement('p');
-        loadingP.className = 'loading';
-        loadingP.textContent = 'Expand to load tools…';
-        toolsBody.appendChild(loadingP);
-        tile.appendChild(toolsBody);
-
-        // Wire each rendered tool checkbox to re-trigger the source-tile
-        // count after every toggle. The _renderToolsCheckboxGroup helper
-        // already wires `onChange` for dirty tracking; this adds a second
-        // listener for the local count display.
-        function _wireToolCheckboxesAndRecount() {
-          var checkboxes = toolsBody.querySelectorAll('[data-mcp-tool-toggle]');
-          for (var i = 0; i < checkboxes.length; i++) {
-            checkboxes[i].addEventListener('change', _recountFromDom);
-          }
-          _recountFromDom();
-        }
-        function loadTools(forceRefresh) {
-          if (!forceRefresh && _hasCachedTools(source)) {
-            _renderToolsCheckboxGroup(toolsBody, source, agent,
-              source.config._cache.tools, onChange);
-            _wireToolCheckboxesAndRecount();
-            return;
-          }
-          toolsBody.textContent = 'Loading tools…';
-          if (!fetchMcpSourceTools) {
-            toolsBody.textContent = 'Tool discovery not available.';
-            return;
-          }
-          fetchMcpSourceTools(source.id, { forceRefresh: !!forceRefresh }).then(function (data) {
-            var tools = data.tools || [];
-            _renderToolsCheckboxGroup(toolsBody, source, agent, tools, onChange);
-            _wireToolCheckboxesAndRecount();
-          }).catch(function (err) {
-            if (err && err.name === 'AuthRequired') {
-              _renderAuthRequiredNotice(toolsBody, source);
-            } else {
-              toolsBody.innerHTML = '';
-              var errEl = window.App.buildMcpError(err && err.message ? err.message : String(err));
-              errEl.setAttribute('data-testid', 'mcp-tools-error-' + source.id);
-              toolsBody.appendChild(errEl);
-            }
-          });
-        }
-
-        var loadedOnce = false;
-        function _setExpanded(expanded) {
-          tile.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-          expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-          toolsBody.hidden = !expanded;
+      var tile = ui.groupTile({
+        name: source.name,
+        chips: [source.type === 'stdio' ? 'stdio' : 'http'],
+        actions: actions,
+        subtitle: subtitle,
+        master: {
+          label: 'Attach ' + source.name,
+          tristate: false,
+          state: 'off',
+          disabled: locked,
+          describedBy: lockedHintId || undefined,
+          testid: 'mcp-source-toggle-' + source.id,
+          dataset: { mcpSourceToggle: '', mcpSourceId: source.id },
+          onChange: function () { onChange(); }
+        },
+        toolLabel: 'Tools',
+        testid: 'mcp-source-row-' + source.id,
+        dataset: { sourceId: source.id },
+        expandTestid: 'mcp-source-expand-' + source.id,
+        bodyTestid: 'mcp-source-details-body-' + source.id,
+        onFirstExpand: function () {
+          if (entry.loadStarted) return;
+          entry.loadStarted = true;
+          loadTools(entry, false);
+        },
+        onExpand: function (expanded) {
           if (expanded) {
-            if (!loadedOnce) {
-              loadedOnce = true;
-              loadTools(false);
-            }
-            if (onSelectedSourceChange) onSelectedSourceChange(source.id);
-          } else {
-            if (onSelectedSourceChange) {
-              var currentSourceId = _parseSourceIdFromHash();
-              if (currentSourceId === source.id) onSelectedSourceChange(null);
-            }
+            setSelected(source.id);
+          } else if (selectedId === source.id) {
+            // DD9-1: collapsing the focused source drops it from the route.
+            setSelected(null);
           }
         }
+      });
+      entry.tile = tile;
 
-        // Wire toggle change → onChange (dirty tracking + URL routing).
-        checkbox.addEventListener('change', function () {
-          if (onChange) onChange();
-        });
+      entry.noteHost = document.createElement('div');
+      entry.noteHost.hidden = true;
+      entry.group = document.createElement('div');
+      entry.group.className = 'mcp-tool-group';
+      entry.group.setAttribute('data-mcp-tool-group', '');
+      entry.group.setAttribute('data-mcp-tool-mode', modeFor(source));
+      entry.group.setAttribute('data-testid', 'mcp-tools-checkbox-group-' + source.id);
+      // ONE delegated handler (replaces the per-load listeners): the count and the
+      // editor's dirty state follow every row change.
+      entry.onGroupChange = function () {
+        recount(entry);
+        onChange();
+      };
+      entry.group.addEventListener('change', entry.onGroupChange);
+      tile.body.appendChild(entry.noteHost);
+      tile.body.appendChild(entry.group);
 
-        // Expand button toggles the tools panel.
-        expandBtn.addEventListener('click', function () {
-          var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
-          _setExpanded(nextExpanded);
-        });
+      patchEntry(entry);
+      return entry;
+    }
 
-        // Refresh button — opens the panel if closed, force-reloads tools.
-        refreshBtn.addEventListener('click', function () {
-          if (toolsBody.hidden) {
-            loadedOnce = true;
-            _setExpanded(true);
-          }
-          loadTools(true);
-        });
+    function destroyEntry(entry) {
+      entry.gen += 1;
+      entry.group.removeEventListener('change', entry.onGroupChange);
+      Object.keys(entry.rows).forEach(function (name) { entry.rows[name].destroy(); });
+      entry.tile.destroy();
+    }
 
-        // Auto-load if pendingSourceId opens us by default.
-        if (startsExpanded) {
-          loadedOnce = true;
-          loadTools(false);
-          if (onSelectedSourceChange) onSelectedSourceChange(source.id);
+    // Masters, tool mode, checked states and the count, from currentAgent.
+    function patchEntry(entry) {
+      var attached = attachedIds();
+      entry.tile.setMaster(entry.locked || attached[entry.source.id] === true ? 'on' : 'off');
+      var mode = modeFor(entry.source);
+      entry.group.setAttribute('data-mcp-tool-mode', mode);
+      Object.keys(entry.rows).forEach(function (name) {
+        entry.rows[name].setChecked(storedChecked(entry.source, mode, name));
+      });
+      recount(entry);
+    }
+
+    // ── Count ───────────────────────────────────────────────────────────────
+
+    function setCount(entry, enabled, total) {
+      entry.tile.setToolCount(total === null ? 'Tools' : total);
+      if (total === null || enabled === null) {
+        entry.tile.setCount('');
+      } else {
+        entry.tile.setCount(enabled + ' / ' + total + ' enabled');
+      }
+    }
+
+    function recount(entry) {
+      var names = Object.keys(entry.rows);
+      if (names.length === 0) {
+        // Rows not built yet: compute from the cache and the stored overrides.
+        var cached = cachedTools(entry.source);
+        if (!cached) {
+          setCount(entry, null, null);
+          return;
         }
-
-        listContainer.appendChild(tile);
-      })(visibleSources[i]);
-    }
-
-    panel.appendChild(listContainer);
-  }
-
-  // ── Details body ──────────────────────────────────────────────────────────
-
-  function _populateDetailsBody(body, source, agent, fetchMcpSourceTools, onChange) {
-    body.innerHTML = '';
-
-    // Tools section.
-    var toolsSection = document.createElement('div');
-    toolsSection.className = 'mcp-editor-section';
-    var toolsLabel = document.createElement('h4');
-    toolsLabel.textContent = 'Tools';
-    toolsSection.appendChild(toolsLabel);
-
-    var refreshBtn = document.createElement('button');
-    refreshBtn.type = 'button';
-    refreshBtn.className = 'btn-outlined-primary mcp-refresh-tools-btn';
-    refreshBtn.setAttribute('data-testid', 'mcp-refresh-tools-btn-' + source.id);
-    refreshBtn.textContent = 'Refresh tools';
-    toolsSection.appendChild(refreshBtn);
-
-    var toolsBody = document.createElement('div');
-    toolsBody.className = 'mcp-tools-body';
-    toolsBody.setAttribute('data-testid', 'mcp-tools-body-' + source.id);
-    toolsSection.appendChild(toolsBody);
-
-    body.appendChild(toolsSection);
-
-    // F9 L3 (A-L3-2) — cache-first read. L1 persists the tools list to
-    // `source.config._cache.tools` on every successful /test/connect from the
-    // source-edit page (and the /test/connect endpoint writes it server-side
-    // too). When the operator opens the details panel for a source that has
-    // a populated cache, render synchronously from the cache — no probe, no
-    // loading placeholder, no flicker.
-    //
-    // The auth-required notice path is reachable only via the probe (in
-    // loadTools). That's correct: a source with cached tools has been
-    // authenticated successfully at some point, so the cache itself is
-    // auth-affirmative. If tokens are later revoked, the operator's explicit
-    // Refresh-tools click triggers a fresh probe, which surfaces the
-    // auth-required notice via the existing path.
-    function _hasCachedTools(src) {
-      return !!(src && src.config && src.config._cache &&
-                Array.isArray(src.config._cache.tools));
-    }
-
-    function loadTools(forceRefresh) {
-      // Cache-first on the initial load; the explicit Refresh-tools button
-      // bypasses by passing forceRefresh=true.
-      if (!forceRefresh && _hasCachedTools(source)) {
-        _renderToolsCheckboxGroup(toolsBody, source, agent,
-          source.config._cache.tools, onChange);
+        var mode = modeFor(entry.source);
+        var n = 0;
+        for (var i = 0; i < cached.length; i++) {
+          if (storedChecked(entry.source, mode, cached[i].name)) n++;
+        }
+        setCount(entry, n, cached.length);
         return;
       }
-      toolsBody.textContent = 'Loading tools…';
+      var enabled = 0;
+      for (var j = 0; j < names.length; j++) {
+        if (entry.rows[names[j]].input.checked) enabled++;
+      }
+      setCount(entry, enabled, names.length);
+    }
+
+    // ── Notes (loading, auth, error, empty) ─────────────────────────────────
+
+    function setNote(entry, node) {
+      entry.noteHost.textContent = '';
+      if (node) entry.noteHost.appendChild(node);
+      entry.noteHost.hidden = !node;
+    }
+
+    function authNotice(source) {
+      var name = source.name || source.id;
+      var status = ui.status({ testid: 'mcp-auth-required-notice-' + source.id });
+      status.set('warning', '“' + name + '” needs Test/auth on the source-edit page first.');
+      var link = document.createElement('a');
+      link.href = App.router.href({ destination: 'library', section: 'mcp', id: source.id });
+      link.textContent = 'Go to source settings';
+      link.setAttribute('data-testid', 'mcp-auth-required-link-' + source.id);
+      status.el.appendChild(document.createTextNode(' '));
+      status.el.appendChild(link);
+      return status.el;
+    }
+
+    // ── Tools: rows keyed by tool name ──────────────────────────────────────
+
+    function buildRow(entry, tool) {
+      var source = entry.source;
+      var mode = entry.group.getAttribute('data-mcp-tool-mode');
+      return ui.toolRow({
+        name: tool.name,
+        description: tool.description,
+        checked: storedChecked(source, mode, tool.name),
+        title: 'mcp__' + slugify(source.name) + '__' + tool.name,
+        testid: 'mcp-tool-toggle-' + source.id + '-' + tool.name,
+        inputDataset: { mcpToolToggle: tool.name, mcpSource: source.name }
+      });
+    }
+
+    // Success: a tool still present keeps the operator's unsaved state, a new one
+    // takes the stored default for the group's CURRENT mode (a Refresh never
+    // recomputes the mode; only setAgent does), a removed one's row goes.
+    function applyTools(entry, tools) {
+      var keep = {};
+      var order = [];
+      var i;
+      for (i = 0; i < tools.length; i++) {
+        var tool = tools[i];
+        if (!entry.rows[tool.name]) entry.rows[tool.name] = buildRow(entry, tool);
+        keep[tool.name] = true;
+        order.push(tool.name);
+      }
+      Object.keys(entry.rows).forEach(function (name) {
+        if (keep[name]) return;
+        var row = entry.rows[name];
+        if (row.el.parentNode) row.el.parentNode.removeChild(row.el);
+        row.destroy();
+        delete entry.rows[name];
+      });
+      for (i = 0; i < order.length; i++) {
+        var el = entry.rows[order[i]].el;
+        if (entry.group.children[i] !== el) entry.group.insertBefore(el, entry.group.children[i] || null);
+      }
+      if (tools.length === 0) {
+        var none = ui.emptyState({
+          title: 'No tools available for this source.',
+          titleTag: 'p',
+          testid: 'mcp-no-tools-msg-' + entry.source.id
+        });
+        setNote(entry, none);
+      } else {
+        setNote(entry, null);
+      }
+      recount(entry);
+    }
+
+    function loadTools(entry, forceRefresh) {
+      var source = entry.source;
+      var cached = cachedTools(source);
+      if (!forceRefresh && cached) {
+        applyTools(entry, cached);
+        return;
+      }
       if (!fetchMcpSourceTools) {
-        toolsBody.textContent = 'Tool discovery not available.';
+        var unavailable = document.createElement('p');
+        unavailable.className = 'loading';
+        unavailable.textContent = 'Tool discovery not available.';
+        setNote(entry, unavailable);
         return;
       }
+      if (Object.keys(entry.rows).length === 0) {
+        var loading = document.createElement('p');
+        loading.className = 'loading';
+        loading.textContent = 'Loading tools…';
+        setNote(entry, loading);
+      }
+      var gen = ++entry.gen;
       fetchMcpSourceTools(source.id, { forceRefresh: !!forceRefresh }).then(function (data) {
-        _renderToolsCheckboxGroup(toolsBody, source, agent, data.tools || [], onChange);
+        if (destroyed || gen !== entry.gen) return;
+        applyTools(entry, (data && data.tools) || []);
       }).catch(function (err) {
+        if (destroyed || gen !== entry.gen) return;
         if (err && err.name === 'AuthRequired') {
-          _renderAuthRequiredNotice(toolsBody, source);
+          setNote(entry, authNotice(source));
         } else {
-          toolsBody.innerHTML = '';
+          // The existing rows stay; the error shows above them, replacing any previous one.
           var errEl = window.App.buildMcpError(err && err.message ? err.message : String(err));
           errEl.setAttribute('data-testid', 'mcp-tools-error-' + source.id);
-          toolsBody.appendChild(errEl);
+          setNote(entry, errEl);
         }
       });
     }
 
-    refreshBtn.addEventListener('click', function () { loadTools(true); });
+    // ── Reconcile the tiles with the visible sources ────────────────────────
 
-    // Credential overrides section intentionally omitted — see flight log
-    // Anomaly A5. The bearer_token / headers / env fields don't fit the
-    // OAuth sources operators care about; a future flight lands a per-agent
-    // re-auth toggle. For now, agent-side override = which servers + which
-    // tools.
-
-    loadTools(false);
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  function _renderToolsCheckboxGroup(container, source, agent, tools, onChange) {
-    container.innerHTML = '';
-
-    if (!tools || tools.length === 0) {
-      var noTools = document.createElement('p');
-      noTools.className = 'empty-state';
-      noTools.setAttribute('data-testid', 'mcp-no-tools-msg-' + source.id);
-      noTools.textContent = 'No tools available for this source.';
-      container.appendChild(noTools);
-      return;
+    function focusSource(id) {
+      var entry = entries[id];
+      if (!entry) return;
+      // The focus follows the URL: the previously focused tile collapses (silently,
+      // setExpanded fires no onExpand) as the new one opens.
+      var prev = selectedId && selectedId !== id ? entries[selectedId] : null;
+      if (prev && prev.tile.isExpanded()) prev.tile.setExpanded(false);
+      if (!entry.tile.isExpanded()) entry.tile.setExpanded(true);
+      if (selectedId !== id) setSelected(id);
     }
 
-    var overrides = ((agent && agent.mcp_overrides) || {})[source.name] || {};
-    var existingEnabled = overrides.enabled_tools;
-    var existingDisabled = overrides.disabled_tools || [];
-    var isAllowlist = Array.isArray(existingEnabled) && existingEnabled !== null;
-    var mode = isAllowlist ? 'allowlist' : 'denylist';
+    function reconcile() {
+      var visible = visibleSources();
+      var want = {};
+      var i;
+      for (i = 0; i < visible.length; i++) want[visible[i].id] = true;
+      Object.keys(entries).forEach(function (id) {
+        if (want[id]) return;
+        var gone = entries[id];
+        destroyEntry(gone);
+        if (gone.tile.el.parentNode) gone.tile.el.parentNode.removeChild(gone.tile.el);
+        delete entries[id];
+        if (selectedId === id) selectedId = null;
+      });
 
-    var group = document.createElement('div');
-    group.className = 'mcp-tools-checkbox-group';
-    group.setAttribute('data-mcp-tool-group', '');
-    group.setAttribute('data-mcp-tool-mode', mode);
-    group.setAttribute('data-testid', 'mcp-tools-checkbox-group-' + source.id);
-
-    for (var i = 0; i < tools.length; i++) {
-      (function (tool) {
-        var toolName = tool.name;
-        var prefixedName = 'mcp__' + _slugify(source.name) + '__' + toolName;
-        var isChecked = isAllowlist
-          ? existingEnabled.indexOf(toolName) !== -1
-          : existingDisabled.indexOf(toolName) === -1;
-
-        var label = document.createElement('label');
-        label.className = 'mcp-tool-toggle-label';
-        // Full prefixed name lives as a tooltip on hover; primary text is
-        // name + description (Mission 08 F4 L2 vibe).
-        label.title = prefixedName;
-
-        var checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'checkbox-primary';
-        checkbox.checked = isChecked;
-        checkbox.setAttribute('data-mcp-tool-toggle', toolName);
-        checkbox.setAttribute('data-mcp-source', source.name);
-        checkbox.setAttribute('data-testid', 'mcp-tool-toggle-' + source.id + '-' + toolName);
-        checkbox.addEventListener('change', function () { if (onChange) onChange(); });
-
-        var textWrap = document.createElement('div');
-        textWrap.className = 'mcp-tool-text';
-
-        var nameSpan = document.createElement('span');
-        nameSpan.className = 'mcp-tool-toggle-name';
-        nameSpan.textContent = toolName;
-        textWrap.appendChild(nameSpan);
-
-        if (tool.description) {
-          var descSpan = document.createElement('span');
-          descSpan.className = 'mcp-tool-description';
-          var fullDesc = tool.description;
-          var truncated = fullDesc.length > 100
-            ? fullDesc.slice(0, 100) + '…'
-            : fullDesc;
-          descSpan.textContent = ' — ' + truncated;
-          // Full text on hover for discoverability.
-          descSpan.title = fullDesc;
-          textWrap.appendChild(descSpan);
+      if (visible.length === 0) {
+        if (listEl && listEl.parentNode) listEl.parentNode.removeChild(listEl);
+        listEl = null;
+        if (!emptyEl) {
+          emptyEl = buildEmptyState();
+          panel.appendChild(emptyEl);
         }
-
-        label.appendChild(checkbox);
-        label.appendChild(textWrap);
-        group.appendChild(label);
-      })(tools[i]);
+        return;
+      }
+      if (emptyEl) {
+        if (emptyEl.parentNode) emptyEl.parentNode.removeChild(emptyEl);
+        emptyEl = null;
+      }
+      if (!listEl) {
+        listEl = document.createElement('div');
+        listEl.className = 'mcp-sources-list';
+        listEl.setAttribute('data-testid', 'mcp-sources-list');
+        panel.appendChild(listEl);
+      }
+      for (i = 0; i < visible.length; i++) {
+        var id = visible[i].id;
+        if (!entries[id]) entries[id] = buildEntry(visible[i]);
+        var el = entries[id].tile.el;
+        if (listEl.children[i] !== el) listEl.insertBefore(el, listEl.children[i] || null);
+      }
     }
 
-    container.appendChild(group);
-  }
+    reconcile();
+    if (callbacks.pendingSourceId) focusSource(callbacks.pendingSourceId);
 
-  function _renderAuthRequiredNotice(container, source) {
-    var sourceId = source.id;
-    var sourceName = source.name || source.id;
-    container.innerHTML = '';
-    var notice = document.createElement('div');
-    notice.className = 'mcp-auth-required-notice';
-    notice.setAttribute('data-testid', 'mcp-auth-required-notice-' + sourceId);
-    notice.textContent = '“' + sourceName + '” needs Test/auth on the source-edit page first. ';
-    var link = document.createElement('a');
-    link.href = App.router.href({ destination: 'library', section: 'mcp', id: sourceId });
-    link.textContent = 'Go to source settings';
-    link.setAttribute('data-testid', 'mcp-auth-required-link-' + sourceId);
-    notice.appendChild(link);
-    container.appendChild(notice);
-  }
-
-  function _attachedSourceIds(agent) {
-    var ids = {};
-    if (!agent) return ids;
-    var sourceIds = agent.mcp_source_ids || [];
-    for (var i = 0; i < sourceIds.length; i++) ids[sourceIds[i]] = true;
-    return ids;
-  }
-
-  function _slugify(name) {
-    // LD7 (M21 F01 L03): keep hyphens/underscores through the substitution
-    // (they are also allowed by the backend's `mcp/_tool.py:
-    // _normalize_source_name`) so the tooltip-only prefixed name this
-    // builds agrees with the ACTUAL tool name the agent sees for a name
-    // like the self-configuration surface's constant row name
-    // ("self-configuration") — previously this collapsed the hyphen to an
-    // underscore while the backend preserved it, showing a tooltip that
-    // did not match reality.
-    return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_|_$/g, '');
+    return {
+      setAgent: function (a, opts) {
+        currentAgent = a || null;
+        if (a && a.name) agentName = a.name;
+        Object.keys(entries).forEach(function (id) { patchEntry(entries[id]); });
+        // A later deep-link change expands that tile (setExpanded fires no onExpand,
+        // so the selected-source callback is explicit). An already-loaded body is
+        // not refetched. A null value never collapses anything.
+        if (opts && opts.pendingSourceId && opts.pendingSourceId !== selectedId) {
+          focusSource(opts.pendingSourceId);
+        }
+      },
+      setSources: function (nextSources, name) {
+        sources = nextSources || [];
+        if (name !== undefined && name !== null) agentName = name;
+        reconcile();
+      },
+      destroy: function () {
+        destroyed = true;
+        Object.keys(entries).forEach(function (id) { destroyEntry(entries[id]); });
+        entries = {};
+        listEl = null;
+        emptyEl = null;
+        panel.textContent = '';
+      }
+    };
   }
 
   window.App.studio.renderMcpsTab = renderMcpsTab;

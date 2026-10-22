@@ -180,3 +180,12 @@ class TestToolOverridesPreservedOnOmit:
         r = await client.put("/api/agents/repl", json={"name": "repl", "tool_overrides": new})
         assert r.status_code == 200, r.text
         assert (await client.get("/api/agents/repl")).json()["tool_overrides"] == new
+
+    async def test_empty_map_is_stored_as_empty_map(self, client: AsyncClient) -> None:
+        """Leg 08a: `{}` is a map, not a clear -- the server stores it as given."""
+        await self._seed(client, "emptymap")
+        r = await client.put(
+            "/api/agents/emptymap", json={"name": "emptymap", "tool_overrides": {}}
+        )
+        assert r.status_code == 200, r.text
+        assert (await client.get("/api/agents/emptymap")).json()["tool_overrides"] == {}

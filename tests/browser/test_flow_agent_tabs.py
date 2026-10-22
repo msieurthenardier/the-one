@@ -14,11 +14,12 @@ Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 - Knowledge tab renders the real attach surface (M24 F06 L03)
 - Advanced collapsible: visible, disabled inputs, "Coming soon" caption
 - Test button: disabled when no provider; click triggers fetch and renders
-  the result in the .test-result span
+  the result in the status line (data-state)
 """
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 
 import pytest
@@ -199,10 +200,10 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
 
     expected = f"agents/{_nav.seg(agent_name)}/tools"
     _nav.expect_route(page, expected)
-    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
-    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
-    # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator(".tool-switch").first).to_be_visible()
+    # The Built-in Tools tab is category group tiles with library switch masters
+    # (M31 F2 L08b). The native input is visually hidden; its track is the visible
+    # switch.
+    expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible()
 
 
 @pytest.mark.browser
@@ -228,10 +229,10 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/tools")
     _wait_editor_ready(page, expected_tab="tools")
 
-    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
-    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
-    # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator(".tool-switch").first).to_be_visible(timeout=8000)
+    # The Built-in Tools tab is category group tiles with library switch masters
+    # (M31 F2 L08b). The native input is visually hidden; its track is the visible
+    # switch.
+    expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 
@@ -244,9 +245,10 @@ def test_tools_tab_renders_builtin_checkboxes(app_with_agent: SeededApp, page: P
 
     page.locator('[data-testid="tab-tools"]').click()
 
-    # The "Built-in tools" section shows checkboxes via .tool-toggle.
-    toggles = page.locator(".tool-toggle")
-    assert toggles.count() > 0
+    # The "Built-in tools" section shows a master switch per category and a
+    # checkbox per tool.
+    assert page.locator("input[data-category-master]").count() > 0
+    assert page.locator("input[type=checkbox][data-tool]").count() > 0
 
 
 @pytest.mark.browser
@@ -272,7 +274,7 @@ def test_knowledge_tab_renders_attach_surface(app_with_agent: SeededApp, page: P
 
 @pytest.mark.browser
 def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> None:
-    """Test button click triggers fetch; result renders in .test-result span.
+    """Test button click triggers fetch; the result renders in the status line.
 
     The seeded mock provider's /test endpoint returns ok with a deterministic
     detail message — exercises the success path. The button is also enabled
@@ -289,11 +291,10 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
     test_btn.click()
 
     result = page.locator('[data-testid="test-provider-result"]')
-    # Wait for the test to resolve — either ok or fail; both render text.
-    expect(result).not_to_have_text("Testing…", timeout=8000)
-    # Should carry the .test-result-ok or .test-result-fail modifier.
-    cls = result.get_attribute("class") or ""
-    assert "test-result-ok" in cls or "test-result-fail" in cls
+    # Wait for the test to resolve: the status line leaves "pending" and lands on
+    # success or danger (library App.ui.status states); both render text.
+    expect(result).to_have_attribute("data-state", re.compile(r"^(success|danger)$"), timeout=8000)
+    expect(result).not_to_have_text("Testing…")
 
 
 @pytest.mark.browser

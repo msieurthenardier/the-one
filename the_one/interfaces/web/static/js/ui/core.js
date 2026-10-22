@@ -70,6 +70,54 @@
     }
   };
 
+  // mountSlot() -> {mount(destroyFn, data) -> token, isCurrent(token),
+  //   current() -> {token, data} | null, release(token), destroy()} (M31 F2 L5, DD2).
+  //   One live mount at a time, without a module-level controller reference.
+  //   mount destroys the previous mount first (a destroyFn that throws is logged
+  //   and the remount goes on), then records the new one. destroy and release null
+  //   the entry BEFORE calling destroyFn, so a destroyFn that calls back into the
+  //   slot is safe and does nothing. release(token) clears the slot without calling
+  //   destroyFn, only if the token is current (a controller's own destroy path).
+  //   Late binding: destroyFn may close over a variable assigned after mount; if
+  //   mounting throws, call release(token) in a catch and re-throw.
+  App.ui.util.mountSlot = function () {
+    var entry = null;
+    var counter = 0;
+    function runDestroy(old) {
+      if (!old || typeof old.destroyFn !== 'function') return;
+      try {
+        old.destroyFn();
+      } catch (err) {
+        if (window.console && console.error) console.error('mountSlot: destroy failed', err);
+      }
+    }
+    return {
+      mount: function (destroyFn, data) {
+        var old = entry;
+        entry = null;
+        runDestroy(old);
+        counter += 1;
+        var token = { id: counter };
+        entry = { token: token, data: data, destroyFn: destroyFn };
+        return token;
+      },
+      isCurrent: function (token) {
+        return !!entry && entry.token === token;
+      },
+      current: function () {
+        return entry ? { token: entry.token, data: entry.data } : null;
+      },
+      release: function (token) {
+        if (entry && entry.token === token) entry = null;
+      },
+      destroy: function () {
+        var old = entry;
+        entry = null;
+        runDestroy(old);
+      }
+    };
+  };
+
   // uid(prefix) - a monotonic, page-unique id: ui-<prefix>-<n>.
   App.ui.util.uid = function (prefix) {
     uidCounter += 1;

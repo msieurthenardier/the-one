@@ -579,3 +579,21 @@ def test_list_pane_with_actions_installs_no_document_listener(engine_page: Page)
     p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'b']))")
     p.evaluate("() => window.__pane.destroy()")
     assert p.evaluate("() => window.__docListeners") == 0
+
+
+def test_list_pane_rows_returns_the_row_elements(engine_page: Page) -> None:
+    load_harness(engine_page)
+    p = engine_page
+    p.evaluate(f"({MOUNT_JS})({{}})")
+    out = p.evaluate(
+        """() => {
+          const all = window.__pane.rows();
+          const vis = window.__pane.rows(true);
+          all[0].parentNode.hidden = true;
+          return {all: all.length, vis: vis.length, isArray: Array.isArray(all),
+                  firstIsRow: all[0].classList.contains('ui-list-pane-row'),
+                  afterAll: window.__pane.rows().length, afterVis: window.__pane.rows(true).length};
+        }"""
+    )
+    assert out["isArray"] and out["firstIsRow"] and out["all"] == out["vis"] == 5
+    assert out["afterAll"] == 5 and out["afterVis"] == 4

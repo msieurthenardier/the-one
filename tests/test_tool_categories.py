@@ -83,7 +83,14 @@ def test_ungated_prefixes_match_the_server_constant() -> None:
 
 
 def test_no_client_literal_copies_of_the_ungated_prefixes() -> None:
-    for rel in ("areas/studio.js", "areas/chat/agent-drawer.js"):
+    # M31 F2 L03: the ungated-prefix read moved to agent-form-data.js and renderEditor to
+    # agent-editor-controller.js; the literal-copy check covers both.
+    for rel in (
+        "areas/studio.js",
+        "areas/studio/agent-form-data.js",
+        "areas/studio/agent-editor-controller.js",
+        "areas/chat/agent-drawer.js",
+    ):
         assert "'mcp__', 'kb__'" not in (TABLE_JS.parent / rel).read_text(), rel
 
 
@@ -100,7 +107,8 @@ def test_the_guard_catches_a_missing_and_a_stale_tool() -> None:
 
 def test_the_three_consumers_read_the_shared_table() -> None:
     for rel, shape in (
-        ("areas/studio.js", "byCategory"),
+        # M31 F2 L03: renderEditor (its Tools-tab callback) moved to the controller.
+        ("areas/studio/agent-editor-controller.js", "byCategory"),
         ("areas/admin/tools-grid.js", "categoryOf"),
         ("areas/admin/tools-editor.js", "categoryOf"),
     ):
@@ -118,6 +126,11 @@ def test_the_table_loads_before_its_consumers() -> None:
     at = srcs.index("tool-categories.js")
     for consumer in (
         "areas/studio.js",
+        # M31 F2 L03: the four editor modules load after the table, before studio.js.
+        "areas/studio/agent-form-data.js",
+        "areas/studio/agent-model-picker.js",
+        "areas/studio/agent-editor-controller.js",
+        "areas/studio/agents-list.js",
         "areas/admin/tools-grid.js",
         "areas/admin/tools-editor.js",
         "areas/chat/agent-drawer.js",

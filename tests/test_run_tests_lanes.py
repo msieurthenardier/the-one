@@ -24,6 +24,7 @@ SCRIPT = REPO / "scripts" / "run-tests.sh"
 LANES = (
     "chats",
     "agents",
+    "agent-tabs",
     "library",
     "mcp",
     "routing",
@@ -93,7 +94,8 @@ def test_list_without_lane_exits_2() -> None:
 def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
-    assert "chats|agents|library|mcp|routing|settings|providers|contracts|shared" in proc.stderr
+    lanes = "chats|agents|agent-tabs|library|mcp|routing|settings|providers|contracts|shared"
+    assert lanes in proc.stderr
     assert proc.stdout == ""
 
 

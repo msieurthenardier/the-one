@@ -154,18 +154,16 @@ def _set_tool_checkboxes(page: Page, checked_names: set[str]) -> None:
 
 
 def _set_kb_toggle(locator, checked: bool) -> None:  # noqa: ANN001
-    """Flip a `[data-kb-toggle]` checkbox's checked state and fire a real
-    'change' event. The checkbox is visually hidden behind the `.tool-
-    switch` sibling span (mirrors the built-in Tools tab / MCPs tab
-    pattern — `.area-studio .tool-toggle { display: none; }`), so a plain
-    Playwright `.check()`/`.uncheck()` times out waiting for visibility;
-    `test_studio_mcps_tab.py::test_*` establishes this exact evaluate +
-    dispatch precedent for the sibling `data-mcp-source-toggle`."""
-    locator.evaluate(
-        "(el, checked) => { el.checked = checked; "
-        "el.dispatchEvent(new Event('change', { bubbles: true })); }",
-        checked,
-    )
+    """Set a knowledge base's attach switch with a real click (the switch is an
+    `App.ui.toggle`, visible and reachable since leg 07a; no evaluate flip)."""
+    if locator.is_checked() != checked:
+        _click_switch(locator)
+
+
+def _click_switch(locator) -> None:  # noqa: ANN001
+    """Click a switch the way a user does: on its visible label and track (the native
+    input is visually hidden behind the track)."""
+    locator.locator("xpath=ancestor::label").click()
 
 
 def _all_tool_names(page: Page) -> list[str]:
@@ -720,3 +718,64 @@ def test_failed_agent_fetch_refuses_save_instead_of_reemitting_stale_disabled_to
         f"expected disabled_tools to still be [{new_tool_name!r}], got {body['disabled_tools']!r}"
     )
     assert old_tool_name not in body["disabled_tools"]
+
+
+@pytest.mark.browser
+def test_attach_switch_is_reachable_by_role_and_tab_squawk_0094(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0094: the attach control is a switch found by role and name, reachable
+    by Tab, toggled by Space, and a real click marks the form dirty."""
+    base_url = app_with_agent.base_url
+    kb = _create_kb(base_url, "Role KB")
+    _open_agent_editor(base_url, page)
+    _open_knowledge_tab(page)
+
+    switch = page.get_by_role("switch", name="Role KB")
+    expect(switch).to_have_count(1, timeout=5000)
+    expect(switch).not_to_be_checked()
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+
+    # Tab from the active tab reaches the switch, and Space toggles it.
+    page.locator('[data-testid="tab-knowledge"]').focus()
+    for _ in range(5):
+        page.keyboard.press("Tab")
+        if switch.evaluate("(el) => el === document.activeElement"):
+            break
+    expect(switch).to_be_focused()
+    page.keyboard.press("Space")
+    expect(switch).to_be_checked()
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_enabled()
+    expect(page.locator(".editor-unsaved")).to_be_visible()
+    assert kb["id"]
+
+
+@pytest.mark.browser
+def test_save_patches_the_knowledge_tab_in_place(app_with_agent: SeededApp, page: Page) -> None:
+    """Attach, Save: the tool-name text updates with no reload and the switch node
+    is the same element (patched, not rebuilt); stored kb_ids round-trips."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    assert agent_name is not None
+    kb = _create_kb(base_url, "Patch KB")
+    _open_agent_editor(base_url, page)
+    _open_knowledge_tab(page)
+
+    switch = page.get_by_role("switch", name="Patch KB")
+    switch.evaluate("(el) => { el.dataset.mark = 'same'; }")
+    tool_name = page.locator(f'[data-testid="agent-knowledge-tool-name-{kb["id"]}"]')
+    expect(tool_name).to_have_text("attach to see the tool name")
+    _click_switch(switch)
+    _save(page)
+
+    assert _get_agent(base_url, agent_name).get("kb_ids") == [kb["id"]]
+    expect(tool_name).to_contain_text("kb__", timeout=8000)
+    expect(switch).to_be_checked()
+    assert switch.evaluate("(el) => el.dataset.mark") == "same"
+
+    # Cancel restores a changed switch without rebuilding it either.
+    _click_switch(switch)
+    expect(page.locator('[data-testid="cancel-agent-btn"]')).to_be_enabled()
+    page.locator('[data-testid="cancel-agent-btn"]').click()
+    expect(switch).to_be_checked(timeout=5000)
+    assert switch.evaluate("(el) => el.dataset.mark") == "same"

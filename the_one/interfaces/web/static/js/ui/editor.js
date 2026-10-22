@@ -209,51 +209,64 @@
     };
   };
 
-  // App.ui.dangerZone(opts) -> {el, button, setNotice(text|null),
-  // setDisabled(bool)}.
+  // App.ui.dangerZone(opts) -> {el, button, buttons, setNotice(text|null),
+  // setDisabled(bool, index?)}.
   //   title ('Danger Zone'), action {label, testid, confirmLabel ('Confirm
-  //   delete?'), revertMs, dataset, onConfirm(revert), beforeArm(proceed)},
-  //   notice {testid}. beforeArm, when given, runs on the first click and
-  //   decides whether to call proceed() (arm the button); it is skipped on the
-  //   second click, which commits.
+  //   delete?'), revertMs, dataset, onConfirm(revert), beforeArm(proceed),
+  //   icon ('trash')}, or actions [action, ...] (M31 F2 L4: one delete-style
+  //   button per action, in order; action is the one-item form), notice
+  //   {testid}. Each action has its own beforeArm, which runs on that button's
+  //   first click and decides whether to call proceed() (arm the button); it is
+  //   skipped on the second click, which commits.
   //   div.editor-section.danger-zone holds div.section-title.danger-zone-title,
-  //   then button.btn-muted-destructive.delete-btn (a 16px trash icon, then
-  //   span[data-confirm-title] with the label, so the confirm title swap leaves
-  //   the icon alone). With notice, a hidden banner follows the button as its
-  //   sibling. A click runs App.ui.confirm on the button.
+  //   then one button.btn-muted-destructive.delete-btn per action (a 16px icon,
+  //   trash by default, then span[data-confirm-title] with the label, so the
+  //   confirm title swap leaves the icon alone). With notice, a hidden banner
+  //   follows the last button as its sibling. A click runs App.ui.confirm on
+  //   the button. button is the first button; setDisabled(value) applies to
+  //   every button, setDisabled(value, index) to the one at index.
   App.ui.dangerZone = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
-    var action = opts.action;
-    if (!action || !action.label) throw new Error('App.ui.dangerZone: action.label is required');
+    var actions = opts.actions || (opts.action ? [opts.action] : []);
+    if (!actions.length) throw new Error('App.ui.dangerZone: action.label is required');
     var root = util.el('div', { className: 'editor-section danger-zone' }, [
       util.el('div', { className: 'section-title danger-zone-title', text: opts.title || 'Danger Zone' })
     ]);
-    var button = util.el('button', {
-      type: 'button',
-      className: 'btn-muted-destructive delete-btn',
-      'data-testid': action.testid
-    }, [
-      App.ui.icon('trash'),
-      util.el('span', { 'data-confirm-title': '', text: action.label })
-    ]);
-    util.applyDataset(button, action.dataset);
-    function arm() {
-      App.ui.confirm(button, function (el, revert) {
-        if (typeof action.onConfirm === 'function') action.onConfirm(revert);
-      }, { confirmLabel: action.confirmLabel || 'Confirm delete?', revertMs: action.revertMs });
-    }
-    button.addEventListener('click', function () {
-      // beforeArm(proceed) gates the FIRST click (the provider editor checks for
-      // agents that use the provider); the second click, on the armed button,
-      // commits without asking again.
-      if (typeof action.beforeArm === 'function' && !button.classList.contains('confirm-delete')) {
-        action.beforeArm(arm);
-      } else {
-        arm();
+    var buttons = [];
+    function build(action) {
+      if (!action || !action.label) throw new Error('App.ui.dangerZone: action.label is required');
+      var button = util.el('button', {
+        type: 'button',
+        className: 'btn-muted-destructive delete-btn',
+        'data-testid': action.testid
+      }, [
+        App.ui.icon(action.icon || 'trash'),
+        util.el('span', { 'data-confirm-title': '', text: action.label })
+      ]);
+      util.applyDataset(button, action.dataset);
+      function arm() {
+        App.ui.confirm(button, function (el, revert) {
+          if (typeof action.onConfirm === 'function') action.onConfirm(revert);
+        }, { confirmLabel: action.confirmLabel || 'Confirm delete?', revertMs: action.revertMs });
       }
-    });
-    root.appendChild(button);
+      button.addEventListener('click', function () {
+        // beforeArm(proceed) gates the FIRST click (the provider editor checks
+        // for agents that use the provider); the second click, on the armed
+        // button, commits without asking again.
+        if (typeof action.beforeArm === 'function' && !button.classList.contains('confirm-delete')) {
+          action.beforeArm(arm);
+        } else {
+          arm();
+        }
+      });
+      return button;
+    }
+    for (var i = 0; i < actions.length; i++) {
+      var b = build(actions[i]);
+      buttons.push(b);
+      root.appendChild(b);
+    }
     var notice = null;
     if (opts.notice) {
       notice = util.el('div', {
@@ -265,7 +278,8 @@
     }
     return {
       el: root,
-      button: button,
+      button: buttons[0],
+      buttons: buttons,
       setNotice: function (text) {
         if (!notice) return;
         if (text === null || text === undefined || text === '') {
@@ -274,8 +288,12 @@
           notice.textContent = text;
         }
       },
-      setDisabled: function (value) {
-        button.disabled = !!value;
+      setDisabled: function (value, index) {
+        if (index === undefined || index === null) {
+          for (var k = 0; k < buttons.length; k++) buttons[k].disabled = !!value;
+        } else if (buttons[index]) {
+          buttons[index].disabled = !!value;
+        }
       }
     };
   };

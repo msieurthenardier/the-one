@@ -34,10 +34,11 @@
   window.App.studio = window.App.studio || {};
 
   var MASKED_SENTINEL = '__MASKED__';
-  // The handle object of the most recent mount. A create re-mounts the editor in
-  // edit mode, and the deferred focus after that Save targets the NEW mount's
-  // title through this handle (the closure that saved is gone by then).
-  var latestMount = null;
+  // The handle object of the current mount, held in a mount slot. A create
+  // re-mounts the editor in edit mode, and the deferred focus after that Save
+  // targets the NEW mount's title through the slot (the closure that saved is gone
+  // by then).
+  var slot = window.App.ui.util.mountSlot();
   var DEFAULT_NUM_CTX = 32768;
   var NUM_CTX_DESC = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
   var THINKING_DESC = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
@@ -62,7 +63,7 @@
     var isEdit = !isCreate;
     var type = isCreate ? '' : provider.type;
     var h = { modelsCtl: null, fieldEls: [] };
-    latestMount = h;
+    slot.mount(function () {}, h);
 
     function typeDefaults(t) {
       return (callbacks.getTypeDefaults && callbacks.getTypeDefaults(t)) ||
@@ -363,7 +364,7 @@
           // Create re-mounts the editor in edit mode asynchronously (the
           // orchestrator's `ready` promise): park the restore for that mount.
           // The target resolves at the NEW mount: the latest mount's shell title.
-          if (!isEdit) App.focusAfter.defer(saveTok, function () { return latestMount && latestMount.shell.titleEl; });
+          if (!isEdit) App.focusAfter.defer(saveTok, function () { var cur = slot.current(); return cur && cur.data.shell && cur.data.shell.titleEl; });
           if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
           // Create to edit replaces this closure (the orchestrator re-renders).
           // On edit to edit the editor stays mounted: patch the display-only

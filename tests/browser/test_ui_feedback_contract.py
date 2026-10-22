@@ -51,6 +51,49 @@ def test_status_text_mode_dom_and_set(engine_page: Page) -> None:
     assert out["glyph"] is False
 
 
+def test_status_role_option(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const mk = (o) => App.ui.status(Object.assign({state: 'danger', text: 'Bad'}, o)).el;
+          let bad = null;
+          try { App.ui.status({role: 'banner'}); } catch (e) { bad = e.message; }
+          return {dflt: mk({}).getAttribute('role'), alert: mk({role: 'alert'}).getAttribute('role'),
+                  status: mk({role: 'status'}).getAttribute('role'),
+                  off: mk({role: 'alert', live: 'off'}).getAttribute('role'), bad};
+        }""",
+    )
+    assert out["dflt"] == "status" and out["status"] == "status"
+    assert out["alert"] == "alert"
+    assert out["off"] is None
+    assert "unknown role" in out["bad"]
+
+
+def test_status_led_false_draws_no_led(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const s = App.ui.status({state: 'danger', text: 'Bad', led: false, role: 'alert', testid: 'st-nl'});
+          document.getElementById('harness-root').appendChild(s.el);
+          const snap = () => ({leds: s.el.querySelectorAll('.indicator-led').length,
+            kids: s.el.children.length, text: s.el.textContent, state: s.el.getAttribute('data-state'),
+            role: s.el.getAttribute('role')});
+          const first = snap();
+          s.set('idle', 'Fine');
+          const second = snap();
+          s.set('success', '', {ledLabel: 'ok'});
+          const third = snap();
+          const withLed = App.ui.status({state: 'idle', text: 'x'});
+          return {first, second, third, defaultLeds: withLed.el.querySelectorAll('.indicator-led').length};
+        }""",
+    )
+    assert out["first"] == {"leds": 0, "kids": 1, "text": "Bad", "state": "danger", "role": "alert"}
+    assert out["second"]["leds"] == 0 and out["second"]["text"] == "Fine"
+    assert out["second"]["state"] == "idle"
+    assert out["third"]["leds"] == 0 and out["third"]["text"] == ""
+    assert out["defaultLeds"] == 1
+
+
 def test_status_led_only_mode_and_clearing_text(engine_page: Page) -> None:
     page = engine_page
     load_harness(page)

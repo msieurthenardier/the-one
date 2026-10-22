@@ -328,3 +328,110 @@ def test_armed_button_looks_armed_even_while_hovered(engine_page: Page) -> None:
         assert hovered == armed, (cls, hovered, armed)
         btn.focus()
         assert btn.evaluate("e => getComputedStyle(e).backgroundColor") == armed["bg"]
+
+
+LIVE = '[data-testid="ui-confirm-live"]'
+
+
+def _mount_two(page: Page) -> None:
+    page.evaluate(
+        """
+        () => {
+          document.body.innerHTML =
+            '<button id="a" aria-label="Delete alpha"><span data-confirm-title>Delete</span></button>' +
+            '<button id="b"><span data-confirm-title>Delete Provider</span></button>';
+        }
+        """
+    )
+
+
+def test_arm_announces_through_one_lazy_shared_live_region(engine_page: Page) -> None:
+    """Squawk 0220: the region does not exist until the first arm, is polite,
+    and stays a single node however many controls arm."""
+    page = engine_page
+    load_harness(page)
+    _mount_two(page)
+    assert page.locator(LIVE).count() == 0
+    page.evaluate(
+        "() => App.ui.confirm(document.getElementById('a'), function () {}, {revertMs: 60000})"
+    )
+    live = page.locator(LIVE)
+    expect(live).to_have_count(1)
+    expect(live).to_have_attribute("role", "status")
+    expect(live).to_have_attribute("aria-live", "polite")
+    expect(live).to_have_class("visually-hidden")
+    # The subject is the persistent aria-label, not the swapped title.
+    expect(live).to_have_text("Press Delete alpha again to confirm delete.")
+    page.evaluate(
+        "() => App.ui.confirm(document.getElementById('b'), function () {}, {revertMs: 60000})"
+    )
+    expect(page.locator(LIVE)).to_have_count(1)
+    # No aria-label: the original title text.
+    expect(page.locator(LIVE)).to_have_text("Press Delete Provider again to confirm delete.")
+
+
+def test_announce_name_wins_and_label_wording(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    _mount_two(page)
+    page.evaluate(
+        """() => App.ui.confirm(document.getElementById('a'), function () {},
+          {revertMs: 60000, announceName: 'Revoke key', confirmLabel: 'Confirm revoke?'})"""
+    )
+    expect(page.locator(LIVE)).to_have_text("Press Revoke key again to confirm revoke.")
+
+
+def test_lapse_announces_not_confirmed_and_commit_clears(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    _mount_two(page)
+    page.evaluate(
+        "() => App.ui.confirm(document.getElementById('a'), function () {}, {revertMs: 150})"
+    )
+    expect(page.locator(LIVE)).to_have_text("Delete alpha: not confirmed")
+    # Arm again, then commit: the region is cleared.
+    page.evaluate(
+        "() => App.ui.confirm(document.getElementById('a'), function () {}, {revertMs: 60000})"
+    )
+    expect(page.locator(LIVE)).to_have_text("Press Delete alpha again to confirm delete.")
+    page.evaluate(
+        "() => App.ui.confirm(document.getElementById('a'), function () {}, {revertMs: 60000})"
+    )
+    expect(page.locator(LIVE)).to_have_text("")
+
+
+def test_repeated_arm_reannounces_and_region_is_recreated_when_detached(
+    engine_page: Page,
+) -> None:
+    page = engine_page
+    load_harness(page)
+    _mount_two(page)
+    # A mutation observer counts the writes of non-empty text.
+    page.evaluate(
+        """() => {
+          window.__writes = 0;
+          App.ui.confirm(document.getElementById('b'), function () {}, {revertMs: 60000});
+        }"""
+    )
+    expect(page.locator(LIVE)).to_have_text("Press Delete Provider again to confirm delete.")
+    page.evaluate(
+        """() => {
+          const live = document.querySelector('[data-testid=ui-confirm-live]');
+          new MutationObserver(() => { if (live.textContent) window.__writes++; })
+            .observe(live, {childList: true, characterData: true, subtree: true});
+          const b = document.getElementById('b');
+          // Re-arm over an armed control: commit (clears), then arm again.
+          App.ui.confirm(b, function (el, revert) { revert(); }, {revertMs: 60000});
+          App.ui.confirm(b, function () {}, {revertMs: 60000});
+        }"""
+    )
+    expect(page.locator(LIVE)).to_have_text("Press Delete Provider again to confirm delete.")
+    assert page.evaluate("() => window.__writes") >= 1
+    # Detach the region (a page that replaced body content): the next arm re-appends it.
+    page.evaluate("() => { document.querySelector('[data-testid=ui-confirm-live]').remove(); }")
+    page.evaluate(
+        """() => { const a = document.getElementById('a');
+          App.ui.confirm(a, function () {}, {revertMs: 60000}); }"""
+    )
+    expect(page.locator(LIVE)).to_have_count(1)
+    expect(page.locator(LIVE)).to_have_text("Press Delete alpha again to confirm delete.")

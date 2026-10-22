@@ -28,9 +28,10 @@ def test_confirm_dialog_called_only_by_nav_and_notes_clear_all():
     callers = {
         p.name for p in _files() if re.search(r"App\.confirmDialog\s*\(", _code(p)) is not None
     }
-    # rules-notes-tab.js (M27 F2 L3, DD10): the Notes section's Clear all is a
-    # blocking "this can't be undone" decision, not a leave guard.
-    assert callers <= {"rules-notes-tab.js"}
+    # notes-section.js (M27 F2 L3, DD10; split from rules-notes-tab.js in M31 F2 L11): the
+    # Notes section's Clear all is a blocking "this can't be undone" decision, not a leave
+    # guard.
+    assert callers <= {"notes-section.js"}
     # nav.js reaches it through a lazily-resolved local, never a literal call site.
     assert "window.App.confirmDialog" in (JS / "nav.js").read_text()
 

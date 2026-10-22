@@ -16,9 +16,9 @@
 //                 delete-row + VRAM summary + streaming pull progress).
 //   - other     → basic model list (Refresh + GET /api/providers/{id}/models).
 //
-// One provider editor is mounted at a time, so a module-level `activeController`
-// is destroyed before a new mount (a full editor re-render never orphans a poll or
-// a pull).
+// One provider editor is mounted at a time, so a module-level mount slot
+// (App.ui.util.mountSlot) destroys the previous controller before a new mount (a
+// full editor re-render never orphans a poll or a pull).
 //
 // `.admin-pf-*` layout classes stay (per-area scoping kept intentionally).
 (function () {
@@ -27,7 +27,7 @@
   window.App.studio = window.App.studio || {};
 
   var util = App.ui.util;
-  var activeController = null;
+  var slot = util.mountSlot();
 
   var NO_TOOLS_TITLE =
     'This model does not support tool calling — agents will run in single-shot chat mode.';
@@ -141,12 +141,24 @@
 
   function renderProviderModels(container, provider) {
     if (!provider || !provider.id || !container) return null;
-    if (activeController) activeController.destroy();
-    container.textContent = '';
-    var ctl = provider.type === 'ollama'
-      ? mountOllama(provider, container)
-      : mountBasic(provider, container);
-    activeController = ctl;
+    var ctl = null;
+    var token = slot.mount(function () { if (ctl) ctl.destroy(); });
+    try {
+      container.textContent = '';
+      ctl = provider.type === 'ollama'
+        ? mountOllama(provider, container)
+        : mountBasic(provider, container);
+    } catch (err) {
+      slot.release(token);
+      throw err;
+    }
+    // A controller's own destroy releases the slot (a no-op when the slot is
+    // already past this mount).
+    var innerDestroy = ctl.destroy;
+    ctl.destroy = function () {
+      slot.release(token);
+      innerDestroy();
+    };
     return ctl;
   }
 
@@ -221,7 +233,6 @@
       destroy: function () {
         destroyed = true;
         generation++;
-        if (activeController === controller) activeController = null;
       }
     };
     refresh();
@@ -993,7 +1004,6 @@
           pullAbort = null;
         }
         Object.keys(rows).forEach(function (name) { clearRowError(rows[name]); });
-        if (activeController === controller) activeController = null;
       }
     };
     refresh();

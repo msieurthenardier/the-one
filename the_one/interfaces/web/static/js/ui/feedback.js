@@ -47,11 +47,30 @@
   };
   App.ui.badge.KINDS = BADGE_KINDS.slice();
 
+  // App.ui.badge.dot(kind) -> HTMLSpanElement: the text-less, aria-hidden 8px disc
+  // (the provider dot, a list row's `lead`). `kind` is a provider type slug: one of
+  // KINDS, any other string maps to 'unknown', and null/undefined draws the hollow
+  // "no provider" ring. The meaning is carried by the row's accessible name, never the colour.
+  App.ui.badge.dot = function (kind) {
+    var cls;
+    if (kind === null || kind === undefined) {
+      cls = 'badge badge-dot badge-dot--none';
+    } else {
+      cls = 'badge badge--' + (BADGE_KINDS.indexOf(kind) !== -1 ? kind : 'unknown') + ' badge-dot';
+    }
+    return App.ui.util.el('span', { className: cls, 'aria-hidden': 'true' });
+  };
+
   // App.ui.emptyState(opts) -> HTMLDivElement.
   //   title (required), body, action (an element), icon (an App.icons name),
   //   headingLevel (1-6, default 3), titleTag ('p': the title is a paragraph, not a
   //   heading, for a panel that must not add an outline entry; default a heading),
   //   size ('inline' | 'pane', default inline),
+  //   variant ('plain': the title reads as quiet running text, inheriting the
+  //   container's size, weight and ink instead of the medium-weight primary title;
+  //   inline size only; default none; 'flush': plain, and the root as well is a flush,
+  //   left-aligned, body-sm line with a space-3 gap below instead of the centred padded
+  //   block, for a "nothing here yet" line at the top of a list; default none),
   //   role (set on the root when given; listPane passes none, its own live region announces).
   //   The test id option is placed on the root element (supplied by the caller).
   //   inline: div.empty-state. pane: div.empty-canvas > div.empty-canvas-inner;
@@ -62,6 +81,9 @@
     var size = opts.size || 'inline';
     if (size !== 'inline' && size !== 'pane') {
       throw new Error('App.ui.emptyState: unknown size "' + size + '"');
+    }
+    if (opts.variant !== undefined && opts.variant !== 'plain' && opts.variant !== 'flush') {
+      throw new Error('App.ui.emptyState: unknown variant "' + opts.variant + '"');
     }
     var level = opts.headingLevel === undefined ? 3 : opts.headingLevel;
     if (typeof level !== 'number' || level < 1 || level > 6 || level % 1 !== 0) {
@@ -86,7 +108,10 @@
         util.el('div', { className: 'empty-canvas-inner' }, children)
       ]);
     } else {
-      root = util.el('div', { className: 'empty-state' }, children);
+      root = util.el('div', {
+        className: 'empty-state' + (opts.variant === 'plain' ? ' empty-state--plain'
+          : opts.variant === 'flush' ? ' empty-state--plain empty-state--flush' : '')
+      }, children);
     }
     if (opts.role) root.setAttribute('role', opts.role);
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
@@ -123,6 +148,9 @@
   //   state: success | warning | danger | idle | pending (pending shows the idle LED).
   //   text: the status words; ledLabel: the LED's name when there is no text.
   //   live: 'polite' (default; role=status on the line) or 'off'.
+  //   role: 'status' (default) or 'alert' (the line is role=alert, for an error that
+  //   must interrupt); ignored when live is 'off'.
+  //   led: false draws no LED at all (the words alone; the state stays on data-state).
   //   The test id option is placed on the p.ui-status root (supplied by the caller).
   //   With text the LED is decorative (aria-hidden). Without text the LED is role=img
   //   named by ledLabel only when one is given (opts.ledLabel, or per call:
@@ -131,18 +159,23 @@
   App.ui.status = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
+    var showLed = opts.led !== false;
     var led = util.el('span', {});
     var label = util.el('span', { className: 'ui-status-text' });
-    var root = util.el('p', { className: 'ui-status' }, [led, label]);
-    if (opts.live !== 'off') root.setAttribute('role', 'status');
+    var root = util.el('p', { className: 'ui-status' }, showLed ? [led, label] : [label]);
+    if (opts.role !== undefined && opts.role !== 'status' && opts.role !== 'alert') {
+      throw new Error('App.ui.status: unknown role "' + opts.role + '"');
+    }
+    if (opts.live !== 'off') root.setAttribute('role', opts.role || 'status');
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
     function set(state, text, callOpts) {
       if (STATUS_STATES.indexOf(state) === -1) {
         throw new Error('App.ui.status: unknown state "' + state + '"');
       }
-      led.className = 'indicator-led indicator-led--' + (state === 'pending' ? 'idle' : state);
       root.setAttribute('data-state', state);
       label.textContent = text ? String(text) : '';
+      if (!showLed) return;
+      led.className = 'indicator-led indicator-led--' + (state === 'pending' ? 'idle' : state);
       var ledLabel = (callOpts && callOpts.ledLabel) || opts.ledLabel;
       if (!text && ledLabel) {
         led.removeAttribute('aria-hidden');

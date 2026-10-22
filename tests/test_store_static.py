@@ -30,6 +30,15 @@ def _src(rel: str) -> str:
     return (JS / rel).read_text()
 
 
+def _studio_src() -> str:
+    """studio.js plus every studio module, for text-presence pins that may span
+    files (M31 F2 L02a: studio.js is being split into modules; a pin that asserts
+    a text exists, or does not exist, must cover all of them)."""
+    parts = [_src("areas/studio.js")]
+    parts += [p.read_text() for p in sorted((JS / "areas/studio").glob("*.js"))]
+    return "\n".join(parts)
+
+
 def _window(src: str, anchor: str, end: str) -> str:
     """The text from *anchor* up to the first *end* after it (both must exist)."""
     start = src.index(anchor)
@@ -191,31 +200,42 @@ def test_retired_new_session_path_is_gone_from_the_client() -> None:
 
 def test_library_fetch_sites_read_through_the_store() -> None:
     src = _src("areas/studio.js")
+    # M31 F2 L02a: fetchKnowledgeBases moved to the agent-data module.
     assert "App.store.get('knowledge-bases'" in _window(
-        src, "function fetchKnowledgeBases(force)", "\n    }"
+        _src("areas/studio/agent-data.js"), "function fetchKnowledgeBases(force)", "\n    }"
     )
     # M25 F3 L4a: the Library list's fetch policy (DD9's freshness bound). Pane
     # creation and studio activate force-get the three collections and plain-get
     # agents; a mutation reloads with a plain get after the editor's
     # invalidate; the pending-item rule force-gets only for a fresh hydrate.
-    load = _window(src, "function loadLibrary(force)", "\n    }")
+    # M31 F2 L02b: the list's functions moved to the library-pane module.
+    pane = _src("areas/studio/library-pane.js")
+    load = _window(pane, "function loadLibrary(force)", "\n    }")
     assert "App.store.get(name, { force: !!force })" in load
     assert "App.store.get('agents')" in load
-    assert "App.store.get(name)" in _window(src, "function reloadLibrary(name)", "\n    }")
-    create = _window(src, "function createLibraryList()", "\n    }")
+    assert "App.store.get(name)" in _window(pane, "function reloadLibrary(name)", "\n    }")
+    create = _window(pane, "function createLibraryList()", "\n    }")
     assert "loadLibrary(true)" in create
     refresh = _window(src, "self._refresh = function ()", "\n    };")
-    assert "loadLibrary(true)" in refresh
-    pending = _window(src, "function resolvePendingLibraryItem(section, fresh)", "\n    }\n")
+    assert "libraryPane.load(true)" in refresh
+    # ...and the pending-item rule is in connector-glue.js.
+    pending = _window(
+        _src("areas/studio/connector-glue.js"),
+        "function resolvePendingLibraryItem(section, fresh)",
+        "\n    }\n",
+    )
     assert "App.store.get(k.collection, { force: true })" in pending
     assert "App.store.get(k.collection)" in pending
     # The retired grids' self-refetching paths are gone.
+    all_studio = _studio_src()
     for gone in ("fetchKnowledgeBases_", "fetchMcpSources_", "fetchConnectors_"):
-        assert gone not in src, gone
+        assert gone not in all_studio, gone
     # The agent editor's detail-shaped variant stays a direct fetch.
     # (0145: through App.api.fetchJson so a non-ok response throws; never App.store.)
-    assert "App.api.fetchJson('/api/mcp-sources?include_agent_surfaces=1')" in src
-    assert "App.store.get('mcp-sources?include_agent_surfaces" not in src
+    assert "App.api.fetchJson('/api/mcp-sources?include_agent_surfaces=1')" in _src(
+        "areas/studio/agent-data.js"
+    )
+    assert "App.store.get('mcp-sources?include_agent_surfaces" not in all_studio
 
 
 def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
@@ -229,7 +249,9 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
     assert reset.index("App.store.invalidate('mcp-sources')") < reset.index(
         "callbacks.onListStale()"
     )
-    studio = _src("areas/studio.js")
+    # M31 F2 L02b: the MCP section glue moved to mcp-glue.js (which keeps the
+    # local ``reloadLibrary`` alias, so the literal is unchanged).
+    studio = _src("areas/studio/mcp-glue.js")
     assert "onListStale: function () { reloadLibrary('mcp-sources'); }" in studio
 
 
@@ -242,7 +264,13 @@ def test_cross_collection_mutations_invalidate_agents() -> None:
     for rel, minimum in (
         ("areas/studio/knowledge-section.js", 2),
         ("areas/studio/mcp-server-editor.js", 2),
-        ("areas/studio.js", 5),
+        # M31 F2 L02a: the self-configuration refresh site moved to agent-data (1);
+        # M31 F2 L03: the four editor sites (create, rename, save, delete) moved to
+        # the controller and studio.js keeps none. Per file, so a lost site is
+        # still caught.
+        ("areas/studio/agent-data.js", 1),
+        ("areas/studio/agent-editor-controller.js", 4),
+        ("areas/studio.js", 0),
     ):
         src = _src(rel)
         assert src.count("App.store.invalidate('agents')") >= minimum, rel
@@ -293,8 +321,8 @@ INVALIDATION_ROWS = (
         "renderToolsListHtml(data.tools)",
         ("mcp-sources",),
     ),
-    (  # MCP source: the agent editor's tools load (also /test/connect)
-        "areas/studio.js",
+    (  # MCP source: the agent editor's tools load (also /test/connect; agent-data now)
+        "areas/studio/agent-data.js",
         "'/test/connect', {",
         "return data;",
         ("mcp-sources",),
@@ -318,15 +346,15 @@ INVALIDATION_ROWS = (
         ("providers",),
     ),
     (  # agent rename: re-points chat_sessions.agent_name (M25 F4 L1, DD4)
-        "areas/studio.js",
+        "areas/studio/agent-editor-controller.js",
         "'/rename', {",
         "self._selectedAgent = renamed;",
         ("agents", "sessions"),
     ),
     (  # agent Purge now: the agent's sessions are deleted (M25 F4 L1, DD4)
-        "areas/studio.js",
+        "areas/studio/agent-editor-controller.js",
         "var n = body && typeof body.deleted === 'number' ? body.deleted : 0;",
-        "App.showFlash(editorEl, 'Purged '",
+        "App.ui.flash('Purged '",
         ("sessions",),
     ),
 )
@@ -346,8 +374,9 @@ def test_save_syncs_pass_the_item_name_hint() -> None:
     assert "App.router.sync('admin', self.serializeState(), { name: updated.name })" not in _src(
         "areas/admin.js"
     )
+    # M31 F2 L02b: the MCP save-create sync moved to mcp-glue.js.
     assert "App.router.sync('studio', self.serializeState(), { name: updated.name })" in _src(
-        "areas/studio.js"
+        "areas/studio/mcp-glue.js"
     )
     providers = _src("areas/studio/providers-section.js")
     window = _window(providers, "App.router.sync('studio', 'providers/' +", ");")
@@ -384,3 +413,23 @@ def test_describe_route_reads_the_store_guarded_and_known_collections_only() -> 
     urls = _window(_src("store.js"), "var URLS = {", "};")
     for name in named:
         assert re.search(rf"'?{re.escape(name)}'?: '/api/", urls), name
+
+
+def test_studio_shell_keeps_its_public_surface() -> None:
+    """M31 F2 L03: the editor modules own the code, but the shell (studio.js) still
+    exposes exactly the area surface tests, the router and other areas reach: the
+    `self._*` hooks, `App.studio.clearAgentFilter` (with its load-time stub) and the
+    `_refresh` / `_dirty` seams. A move that drops one is caught here, not in a lane."""
+    src = _src("areas/studio.js")
+    for needle in (
+        "self._syncAgentSelection = ",
+        "self._enterCreate = ",
+        "self._setActiveTab = ",
+        "self._tryConsumePendingSelect = ",
+        "App.studio.clearAgentFilter = agentsListMod.clearFilter",
+        "self._refresh = function",
+        "Object.defineProperty(self, '_dirty'",
+        "window.App.studio.clearAgentFilter = function () {};",
+    ):
+        assert needle in src, needle
+    assert len(src.splitlines()) <= 800  # the leg 03 shell budget

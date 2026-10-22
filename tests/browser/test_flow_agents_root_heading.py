@@ -54,7 +54,9 @@ def test_library_roots_have_one_hidden_h1(app_clean: str, page: Page, section: s
     section URL is an alias of the one Library root (alias-proving)."""
     _nav.goto(page, app_clean, f"library/{section}")
     _nav.expect_route(page, "library")
-    assert page.evaluate("location.hash") == _nav.href("library")
+    # The alias redirect is a replaceState that can land just after the route commits:
+    # poll the hash rather than read it once (a loaded host saw "#library/connectors").
+    page.wait_for_function("(h) => location.hash === h", arg=_nav.href("library"), timeout=8000)
     expect(page.locator('[data-testid="root-heading"]')).to_have_text("Library", timeout=8000)
     assert _h1_texts(page) == ["Library"]
     # The start page's blocks are h2s (DD15): one per type.
@@ -77,7 +79,8 @@ def test_tools_tab_category_master_toggles_are_named(app_with_agent: SeededApp, 
     assert masters.count() >= 1
     for i in range(masters.count()):
         cat = masters.nth(i).get_attribute("data-category-master")
-        assert masters.nth(i).get_attribute("aria-label") == f"Enable all {cat} tools"
+        # The library switch is named by its visually hidden label (M31 F2 L08b).
+        expect(masters.nth(i)).to_have_accessible_name(f"Enable all {cat} tools")
 
 
 # ── Leg 4c (DD15): the start pages ─────────────────────────────────────────

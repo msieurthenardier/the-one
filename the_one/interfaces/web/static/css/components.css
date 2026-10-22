@@ -283,7 +283,7 @@
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    cursor: help;
+    cursor: pointer;
     transition: color 0.15s ease;
   }
   .field-info-icon:hover { color: var(--accent); }
@@ -293,6 +293,31 @@
      The wrapper keeps the button and its visually hidden description together
      as one flex item wherever a field or choice row places it. */
   .ui-info { display: inline-flex; align-items: center; position: relative; }
+  /* The press-only toggletip bubble (squawk 0221): absolutely positioned below the
+     button, so opening it shifts no layout; flips above / to the end edge when it
+     would overflow the viewport. The popover look of .ui-menu. */
+  .ui-info-bubble {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 50;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 280px;
+    margin-top: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface-elevated);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-popover);
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-normal);
+    text-align: left;
+    white-space: normal;
+  }
+  .ui-info-bubble--end { left: auto; right: 0; }
+  .ui-info-bubble--above { top: auto; bottom: 100%; margin-top: 0; margin-bottom: var(--space-1); }
 
   /* === Checkbox Primary (form checkbox primitive) ===
      Lifted from .area-studio .mcp-tools-checkbox-group input[type="checkbox"]
@@ -528,6 +553,8 @@
      padding and a 16px svg; with .btn-sm a 24×24 one with a 14px svg. An
      icon-only button must carry an aria-label. Placed after the size
      modifiers and the svg rule so equal-specificity later-wins applies. */
+  /* compactIcon (M31 F2 L4: the small Refresh): a labelled button's icon at 14px. */
+  .btn-icon-compact svg { width: 14px; height: 14px; }
   .btn-icon { width: 32px; height: 32px; padding: 0; }
   .btn-icon svg { width: 16px; height: 16px; }
   .btn-icon.btn-sm { width: 24px; height: 24px; padding: 0; }
@@ -892,6 +919,19 @@
     font-weight: var(--font-weight-medium);
     color: var(--fg);
   }
+  /* variant 'plain': the title is quiet running text in the container's own ink. */
+  .empty-state--plain .ui-empty-title {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+  }
+  /* variant 'flush': plain, and the root is a flush, left-aligned body-sm line. */
+  .empty-state--flush {
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
+  }
   .ui-empty-body { margin: var(--space-1) 0 0; }
   .ui-empty-icon { display: inline-flex; margin-bottom: var(--space-2); }
   .ui-empty-icon svg { width: 24px; height: 24px; }
@@ -1218,14 +1258,17 @@
      header's right edge. */
   .page-header > .btn-outlined-primary { margin-left: auto; flex-shrink: 0; }
 
-  /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
+  /* === App.ui.tabs (M31 F2 L4): the tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
   /* Used by the studio agent editor's General/Knowledge/Tools tabs. The
      tablist is a `<div role="tablist">` containing `<button role="tab">`
      elements; below it, `<div role="tabpanel">` panels with [hidden]
      control. Manual-activation contract — arrow keys move focus + visual
      highlight only; Enter/Space (or click) commits the tab. Roving
-     tabindex: only the active tab carries tabindex="0". The `App.tabs`
-     helper in static/js/tabs.js wires the keyboard + click handlers. */
+     tabindex: only the active tab carries tabindex="0". `App.ui.tabs`
+     (js/ui/tabs.js) wires the keyboard + click handlers; the legacy
+     `App.tabs` helper (js/tabs.js) stays until its callers migrate. */
+  /* The wrapper reproduces today's flex column (tablist, then the panels). */
+  .ui-tabs { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .tablist {
     display: flex;
     gap: 4px;
@@ -1436,10 +1479,6 @@
   .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
   .back-btn svg { width: 14px; height: 14px; }
 
-  /* === Test connection button === */
-  .test-provider-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .test-provider-btn svg { width: 14px; height: 14px; }
-  .test-provider-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   /* Refresh button — icon + text affordance, sized like .back-btn / .test-provider-btn.
      Composed onto .btn-outlined-primary for color/border. Used by admin's
      provider-models panel header (basic-list + Ollama lifecycle). */
@@ -1488,6 +1527,8 @@
      `class="section-title danger-zone-title"`. The .danger-zone class
      itself is currently a hook for grep-ability + future styling. */
   .danger-zone { /* hook for future destructive-section accent; bare class for grep */ }
+  /* Several actions (App.ui.dangerZone actions, M31 F2 L4) sit side by side. */
+  .danger-zone .delete-btn + .delete-btn { margin-left: var(--space-2); }
   .danger-zone-title { color: var(--status-danger); }
   /* D3: the rule is decorative, so it takes the danger colour too. */
   .danger-zone-title::after { background: var(--status-danger); }
@@ -1986,6 +2027,249 @@
     outline-offset: 2px;
   }
   .ui-toggle-input:disabled + .ui-toggle-track { opacity: 0.4; cursor: not-allowed; }
+  /* Tristate (M31 F2 L4): the mixed state of a master toggle. An accent wash
+     track with the accent thumb at the halfway position (16px / 2). The off
+     and on rules above are unchanged. */
+  .ui-toggle-input:indeterminate + .ui-toggle-track {
+    background: var(--accent-translucent);
+    /* An inset 1px accent edge keeps the track's extent visible (SC 1.4.11) and
+       takes no layout space; forced colors draw a border instead. */
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .ui-toggle-input:indeterminate + .ui-toggle-track::after {
+    transform: translateX(8px);
+    background: var(--accent);
+  }
+
+  /* === App.ui.groupTile (M31 F2 L4) === */
+  /* Copied from the studio tiles (.mcp-source-tile / .tools-category-tile,
+     which were identical); the studio rules were deleted when the MCPs and Tools
+     tabs migrated (M31 F2 L07b, L08b). */
+  .ui-group-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    position: relative;
+  }
+  .ui-group-tile-row { display: flex; align-items: center; gap: 12px; }
+  .ui-group-tile-name {
+    font-size: var(--font-size-body-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--fg);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ui-group-tile-chip {
+    flex-shrink: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .ui-group-tile-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+  /* The server-declared identity under the name, flush with it (the toggle's
+     width plus its gap), as the MCP subtitle was. */
+  .ui-group-tile-subtitle {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    margin-top: 2px;
+    padding-left: calc(var(--toggle-width, 36px) + 8px);
+    line-height: 1.3;
+  }
+  .ui-group-tile-expand {
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    color: var(--fg-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color var(--motion-fast);
+  }
+  .ui-group-tile-expand:hover { color: var(--accent); }
+  .ui-group-tile-expand:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .ui-group-tile-expand strong { color: var(--fg); }
+  .ui-group-tile-chevron {
+    display: inline-block;
+    transition: transform var(--motion-fast);
+    color: var(--fg-tertiary);
+  }
+  .ui-group-tile-expand[aria-expanded="true"] .ui-group-tile-chevron { transform: rotate(90deg); }
+  .ui-group-tile-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+  }
+
+  /* === App.ui.toolRow (M31 F2 L4) === */
+  /* Copied from .tool-tile (built-in tools) and .mcp-tool-toggle-label (MCP
+     tools), which shared one look; the studio rules were deleted in M31 F2 L07b
+     and L08b. */
+  .ui-tool-row {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    transition: border-color var(--motion-fast), background var(--motion-fast);
+  }
+  .ui-tool-row:hover { border-color: var(--accent); background: var(--surface-elevated); }
+  .ui-tool-row--plain {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: var(--font-size-body-sm);
+    padding: 8px 12px;
+  }
+  .ui-tool-row--plain .checkbox-primary,
+  .ui-tool-row-face .checkbox-primary { flex-shrink: 0; }
+  .ui-tool-row-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--font-size-body-sm);
+  }
+  .ui-tool-row-summary::-webkit-details-marker { display: none; }
+  /* The summary carries the legacy secondary colour (the name and description set their own). */
+  .ui-tool-row-summary { color: var(--fg-secondary); }
+  .ui-tool-row-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 6px;
+  }
+  .ui-tool-row-face {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+  /* One line: name, an em dash, description; clipped with an ellipsis (the
+     description is also cut to 100 characters in script). */
+  .ui-tool-row-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+  .ui-tool-row-name {
+    font-family: var(--font-family-mono, monospace);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .ui-tool-row-name--strike { text-decoration: line-through; color: var(--fg-faint); }
+  .ui-tool-row-desc {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    padding: 0;
+    line-height: inherit;
+  }
+  .ui-tool-row-affordance {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-secondary);
+    font-size: var(--font-size-caption);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .ui-tool-row:hover .ui-tool-row-affordance { color: var(--accent); }
+  .ui-tool-row-chevron {
+    display: inline-block;
+    transition: transform var(--motion-fast);
+    color: var(--fg-tertiary);
+  }
+  .ui-tool-row[open] .ui-tool-row-chevron { transform: rotate(90deg); }
+  .ui-tool-row-body { padding: 8px 12px 10px; border-top: 1px dashed var(--border); }
+  .ui-tool-row.is-disabled { opacity: 0.5; cursor: not-allowed; }
+  .ui-tool-row.is-disabled .ui-tool-row-face,
+  .ui-tool-row.is-disabled .checkbox-primary { cursor: not-allowed; }
+
+  /* === App.ui.chipList (M31 F2 L4) === */
+  /* Copied from the .area-admin / .area-studio chip-list rules in admin.css,
+     which stay as recorded debt until Flight 3 migrates their consumers. The
+     remove button is quieter than the legacy .chip-remove (canvas, approved):
+     --fg-secondary at rest, --status-danger on hover and focus. */
+  .chip-list-editor {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
+    min-height: 40px;
+    background: var(--surface);
+  }
+  .chip-list-editor:focus-within { border-color: var(--accent); }
+  .chip-list-editor.is-invalid { border-color: var(--status-danger); }
+  .chip-list-editor .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--accent-translucent);
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+  }
+  .chip-list-editor .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
+  .ui-chip-remove {
+    background: none;
+    border: 0;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 1em;
+    line-height: 1;
+    border-radius: 3px;
+    transition: color var(--motion-base) var(--ease-tactile);
+  }
+  .ui-chip-remove:hover,
+  .ui-chip-remove:focus-visible {
+    color: var(--status-danger);
+    transition: color var(--motion-fast) var(--ease-tactile);
+  }
+  .ui-chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+  .chip-list-input {
+    flex: 1;
+    min-width: 100px;
+    border: 0;
+    outline: none;
+    padding: 2px;
+    background: transparent;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+  }
 
   /* === App.ui.radioGroup (M28 F2 L2): a fieldset of option cards === */
   .ui-radio-group { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
@@ -2039,6 +2323,8 @@
     .ui-toggle-track::after { background: CanvasText; }
     .ui-toggle-input:checked + .ui-toggle-track { background: Highlight; border-color: Highlight; }
     .ui-toggle-input:checked + .ui-toggle-track::after { background: HighlightText; }
+    .ui-toggle-input:indeterminate + .ui-toggle-track { background: Canvas; border-color: Highlight; }
+    .ui-toggle-input:indeterminate + .ui-toggle-track::after { background: Highlight; }
     .checkbox-primary { border: 1.5px solid CanvasText; forced-color-adjust: none; background: Canvas; }
     .checkbox-primary:checked,
     .checkbox-primary:indeterminate { background: Highlight; border-color: Highlight; }

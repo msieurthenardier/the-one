@@ -111,15 +111,25 @@
     return select;
   };
 
-  // App.ui.infoButton(opts) -> {el, button, descriptionId} (M31 F1 L4).
+  // App.ui.infoButton(opts) -> {el, button, descriptionId, close(), destroy()}
+  //   (M31 F1 L4; a press-only toggletip since M31 F2 L5, squawk 0221).
   //   description (required), label (the control's label; names the button), testid
   //   (on the button).
-  //   el is span.ui-info wrapping button.field-info-icon[type=button] (title is the
-  //   full description, the hover tooltip; aria-label is the short "More information
-  //   about {label}", or "More information" without a label, so the description is not
-  //   heard twice; 14px info icon) and a span.visually-hidden carrying the description,
-  //   so a control can reference descriptionId from aria-describedby. Tab reaches the
-  //   button.
+  //   el is span.ui-info wrapping button.field-info-icon[type=button] (aria-label is
+  //   the short "More information about {label}", or "More information" without a
+  //   label; NO title attribute, so there is no hover tooltip; 14px info icon;
+  //   aria-expanded and aria-controls), a span.visually-hidden carrying the
+  //   description (so a control can reference descriptionId from aria-describedby)
+  //   and a div.ui-info-bubble[hidden] holding a polite live region. Pressing the
+  //   button (click, Enter or Space) toggles the bubble, which shows the description;
+  //   the live region is filled one tick after the bubble is shown, so the text is
+  //   announced once. Escape (focus in the wrapper), a press outside, focus leaving
+  //   the wrapper, or pressing the button again closes it; focus stays on the
+  //   button. The document listeners (capture phase) exist only while open and are
+  //   removed on close and destroy. A module-level reference keeps one bubble open
+  //   at a time. Tab order is unchanged: the bubble holds no interactive content.
+  var openInfo = null;
+
   App.ui.infoButton = function (opts) {
     opts = opts || {};
     if (!opts.description) throw new Error('App.ui.infoButton: description is required');
@@ -127,8 +137,8 @@
     var button = util.el('button', {
       type: 'button',
       className: 'field-info-icon',
-      title: opts.description,
-      'aria-label': opts.label ? 'More information about ' + opts.label : 'More information'
+      'aria-label': opts.label ? 'More information about ' + opts.label : 'More information',
+      'aria-expanded': 'false'
     }, [App.ui.icon('info', { size: 'sm' })]);
     if (opts.testid) button.setAttribute('data-testid', opts.testid);
     var desc = util.el('span', {
@@ -136,8 +146,89 @@
       id: util.uid('info'),
       text: opts.description
     });
-    var wrap = util.el('span', { className: 'ui-info' }, [button, desc]);
-    return { el: wrap, button: button, descriptionId: desc.id };
+    var live = util.el('span', { role: 'status', 'aria-live': 'polite' });
+    var bubble = util.el('div', {
+      className: 'ui-info-bubble',
+      id: util.uid('info-bubble'),
+      hidden: true
+    }, [live]);
+    button.setAttribute('aria-controls', bubble.id);
+    var wrap = util.el('span', { className: 'ui-info' }, [button, desc, bubble]);
+    var isOpen = false;
+    var announceTimer = null;
+    var controller = { el: wrap, button: button, descriptionId: desc.id };
+
+    function onPointerDown(e) {
+      if (!wrap.isConnected || !wrap.contains(e.target)) close();
+    }
+    function onKeyDown(e) {
+      if (e.key !== 'Escape') return;
+      var inside = wrap.contains(document.activeElement) || wrap.contains(e.target);
+      if (!inside && wrap.isConnected) return;
+      // Only when this closes a bubble: one Escape closes the bubble and nothing
+      // else (a modal around it stays open).
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      if (wrap.isConnected) button.focus();
+    }
+    function onFocusOut(e) {
+      var to = e.relatedTarget;
+      if (to && !wrap.contains(to)) close();
+    }
+
+    function place() {
+      bubble.classList.remove('ui-info-bubble--above', 'ui-info-bubble--end');
+      var rect = bubble.getBoundingClientRect();
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      if (rect.right > vw) bubble.classList.add('ui-info-bubble--end');
+      if (rect.bottom > vh && button.getBoundingClientRect().top - rect.height > 0) {
+        bubble.classList.add('ui-info-bubble--above');
+      }
+    }
+
+    function close() {
+      if (!isOpen) return;
+      isOpen = false;
+      if (announceTimer) {
+        clearTimeout(announceTimer);
+        announceTimer = null;
+      }
+      bubble.hidden = true;
+      live.textContent = '';
+      button.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      wrap.removeEventListener('focusout', onFocusOut);
+      if (openInfo === controller) openInfo = null;
+    }
+
+    function open() {
+      if (isOpen) return;
+      if (openInfo && openInfo !== controller) openInfo.close();
+      isOpen = true;
+      openInfo = controller;
+      bubble.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      document.addEventListener('pointerdown', onPointerDown, true);
+      document.addEventListener('keydown', onKeyDown, true);
+      wrap.addEventListener('focusout', onFocusOut);
+      place();
+      // Announce after the bubble is shown, so the text is read once.
+      announceTimer = setTimeout(function () {
+        announceTimer = null;
+        live.textContent = opts.description;
+        if (isOpen) place();
+      }, 0);
+    }
+
+    button.addEventListener('click', function () {
+      if (isOpen) close(); else open();
+    });
+    controller.close = close;
+    controller.destroy = close;
+    return controller;
   };
 
   // App.ui.field(opts) -> controller {el, control, setError(msg|null),

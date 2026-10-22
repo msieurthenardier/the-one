@@ -17,6 +17,8 @@
   //   label: button text (set with textContent, never as HTML)
   //   icon: an App.icons name, prepended as a parsed SVG node
   //   iconOnly: true adds btn-icon and requires ariaLabel (throws otherwise)
+  //   compactIcon: true draws a labelled button's icon at 14px (a .btn-sm button otherwise
+  //   keeps the standard 16px icon, so the small "+ New" is unchanged)
   //   ariaLabel, disabled, onClick, className
   //   the test id option: placed on the button itself (supplied by the caller)
   App.ui.button = function (opts) {
@@ -32,6 +34,7 @@
     var classes = [VARIANT_CLASS[variant]];
     if (opts.size) classes.push(SIZE_CLASS[opts.size]);
     if (opts.iconOnly) classes.push('btn-icon');
+    if (opts.compactIcon) classes.push('btn-icon-compact');
     if (opts.className) classes.push(opts.className);
     var btn = App.ui.util.el('button', { type: 'button', className: classes.join(' ') });
     if (opts.icon) btn.appendChild(App.ui.util.icon(opts.icon));

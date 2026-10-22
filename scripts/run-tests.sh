@@ -20,12 +20,12 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, agents, library, mcp, routing, settings, providers, contracts and shared.
+# are chats, agents, agent-tabs, library, mcp, routing, settings, providers, contracts and shared.
 # Aliases (kept for muscle memory and older docs):
-#   chat = chats, studio = agents + library + mcp, system = settings + providers.
-# chats/agents/library/mcp/settings/providers are basename-glob buckets or explicit file
-# lists over tests/browser/ (`agents` is the old studio globs MINUS the library
-# and mcp lists). `routing` (M26 F1 L4) holds the router / leave-guard / client
+#   chat = chats, studio = agents + agent-tabs + library + mcp, system = settings + providers.
+# chats/agents/agent-tabs/library/mcp/settings/providers are basename-glob buckets or explicit file
+# lists over tests/browser/ (`agents` is the old studio globs MINUS the library,
+# mcp and agent-tabs lists). `routing` (M26 F1 L4) holds the router / leave-guard / client
 # store files that used to be the long pole of `shared`. `contracts` (M25 F4 L1,
 # squawk 0117) holds the `App.ui` control-library contract files (`test_ui_*`).
 # `shared` is the COMPLEMENT (every browser test file not claimed by the named
@@ -51,20 +51,21 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|agents|library|mcp|routing|settings|providers|contracts|shared"
-CANON_LANES=(chats agents library mcp routing settings providers contracts shared)
+LANE_LIST="chats|agents|agent-tabs|library|mcp|routing|settings|providers|contracts|shared"
+CANON_LANES=(chats agents agent-tabs library mcp routing settings providers contracts shared)
 
-# Per-lane wall-clock budgets in seconds (measured in the M26 F1 L4 --parallel 3
+# Per-lane wall-clock budgets in seconds (measured in the M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 declare -A BUDGET=(
-  [chats]=360
-  [agents]=510
+  [chats]=450
+  [agents]=540
+  [agent-tabs]=300
   [library]=300
-  [mcp]=360
+  [mcp]=450
   [routing]=600
   [settings]=300
   [providers]=420
-  [contracts]=390
+  [contracts]=480
   [shared]=300
 )
 
@@ -183,6 +184,11 @@ mcp_pat=('test_flow_studio_mcp_editor.py' 'test_flow_studio_library_list.py')
 # `test_agents_*` (`test_flow_agent_*` does not match a plural "agents").
 studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*' \
             'test_flow_agents_*' 'test_agents_*')
+# Agent-tabs (M31 F2 L11, squawk 0217, split from `agents` when it ran 1.3x over
+# budget): the self-configuration, Rules and notes, and Tools-override files.
+agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
+                'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
+                'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py')
 # Routing (M26 F1 L4): the router, leave guard and client store files.
 routing_pat=('test_router_*' 'test_nav_guard*' 'test_store*')
 # Settings: the admin pages, plus the Settings item pages' list/detail file
@@ -194,10 +200,10 @@ providers_pat=('test_flow_provider_*')
 # squawk 0117). No other lane's glob matches `test_ui_*`.
 contracts_pat=('test_ui_*')
 
-# Files matching the studio globs minus the library and mcp lists, sorted.
+# Files matching the studio globs minus the library, mcp and agent-tabs lists, sorted.
 agents_files() {
   comm -23 <(expand_lane "${studio_pat[@]}" | sort -u) \
-           <(expand_lane "${library_pat[@]}" "${mcp_pat[@]}" | sort -u)
+           <(expand_lane "${library_pat[@]}" "${mcp_pat[@]}" "${agent_tabs_pat[@]}" | sort -u)
 }
 
 # Resolve lane $1 into the global array lane_files. Returns 1 for an unknown lane.
@@ -206,6 +212,7 @@ resolve_lane() {
   case "$1" in
     chats|chat)    mapfile -t lane_files < <(expand_lane "${chats_pat[@]}" | sort -u) ;;
     agents)        mapfile -t lane_files < <(agents_files) ;;
+    agent-tabs)    mapfile -t lane_files < <(expand_lane "${agent_tabs_pat[@]}" | sort -u) ;;
     library)       mapfile -t lane_files < <(expand_lane "${library_pat[@]}" | sort -u) ;;
     mcp)           mapfile -t lane_files < <(expand_lane "${mcp_pat[@]}" | sort -u) ;;
     routing)       mapfile -t lane_files < <(expand_lane "${routing_pat[@]}" | sort -u) ;;

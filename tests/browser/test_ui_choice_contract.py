@@ -439,6 +439,77 @@ def test_empty_state_title_tag_p_renders_a_paragraph_not_a_heading(engine_page: 
     assert "titleTag" in _throws(engine_page, "App.ui.emptyState({title: 'x', titleTag: 'h2'})")
 
 
+def test_empty_state_plain_variant_makes_the_title_quiet_running_text(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        """() => {
+          const host = document.getElementById('harness-root');
+          host.style.cssText = 'font-size:13px;color:rgb(10, 20, 30)';
+          const mk = (o, id) => { const e = App.ui.emptyState(Object.assign({title: 'Nothing here.', titleTag: 'p', testid: id}, o)); host.appendChild(e); return e; };
+          mk({}, 'es-d');
+          mk({variant: 'plain'}, 'es-pl');
+          return true;
+        }""",
+    )
+    out = engine_page.evaluate(
+        """() => { const q = (id) => { const e = document.querySelector('[data-testid=' + id + ']');
+            const t = e.querySelector('.ui-empty-title'); const cs = getComputedStyle(t);
+            return {cls: e.className, size: cs.fontSize, weight: cs.fontWeight, color: cs.color, parent: getComputedStyle(e).color, parentSize: getComputedStyle(e).fontSize}; };
+          return {d: q('es-d'), pl: q('es-pl')}; }"""
+    )
+    assert out["d"]["cls"] == "empty-state"
+    assert out["pl"]["cls"] == "empty-state empty-state--plain"
+    # Plain: the title takes the container's size and ink, at regular weight.
+    assert out["pl"]["size"] == out["pl"]["parentSize"]
+    assert out["pl"]["color"] == out["pl"]["parent"]
+    assert int(out["pl"]["weight"]) < int(out["d"]["weight"])
+    assert out["d"]["color"] != out["pl"]["color"]
+    assert "unknown variant" in _throws(
+        engine_page, "App.ui.emptyState({title: 'x', variant: 'loud'})"
+    )
+
+
+def test_empty_state_flush_variant_owns_the_root_spacing(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        """() => {
+          const host = document.getElementById('harness-root');
+          const mk = (o, id) => { const e = App.ui.emptyState(Object.assign({title: 'None yet.', titleTag: 'p', testid: id}, o)); host.appendChild(e); return e; };
+          mk({variant: 'plain'}, 'es-pl');
+          mk({variant: 'flush'}, 'es-fl');
+          return true;
+        }""",
+    )
+    out = engine_page.evaluate(
+        """() => { const q = (id) => { const e = document.querySelector('[data-testid=' + id + ']');
+            const cs = getComputedStyle(e);
+            return {cls: e.className, pad: cs.paddingTop + '/' + cs.paddingLeft, align: cs.textAlign,
+                    margin: cs.marginBottom, size: cs.fontSize}; };
+          return {pl: q('es-pl'), fl: q('es-fl')}; }"""
+    )
+    assert out["fl"]["cls"] == "empty-state empty-state--plain empty-state--flush"
+    assert out["pl"]["align"] == "center" and out["pl"]["pad"] == "16px/16px"
+    assert out["fl"]["pad"] == "0px/0px" and out["fl"]["align"] in ("left", "start")
+    assert out["fl"]["margin"] != "0px"  # the space-3 gap below the line
+    assert out["fl"]["size"] != out["pl"]["size"]  # body-sm, not body
+
+
+def test_badge_dot_is_a_text_less_aria_hidden_disc(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => { const d = (k) => { const n = App.ui.badge.dot(k);
+              return [n.tagName, n.className, n.getAttribute('aria-hidden'), n.textContent]; };
+          return [d('ollama'), d(''), d('not-a-kind'), d(null), d(undefined)]; }"""
+    )
+    assert out == [
+        ["SPAN", "badge badge--ollama badge-dot", "true", ""],
+        ["SPAN", "badge badge--unknown badge-dot", "true", ""],
+        ["SPAN", "badge badge--unknown badge-dot", "true", ""],
+        ["SPAN", "badge badge-dot badge-dot--none", "true", ""],
+        ["SPAN", "badge badge-dot badge-dot--none", "true", ""],
+    ]  # fmt: skip
+
+
 # ── field around every control ──────────────────────────────────────────────
 
 
@@ -690,3 +761,120 @@ def test_forced_colors_keep_state_distinguishable(engine_page: Page) -> None:
     assert out["on"].startswith("solid|") and out["off"].startswith("solid|")
     assert out["on"] != out["off"]
     assert out["rowBorder"] != "none" or out["rowOutline"] != "none"
+
+
+# ── toggle: tristate (M31 F2 L4) ────────────────────────────────────────────
+
+MOUNT_TRISTATE_JS = """(extra) => {
+  window.__tg = [];
+  const t = App.ui.toggle(Object.assign({label: 'Enable all Filesystem tools', labelHidden: true, tristate: true, testid: 'tri',
+                           onChange: (v) => window.__tg.push(v)}, extra || {}));
+  window.__t = t;
+  document.getElementById('harness-root').appendChild(t.el);
+  return true;
+}"""
+
+
+def _tri(page: Page, extra: str = "null") -> None:
+    _load(page)
+    page.evaluate(f"({MOUNT_TRISTATE_JS})({extra})")
+
+
+def _tri_state(page: Page) -> list:
+    return page.evaluate(
+        "() => [window.__t.control.checked, window.__t.control.indeterminate, window.__tg]"
+    )
+
+
+def test_tristate_keeps_native_checkbox_semantics(engine_page: Page) -> None:
+    _tri(engine_page, "{indeterminate: true}")
+    p = engine_page
+    out = p.evaluate(
+        """() => { const t = window.__t; return {role: t.control.getAttribute('role'), type: t.control.type, ind: t.control.indeterminate,
+          api: Object.keys(t).sort(), plainApi: Object.keys(App.ui.toggle({label: 'x'})).sort(),
+          plainRole: App.ui.toggle({label: 'x'}).control.getAttribute('role')}; }"""
+    )
+    assert out["role"] is None and out["type"] == "checkbox" and out["ind"] is True
+    assert out["api"] == ["control", "el", "setChecked", "setDisabled", "setIndeterminate"]
+    assert out["plainApi"] == [
+        "control",
+        "el",
+        "setChecked",
+        "setDisabled",
+    ]  # non-tristate unchanged
+    assert out["plainRole"] == "switch"
+    box = p.get_by_role("checkbox", name="Enable all Filesystem tools")
+    expect(box).to_have_count(1)
+    expect(p.get_by_role("switch")).to_have_count(0)
+    # Mixed is exposed on the control itself in both engines; the accessibility tree
+    # shows checked=mixed in Chromium only (WebKit's snapshot differs).
+    assert p.evaluate("() => window.__t.control.indeterminate") is True
+    if p.context.browser.browser_type.name == "chromium":
+        assert "[checked=mixed]" in box.aria_snapshot()
+
+
+def test_tristate_click_on_mixed_gives_checked_and_on_change_true(engine_page: Page) -> None:
+    _tri(engine_page, "{indeterminate: true}")
+    p = engine_page
+    p.locator(".ui-toggle-track").click()
+    assert _tri_state(p) == [True, False, [True]]
+    p.locator(".ui-toggle-track").click()
+    assert _tri_state(p) == [False, False, [True, False]]
+
+
+def test_tristate_setters_are_silent_and_set_checked_clears_mixed(engine_page: Page) -> None:
+    _tri(engine_page)
+    p = engine_page
+    p.evaluate("window.__t.setIndeterminate(true)")
+    assert _tri_state(p) == [False, True, []]
+    p.evaluate("window.__t.setChecked(true)")
+    assert _tri_state(p) == [True, False, []]
+    p.evaluate("window.__t.setIndeterminate(true); window.__t.setChecked(false)")
+    assert _tri_state(p) == [False, False, []]
+    p.get_by_role("checkbox", name="Enable all Filesystem tools").press(
+        "Space"
+    )  # keyboard operable
+    assert _tri_state(p) == [True, False, [True]]
+
+
+def test_tristate_mixed_track_and_thumb_geometry(engine_page: Page) -> None:
+    _tri(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => {
+          const t = window.__t, track = t.el.querySelector('.ui-toggle-track'), probe = document.createElement('span');
+          document.getElementById('harness-root').appendChild(probe);
+          probe.style.color = 'var(--accent-translucent)'; const wash = getComputedStyle(probe).color;
+          probe.style.color = 'var(--accent)'; const accent = getComputedStyle(probe).color; probe.remove();
+          track.style.transition = 'none'; const st = document.createElement('style');
+          st.textContent = '.ui-toggle-track::after { transition: none !important; }'; document.head.appendChild(st);
+          const read = () => { const s = getComputedStyle(track), a = getComputedStyle(track, '::after');
+            return {bg: s.backgroundColor, thumb: a.backgroundColor, tf: a.transform}; };
+          const off = read(); t.setChecked(true); const on = read(); t.setChecked(false); t.setIndeterminate(true); const mixed = read();
+          const r = track.getBoundingClientRect();
+          return {wash, accent, off, on, mixed, size: [r.width, r.height]};
+        }"""
+    )
+    assert out["size"] == [36, 20]
+    assert out["mixed"]["bg"] == out["wash"] and out["mixed"]["thumb"] == out["accent"]
+    assert out["mixed"]["tf"] == "matrix(1, 0, 0, 1, 8, 0)"  # the thumb at translateX(8px)
+    assert out["on"]["tf"] == "matrix(1, 0, 0, 1, 16, 0)"
+    assert out["off"]["tf"] == "none"
+    assert out["mixed"]["bg"] != out["on"]["bg"] and out["mixed"]["bg"] != out["off"]["bg"]
+
+
+def test_tristate_forced_colors_rule(engine_page: Page) -> None:
+    if engine_page.context.browser.browser_type.name != "chromium":
+        pytest.skip(
+            "WebKit has no forced-colors emulation in Playwright; asserted in chromium only"
+        )
+    _tri(engine_page)
+    p = engine_page
+    p.emulate_media(forced_colors="active")
+    out = p.evaluate(
+        """() => { const t = window.__t, track = t.el.querySelector('.ui-toggle-track'); track.style.transition = 'none';
+          const sig = () => { const s = getComputedStyle(track); return [s.borderTopStyle, s.borderTopColor, s.backgroundColor].join('|'); };
+          const off = sig(); t.setChecked(true); const on = sig(); t.setChecked(false); t.setIndeterminate(true); const mixed = sig(); return {off, on, mixed}; }"""
+    )
+    assert out["mixed"].startswith("solid|")
+    assert out["mixed"] != out["off"] and out["mixed"] != out["on"]

@@ -50,9 +50,8 @@ MOUNT_JS = """() => {
     </div>
     <div class="area-studio">
       <label class="tool-enable-switch"><input type="checkbox" id="sw-studio-on" checked><span class="tool-enable-switch-track" id="tr-studio-on"></span></label>
-      <div class="tool-actions"><button type="button" id="b-compact" class="btn-outlined-primary">Compact</button></div>
-      <label class="tool-row"><input type="checkbox" class="tool-toggle" id="ts-off"><span class="tool-switch" id="tsw-off"></span></label>
-      <label class="tool-row"><input type="checkbox" class="tool-toggle" id="ts-on" checked><span class="tool-switch" id="tsw-on"></span></label>
+      <label class="ui-toggle-label"><input type="checkbox" role="switch" class="ui-toggle-input" id="ts-off"><span class="ui-toggle-track" id="tsw-off"></span></label>
+      <label class="ui-toggle-label"><input type="checkbox" role="switch" class="ui-toggle-input" id="ts-on" checked><span class="ui-toggle-track" id="tsw-on"></span></label>
     </div>`;
   return true;
 }"""
@@ -185,10 +184,6 @@ def test_override_reconciliation(engine_page: Page, theme: str) -> None:
         assert s["padding"] == "0px 12px", (sel, s)
         assert s["fontSize"] == "13px", (sel, s)
     assert _style(engine_page, "#b-delete")["radius"] == _var_px(engine_page, "--radius-sm")
-    # Documented compact-row exception keeps its compact size.
-    c = _style(engine_page, "#b-compact")
-    assert c["padding"] == "3px 10px", c
-    assert c["fontSize"] == _var_px(engine_page, "--font-size-caption"), c
 
 
 @pytest.mark.parametrize("theme", THEMES)

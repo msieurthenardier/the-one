@@ -111,11 +111,11 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # is disabled (clean state) — same sync idiom as the MCPs/Tools tests.
     expect(save_btn).to_be_disabled(timeout=5000)
 
-    # 14. First click on Delete — confirm state ("Confirm Delete?"). The
+    # 14. First click on Delete — confirm state ("Confirm delete?"). The
     # armed state auto-reverts after 3s (App.confirmDelete revertMs), so the
     # second click follows immediately.
     delete_btn.click()
-    expect(delete_btn).to_have_text("Confirm Delete?")
+    expect(delete_btn).to_have_text("Confirm delete?")
 
     # 15. Second click — DELETE fires, agent removed, empty state returns.
     #     expect_response makes a silent re-arm (revert-window expiry under
@@ -160,7 +160,7 @@ def test_delete_agent_confirm_lapse_is_visually_distinct(
     expect(delete_btn).to_be_visible(timeout=8000)
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     delete_btn.click()
-    expect(delete_btn).to_have_text("Confirm Delete?")
+    expect(delete_btn).to_have_text("Confirm delete?")
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)

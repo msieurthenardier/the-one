@@ -8,7 +8,7 @@ alongside the Delete Agent button in the General tab's Danger Zone:
 - It is textually distinct from Delete Agent (an operator cannot confuse
   "wipe history" with "delete the agent").
 - Clicking once ARMS via App.confirmDelete — the [data-confirm-title] label
-  swaps to "Confirm Purge?" — without firing the DELETE. (The full two-step
+  swaps to "Confirm purge?" — without firing the DELETE. (The full two-step
   confirm -> history-gone flow is owned by the behavior test, NOT duplicated
   here; this test clicks exactly ONCE.)
 """
@@ -75,7 +75,7 @@ def test_purge_button_present_in_danger_zone(app_with_agent: SeededApp, page: Pa
 
 @pytest.mark.browser
 def test_purge_button_arms_on_single_click(app_with_agent: SeededApp, page: Page) -> None:
-    """A single click ARMS the purge button — label swaps to 'Confirm Purge?'.
+    """A single click ARMS the purge button — label swaps to 'Confirm purge?'.
 
     Clicks exactly ONCE: a second click would fire the real DELETE. The
     fire -> history-gone flow is the behavior test's responsibility.
@@ -91,7 +91,7 @@ def test_purge_button_arms_on_single_click(app_with_agent: SeededApp, page: Page
     # Single click arms via App.confirmDelete — label swaps, no DELETE fired.
     purge_btn.click()
 
-    expect(purge_title).to_have_text("Confirm Purge?")
+    expect(purge_title).to_have_text("Confirm purge?")
     # App.confirmDelete adds the shared armed-state class on arm.
     expect(purge_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
@@ -115,7 +115,7 @@ def test_purge_button_confirm_lapse_is_visually_distinct(
     purge_title = purge_btn.locator("[data-confirm-title]")
     expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     purge_btn.click()
-    expect(purge_title).to_have_text("Confirm Purge?")
+    expect(purge_title).to_have_text("Confirm purge?")
     expect(purge_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)

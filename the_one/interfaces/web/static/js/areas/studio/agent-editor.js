@@ -1,293 +1,282 @@
-// App.studio.renderAgentEditor — agent-editor scaffold (F5 leg 03).
+// App.studio.renderAgentEditor -- the agent editor's frame (M31 F2 L06a).
 //
-// Builds the editor surface:
-//   <div class="editor-header">
-//     <div class="editor-header-text">
-//       <div class="editor-breadcrumb"><a href="#agents">Agents</a></div>
-//         (DOM-inserted, M25 F3 L3; a link to the root since L4b)
-//       <h1>Agent name</h1>
-//       <p>Description</p>
-//     </div>
-//     <div class="form-actions">
-//       <span class="editor-unsaved" role="status"></span>
-//       <button>Chat</button>  (DOM-inserted on a saved agent, M25 F4 L6)
-//       <button>Cancel</button>
-//       <button>Save</button>
-//     </div>
-//   </div>
-//   <div role="tablist" class="tablist">
-//     <button role="tab">General</button>
-//     <button role="tab">Rules and notes</button>  (M27 F1 L2)
-//     <button role="tab">Knowledge</button>
-//     <button role="tab">Tools</button>
-//   </div>
-//   <div class="tabpanels">
-//     <div role="tabpanel" id="agent-tab-panel-general"></div>
-//     <div role="tabpanel" id="agent-tab-panel-knowledge"></div>
-//     <div role="tabpanel" id="agent-tab-panel-tools"></div>
-//   </div>
+// Builds the editor surface into `container` on the control library and returns a
+// handle:
 //
-// Returns the App.tabs handle so studio.js can imperatively activate a tab
-// (e.g., after hydrate sets _activeTab). The General tab is mounted
-// synchronously before this function returns so test_flow_agent_crud.py's
-// form-field tests find [data-field="..."] selectors immediately.
+//   <div class="editor-header">            App.ui.editorShell (breadcrumb, title,
+//                                          subtitle, Chat as `extra`, Cancel, Save)
+//   <div class="agent-load-error">         the squawk-0090 affordance (a frame node,
+//                                          shown or hidden, never inserted afterwards)
+//   <div role="tablist" class="tablist">   App.ui.tabs (split: true, so the tablist
+//   <div class="tabpanels">                and the panels are direct children, as before)
+//
+// Tab ids are agent-tab-{id} and panel ids agent-tab-panel-{id}. The six tabs keep
+// their builders (renderGeneralTab ... renderSelfConfigurationTab), each called into
+// its panel.
+//
+// handle: { shell, tabs, loadErrorEl, key, patch(agent, providers, callbacks, loaded),
+//           panelContainer(id), destroy() }.
+//   patch(...) is the same-identity update: it sets the shell title, subtitle and
+//   Chat visibility, updates the load-error node, patches General through its
+//   setAgent (mounted once per identity, 06b), patches Knowledge through its
+//   setAgent (07a), patches MCPs through setSources then setAgent (07b), patches
+//   Tools through its setAgent (08b; a fourth argument `{revert: true}` is Cancel),
+//   leaves Rules and notes alone (09: it saves immediately, keys only on the name
+//   and declares no setAgent) and hands Self-configuration its record through
+//   setAgent (10a: it refetches its own data after its actions; nothing is rebuilt,
+//   so a patch rebuilds no panel). It does not re-wire listeners or
+//   reset the snapshot: the controller does both after it (it owns checkDirty and the picker).
 //
 // callbacks: { onDelete, onPurge, onSave, onCancel, onTabChange, onTestProvider,
-//              toolCategories, allTools, initialTab }
+//              toolCategories, allTools, initialTab, ... } (the controller's bag).
 //
-// M25 F3 L3 (DD2): the editor is hosted beside the Agents list, so Back is
-// retired; the "Agents" breadcrumb is the header's first line, and since L4b
-// it is a link to `#agents` (testid `editor-breadcrumb-link`). The
-// `editor-unsaved` span is part of the header markup and is never created or
-// removed afterwards: studio.js's checkDirty sets its text ("Unsaved
-// changes") or clears it, from the same dirty flag as Save and (on an open
-// agent) Cancel; the create form's Cancel is always enabled.
-//
-// Editor Delete button: uses App.confirmDelete via studio.js's
-// handleDeleteEditor (F6 leg 04 migration). Capital-D "Confirm Delete?"
-// label preserved through the helper's confirmLabel option; armed-state
-// class is .delete-btn.confirm-delete. The handler itself lives in
-// studio.js (passed in via callbacks.onDelete) — this module just renders
-// the button into the General tab's Danger Zone.
+// Editor Delete (General's Danger Zone) uses App.confirmDelete via the controller's
+// handleDeleteEditor; this module only passes the handler down.
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  var PANEL_IDS = {
-    general: 'agent-tab-panel-general',
-    'rules-and-notes': 'agent-tab-panel-rules-and-notes',
-    knowledge: 'agent-tab-panel-knowledge',
-    mcps: 'agent-tab-panel-mcps',
-    tools: 'agent-tab-panel-tools',
-    'self-configuration': 'agent-tab-panel-self-configuration'
-  };
+  var TAB_ITEMS = [
+    { id: 'general', label: 'General' },
+    { id: 'rules-and-notes', label: 'Rules and notes' },
+    { id: 'knowledge', label: 'Knowledge' },
+    { id: 'mcps', label: 'MCPs' },
+    // data-tab-id "tools" + testid tab-tools stay (tests and URL routing key off
+    // "tools"); only the visible label narrows to "Built-in Tools".
+    { id: 'tools', label: 'Built-in Tools' },
+    { id: 'self-configuration', label: 'Self-configuration' }
+  ];
+
+  var PANEL_IDS = {};
+  TAB_ITEMS.forEach(function (item) { PANEL_IDS[item.id] = 'agent-tab-panel-' + item.id; });
+
+  var LOAD_ERROR_TEXT =
+    'Couldn’t load this agent’s current configuration. The fields below may be ' +
+    'out of date, so saving is disabled. Go back and reopen the agent to retry.';
+
+  // The per-tab entry functions, each called into its (cleared) panel.
+  function buildPanel(id, panel, agent, providers, cb) {
+    var studio = window.App.studio;
+    switch (id) {
+      case 'general':
+        // General is built once per identity; patch calls its setAgent (06b).
+        return studio.renderGeneralTab(panel, agent, providers, {
+          onChange: cb.onChange,
+          onTestProvider: cb.onTestProvider,
+          onDelete: cb.onDelete,
+          onPurge: cb.onPurge
+        });
+      case 'rules-and-notes':
+        // `agent` is null in create mode (the tab shows a "save first" notice).
+        studio.renderRulesNotesTab(panel, agent, {
+          fetchRules: cb.fetchRules,
+          createRule: cb.createRule,
+          updateRule: cb.updateRule,
+          deleteRule: cb.deleteRule,
+          reorderRules: cb.reorderRules,
+          fetchNotes: cb.fetchNotes,
+          setNotesEnabled: cb.setNotesEnabled,
+          updateNote: cb.updateNote,
+          deleteNote: cb.deleteNote,
+          clearNotes: cb.clearNotes
+        });
+        break;
+      case 'knowledge':
+        // Built once per identity; patch calls its setAgent (07a).
+        return studio.renderKnowledgeTab(panel, agent, cb.allKnowledgeBases, {
+          onChange: cb.onChange,
+          knowledgeBasesLoaded: cb.knowledgeBasesLoaded
+        });
+      case 'mcps':
+        // Built once per identity; patch calls its setSources and setAgent (07b).
+        return studio.renderMcpsTab(panel, agent, cb.allMcpSources, {
+          fetchMcpSourceTools: cb.fetchMcpSourceTools,
+          onChange: cb.onChange,
+          onSelectedSourceChange: cb.onSelectedMcpSourceChange,
+          pendingSourceId: cb.pendingMcpAgentSourceId
+        });
+      case 'tools':
+        // Built once per identity; patch calls its setAgent (08b).
+        return studio.renderToolsTab(panel, agent, {
+          toolCategories: cb.toolCategories,
+          allTools: cb.allTools,
+          onChange: cb.onChange,
+          disabledTools: cb.disabledTools,
+          operatorConfigs: cb.operatorConfigs,
+          fetchToolSchema: cb.fetchToolSchema
+        });
+      case 'self-configuration':
+        // `agent` is null in create mode; the tab renders a "save first" notice.
+        return studio.renderSelfConfigurationTab(panel, agent, {
+          fetchStatus: cb.fetchSelfConfigurationStatus,
+          onEnable: cb.onEnableSelfConfiguration,
+          onDisable: cb.onDisableSelfConfiguration,
+          onSetApprovalMode: cb.onSetSelfConfigurationApprovalMode,
+          fetchRevisions: cb.fetchSelfConfigurationRevisions,
+          onApproveRevision: cb.onApproveSelfConfigurationRevision,
+          onDismissRevision: cb.onDismissSelfConfigurationRevision,
+          onRestoreRevision: cb.onRestoreSelfConfigurationRevision,
+          onMintExternalCredential: cb.onMintExternalCredential,
+          fetchExternalCredentials: cb.fetchExternalCredentials,
+          onRevokeExternalCredential: cb.onRevokeExternalCredential,
+          onRotateExternalCredential: cb.onRotateExternalCredential
+        });
+      default:
+        break;
+    }
+    return null;
+  }
+
+  function clearNode(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
 
   function renderAgentEditor(container, agent, providers, callbacks) {
     callbacks = callbacks || {};
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
+    var ui = window.App.ui;
     var isCreate = !agent;
-    var initialTab = callbacks.initialTab || 'general';
+    var h = { key: null, shell: null, tabs: null, loadErrorEl: null, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, selfConfig: null };
 
-    var name = isCreate ? 'New Agent' : (agent.name || '');
-    var description = isCreate ? '' : (agent.description || '');
-
-    var html = '';
-
-    // === Editor header ============================================
-    html += '<div class="editor-header">';
-    html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h1>';
-    if (!isCreate) {
-      html += '<p class="editor-subtitle">' + escapeHtml(description) + '</p>';
-    }
-    html += '</div>';
-
-    // === Action cluster ===========================================
-    // F5 leg 05: Delete moved into the General tab's Danger Zone (only
-    // for existing agents). The header carries the unsaved caption, Cancel
-    // and Save. `disabled` is the SINGLE source of truth for both buttons --
-    // checkDirty() sets them (and the caption) from the dirty flag. Cancel
-    // follows `dirty` on an open agent only (it reverts; nothing to revert
-    // while clean). On the create form it abandons creation (DD8), so it is
-    // enabled from first render, typed into or not (the M25 F3 behavior-gate
-    // fix); Save still waits for a change.
-    html += '<div class="form-actions">';
-    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" ' +
-      'data-testid="cancel-agent-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" ' +
-      'data-testid="save-agent-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
-    html += '<span class="editor-error"></span>';
-    html += '</div>';
-    html += '</div>'; // .editor-header
-
-    // === Tablist ==================================================
-    html += '<div role="tablist" class="tablist" aria-label="Agent settings">';
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-general" ' +
-      'aria-controls="' + PANEL_IDS.general + '" data-tab-id="general" ' +
-      'data-testid="tab-general" aria-selected="false" tabindex="-1">General</button>';
-    // M27 F1 L2 (DD6) -- second tab: the operator's rules for the agent
-    // (immediate-save list; see studio/rules-notes-tab.js).
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-rules-and-notes" ' +
-      'aria-controls="' + PANEL_IDS['rules-and-notes'] + '" data-tab-id="rules-and-notes" ' +
-      'data-testid="tab-rules-and-notes" aria-selected="false" tabindex="-1">Rules and notes</button>';
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-knowledge" ' +
-      'aria-controls="' + PANEL_IDS.knowledge + '" data-tab-id="knowledge" ' +
-      'data-testid="tab-knowledge" aria-selected="false" tabindex="-1">Knowledge</button>';
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-mcps" ' +
-      'aria-controls="' + PANEL_IDS.mcps + '" data-tab-id="mcps" ' +
-      'data-testid="tab-mcps" aria-selected="false" tabindex="-1">MCPs</button>';
-    // data-tab-id="tools" + data-testid="tab-tools" preserved (browser
-    // tests + URL routing still key off "tools"); only the visible label
-    // and panel content semantics narrow to "Built-in Tools".
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-tools" ' +
-      'aria-controls="' + PANEL_IDS.tools + '" data-tab-id="tools" ' +
-      'data-testid="tab-tools" aria-selected="false" tabindex="-1">Built-in Tools</button>';
-    // M21 F01 L02 — fifth tab: enable/disable the loopback self-
-    // configuration MCP surface for this agent. Off by default; see
-    // studio/self-configuration-tab.js.
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-self-configuration" ' +
-      'aria-controls="' + PANEL_IDS['self-configuration'] + '" data-tab-id="self-configuration" ' +
-      'data-testid="tab-self-configuration" aria-selected="false" tabindex="-1">Self-configuration</button>';
-    html += '</div>';
-
-    // === Tab panels ================================================
-    html += '<div class="tabpanels">';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.general +
-      '" data-tab-id="general" aria-labelledby="agent-tab-general" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS['rules-and-notes'] +
-      '" data-tab-id="rules-and-notes" aria-labelledby="agent-tab-rules-and-notes" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.knowledge +
-      '" data-tab-id="knowledge" aria-labelledby="agent-tab-knowledge" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.mcps +
-      '" data-tab-id="mcps" aria-labelledby="agent-tab-mcps" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.tools +
-      '" data-tab-id="tools" aria-labelledby="agent-tab-tools" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS['self-configuration'] +
-      '" data-tab-id="self-configuration" aria-labelledby="agent-tab-self-configuration" hidden></div>';
-    html += '</div>';
-
-    container.innerHTML = html;
-
-    // The breadcrumb (M25 F3 DD2), built with DOM APIs after the markup is in
-    // place: the first child of .editor-header-text. Its one segment links to
-    // the destination root (the DD2 refinement, leg 4b): with Back retired it
-    // is the visible way to close the item. studio.js routes the click and
-    // focuses the agent's row after the close (DD8).
-    var headerText = container.querySelector('.editor-header-text');
-    var crumb = document.createElement('div');
-    crumb.className = 'editor-breadcrumb';
-    var crumbLink = document.createElement('a');
-    crumbLink.className = 'editor-breadcrumb-link';
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'agents' }));
-    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
-    crumbLink.textContent = 'Agents';
-    crumb.appendChild(crumbLink);
-    headerText.insertBefore(crumb, headerText.firstChild);
+    function chatTarget(a) { return a ? (a.name || '') : ''; }
 
     // M25 F4 L6 (DD8): Chat, a header action on a SAVED agent only (never in
-    // create mode: there is no agent to chat with yet). Inserted with DOM APIs
-    // after the markup is in place, into .form-actions before Cancel, so the
-    // baselined markup string above is unchanged. It is re-created on every
-    // header render (no stale handler) and takes no part in checkDirty's
-    // Save/Cancel bookkeeping (checkDirty reads .save-btn and .cancel-btn
-    // only). It starts a new chat with the stored name through
-    // App.chat.chatWith: the guarded go() to `#chats/~new/{name}`, so a
-    // dirty editor asks once (Stay keeps the edit, focus back on Chat).
+    // create mode: there is no agent to chat with yet). It starts a new chat with
+    // the stored name through App.chat.chatWith (the guarded go to
+    // `#chats/~new/{name}`, so a dirty editor asks once). The click reads the
+    // CURRENT name from h.agentName, which patch updates.
+    h.agentName = chatTarget(agent);
+    var extra = [];
     if (!isCreate) {
-      var actionsEl = container.querySelector('.editor-header .form-actions');
-      var agentName = agent.name || '';
-      var chatBtn = window.App.ui.button({
+      h.chatBtn = ui.button({
         variant: 'secondary',
         icon: 'chat',
         label: 'Chat',
         className: 'agent-chat-btn',
         testid: 'agent-chat-btn',
         onClick: function () {
-          window.App.chat.chatWith(agentName, { opener: chatBtn });
+          window.App.chat.chatWith(h.agentName, { opener: h.chatBtn });
         }
       });
-      if (actionsEl) actionsEl.insertBefore(chatBtn, actionsEl.querySelector('.cancel-btn'));
+      extra.push(h.chatBtn);
     }
 
-    // Wire action-cluster buttons — handlers from callbacks.
-    var cancelBtn = container.querySelector('.cancel-btn');
-    if (cancelBtn && callbacks.onCancel) {
-      cancelBtn.addEventListener('click', function () { callbacks.onCancel(); });
-    }
-    var saveBtn = container.querySelector('.save-btn');
-    if (saveBtn && callbacks.onSave) {
-      saveBtn.addEventListener('click', function () { callbacks.onSave(); });
-    }
-
-    // Mount per-tab content. The General tab MUST be populated before
-    // this function returns so existing form-field tests find their
-    // [data-field="..."] selectors immediately on agent select.
-    var generalPanel = container.querySelector('#' + PANEL_IDS.general);
-    var knowledgePanel = container.querySelector('#' + PANEL_IDS.knowledge);
-    var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
-    var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
-    var rulesNotesPanel = container.querySelector('#' + PANEL_IDS['rules-and-notes']);
-    var selfConfigurationPanel = container.querySelector('#' + PANEL_IDS['self-configuration']);
-
-    window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
-      onTestProvider: callbacks.onTestProvider,
-      onDelete: callbacks.onDelete,
-      onPurge: callbacks.onPurge
-    });
-    // M27 F1 L2 -- Rules and notes tab: immediate-save rules list. `agent` is
-    // null in create mode (the tab shows a "save first" notice).
-    window.App.studio.renderRulesNotesTab(rulesNotesPanel, agent, {
-      fetchRules: callbacks.fetchRules,
-      createRule: callbacks.createRule,
-      updateRule: callbacks.updateRule,
-      deleteRule: callbacks.deleteRule,
-      reorderRules: callbacks.reorderRules,
-      fetchNotes: callbacks.fetchNotes,
-      setNotesEnabled: callbacks.setNotesEnabled,
-      updateNote: callbacks.updateNote,
-      deleteNote: callbacks.deleteNote,
-      clearNotes: callbacks.clearNotes
-    });
-    // F6 L3 — extended signature: pass agent + allKnowledgeBases +
-    // callbacks so the Knowledge tab can render the real attach surface
-    // (mirrors renderMcpsTab's call site above).
-    window.App.studio.renderKnowledgeTab(knowledgePanel, agent, callbacks.allKnowledgeBases, {
-      onChange: callbacks.onChange,
-      knowledgeBasesLoaded: callbacks.knowledgeBasesLoaded
-    });
-    // F8 L3 — extended signature: pass agent + allMcpSources + callbacks so
-    // the MCPs tab can render the chip-list, per-attachment editor, and
-    // credential override fields. Mirrors renderToolsTab's call site below.
-    window.App.studio.renderMcpsTab(mcpsPanel, agent, callbacks.allMcpSources, {
-      fetchMcpSourceTools: callbacks.fetchMcpSourceTools,
-      onChange: callbacks.onChange,
-      onSelectedSourceChange: callbacks.onSelectedMcpSourceChange,
-      pendingSourceId: callbacks.pendingMcpAgentSourceId
-    });
-    window.App.studio.renderToolsTab(toolsPanel, agent, {
-      toolCategories: callbacks.toolCategories,
-      allTools: callbacks.allTools,
-      onChange: callbacks.onChange,
-      // F6 leg 05 — operator-disabled tools + per-agent override panels.
-      disabledTools: callbacks.disabledTools,
-      operatorConfigs: callbacks.operatorConfigs,
-      fetchToolSchema: callbacks.fetchToolSchema
-    });
-    // M21 F01 L02 — Self-configuration tab: enable/disable control + status
-    // line. `agent` is null in create-mode; the tab renders a "save first"
-    // notice in that case (mirrors the Danger Zone's isCreate guard).
-    window.App.studio.renderSelfConfigurationTab(selfConfigurationPanel, agent, {
-      fetchStatus: callbacks.fetchSelfConfigurationStatus,
-      onEnable: callbacks.onEnableSelfConfiguration,
-      onDisable: callbacks.onDisableSelfConfiguration,
-      // M21 F02 L02 — approval-mode toggle + pending revision queue.
-      onSetApprovalMode: callbacks.onSetSelfConfigurationApprovalMode,
-      fetchRevisions: callbacks.fetchSelfConfigurationRevisions,
-      fetchPendingCount: callbacks.fetchSelfConfigurationPendingCount,
-      onApproveRevision: callbacks.onApproveSelfConfigurationRevision,
-      onDismissRevision: callbacks.onDismissSelfConfigurationRevision,
-      // M21 F02 L03 — revision-history restore control.
-      onRestoreRevision: callbacks.onRestoreSelfConfigurationRevision,
-      // M21 F03 L03 — external-client credential grant/list/revoke/rotate.
-      onMintExternalCredential: callbacks.onMintExternalCredential,
-      fetchExternalCredentials: callbacks.fetchExternalCredentials,
-      onRevokeExternalCredential: callbacks.onRevokeExternalCredential,
-      onRotateExternalCredential: callbacks.onRotateExternalCredential
+    // Cancel follows `dirty` on an open agent only (it reverts; nothing to revert
+    // while clean). On the create form it abandons creation (DD8), so it is
+    // enabled from first render (enabledWhenClean); Save still waits for a change.
+    h.shell = ui.editorShell({
+      breadcrumb: {
+        label: 'Agents',
+        href: window.App.router.href({ destination: 'agents' })
+      },
+      title: isCreate ? 'New Agent' : (agent.name || ''),
+      subtitle: isCreate ? null : (agent.description || ''),
+      actions: {
+        extra: extra,
+        cancel: {
+          testid: 'cancel-agent-btn',
+          enabledWhenClean: isCreate,
+          onClick: function () { if (callbacks.onCancel) callbacks.onCancel(); }
+        },
+        save: {
+          label: isCreate ? 'Create' : 'Save',
+          testid: 'save-agent-btn',
+          onClick: function () { if (callbacks.onSave) callbacks.onSave(); }
+        }
+      }
     });
 
-    // Initialize the App.tabs helper. The initial activation happens here
-    // (not deferred) so the General tab's content is visible synchronously.
-    var tablistEl = container.querySelector('.tablist');
-    var panelsEl = container.querySelector('.tabpanels');
-    var tabHandle = window.App.tabs(tablistEl, panelsEl, {
+    // The squawk-0090 load-failure node: a frame node above the tabs, shown by
+    // setLoadError(true). Plain textContent.
+    h.loadErrorEl = document.createElement('div');
+    h.loadErrorEl.className = 'agent-load-error';
+    h.loadErrorEl.setAttribute('data-testid', 'agent-load-error');
+    h.loadErrorEl.setAttribute('role', 'status');
+    h.loadErrorEl.textContent = LOAD_ERROR_TEXT;
+    h.loadErrorEl.hidden = true;
+
+    var items = TAB_ITEMS.map(function (item) {
+      return { id: item.id, label: item.label, testid: 'tab-' + item.id };
+    });
+    h.tabs = ui.tabs({
+      label: 'Agent settings',
+      items: items,
+      idPrefix: 'agent',
+      panelIdPrefix: 'agent-tab-panel',
+      split: true,
       onChange: callbacks.onTabChange,
-      initial: initialTab
+      initial: callbacks.initialTab || 'general'
     });
 
-    return tabHandle;
+    clearNode(container);
+    container.appendChild(h.shell.el);
+    container.appendChild(h.loadErrorEl);
+    container.appendChild(h.tabs.tablist);
+    container.appendChild(h.tabs.panels);
+
+    function setLoadError(on) {
+      h.loadErrorEl.hidden = !on;
+    }
+
+    // Build the content of the panels, each into its cleared panel, from the given
+    // agent and callback bag. Since leg 10a every tab is patched in place, so this
+    // runs once at mount (the interim rebuild list is empty); `keep` lists panel ids
+    // to skip (none now; kept for a future rebuild).
+    function rebuildPanels(a, provs, cb, keep) {
+      for (var i = 0; i < TAB_ITEMS.length; i++) {
+        if (keep && keep.indexOf(TAB_ITEMS[i].id) !== -1) continue;
+        var panel = h.tabs.panel(TAB_ITEMS[i].id);
+        clearNode(panel);
+        var built = buildPanel(TAB_ITEMS[i].id, panel, a, provs, cb);
+        if (TAB_ITEMS[i].id === 'general') h.general = built;
+        if (TAB_ITEMS[i].id === 'knowledge') h.knowledge = built;
+        if (TAB_ITEMS[i].id === 'mcps') h.mcps = built;
+        if (TAB_ITEMS[i].id === 'tools') h.tools = built;
+        if (TAB_ITEMS[i].id === 'self-configuration') h.selfConfig = built;
+      }
+    }
+
+    // Initial mount: the General tab is populated before this function returns
+    // so form-field tests find their [data-field] selectors immediately.
+    rebuildPanels(agent, providers, callbacks);
+    setLoadError(!isCreate && callbacks.loadFailed === true);
+
+    // Same-identity update (see the header). The controller re-wires the picker
+    // and resets the snapshot after it.
+    // `opts.revert` is Cancel (the Tools tab drops its loaded override bodies).
+    h.patch = function (a, provs, cb, opts) {
+      h.agentName = chatTarget(a);
+      h.shell.setTitle(a.name || '');
+      h.shell.setSubtitle(a.description || '');
+      if (h.chatBtn) h.chatBtn.hidden = false;
+      setLoadError(cb.loadFailed === true);
+      h.general.setAgent(a, provs);
+      h.knowledge.setAgent(a, {
+        allKnowledgeBases: cb.allKnowledgeBases,
+        knowledgeBasesLoaded: cb.knowledgeBasesLoaded
+      });
+      // The source list first (the agent's own self-configuration surface may have
+      // appeared or gone), then the agent's choices.
+      h.mcps.setSources(cb.allMcpSources, a.name);
+      h.mcps.setAgent(a, { pendingSourceId: cb.pendingMcpAgentSourceId });
+      h.tools.setAgent(a, {
+        revert: !!(opts && opts.revert),
+        disabledTools: cb.disabledTools,
+        operatorConfigs: cb.operatorConfigs,
+        fetchToolSchema: cb.fetchToolSchema
+      });
+      // Self-configuration refetches its own data after its actions (10a): the
+      // patch only hands it the record (the approval flag lives on it).
+      h.selfConfig.setAgent(a);
+    };
+    h.rebuildPanels = rebuildPanels;
+    h.setLoadError = setLoadError;
+    h.destroy = function () {
+      if (h.selfConfig) h.selfConfig.destroy();
+      h.tabs.destroy();
+      clearNode(container);
+    };
+    return h;
   }
 
   window.App.studio.renderAgentEditor = renderAgentEditor;

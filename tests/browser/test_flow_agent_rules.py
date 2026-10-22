@@ -290,8 +290,8 @@ def test_delete_arm_is_announced(app_with_agent: SeededApp, page: Page) -> None:
     rows = page.locator(ROWS)
     expect(rows).to_have_count(1, timeout=8000)
     rows.nth(0).locator('[data-testid="rules-row-delete"]').click()
-    expect(page.locator('[data-testid="rules-status"]')).to_contain_text(
-        "Press Delete again to confirm"
+    expect(page.locator('[data-testid="ui-confirm-live"]')).to_have_text(
+        "Press Delete rule 1 again to confirm delete."
     )
 
 

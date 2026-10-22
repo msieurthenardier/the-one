@@ -194,6 +194,31 @@ def find_ui_dir_sink_tokens(
     return len(files), hits
 
 
+_DOC_ADD = re.compile(r"document\.addEventListener\(\s*'([^']+)'\s*,\s*([A-Za-z_$][\w$]*)")
+_DOC_REMOVE = re.compile(r"document\.removeEventListener\(\s*'([^']+)'\s*,\s*([A-Za-z_$][\w$]*)")
+
+
+def find_unpaired_document_listeners(
+    ui_dir: Path = UI_DIR,
+) -> tuple[int, list[tuple[str, str, str]]]:
+    """M31 F2 L5: a control installs no PERMANENT document listener. Every
+    ``document.addEventListener('<evt>', <handler>`` in ``static/js/ui/*.js`` needs a
+    ``document.removeEventListener('<evt>', <handler>`` in the same file. Returns
+    ``(adds_seen, [(file, event, handler), ...unpaired])``."""
+    if not ui_dir.is_dir():
+        return 0, []
+    seen = 0
+    bad: list[tuple[str, str, str]] = []
+    for f in sorted(ui_dir.glob("*.js")):
+        text = f.read_text()
+        removes = set(_DOC_REMOVE.findall(text))
+        for pair in _DOC_ADD.findall(text):
+            seen += 1
+            if pair not in removes:
+                bad.append((f.name, pair[0], pair[1]))
+    return seen, bad
+
+
 def id_appears_as_string_literal(testid: str, js_dir: Path = JS_DIR) -> bool:
     """True if ``testid`` appears as a complete quoted string literal
     anywhere in the JS sources.  Used for manual-exception ids (variable-

@@ -694,7 +694,7 @@ def _delete_open_agent(page: Page) -> None:
     btn = page.locator('[data-testid="delete-agent-btn"]')
     expect(btn).to_be_visible(timeout=8000)
     btn.click()
-    expect(btn).to_have_text("Confirm Delete?")
+    expect(btn).to_have_text("Confirm delete?")
     with page.expect_response(lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"):
         btn.click()
 

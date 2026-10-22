@@ -1,10 +1,10 @@
 # Squawk 0094: the knowledge-base attach toggle is not reachable by accessibility role
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-21
-**Completed**: —
+**Completed**: 2026-10-21
 
 ## Report
 
@@ -65,17 +65,24 @@ trigger — a shared-control change across tabs is a flight, not a squawk.
 
 ## Corrective Action
 
-*(pending)* Confirm first with a real accessibility tool. If genuinely
-unreachable, apply the standard remedy for the custom-switch pattern and keep the
-native input as the accessible control rather than replacing the pattern.
+Confirmed as a real defect, not a Playwright quirk: `.area-studio .tool-toggle { display: none; }`
+removed the native input from the accessibility tree entirely (not the visually-hidden-but-focusable
+idiom), so it was neither reachable by role nor by Tab. Fixed in Mission 31 Flight 2 leg 07a by
+rebuilding the Knowledge tab's attach control as `App.ui.toggle` (native `input[type=checkbox][role=switch]`,
+visually hidden but focusable, named by its label, the tool-name text wired by `aria-describedby`).
+The native input stays the accessible control. The shared `.tool-toggle` pattern (MCPs and Built-in
+Tools tabs) is untouched here and is replaced by their own legs (07b-08).
 
 ## Verification
 
-*(pending)* An accessibility assertion that the attach toggle is reachable and
-operable by role, and — since this class of defect currently has no home —
-consider whether it belongs in a new custom-form-control audit alongside the
-existing contrast tests rather than as a one-off.
+`tests/browser/test_flow_studio_knowledge_attach.py::test_attach_switch_is_reachable_by_role_and_tab_squawk_0094`
+asserts `get_by_role("switch", name=...)` finds the switch, Tab reaches it, Space toggles it and a real
+toggle enables Save and shows `.editor-unsaved`. The existing attach tests now toggle by clicking the
+visible switch, not an `evaluate` flip. The custom-form-control audit idea is covered by the control
+library's engine-parametrized contract tests (`test_ui_choice_contract.py`), which assert role and
+name for every `App.ui.toggle`. Sign-off is left to the flight review.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Mission 31 Flight 2 flight review (independent Sonnet Reviewer, 2026-10-22; cycles 1-2)
+**Verdict**: [HANDOFF:confirmed]
+**Commit**: the Flight 2 commit for legs 08b-11 on `flight/02-agents-on-the-library` (see the Flight 2 draft PR)

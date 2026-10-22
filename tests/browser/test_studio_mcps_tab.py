@@ -1,10 +1,11 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
 """Browser tests for the Agent-editor MCPs tab (F8 L3+L4 flows).
 
 Rewritten against post-M08-F4-rebrand markup in M17 F1 L02: each MCP
-source renders as a tile (`.mcp-source-tile`,
+source renders as an `App.ui.groupTile` (
 data-testid="mcp-source-row-{id}") with an attach toggle
 (mcp-source-toggle-{id}) on row 1, an expand button
-(mcp-source-expand-{id}) that toggles `aria-expanded` on the tile, and a
+(mcp-source-expand-{id}) that toggles `aria-expanded` on itself, and a
 collapsible tools body (mcp-source-details-body-{id}) holding the
 per-tool checkboxes (mcp-tool-toggle-{id}-{tool}). The pre-rebrand
 `<details class="tool-row-overrides">` panel this file used to assert is
@@ -32,6 +33,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import ENABLE_SWITCH, click_switch
 from playwright.sync_api import Page, expect
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -93,13 +95,19 @@ def _mock_tools_connect(page: Page, source_id: str, tools: list[dict]) -> None:
     page.route(f"**/api/mcp-sources/{source_id}/test/connect", handler)
 
 
+def _click_switch(toggle) -> None:
+    """Click a library switch the way a person does: its label, not the hidden input."""
+    toggle.locator("xpath=ancestor::label[1]").click()
+
+
 def _expand_source_tile(page: Page, source_id: str) -> None:
     """Click the source tile's expand button (lazy-loads the tools body)."""
     tile = page.locator(f'[data-testid="mcp-source-row-{source_id}"]')
     expect(tile).to_be_visible(timeout=4000)
-    page.locator(f'[data-testid="mcp-source-expand-{source_id}"]').click()
-    # Expansion is signalled via aria-expanded on the tile (+ un-hidden body).
-    expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
+    expand = page.locator(f'[data-testid="mcp-source-expand-{source_id}"]')
+    expand.click()
+    # Expansion is signalled via aria-expanded on the expand button (+ un-hidden body).
+    expect(expand).to_have_attribute("aria-expanded", "true", timeout=2000)
     expect(page.locator(f'[data-testid="mcp-source-details-body-{source_id}"]')).to_be_visible()
 
 
@@ -123,18 +131,11 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
     _navigate_to_agent_mcps_tab(page, app_clean, "attach-test-agent")
 
     toggle = page.locator(f'[data-testid="mcp-source-toggle-{sid}"]')
-    # Toggle checkbox is visually hidden behind the .tool-switch span (matches
-    # built-in Tools tab pattern). Use force=True to click through visibility.
     expect(toggle).to_have_count(1, timeout=4000)
     expect(toggle).not_to_be_checked()
 
-    # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
-    # Tools tab); set checked state + fire change event programmatically so the
-    # mcps-tab.js change listener runs and the form dirties.
-    toggle.evaluate(
-        "el => { el.checked = !el.checked; "
-        "el.dispatchEvent(new Event('change', {bubbles: true})); }"
-    )
+    # A real click on the switch (the library control's label), not a scripted flip.
+    _click_switch(toggle)
     expect(toggle).to_be_checked(timeout=2000)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
@@ -186,13 +187,8 @@ def test_detach_source_persists(app_clean: str, page: Page) -> None:
     expect(toggle).to_have_count(1, timeout=4000)
     expect(toggle).to_be_checked()
 
-    # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
-    # Tools tab); set checked state + fire change event programmatically so the
-    # mcps-tab.js change listener runs and the form dirties.
-    toggle.evaluate(
-        "el => { el.checked = !el.checked; "
-        "el.dispatchEvent(new Event('change', {bubbles: true})); }"
-    )
+    # A real click on the switch (the library control's label), not a scripted flip.
+    _click_switch(toggle)
     expect(toggle).not_to_be_checked(timeout=2000)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
@@ -283,8 +279,9 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
         "aria-selected", "true", timeout=8000
     )
     # Deep-link auto-expands the source tile.
-    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
-    expect(tile).to_have_attribute("aria-expanded", "true", timeout=4000)
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
+        "aria-expanded", "true", timeout=4000
+    )
     cb_b_reload = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_b"]')
     expect(cb_b_reload).to_be_visible(timeout=6000)
     expect(cb_b_reload).not_to_be_checked()
@@ -362,8 +359,9 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
     )
 
     # Source tile should be auto-expanded.
-    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
-    expect(tile).to_have_attribute("aria-expanded", "true", timeout=4000)
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
+        "aria-expanded", "true", timeout=4000
+    )
 
     # Tools should load from mocked endpoint.
     expect(page.locator(f'[data-testid="mcp-tool-toggle-{sid}-list_repos"]')).to_be_visible(
@@ -662,3 +660,475 @@ def test_save_after_failed_mcp_sources_fetch_keeps_attachments(app_clean: str, p
     agent = _get_agent(app_clean, "failed-fetch-agent")
     assert agent["description"] == "after"
     assert agent.get("mcp_source_ids") == [sid], agent.get("mcp_source_ids")
+
+
+# ── DD9-1 (M31 F2 L07b): collapsing an expanded source ──────────────────────
+
+
+@pytest.mark.browser
+def test_collapse_expanded_source_drops_route_segment_dd9_1(app_clean: str, page: Page) -> None:
+    """Expand then collapse a source: no page error, the expand button reports
+    collapsed, the body is hidden and the route drops the source segment.
+
+    Before the fix the collapse called the undefined ``_parseSourceIdFromHash``
+    (a ``pageerror``) and ``onSelectedSourceChange(null)`` never ran, so the route
+    kept ``/{source-id}``.
+    """
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "dd91-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(app_clean, "dd91-agent", {"description": "test", "mcp_source_ids": [sid]})
+    _mock_tools_connect(page, sid, [{"name": "t1", "description": "d", "input_schema": {}}])
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+
+    _navigate_to_agent_mcps_tab(page, app_clean, "dd91-agent")
+    _expand_source_tile(page, sid)
+    _nav.expect_route(page, f"agents/dd91-agent/mcps/{_nav.seg(sid)}")
+
+    expand = page.locator(f'[data-testid="mcp-source-expand-{sid}"]')
+    expand.click()
+    expect(expand).to_have_attribute("aria-expanded", "false", timeout=2000)
+    expect(page.locator(f'[data-testid="mcp-source-details-body-{sid}"]')).to_be_hidden()
+    _nav.expect_route(page, "agents/dd91-agent/mcps")
+    assert errors == [], errors
+
+
+# ── M31 F2 L07b: the MCPs tab on the control library ────────────────────────
+
+SAVE = '[data-testid="save-agent-btn"]'
+UNSAVED = '[data-testid="editor-unsaved"]'
+TOOLS_AB = [
+    {"name": "tool_a", "description": "tool a", "input_schema": {}},
+    {"name": "tool_b", "description": "tool b", "input_schema": {}},
+]
+
+
+def _seed_source(base: str, name: str) -> str:
+    return _seed_mcp_source(
+        base,
+        {
+            "name": name,
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+
+
+def _tool(page: Page, sid: str, name: str):
+    return page.locator(f'[data-testid="mcp-tool-toggle-{sid}-{name}"]')
+
+
+def _edit_description(page: Page, text: str) -> None:
+    """Dirty the form from the General tab, then return to the MCPs tab."""
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-field="description"]').fill(text)
+    page.locator('[data-testid="tab-mcps"]').click()
+
+
+def _click_row(page: Page, sid: str, name: str) -> None:
+    """A real click on a tool row's label (its checkbox input is the row's only control)."""
+    _tool(page, sid, name).locator("xpath=ancestor::label[1]").click()
+
+
+@pytest.mark.browser
+def test_tile_shape_switch_refresh_and_chips(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "shape-source")
+    _seed_agent(app_clean, "shape-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _navigate_to_agent_mcps_tab(page, app_clean, "shape-agent")
+
+    master = page.locator(f'[data-testid="mcp-source-toggle-{sid}"]')
+    expect(master).to_have_attribute("role", "switch")
+    expect(master).to_have_attribute("data-mcp-source-id", sid)
+    expect(master).to_be_checked()
+    # The accessible name is reachable by role.
+    expect(page.get_by_role("switch", name="Attach shape-source")).to_have_count(1)
+
+    refresh = page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]')
+    expect(refresh).to_have_text("Refresh")
+    expect(refresh).to_have_attribute("aria-label", "Refresh tools for shape-source")
+    box = refresh.bounding_box()
+    assert box is not None and round(box["height"]) == 24, box
+
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile.locator(".ui-group-tile-chip").nth(1)).to_have_text("http")
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_text("Tools▸")
+
+
+@pytest.mark.browser
+def test_real_clicks_dirty_the_form(app_clean: str, page: Page) -> None:
+    """A click on the master or on a tool row enables Save and shows the caption."""
+    sid = _seed_source(app_clean, "dirty-source")
+    _seed_agent(app_clean, "dirty-agent", {"description": "t"})
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "dirty-agent")
+    expect(page.locator(SAVE)).to_be_disabled()
+
+    master = page.locator(f'[data-testid="mcp-source-toggle-{sid}"]')
+    _click_switch(master)
+    expect(master).to_be_checked()
+    expect(page.locator(SAVE)).to_be_enabled()
+    expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
+    _click_switch(master)
+    expect(page.locator(SAVE)).to_be_disabled(timeout=3000)
+
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
+    _click_row(page, sid, "tool_a")
+    expect(_tool(page, sid, "tool_a")).not_to_be_checked()
+    expect(page.locator(SAVE)).to_be_enabled()
+    expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
+    # The count follows the row, once (a duplicate listener would not change it).
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile.locator(".ui-group-tile-chip").nth(0)).to_have_text("1 / 2 enabled")
+    # Tool rows never change the master.
+    expect(master).not_to_be_checked()
+
+
+@pytest.mark.browser
+def test_save_patches_the_tab_in_place_and_matches_the_server(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "patch-source")
+    _seed_agent(app_clean, "patch-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "patch-agent")
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_b")).to_be_checked(timeout=6000)
+
+    page.evaluate(
+        """sid => { document.querySelector('[data-testid="mcp-source-row-' + sid + '"]').dataset.marker = 'same'; }""",
+        sid,
+    )
+    _click_row(page, sid, "tool_b")
+    with page.expect_response(
+        lambda r: "/api/agents/patch-agent" in r.url and r.request.method == "PUT"
+    ) as resp_info:
+        page.locator(SAVE).click()
+    assert resp_info.value.status == 200
+    expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
+
+    agent = _get_agent(app_clean, "patch-agent")
+    assert agent["mcp_overrides"]["patch-source"]["disabled_tools"] == ["tool_b"]
+    # Same tile node, still expanded, group mode and checked states from the server.
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile).to_have_attribute("data-marker", "same")
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
+        "aria-expanded", "true"
+    )
+    group = page.locator(f'[data-testid="mcp-tools-checkbox-group-{sid}"]')
+    expect(group).to_have_attribute("data-mcp-tool-mode", "denylist")
+    expect(_tool(page, sid, "tool_a")).to_be_checked()
+    expect(_tool(page, sid, "tool_b")).not_to_be_checked()
+    expect(tile.locator(".ui-group-tile-chip").nth(0)).to_have_text("1 / 2 enabled")
+
+
+@pytest.mark.browser
+def test_set_agent_recomputes_mode_and_checked_states(app_clean: str, page: Page) -> None:
+    """A stored allowlist flips the group to allowlist mode on the next patch, and a
+    Cancel restores the stored selection, on the same nodes."""
+    sid = _seed_source(app_clean, "mode-source")
+    _seed_agent(
+        app_clean,
+        "mode-agent",
+        {
+            "description": "t",
+            "mcp_source_ids": [sid],
+            "mcp_overrides": {"mode-source": {"enabled_tools": ["tool_a"]}},
+        },
+    )
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "mode-agent")
+    _expand_source_tile(page, sid)
+    group = page.locator(f'[data-testid="mcp-tools-checkbox-group-{sid}"]')
+    expect(group).to_have_attribute("data-mcp-tool-mode", "allowlist")
+    expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
+    expect(_tool(page, sid, "tool_b")).not_to_be_checked()
+
+    _click_row(page, sid, "tool_b")
+    expect(_tool(page, sid, "tool_b")).to_be_checked()
+    page.locator('[data-testid="cancel-agent-btn"]').click()
+    expect(_tool(page, sid, "tool_b")).not_to_be_checked(timeout=4000)
+    expect(page.locator(SAVE)).to_be_disabled()
+
+    # The server flips the mode (denylist now); a Save patches the group to it.
+    httpx.put(
+        f"{app_clean}/api/agents/mode-agent",
+        json={
+            "name": "mode-agent",
+            "description": "t",
+            "mcp_source_ids": [sid],
+            "mcp_overrides": {"mode-source": {"disabled_tools": ["tool_a"]}},
+        },
+        timeout=5.0,
+        headers=auth_headers_for(app_clean),
+    ).raise_for_status()
+    _edit_description(page, "t2")
+    page.locator(SAVE).click()
+    expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
+    agent = _get_agent(app_clean, "mode-agent")
+    mode = "allowlist" if "enabled_tools" in agent["mcp_overrides"]["mode-source"] else "denylist"
+    expect(group).to_have_attribute("data-mcp-tool-mode", mode)
+
+
+@pytest.mark.browser
+def test_payload_round_trip_is_unchanged(app_clean: str, page: Page) -> None:
+    """mcp_source_ids and the tool allow/deny lists on Save follow the DOM as before."""
+    s1 = _seed_source(app_clean, "rt-one")
+    s2 = _seed_source(app_clean, "rt-two")
+    _seed_agent(app_clean, "rt-agent", {"description": "t", "mcp_source_ids": [s1]})
+    _mock_tools_connect(page, s1, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "rt-agent")
+    _expand_source_tile(page, s1)
+    expect(_tool(page, s1, "tool_a")).to_be_checked(timeout=6000)
+    _click_row(page, s1, "tool_a")
+    _click_switch(page.locator(f'[data-testid="mcp-source-toggle-{s2}"]'))
+
+    with page.expect_request(
+        lambda r: "/api/agents/rt-agent" in r.url and r.method == "PUT"
+    ) as req_info:
+        page.locator(SAVE).click()
+    body = json.loads(req_info.value.post_data or "{}")
+    assert sorted(body["mcp_source_ids"]) == sorted([s1, s2])
+    assert body["mcp_overrides"] == {"rt-one": {"disabled_tools": ["tool_a"]}}
+
+
+@pytest.mark.browser
+def test_refresh_patches_rows_by_tool_name_per_mode(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "refresh-source")
+    _seed_agent(app_clean, "refresh-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "refresh-agent")
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
+    _click_row(page, sid, "tool_a")  # an unsaved choice
+    page.evaluate(
+        """sid => { document.querySelector('[data-testid="mcp-tool-toggle-' + sid + '-tool_a"]').dataset.marker = 'kept'; }""",
+        sid,
+    )
+
+    # Refresh returns {tool_a, tool_c}: tool_a keeps its unsaved state, tool_b goes, a
+    # new tool takes the denylist default (checked).
+    page.unroute_all()
+    _mock_tools_connect(
+        page,
+        sid,
+        [
+            {"name": "tool_a", "description": "tool a", "input_schema": {}},
+            {"name": "tool_c", "description": "tool c", "input_schema": {}},
+        ],
+    )
+    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    expect(_tool(page, sid, "tool_c")).to_be_checked(timeout=6000)
+    expect(_tool(page, sid, "tool_b")).to_have_count(0)
+    expect(_tool(page, sid, "tool_a")).not_to_be_checked()
+    expect(_tool(page, sid, "tool_a")).to_have_attribute("data-marker", "kept")
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile.locator(".ui-group-tile-chip").nth(0)).to_have_text("1 / 2 enabled")
+
+
+@pytest.mark.browser
+def test_refresh_new_tool_is_unchecked_in_allowlist_mode(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "refresh-allow-source")
+    _seed_agent(
+        app_clean,
+        "refresh-allow-agent",
+        {
+            "description": "t",
+            "mcp_source_ids": [sid],
+            "mcp_overrides": {"refresh-allow-source": {"enabled_tools": ["tool_a"]}},
+        },
+    )
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "refresh-allow-agent")
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
+    page.unroute_all()
+    _mock_tools_connect(
+        page, sid, [*TOOLS_AB, {"name": "tool_c", "description": "", "input_schema": {}}]
+    )
+    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    expect(_tool(page, sid, "tool_c")).to_have_count(1, timeout=6000)
+    expect(_tool(page, sid, "tool_c")).not_to_be_checked()
+    expect(_tool(page, sid, "tool_a")).to_be_checked()
+
+
+@pytest.mark.browser
+def test_refresh_error_keeps_rows_then_success_clears_it(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "err-source")
+    _seed_agent(app_clean, "err-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "err-agent")
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_a")).to_be_visible(timeout=6000)
+
+    page.unroute_all()
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": _OPERATOR_ERROR}),
+        ),
+    )
+    refresh = page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]')
+    refresh.click()
+    err = page.locator(f'[data-testid="mcp-tools-error-{sid}"]')
+    expect(err).to_be_visible(timeout=4000)
+    expect(_tool(page, sid, "tool_a")).to_be_visible()  # the rows stay
+    refresh.click()
+    expect(page.locator(f'[data-testid="mcp-tools-error-{sid}"]')).to_have_count(1, timeout=4000)
+
+    page.unroute_all()
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    refresh.click()
+    expect(page.locator(f'[data-testid="mcp-tools-error-{sid}"]')).to_have_count(0, timeout=4000)
+
+
+@pytest.mark.browser
+def test_refresh_on_collapsed_tile_expands_and_fetches_once(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "collapsed-refresh")
+    _seed_agent(app_clean, "collapsed-refresh-agent", {"description": "t", "mcp_source_ids": [sid]})
+    calls = {"n": 0}
+
+    def handler(route) -> None:
+        calls["n"] += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "tools": TOOLS_AB, "capabilities": {"tools": {}}}),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handler)
+    _navigate_to_agent_mcps_tab(page, app_clean, "collapsed-refresh-agent")
+    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
+        "aria-expanded", "true", timeout=3000
+    )
+    expect(_tool(page, sid, "tool_a")).to_be_visible(timeout=6000)
+    _nav.expect_route(page, f"agents/collapsed-refresh-agent/mcps/{_nav.seg(sid)}")
+    assert calls["n"] == 1, calls
+
+
+@pytest.mark.browser
+def test_self_configuration_enable_then_save_keeps_the_surface(app_clean: str, page: Page) -> None:
+    _seed_agent(app_clean, "sc-keep-agent", {"description": "t"})
+    _nav.goto(page, app_clean, "agents/sc-keep-agent/self-configuration")
+    toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
+    expect(toggle).not_to_be_checked(timeout=8000)
+    click_switch(page, ENABLE_SWITCH)
+    expect(toggle).to_be_checked(timeout=8000)
+    surface = _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"][0]
+
+    page.locator('[data-testid="tab-mcps"]').click()
+    expect(page.locator(f'[data-testid="mcp-source-toggle-{surface}"]')).to_be_disabled(
+        timeout=8000
+    )
+    _edit_description(page, "t2")
+    page.locator(SAVE).click()
+    expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
+    assert surface in _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"]
+
+    # Disable, then Save: the deleted id is not sent back.
+    page.locator('[data-testid="tab-self-configuration"]').click()
+    click_switch(page, ENABLE_SWITCH)
+    expect(toggle).not_to_be_checked(timeout=8000)
+    page.locator('[data-testid="tab-mcps"]').click()
+    expect(page.locator('[data-testid="mcp-empty-state"]')).to_be_visible(timeout=8000)
+    _edit_description(page, "t3")
+    page.locator(SAVE).click()
+    expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
+    assert surface not in _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"]
+
+
+@pytest.mark.browser
+def test_set_sources_keeps_an_expanded_unsaved_tile(app_clean: str, page: Page) -> None:
+    sid = _seed_source(app_clean, "keep-source")
+    _seed_agent(app_clean, "keep-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _navigate_to_agent_mcps_tab(page, app_clean, "keep-agent")
+    _expand_source_tile(page, sid)
+    expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
+    page.evaluate(
+        """sid => { document.querySelector('[data-testid="mcp-source-row-' + sid + '"]').dataset.marker = 'same'; }""",
+        sid,
+    )
+    _click_row(page, sid, "tool_a")
+
+    # Enabling self-configuration adds a tile for the agent's own surface.
+    page.locator('[data-testid="tab-self-configuration"]').click()
+    toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
+    expect(toggle).not_to_be_checked(timeout=8000)
+    click_switch(page, ENABLE_SWITCH)
+    expect(toggle).to_be_checked(timeout=8000)
+    surface = [i for i in _get_agent(app_clean, "keep-agent")["mcp_source_ids"] if i != sid][0]
+
+    page.locator('[data-testid="tab-mcps"]').click()
+    expect(page.locator(f'[data-testid="mcp-source-row-{surface}"]')).to_be_visible(timeout=8000)
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile).to_have_attribute("data-marker", "same")
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
+        "aria-expanded", "true"
+    )
+    # (A same-identity patch also re-derives every row from the stored agent, as General
+    # does, so the unsaved choice itself is not asserted here: the synthetic test below
+    # pins setSources alone.)
+
+
+@pytest.mark.browser
+def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
+    app_clean: str, page: Page
+) -> None:
+    """setSources reconciles by id on its own: the same node, expanded state and unsaved
+    row choice survive; a surface for another agent is never shown; an emptied list shows
+    the empty state and a new source brings the list back."""
+    page.goto(app_clean)
+    page.wait_for_function("!!(window.App && window.App.studio && window.App.studio.renderMcpsTab)")
+    out = page.evaluate(
+        """async () => {
+          const mk = (id, extra) => Object.assign({id, name: 'n-' + id, type: 'streamable-http',
+            config: {_cache: {tools: [{name: 'ta', description: ''}, {name: 'tb', description: ''}]}}}, extra || {});
+          const panel = document.createElement('div');
+          document.body.appendChild(panel);
+          const agent = {name: 'me', mcp_source_ids: ['s1'], mcp_overrides: {}};
+          const h = App.studio.renderMcpsTab(panel, agent, [mk('s1')], {onChange() {}});
+          const tile = panel.querySelector('[data-testid=mcp-source-row-s1]');
+          tile.querySelector('.ui-group-tile-expand').click();
+          const ta = panel.querySelector('[data-mcp-tool-toggle=ta]');
+          ta.click();
+          const surface = mk('sc', {name: 'self-configuration', config: {self_configuration: {agent: 'me'}}});
+          const other = mk('sx', {name: 'self-configuration', config: {self_configuration: {agent: 'you'}}});
+          h.setSources([mk('s1'), surface, other], 'me');
+          const res = {};
+          res.sameNode = panel.querySelector('[data-testid=mcp-source-row-s1]') === tile;
+          res.expanded = tile.querySelector('.ui-group-tile-expand').getAttribute('aria-expanded');
+          res.taChecked = panel.querySelector('[data-mcp-tool-toggle=ta]').checked;
+          res.ids = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
+          const scMaster = panel.querySelector('[data-mcp-source-id=sc]');
+          res.scLocked = scMaster.checked && scMaster.disabled;
+          h.setSources([surface], 'me');
+          res.afterRemove = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
+          h.setSources([], 'me');
+          res.empty = !!panel.querySelector('[data-testid=mcp-empty-state]');
+          h.setSources([mk('s2')], 'me');
+          res.back = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
+          res.emptyGone = !panel.querySelector('[data-testid=mcp-empty-state]');
+          h.destroy();
+          panel.remove();
+          return res;
+        }"""
+    )
+    assert out["sameNode"] is True
+    assert out["expanded"] == "true"
+    assert out["taChecked"] is False
+    assert out["ids"] == ["s1", "sc"]
+    assert out["scLocked"] is True
+    assert out["afterRemove"] == ["sc"]
+    assert out["empty"] is True
+    assert out["back"] == ["s2"]
+    assert out["emptyGone"] is True
