@@ -597,3 +597,8 @@ Instance: port 8496, scratch data `~/the-one-m31f3-hat/data`, PID 2604830.
   - Squawks 0243 (deleting a walked file is undone) and 0244 (a file POST does not start indexing) were logged.
   - Mission Known Issues gained the search score floor and "Add file".
   - Leg 10 is `completed`; the flight is `landed`.
+- **Landed:** close-out commit 2e572f0, pushed; PR #303 body updated (flight-hat checked) and marked ready for review. HAT instance PID 2679954 stopped. [COMPLETE:flight]. The debrief and merge wait for the operator.
+
+### Debrief correction (2026-10-23)
+- **Step 10(a)'s attribution was wrong.** The debrief Developer ran the pre-flight code (08562ec, scratch port 8497) and found that an edit Save never remounted the connector editor (old glue: "An edit save keeps this editor"; re-render only `if (isCreate)`). The stale header after Save dates from squawk 0045's "probe once on open", not from DD5. The HAT fix (re-probe after an edit Save) still stands, now classed as a pre-existing defect fixed at the HAT rather than a DD5 regression.
+- **Debrief (2026-10-23):** `flight-debrief.md` written; squawks 0245-0247 logged; the operator marked the flight completed and asked to merge.
