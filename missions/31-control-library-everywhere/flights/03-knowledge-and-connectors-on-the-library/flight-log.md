@@ -540,3 +540,60 @@ Instance: port 8496, scratch data `~/the-one-m31f3-hat/data`, PID 2604830.
   - **Tests:** guards 135 + 325 passed; knowledge lane 43 passed (217 s); mcp lane 110 passed (305 s); routing `-k knowledge` 18 passed.
   - The FD reviewed the scratch captures in `cap1/`: the layout is as specified.
 - **Doctor gap landed (uncommitted):** `.doctor-btn + :not([hidden])` gets a 12px margin-top; spacing assertion added; library lane 51 passed (152 s).
+- **Committed and merged:** HAT fixes 79457ac; merge of origin/main a1cbcd4 (no conflicts; unit 6773 passed / 14 skipped under netns); pushed. HAT instance restarted on 8496 with the same data and env, new PID 2679954.
+- **State fix:** "HAT notes" was missing after the restart, and "HAT scratch" (created 12:07, at step 2) was still there. So step 9 had deleted "HAT notes", not the scratch KB; the delete itself behaved correctly. The FD re-seeded "HAT notes" (id ca81b23fed8c, same folders, 14 items indexed) and re-attached Agent A.
+- **Step 2 re-check and step 5 [kb-folders]:** pass. The ellipsis, focus ring, chips, "Last checked" line, compact rows with hover, bad-path error, and the folder delete and its focus all work. The operator approved the new file-row and search formatting.
+  - **Finding:** "Other items" showed no chip. The behaviour is correct: the DD-9 standalone chip shows only for an individually registered file that lies inside a registered folder, and the seed's `loose-note.txt` does not. The step text was wrong. The FD registered `runbook-01.md` individually to show the case.
+  - **The operator found the "Other items" label unclear.** Context: the UI can only add folders, so this panel holds files registered on their own through the API.
+- **Operator direction on "Other items".** FD fix-vs-feature calls:
+  - (1) Rename to "Individual files", with a one-line description (an info line rather than a new info-button control, since the library has no popover): **fix**, inline.
+  - (2) Self-explanatory chip text: **fix**.
+  - (3) A way to remove an individual file (the API route exists; the UI has none): **feature**, so it gets a scoped design review first (a Plan agent was spawned).
+  - (4) Status/watch on the panel: per-row status already shows. Folder-level watch likely does not apply to single files; the design review confirms.
+  - (5) An "Add file" section in the UI: **feature**, larger. Recommended for deferral to a later flight or sortie; the operator decides.
+- **Step 6 [kb-items], partial.** HAT item 5 is approved: the ⋯ trigger and row height. View chunks works. Findings, folded into the same design review:
+  - (a) Rows say "indexed" twice: the status word and "Indexed {date}". **Fix.**
+  - (b) Individual-file rows show the full absolute path at body size, and the DD-9 chip overflows on its own line. **Fix.**
+  - (c) The source and chunks panel heading is the full absolute path at heading size. **Fix.**
+  - (d) A header label and a **close** button for the chunks and source panels. **Feature**, small; it goes through the design review.
+- **Step 6, remainder:** pass. HAT item 6 is approved: the last-row menu may extend the scroll area. The menu arrows and Escape, and Ctrl K with a menu open, work.
+- **Step 7 [kb-poll]:** skipped at the operator's request. DD8-4 (the poll keeps focus and an open menu) stays covered by the knowledge-lane tests.
+- **Design review result.** The Plan agent's design is accepted; it is held in the scratchpad as `hat-individual-files-design.md` and summarised here:
+  - **Individual files:**
+    - "Individual files ({n})", with a hint: "Added one at a time through the API. These files aren't watched for changes; use Re-index all files to pick up edits." The operator's "re-index" alone was wrong: `scope=changed` skips parentless files.
+    - No summary chips: watch would always be off, and walk status does not apply.
+    - Remove is a trash `App.ui.confirm` button armed on itself, on parentless rows only. Tombstones stop a stale poll from resurrecting a removed row. Focus goes to the next row, else the previous row, else Add-folder.
+    - The orphan hold-out amends L6-D2.
+  - **Rows:** the status word only when not indexed with a stamp; "Last indexed …" for pending and failed rows.
+  - **Individual row:** the basename, plus an ellipsised full-path line. The chip reads "Also in folder {basename}".
+  - **Inspect panels:** a static "Chunks"/"Source" h3, a name and path line, and a close (×) that returns focus to the opener. No Escape.
+  - **Testids:** `kb-other-items-panel` is retired in favour of `kb-individual-files-panel`.
+  - **Squawk candidates (backend, to log at close):**
+    - the item DELETE of a walked file answers 200 and the next walk re-adds it (it should be 409);
+    - a file-item POST does not call `request_index`.
+  - An implementing Developer was spawned.
+- **Step 8 [kb-search], partial.** "zzzz" returns low-score hits. This is retrieval behaviour: semantic search has no score floor, so "No results." appears only for an empty KB, and the RRF scores are not percentages. It is not a flight regression. Proposed follow-up (needs design, and evals since agents share it): a semantic-only score floor and/or a keyword-match marker. The operator was asked to check "No results." on the empty "HAT scratch".
+- **Follow-ups (operator-confirmed):** an "Add file" UI for individual files (a new form with its own validation and errors). Carried to the flight debrief / mission Known Issues.
+- **Step 8, remainder:** pass. The result layout, × (clears and keeps focus), Escape, and "No results." on the empty KB all work.
+- **Step 15 [theme]:** pass. The operator checked dark and approved it; they are confident the pending Individual files and inspect changes inherit it (they use the same tokens).
+- **Follow-up (operator-confirmed): knowledge search scoring.**
+  - Semantic search has no score floor, so nonsense queries ("zzzz", "xyzxyz") return a full page of low-score hits, and "No results." appears only for an empty KB.
+  - The fused RRF score (≈0.016) reads like a percentage but is not one.
+  - This needs design (a floor for semantic-only hits and/or a keyword-match marker) plus an eval run, because agents use the same `retrieval.search`. It fails squawk criterion 2 (design decisions), so it goes to the mission Known Issues and the debrief, not a squawk.
+- **Operator check: "all the chunks are the same."** Not a defect. The seed wrote each runbook as one paragraph repeated 4 times, and the 4 short paragraphs fit one chunk (`runbook-01.md` has one chunk, `seq` 0), so the panel shows the file's real text. Separately, `runbook-01.md` appears twice in search because it is registered twice (walked, and individually): the DD-9 case the chip warns about.
+- **Step 16 [captures]:** waived by the operator ("not worried about the screenshot"). The after set from leg 09 stands, and the HAT fixes were checked live.
+- **Individual files and inspect change landed (uncommitted):** the design as written, with two adaptations:
+  - `renderFolders` re-runs `renderAllItems` when a folder panel is added or removed, so held-out orphans appear;
+  - the opener-focus check also verifies `activeElement`, because Chromium reports rects for a trigger inside collapsed `<details>`. A new test caught this.
+  - **Tests:** knowledge lane 59 passed (258 s), with 17 new tests; guards 125 passed. `kb-other-items-panel` is retired.
+  - The FD eyeballed `cap2/`: rows, chip, trash and inspect head as designed.
+  - Because this adds behaviour, a scoped Sonnet Reviewer was spawned before the commit. The operator re-checks live in parallel.
+- **Review:** [HANDOFF:confirmed], no blocking issues; guards 117 passed. Four nits accepted as non-blocking: an indent at `knowledge-inspect.js:119`; `removeFile`'s catch also covers success-path throws; the in-flight test leans on the disabled button; the aria-label is set once (the path is immutable). Waiting on the operator's live re-check before commit.
+- **Operator re-check of Individual files and inspect:** "looks really good". One ask: the chunks panel should match the source panel's isolated box. This is a look-and-feel fix on a single surface; the implementing Developer was resumed to wrap the chunk rows in a boxed `div.kb-chunk-list` that shares the `.kb-source-text` box.
+- **Chunks box landed (uncommitted):** `div.kb-chunk-list` (testid `kb-chunk-list`) shares the `.kb-source-text` box rule; the `setLine` indent nit is fixed. Knowledge lane 59 passed (257 s); guards 125 passed.
+- **HAT complete (2026-10-23).**
+  - The operator re-checked the chunks box and said "call it done".
+  - Steps 1-6 and 8-15 passed with fixes; step 7 was skipped (test-covered); step 16 was waived. HAT items 1-6 were approved; item 7 keeps "Knowledge".
+  - Squawks 0243 (deleting a walked file is undone) and 0244 (a file POST does not start indexing) were logged.
+  - Mission Known Issues gained the search score floor and "Add file".
+  - Leg 10 is `completed`; the flight is `landed`.

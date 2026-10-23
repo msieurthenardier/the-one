@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Knowledge and connectors on the library](../flight.md)
 
 ## Objective
@@ -118,9 +118,9 @@ The operator walks the Library's knowledge-base and connector editors on a dedic
 16. **[captures] Review the before and after set** side by side. On request, the Flight Director can publish a private comparison page. Approve the set, or name each difference to change.
 
 ## Acceptance Criteria
-- [ ] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
-- [ ] HAT items 1-7 are approved or changed by the operator.
-- [ ] The before and after capture set is approved (the mission's capture criterion for this flight).
+- [x] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
+- [x] HAT items 1-7 are approved or changed by the operator.
+- [x] The before and after capture set is approved (the mission's capture criterion for this flight).
 
 ## Edge Cases
 - **Step 7 needs indexing in progress.** A re-index (all) of the larger folder gives a few seconds of ticks. If it finishes too fast, the Flight Director adds files to the folder on disk, and the watcher picks them up.

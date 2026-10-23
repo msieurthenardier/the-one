@@ -321,7 +321,8 @@ MASK_JS = """
   // The run id sits in the scratch folder path: pin everything up to library-docs.
   const PATHS = '.kb-folder-path, [data-testid="kb-folder-path"], '
     + '.kb-search-hit-path, [data-testid="kb-search-hit-path"], '
-    + '[data-testid="kb-panel-title"], .kb-item-path, [data-testid="kb-item-path"]';
+    + '[data-testid="kb-panel-file-path"], .kb-item-path, [data-testid="kb-item-path"], '
+    + '[data-testid="kb-item-full-path"]';
   const apply = () => {
     document.querySelectorAll(PATHS).forEach((n) => {
       const t = n.textContent.replace(

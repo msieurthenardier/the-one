@@ -140,7 +140,8 @@
      `studio/mcp-server-editor.js` — its original consumers, styling the
      MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js`,
      a LATER, cross-page borrow: `buildFolderPanel` (folder panels) and
-     `buildOtherItemsPanel` ("Other items") each independently set
+     `buildOtherItemsPanel` ("Other items", since the M31 F3 HAT
+     `buildIndividualFilesPanel`, "Individual files") each independently set
      `details.className = 'mcp-tool-item'` to get this tile's look for the
      Knowledge section, a surface the MCP editor knows nothing about. Four
      browser test files assert against this vocabulary across the `studio`
@@ -839,7 +840,9 @@
      stamp sit beside it at the small size in the secondary tone, and the
      item menu ends the row (`.kb-item-menu-slot`). A failed item's error
      line wraps to its own line below (`.kb-item-error-line`). Both consumers
-     are file rows (a folder panel's body and the "Other items" panel). */
+     are file rows (a folder panel's body and the "Individual files" panel).
+     The status word is shown only when the stamp does not already say
+     "Indexed …". */
   .area-studio .kb-item-row { gap: var(--space-2) var(--space-3); padding: 6px 0; }
   .area-studio .kb-item-path {
     min-width: 0;
@@ -848,6 +851,30 @@
     word-break: break-all;
   }
   .area-studio .kb-item-error-line { flex-basis: 100%; }
+  /* M31 F3 HAT: an "Individual files" row stacks the basename (the
+     `.kb-item-path`, body size) over its full path (small, secondary, one
+     ellipsised line, the path as `title`); the column takes the row's free
+     width and may shrink, so the chip and the slot stay on the line. The DD-9
+     chip ("Also in folder …") may wrap but never overflows the row. */
+  .area-studio .kb-item-file {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+  .area-studio .kb-item-full-path {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .area-studio .kb-item-badge { max-width: 100%; overflow-wrap: anywhere; }
+  .area-studio .kb-individual-files-hint {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
   /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` are chips on the
      folder summary line. The folder body's meta line ("Last checked …
      · Skipped …") is plain small secondary text. */
@@ -865,6 +892,7 @@
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   /* M31 F3 HAT: search results are a list of hits with hairline separators:
      the file name (body, medium), one small meta line (the full path,
@@ -917,16 +945,54 @@
     line-clamp: 3;
     overflow: hidden;
   }
-  .area-studio .kb-source-text {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: inherit;
+  /* M31 F3 HAT: the source text and the chunk rows sit in the same isolated
+     box. The chunk rows keep their hairlines inside it; the first and last
+     row add no padding beyond the box's own. */
+  .area-studio .kb-source-text,
+  .area-studio .kb-chunk-list {
     max-height: 400px;
     overflow-y: auto;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 12px;
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+  }
+  .area-studio .kb-source-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-normal);
+  }
+  .area-studio .kb-chunk-list > .kb-chunk-row:first-child { padding-top: 0; }
+  .area-studio .kb-chunk-list > .kb-chunk-row:last-child { padding-bottom: 0; }
+  /* M31 F3 HAT: under the static "Chunks"/"Source" h3, the open file's name
+     (body, medium, wraps anywhere) over its full path (small, secondary, one
+     ellipsised line, the path as `title`), with the close button at the end. */
+  .area-studio .kb-inspect-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .area-studio .kb-inspect-file {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .area-studio .kb-inspect-name {
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .area-studio .kb-inspect-path {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .area-studio .kb-reindex-row {
     display: flex;
@@ -951,8 +1017,13 @@
   .area-studio .kb-folders-list { margin-top: var(--space-3); }
 
   /* L06b: the per-row overflow menu is the library menu; this area-owned slot
-     only places it at the row's end. */
-  .area-studio .kb-item-menu-slot { margin-left: auto; }
+     places it at the row's end, after an individual row's remove button. */
+  .area-studio .kb-item-menu-slot {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
 
   /* === Studio Agent Editor: Knowledge tab (M24 F06 L03) === */
   /* Rows mirror `.mcp-source-tile`'s toggle + name layout but stay

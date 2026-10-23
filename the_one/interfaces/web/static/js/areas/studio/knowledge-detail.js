@@ -213,19 +213,32 @@
     // inspect panels are created first but appended nothing until after the
     // Folders section. Cross-module calls are lazy wrappers over handles that
     // exist by the time any event or promise can reach them.
-    var inspect = window.App.studio.knowledgeInspect.create({ kb: kb });
-    var folders = window.App.studio.knowledgeFolders.create({
+    //
+    // M31 F3 HAT: a panel opens with its opener (the row's menu trigger); its
+    // close hands focus back through the folders module, which knows the rows
+    // and panels; and after every items render the folders module reports the
+    // live ids, so an open panel whose item is gone closes.
+    var folders = null;
+    var inspect = window.App.studio.knowledgeInspect.create({
+      kb: kb,
+      onClose: function (item, opener) {
+        if (alive && folders) folders.focusAfterInspect(item, opener);
+      }
+    });
+    folders = window.App.studio.knowledgeFolders.create({
       kb: kb,
       root: root,
       container: container,
       initialStatus: initialStatus,
-      openChunks: function (item) { return inspect.openChunks(item); },
-      openSource: function (item) { return inspect.openSource(item); },
+      openChunks: function (item, opener) { return inspect.openChunks(item, opener); },
+      openSource: function (item, opener) { return inspect.openSource(item, opener); },
       refreshStatus: function () { return refreshStatusNow(); },
       refreshItems: function () { return refreshItemsListNow(); },
+      onItemsRendered: function (liveIds) { if (alive) inspect.closeUnless(liveIds); },
       isLive: isLive,
       isCurrent: isLive,
-      // A folder action's failure goes to the editor header (M31 F3 L06a, DD6).
+      // A folder or file action's failure goes to the editor header (M31 F3
+      // L06a, DD6).
       setError: function (text) { if (alive) shell.setError(text || ''); }
     });
     folders.renderAllItems(items);

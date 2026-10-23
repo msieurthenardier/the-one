@@ -354,12 +354,13 @@ def test_item_row_failed_status_error_and_standalone_badge(
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): neither item has a real `parent_id`, so both land in
-    # the trailing "Other items" panel (L6-D2 chosen option (a)) rather
-    # than a flat items list — a native `<details>`, collapsed by default,
-    # so it must be expanded before asserting visibility on its rows.
-    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
-    expect(other_items_panel).to_be_visible(timeout=5000)
-    other_items_panel.locator("summary").click()
+    # the trailing "Individual files" panel (L6-D2 chosen option (a); "Other
+    # items" until the M31 F3 HAT) rather than a flat items list — a native
+    # `<details>`, collapsed by default, so it must be expanded before
+    # asserting visibility on its rows.
+    individual_panel = page.locator('[data-testid="kb-individual-files-panel"]')
+    expect(individual_panel).to_be_visible(timeout=5000)
+    individual_panel.locator("summary").click()
 
     failed_row = page.locator('[data-testid="kb-item-row"][data-item-id="failed-item-1"]')
     expect(failed_row).to_be_visible()
@@ -370,17 +371,24 @@ def test_item_row_failed_status_error_and_standalone_badge(
     expect(failed_row.locator('[data-testid="kb-item-standalone-badge"]')).to_have_count(0)
 
     standalone_row = page.locator('[data-testid="kb-item-row"][data-item-id="standalone-item-1"]')
-    expect(standalone_row.locator('[data-testid="kb-item-standalone-badge"]')).to_be_visible()
-    # HAT pass 2: the "Other items" panel keeps ABSOLUTE paths. A file row
-    # inside a folder panel renders relative to that folder's root, but
-    # these items are parentless by definition — there is no root to
-    # relativize against, and this one's path merely LIES INSIDE a
-    # registered folder, which is the false parentage DD-9's badge exists
-    # to refuse. Shortening it against that folder would assert exactly the
-    # relationship the badge is denying.
-    expect(standalone_row.locator(".kb-item-path")).to_have_text(
-        str(fixture_folder / "standalone.txt")
-    )
+    badge = standalone_row.locator('[data-testid="kb-item-standalone-badge"]')
+    expect(badge).to_be_visible()
+    # M31 F3 HAT: the chip says what it means and names the folder by its
+    # basename; the full folder path is its title.
+    expect(badge).to_have_text("Also in folder kb-fixture-folder")
+    expect(badge).to_have_attribute("title", str(fixture_folder))
+    # An "Individual files" row never relativizes against a folder: a file row
+    # inside a folder panel renders relative to that folder's root, but these
+    # items are parentless by definition, and this one's path merely LIES
+    # INSIDE a registered folder, which is the false parentage DD-9's chip
+    # exists to refuse. Since the M31 F3 HAT the row shows the basename, with
+    # the full ABSOLUTE path on its own line under it (and as both titles).
+    full_path = str(fixture_folder / "standalone.txt")
+    expect(standalone_row.locator(".kb-item-path")).to_have_text("standalone.txt")
+    expect(standalone_row.locator(".kb-item-path")).to_have_attribute("title", full_path)
+    full_line = standalone_row.locator('[data-testid="kb-item-full-path"]')
+    expect(full_line).to_have_text(full_path)
+    expect(full_line).to_have_attribute("title", full_path)
 
 
 @pytest.mark.browser
@@ -425,11 +433,11 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
-    # trailing "Other items" panel — expand it before interacting with the
-    # row inside.
-    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
-    expect(other_items_panel).to_be_visible(timeout=5000)
-    other_items_panel.locator("summary").click()
+    # trailing "Individual files" panel — expand it before interacting with
+    # the row inside.
+    individual_panel = page.locator('[data-testid="kb-individual-files-panel"]')
+    expect(individual_panel).to_be_visible(timeout=5000)
+    individual_panel.locator("summary").click()
     row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{item_id}"]')
     expect(row).to_be_visible(timeout=5000)
     # Item-list render alone must not have fetched /source.
@@ -445,6 +453,8 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
     expect(panel).to_be_visible()
     expect(panel.locator('[data-testid="kb-chunk-row"]')).to_have_count(0)
     expect(panel.locator(".empty-state")).to_be_visible(timeout=5000)
+    # The empty line sits outside the box: no empty list is drawn.
+    expect(panel.locator('[data-testid="kb-chunk-list"]')).to_have_count(0)
     # Opening chunks must not have fetched /source either.
     assert source_requests == []
 
@@ -563,10 +573,17 @@ def test_detail_view_indexing_poll_reindex_and_search(
     assert chunks_panel.locator(".kb-chunk-seq").all_text_contents() == [
         f"#{i}" for i in range(_MULTI_CHUNK_EXPECTED_CHUNKS)
     ]
-    # The panel titles itself with the item's FULL path (FIX 4), so an
+    # M31 F3 HAT: every row sits inside the one boxed list.
+    expect(
+        chunks_panel.locator('[data-testid="kb-chunk-list"] [data-testid="kb-chunk-row"]')
+    ).to_have_count(_MULTI_CHUNK_EXPECTED_CHUNKS)
+    # The panel names the item by its FULL path (FIX 4; since the M31 F3 HAT
+    # under a static "Chunks" heading, beside the file's name), so an
     # operator reading chunks still knows which file they belong to even
     # though the row that opened them showed a relative path.
-    expect(chunks_panel.locator('[data-testid="kb-panel-title"]')).to_have_text(
+    expect(chunks_panel.locator('[data-testid="kb-panel-title"]')).to_have_text("Chunks")
+    expect(chunks_panel.locator('[data-testid="kb-panel-file-name"]')).to_have_text("incident.md")
+    expect(chunks_panel.locator('[data-testid="kb-panel-file-path"]')).to_have_text(
         str(fixture_dir / "notes" / "incident.md")
     )
 
@@ -795,10 +812,10 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
-    # trailing "Other items" panel — expand it so its row is interactable.
-    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
-    expect(other_items_panel).to_be_visible(timeout=5000)
-    other_items_panel.locator("summary").click()
+    # trailing "Individual files" panel — expand it so its row is interactable.
+    individual_panel = page.locator('[data-testid="kb-individual-files-panel"]')
+    expect(individual_panel).to_be_visible(timeout=5000)
+    individual_panel.locator("summary").click()
     rows = page.locator('[data-testid="kb-item-row"]')
     expect(rows).to_have_count(1, timeout=5000)
     assert len(items_requests) == 1, "the detail-view mount fetch"
@@ -812,7 +829,7 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
     ).click()
     panel = page.locator('[data-testid="kb-chunks-panel"]')
     expect(panel).to_be_visible()
-    expect(panel.locator('[data-testid="kb-panel-title"]')).to_have_text(first_path)
+    expect(panel.locator('[data-testid="kb-panel-file-path"]')).to_have_text(first_path)
 
     # Nothing has changed yet — past one poll interval, /items must NOT
     # have been re-fetched (no needless polling of the items route).
@@ -844,7 +861,7 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
     # The chunks panel opened before the rebuild is still visible and
     # still correctly attributed to the item it was opened for.
     expect(panel).to_be_visible()
-    expect(panel.locator('[data-testid="kb-panel-title"]')).to_have_text(first_path)
+    expect(panel.locator('[data-testid="kb-panel-file-path"]')).to_have_text(first_path)
 
 
 # ── Mission 24 Flight 6 Leg 5 (HAT-found affordance gaps) ───────────────────
@@ -1120,10 +1137,10 @@ def test_item_overflow_menu_keyboard_operable(
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
-    # trailing "Other items" panel — expand it before interacting.
-    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
-    expect(other_items_panel).to_be_visible(timeout=5000)
-    other_items_panel.locator("summary").click()
+    # trailing "Individual files" panel — expand it before interacting.
+    individual_panel = page.locator('[data-testid="kb-individual-files-panel"]')
+    expect(individual_panel).to_be_visible(timeout=5000)
+    individual_panel.locator("summary").click()
     row = page.locator('[data-testid="kb-item-row"][data-item-id="menu-item-1"]')
     expect(row).to_be_visible(timeout=5000)
 
@@ -2078,7 +2095,7 @@ def test_an_items_refresh_keeps_a_focused_menu_trigger(app_clean: str, page: Pag
     kb_id, stub = _stubbed_kb_page(app_clean, page, "Focus Rows KB")
     stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
     _open_stubbed(page, app_clean, kb_id)
-    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    page.locator('[data-testid="kb-individual-files-panel"] summary').click()
     trigger = page.locator(
         '[data-testid="kb-item-row"][data-item-id="i1"] [data-testid="kb-item-menu-btn"]'
     )
@@ -2101,7 +2118,7 @@ def test_an_items_refresh_keeps_an_open_menu_open(app_clean: str, page: Page) ->
     kb_id, stub = _stubbed_kb_page(app_clean, page, "Open Menu KB")
     stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
     _open_stubbed(page, app_clean, kb_id)
-    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    page.locator('[data-testid="kb-individual-files-panel"] summary').click()
     row1 = page.locator('[data-testid="kb-item-row"][data-item-id="i1"]')
     trigger = row1.locator('[data-testid="kb-item-menu-btn"]')
     trigger.click()
@@ -2195,7 +2212,7 @@ def test_a_removed_item_row_disappears_and_its_open_menu_is_released(
     kb_id, stub = _stubbed_kb_page(app_clean, page, "Gone Rows KB")
     stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
     _open_stubbed(page, app_clean, kb_id)
-    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    page.locator('[data-testid="kb-individual-files-panel"] summary').click()
     row1 = page.locator('[data-testid="kb-item-row"][data-item-id="i1"]')
     base = page.evaluate("() => window.__docListeners.size")
     row1.locator('[data-testid="kb-item-menu-btn"]').click()
@@ -2306,12 +2323,12 @@ def _seed_two_standalone_items(base_url: str, name: str) -> tuple[str, list[str]
     return kb_id, ids
 
 
-def _open_other_items(page: Page, base_url: str, kb_id: str) -> None:
+def _open_individual_files(page: Page, base_url: str, kb_id: str) -> None:
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
-    other = page.locator('[data-testid="kb-other-items-panel"]')
-    expect(other).to_be_visible(timeout=5000)
-    other.locator("summary").click()
+    panel = page.locator('[data-testid="kb-individual-files-panel"]')
+    expect(panel).to_be_visible(timeout=5000)
+    panel.locator("summary").click()
 
 
 @pytest.mark.browser
@@ -2322,7 +2339,7 @@ def test_ctrl_k_with_an_item_menu_open_leaves_the_palette_its_keys(
     keys and Escape then act on the palette, not on the menu."""
     base_url, _ = app_with_data_dir
     kb_id, ids = _seed_two_standalone_items(base_url, "dd87")
-    _open_other_items(page, base_url, kb_id)
+    _open_individual_files(page, base_url, kb_id)
     row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{ids[0]}"]')
     row.locator('[data-testid="kb-item-menu-btn"]').click()
     expect(row.locator('[data-testid="kb-item-menu"]')).to_be_visible()
@@ -2354,7 +2371,7 @@ def test_a_late_chunks_response_never_paints_over_a_later_item(
         held.append(route)
 
     page.route(f"**/items/{ids[0]}/chunks", _hold_a)
-    _open_other_items(page, base_url, kb_id)
+    _open_individual_files(page, base_url, kb_id)
 
     def open_chunks(item_id: str) -> None:
         row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{item_id}"]')
@@ -2369,12 +2386,12 @@ def test_a_late_chunks_response_never_paints_over_a_later_item(
     assert held, "item A's chunks request was never made"
     open_chunks(ids[1])
     panel = page.locator('[data-testid="kb-chunks-panel"]')
-    title = panel.locator('[data-testid="kb-panel-title"]')
-    expect(title).to_have_text("/tmp/dd85-b.txt")
+    path_line = panel.locator('[data-testid="kb-panel-file-path"]')
+    expect(path_line).to_have_text("/tmp/dd85-b.txt")
     expect(panel.locator(".empty-state")).to_be_visible(timeout=5000)
     held[0].continue_()
     page.wait_for_timeout(500)
-    expect(title).to_have_text("/tmp/dd85-b.txt")
+    expect(path_line).to_have_text("/tmp/dd85-b.txt")
 
 
 @pytest.mark.browser
@@ -2384,11 +2401,11 @@ def test_view_chunks_and_source_leave_focus_on_the_panel_heading(
     """DD8-5: after the response lands, focus is on the panel's own heading."""
     base_url, _ = app_with_data_dir
     kb_id, ids = _seed_two_standalone_items(base_url, "focus")
-    _open_other_items(page, base_url, kb_id)
+    _open_individual_files(page, base_url, kb_id)
     row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{ids[0]}"]')
-    for btn, panel_id in (
-        ("kb-item-chunks-btn", "kb-chunks-panel"),
-        ("kb-item-source-btn", "kb-source-panel"),
+    for btn, panel_id, heading_text in (
+        ("kb-item-chunks-btn", "kb-chunks-panel", "Chunks"),
+        ("kb-item-source-btn", "kb-source-panel", "Source"),
     ):
         row.locator('[data-testid="kb-item-menu-btn"]').click()
         row.locator(f'[data-testid="{btn}"]').click()
@@ -2398,5 +2415,558 @@ def test_view_chunks_and_source_leave_focus_on_the_panel_heading(
         page.wait_for_timeout(400)
         heading = panel.locator('[data-testid="kb-panel-title"]')
         expect(heading).to_be_focused()
-        expect(heading).to_have_text("/tmp/focus-a.txt")
+        expect(heading).to_have_text(heading_text)
+        expect(heading).to_have_accessible_name(f"{heading_text} focus-a.txt")
+        expect(panel.locator('[data-testid="kb-panel-file-path"]')).to_have_text("/tmp/focus-a.txt")
         assert heading.evaluate("e => e.tagName") == "H3"
+
+
+# ── M31 F3 HAT: Individual files, the row status rule, the inspect panels ────
+#
+# Stubbed like the leg 06a tests above (``_KbStub`` plus ``page.clock``); an
+# item DELETE and the chunks/source reads are routed per test.
+
+_STAMP = "2026-10-23T08:57:00+00:00"
+_STAMP_TEXT = r"[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M"
+
+
+def _hat_item(
+    iid: str,
+    path: str,
+    parent: str | None = None,
+    status: str = "indexed",
+    indexed_at: str | None = None,
+    error: str | None = None,
+) -> dict:
+    row = _KbStub.item(iid, path, parent=parent, status=status)
+    row["indexed_at"] = indexed_at
+    row["error"] = error
+    return row
+
+
+def _individual_panel(page: Page):  # noqa: ANN202
+    return page.locator('[data-testid="kb-individual-files-panel"]')
+
+
+def _row(page: Page, item_id: str):  # noqa: ANN202
+    return page.locator(f'[data-testid="kb-item-row"][data-item-id="{item_id}"]')
+
+
+def _remove_btn(page: Page, item_id: str):  # noqa: ANN202
+    return _row(page, item_id).locator('[data-testid="kb-item-remove-btn"]')
+
+
+def _route_item_deletes(page: Page, kb_id: str, handler) -> None:  # noqa: ANN001
+    """Route DELETE /items/{id} for one knowledge base to ``handler(route, item_id)``."""
+    pattern = _re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items/([^/?]+)$")
+
+    def _handle(route) -> None:  # noqa: ANN001
+        if route.request.method != "DELETE":
+            route.continue_()
+            return
+        item_id = pattern.match(route.request.url.split("?")[0]).group(1)
+        handler(route, item_id)
+
+    page.route(pattern, _handle)
+
+
+def _route_inspect(page: Page, kb_id: str, chunks: list | None = None) -> None:
+    """Answer chunks with ``chunks`` (default none) and source with a short text."""
+    pattern = _re.compile(
+        rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items/[^/]+/(chunks|source)(\?.*)?$"
+    )
+
+    def _handle(route) -> None:  # noqa: ANN001
+        if route.request.url.split("?")[0].endswith("/chunks"):
+            route.fulfill(status=200, json=chunks or [])
+        else:
+            route.fulfill(status=200, json={"text": "source text", "fresh": True})
+
+    page.route(pattern, _handle)
+
+
+def _open_menu_item(page: Page, item_id: str, testid: str) -> None:
+    row = _row(page, item_id)
+    row.locator('[data-testid="kb-item-menu-btn"]').click()
+    row.locator(f'[data-testid="{testid}"]').click()
+
+
+@pytest.mark.browser
+def test_individual_files_panel_summary_count_and_hint_with_no_meta_chips(
+    app_clean: str, page: Page
+) -> None:
+    """The renamed panel: "Individual files ({n})", the API-only description as
+    the body's first child, and no summary chips (watch and walk status do not
+    apply to single files)."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Individual KB")
+    stub.folders = [stub.folder("f1", "/x/a")]
+    stub.items = [
+        stub.item("w1", "/x/a/walked.txt", parent="f1"),
+        stub.item("i1", "/y/one.txt"),
+        stub.item("i2", "/y/two.txt"),
+    ]
+    _open_stubbed(page, app_clean, kb_id)
+    panel = _individual_panel(page)
+    expect(panel).to_be_visible()
+    summary = panel.locator("summary")
+    expect(summary).to_have_accessible_name("Individual files (2)")
+    expect(summary.locator('[data-testid="kb-folder-status"]')).to_have_count(0)
+    expect(summary.locator('[data-testid="kb-folder-watch"]')).to_have_count(0)
+    summary.click()
+    hint = panel.locator('[data-testid="kb-individual-files-hint"]')
+    expect(hint).to_have_text(
+        "Added one at a time through the API. These files aren’t watched for changes; "
+        "use Re-index all files to pick up edits."
+    )
+    assert hint.evaluate(
+        "e => e.previousElementSibling === null && e.parentElement.parentElement === "
+        "e.closest('details')"
+    )
+    # The walked file is in its folder's panel, not here.
+    expect(panel.locator('[data-testid="kb-item-row"]')).to_have_count(2)
+    expect(page.locator("details", has=_row(page, "w1"))).to_have_attribute(
+        "data-testid", "kb-folder-panel"
+    )
+
+
+@pytest.mark.browser
+def test_a_row_shows_the_status_word_only_when_the_stamp_does_not_say_indexed(
+    app_clean: str, page: Page
+) -> None:
+    """The status and stamp rule: indexed with a stamp shows only "Indexed …";
+    indexed with none shows "indexed"; pending and failed show the word plus
+    "Last indexed …", and a failed item's error stays on its own line."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Stamp Rule KB")
+    stub.items = [
+        _hat_item("a", "/y/stamped.txt", indexed_at=_STAMP),
+        _hat_item("b", "/y/never.txt"),
+        _hat_item("c", "/y/pending.txt", status="pending", indexed_at=_STAMP),
+        _hat_item("d", "/y/failed.txt", status="failed", indexed_at=_STAMP, error="bad bytes"),
+    ]
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+
+    def status(iid: str):  # noqa: ANN202
+        return _row(page, iid).locator('[data-testid="kb-item-status"]')
+
+    def stamp(iid: str):  # noqa: ANN202
+        return _row(page, iid).locator('[data-testid="kb-item-indexed-at"]')
+
+    expect(status("a")).to_have_count(0)
+    expect(stamp("a")).to_have_text(_re.compile(rf"^Indexed {_STAMP_TEXT}$"))
+    expect(status("b")).to_have_text("indexed")
+    expect(stamp("b")).to_have_count(0)
+    expect(status("c")).to_have_text("pending")
+    expect(stamp("c")).to_have_text(_re.compile(rf"^Last indexed {_STAMP_TEXT}$"))
+    expect(status("d")).to_have_text("failed")
+    expect(stamp("d")).to_have_text(_re.compile(rf"^Last indexed {_STAMP_TEXT}$"))
+    error = _row(page, "d").locator('[data-testid="kb-item-error"]')
+    expect(error).to_have_text("bad bytes")
+    assert error.bounding_box()["y"] > status("d").bounding_box()["y"]
+
+    # The rule follows the item: once pending re-indexes, its word goes.
+    stub.chunks += 1
+    stub.items[2] = _hat_item("c", "/y/pending.txt", indexed_at=_STAMP)
+    _tick(page)
+    expect(status("c")).to_have_count(0, timeout=8000)
+    expect(stamp("c")).to_have_text(_re.compile(rf"^Indexed {_STAMP_TEXT}$"))
+
+
+@pytest.mark.browser
+def test_a_long_folder_path_keeps_the_chip_and_the_full_path_inside_the_panel(
+    app_clean: str, page: Page
+) -> None:
+    """An individual file inside a registered folder with a long path: the chip
+    ("Also in folder {basename}", the full path as its title) and the full-path
+    line both stay inside the panel's box."""
+    long_name = "a-folder-with-a-very-long-name-" * 5 + "end"
+    folder_path = "/home/someone/projects/" + "nested-directory/" * 6 + long_name
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Long Path KB")
+    stub.folders = [stub.folder("f1", folder_path)]
+    stub.items = [stub.item("i1", folder_path + "/deep/inside/runbook-01.md")]
+    _open_stubbed(page, app_clean, kb_id)
+    panel = _individual_panel(page)
+    panel.locator("summary").click()
+    row = _row(page, "i1")
+    badge = row.locator('[data-testid="kb-item-standalone-badge"]')
+    expect(badge).to_have_text("Also in folder " + long_name)
+    expect(badge).to_have_attribute("title", folder_path)
+    expect(row.locator(".kb-item-path")).to_have_text("runbook-01.md")
+    full = row.locator('[data-testid="kb-item-full-path"]')
+    expect(full).to_have_text(folder_path + "/deep/inside/runbook-01.md")
+    box = panel.bounding_box()
+    right = box["x"] + box["width"] + 0.5
+    for loc in (badge, full, row.locator('[data-testid="kb-item-menu-btn"]')):
+        b = loc.bounding_box()
+        assert b["x"] >= box["x"] - 0.5 and b["x"] + b["width"] <= right, (loc, b, box)
+    assert row.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
+
+
+@pytest.mark.browser
+def test_only_parentless_individual_rows_have_a_remove_button(app_clean: str, page: Page) -> None:
+    """A walked file (it has a ``parent_id``) gets no remove, since the next walk
+    would recreate it; an individual file gets one, named for its path."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Remove Eligible KB")
+    stub.folders = [stub.folder("f1", "/x/a")]
+    stub.items = [stub.item("w1", "/x/a/walked.txt", parent="f1"), stub.item("i1", "/y/one.txt")]
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-folder-panel"] summary').click()
+    _individual_panel(page).locator("summary").click()
+    expect(_row(page, "w1")).to_be_visible()
+    expect(_remove_btn(page, "w1")).to_have_count(0)
+    btn = _remove_btn(page, "i1")
+    expect(btn).to_have_accessible_name("Remove file /y/one.txt (press twice to confirm)")
+    expect(btn).to_have_attribute("title", "Remove file")
+    # The remove sits before the item menu, in the row's end slot.
+    assert btn.evaluate(
+        "b => b.nextElementSibling && b.nextElementSibling.contains("
+        "b.parentElement.querySelector('[data-testid=\"kb-item-menu-btn\"]'))"
+    )
+
+
+@pytest.mark.browser
+def test_an_item_of_an_unknown_folder_is_held_out_until_its_folder_appears(
+    app_clean: str, page: Page
+) -> None:
+    """An item whose ``parent_id`` names a folder the client does not know yet is
+    client lag: it is shown in no panel (never among the individual files), and
+    lands in its folder's panel once the folder appears."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Held Out KB")
+    stub.items = [stub.item("i1", "/y/one.txt"), stub.item("w1", "/x/b/w.txt", parent="f2")]
+    _open_stubbed(page, app_clean, kb_id)
+    expect(_individual_panel(page).locator("summary")).to_have_accessible_name(
+        "Individual files (1)"
+    )
+    expect(_row(page, "w1")).to_have_count(0)
+    stub.folders = [stub.folder("f2", "/x/b")]
+    _tick(page)
+    folder = page.locator('[data-testid="kb-folder-panel"][data-folder-id="f2"]')
+    expect(folder).to_be_visible(timeout=8000)
+    folder.locator("summary").click()
+    expect(folder.locator('[data-testid="kb-item-row"][data-item-id="w1"]')).to_be_visible()
+    expect(_remove_btn(page, "w1")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_removing_individual_files_moves_focus_to_the_next_then_previous_row_then_add_folder(
+    app_clean: str, page: Page
+) -> None:
+    """Remove is a two-step on the button itself. After a remove, focus goes to
+    the remove button of the row now in the same place, else the one before it,
+    else (the panel emptied) to the Add-folder input."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Remove Focus KB")
+    stub.items = [stub.item(i, f"/y/{i}.txt") for i in ("a", "b", "c")]
+    deletes: list[str] = []
+
+    def delete(route, item_id: str) -> None:  # noqa: ANN001
+        deletes.append(item_id)
+        stub.items = [it for it in stub.items if it["id"] != item_id]
+        route.fulfill(status=200, json={"status": "ok"})
+
+    _route_item_deletes(page, kb_id, delete)
+    _open_stubbed(page, app_clean, kb_id)
+    panel = _individual_panel(page)
+    panel.locator("summary").click()
+
+    btn = _remove_btn(page, "b")
+    btn.click()
+    expect(btn).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(_row(page, "b")).to_be_visible()
+    assert deletes == []
+    btn.click()
+    expect(_row(page, "b")).to_have_count(0, timeout=8000)
+    expect(panel.locator("summary")).to_have_accessible_name("Individual files (2)")
+    expect(_remove_btn(page, "c")).to_be_focused()
+
+    _remove_btn(page, "c").click()
+    _remove_btn(page, "c").click()
+    expect(_row(page, "c")).to_have_count(0, timeout=8000)
+    expect(_remove_btn(page, "a")).to_be_focused()
+
+    _remove_btn(page, "a").click()
+    _remove_btn(page, "a").click()
+    expect(panel).to_have_count(0, timeout=8000)
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_focused()
+    assert deletes == ["b", "c", "a"]
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("")
+
+
+@pytest.mark.browser
+def test_a_failed_remove_shows_the_header_error_and_reverts_the_button(
+    app_clean: str, page: Page
+) -> None:
+    """A 500: the editor header says why, the button is disarmed, enabled and
+    focused again, the row stays, and one DELETE was sent."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Remove Fail KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+    deletes: list[str] = []
+
+    def delete(route, item_id: str) -> None:  # noqa: ANN001
+        deletes.append(item_id)
+        route.fulfill(status=500, json={"detail": "disk on fire"})
+
+    _route_item_deletes(page, kb_id, delete)
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    btn = _remove_btn(page, "a")
+    btn.click()
+    btn.click()
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text(
+        "Couldn’t remove the file: disk on fire", timeout=8000
+    )
+    expect(btn).not_to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(btn).to_be_enabled()
+    expect(btn).to_be_focused()
+    expect(_row(page, "a")).to_be_visible()
+    assert deletes == ["a"]
+
+
+@pytest.mark.browser
+def test_a_remove_in_flight_sends_one_delete_whatever_is_clicked(
+    app_clean: str, page: Page
+) -> None:
+    """While the DELETE is held, the button is disabled, and even a forced click
+    on a re-enabled button sends no second DELETE."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Remove Once KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+    held: list = []
+    deletes: list[str] = []
+
+    def delete(route, item_id: str) -> None:  # noqa: ANN001
+        deletes.append(item_id)
+        held.append(route)
+
+    _route_item_deletes(page, kb_id, delete)
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    btn = _remove_btn(page, "a")
+    btn.click()
+    btn.click()
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "the DELETE was never sent"
+    expect(btn).to_be_disabled()
+    btn.click(force=True)
+    btn.evaluate("b => { b.disabled = false; b.click(); }")
+    page.wait_for_timeout(300)
+    assert deletes == ["a"]
+    stub.items = [stub.items[1]]
+    held[0].fulfill(status=200, json={"status": "ok"})
+    expect(_row(page, "a")).to_have_count(0, timeout=8000)
+    assert deletes == ["a"]
+
+
+@pytest.mark.browser
+def test_a_stale_items_response_cannot_bring_a_removed_row_back(app_clean: str, page: Page) -> None:
+    """The removed id is tombstoned for the mount: an /items response that still
+    lists it (here every one) never re-renders its row."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Tombstone KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+    _route_item_deletes(
+        page, kb_id, lambda route, _id: route.fulfill(status=200, json={"status": "ok"})
+    )
+    _open_stubbed(page, app_clean, kb_id)
+    panel = _individual_panel(page)
+    panel.locator("summary").click()
+    before = stub.items_requests
+    _remove_btn(page, "a").click()
+    _remove_btn(page, "a").click()
+    expect(_row(page, "a")).to_have_count(0, timeout=8000)
+    # The immediate items refresh came back with the row still listed.
+    for _ in range(50):
+        if stub.items_requests > before:
+            break
+        page.wait_for_timeout(100)
+    assert stub.items_requests > before
+    stub.chunks += 1
+    _tick(page)
+    page.wait_for_timeout(300)
+    expect(_row(page, "a")).to_have_count(0)
+    expect(panel.locator("summary")).to_have_accessible_name("Individual files (1)")
+
+
+@pytest.mark.browser
+def test_a_404_on_remove_counts_as_already_removed(app_clean: str, page: Page) -> None:
+    """A 404 means the item is already gone: the row goes and no error shows."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Remove 404 KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+
+    def delete(route, item_id: str) -> None:  # noqa: ANN001
+        stub.items = [it for it in stub.items if it["id"] != item_id]
+        route.fulfill(status=404, json={"detail": "Item not found"})
+
+    _route_item_deletes(page, kb_id, delete)
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    _remove_btn(page, "a").click()
+    _remove_btn(page, "a").click()
+    expect(_row(page, "a")).to_have_count(0, timeout=8000)
+    expect(_remove_btn(page, "b")).to_be_focused()
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("")
+
+
+@pytest.mark.browser
+def test_an_inspect_panel_names_its_file_and_closes_back_to_its_opener(
+    app_clean: str, page: Page
+) -> None:
+    """The panel heading is the static "Chunks"/"Source", named with the file's
+    basename; a name line and a full-path line sit under it, with a close (x)
+    that hides the panel and returns focus to the row's menu trigger. Escape does
+    not close it."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Inspect Head KB")
+    stub.items = [stub.item("a", "/y/docs/runbook-01.md")]
+    _route_inspect(page, kb_id)
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    for menu_item, panel_id, heading_text, close_name in (
+        ("kb-item-chunks-btn", "kb-chunks-panel", "Chunks", "Close chunks"),
+        ("kb-item-source-btn", "kb-source-panel", "Source", "Close source"),
+    ):
+        _open_menu_item(page, "a", menu_item)
+        panel = page.locator(f'[data-testid="{panel_id}"]')
+        expect(panel).to_be_visible()
+        heading = panel.locator('[data-testid="kb-panel-title"]')
+        expect(heading).to_have_text(heading_text)
+        expect(heading).to_be_focused()
+        expect(heading).to_have_accessible_name(f"{heading_text} runbook-01.md")
+        expect(panel.locator('[data-testid="kb-panel-file-name"]')).to_have_text("runbook-01.md")
+        path_line = panel.locator('[data-testid="kb-panel-file-path"]')
+        expect(path_line).to_have_text("/y/docs/runbook-01.md")
+        expect(path_line).to_have_attribute("title", "/y/docs/runbook-01.md")
+        close = panel.locator('[data-testid="kb-panel-close-btn"]')
+        expect(close).to_have_accessible_name(close_name)
+        expect(close).to_have_attribute("title", "Close")
+        # Escape on the heading leaves the panel open (an inline region).
+        page.keyboard.press("Escape")
+        expect(panel).to_be_visible()
+        close.click()
+        expect(panel).to_be_hidden()
+        expect(_row(page, "a").locator('[data-testid="kb-item-menu-btn"]')).to_be_focused()
+    # Opening one panel hides the other.
+    _open_menu_item(page, "a", "kb-item-chunks-btn")
+    _open_menu_item(page, "a", "kb-item-source-btn")
+    expect(page.locator('[data-testid="kb-chunks-panel"]')).to_be_hidden()
+    expect(page.locator('[data-testid="kb-source-panel"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_closing_a_panel_whose_row_was_collapsed_focuses_the_row_panel_summary(
+    app_clean: str, page: Page
+) -> None:
+    """When the opener is no longer on screen (its folder panel was collapsed),
+    close puts focus on that folder panel's summary."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Inspect Collapse KB")
+    stub.folders = [stub.folder("f1", "/x/a")]
+    stub.items = [stub.item("w1", "/x/a/walked.txt", parent="f1")]
+    _route_inspect(page, kb_id)
+    _open_stubbed(page, app_clean, kb_id)
+    folder_summary = page.locator('[data-testid="kb-folder-summary"]')
+    folder_summary.click()
+    _open_menu_item(page, "w1", "kb-item-chunks-btn")
+    panel = page.locator('[data-testid="kb-chunks-panel"]')
+    expect(panel).to_be_visible()
+    folder_summary.click()
+    expect(_row(page, "w1")).to_be_hidden()
+    panel.locator('[data-testid="kb-panel-close-btn"]').click()
+    expect(panel).to_be_hidden()
+    expect(folder_summary).to_be_focused()
+
+
+@pytest.mark.browser
+def test_a_late_response_after_close_stays_hidden(app_clean: str, page: Page) -> None:
+    """Closing drops the pending read: when the held chunks response lands, the
+    panel stays hidden and paints nothing."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Inspect Late KB")
+    stub.items = [stub.item("a", "/y/a.txt")]
+    held: list = []
+    page.route("**/items/a/chunks", lambda route: held.append(route))
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    _open_menu_item(page, "a", "kb-item-chunks-btn")
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "the chunks request was never made"
+    panel = page.locator('[data-testid="kb-chunks-panel"]')
+    panel.locator('[data-testid="kb-panel-close-btn"]').click()
+    expect(panel).to_be_hidden()
+    held[0].fulfill(status=200, json=[{"seq": 0, "text": "late chunk"}])
+    page.wait_for_timeout(500)
+    expect(panel).to_be_hidden()
+    expect(panel.locator('[data-testid="kb-chunk-row"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_removing_the_open_item_closes_its_panel(app_clean: str, page: Page) -> None:
+    """Removing the file whose chunks are open closes the panel; focus follows
+    the remove (to the next row's remove button)."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Inspect Remove KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+    _route_inspect(page, kb_id)
+
+    def delete(route, item_id: str) -> None:  # noqa: ANN001
+        stub.items = [it for it in stub.items if it["id"] != item_id]
+        route.fulfill(status=200, json={"status": "ok"})
+
+    _route_item_deletes(page, kb_id, delete)
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    _open_menu_item(page, "a", "kb-item-chunks-btn")
+    panel = page.locator('[data-testid="kb-chunks-panel"]')
+    expect(panel).to_be_visible()
+    _remove_btn(page, "a").click()
+    _remove_btn(page, "a").click()
+    expect(_row(page, "a")).to_have_count(0, timeout=8000)
+    expect(panel).to_be_hidden()
+    expect(_remove_btn(page, "b")).to_be_focused()
+
+
+@pytest.mark.browser
+def test_an_open_panel_closes_when_its_item_vanishes_and_focus_goes_to_the_summary(
+    app_clean: str, page: Page
+) -> None:
+    """The item goes away on its own (a poll's items refresh no longer lists it)
+    while focus is in its panel: the panel closes and focus goes to the summary
+    of the panel that held the item."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Inspect Vanish KB")
+    stub.items = [stub.item("a", "/y/a.txt"), stub.item("b", "/y/b.txt")]
+    _route_inspect(page, kb_id)
+    _open_stubbed(page, app_clean, kb_id)
+    individual = _individual_panel(page)
+    individual.locator("summary").click()
+    _open_menu_item(page, "a", "kb-item-chunks-btn")
+    panel = page.locator('[data-testid="kb-chunks-panel"]')
+    heading = panel.locator('[data-testid="kb-panel-title"]')
+    expect(heading).to_be_focused()
+    stub.chunks += 1
+    stub.items = [stub.items[1]]
+    _tick(page)
+    expect(_row(page, "a")).to_have_count(0, timeout=8000)
+    expect(panel).to_be_hidden()
+    expect(individual.locator("summary")).to_be_focused()
+
+
+@pytest.mark.browser
+def test_removing_a_real_individual_file_drops_it_from_the_status_counts(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Against the real backend: removing an individual file deletes the item,
+    and the Status counts follow at once."""
+    base_url, _ = app_with_data_dir
+    kb_id, ids = _seed_two_standalone_items(base_url, "rm")
+    _open_individual_files(page, base_url, kb_id)
+    indexed = page.locator('[data-testid="kb-status-count"][data-status="indexed"]')
+    expect(indexed).to_have_text("indexed: 2")
+    btn = _remove_btn(page, ids[0])
+    btn.click()
+    btn.click()
+    expect(_row(page, ids[0])).to_have_count(0, timeout=8000)
+    expect(indexed).to_have_text("indexed: 1", timeout=8000)
+    expect(_row(page, ids[1])).to_be_visible()
+    remaining = httpx.get(
+        f"{base_url}/api/knowledge-bases/{kb_id}/items", headers=auth_headers_for(base_url)
+    ).json()
+    assert [it["id"] for it in remaining] == [ids[1]]

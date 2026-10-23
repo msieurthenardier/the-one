@@ -1,22 +1,22 @@
 # Flight: Knowledge and connectors on the library
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **Every kind of control is defined once in the library** (partial). This flight adds:
+- [x] **Every kind of control is defined once in the library** (partial). This flight adds:
   - the disclosure;
   - the key-value table (its core; Flight 5 adds the masked column for the MCP editor);
   - the clearable input, and options on `chip`, `editorShell`, `status`, `copyField` and the icon set.
 
   The knowledge-base editor's item menu moves onto `App.ui.menu`. The knowledge-base and connector editors are then built only from library controls.
-- [ ] **A change to one control reaches every place it appears** (partial). `knowledge-section.js` (and its split modules) and `connector-editor.js` reach zero reuse-allowance rows. That is about 102 of the 409 uses left at Flight 2's close.
-- [ ] **No UI markup is built from HTML strings** (partial). `knowledge-glue.js` (3), `connector-editor.js` (3), `connector-glue.js` (1) and `mcp-glue.js` (1) reach zero sinks.
-- [ ] **Each control's styles are owned by that control** (partial). The knowledge and connector rules in `studio.css` that restyle library controls are folded into their owners or removed; an unused-selector report is reviewed.
-- [ ] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures of the knowledge-base and connector editors in both themes; the operator approves them at the HAT.
-- [ ] **Every library control works by keyboard and by role in both engines.** The new controls, plus the knowledge-base item menu moved into the accessible menu pattern (a gap the mission names).
-- [ ] **The area code is organised by surface** (partial). `knowledge-section.js` (1493 lines) is split into modules of ≤ 800 lines.
-- [ ] **Existing behaviour holds.** The live defects found in planning are fixed, each with a test that reproduces it first (DD8).
+- [x] **A change to one control reaches every place it appears** (partial). `knowledge-section.js` (and its split modules) and `connector-editor.js` reach zero reuse-allowance rows. That is about 102 of the 409 uses left at Flight 2's close.
+- [x] **No UI markup is built from HTML strings** (partial). `knowledge-glue.js` (3), `connector-editor.js` (3), `connector-glue.js` (1) and `mcp-glue.js` (1) reach zero sinks.
+- [x] **Each control's styles are owned by that control** (partial). The knowledge and connector rules in `studio.css` that restyle library controls are folded into their owners or removed; an unused-selector report is reviewed.
+- [x] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures of the knowledge-base and connector editors in both themes; the operator approves them at the HAT.
+- [x] **Every library control works by keyboard and by role in both engines.** The new controls, plus the knowledge-base item menu moved into the accessible menu pattern (a gap the mission names).
+- [x] **The area code is organised by surface** (partial). `knowledge-section.js` (1493 lines) is split into modules of ≤ 800 lines.
+- [x] **Existing behaviour holds.** The live defects found in planning are fixed, each with a test that reproduces it first (DD8).
 
 ---
 
@@ -404,7 +404,7 @@ Groundwork, restructure, controls, surfaces, then close: the order Flights 1 and
 - [x] The connector frame is on the library and its token keeps the masked round-trip; DD8-2/3 fixed.
 - [x] The connector sections are on the library; DD8-1/8 fixed.
 - [x] Every knowledge, connector and glue file is at zero sinks and zero allowance rows; budgets re-measured; full gate green.
-- [ ] HAT passed.
+- [x] HAT passed.
 
 ### Adaptation Criteria
 
@@ -437,7 +437,7 @@ Groundwork, restructure, controls, surfaces, then close: the order Flights 1 and
 - [x] `connector-sections` (07b): pairing with `copyField`, the channel map on `keyValueTable` (DD8-1 for both sequences, DD8-8), admission fields, the danger zone; alias calls retired.
 - [x] `library-pane-and-labels` (08): the `mcp-glue.js` clear; squawk 0191 (the hoisted `LIBRARY_GROUPS`); squawk 0192 ("Knowledge bases", with the `routing` and `mcp` lane pins).
 - [x] `library-close` (09): zero counts on every Library-half file, the unused-selector report for `studio.css`, the single-consumer option recheck, after captures, the `library` lane re-budget, catalogue/registry/docs (CLAUDE.md, `agents.md`), and the behavior-spec amendments check.
-- [ ] `flight-hat` *(optional; the operator wants one per flight)*: the operator walks the knowledge-base and connector editors in both themes. The steps come from the ledger and the DD7 list, and the operator approves the capture set.
+- [x] `flight-hat` *(optional; the operator wants one per flight)*: the operator walks the knowledge-base and connector editors in both themes. The steps come from the ledger and the DD7 list, and the operator approves the capture set.
 
 > Leg design greps every moved path, renamed class and retired selector across `tests/`, `scripts/`, `Makefile`, `docs/ui-testid-registry.md` and `tests/behavior/`, and pastes the hits into the leg.
 
@@ -446,10 +446,10 @@ Groundwork, restructure, controls, surfaces, then close: the order Flights 1 and
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `wc -l` shows every knowledge module at ≤ 800 lines.

@@ -46,7 +46,7 @@
   // `sep` is read off the folder path's own separator (the server stores
   // `str(canonical)` in OS-native form with no guaranteed trailing
   // separator). Only ever consulted for items rendered in the trailing
-  // "Other items" panel — a truly-parented item (its own `parent_id`
+  // "Individual files" panel — a truly-parented item (its own `parent_id`
   // matches a folder id) never needs the guess.
   function _containingFolder(item, folders) {
     for (var i = 0; i < folders.length; i++) {
@@ -91,6 +91,19 @@
     return rel.length > 0 ? rel : null;
   }
 
+  // The last segment of a path ("runbook-01.md"), for a display name. The
+  // separator is read the same way as `_containingFolder` does (backslash only
+  // when the path has no forward slash); trailing separators are ignored, and
+  // a path with no separator, or a bare root, is returned as it came.
+  function _baseName(path) {
+    if (!path) return '';
+    var sep = (path.indexOf('\\') !== -1 && path.indexOf('/') === -1) ? '\\' : '/';
+    var p = path;
+    while (p.length > 1 && p.charAt(p.length - 1) === sep) p = p.slice(0, -1);
+    var i = p.lastIndexOf(sep);
+    return (i === -1 || i === p.length - 1) ? p : p.slice(i + 1);
+  }
+
   // "Oct 23, 2026, 8:57 AM": a server ISO timestamp as a person reads it, in
   // the operator zone through App.time (the only module that may call the
   // Date getters). The precise value stays with the caller, in a `title` and
@@ -107,6 +120,7 @@
     el: _el,
     errorMessageFromResponse: _errorMessageFromResponse,
     containingFolder: _containingFolder,
-    relativeItemPath: _relativeItemPath
+    relativeItemPath: _relativeItemPath,
+    baseName: _baseName
   };
 })();
