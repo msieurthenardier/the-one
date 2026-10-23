@@ -473,11 +473,22 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
     both forms work). Safe to call on `_EmptyConfig` (no-op since
     `model_fields` is empty).
 
+    Also materialises `default` for every property whose field uses
+    `default_factory` (squawk 0248). Pydantic omits `default` from
+    `model_json_schema()` for a factory field, so the editors' fallback
+    (`prop['default']` for a never-saved tool) read `undefined` and a Save
+    stored `[]` in place of the built-in denylist. The factory is called
+    directly (never `config_class()`, whose `model_post_init` may add
+    runtime-only entries such as the app's secrets directory) and the
+    value is converted to JSON-safe form.
+
     Assumes a flat schema (no nested BaseModel fields under `$defs`).
     All four F2-F5 Configs (FilesystemConfig, ExecutionConfig,
     PythonExecConfig, WebConfig) are flat. A future Config that
     nests another BaseModel will need a `$defs` walk added here.
     """
+    from pydantic_core import to_jsonable_python
+
     from the_one.tools.resolver import (
         Narrow,
         NarrowPrefix,
@@ -496,6 +507,10 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
         prop = properties.get(field_name)
         if prop is None:
             continue
+        if "default" not in prop and field_info.default_factory is not None:
+            prop["default"] = to_jsonable_python(
+                field_info.get_default(call_default_factory=True, validated_data={})
+            )
         for marker_cls, marker_name in marker_map.items():
             if any(m is marker_cls for m in field_info.metadata):
                 prop["x_marker"] = marker_name

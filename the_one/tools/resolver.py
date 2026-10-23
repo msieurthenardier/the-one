@@ -246,7 +246,14 @@ def resolve(
                 f"field {schema.__name__}.{key} has no Narrow/Substitute marker; "
                 "declare one of (Narrow, NarrowPrefix, NarrowSuperset, Substitute)"
             )
-        tool_val = merged.get(key, field_info.default)
+        # Squawk 0248: a `default_factory` field (the denylists) has
+        # `field_info.default is PydanticUndefined`, so call the factory for
+        # the baseline. Never `schema()`: `model_post_init` may add
+        # runtime-only entries (FilesystemConfig appends the secrets dir).
+        if key in merged:
+            tool_val = merged[key]
+        else:
+            tool_val = field_info.get_default(call_default_factory=True, validated_data={})
         if has_narrow:
             _check_narrow(key, schema.__name__, tool_val, agent_override[key])
         elif has_narrow_prefix:

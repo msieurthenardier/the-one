@@ -577,3 +577,79 @@ def test_web_search_engine_switch_preserves_entered_key(app_clean: str, page: Pa
     expect(page.locator('input[data-field="brave_api_key"]')).to_have_value(
         "BSA-entered-not-yet-saved"
     )
+
+
+def _stored_tool_config(base_url: str, tool: str) -> dict:
+    """GET /api/tools/configs/{tool} with the test instance's credential."""
+    import httpx
+    from browser._credential_registry import auth_headers_for
+
+    r = httpx.get(
+        f"{base_url}/api/tools/configs/{tool}",
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
+    assert r.status_code == 200, f"GET {tool} failed: {r.status_code} {r.text}"
+    return r.json()
+
+
+def _denylist_save_round_trip(
+    page: Page, base_url: str, tool: str, field: str, expected: list[str], toggle: str
+) -> None:
+    """Squawk 0248: a never-saved tool shows the built-in denylist as chips,
+    and a Save that changes only another field stores those defaults, not `[]`."""
+    assert _stored_tool_config(base_url, tool)["config"] == {}
+    _nav.goto(page, base_url, f"settings/tools/{tool}")
+    expect(page.locator(".editor-title")).to_have_text(tool, timeout=8000)
+
+    chips = page.locator(f'.chip-list-editor[data-field="{field}"] .chip')
+    expect(chips).to_have_count(len(expected))
+    shown = page.evaluate(
+        """(field) => App.adminFormHelpers.readFieldValue(
+            document.querySelector('.chip-list-editor[data-field="' + field + '"]'))""",
+        field,
+    )
+    assert shown == expected
+
+    save_btn = page.locator(".save-btn")
+    expect(save_btn).to_be_disabled()
+    page.locator(f'input[data-field="{toggle}"]').check()
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    expect(save_btn).to_be_disabled(timeout=5000)
+
+    config = _stored_tool_config(base_url, tool)["config"]
+    assert config[toggle] is True
+    assert config[field] == expected, f"{tool}.{field} stored {config[field]!r}"
+
+
+@pytest.mark.browser
+def test_unsaved_filesystem_tool_shows_and_keeps_default_path_denylist(
+    app_clean: str, page: Page
+) -> None:
+    from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST
+
+    _denylist_save_round_trip(
+        page,
+        app_clean,
+        "move_file",
+        "path_denylist",
+        list(DEFAULT_PATH_DENYLIST),
+        "allow_binary_files",
+    )
+
+
+@pytest.mark.browser
+def test_unsaved_execution_tool_shows_and_keeps_default_command_denylist(
+    app_clean: str, page: Page
+) -> None:
+    from the_one.tools.execution import DEFAULT_COMMAND_DENYLIST
+
+    _denylist_save_round_trip(
+        page,
+        app_clean,
+        "shell",
+        "command_denylist",
+        list(DEFAULT_COMMAND_DENYLIST),
+        "sandbox_network_allowed",
+    )

@@ -164,6 +164,54 @@ class TestGetToolConfig:
             if "x_marker" in prop:
                 assert prop["x_marker"] in valid_markers
 
+    async def test_get_one_serves_filesystem_denylist_default(self, client: AsyncClient) -> None:
+        """Squawk 0248: `path_denylist` uses `default_factory`, which Pydantic
+        omits from `model_json_schema()`. The served schema must carry the
+        built-in default so the editor shows it for a never-saved tool (and a
+        Save round-trips it instead of storing `[]`). The secrets directory
+        that `model_post_init` appends at runtime is NOT part of the default."""
+        from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST
+
+        for tool in ("read_file", "move_file"):
+            resp = await client.get(f"/api/tools/configs/{tool}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["config"] == {}
+            prop = data["schema"]["properties"]["path_denylist"]
+            assert prop["default"] == list(DEFAULT_PATH_DENYLIST)
+            assert prop["x_marker"] == "NarrowSuperset"
+
+    async def test_get_one_serves_execution_denylist_default(self, client: AsyncClient) -> None:
+        """Squawk 0248: the same for `command_denylist` on the execution tools."""
+        from the_one.tools.execution import DEFAULT_COMMAND_DENYLIST
+
+        for tool in ("shell", "python_exec"):
+            resp = await client.get(f"/api/tools/configs/{tool}")
+            assert resp.status_code == 200
+            prop = resp.json()["schema"]["properties"]["command_denylist"]
+            assert prop["default"] == list(DEFAULT_COMMAND_DENYLIST)
+
+    async def test_get_one_serves_default_for_every_property(self, client: AsyncClient) -> None:
+        """Squawk 0248: every property of every tool's served schema carries a
+        `default`, including `WebConfig`'s `default_factory=list` fields, and
+        the served default equals what the Config itself defaults to."""
+        from the_one.tools.builtins import _TOOL_CLASSES
+
+        for name, cls in _TOOL_CLASSES.items():
+            resp = await client.get(f"/api/tools/configs/{name}")
+            assert resp.status_code == 200
+            props = resp.json()["schema"].get("properties", {})
+            for field, prop in props.items():
+                assert "default" in prop, f"{name}.{field} has no served default"
+                field_info = cls.Config.model_fields[field]
+                if field_info.default_factory is not None:
+                    expected = field_info.get_default(call_default_factory=True, validated_data={})
+                    assert prop["default"] == expected, f"{name}.{field}"
+        props = (await client.get("/api/tools/configs/http_request")).json()["schema"]["properties"]
+        assert props["host_allowlist"]["default"] == []
+        assert props["host_denylist"]["default"] == []
+        assert props["extra_allowed_hosts"]["default"] == []
+
 
 # ── PUT /api/tools/configs/{name} ─────────────────────────────────────────
 

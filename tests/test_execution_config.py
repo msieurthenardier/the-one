@@ -330,31 +330,34 @@ class TestCrossFieldInteractsWithNarrowing:
 
 class TestResolverDefaultFactoryFallback:
     """When `tool_config` omits `command_denylist` and the agent provides an
-    override, the resolver's ``merged.get(key, field_info.default)`` returns
-    ``PydanticUndefined`` (default-factory fields don't set ``.default``);
-    ``_check_narrow_superset`` then raises ``NotImplementedError`` because
-    ``PydanticUndefined`` is not a list.
+    override, the resolver's baseline is the field's default factory
+    (`DEFAULT_COMMAND_DENYLIST`).
 
-    Documented limitation: callers MUST pass an explicit
-    ``tool_config={"command_denylist": list(DEFAULT_COMMAND_DENYLIST)}`` when
-    narrowing this field via the resolver path. Real-world impact is low —
-    operators setting agent overrides on `command_denylist` should also set
-    the tool-level row. See L2 flight-log entry for full behavior write-up.
-
-    These tests pin the behavior so a future "fix" doesn't silently change
-    semantics under us.
+    Squawk 0248 replaced the earlier documented limitation: the resolver read
+    ``field_info.default``, which is ``PydanticUndefined`` for a
+    default-factory field, so ``_check_narrow_superset`` raised
+    ``NotImplementedError`` and the agent could not be built. The baseline is
+    now materialised, so an override must still contain every default entry.
     """
 
-    def test_omitted_tool_config_with_agent_override_raises_not_implemented(
+    def test_omitted_tool_config_override_dropping_defaults_is_refused(
         self,
     ) -> None:
-        with pytest.raises(NotImplementedError) as exc:
+        with pytest.raises(ValueError) as exc:
             resolve(
                 ExecutionConfig,
                 {},
                 {"command_denylist": ["sudo "]},
             )
-        assert "NarrowSuperset on non-list" in str(exc.value)
+        assert "widens ExecutionConfig.command_denylist" in str(exc.value)
+
+    def test_omitted_tool_config_override_extending_defaults_resolves(self) -> None:
+        r = resolve(
+            ExecutionConfig,
+            {},
+            {"command_denylist": list(DEFAULT_COMMAND_DENYLIST) + ["company-secret"]},
+        )
+        assert r.command_denylist == list(DEFAULT_COMMAND_DENYLIST) + ["company-secret"]
 
     def test_locked_down_null_path_uses_default_factory(self) -> None:
         # Locked-down NULL path (agent_override is None) bypasses per-key
