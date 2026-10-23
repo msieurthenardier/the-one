@@ -67,6 +67,7 @@ def test_import_mcp_oauth_still_loads_storage() -> None:
 @pytest.mark.parametrize(
     "module",
     [
+        "the_one.db._session_changes",
         "the_one.db.repositories",
         "the_one.mcp._pool",
         "the_one.agent.config",

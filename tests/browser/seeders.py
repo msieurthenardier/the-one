@@ -234,6 +234,94 @@ def seed_connector(
     return r.json()["id"]
 
 
+@dataclass
+class StubConnectorApp:
+    """A running app with a mock agent and an enabled ``stub`` connector."""
+
+    base_url: str
+    agent_name: str
+    connector_id: str
+    peer_id: str = "peer-1"
+    peer_name: str = "Alice"
+    # A second allowlisted peer (a second connector chat).
+    peer2_id: str = "peer-2"
+    peer2_name: str = "Bob"
+    provider_id: str = ""
+
+
+def seed_stub_connector(
+    base_url: str,
+    default_agent: str,
+    peer_id: str = "peer-1",
+    name: str = "Stub Connector",
+    extra_peers: list[str] | None = None,
+) -> str:
+    """POST an ENABLED ``stub`` connector and return its id.
+
+    The app must run with ``THE_ONE_DEV_MODE=true`` and
+    ``THE_ONE_STUB_TEST_ENDPOINT=1`` (the ``app_with_stub_connector`` fixture).
+    ``default_agent`` answers its DMs; ``peer_id`` is allow-listed so its DMs
+    are admitted without pairing, as is every id in ``extra_peers``.
+    """
+    r = httpx.post(
+        f"{base_url}/api/connectors",
+        json={
+            "name": name,
+            "type": "stub",
+            "config": {
+                "enabled": True,
+                "default_agent": default_agent,
+                "allowlist": {"peers": [peer_id, *(extra_peers or [])], "channels": []},
+            },
+            "secrets": {"token": "stub-token"},
+        },
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code in (200, 201), f"seed_stub_connector failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def stub_inbound(
+    base_url: str,
+    connector_id: str,
+    text: str,
+    peer_id: str = "peer-1",
+    peer_name: str = "Alice",
+    timeout: float = 15.0,
+    channel_id: str | None = None,
+) -> None:
+    """Push one DM through ``POST /api/_test/stub/inbound`` and wait for the turn.
+
+    The POST blocks for the whole connector turn. A 409 means the stub account
+    is not connected yet; retry (bounded by *timeout*) until it is. Chats are
+    keyed by ``channel_id`` (default empty): pass a distinct one per peer to get a
+    separate chat.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        r = httpx.post(
+            f"{base_url}/api/_test/stub/inbound",
+            json={
+                "connector_id": connector_id,
+                "peer_id": peer_id,
+                "peer_name": peer_name,
+                "text": text,
+                "is_dm": True,
+                **({"channel_id": channel_id} if channel_id else {}),
+            },
+            headers=auth_headers_for(base_url),
+            timeout=30.0,
+        )
+        if r.status_code == 409 and time.monotonic() < deadline:
+            time.sleep(0.25)
+            continue
+        assert r.status_code == 200, f"stub_inbound failed: {r.status_code} {r.text}"
+        return
+
+
 def seed_agent_with_attachments(
     base_url: str,
     provider_id: str,

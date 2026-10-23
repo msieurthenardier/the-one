@@ -1,0 +1,76 @@
+# Flight Log: Live Chats list and connector chats
+
+**Flight**: [Live Chats list and connector chats](flight.md)
+
+## Summary
+Sortie planned 2026-10-22 from an operator report (a long-open UI looks stale while connector traffic arrives). Planning found that a web send into a connector chat after a connector turn overwrites that turn (stale server-side cache), folded in as criterion 3.
+
+---
+
+## Leg Progress
+
+### Leg: fresh-cache
+- **Status**: landed (not committed)
+- **Changes**: `app.py`: `_fingerprint`, `Session.db_fingerprint` (set in `_restore_session` both branches, `_create_session`, `_save_session_to_db` after `repo.update`), `_resync_session_from_db`, called in `_locked_message_processing` under the lock in its own try/except. New `tests/test_web_session_resync.py` (8 tests, cases 0, a-g). Browser apparatus: `seeders.StubConnectorApp`, `seed_stub_connector`, `stub_inbound` (retries 409), `conftest.app_with_stub_connector`; `tests/browser/test_flow_chat_live_updates.py` (chats lane). `the_one/agents.md` paragraph added after the start_session notes.
+- **Notes**: Falsification: with the re-sync call replaced by `pass`, unit tests (f) and (g) fail and the browser test fails; restored, all pass. Unit suite: 12 skipped (expected), 6720 passed, 7 failed, none touching this leg: `test_credential_gate::test_exempt_paths_are_get_only_on_the_real_app` (confirmed failing on the base `app.py` too: `/api/oauth/callback` route not registered), `test_mcp_wire_shapes` trust store, 4 `test_openrouter_wire_level`, 1 `test_vector_store` usearch-i8 (environment-looking; not re-run on base). Chats lane (`THE_ONE_TEST_NETNS=1`): 182 passed.
+
+### Leg: live-list
+- **Status**: landed (not committed)
+- **Changes**: new `the_one/db/_session_changes.py` (signal); `repositories.py` notify calls after the transaction block (create, update, delete, delete_all_for_agent when rows, delete_older_than when ids, purge_messages, update_last_inbound, agent rename) and `ChatSessionRepository.list_summaries()`; `sessions/_broadcast.py` socket registry + `broadcast_to_all` (exported); `app.py`: `_SessionsPushListener` (250 ms trailing coalescer, listener removed first at shutdown, tasks cancelled before `close_connection()`), `websocket_endpoint` split into register/`finally`-unregister around `_websocket_loop`; `chat.js` `toSessionSummary`, `sessions_changed` branch, starting-row filter in `renderChatsList`; `session-state.js` gate. Tests: `tests/test_session_changes.py` (21), `test_store_static.py` pin updated, `test_imports.py`, `conftest.py` listener clear, `test_frame_gate` pins `sessions_changed`; browser tests (5) in `test_flow_chat_live_updates.py`; `seeders.py` second peer (`peer2_*`, `extra_peers`) and `stub_inbound(channel_id=)`. Docs: `the_one/agents.md` (protocol table, gate and idle-rule bullets, "Live Chats list push"), `CLAUDE.md` store paragraph.
+- **Notes**: Falsification: with `notify_sessions_changed` returning immediately, browser tests (1)-(5) fail (5 failed, the leg-1 test passes); restored, all 6 pass. Finding: stub DMs from different peers share one chat unless `channel_id` differs (the resolver keys on channel), so tests use a per-peer `channel_id`. Test (5) triggers its push with `seed_session` (REST create) rather than a second page, to land inside the 3 s arm window. Unit suite: 6749 passed, 12 skipped (expected). Static guards 309 passed. Chats lane (`THE_ONE_TEST_NETNS=1`) 187 passed; routing lane 184 passed. ruff check/format clean.
+
+### Leg: live-open-connector-chat
+- **Status**: landed (not committed)
+- **Changes**: `inbound.py`: the locked block of `dispatch_inbound` is inside `try/finally`; the `finally` sends `session_updated` via `broadcast_to_session` inside `contextlib.suppress(Exception)`. `chat.js`: `ownTurn`/`refreshAfterTurn`/`updateRejoin`/`refreshAfterJoin` and one `clearLiveRefresh(id?)` (error path, `onclose` non-`starting` branch, `applyStartFailed`, `openConversation` to another id, `pickAgent`, `resetToIdle`, `clearConversation`); `sendHeld` shared by `done` and the re-join reply; `rejoinForUpdate`, `requestRefresh`; the `session_updated` branch (before the gate, `joining` same-id case); `session_joined` hooks (held dispatch, second re-join, scroll restore after the forced bottom scroll); `done`/`cancelled` re-join. `session-state.js`: gate comment only. Tests: new `tests/test_inbound_session_updated.py` (7), 4 browser tests in `test_flow_chat_live_updates.py`, `session_updated` in `test_frame_gate`'s `SCOPED`; `StubConnectorApp.provider_id` (fixture exposes it; tests set `delay_ms` with `PUT /api/providers/{id}`). Docs: `the_one/agents.md` (protocol row, gate bullet, connector inbound line, "Live open connector chat"), one sentence in the CLAUDE.md store paragraph.
+- **Notes**: Falsification: with the broadcast frame type renamed, browser tests (1)-(4) fail; restored, all pass. Paused-for-auth finding: `_send_pause_snapshot_if_needed` runs after every `join` reply (same-id re-join included, `app.py` join branch), so the login group is replayed; the re-join is NOT deferred (verified by reading the code, no live paused run). Deviation: the leg-1 test `test_web_turn_after_a_connector_turn_keeps_the_connector_messages` now waits for the re-join (pane shows "second dm") before sending, because a Send while the chat is `joining` is ignored (text stays in the composer); it still proves the server-cache re-sync. Test (4) builds its tall history with one long plain-text DM (120 paragraphs), scrolls to 200 and checks `scrollTop` within 40 and the bottom more than 200 away. `test_store_static` pin unchanged (one `return;`). Unit suite: 6756 passed, 12 skipped (expected). Static guards pass (340 with `test_store_static`/lane tests). Browser (`THE_ONE_TEST_NETNS=1`): `test_flow_chat_live_updates` + `test_flow_chat_session_state` 65 passed; chats lane 191, routing 184, library 50 passed. ruff check/format clean.
+
+---
+
+## Decisions
+
+---
+
+## Deviations
+
+---
+
+## Anomalies
+
+---
+
+## Session Notes
+
+### 2026-10-22 — planning
+- Root cause: `session_list` is reply-only (`app.py:3118`); `dispatch_inbound` persists but never broadcasts (`inbound.py:440-477`); the web `Session` cache is never re-synced before a web turn (`_locked_message_processing`), so `_save_session_to_db` writes stale history.
+- Also observed: a web join during a connector turn shows the thinking indicator that no `done` ever clears (DD4 clears it).
+- Work runs in the worktree `.claude/worktrees/sortie-live-chats-list` with its own `.venv`; a separate workstream (Mission 31 Flight 3) is active in the main checkout.
+
+### 2026-10-22 — design review 1 (Architect: approve with changes)
+- Adopted: held message dispatch on the re-join (high); re-sync in its own try/except (high); content fingerprint instead of `updated_at` (Windows 3.11 clock resolution, read-back race); `try/finally` around the dispatcher's lock for `session_updated`; shutdown removes the listener first and awaits the push task; a distinct `sessions_changed` frame (inert to an old cached client) instead of `session_list` + `pushed`; the push updates the local `sessions` array; the starting duplicate row is dropped; scroll kept when not pinned; a second re-join when one is answered `is_processing: true`; skip the re-sync while paused; the signal lives in `the_one/db/`; a `list_summaries()` read for the push; the data-loss fix moved into leg 1.
+- Recorded, not fixed: resume-after-auth runs without the lock; a second tab's re-join drops a pending deferral; REST `/api/chat` has no re-sync; out-of-order snapshots (no sequence number).
+
+### 2026-10-22 — design review 2 (Architect: approve with changes)
+- Adopted: DD3 uses one shared mapping helper and updates `test_store_static.py`'s pin deliberately; DD4 drops the pause skip (`Agent.step` clears the deferral itself) and normalises the fingerprint the way `_row_to_model` reads; DD5 suppresses exceptions in its `finally` broadcast; DD6 lists every clear site for its flags and scopes scroll-keeping and held dispatch to `session_updated` re-joins; `list_summaries()` returns `ChatSession` models so the projection is reused.
+- Leg split: three legs (`fresh-cache`, `live-list`, `live-open-connector-chat`), over the sortie's two-leg soft limit. Operator chose three legs in one sortie (one decision cluster, no escalation).
+- Status → ready.
+
+### Flight Director Notes
+- 2026-10-22: execution started via `/mission-control:agentic-workflow sortie 05`. Phase file `.flightops/agent-crews/leg-execution.md` loaded (valid structure). Branch `sortie/05-live-chats` (renamed from the worktree's branch, in the worktree `.claude/worktrees/sortie-live-chats-list`). Three legs. Status → in-flight.
+- Leg 1 `fresh-cache` designed. Risk tier: HIGH (cache-freshness behaviour on the web session cache; touches the turn path every chat uses) → Developer design review.
+- Leg 1 design review (Developer): approve with changes. Adopted: `None` fingerprint = no baseline, skip without a read; re-sync placed before the ContextVar set, outside its try/finally; `CancelledError` propagates (test g); test (f) mirrors `dispatch_inbound`'s `model_copy` write; separate `seed_stub_connector`; the benign restore race recorded. Minor changes only, no second review. Leg 1 → ready; Developer (Sonnet) spawned to implement.
+- Leg 2 `live-list` designed while leg 1 implements. Risk tier: HIGH (new WebSocket frame, frame-gate change in the chat state machine, repository side effect, lifespan ordering) → Developer design review, run read-only in parallel with leg 1's implementation.
+- Leg 2 design review (Developer): approve with changes; no existing test breaks on unsolicited pushes or repository notifies (checked WS unit tests, store request counters, armed-delete reuse in `listPane.setItems`, lifespan order). Adopted: a second allowlisted peer for test (2) (`seeders.py`); listener clear in `reset_lifespan_singletons`; on-loop detection, `closed` flag, clear-pending-before-read with a test; `delete_all_for_agent` notifies only when it deleted rows; `test_frame_gate` pins `sessions_changed`; the `renderChatsList` static window; an armed-delete-survives-push test; recount the gate doc bullet. Minor changes, no second review. Leg 2 → ready (implementation waits for leg 1 to land: same files).
+- Leg 3 `live-open-connector-chat` designed. Risk tier: HIGH (client state-machine flags, dispatcher control flow) → Developer design review, read-only, in parallel with leg 1's implementation.
+- Leg 3 design review (Developer): approve with changes; server same-id join verified clean (leave skipped, guarded subscribe, pause snapshot replayed). Adopted: test (3) joins mid-turn and presses Enter (Send is disabled while busy); the already-open-chat path (re-join waits for the own turn's `done`) recorded as an edge; a fixture variant for mock `delay_ms`; the paused-for-auth check (confirm the snapshot replay restores the login group, else defer); `onclose` clears inside its non-`starting` branch; a shared held-dispatch helper; scroll recorded at send and restored after `showChrome`, with a deterministic test; a `session_updated` for the joining id re-joins after the reply; imports in `inbound.py`; a cancellation unit test. Minor changes, no second review. Leg 3 → ready. (Not logged as a squawk: a "new messages below" cue for an unpinned reader; noted for the debrief.)
+- Leg 1 landed (Developer report: falsification passed; chats lane 182 passed; unit 7 failures outside the leg). FD triage: the 7 failures (`test_credential_gate` oauth-callback exemption, `test_mcp_wire_shapes` trust store, 4× `test_openrouter_wire_level`, `test_vector_store[usearch-i8]`) were environment drift: the fresh worktree venv had resolved newer versions of unpinned dependencies than the main checkout's venv. Pinned the worktree venv to the main venv's exact `pip freeze` (one extra transitive package, `hf-xet`, left in place); all four files then pass (149 passed), and the leg's own files pass. Anomaly recorded below.
+
+### Anomaly: worktree venv dependency drift
+**Observed**: a fresh `pip install -e '.[all-llms,dev]'` in the worktree resolved newer versions of unpinned dependencies (e.g. MarkupSafe, cffi, chardet, click) than the main checkout's venv; 7 unit tests outside the leg failed under it.
+**Severity**: degraded (verification only)
+**Resolution**: worktree venv pinned to the main venv's `pip freeze`; the 7 tests pass. Worth a debrief note: the project's unpinned dependency set makes a fresh install non-reproducible (possible squawk).
+- Leg 2 landed (Developer report: unit 6749 passed / 12 skipped; static guards pass; chats 187 and routing 184 pass under netns; falsification: all five push tests fail with the signal disabled). Note from the Developer: stub DMs from different peers on the same (empty) `channel_id` resolve to one chat, so the tests pass a per-peer `channel_id` (real DMs have per-peer channels). Leg 3 implementation spawned.
+- Leg 3 landed (Developer report: unit 6756 passed / 12 skipped; chats 191, routing 184, library 50 pass under netns; falsification: the four new browser tests fail with the frame renamed). Paused-for-auth: the snapshot replay runs after every join reply, so no deferral was added (by code reading). Deviation: the leg-1 browser test now waits for the pane to show the connector DM before sending, since a send during the automatic re-join's `joining` is ignored (text kept); recorded as an edge in `agents.md`.
+- All three autonomous legs landed. Flight review: Reviewer tier **Sonnet** (the diff wraps `websocket_endpoint` and broadcasts to every connected socket, adjacent to the credential/Origin surface). Accessibility Reviewer not spawned: no new UI controls or markup; the client changes are frame handling and scroll restoration.
+- Flight review (Reviewer, Sonnet): [HANDOFF:confirmed], no blocking issues. Verified the credential gate and Origin allowlist still front `/ws` (middleware), the listener's thread/loop and shutdown order, the re-sync paths, every client flag clear site, and that an Enter during the automatic re-join keeps the composer text. Non-blocking: a failed save leaves the fingerprint stale (the next turn then adopts the stored row; only unsaved messages are lost, as today); no feedback for an Enter during `joining`.
+- Full local gate (FD, worktree venv, `THE_ONE_TEST_NETNS=1`): unit 6754 passed / 14 skipped (the documented netns count); browser all ten lanes rc=0 under `--parallel 2` (not 3: another workstream was running a browser lane in the main checkout, host policy caps the host at 3), `THE_ONE_REQUIRE_WEBKIT=1`, total 2106 s. Six lanes ran over budget (chats 466/450, mcp 465/450, providers 442/420, agent-tabs 320/300, settings 301/300, shared 340/300) on a shared host; a warning, not a failure. The chats lane gained nine tests, some with ~4 s mock delays: debrief should re-check its budget.
+- Leg statuses → completed; legs and checkpoints checked in the sortie artifact. Commit via a Developer, then draft PR.

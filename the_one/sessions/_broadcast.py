@@ -19,6 +19,34 @@ from typing import Any
 _subscribers: defaultdict[str, set] = defaultdict(set)
 
 
+# Every connected WebSocket, for frames that are not session-scoped
+# (e.g. ``sessions_changed``). Registered/removed by websocket_endpoint.
+_sockets: set = set()
+
+
+def add_socket(ws: Any) -> None:
+    _sockets.add(ws)
+
+
+def remove_socket(ws: Any) -> None:
+    _sockets.discard(ws)
+
+
+def all_sockets() -> set:
+    """Return a SNAPSHOT copy of the connected-socket set."""
+    return set(_sockets)
+
+
+async def broadcast_to_all(payload: dict[str, Any]) -> None:
+    """Send a JSON payload to every registered socket; a socket whose send
+    raises is dropped from the registry."""
+    for ws in all_sockets():
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            remove_socket(ws)
+
+
 def add_subscriber(session_id: str, ws: Any) -> None:
     _subscribers[session_id].add(ws)
 
@@ -65,3 +93,4 @@ async def broadcast_to_session(
 
 def clear_subscribers_for_test() -> None:
     _subscribers.clear()
+    _sockets.clear()

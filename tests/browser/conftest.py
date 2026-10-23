@@ -74,7 +74,13 @@ from browser._credential_registry import (
     unregister as _unregister_credential,
 )
 from browser._ui_engines import engine_browser, engine_page  # noqa: F401 - register fixtures
-from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
+from browser.seeders import (
+    SeededApp,
+    StubConnectorApp,
+    seed_mock_agent,
+    seed_mock_provider,
+    seed_stub_connector,
+)
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from tests._schema_template import copy_template
@@ -532,6 +538,26 @@ def app_with_agent(app_with_provider: SeededApp) -> Iterator[SeededApp]:
         provider_id=app_with_provider.provider_id,
         agent_name=agent_name,
     )
+
+
+@pytest.fixture
+def app_with_stub_connector(tmp_path: Path) -> Iterator[StubConnectorApp]:
+    """App subprocess with the stub-connector test seam open, a mock provider and
+    agent, and an enabled ``stub`` connector whose default agent is that agent.
+
+    Drive a connector turn with ``seeders.stub_inbound``.
+    """
+    base_url, proc, _credential, _data_dir = _spawn_app(
+        tmp_path, extra_env={"THE_ONE_STUB_TEST_ENDPOINT": "1"}
+    )
+    try:
+        provider_id = seed_mock_provider(base_url)
+        agent_name = seed_mock_agent(base_url, provider_id)
+        connector_id = seed_stub_connector(base_url, agent_name, extra_peers=["peer-2"])
+        yield StubConnectorApp(base_url, agent_name, connector_id, provider_id=provider_id)
+    finally:
+        _unregister_credential(base_url)
+        _teardown_proc(proc)
 
 
 # ── OpenRouter browser test fixtures ─────────────────────────────────────

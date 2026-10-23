@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import hashlib
 import json
 import logging
 import os
@@ -49,6 +50,7 @@ from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
 from the_one.connectors.manager import ConnectorManager
 from the_one.connectors.manager import set_manager as _set_module_connector_manager
+from the_one.db import _session_changes as _db_session_changes
 from the_one.db import close_connection, init_db
 from the_one.db.codec import (
     decode_messages,
@@ -103,8 +105,12 @@ from the_one.self_configuration import surface as _self_configuration_surface
 from the_one.self_configuration.constants import MOUNT_PATH as _SELF_CONFIGURATION_MOUNT_PATH
 from the_one.self_configuration.credentials import register_credential_source_once
 from the_one.sessions import (
+    add_socket,
     add_subscriber,
+    all_sockets,
+    broadcast_to_all,
     is_session_processing,
+    remove_socket,
     remove_subscriber,
     session_locks,
     subscribers_for,
@@ -113,6 +119,73 @@ from the_one.tools._session_registry import shutdown_drain as _session_registry_
 from the_one.vectors import close_vector_store
 
 logger = logging.getLogger(__name__)
+
+
+class _SessionsPushListener:
+    """Coalesces `sessions_changed` signals into one trailing push.
+
+    `notify` is the db-layer listener: callable from any thread. The first
+    signal arms a push `WINDOW` seconds later; further signals inside the
+    window fold into it. The push clears `pending` BEFORE reading, so a
+    write landing during the read arms a new push (no write is lost).
+    """
+
+    WINDOW = 0.25
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop = loop
+        self.pending: asyncio.Task[None] | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self.closed = False
+
+    def notify(self) -> None:
+        if self.closed:
+            return
+        try:
+            on_loop = asyncio.get_running_loop() is self.loop
+        except RuntimeError:
+            on_loop = False
+        if on_loop:
+            self._schedule()
+            return
+        if self.loop.is_closed():
+            return
+        try:
+            self.loop.call_soon_threadsafe(self._schedule)
+        except RuntimeError:
+            return  # loop closed between the check and the call
+
+    def _schedule(self) -> None:
+        if self.closed or self.pending is not None:
+            return
+        task = self.loop.create_task(self._push())
+        self.pending = task
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _push(self) -> None:
+        await asyncio.sleep(self.WINDOW)
+        self.pending = None
+        if self.closed or not all_sockets():
+            return
+        try:
+            rows = await (await _chat_repo()).list_summaries()
+        except Exception:
+            logger.warning("sessions_changed read failed; no push sent", exc_info=True)
+            return
+        await broadcast_to_all(
+            {"type": "sessions_changed", "sessions": [_session_to_list_payload(r) for r in rows]}
+        )
+
+    async def close(self) -> None:
+        self.closed = True
+        self.pending = None
+        for task in list(self._tasks):
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -381,7 +454,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await _watch_manager.start_all()
         except Exception:
             logger.exception("watch manager startup failed")
+        # Live Chats list: coalesce chat-session write signals into one
+        # `sessions_changed` push per window.
+        _sessions_push = _SessionsPushListener(asyncio.get_running_loop())
+        _db_session_changes.add_listener(_sessions_push.notify)
         yield
+        # First: stop pushing before any drain, and settle a pending push
+        # before the connection closes.
+        _db_session_changes.remove_listener(_sessions_push.notify)
+        await _sessions_push.close()
         # Pull-catalog size fill: a detached module task (requests wait for it at
         # most ~8 s), so it is cancelled here and what settled is persisted. No-op
         # with no fill. Own try/except like the other drains.
@@ -638,6 +719,19 @@ def _get_factory() -> AgentFactory:
 # ── Sessions ─────────────────────────────────────────────────────────────
 
 
+def _fingerprint(messages: str | None, title: str | None) -> str:
+    """Hash of a chat row's stored content (messages + title).
+
+    Applies the same defaults `_row_to_model` applies on read, so a value
+    written and the same value read back hash equal.
+    """
+    h = hashlib.sha256()
+    h.update((title or "New chat").encode("utf-8"))
+    h.update(b"\x00")
+    h.update((messages or "[]").encode("utf-8"))
+    return h.hexdigest()
+
+
 @dataclass
 class Session:
     id: str
@@ -647,6 +741,9 @@ class Session:
     title: str = "New chat"
     agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
+    # Fingerprint of the stored (messages, title) this cache last matched
+    # (set on restore, create and save). None = no baseline: no re-sync.
+    db_fingerprint: str | None = None
     # M10 F05 L04: connector-attached sessions carry the platform
     # string ("stub", "discord", "slack", …) populated from
     # ChatSession.platform at restore time. Web-native sessions
@@ -995,6 +1092,12 @@ async def _locked_message_processing(
         # F05 L01: touch last_activity at the start of message processing
         # so the reaper clock advances on every new user turn.
         session.last_activity = time.monotonic()
+        # Another writer (a connector turn, a REST edit) may have changed the
+        # stored row since this cache was built; re-sync before running.
+        try:
+            await _resync_session_from_db(session)
+        except Exception:
+            logger.warning("re-sync of session %s failed; proceeding", session.id, exc_info=True)
         # F5 L5: bind the current chat_session_id into the per-task
         # ContextVar so any pool-spawned MCP OAuth provider construction
         # below (via ``_entry_worker`` → ``build_oauth_provider_for_source``)
@@ -1451,6 +1554,7 @@ async def _create_session(
             updated_at=now,
         )
         await repo.create(db_session)
+        session.db_fingerprint = _fingerprint(db_session.messages, db_session.title)
     except BaseException as exc:
         if strict:
             # BaseException, not Exception: a disconnect cancelling the
@@ -1579,6 +1683,7 @@ async def _restore_session(session_id: str) -> RestoredSession:
             existing.title = db_session.title
             existing.agent_name = db_session.agent_name
             existing.history = ui_events
+            existing.db_fingerprint = _fingerprint(db_session.messages, db_session.title)
             # M10 F05 L04: refresh the cached platform field from the DB row
             # so connector-attachment state stays in sync with the persisted
             # truth across rejoins. Drives the WS storage-edge shim gate in
@@ -1598,6 +1703,7 @@ async def _restore_session(session_id: str) -> RestoredSession:
             title=db_session.title,
             agent_name=db_session.agent_name,
             history=ui_events,
+            db_fingerprint=_fingerprint(db_session.messages, db_session.title),
             # M10 F05 L04: surface the persisted connector-attachment state to
             # the in-memory Session so the WS storage-edge shim can gate on it.
             platform=db_session.platform,
@@ -1609,6 +1715,32 @@ async def _restore_session(session_id: str) -> RestoredSession:
         )
         _sessions[session_id] = session
     return RestoredSession(session, SESSION_STATUS_OK, db_session)
+
+
+async def _resync_session_from_db(session: Session) -> None:
+    """Re-sync a cached session whose stored row changed under it.
+
+    Called under the session lock at turn start. No baseline fingerprint
+    (None) or a missing row: no change. Equal fingerprint: no further work.
+    Otherwise replace the agent's non-system history, the UI history and the
+    title with the row's, keeping the agent's current system message.
+    """
+    if session.db_fingerprint is None:
+        return
+    repo = await _chat_repo()
+    try:
+        row = await repo.get(session.id)
+    except KeyError:
+        return
+    fp = _fingerprint(row.messages, row.title)
+    if fp == session.db_fingerprint:
+        return
+    messages = decode_messages(row.messages)
+    non_system = [m for m in messages if m.role != Role.SYSTEM]
+    session.agent.messages = session.agent.messages[:1] + non_system
+    session.history = messages_to_ui_events(messages)
+    session.title = row.title
+    session.db_fingerprint = fp
 
 
 async def _get_or_restore_session(session_id: str) -> RestoredSession:
@@ -1639,6 +1771,7 @@ async def _save_session_to_db(session: Session) -> None:
             }
         )
         await repo.update(updated)
+        session.db_fingerprint = _fingerprint(encoded, session.title)
     except Exception:
         logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
 
@@ -2885,6 +3018,14 @@ async def chat_reset(request: Request) -> dict[str, str]:
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
+    add_socket(ws)
+    try:
+        await _websocket_loop(ws)
+    finally:
+        remove_socket(ws)
+
+
+async def _websocket_loop(ws: WebSocket) -> None:
     session: Session | None = None
 
     try:

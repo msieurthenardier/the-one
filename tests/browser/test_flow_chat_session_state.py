@@ -416,6 +416,7 @@ SCOPED = [
     "auth_required",
     "auth_resolved",
     "auth_failed",
+    "session_updated",
     "anything",
 ]
 
@@ -427,10 +428,14 @@ def test_frame_gate(sm_page: Page, start: str) -> None:
              for (const s of steps) sm[s[0]].apply(null, s.slice(1));
              return types.map(t => [t, sm.accepts({type: t}), sm.onFrame({type: t}).accept,
                                     sm.state().name]); }""",
-        [TO[start], SCOPED + ["session_list", "session_deleted"]],
+        [TO[start], SCOPED + ["session_list", "session_deleted", "sessions_changed"]],
     )
     for t, accepts, accepted, name in got:
-        want = True if t in ("session_list", "session_deleted") else start == "joined"
+        want = (
+            True
+            if t in ("session_list", "session_deleted", "sessions_changed")
+            else start == "joined"
+        )
         assert (accepts, accepted) == (want, want), (start, t)
         assert name == start, (start, t)  # never a state change
 
