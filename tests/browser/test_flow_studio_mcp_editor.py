@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
 """MCP source editor browser tests (Studio nav).
 
 Originally `test_flow_admin_mcp_editor.py` (M07 F1 L6 — admin nav);
@@ -434,6 +435,15 @@ def test_sandbox_edit_round_trip_populates_fields(app_clean: str, page: Page) ->
     chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
     expect(chips).to_have_count(1)
     expect(chips.first).to_contain_text("/x")
+    # M31 F3 L03c: the string-built chip keeps the area look (accent-translucent fill,
+    # accent remove button) after the library chip list was split out of the cascade.
+    look = chips.first.evaluate(
+        """(el) => { const t = (v, prop) => { const p = document.createElement('span'); p.style[prop] = 'var(' + v + ')';
+            el.appendChild(p); const r = getComputedStyle(p)[prop]; p.remove(); return r; };
+          return {bg: getComputedStyle(el).backgroundColor, want: t('--accent-translucent', 'backgroundColor'),
+            rm: getComputedStyle(el.querySelector('.chip-remove')).color, wantRm: t('--accent', 'color')}; }"""
+    )
+    assert look["bg"] == look["want"] and look["rm"] == look["wantRm"], look
 
 
 @pytest.mark.browser

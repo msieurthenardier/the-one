@@ -7,11 +7,12 @@
 #
 # CI TIME IS UNMEASURED: no browser task has completed under CI. The first
 # post-merge pipeline build is the measurement (ci/README.md, "Measured times").
-# Local reference: the lanes sum to ~2240 s sequential for the first eight (flight log, Leg 4); a ninth, providers, joined in sortie 02.
+# Local reference: the lanes sum to ~2240 s sequential for the first eight (flight log, Leg 4); providers joined in sortie 02 and `contracts` split into
+# contracts-overlay and contracts-controls in M31 F3 L01 and `knowledge` split from `library` in M31 F3 L09 (twelve canonical lanes now).
 #
 # WebKit: this task installs chromium AND webkit and sets THE_ONE_REQUIRE_WEBKIT=1
-# (an unlaunchable WebKit FAILS instead of skipping), because the `contracts` lane
-# is engine-parametrized. Chromium runs with Playwright's default
+# (an unlaunchable WebKit FAILS instead of skipping), because the `contracts-*` lanes
+# are engine-parametrized. Chromium runs with Playwright's default
 # --disable-dev-shm-usage, so the container's small /dev/shm is not a problem.
 #
 # NO container_limits, on purpose: the local Concourse workers reject any

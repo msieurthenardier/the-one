@@ -42,7 +42,7 @@
     // retired). The orchestrator-side callbacks bridge dirty-state +
     // navigation.
     function renderMcpSourcesSection() {
-      sectionContentEl.innerHTML = '';
+      sectionContentEl.replaceChildren();
       // If a hash-route pending-create is queued (e.g. direct-load on
       // #library/mcp/~new), promote it to mcpSourceFormMode='add' BEFORE
       // deciding so the editor mounts on first paint. Pending-edit can't

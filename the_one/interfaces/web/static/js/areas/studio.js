@@ -316,6 +316,8 @@ App.registerArea({
       agentData: agentData
     };
     var knowledgeGlue = App.studio.knowledgeGlue.create(glueCtx);
+    // deactivate (leaving the area) tears the knowledge editor down through this.
+    self._resetKnowledge = knowledgeGlue.reset;
     var mcpGlue = App.studio.mcpGlue.create(glueCtx);
     glueCtx.mcp = mcpGlue; // the connector module takes it for the pending-item rule
     var connectorGlue = App.studio.connectorGlue.create(glueCtx);
@@ -738,6 +740,9 @@ App.registerArea({
     // The Self-configuration tab's copy-once token never outlives the area being
     // shown (M31 F2 L10c).
     if (this._deactivateSelfConfig) this._deactivateSelfConfig();
+    // M31 F3 L05a: leaving the area destroys the knowledge editor (create or
+    // detail) and stops its poll, so a return is a fresh mount, as before.
+    if (this._resetKnowledge) this._resetKnowledge();
     if (this._knowledgePollTimer) {
       clearInterval(this._knowledgePollTimer);
       this._knowledgePollTimer = null;

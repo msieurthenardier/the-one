@@ -88,8 +88,10 @@ Every control the app shows has exactly one definition in the shared control lib
 ## Known Issues
 
 - [x] **Flight 2 is overloaded as listed** (resolved 2026-10-15: split into Flights 2 and 3; the operator chose two flights) (discovered in Flight 1's debrief; affects Flights 2-4). It bundles the agent editor and six tabs, the connector and knowledge editors, the Settings pages, the `studio.js` (4181 lines → ≤ 800) and `admin.js` splits, five new controls and four squawks. Re-plan it before it starts: split it, or lead with a behaviour-free `studio.js` restructure leg. Also assign the largest allowance and sink files to Flights 2-4 explicitly. At Flight 1's close the reuse allowance stood at 243 rows / 504 uses and the sinks at 75 in 14 files.
-- [ ] **Alias shims to retire as their callers migrate** (Flight 1): `App.confirmDelete` (14 calls), `App.consentLink` (7), `App.showFlash` (41), `App.icon` (30). Each flight names the aliases it retires; all are gone by Flight 4.
+- [ ] **Alias shims to retire as their callers migrate** (Flight 1): `App.confirmDelete` (14 calls), `App.consentLink` (7), `App.showFlash` (41), `App.icon` (30). Each flight names the aliases it retires; all are gone by Flight 6 (renumbered 2026-10-22; Flight 3 retires the knowledge and connector calls). **Counts left after Flight 3 (M31 F3 L09, call sites outside `js/ui/` and comments):** `App.confirmDelete(` 4 (`system-page.js` 1, `chat.js` 1, `mcp-server-editor.js` 2), `App.showFlash(` 11 (`markdown.js` 3, `admin.js` 2, `tools-editor.js` 1, `mcp-server-editor.js` 5), `App.icon(` 17 (`tools-editor.js` 6, `tools-form-helpers.js` 2, `mcp-server-editor.js` 8, `markdown.js` 1; plus the `icons.js` definition), `App.tabs` 2 (`tools-grid.js`; plus the `tabs.js` definition), `App.consentLink` 7 (`chat.js` 4, `mcp-server-editor.js` 3). The knowledge and connector editors, `connector-glue.js`, `mcp-glue.js` and `library-pane.js` call none of them.
 - [x] **The `agents` browser lane is at its budget** (resolved 2026-10-22 in Flight 2 leg 11: the lane was split into `agents` and `agent-tabs` and every lane re-budgeted; squawk 0217 completed) (495-520 / 510 s; squawk 0217). Resolve it before Flight 2 adds agent-editor tests.
+- [ ] **Knowledge search has no score floor** (found at Flight 3's HAT). Semantic hits always fill the page, so nonsense queries return low-score results and "No results." appears only for an empty knowledge base. The fused score (about 0.016) reads like a percentage but is not one. A fix needs design (a floor for semantic-only hits and/or a keyword-match marker) and an eval run, because agents use the same `retrieval.search`. A candidate for a later flight or a sortie.
+- [ ] **No "Add file" in the knowledge-base editor** (found at Flight 3's HAT; the operator deferred it). Individual files can be registered only through the API; Studio lists them under "Individual files" and can remove them. A Studio form to add one needs its own validation and error states. Related backend squawks: 0243 (deleting a walked file is undone) and 0244 (a file POST does not start indexing).
 
 ## Flights
 
@@ -99,7 +101,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - Retire the Design language page in an early leg, with every dependency: tests, the script-count pin, `verify-serving`, the registry, behavior-spec amendments and docs. Rewrite the inventory guard's demo rule as "every control has a catalogue entry and contract tests". Move the tokens and typography reference into the catalogue.
   - Settle the open questions: re-mount policy, style ownership, the reuse check and the icon node.
   - Catalogue every variant of each shared shape and get the operator's approval of the canonical choices. This is the checkpoint where the mission's visible changes are decided.
-  - Build the shared controls with contract tests: the editor shell (header, breadcrumb, unsaved caption, Save/Cancel with focus-after, error blocks), danger zone, tiles, toggle, info and copy buttons (including the consent link's), chips, the key-value table, tabs, the status LED and line, the flash message, the two-step confirm's visual states and the icon.
+  - Build the shared controls with contract tests: the editor shell (header, breadcrumb, unsaved caption, Save/Cancel with focus-after, error blocks), danger zone, tiles, toggle, info and copy buttons (including the consent link's), chips, the key-value table (not built in Flight 1: its core moved to Flight 3, its masked column to Flight 5), tabs, the status LED and line, the flash message, the two-step confirm's visual states and the icon.
   - Land the reuse check with its starting exception list.
   - Migrate the pilot end to end: the provider editor and its model panel (model list, Pull with streaming progress, Test), absorbing squawk 0139.
 - [x] Flight 2: **Agents on the library.** (Re-planned 2026-10-15 after the Flight 1 debrief: the old Flight 2 was split into Flights 2 and 3.)
@@ -107,16 +109,22 @@ Every control the app shows has exactly one definition in the shared control lib
   - Migrate the agent editor and its six tabs (General, Rules and notes, Tools, MCPs, Knowledge, Self-configuration).
   - Build tabs, the merged source/category tile, the tristate switch and the editable chip list, as previewed on the operator's mock-up canvas.
   - Absorb squawks 0094, 0217, 0220 and 0221.
-- [ ] Flight 3: **Library and Settings on the library.**
-  - The connector editor and the knowledge section (builds the disclosure).
-  - Settings › Built-in tools (editor, grid, form helpers), Knowledge indexing, Appearance, Prompts, Encryption, Date and time.
-  - The `admin.js` split and the area-CSS ownership cleanup.
+- [x] Flight 3: **Knowledge and connectors on the library.** (Split 2026-10-22: the operator chose to fly the old "Library and Settings" Flight 3 as two flights, 3 and 4.)
+  - Groundwork for both halves: split the `contracts` lane, replace the exact script-count pin (squawk 0233), document the editor contracts (squawk 0235), an unused-selector report script.
+  - Split `knowledge-section.js`, then move the knowledge-base create and detail editors and the connector editor onto the library. Builds the disclosure and the key-value table's core (the channel map is its first consumer).
+  - The knowledge-base item menu moves onto `App.ui.menu`. Fixes the defects found in planning (the channel map losing values, double-create, the poll stealing focus, the chip-list cascade).
   - Absorb squawks 0100, 0191 and 0192.
-- [ ] Flight 4: **The MCP server editor on the library.** The largest and riskiest editor gets its own flight, with no other surface in it. It has 18 string sinks and 89 reuse uses at Flight 1's close, chip and key-value editors mounted after string markup, OAuth popup polling, live connection and protocol status, and masked secrets. It builds the key-value table.
-- [ ] Flight 5: **Chats, and closing every count to zero.**
+- [ ] Flight 4: **Settings on the library.**
+  - Settings › Built-in tools (editor, grid, the shared schema-field module from `tools-form-helpers.js` and `tool-override-fields.js`), Knowledge indexing, Appearance, Prompts, Encryption, Date and time.
+  - The `admin.js` split (the tools-page controller out) and the `admin.css` ownership cleanup.
+  - Builds the banner and page-header controls, a `searchList` inline variant, and the Built-in tools tile. The library switch replaces the legacy iOS switch (operator, 2026-10-22).
+  - Retires `App.tabs` and `js/tabs.js` (last consumer `tools-grid.js`).
+  - Fixes the Settings defects found in Flight 3's planning survey: the tile toggle's name, the Enabled row's double negative, unlinked Knowledge indexing hints, the Encryption flash timer race.
+- [ ] Flight 5: **The MCP server editor on the library.** The largest and riskiest editor gets its own flight, with no other surface in it. It has 18 string sinks and 105 reuse uses at Flight 2's close, chip and key-value editors mounted after string markup, OAuth popup polling, live connection and protocol status, and masked secrets. It adds the masked column to the key-value table and retires the `tools-form-helpers.js` chip-list string path and the `.tool-enable-switch` rules.
+- [ ] Flight 6: **Chats, and closing every count to zero.**
   - Build the chat controls with update handles (composer, message bubble, thinking indicator, trace, telemetry) and migrate the chat surfaces.
   - Split `chat.js`.
   - Drive the reuse check's exceptions, the sink baseline, the retired-API aliases and the catalogue's "not yet defined" rows to zero.
   - Finish the style ownership cleanup.
   - Bring `agents.md`, CLAUDE.md and the catalogue to the final state.
-- [ ] Flight 6 *(optional)*: **Alignment.** A vibe coding session: the operator and the agent walk the app together, in both themes and in the desktop window, and make hands-on adjustments.
+- [ ] Flight 7 *(optional)*: **Alignment.** A vibe coding session: the operator and the agent walk the app together, in both themes and in the desktop window, and make hands-on adjustments.

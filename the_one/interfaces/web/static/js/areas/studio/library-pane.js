@@ -35,6 +35,34 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
+  // The one Library group table (squawk 0191), exposed as App.studio.libraryGroups
+  // (a copy per read) so studio-route.js derives its section list from it at call time.
+  var LIBRARY_GROUPS = [
+    { id: 'providers', section: 'providers', route: 'providers', collection: 'providers',
+      label: 'Model providers', emptyText: 'No model providers yet.',
+      failText: 'Couldn\u2019t load model providers.', icon: 'sparkles',
+      testid: 'provider-card', prefix: 'provider:' },
+    { id: 'knowledge', section: 'knowledge', route: 'knowledge', collection: 'knowledge-bases',
+      label: 'Knowledge bases', emptyText: 'No knowledge bases yet.',
+      failText: 'Couldn\u2019t load knowledge bases.', icon: 'database',
+      testid: 'knowledge-base-card', prefix: 'knowledge:' },
+    { id: 'mcp', section: 'mcp-sources', route: 'mcp', collection: 'mcp-sources',
+      label: 'MCP servers', emptyText: 'No MCP servers yet.',
+      failText: 'Couldn\u2019t load MCP servers.', icon: 'server',
+      testid: 'mcp-source-card', prefix: 'mcp:' },
+    { id: 'connectors', section: 'connectors', route: 'connectors', collection: 'connectors',
+      label: 'Connectors', emptyText: 'No connectors yet.',
+      failText: 'Couldn\u2019t load connectors.', icon: 'plug',
+      testid: 'connector-card', prefix: 'connector:' }
+  ];
+  window.App.studio.libraryGroups = function () {
+    return LIBRARY_GROUPS.map(function (g) {
+      var copy = {};
+      Object.keys(g).forEach(function (k) { copy[k] = g[k]; });
+      return copy;
+    });
+  };
+
   function create(ctx) {
     var self = ctx.self;
     var state = ctx.state;
@@ -57,24 +85,6 @@
     // plain-gets agents; studio activate on a Library section force-gets the
     // four; a move between Library sections fetches nothing; a mutation's
     // callback invalidates (the editor) and then reloadLibrary(name)s.
-    var LIBRARY_GROUPS = [
-      { id: 'providers', section: 'providers', route: 'providers', collection: 'providers',
-        label: 'Model providers', emptyText: 'No model providers yet.',
-        failText: 'Couldn\u2019t load model providers.', icon: 'sparkles',
-        testid: 'provider-card', prefix: 'provider:' },
-      { id: 'knowledge', section: 'knowledge', route: 'knowledge', collection: 'knowledge-bases',
-        label: 'Knowledge bases', emptyText: 'No knowledge bases yet.',
-        failText: 'Couldn\u2019t load knowledge bases.', icon: 'database',
-        testid: 'knowledge-base-card', prefix: 'knowledge:' },
-      { id: 'mcp', section: 'mcp-sources', route: 'mcp', collection: 'mcp-sources',
-        label: 'MCP servers', emptyText: 'No MCP servers yet.',
-        failText: 'Couldn\u2019t load MCP servers.', icon: 'server',
-        testid: 'mcp-source-card', prefix: 'mcp:' },
-      { id: 'connectors', section: 'connectors', route: 'connectors', collection: 'connectors',
-        label: 'Connectors', emptyText: 'No connectors yet.',
-        failText: 'Couldn\u2019t load connectors.', icon: 'plug',
-        testid: 'connector-card', prefix: 'connector:' }
-    ];
     // The Library start page (DD15): one block per type, in LIBRARY_GROUPS order.
     var LIBRARY_EMPTY = {
       providers: {
@@ -112,8 +122,7 @@
 
     // `library` is the root pseudo-section (DD1): the start page, no group.
     function isLibrarySection(section) {
-      return section === 'library' || section === 'providers' || section === 'knowledge' || section === 'mcp-sources' ||
-        section === 'connectors';
+      return section === 'library' || libraryGroupFor(section) !== null;
     }
 
     function libraryGroupFor(section) {

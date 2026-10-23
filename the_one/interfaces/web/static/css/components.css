@@ -391,9 +391,8 @@
      that runs to the container's edge. The retired eyebrow is back, by
      operator decision (an accepted SC8 deviation from the reference spec
      section 3). Every .section-title takes this one treatment whatever its
-     element (h2 keeps only its heading semantics, D6). Opt out with
-     .section-title--plain (a path, a gallery sample: text that is not a
-     section header). The shared caption block below uses the same recipe. */
+     element (h2 keeps only its heading semantics, D6). The shared caption
+     block below uses the same recipe. */
   .section-title {
     display: flex;
     align-items: center;
@@ -417,20 +416,6 @@
      parent (`.editor-section`, `.tabpanel`, etc.) already supplies the
      top padding. */
   .section-title:first-child { margin-top: 0; }
-  /* Opt-out (D5): the old quiet label, 12px medium secondary ink, sentence
-     case, no rule. */
-  .section-title--plain,
-  .section-title--plain:first-child {
-    display: block;
-    margin: 24px 0 12px;
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: normal;
-    text-transform: none;
-    color: var(--fg-secondary);
-  }
-  .section-title--plain:first-child { margin-top: 0; }
-  .section-title--plain::after { content: none; }
 
   /* === Button vocabulary (M17 F3 — one vocabulary, four variants;
      restyled deep violet in M25 F1 L3, DD6) ===
@@ -567,6 +552,7 @@
   .chip { background: var(--accent-translucent); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
   /* === App.ui.chip (M31 F1 L5): display-only; .chip--danger and .chip--sm follow .chip === */
   .chip--danger { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
+  .chip--warning { background: var(--status-warning-bg-soft); border-color: var(--status-warning); color: var(--status-warning); }
   .chip--sm { font-size: var(--font-size-tiny); padding: 2px 8px; }
   .chip-remove { cursor: pointer; color: var(--status-danger); font-size: var(--font-size-tiny); border-radius: 3px; transition: color 0.2s, background-color 0.2s; background: transparent; border: none; padding: 0; }
   /* Resting color is --status-danger (M18 F3 L1 A3 contrast fix — must clear
@@ -1442,6 +1428,9 @@
   .indicator-led--danger { background-color: var(--status-danger); }
   .indicator-led--idle { background-color: var(--fg-muted); }
   .ui-status { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+  /* textTone: the text takes the state's own gated text token (status text on bg and surface). */
+  .ui-status--tone[data-state="danger"] .ui-status-text { color: var(--status-danger); }
+  .ui-status--tone[data-state="warning"] .ui-status-text { color: var(--status-warning); }
 
   /* Retrofit: .test-result-* gets the LED dot via ::before so existing
      connection-test consumers (provider editor, agent editor) pick it up
@@ -1588,33 +1577,12 @@
   .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .api-key-eye svg { width: 14px; height: 14px; display: block; }
 
-  /* === Advanced collapsible (Coming-soon stub disclosure) === */
-  /* Native <details>/<summary> for accessibility (keyboard-operable, screen
-     readers announce expand/collapse, zero-JS). The Advanced section in
-     the General tab (F5 leg 03) is a stub for provider-bound config to
-     land in a future flight. */
-  .advanced-collapsible {
-    margin-top: 16px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-  .advanced-collapsible > summary {
-    cursor: pointer;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    padding: 4px 0;
-  }
-  .advanced-collapsible > summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .advanced-collapsible[open] > summary { color: var(--fg); }
-  .advanced-caption {
-    font-size: var(--font-size-caption);
-    color: var(--fg-muted);
-    font-style: italic;
-    margin-top: 8px;
-  }
+  /* === App.ui.clearableInput (M31 F3 L03b): a text input with an in-field clear button ===
+     .ui-clearable is the positioned wrapper; the clear button sits at the inline end and
+     the input reserves room for it so a long value never runs under it. */
+  .ui-clearable { position: relative; display: block; }
+  .ui-clearable-input { width: 100%; padding-inline-end: 32px; }
+  .ui-clearable-clear { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); }
 
   /* === Code block primitive ===
      Reusable read-only code/prompt artifact. Theme-aware via tokens:
@@ -2380,6 +2348,114 @@
   .ui-copy-field .field-input { flex: 1; min-width: 0; }
   .ui-copy-field--mono .field-input { font-family: var(--font-family-mono); font-size: var(--font-size-caption); }
   .ui-copy-field .btn-outlined-primary { white-space: nowrap; }
+
+  /* === App.ui.keyValueTable (M31 F3 L04, flight DD4) ===
+     Owned by the control. Copies the MCP editor's key-value table look (studio.css keeps
+     its .mcp-kv-* and .kv-remove-row-btn rules as intentional duplicates until Flight 5).
+     The remove button is a library icon-only ghost button; .ui-kv .ui-kv-remove outweighs
+     .btn-icon and .btn-ghost (and their hover) to restore the legacy ~24px transparent look. */
+  .ui-kv-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
+  .ui-kv-head th {
+    text-align: left;
+    padding: 4px 8px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .ui-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
+  .ui-kv-input--mono { font-family: var(--font-family-mono); }
+  .ui-kv-error { margin-top: 2px; font-size: var(--font-size-caption); color: var(--status-danger); }
+  .ui-kv .ui-kv-remove,
+  .ui-kv .ui-kv-remove:hover {
+    width: auto;
+    height: auto;
+    background: transparent;
+    border: 0;
+    padding: 4px;
+    line-height: 0;
+  }
+  .ui-kv .ui-kv-remove { color: var(--fg-secondary); transition: color var(--motion-fast) ease; }
+  .ui-kv .ui-kv-remove:hover { color: var(--status-danger); }
+  .ui-kv .ui-kv-remove svg { width: 16px; height: 16px; display: block; }
+
+  /* === App.ui.disclosure (M31 F3 L03a, flight DD4) ===
+     Owned by the control. bordered copies the folder-panel / .mcp-tool-item look
+     (studio.css keeps its .mcp-tool-* rules as intentional duplicates for the MCP
+     editor and the knowledge panels); plain copies the retired advanced-disclosure
+     look minus its margin (the caller owns spacing). */
+  .ui-disclosure--bordered {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    transition: border-color var(--motion-fast);
+  }
+  .ui-disclosure--bordered:hover { border-color: var(--accent); }
+  .ui-disclosure--bordered > .ui-disclosure-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    font-size: var(--font-size-body-sm);
+  }
+  .ui-disclosure--bordered > .ui-disclosure-summary::-webkit-details-marker { display: none; }
+  .ui-disclosure--bordered > .ui-disclosure-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .ui-disclosure-text { min-width: 0; }
+  .ui-disclosure--bordered .ui-disclosure-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ui-disclosure-actions { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  /* Load-bearing: Blink tests the click's target node, so an <svg> inside an action
+     would reach the summary and toggle the details. */
+  .ui-disclosure-actions svg { pointer-events: none; }
+  .ui-disclosure-chevron {
+    display: inline-block;
+    transition: transform var(--motion-fast);
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+  }
+  .ui-disclosure--bordered[open] > .ui-disclosure-summary .ui-disclosure-chevron { transform: rotate(90deg); }
+  .ui-disclosure--bordered > .ui-disclosure-summary:hover .ui-disclosure-chevron { color: var(--accent); }
+  .ui-disclosure--bordered > .ui-disclosure-body {
+    padding: 8px 12px 10px;
+    border-top: 1px dashed var(--border);
+  }
+  .ui-disclosure--plain {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  .ui-disclosure--plain > .ui-disclosure-summary {
+    cursor: pointer;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    padding: 4px 0;
+  }
+  .ui-disclosure--plain > .ui-disclosure-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .ui-disclosure--plain[open] > .ui-disclosure-summary { color: var(--fg); }
+  /* The armed two-step confirm on a summary (App.ui.confirm armed on ctl.summary). */
+  .ui-disclosure--bordered:has(> .ui-disclosure-summary.confirm-delete) {
+    border-color: var(--status-danger);
+  }
+  .ui-disclosure-summary.confirm-delete [data-confirm-title] { color: var(--status-danger); }
+  .ui-disclosure-summary.confirm-delete .ui-disclosure-actions > *,
+  .ui-disclosure-summary.confirm-delete .ui-disclosure-actions svg {
+    color: var(--status-danger);
+  }
 }
 
 @layer utilities {

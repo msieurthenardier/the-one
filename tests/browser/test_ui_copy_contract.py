@@ -248,3 +248,25 @@ def test_consent_link_unsafe_url_renders_inert_notice(engine_page: Page, bad: st
     )
     assert out["safe"] is False and out["anchors"] == 0 and out["focus"] is True
     assert "isn't a web link" in out["note"]
+
+
+def test_copy_field_button_label_and_feedback(engine_page: Page) -> None:
+    """M31 F3 L03b: `buttonLabel` is the resting text and name; the name follows "Copied"."""
+    page = engine_page
+    _load(page)
+    page.evaluate(STUB_OK)
+    page.evaluate(
+        """() => {
+          window.f = App.ui.copyField({value: 'ABCD-1234', label: 'Pairing code', buttonLabel: 'Copy pairing code', copyTestid: 'pc'});
+          document.getElementById('harness-root').appendChild(f.el);
+        }"""
+    )
+    btn = page.get_by_test_id("pc")
+    expect(page.get_by_role("button", name="Copy pairing code", exact=True)).to_have_count(1)
+    assert btn.text_content() == "Copy pairing code" and btn.get_attribute("aria-label") is None
+    btn.click()
+    expect(page.get_by_role("button", name="Copied", exact=True)).to_have_count(1)
+    assert btn.text_content() == "Copied" and btn.get_attribute("aria-label") is None
+    page.clock.run_for(2100)
+    expect(page.get_by_role("button", name="Copy pairing code", exact=True)).to_have_count(1)
+    assert page.evaluate("() => window.written") == ["ABCD-1234"]

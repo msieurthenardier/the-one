@@ -1587,3 +1587,38 @@ def test_armed_confirm_button_consumes_the_gated_on_danger_pair() -> None:
     assert m, "the armed-button rule (with :hover and :focus-visible) was not found"
     assert "background: var(--status-danger)" in m.group(1)
     assert "color: var(--fg-on-danger)" in m.group(1)
+
+
+def test_chip_warning_consumes_the_gated_warning_pair() -> None:
+    """`.chip--warning` (App.ui.chip warning tone, M31 F3 L03b) must paint
+    `var(--status-warning)` text and border on the `var(--status-warning-bg-soft)` fill:
+    the EXACT pair gated by ``test_warning_text_on_soft_fill_passes_body_aa``. A novel
+    pair needs its own composite gate."""
+    import re
+    from pathlib import Path
+
+    css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/components.css"
+    ).read_text(encoding="utf-8")
+    m = re.search(r"\.chip--warning\s*\{([^}]*)\}", css)
+    assert m, ".chip--warning rule not found in components.css"
+    body = m.group(1)
+    assert "background: var(--status-warning-bg-soft)" in body
+    assert "color: var(--status-warning)" in body
+    assert "border-color: var(--status-warning)" in body
+
+
+def test_status_text_tone_consumes_the_gated_status_text_tokens() -> None:
+    """`.ui-status--tone` (App.ui.status textTone, M31 F3 L03b) colours text with
+    `--status-danger` / `--status-warning` only: the pairs gated on bg and surface by
+    ``test_status_text_passes_body_aa`` (and danger on elevated by its own test)."""
+    import re
+    from pathlib import Path
+
+    css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/components.css"
+    ).read_text(encoding="utf-8")
+    rules = re.findall(r"\.ui-status--tone\[data-state=\"(\w+)\"\][^{]*\{([^}]*)\}", css)
+    assert dict(rules).keys() == {"danger", "warning"}, rules
+    for state, body in rules:
+        assert body.strip() == f"color: var(--status-{state});", (state, body)

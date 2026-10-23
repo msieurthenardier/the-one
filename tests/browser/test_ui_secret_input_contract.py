@@ -190,3 +190,23 @@ def test_field_info_alone_is_wired_into_aria_describedby(engine_page: Page) -> N
         }""",
     )
     assert out == {"n": 1, "text": "Longer chats, slower"}
+
+
+def test_field_error_testid(engine_page: Page) -> None:
+    """M31 F3 L03b: `errorTestid` lands on the error node `setError` creates."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const i = App.ui.textInput({});
+          const f = App.ui.field({label: 'Name', control: i, hint: 'h', errorTestid: 'name-err'});
+          const g = App.ui.field({label: 'Other', control: App.ui.textInput({})});
+          document.getElementById('harness-root').append(f.el, g.el);
+          const before = f.el.querySelector('[data-testid="name-err"]');
+          f.setError('Required'); g.setError('Bad');
+          const el = f.el.querySelector('[data-testid="name-err"]');
+          f.setError('Still'); const same = f.el.querySelector('[data-testid="name-err"]') === el;
+          return {before, text: el.textContent, role: el.getAttribute('role'), same,
+                  plain: g.el.querySelector('.field-error').getAttribute('data-testid')};
+        }""",
+    )
+    assert out == {"before": None, "text": "Still", "role": "alert", "same": True, "plain": None}

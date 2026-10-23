@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
 """Studio agent-editor Tools-tab override tests (F6 leg 05/07 behaviors).
 
 Rewritten against post-M08-F4-rebrand markup in M17 F1 L02 and moved to the
@@ -305,6 +306,14 @@ def test_studio_override_narrow_superset_locked_chips(
     expect(locked_chips).to_have_count(2)
     # Locked chips render WITHOUT the remove button — not just hidden.
     expect(chip_list.locator('.chip[data-locked="true"] button')).to_have_count(0)
+    # M31 F3 L03c (DD8-6): the library look survives the area cascade: a locked chip is
+    # --surface-elevated at opacity 0.7, not the area's accent-translucent fill.
+    look = chip_list.locator('.chip[data-locked="true"]').first.evaluate(
+        """(el) => { const p = document.createElement('span'); p.style.backgroundColor = 'var(--surface-elevated)';
+          el.parentElement.appendChild(p); const want = getComputedStyle(p).backgroundColor; p.remove();
+          const cs = getComputedStyle(el); return {bg: cs.backgroundColor, want, opacity: cs.opacity}; }"""
+    )
+    assert look["bg"] == look["want"] and look["opacity"] == "0.7", look
 
 
 @pytest.mark.browser

@@ -277,7 +277,7 @@ def test_oauth_and_provider_mutations_invalidate_providers() -> None:
 
 def test_cross_collection_mutations_invalidate_agents() -> None:
     for rel, minimum in (
-        ("areas/studio/knowledge-section.js", 2),
+        ("areas/studio/knowledge-detail.js", 2),  # M31 F3 L02: rename and delete
         ("areas/studio/mcp-server-editor.js", 2),
         # M31 F2 L02a: the self-configuration refresh site moved to agent-data (1);
         # M31 F2 L03: the four editor sites (create, rename, save, delete) moved to
@@ -295,19 +295,19 @@ def test_cross_collection_mutations_invalidate_agents() -> None:
 # invalidation sits on the success path between the request and the callback.
 INVALIDATION_ROWS = (
     (  # knowledge base: create
-        "areas/studio/knowledge-section.js",
-        "fetch('/api/knowledge-bases', {",
+        "areas/studio/knowledge-create.js",
+        "App.api.fetchJson('/api/knowledge-bases', {",  # M31 F3 L05a: fetchJson form
         "onCreateSuccess(kb)",
         ("knowledge-bases",),
     ),
     (  # knowledge base: rename
-        "areas/studio/knowledge-section.js",
+        "areas/studio/knowledge-detail.js",
         "method: 'PUT',",
         "callbacks.onSaveSuccess(updated)",
         ("knowledge-bases", "agents"),
     ),
     (  # knowledge base: delete
-        "areas/studio/knowledge-section.js",
+        "areas/studio/knowledge-detail.js",
         "encodeURIComponent(kb.id), { method: 'DELETE' })",
         "callbacks.onDeleteSuccess()",
         ("knowledge-bases", "agents"),
@@ -350,7 +350,7 @@ INVALIDATION_ROWS = (
     ),
     (  # connector: delete
         "areas/studio/connector-editor.js",
-        "encodeURIComponent(cfg.id), { method: 'DELETE' })",
+        "encodeURIComponent(cfg.id), { method: 'DELETE' }",
         "callbacks.onDeleteSuccess()",
         ("connectors",),
     ),

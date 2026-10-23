@@ -12,7 +12,6 @@ Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 - Refresh on .../{tab} returns the user to that tab
 - Tools tab renders the built-in tool checkboxes (interactive)
 - Knowledge tab renders the real attach surface (M24 F06 L03)
-- Advanced collapsible: visible, disabled inputs, "Coming soon" caption
 - Test button: disabled when no provider; click triggers fetch and renders
   the result in the status line (data-state)
 """

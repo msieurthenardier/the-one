@@ -16,6 +16,8 @@ Uses starlette.testclient.TestClient (already transitive via FastAPI).
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -47,60 +49,79 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # A CSS ref is versioned too.
     assert f'href="/static/css/base.css?v={__version__}"' in body
 
-    # All 73 /static js/css refs are versioned and none are double-suffixed.
-    # (Mission 23 Flight 1 Leg 2 deleted the 9 connector-subsystem script
-    # tags, dropping the count from 62 to 53; Mission 23 Flight 2 Leg 2 adds
-    # the ONE new connector-editor.js script tag back, to 54; Mission 24
-    # Flight 6 Leg 4 adds ONE new knowledge-settings-page.js script tag, to
-    # 55; Mission 25 Flight 1 Leg 2 adds the four static/js/ui/ control-library
-    # script tags, to 59; Mission 25 Flight 1 Leg 4 adds the choice.js and
-    # feedback.js control-library script tags, to 61; Leg 5 adds the menu.js tag, to 62;
-    # Leg 6 swaps two gallery section tags for ui-demo.js plus six ui-*-section.js
-    # tags, to 67; Mission 25 Flight 2 Leg 2 adds ui/modal.js and swaps modal-section.js for
-    # ui-modal-section.js, to 68; Mission 25 Flight 2 Leg 3 adds router.js, to 69;
-    # Leg 5 adds nav.js, to 70; Leg 6 adds ui/rail.js, to 71; Leg 7 adds store.js, to 72;
-    # Mission 25 Flight 3 Leg 1 adds ui/nav-groups.js, to 73; Leg 4a deletes
-    # areas/studio/mcp-servers-grid.js with the retired MCP tile grid, to 72;
-    # Leg 5a deletes areas/layout/section-nav.js, whose last caller (the
-    # Settings section nav) App.ui.navGroups replaced, to 71; Leg 5b swaps
-    # areas/admin/providers-grid.js for areas/admin/providers-table.js (the
-    # Providers tile grid became the reference spec 8.2 table), still 71;
-    # Leg 7 renames it providers-list.js when the list returned to tiles by
-    # operator decision, still 71; Mission 25 Flight 4 Leg 1 adds ui/search-list.js
-    # and the design-language ui-search-section.js, to 73; Leg 3b adds
-    # areas/chat/session-state.js, to 74; Leg 4a deletes areas/chat/history-buckets.js
-    # and adds areas/chat/chats-list.js and areas/chat/agent-picker.js, to 75;
-    # Leg 4b deletes areas/chat/welcome.js (folded into the pane) and adds
-    # areas/chat/composer.js and areas/chat/chat-pane.js, to 76; Leg 6 adds
-    # ui/drawer.js, tool-categories.js, areas/chat/agent-drawer.js and the
-    # design-language ui-drawer-section.js, to 80; Leg 7 adds settings-pages.js
-    # and jump-to.js, to 82; M25 F6 L1b adds focus-after.js, to 83; squawk 0128 adds
-    # time.js and mcp-error.js, to 85; M27 F1 L2 adds areas/studio/rules-notes-tab.js, to 86;
-    # M28 F2 L3 adds areas/admin/date-time-page.js, to 87; sortie 02 L1 adds
-    # areas/studio/providers-section.js, to 88; provider-editor.js and provider-models.js
-    # move from areas/admin/ to areas/studio/, still 88; sortie 02 L2 deletes
-    # areas/admin/providers-list.js with the Settings Providers page, to 87; sortie 04
-    # adds consent-link.js, to 88; M31 F1 L1 deletes the Design language page's 17
-    # scripts (design-language-page.js and the 16 design-language/*.js), to 71;
-    # M31 F1 L4 adds ui/editor.js and moves confirm.js to ui/confirm.js (neutral), to 72;
-    # M31 F1 L5 adds ui/copy.js and moves consent-link.js to ui/consent-link.js, to 73;
-    # M31 F2 L02a adds areas/studio/studio-route.js and areas/studio/agent-data.js, to 75
-    # (2026-10-21); M31 F2 L02b adds areas/studio/{library-pane,knowledge-glue,mcp-glue,
-    # connector-glue}.js, to 79 (2026-10-21); M31 F2 L03 adds areas/studio/{agent-form-data,
-    # agent-model-picker,agent-editor-controller,agents-list}.js, to 83 (2026-10-21);
-    # M31 F2 L04 adds ui/{tabs,tile,chip-list}.js, to 86 (2026-10-21);
-    # M31 F2 L08b adds areas/studio/tool-override-fields.js, to 87 (2026-10-21);
-    # M31 F2 L10b adds areas/studio/self-config-{history,revisions,external,status}.js, to 91
-    # (2026-10-21); M31 F2 L11 splits areas/studio/rules-notes-tab.js into
-    # rules-notes-{shared,tab}.js and notes-section.js, to 93 (2026-10-21).)
-    import re
+    check_static_refs(body)
 
-    refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 93
-    for ref in refs:
-        assert f"?v={__version__}" in ref
-        assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix
-        assert ref.count("?v=") == 1
+
+_REF_RE = re.compile(r'(?:src|href)="(/static/[^"?]*?\.(?:js|css))([^"]*)"')
+
+
+def check_static_refs(body: str) -> None:
+    """Assert the served index's static refs are well formed (squawk 0233).
+
+    Pins existence, a single ``?v=``, no duplicates and the relative load order
+    of the scripts; never an exact count (git log holds the history of the count).
+    """
+    refs = _REF_RE.findall(body)
+    assert refs, "no /static refs found"
+    paths = [path for path, _ in refs]
+    assert len(paths) == len(set(paths)), (
+        f"duplicate refs: {sorted({p for p in paths if paths.count(p) > 1})}"
+    )
+    for path, query in refs:
+        assert (STATIC_DIR / path.removeprefix("/static/")).is_file(), f"{path} not on disk"
+        assert query == f"?v={__version__}", f"{path} has query {query!r}"
+
+    js = [p.removeprefix("/static/") for p in paths if p.endswith(".js")]
+
+    def first(pred) -> int:
+        return next(i for i, p in enumerate(js) if pred(p))
+
+    def last(pred) -> int:
+        return max(i for i, p in enumerate(js) if pred(p))
+
+    assert "js/ui/core.js" in js
+    core = js.index("js/ui/core.js")
+    for i, p in enumerate(js):
+        if p.startswith("js/ui/") and p != "js/ui/core.js":
+            assert core < i, f"js/ui/core.js must load before {p}"
+    last_ui = last(lambda p: p.startswith("js/ui/"))
+    first_area = first(lambda p: p.startswith("js/areas/"))
+    assert last_ui < first_area, "every js/ui/*.js must load before any js/areas/**"
+    for shell, prefix in (
+        ("js/areas/studio.js", "js/areas/studio/"),
+        ("js/areas/chat.js", "js/areas/chat/"),
+    ):
+        assert shell in js, shell
+        for i, p in enumerate(js):
+            if p.startswith(prefix):
+                assert i < js.index(shell), f"{p} must load before the shell {shell}"
+
+
+def test_static_ref_check_rejects_a_missing_script() -> None:
+    with TestClient(app, headers=auth_headers()) as client:
+        body = client.get("/").text
+    bad = body.replace("js/ui/tabs.js?v=", "js/ui/no-such-file.js?v=", 1)
+    with pytest.raises(AssertionError, match="not on disk"):
+        check_static_refs(bad)
+
+
+def test_static_ref_check_rejects_an_area_script_above_ui_core() -> None:
+    with TestClient(app, headers=auth_headers()) as client:
+        body = client.get("/").text
+    core = f'<script src="/static/js/ui/core.js?v={__version__}"></script>'
+    area = f'<script src="/static/js/areas/chat/composer.js?v={__version__}"></script>'
+    assert core in body and area in body
+    bad = body.replace(area, "", 1).replace(core, area + core, 1)
+    with pytest.raises(AssertionError, match="must load before"):
+        check_static_refs(bad)
+
+
+def test_static_ref_check_rejects_a_duplicate_ref() -> None:
+    with TestClient(app, headers=auth_headers()) as client:
+        body = client.get("/").text
+    tag = f'<script src="/static/js/ui/tabs.js?v={__version__}"></script>'
+    with pytest.raises(AssertionError, match="duplicate"):
+        check_static_refs(body.replace(tag, tag + tag, 1))
 
 
 def test_index_disk_file_unchanged() -> None:

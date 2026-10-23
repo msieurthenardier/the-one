@@ -286,3 +286,76 @@ def test_progress_cancel_name_callback_and_tab_order(engine_page: Page) -> None:
     expect(cancel).to_be_disabled()
     page.evaluate("() => p.setCancelDisabled(false)")
     expect(cancel).to_be_enabled()
+
+
+def test_chip_dataset_and_warning_tone(engine_page: Page) -> None:
+    """M31 F3 L03b: `dataset` copies to data-*, `tone: 'warning'` mirrors the danger recipe
+    (soft fill, border and text from the gated pair), and an unknown tone still throws."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const a = App.ui.chip({label: 'indexed', dataset: {status: 'indexed', testid: 'ignored'}, testid: 'kb-status-count'});
+          const w = App.ui.chip({label: 'standalone', tone: 'warning', size: 'sm'});
+          const d = App.ui.chip({label: 'no tools', tone: 'danger'});
+          [a, w, d].forEach((n) => root.appendChild(n));
+          const probe = document.createElement('span'); probe.style.color = 'var(--status-warning)';
+          probe.style.backgroundColor = 'var(--status-warning-bg-soft)'; root.appendChild(probe);
+          const pc = getComputedStyle(probe); const cw = getComputedStyle(w); const cd = getComputedStyle(d);
+          let err = '';
+          try { App.ui.chip({label: 'x', tone: 'loud'}); } catch (e) { err = e.message; }
+          return {status: a.getAttribute('data-status'), tid: a.getAttribute('data-testid'), cls: w.className,
+                  color: cw.color === pc.color, bg: cw.backgroundColor === pc.backgroundColor,
+                  border: cw.borderTopColor === pc.color, cursor: cw.cursor, dangerCursor: cd.cursor,
+                  differs: cw.color !== cd.color, err};
+        }""",
+    )
+    assert out["status"] == "indexed" and out["tid"] == "kb-status-count"
+    assert out["cls"] == "chip chip--warning chip--sm"
+    assert out["color"] and out["bg"] and out["border"] and out["differs"]
+    assert out["cursor"] != "help" and out["dangerCursor"] == "help"
+    assert "unknown tone" in out["err"]
+
+
+def test_status_led_testid(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const s = App.ui.status({text: 'Not connected', state: 'danger', testid: 'a', ledTestid: 'b'});
+          const n = App.ui.status({text: 'No LED', state: 'idle', led: false, testid: 'c', ledTestid: 'd'});
+          root.appendChild(s.el); root.appendChild(n.el);
+          s.set('success', 'Connected');
+          const led = s.el.querySelector('.indicator-led');
+          return {root: s.el.getAttribute('data-testid'), led: led.getAttribute('data-testid'),
+                  state: s.el.getAttribute('data-state'), hidden: led.getAttribute('aria-hidden'),
+                  cls: led.className, ignored: n.el.querySelector('[data-testid="d"]') === null,
+                  noLed: n.el.querySelector('.indicator-led') === null};
+        }""",
+    )
+    assert out == {
+        "root": "a", "led": "b", "state": "success", "hidden": "true",
+        "cls": "indicator-led indicator-led--success", "ignored": True, "noLed": True,
+    }  # fmt: skip
+
+
+def test_status_text_tone(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const col = (v) => { const p = document.createElement('span'); p.style.color = v; root.appendChild(p); return getComputedStyle(p).color; };
+          const mk = (o) => { const s = App.ui.status(o); root.appendChild(s.el); return s; };
+          const tone = mk({led: false, textTone: true, state: 'danger', text: 'Failed'});
+          const plain = mk({led: false, state: 'danger', text: 'Failed'});
+          const warn = mk({led: false, textTone: true, state: 'warning', text: 'Careful'});
+          const ok = mk({led: false, textTone: true, state: 'success', text: 'Fine'});
+          const c = (s) => getComputedStyle(s.el.querySelector('.ui-status-text')).color;
+          const before = c(tone);
+          tone.set('idle', 'Idle');
+          return {tone: before === col('var(--status-danger)'), plain: c(plain) === col('var(--fg-secondary)'),
+                  warn: c(warn) === col('var(--status-warning)'), ok: c(ok) === col('var(--fg-secondary)'),
+                  idle: c(tone) === col('var(--fg-secondary)')};
+        }""",
+    )
+    assert out == {"tone": True, "plain": True, "warn": True, "ok": True, "idle": True}

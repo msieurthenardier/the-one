@@ -87,7 +87,8 @@
   // and a Copy button in one row (div.ui-copy-field).
   //   value, label (the input's accessible name), mono (default true), extra (a
   //   node or array of nodes between the input and the button), inputClass,
-  //   rowClass, copyClass, liveEl, doneText, failText (passed to copyButton).
+  //   buttonLabel (the button's resting text and name, default "Copy"), rowClass,
+  //   copyClass, liveEl, doneText, failText (passed to copyButton).
   //   Test ids: the testid option on the input, copyTestid on the button.
   App.ui.copyField = function (opts) {
     opts = opts || {};
@@ -100,6 +101,7 @@
       text: function () { return input.value; },
       selectEl: input,
       testid: opts.copyTestid,
+      label: opts.buttonLabel,
       className: opts.copyClass,
       liveEl: opts.liveEl,
       doneText: opts.doneText,

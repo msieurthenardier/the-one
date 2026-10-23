@@ -68,21 +68,67 @@
       );
     }
 
+    // M31 F3 L05a (DD5): ONE mountSlot covers the create form and the detail
+    // mount, keyed by `handleKey` ('create', 'kb:' + id, or null at the section
+    // root). A render with the SAME key is a no-op for the editor (it only
+    // re-syncs the list selection), so the editor and its unsaved edits survive a
+    // list notification or a Save; a different key tears the old mount down
+    // (`destroy`, then the host clears with replaceChildren) before the new one
+    // mounts. The key is set before the async load; a failed load or a load that
+    // finds the knowledge base gone releases it, so a same-route render retries.
+    // `reset()` (leaving the area, closing the open item) destroys the handle and
+    // nulls the key. `isCurrent(token)` is every late callback's gate.
+    var slot = App.ui.util.mountSlot();
+    var handleKey = null;
+
+    function teardown() {
+      clearKnowledgePoll();
+      slot.destroy(); // runs the mount's destroyFn: handle.destroy()
+      handleKey = null;
+      state.knowledgeDetailHandle = null;
+    }
+
+    // Mounts a destroyable slot entry whose handle is assigned later.
+    function beginMount() {
+      var box = { handle: null };
+      box.token = slot.mount(function () {
+        if (box.handle && box.handle.destroy) box.handle.destroy();
+      });
+      return box;
+    }
+
+    function setHandle(box, handle) {
+      box.handle = handle;
+      state.knowledgeDetailHandle = handle;
+    }
+
+    function statusLine(kind, text) {
+      var line = kind === 'danger'
+        ? App.ui.status({ state: 'danger', led: false, role: 'alert', textTone: true })
+        : App.ui.status({ state: 'pending', led: false, live: 'off' });
+      line.set(kind, text);
+      return line.el;
+    }
+
     function renderKnowledgeSection() {
-      sectionContentEl.innerHTML = '';
-      if (state.kbCreateMode) {
-        clearKnowledgePoll();
-        state.knowledgeDetailHandle = null;
+      var key = state.kbCreateMode ? 'create'
+        : (self._selectedKbId ? 'kb:' + self._selectedKbId : null);
+      if (key !== null && key === handleKey) {
+        // Same route, same editor: leave it (and its unsaved edits) alone.
+        syncLibrarySelection(false);
+        return;
+      }
+      // L1-D2 site 3: every different mount -- including leaving the detail
+      // view for the section root (direct nav, the breadcrumb's group link,
+      // browser Back, delete) -- routes through here and stops the old poll.
+      teardown();
+      sectionContentEl.replaceChildren();
+      handleKey = key;
+      if (key === 'create') {
         renderKnowledgeCreateView();
-      } else if (self._selectedKbId) {
+      } else if (key) {
         renderKnowledgeDetailView(self._selectedKbId);
       } else {
-        // L1-D2 site 3: leaving the detail view for the section root stops the
-        // poll -- covered here since every root mount (direct nav, the
-        // breadcrumb's group link, browser Back, delete) routes through this
-        // branch.
-        clearKnowledgePoll();
-        state.knowledgeDetailHandle = null;
         renderLibraryEmpty();
       }
       syncLibrarySelection(false);
@@ -95,14 +141,14 @@
     // replaces to the section root.
     function renderKnowledgeCreateView() {
       state.dirty = false;
-      var kbGen = state.editorGen;
+      var box = beginMount();
       function stillOnCreate() {
         var cur = App.router.current();
-        return kbGen === state.editorGen && state.kbCreateMode && !!cur &&
+        return slot.isCurrent(box.token) && state.kbCreateMode && !!cur &&
           cur.route === 'library/knowledge/' + '~new';
       }
-      App.studio.renderKnowledgeCreate(sectionContentEl, {
-        onDirtyChange: function (d) { if (kbGen === state.editorGen) state.dirty = d; },
+      setHandle(box, App.studio.renderKnowledgeCreate(sectionContentEl, {
+        onDirtyChange: function (d) { if (slot.isCurrent(box.token)) state.dirty = d; },
         onCancel: function () {
           discardOpen_();
           App.router.go(App.router.href({ destination: 'library' }),
@@ -114,7 +160,8 @@
         // the user is still on this form, since the flag is shared by every
         // studio editor -- then await the store reload (the row exists and the
         // router can name the new item), then, still on this form and with no
-        // decision pending, replace ~new with the new item.
+        // decision pending, replace ~new with the new item. If open() bails
+        // (the user moved, or a guard is deciding) the form stays busy, as before.
         onCreateSuccess: function (kb) {
           if (stillOnCreate()) state.dirty = false;
           var open = function () {
@@ -125,7 +172,7 @@
           };
           reloadLibrary('knowledge-bases').then(open, open);
         }
-      });
+      }));
     }
 
     self._focusKbCreate = function () { pane.focusCreate('knowledge'); };
@@ -148,9 +195,6 @@
     }
 
     function renderKnowledgeDetailView(kbId) {
-      // Opening another knowledge base stops the previous one's poll at once.
-      clearKnowledgePoll();
-      state.knowledgeDetailHandle = null;
       // The create form's folder-focus request applies to its own new item
       // only (it survives the create form's closeOpenItem on the way here).
       if (state.kbFocusFolderFor !== kbId) state.kbFocusFolderFor = null;
@@ -159,8 +203,9 @@
       var skipCache = self._kbFresh === true;
       self._kbFresh = false;
       var cached = skipCache ? null : findKnowledgeBase(kbId);
+      var box = beginMount();
       if (cached) {
-        mountKnowledgeDetail(cached);
+        mountKnowledgeDetail(cached, box);
         return;
       }
       // Not in the section cache (e.g. a direct hash-load on
@@ -173,20 +218,22 @@
           return r.json();
         })
         .then(function (kb) {
-          if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
-          mountKnowledgeDetail(kb);
+          if (!slot.isCurrent(box.token)) return;
+          mountKnowledgeDetail(kb, box);
         })
         .catch(function () {
           // Unknown/deleted id — heal the URL to the section root in place (a
           // detail LOAD that finds the item gone) and show the root.
-          if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+          if (!slot.isCurrent(box.token)) return;
+          handleKey = null; // released: a same-route render retries
           self._selectedKbId = null;
           setActiveSection('library');
         });
     }
 
-    function mountKnowledgeDetail(kb) {
-      sectionContentEl.innerHTML = '<div class="admin-loading">Loading knowledge base…</div>';
+    function mountKnowledgeDetail(kb, box) {
+      sectionContentEl.replaceChildren(statusLine('pending', 'Loading knowledge base…'));
+      var token = box.token;
       Promise.all([
         fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) + '/status')
           .then(function (r) {
@@ -201,8 +248,8 @@
           })
       ]).then(function (results) {
         // Stale-then guard: bail if the user navigated away, or to a
-        // different knowledge base, mid-fetch.
-        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
+        // different knowledge base, mid-fetch (the slot token is no longer current).
+        if (!slot.isCurrent(token)) return;
         lastKnownItemsSignature = knowledgeItemsSignature(results[0]);
         // F6 L5 (L5-D3): reset the orchestrator's dirty mirror BEFORE the
         // detail view mounts — mirrors the mcp-sources/connectors editor
@@ -210,8 +257,8 @@
         // The fresh render closure starts clean; onDirtyChange only fires
         // on the operator's first edit-form input.
         state.dirty = false;
-        var kbGen = state.editorGen;
-        state.knowledgeDetailHandle = App.studio.renderKnowledgeDetail(
+        sectionContentEl.replaceChildren(); // the loading line goes
+        setHandle(box, App.studio.renderKnowledgeDetail(
           sectionContentEl, kb, { status: results[0], items: results[1] },
           {
             // Back is retired (M25 F3 L4b, DD2): the header breadcrumb's
@@ -221,29 +268,26 @@
             // now at its index (the next, else the previous), else Add. The
             // index is read first, while the row is still listed.
             onDeleteSuccess: function () {
+              if (!slot.isCurrent(token)) return;
               var rowIndex = libraryRowIndex('knowledge:' + kb.id);
               leaveKnowledgeDetail_();
               reloadLibrary('knowledge-bases').then(function () { focusLibraryRowNear(rowIndex); });
             },
-            // F6 L3 (L3-D5), carried by F6 L5's Name+Description edit form
-            // (L5-D2): re-mount the detail view from the saved object —
-            // refreshes the header title and re-fetches status/items. The
-            // module invalidated the collection, so the list's row follows
-            // the rename (M25 F3 L4a: reloadLibrary, no manual cache patch).
-            onSaveSuccess: function (updatedKb) {
-              if (kbGen !== state.editorGen) return; // discarded mid-save: no resurrection
+            // L05a: Save patches the mounted frame in place (the module wrote the
+            // title, subtitle and fields from the saved record); the glue only
+            // reloads the Library list so the row follows the rename (M25 F3
+            // L4a: reloadLibrary, no manual cache patch). No remount.
+            onSaveSuccess: function () {
+              if (!slot.isCurrent(token)) return; // discarded mid-save: no resurrection
               reloadLibrary('knowledge-bases');
-              mountKnowledgeDetail(updatedKb);
             },
             // F6 L5 (L5-D3): bridges the edit form's dirty state into the
             // orchestrator's closure `dirty`, consumed by
-            // the App.nav source's `isDirty` (`editorOpen`) — mirrors the
-            // mcp-sources/connectors `onDirtyChange: function (d) { dirty = d; }`
-            // pattern already established below.
-            onDirtyChange: function (d) { state.dirty = d; }
+            // the App.nav source's `isDirty` (`editorOpen`).
+            onDirtyChange: function (d) { if (slot.isCurrent(token)) state.dirty = d; }
           }
-        );
-        startKnowledgePoll(kb.id);
+        ));
+        startKnowledgePoll(kb.id, token);
         // A just-created knowledge base (squawk 0101): registering a folder is
         // always the next step, and the form the user was typing in is gone.
         if (state.kbFocusFolderFor === kb.id) {
@@ -251,16 +295,16 @@
           var folderInput = sectionContentEl.querySelector('[data-testid="kb-folder-path-input"]');
           if (folderInput) folderInput.focus();
         }
-        App.focusAfter.flush();
       }).catch(function (err) {
-        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
+        if (!slot.isCurrent(token)) return;
+        handleKey = null; // released: a same-route render retries
         if (err && err.gone) {
           // Cached KB deleted meanwhile: same heal as a 404 on the detail GET.
           self._selectedKbId = null;
           setActiveSection('library');
           return;
         }
-        sectionContentEl.innerHTML = '<div class="admin-loading">Failed to load knowledge base.</div>';
+        sectionContentEl.replaceChildren(statusLine('danger', 'Failed to load knowledge base.'));
       });
     }
 
@@ -273,10 +317,10 @@
       }
     }
 
-    function startKnowledgePoll(kbId) {
+    function startKnowledgePoll(kbId, token) {
       clearKnowledgePoll(); // single handle — never stack timers across re-renders
       self._knowledgePollTimer = setInterval(function () {
-        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) {
+        if (!slot.isCurrent(token)) {
           clearKnowledgePoll();
           return;
         }
@@ -288,7 +332,7 @@
               // return to the section root rather than leaving a dead view
               // or looping on the error.
               clearKnowledgePoll();
-              if (self._activeSection === 'knowledge' && self._selectedKbId === kbId) {
+              if (slot.isCurrent(token)) {
                 leaveKnowledgeDetail_();
               }
               return null;
@@ -298,7 +342,7 @@
           })
           .then(function (status) {
             if (!status) return; // 404 branch above already handled it
-            if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+            if (!slot.isCurrent(token)) return;
             if (state.knowledgeDetailHandle) state.knowledgeDetailHandle.updateStatus(status);
             // kb-studio-round-trip remediation FIX 1: invalidate the items
             // list only when the counts it was last rendered against have
@@ -315,7 +359,7 @@
                   return r2.json();
                 })
                 .then(function (freshItems) {
-                  if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+                  if (!slot.isCurrent(token)) return;
                   if (state.knowledgeDetailHandle && state.knowledgeDetailHandle.updateItems) {
                     state.knowledgeDetailHandle.updateItems(freshItems);
                   }
@@ -336,10 +380,9 @@
 
     return {
       render: renderKnowledgeSection,
-      reset: function () {
-        clearKnowledgePoll();
-        state.knowledgeDetailHandle = null;
-      },
+      // Destroys the open handle (create or detail), stops the poll and nulls the
+      // key; the host is cleared by the next render (or by the area).
+      reset: teardown,
       isOpen: function () { return !!(self._selectedKbId || state.kbCreateMode); },
       clearPoll: clearKnowledgePoll,
       itemsSignature: knowledgeItemsSignature

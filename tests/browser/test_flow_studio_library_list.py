@@ -14,7 +14,7 @@ that hosts the three editors. Covers:
   click asks once, delete replaces to the section root and moves focus (DD8),
   and the list follows create / rename / delete with no reload;
 * AC4 -- knowledge-base create opens the new item (squawk 0101): the form,
-  "Name is required.", one POST, the replaced route, the selected row, the
+  "Name is required." under Name, one POST, the replaced route, the selected row, the
   announced name and the folder field's focus; Cancel returns to the root;
 * AC5 -- connector URLs: cold deep links, a dead id healing, save-create with no
   navigation and no hydrate, Cancel by mode;
@@ -478,7 +478,12 @@ def test_kb_create_form_opens_the_new_knowledge_base(app_with_agent: SeededApp, 
         ),
     )
     create.click()
-    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("Name is required.")
+    # The empty-name error sits under the Name field (M31 F3 HAT decision);
+    # the form-level line is for server failures only.
+    name_input = page.locator('[data-testid="kb-create-name-input"]')
+    expect(page.locator('[data-testid="kb-create-name-error"]')).to_have_text("Name is required.")
+    expect(name_input).to_have_attribute("aria-invalid", "true")
+    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("")
     assert posts == []
 
     # The POST is held: Create stays disabled while it is in flight.
@@ -504,7 +509,7 @@ def test_kb_create_form_opens_the_new_knowledge_base(app_with_agent: SeededApp, 
     assert len(posts) == 1, posts
     assert page.evaluate("history.length") == before
     _lists.expect_selected(page, "library/knowledge", "Brand new KB")
-    expect(page.locator(ANNOUNCER)).to_have_text("Library — Knowledge — Brand new KB")
+    expect(page.locator(ANNOUNCER)).to_have_text("Library — Knowledge bases — Brand new KB")
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_focused(timeout=8000)
     assert page.evaluate("App.nav.isDirty()") is False
 
@@ -568,7 +573,7 @@ def test_connector_save_create_syncs_the_url_with_no_navigation(
     _lists.library_add(page, "connectors")
     page.locator('[data-field="name"]').fill("Saved connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('[data-field="enabled"]').uncheck()
+    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
     page.evaluate(
         """() => { const s = App.areas.find((a) => a.id === 'studio'); window.__hydrates = 0;
           const orig = s.hydrateState; s.hydrateState = function () { window.__hydrates += 1; return orig.apply(this, arguments); }; }"""
@@ -877,9 +882,12 @@ def test_each_editor_shows_its_breadcrumb_in_edit_and_create_modes(
         assert _crumb(page) == _expected_crumb(kind), kind + " ~new"
 
 
-def test_kb_breadcrumb_survives_a_save_remount_and_the_poll_keeps_running(
+def test_kb_breadcrumb_survives_a_save_in_place_and_the_poll_keeps_running(
     app_with_agent: SeededApp, page: Page
 ) -> None:
+    # M31 F3 L05a: Save patches the mounted frame in place (no remount), so the
+    # breadcrumb node marked before the Save is the same node after it (before
+    # 05a this asserted the opposite: a remount built a new header).
     base = app_with_agent.base_url
     kb = seed_knowledge_base(base, "Remount KB")
     _ready(page, base, "library/knowledge")
@@ -889,10 +897,9 @@ def test_kb_breadcrumb_survives_a_save_remount_and_the_poll_keeps_running(
     page.locator('[data-testid="kb-name-input"]').fill("Remounted KB")
     page.locator('[data-testid="save-knowledge-btn"]').click()
     expect(page.locator(TITLE)).to_have_text("Remounted KB", timeout=8000)
-    # The re-mount built a new header and re-added the breadcrumb.
     assert _crumb(page) == _expected_crumb("knowledge")
-    assert _mark_of(page, ".studio-section-content .editor-breadcrumb") is None
-    # The status poll still runs after the re-mount (one 5s tick).
+    assert _mark_of(page, ".studio-section-content .editor-breadcrumb") == "first-mount"
+    # The status poll still runs after the Save (one 5s tick).
     with page.expect_request(
         lambda r: r.url.endswith(f"/api/knowledge-bases/{kb}/status"), timeout=8000
     ):
@@ -1028,7 +1035,7 @@ def test_unsaved_indicator_on_the_knowledge_base_detail(
     page.locator('[data-testid="cancel-knowledge-btn"]').click()
     _expect_unsaved(page, "")
     assert _mark_of(page, UNSAVED) == "stable"
-    # Save re-mounts the detail: its new header starts clean.
+    # Save patches the detail in place (M31 F3 L05a): its header goes clean.
     name.fill("Alpha KB saved")
     _expect_unsaved(page, "Unsaved changes")
     page.locator('[data-testid="save-knowledge-btn"]').click()
@@ -1273,7 +1280,7 @@ def test_kb_save_create_opens_the_item_and_a_row_click_does_not_prompt(
     expect(page.locator(TITLE)).to_have_text("Made KB", timeout=8000)
     expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("Made KB")
     _lists.expect_selected(page, "library/knowledge", "Made KB")
-    expect(page.locator(ANNOUNCER)).to_have_text("Library — Knowledge — Made KB")
+    expect(page.locator(ANNOUNCER)).to_have_text("Library — Knowledge bases — Made KB")
     assert page.evaluate("history.length") == before
     assert _crumb(page) == _expected_crumb("knowledge")
     _expect_unsaved(page, "")
@@ -1383,9 +1390,9 @@ def test_connector_save_create_keeps_its_fields_and_pairing_state(
     page.locator('[data-field="default_agent"]').select_option(agent)
     page.locator('[data-testid="connector-channel-map-add-btn"]').click()
     map_row = page.locator('[data-testid="connector-channel-map-row"]')
-    map_row.locator(".channel-map-channel").fill("chan-2")
-    map_row.locator(".channel-map-agent").fill(agent)
-    page.locator('[data-field="enabled"]').uncheck()
+    map_row.locator('[data-testid="connector-channel-map-channel"]').fill("chan-2")
+    map_row.locator('[data-testid="connector-channel-map-agent"]').fill(agent)
+    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
     page.wait_for_function("() => App.nav.isDirty()")
     _count_hydrates(page)
     before = page.evaluate("history.length")
@@ -1398,8 +1405,8 @@ def test_connector_save_create_keeps_its_fields_and_pairing_state(
     for field, value in fields.items():
         expect(page.locator(f'[data-field="{field}"]')).to_have_value(value)
     expect(page.locator('[data-field="default_agent"]')).to_have_value(agent)
-    expect(map_row.locator(".channel-map-channel")).to_have_value("chan-2")
-    expect(map_row.locator(".channel-map-agent")).to_have_value(agent)
+    expect(map_row.locator('[data-testid="connector-channel-map-channel"]')).to_have_value("chan-2")
+    expect(map_row.locator('[data-testid="connector-channel-map-agent"]')).to_have_value(agent)
     expect(page.locator('[data-field="enabled"]')).not_to_be_checked()
     assert page.evaluate("window.__hydrates") == 0
     assert page.evaluate("history.length") == before

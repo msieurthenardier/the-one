@@ -1,10 +1,10 @@
 # Squawk 0100: Knowledge base search has no clear (×) button to dismiss its results
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-22
-**Completed**: —
+**Completed**: 2026-10-23
 
 ## Report
 
@@ -27,10 +27,13 @@ render below; there is no control to clear the field and the results together.
 
 ## Corrective Action
 
-*(written at completion)*
+M31 Flight 3 Leg 05b rebuilt the Search section on the library (`knowledge-search.js`). The query is now `App.ui.clearableInput` (testids `kb-search-input`, `kb-search-clear-btn`): the x button, or Escape while the field has text, empties the query, and its `onClear` also empties the results, hides the degraded line and bumps the search generation so an in-flight response is dropped. Focus lands in the input. Enter still runs the search.
 
 ## Verification
 
-## Sign-Off
+- `tests/browser/test_flow_studio_knowledge_inventory.py::test_search_clear_empties_query_results_and_degraded_line[button|escape]` (query, results and degraded line cleared, focus in the input, x hidden) and `::test_clearing_during_an_in_flight_search_drops_the_late_response`.
 
-*(written at completion)*
+## Sign-Off
+**Reviewer**: Sonnet, the Mission 31 Flight 3 flight review (code and accessibility reviewers, then a scoped re-review of the fix pass)
+**Verdict**: confirmed
+**Commit**: `flight/3: Knowledge and connectors on the library (Mission 31)` on branch `flight/03-knowledge-and-connectors-on-the-library`

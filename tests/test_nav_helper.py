@@ -457,6 +457,9 @@ RETIRED_SELECTORS = (
     "providers-empty",
     "settings-nav-providers",
     "provider-tile",
+    # M31 F3 HAT: "Other items" is renamed "Individual files"
+    # (``kb-individual-files-panel``).
+    "kb-other-items-panel",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix

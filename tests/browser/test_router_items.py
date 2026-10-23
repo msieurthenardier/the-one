@@ -578,7 +578,7 @@ def test_mcp_open_no_refetch_no_flash(app_clean: str, page: Page) -> None:
 
 def test_kb_open_no_list_refetch_no_list_flash(app_clean: str, page: Page) -> None:
     """Knowledge differs: the detail view's own status/items fetches (and its
-    "Loading knowledge base" placeholder) are inherent. Only the no-flash-of-
+    "Loading knowledge base" status line) are inherent. Only the no-flash-of-
     the-LIST part is asserted: the list is not refetched and never empties."""
     _post(app_clean, "/api/knowledge-bases", {"name": "Cached KB"})
     _nav.goto_settled(page, app_clean, "library")

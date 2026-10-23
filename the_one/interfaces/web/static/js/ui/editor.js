@@ -50,8 +50,10 @@
   //   actions: {cancel, save (required), test, extra}.
   //     cancel {label, testid, onClick, enabledWhenClean}: btn-outlined-primary
   //       cancel-btn; disabled at first unless enabledWhenClean (create forms).
-  //     save {label, testid, onClick}: btn-filled-primary save-btn; disabled in
-  //       every mode until setDirty(true).
+  //     save {label, testid, onClick, enabledWhenClean}: btn-filled-primary save-btn;
+  //       disabled until setDirty(true), unless enabledWhenClean (Save is then
+  //       enabled on a clean form; the caption still follows dirty alone).
+  //   errorRole: 'alert' (the only value) puts role=alert on span.editor-error.
   //     test {label 'Test', testid, onClick, className}: secondary, default size
   //       (same as Cancel and Save), with the play icon; no shrinking class.
   //     extra: nodes placed before Cancel.
@@ -98,7 +100,11 @@
       role: 'status',
       'data-testid': 'editor-unsaved'
     });
+    if (opts.errorRole !== undefined && opts.errorRole !== 'alert') {
+      throw new Error('App.ui.editorShell: unknown errorRole "' + opts.errorRole + '"');
+    }
     var errorEl = util.el('span', { className: 'editor-error' });
+    if (opts.errorRole) errorEl.setAttribute('role', 'alert');
     var cluster = util.el('div', { className: 'form-actions' }, [unsaved]);
     var i;
     if (actions.extra) {
@@ -130,11 +136,12 @@
 
     var dirty = false;
     var busy = false;
+    var cleanSave = !!actions.save.enabledWhenClean;
     var cleanCancel = !!(actions.cancel && actions.cancel.enabledWhenClean);
 
     function apply() {
       unsaved.textContent = dirty ? 'Unsaved changes' : '';
-      saveButton.disabled = busy || !dirty;
+      saveButton.disabled = busy || !(dirty || cleanSave);
       if (cancelButton) cancelButton.disabled = busy || !(dirty || cleanCancel);
       if (testButton) testButton.disabled = busy;
     }
@@ -172,7 +179,8 @@
   };
 
   // App.ui.section(opts) -> {el, body, setTitle(text)}.
-  //   title, titleTag ('div' default, 'h2' or 'h3'), description, testid,
+  //   title, titleTag ('div' default, 'h2' or 'h3'), description, descriptionTestid
+  //   (on the p.section-description), testid,
   //   className (appended to editor-section), children (nodes).
   //   div.editor-section holds the .section-title, an optional
   //   p.section-description, then the children; body is the element children
@@ -194,7 +202,9 @@
       root.appendChild(titleEl);
     }
     if (opts.description) {
-      root.appendChild(util.el('p', { className: 'section-description', text: opts.description }));
+      var descEl = util.el('p', { className: 'section-description', text: opts.description });
+      if (opts.descriptionTestid) descEl.setAttribute('data-testid', opts.descriptionTestid);
+      root.appendChild(descEl);
     }
     var children = opts.children || [];
     for (var i = 0; i < children.length; i++) {
