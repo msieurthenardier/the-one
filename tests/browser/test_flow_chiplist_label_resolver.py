@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
 """Runtime DOM guard: chip-list ``label[for]`` resolves to a real control.
 
 M17 F6 L3 (System / Admin re-skin — shared-helpers-and-chiplist leg).
@@ -70,6 +71,13 @@ def test_admin_tools_editor_chiplist_labels_resolve(app_clean: str, page: Page) 
         page,
         ["tef-host_allowlist", "tef-host_denylist", "tef-extra_allowed_hosts"],
     )
+    # M31 F3 L03c: the Settings string-built list keeps the area look (not a library list).
+    box = page.locator('.tools-editor-field[data-field-name="host_allowlist"] .chip-list-editor')
+    assert "ui-chip-list" not in (box.get_attribute("class") or "")
+    look = box.evaluate(
+        "(el) => { const s = getComputedStyle(el); return {mh: s.minHeight, mw: s.maxWidth, pad: s.paddingTop}; }"
+    )
+    assert look == {"mh": "40px", "mw": "320px", "pad": "6px"}, look
 
 
 @pytest.mark.browser

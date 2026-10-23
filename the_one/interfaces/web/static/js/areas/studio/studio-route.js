@@ -172,6 +172,12 @@ App.studio.route = {
     var pendingConnectorFormMode_local = null;
     var pendingProviderId_local = null;
     var pendingProviderMode_local = null;
+    // A bare Library section sub, derived from the one group table (squawk 0191).
+    function isLibraryRootSub(s) {
+      var groups = window.App.studio.libraryGroups;
+      if (typeof groups !== 'function') throw new Error('App.studio.libraryGroups is not loaded');
+      return groups().some(function (g) { return g.section === s; });
+    }
     var createRoute = false;
     var kbCreateRoute = false;
     var kbCreateWasOpen = false;
@@ -183,7 +189,7 @@ App.studio.route = {
       if (idx !== -1) rest = rest.slice(0, idx);
       return rest ? decodeURIComponent(rest) : null;
     }
-    if (sub === 'library' || sub === 'providers' || sub === 'knowledge' || sub === 'connectors' || sub === 'mcp-sources') {
+    if (sub === 'library' || isLibraryRootSub(sub)) {
       // The Library root (DD1): the start page. Closing the open item bumps
       // editorGen, so a save resolving after a breadcrumb go cannot move the
       // URL back to the item. (A bare section sub is the router's alias for

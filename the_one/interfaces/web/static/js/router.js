@@ -437,7 +437,7 @@
   // The Library labels are destination-keyed (LIBRARY_LABELS), apart from the
   // route-keyed Settings labels in SECTION_LABELS.
   var LIBRARY_LABELS = {
-    providers: 'Model providers', knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors'
+    providers: 'Model providers', knowledge: 'Knowledge bases', mcp: 'MCP servers', connectors: 'Connectors'
   };
   var SECTION_LABELS = {};
   var settingsLabelsMerged = false;

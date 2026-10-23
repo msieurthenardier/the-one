@@ -138,7 +138,7 @@
      `css/studio.css` (this file, the definitions), `areas/studio.js`,
      `studio/tools-tab.js`, `studio/mcps-tab.js`,
      `studio/mcp-server-editor.js` — its original consumers, styling the
-     MCP source-editor's own tool tiles — AND `studio/knowledge-section.js`,
+     MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js`,
      a LATER, cross-page borrow: `buildFolderPanel` (folder panels) and
      `buildOtherItemsPanel` ("Other items") each independently set
      `details.className = 'mcp-tool-item'` to get this tile's look for the
@@ -617,9 +617,8 @@
     flex-shrink: 0;
   }
 
-  /* Collapsible chronological log (HAT fix #10 — native <details
-     class="advanced-collapsible">, components.css supplies the summary +
-     border-top chrome). The restore-node list above it stays outside this
+  /* Collapsible chronological log (HAT fix #10 — App.ui.disclosure, plain
+     variant; components.css supplies the summary + border-top chrome). The restore-node list above it stays outside this
      element and is always visible. */
   .area-studio .self-configuration-history-details { margin-top: 12px; }
   .area-studio .self-configuration-history-details .self-configuration-history-list {
@@ -759,58 +758,17 @@
     flex-shrink: 0;
   }
 
-  /* === Connector editor: Enabled toggle row (HAT inline fix, Mission 23
-     Flight 3 Leg 4) === */
-  /* `.field-row` already supplies the label-left flex layout + the
-     `.tool-enable-switch` toggle chrome comes from admin.css (shared
-     `.area-admin`/`.area-studio` primitive). This just bumps the row's
-     bottom margin from `.field-row`'s default 8px to 12px, matching the
-     `--space-3` bottom margin the sibling `.field-group` rows (Name, Type,
-     Token) above it use, so the Identity section keeps even vertical
-     rhythm. */
-  .area-studio .connector-enabled-row { margin-bottom: var(--space-3); }
-
-  /* Generated pairing code — a distinct selectable/copyable <code> element
-     (squawk 0043), not fused into the status-row prose. */
-  .area-studio .connector-pairing-code-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 6px 0;
-  }
-  .area-studio .connector-pairing-code {
-    font-family: var(--font-family-mono, monospace);
-    font-size: var(--font-size-body-sm);
-    background: var(--surface-elevated);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 2px 6px;
-    user-select: text;
-  }
+  /* === Connector editor: pairing expiry (the Enabled row and the status row
+     moved to App.ui.toggle and App.ui.status, M31 F3 L07a) === */
+  /* The generated code is an App.ui.copyField; only the expiry line is area layout. */
   .area-studio .connector-pairing-expiry {
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
 
-  /* Connection-status LED (Squawk 0045, MCP-panel parity) — sits under the
-     connector name in the editor header. Reuses the shared `.indicator-led`
-     primitive (components.css); this just lays out the row + label. */
-  .area-studio .connector-status-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-  }
-  .area-studio .connector-status-row .indicator-led { flex-shrink: 0; }
-  .area-studio .connector-status-label {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-
   /* Inline setup steps (Squawk 0046) — a short per-type bullet list plus a
      plain-text doc-path reference. Defensive [hidden] rule follows this
-     file's established pattern (see connector-status-row's siblings and
-     the mcp-*[hidden] rules above) since a later, more specific `display`
+     file's established pattern (see the mcp-*[hidden] rules above) since a later, more specific `display`
      rule elsewhere in the layer could otherwise beat the UA
      `[hidden]{display:none}` default. */
   .area-studio .connector-setup-steps-list {
@@ -819,12 +777,17 @@
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
+  .area-studio .connector-setup-steps-doc-ref {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
   .area-studio .connector-setup-steps-list li { margin-bottom: 6px; }
   .area-studio .connector-setup-steps-list li:last-child { margin-bottom: 0; }
   /* Review fix (dead link, squawk 0046): the doc reference is plain text,
      not a link — no route serves `docs/` over HTTP (see the JS comment at
-     its render site). `.field-hint` (components.css) supplies the muted
-     caption styling; this just sets it on its own line under the list. */
+     its render site). The rule above carries the muted caption styling
+     (`--font-size-caption`, `--fg-muted`); this just sets it on its own line
+     under the list. */
   .area-studio .connector-setup-steps-doc-ref {
     display: block;
   }
@@ -832,18 +795,13 @@
   /* === Studio Knowledge section (Mission 24 Flight 6 Leg 1) ===========
      The create form + detail view reuse the existing `.editor-header` /
      `.editor-section` / `.field-group` / `.chip` / `.field-error`
-     vocabulary wholesale (knowledge-section.js); these rules cover only
+     vocabulary wholesale (the knowledge-* modules); these rules cover only
      the row/badge layouts that vocabulary doesn't already provide. */
   .area-studio .kb-status-counts {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
-  }
-  .area-studio .kb-chunk-count,
-  .area-studio .kb-indexer-state {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
   }
   .area-studio .kb-item-row,
   .area-studio .kb-chunk-row,
@@ -860,7 +818,6 @@
   .area-studio .kb-search-hit:last-child {
     border-bottom: none;
   }
-  .area-studio .kb-folder-path,
   .area-studio .kb-search-hit-path {
     font-weight: var(--font-weight-medium);
     word-break: break-all;
@@ -874,8 +831,8 @@
      regular weight puts it a clear notch below its folder. Both
      consumers of this class are file rows (a folder panel's body and the
      trailing "Other items" panel), so no scoping split is needed;
-     `.kb-folder-path` / `.kb-search-hit-path` keep medium weight above,
-     since neither is a sub-item of anything. */
+     `.kb-search-hit-path` keeps medium weight above, since it is not a
+     sub-item of anything. */
   .area-studio .kb-item-path {
     font-weight: var(--font-weight-regular);
     font-size: var(--font-size-body-sm);
@@ -892,16 +849,6 @@
   .area-studio .kb-search-hit-score {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
-  }
-  /* `.field-error` (components.css) already supplies the danger-colored
-     text; these rows just need it inline rather than block-stacked. */
-  .area-studio .kb-folder-error,
-  .area-studio .kb-folder-watch-error,
-  .area-studio .kb-item-error {
-    margin: 0;
-  }
-  .area-studio .kb-item-standalone-badge {
-    color: var(--status-warning);
   }
   .area-studio .kb-chunk-text,
   .area-studio .kb-search-hit-text {
@@ -926,11 +873,6 @@
     gap: 8px;
     margin-top: 8px;
   }
-  /* HAT polish pass: the re-index pair moved into the Status section and
-     gained the scope hint above it. base.css zeroes every margin, so
-     without this the hint sits flush against the indexer-state line.
-     Same `--space-*` scale as `.kb-folders-list` below. */
-  .area-studio .kb-reindex-hint { margin-top: var(--space-3); }
 
   /* === Studio Knowledge section — restyle to the MCP editor's shape
      (M24 F06 L06) ===
@@ -938,110 +880,19 @@
      the header region — reuses `.editor-section` / `.field-group` /
      `.field-error` / `.field-hint` wholesale, no new rule needed for the
      fields' own layout.
-     L6-D2/L6-D3: folder panels reuse `.mcp-tool-item` / `.mcp-tool-
-     summary` / `.mcp-tool-summary-text` / `.mcp-tool-chevron` /
-     `.mcp-tool-body` wholesale (see the MCP tools-list rules above) — the
-     one-line summary needs no new rule beyond the delete icon's below.
+     L6-D2/L6-D3: folder panels are `App.ui.disclosure` panels (M31 F3 L06a),
+     which own the summary, the armed look and the action svg.
      The old per-row two-step Remove control (L5-D1) and its
      `flex-basis: 100%` caption rule are retired — the cascade warning is
      now persistent section-level text (`.field-hint`, no new rule). */
-  /* L6-D3: the folder delete control reuses `.kv-remove-row-btn` (Custom
-     Headers row precedent) — now verbatim, with no override at all. The
-     HAT polish pass (2026-09-19) replaced this button's text glyph with
-     the real `trash` SVG (knowledge-section.js's `_appendIcon`, the
-     DOMParser route that keeps the no-inner-HTML discipline), so the
-     borrowed rule's `line-height: 0` + `svg { width: 16px; height: 16px }`
-     are correct as-is and the old `line-height: 1` override is gone. That
-     16px is also the fix for "the trashcan is too small": the glyph used
-     to render at the summary line's `--font-size-body-sm` (12px).
-
-     `pointer-events: none` on the icon is LOAD-BEARING, not cosmetic, and
-     is new with the SVG. The rule that keeps this button from toggling
-     its `<details>` is the summary's default handler skipping clicks on a
-     form control — and Blink tests the click's TARGET NODE ITSELF, not
-     its ancestors (`HTMLSummaryElement::DefaultEventHandler` ->
-     `IsClickableControl`). With a text glyph the target was the
-     `<button>`, so it was skipped; an `<svg>` child is its own hit-test
-     target and is NOT a form control, so the click would reach the
-     summary and toggle the panel open/closed on every delete press. Making
-     the icon transparent to hit-testing puts the target back on the
-     button. The click still reaches the button's own listener. */
-  .area-studio .kb-folder-delete-btn svg { pointer-events: none; }
-
   /* HAT polish pass: the folders list needs breathing room under the
      "Add folder" button, which it had none of. Uses the existing
-     `--space-*` scale (same vocabulary as `.connector-enabled-row`). */
+     `--space-*` scale (the same vocabulary as the other Library rows). */
   .area-studio .kb-folders-list { margin-top: var(--space-3); }
 
-  /* L6-D3 (amended): the ARMED two-step-confirm state on a folder's
-     `<summary>`. components.css's canonical confirm-delete rules
-     do not match a `<summary>`, so
-     without these rules the "Confirm delete?" text would swap in with no
-     danger affordance at all. Same pair, re-expressed for this panel and
-     using the same tokens: the danger colour lands on the `<details>`'s
-     EXISTING border (recoloured, not added — an added 1px border would
-     jump the row under the operator's cursor between the arming click
-     and the confirming one) and on the swapped-in title. The trash glyph
-     joins it, mirroring the canonical rule's third line. The `:has()`
-     specificity is (0,4,0), so it wins over the (0,3,0)
-     `.mcp-tool-item:hover` accent border above. */
-  .area-studio .mcp-tool-item:has(> .kb-folder-summary.confirm-delete) {
-    border-color: var(--status-danger);
-  }
-  .area-studio .kb-folder-summary.confirm-delete [data-confirm-title] {
-    color: var(--status-danger);
-  }
-  .area-studio .kb-folder-summary.confirm-delete .kb-folder-delete-btn {
-    color: var(--status-danger);
-  }
-
-  /* L5-D4: the per-row overflow menu — built minimal and LOCAL (one
-     consumer; see knowledge-section.js's own comment on why this isn't
-     promoted to components.css). */
-  .area-studio .kb-item-menu-wrap { position: relative; margin-left: auto; }
-  .area-studio .kb-item-menu-trigger {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--fg-secondary);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body);
-    line-height: 1;
-    padding: 4px 10px;
-  }
-  .area-studio .kb-item-menu-trigger:hover { border-color: var(--border-hover); color: var(--fg); }
-  .area-studio .kb-item-menu-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .area-studio .kb-item-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    min-width: 160px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-popover);
-    padding: 4px;
-    z-index: 20;
-  }
-  .area-studio .kb-item-menu-item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    border-radius: 4px;
-    color: var(--fg);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    padding: 6px 10px;
-  }
-  .area-studio .kb-item-menu-item:hover,
-  .area-studio .kb-item-menu-item:focus-visible {
-    background: var(--surface-elevated);
-    outline: none;
-  }
+  /* L06b: the per-row overflow menu is the library menu; this area-owned slot
+     only places it at the row's end. */
+  .area-studio .kb-item-menu-slot { margin-left: auto; }
 
   /* === Studio Agent Editor: Knowledge tab (M24 F06 L03) === */
   /* Rows mirror `.mcp-source-tile`'s toggle + name layout but stay

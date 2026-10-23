@@ -17,10 +17,11 @@
   //   (the id of the real focusable input, for a label's for), dataset (data-*
   //   on the root: field, fieldType (default 'array'), marker,
   //   toolOverrideField, toolOverrideTool), className.
-  //   el is div.chip-list-editor holding span.chip per value (locked:
+  //   el is div.chip-list-editor.ui-chip-list (the marker the area CSS is narrowed
+  //   against, M31 F3 L03c) holding span.chip per value (locked:
   //   [data-locked="true"] and aria-label "<v> (locked by operator)"; editable:
   //   the text node then button.ui-chip-remove "×" named "Remove <v>") and
-  //   input.chip-list-input (aria-label "Add entry"). A chip's textContent is
+  //   input.chip-list-input.ui-chip-list-input (aria-label "Add entry"). A chip's textContent is
   //   the value plus the trailing "×", as in the legacy editor.
   //   Keys on the input: Enter, comma and Tab commit a non-empty input (Tab on
   //   an empty input moves focus on); Backspace on an empty input removes the
@@ -36,7 +37,7 @@
     var validate = typeof opts.validate === 'function' ? opts.validate : null;
 
     var root = util.el('div', {
-      className: 'chip-list-editor' + (opts.className ? ' ' + opts.className : ''),
+      className: 'chip-list-editor ui-chip-list' + (opts.className ? ' ' + opts.className : ''),
       role: opts.label ? 'group' : null,
       'aria-label': opts.label || null
     });
@@ -45,7 +46,7 @@
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
     var input = util.el('input', {
       type: 'text',
-      className: 'chip-list-input',
+      className: 'chip-list-input ui-chip-list-input',
       id: opts.inputId,
       placeholder: opts.placeholder || 'Add entry…',
       'aria-label': 'Add entry'

@@ -383,8 +383,8 @@
      host_allowlist). Treated as part of the .field-input family: hairline
      border + small radius, matching .field-input visually. Chips inside
      use the canonical .chip primitive treatment (accent-translucent flat). */
-  .area-admin .chip-list-editor,
-  .area-studio .chip-list-editor {
+  .area-admin .chip-list-editor:not(.ui-chip-list),
+  .area-studio .chip-list-editor:not(.ui-chip-list) {
     flex: 1;
     display: flex;
     flex-wrap: wrap;
@@ -396,13 +396,16 @@
     min-height: 40px;
     background: var(--surface);
   }
+  /* M31 F3 L03c (DD8-6): `areas` beats `components` whatever the specificity, so these
+     rules are narrowed to string-built lists; a library App.ui.chipList carries
+     .ui-chip-list and takes its look from components.css. */
   /* Container focus: border-color shift (no halo). */
-  .area-admin .chip-list-editor:focus-within,
-  .area-studio .chip-list-editor:focus-within {
+  .area-admin .chip-list-editor:not(.ui-chip-list):focus-within,
+  .area-studio .chip-list-editor:not(.ui-chip-list):focus-within {
     border-color: var(--accent);
   }
-  .area-admin .chip-list-editor .chip,
-  .area-studio .chip-list-editor .chip {
+  .area-admin .chip-list-editor:not(.ui-chip-list) .chip,
+  .area-studio .chip-list-editor:not(.ui-chip-list) .chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -413,8 +416,8 @@
     font-size: var(--font-size-body-sm);
     color: var(--fg);
   }
-  .area-admin .chip-list-editor .chip-remove,
-  .area-studio .chip-list-editor .chip-remove {
+  .area-admin .chip-list-editor:not(.ui-chip-list) .chip-remove,
+  .area-studio .chip-list-editor:not(.ui-chip-list) .chip-remove {
     background: none;
     border: 0;
     color: var(--accent);
@@ -424,13 +427,13 @@
     line-height: 1;
     transition: color var(--motion-base) var(--ease-tactile);
   }
-  .area-admin .chip-list-editor .chip-remove:hover,
-  .area-studio .chip-list-editor .chip-remove:hover {
+  .area-admin .chip-list-editor:not(.ui-chip-list) .chip-remove:hover,
+  .area-studio .chip-list-editor:not(.ui-chip-list) .chip-remove:hover {
     color: var(--status-danger);
     transition: color var(--motion-fast) var(--ease-tactile);
   }
-  .area-admin .chip-list-input,
-  .area-studio .chip-list-input {
+  .area-admin .chip-list-input:not(.ui-chip-list-input),
+  .area-studio .chip-list-input:not(.ui-chip-list-input) {
     flex: 1;
     min-width: 100px;
     border: 0;

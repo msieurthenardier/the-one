@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
 """Engine-parametrized contract tests for ``App.ui.icon`` (M31 F1 L2, DD6).
 
 Runs in Chromium and WebKit through ``engine_page`` + ``load_harness`` (no app
@@ -66,3 +67,11 @@ def test_icon_is_not_focusable(engine_page: Page) -> None:
     )
     active = engine_page.evaluate("() => document.activeElement && document.activeElement.nodeName")
     assert active != "svg"
+
+
+def test_more_icon_is_a_hidden_svg(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        "() => { const n = App.ui.icon('more'); document.getElementById('harness-root').appendChild(n); return [n.tagName.toLowerCase(), n.getAttribute('aria-hidden'), n.getAttribute('focusable'), n.querySelectorAll('circle').length]; }"
+    )
+    assert out == ["svg", "true", "false", 3]

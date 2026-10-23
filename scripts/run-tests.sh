@@ -20,14 +20,16 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, agents, agent-tabs, library, mcp, routing, settings, providers, contracts and shared.
+# are chats, agents, agent-tabs, library, knowledge, mcp, routing, settings, providers, contracts-overlay, contracts-controls and shared.
 # Aliases (kept for muscle memory and older docs):
-#   chat = chats, studio = agents + agent-tabs + library + mcp, system = settings + providers.
+#   chat = chats, studio = agents + agent-tabs + library + knowledge + mcp, system = settings + providers,
+#   contracts = contracts-overlay + contracts-controls.
 # chats/agents/agent-tabs/library/mcp/settings/providers are basename-glob buckets or explicit file
 # lists over tests/browser/ (`agents` is the old studio globs MINUS the library,
 # mcp and agent-tabs lists). `routing` (M26 F1 L4) holds the router / leave-guard / client
-# store files that used to be the long pole of `shared`. `contracts` (M25 F4 L1,
-# squawk 0117) holds the `App.ui` control-library contract files (`test_ui_*`).
+# store files that used to be the long pole of `shared`. `contracts-overlay` and
+# `contracts-controls` (M25 F4 L1 squawk 0117; split in M31 F3 L01) hold the `App.ui`
+# control-library contract files (`test_ui_*`): overlay is an explicit list, controls the rest.
 # `shared` is the COMPLEMENT (every browser test file not claimed by the named
 # lanes), so the lanes' union is always exactly the whole browser suite and no
 # test file can be orphaned — a newly-added test file lands in `shared` until it
@@ -51,22 +53,24 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|agents|agent-tabs|library|mcp|routing|settings|providers|contracts|shared"
-CANON_LANES=(chats agents agent-tabs library mcp routing settings providers contracts shared)
+LANE_LIST="chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|providers|contracts-overlay|contracts-controls|shared"
+CANON_LANES=(chats agents agent-tabs library knowledge mcp routing settings providers contracts-overlay contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (measured in the M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (re-measured in the M31 F3 L09 --parallel 3 run after the knowledge split; earlier rows from the M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 declare -A BUDGET=(
   [chats]=450
   [agents]=540
-  [agent-tabs]=300
-  [library]=300
+  [agent-tabs]=360
+  [library]=210
+  [knowledge]=300
   [mcp]=450
   [routing]=600
-  [settings]=300
+  [settings]=360
   [providers]=420
-  [contracts]=480
-  [shared]=300
+  [contracts-overlay]=270
+  [contracts-controls]=330
+  [shared]=420
 )
 
 usage() {
@@ -75,7 +79,7 @@ usage: run-tests.sh [--lane LANE [--list]] [--parallel N [--plan]] [pytest args.
 
   (no flags)          run pytest with the given args
   --lane LANE         run one browser lane ($LANE_LIST;
-                      aliases: chat, studio, system)
+                      aliases: chat, studio, system, contracts)
   --list              with --lane: print the lane's files and exit
   --parallel N        run every browser lane, at most N at a time (N >= 1),
                       longest budget first; per-lane logs and junit files go to
@@ -86,7 +90,7 @@ usage: run-tests.sh [--lane LANE [--list]] [--parallel N [--plan]] [pytest args.
 Lane budgets (seconds of wall time in a --parallel 3 run; over budget warns):
 EOF
   local l
-  for l in "${CANON_LANES[@]}"; do printf '  %-10s %ss\n' "$l" "${BUDGET[$l]}"; done
+  for l in "${CANON_LANES[@]}"; do printf '  %-18s %ss\n' "$l" "${BUDGET[$l]}"; done
   cat <<EOF
 
 Host policy: at most 3 browser lanes run concurrently on a local host; the
@@ -169,13 +173,15 @@ expand_lane() {
 chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py' \
            'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
            'test_flow_usage_restore.py' 'test_chats_helper.py')
-# Library-owned files (explicit): knowledge inventory, connectors, and the
+# Library-owned files (explicit): connectors, library focus, and the
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).
-library_pat=('test_flow_studio_knowledge_inventory.py' \
-             'test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
+library_pat=('test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
              'test_studio_connector_editor.py' \
              'test_flow_studio_library_focus.py')
+# Knowledge lane (M31 F3 L09, split from library when it ran 1.32x over budget): the
+# knowledge-base inventory file alone, about 60% of the old library lane's time.
+knowledge_pat=('test_flow_studio_knowledge_inventory.py')
 # MCP lane (M26 F1 L4, split from library for balance): the MCP editor and the
 # Library list.
 mcp_pat=('test_flow_studio_mcp_editor.py' 'test_flow_studio_library_list.py')
@@ -196,14 +202,24 @@ routing_pat=('test_router_*' 'test_nav_guard*' 'test_store*')
 settings_pat=('test_flow_admin_*' 'test_flow_settings_*')
 # Providers (sortie 02): the provider editor and the Library provider group.
 providers_pat=('test_flow_provider_*')
-# Contracts: the `App.ui` control-library contract files (M25 F4 L1,
-# squawk 0117). No other lane's glob matches `test_ui_*`.
-contracts_pat=('test_ui_*')
+# Contracts (M25 F4 L1, squawk 0117; split in M31 F3 L01): the `App.ui` control-library
+# contract files. Overlay is an explicit list; controls is `test_ui_*` minus it. No other
+# lane's glob matches `test_ui_*`. `contracts` stays an alias for their union.
+contracts_overlay_pat=('test_ui_modal*' 'test_ui_menu*' 'test_ui_rail*' 'test_ui_list_pane_chats*' \
+  'test_ui_search_list*' 'test_ui_drawer*' 'test_ui_nav_groups*' 'test_ui_confirm*' \
+  'test_ui_focus_after*' 'test_ui_dialog_rule*' 'test_ui_dialog_scroll*')
+contracts_all_pat=('test_ui_*')
 
 # Files matching the studio globs minus the library, mcp and agent-tabs lists, sorted.
 agents_files() {
   comm -23 <(expand_lane "${studio_pat[@]}" | sort -u) \
-           <(expand_lane "${library_pat[@]}" "${mcp_pat[@]}" "${agent_tabs_pat[@]}" | sort -u)
+           <(expand_lane "${library_pat[@]}" "${knowledge_pat[@]}" "${mcp_pat[@]}" "${agent_tabs_pat[@]}" | sort -u)
+}
+
+# Files matching test_ui_* minus the overlay list, sorted.
+contracts_controls_files() {
+  comm -23 <(expand_lane "${contracts_all_pat[@]}" | sort -u) \
+           <(expand_lane "${contracts_overlay_pat[@]}" | sort -u)
 }
 
 # Resolve lane $1 into the global array lane_files. Returns 1 for an unknown lane.
@@ -214,13 +230,16 @@ resolve_lane() {
     agents)        mapfile -t lane_files < <(agents_files) ;;
     agent-tabs)    mapfile -t lane_files < <(expand_lane "${agent_tabs_pat[@]}" | sort -u) ;;
     library)       mapfile -t lane_files < <(expand_lane "${library_pat[@]}" | sort -u) ;;
+    knowledge)     mapfile -t lane_files < <(expand_lane "${knowledge_pat[@]}" | sort -u) ;;
     mcp)           mapfile -t lane_files < <(expand_lane "${mcp_pat[@]}" | sort -u) ;;
     routing)       mapfile -t lane_files < <(expand_lane "${routing_pat[@]}" | sort -u) ;;
     settings)      mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" | sort -u) ;;
     providers)     mapfile -t lane_files < <(expand_lane "${providers_pat[@]}" | sort -u) ;;
     system)        mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" "${providers_pat[@]}" | sort -u) ;;
     studio)        mapfile -t lane_files < <(expand_lane "${studio_pat[@]}" | sort -u) ;;
-    contracts)     mapfile -t lane_files < <(expand_lane "${contracts_pat[@]}" | sort -u) ;;
+    contracts-overlay)  mapfile -t lane_files < <(expand_lane "${contracts_overlay_pat[@]}" | sort -u) ;;
+    contracts-controls) mapfile -t lane_files < <(contracts_controls_files) ;;
+    contracts)     mapfile -t lane_files < <(expand_lane "${contracts_all_pat[@]}" | sort -u) ;;
     shared)
       # Complement: all browser test files, minus the named lanes (agents +
       # library + mcp = studio_pat) and the pixel-only snapshot file (which
@@ -228,7 +247,7 @@ resolve_lane() {
       local _assigned _all f
       mapfile -t _assigned < <(
         expand_lane "${chats_pat[@]}" "${studio_pat[@]}" "${routing_pat[@]}" \
-                    "${settings_pat[@]}" "${providers_pat[@]}" "${contracts_pat[@]}" \
+                    "${settings_pat[@]}" "${providers_pat[@]}" "${contracts_all_pat[@]}" \
                     'test_visual_snapshots.py' | sort -u)
       mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)
       mapfile -t lane_files < <(comm -23 \
@@ -440,7 +459,7 @@ fi
 # ---------------------------------------------------------------------------
 if [[ -n "$lane" ]]; then
   if ! resolve_lane "$lane"; then
-    echo "run-tests.sh: unknown lane '$lane' (want: $LANE_LIST; aliases: chat|studio|system)" >&2
+    echo "run-tests.sh: unknown lane '$lane' (want: $LANE_LIST; aliases: chat|studio|system|contracts)" >&2
     exit 2
   fi
 

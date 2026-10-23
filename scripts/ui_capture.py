@@ -207,6 +207,7 @@ class Ctx:
     base_url: str
     ids: dict[str, str]  # provider type -> id; "flash" -> flash-demo provider id
     theme: str
+    token: str = ""
 
 
 @dataclass
@@ -300,6 +301,148 @@ def _flash_after_save(ctx: Ctx) -> None:
     save = page.locator('[data-testid="save-provider-btn"]')
     save.click()
     page.locator(".app-flash.visible").wait_for(timeout=10000)
+
+
+# ── Library surfaces (Mission 31 Flight 3, DD2) ──────────────────────────────
+
+# Run-to-run text is masked before the screenshot: indexed-at times, search scores,
+# the watch state and the pairing code and expiry. A MutationObserver re-applies the
+# masks after the knowledge poll repaints.
+MASK_JS = """
+() => {
+  const SETS = [
+    ['.kb-item-indexed-at, .kb-folder-indexed-at', 'Indexed: (time masked)'],
+    ['.kb-folder-watch, [data-testid="kb-folder-watch"]', 'watch: watching'],
+    ['[data-testid="kb-search-hit-score"]', 'score 0.000'],
+    ['[data-testid="connector-pairing-code"]', 'AAAA-BBBB'],
+    ['.connector-pairing-expiry', 'Expires (time masked)'],
+  ];
+  // The run id sits in the scratch folder path: pin everything up to library-docs.
+  const PATHS = '.kb-folder-path, [data-testid="kb-folder-path"], '
+    + '[data-testid="kb-search-hit-path"], [data-testid="kb-panel-title"], '
+    + '[data-testid="kb-item-path"]';
+  const apply = () => {
+    document.querySelectorAll(PATHS).forEach((n) => {
+      const t = n.textContent.replace(
+        new RegExp('/[^ ]*?/library-docs'), '/home/capture/home/library-docs');
+      if (t !== n.textContent) n.textContent = t;
+    });
+    for (const [sel, text] of SETS) {
+      document.querySelectorAll(sel).forEach((n) => {
+        if (n.textContent !== text) n.textContent = text;
+      });
+    }
+  };
+  if (window.__captureMask) window.__captureMask.disconnect();
+  window.__captureMask = new MutationObserver(apply);
+  window.__captureMask.observe(
+    document.body, {childList: true, subtree: true, characterData: true});
+  apply();
+}
+"""
+
+LIBRARY_FILES = {
+    "harbour-notes.txt": (
+        "The harbour pelican keeps the ledger of tides.\nTides rise twice a day.\n"
+    ),
+    "orchard.txt": "Orchard rows are numbered from the east gate.\nPick apples before the frost.\n",
+    "recipes.md": "# Recipes\n\nBread needs flour, water and time.\nSoup needs patience.\n",
+    "sub/readme.txt": "A nested file, so the folder lists a relative path.\n",
+}
+LIBRARY_QUERY = "pelican"
+
+
+def _mask(page) -> None:
+    page.evaluate(MASK_JS)
+
+
+def _kb_ready(ctx: Ctx) -> None:
+    page = ctx.page
+    _mask(page)
+    page.locator('[data-testid="kb-status-count"][data-status="indexed"]').wait_for(timeout=30000)
+
+
+def _kb_expand(ctx: Ctx) -> None:
+    page = ctx.page
+    _kb_ready(ctx)
+    folder = page.locator('[data-testid="kb-folder-panel"]')
+    folder.locator('[data-testid="kb-folder-summary"]').click()
+    page.locator('[data-testid="kb-item-row"]').first.wait_for(state="visible", timeout=15000)
+    _mask(page)
+
+
+def _kb_item_menu(ctx: Ctx) -> None:
+    _kb_expand(ctx)
+    row = ctx.page.locator('[data-testid="kb-item-row"]').first
+    row.locator('[data-testid="kb-item-menu-btn"]').click()
+    row.locator('[data-testid="kb-item-menu"]').wait_for(state="visible", timeout=5000)
+
+
+def _kb_chunks(ctx: Ctx) -> None:
+    _kb_item_menu(ctx)
+    ctx.page.locator('[data-testid="kb-item-chunks-btn"]').first.click()
+    ctx.page.locator('[data-testid="kb-chunk-row"]').first.wait_for(timeout=15000)
+    _mask(ctx.page)
+
+
+def _kb_source(ctx: Ctx) -> None:
+    _kb_item_menu(ctx)
+    ctx.page.locator('[data-testid="kb-item-source-btn"]').first.click()
+    ctx.page.locator('[data-testid="kb-source-text"]').wait_for(state="visible", timeout=15000)
+    _mask(ctx.page)
+
+
+def _kb_search(ctx: Ctx) -> None:
+    page = ctx.page
+    _kb_ready(ctx)
+    page.locator('[data-testid="kb-search-input"]').fill(LIBRARY_QUERY)
+    page.locator('[data-testid="kb-search-btn"]').click()
+    page.locator('[data-testid="kb-search-hit"]').first.wait_for(timeout=20000)
+    _mask(page)
+    page.locator('[data-testid="kb-search-hit"]').first.scroll_into_view_if_needed()
+
+
+def _kb_status(ctx: Ctx) -> None:
+    page = ctx.page
+    _kb_ready(ctx)
+    page.locator('[data-testid="kb-reindex-all-btn"]').click()
+    # Wait through the re-index on the API, then for the page's own poll to repaint.
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        st = _api(ctx.base_url, ctx.token, "GET", f"/api/knowledge-bases/{ctx.ids['kbl']}/status")
+        if st["indexer"] == "idle" and st["items"].get("indexed") == len(LIBRARY_FILES):
+            break
+        time.sleep(0.5)
+    else:
+        raise CaptureError(f"kb-status: re-index did not settle: {st}")
+    page.get_by_test_id("kb-indexer-state").filter(has_text="idle").wait_for(timeout=15000)
+    _mask(page)
+    page.locator('[data-testid="kb-status-summary"]').scroll_into_view_if_needed()
+
+
+def _kb_danger_armed(ctx: Ctx) -> None:
+    page = ctx.page
+    _kb_ready(ctx)
+    btn = page.locator(".danger-zone .delete-btn").first
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    page.locator(".danger-zone .confirm-delete").first.wait_for(timeout=5000)
+
+
+def _connector_new(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('select[data-field="type"]').select_option("stub")
+    page.locator('input[data-field="name"]').fill("Capture stub connector")
+
+
+def _connector_edit(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="connector-doctor-btn"]').click()
+    page.locator('[data-testid="connector-doctor-result"]:not(:empty)').wait_for(timeout=15000)
+    page.locator('[data-testid="connector-pairing-btn"]').click()
+    page.locator('[data-testid="connector-pairing-code"]').wait_for(timeout=15000)
+    _mask(page)
+    page.locator('[data-testid="connector-pairing-result"]').scroll_into_view_if_needed()
 
 
 SURFACES: list[Surface] = []
@@ -423,6 +566,81 @@ SURFACES += [
         prepare=_admin_tool_chips,
     ),
     Surface(
+        "library-start",
+        "#library",
+        '[data-testid="library-start"]',
+        "Library start page: one card per type",
+    ),
+    Surface(
+        "kb-new",
+        "#library/knowledge/~new",
+        '[data-testid="kb-create-name-input"]',
+        "Knowledge base create form",
+    ),
+    Surface(
+        "kb-detail",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: folder expanded with its files",
+        prepare=_kb_expand,
+    ),
+    Surface(
+        "kb-item-menu",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: an item's action menu open",
+        prepare=_kb_item_menu,
+    ),
+    Surface(
+        "kb-chunks",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: the chunks panel of one item",
+        prepare=_kb_chunks,
+    ),
+    Surface(
+        "kb-source",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: the extracted-source panel of one item",
+        prepare=_kb_source,
+    ),
+    Surface(
+        "kb-search",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: search preview with hits (scores masked)",
+        prepare=_kb_search,
+    ),
+    Surface(
+        "kb-status",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: status section after a full re-index",
+        prepare=_kb_status,
+    ),
+    Surface(
+        "kb-danger-armed",
+        "#library/knowledge/{kbl}",
+        '[data-testid="kb-folder-panel"]',
+        "Knowledge base detail: the Danger Zone delete armed (first click)",
+        prepare=_kb_danger_armed,
+    ),
+    Surface(
+        "connector-new",
+        "#library/connectors/~new",
+        '[data-testid="connector-status-row"], select[data-field="type"]',
+        "Connector create form, stub type chosen",
+        prepare=_connector_new,
+    ),
+    Surface(
+        "connector-edit",
+        "#library/connectors/{conn}",
+        '[data-testid="connector-doctor-btn"]',
+        "Connector editor: doctor result, pairing code and two channel-map rows",
+        prepare=_connector_edit,
+    ),
+    Surface(
         "chat-consent-link",
         "",
         "",
@@ -498,6 +716,8 @@ def start_instance(port: int, data_dir: Path, cwd: Path, log: Path):
         del env[key]
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
+    # The stub connector type (Library surfaces, M31 F3): this scratch instance only.
+    env["THE_ONE_STUB_TEST_ENDPOINT"] = "1"
     env["THE_ONE_OLLAMA_LIBRARY_TEST_JSON"] = json.dumps(OLLAMA_CATALOG)
     logf = open(log, "wb")  # noqa: SIM115 - closed by the caller via proc lifetime
     proc = subprocess.Popen(
@@ -544,7 +764,7 @@ def stop_instance(proc: subprocess.Popen) -> None:
         proc.wait(timeout=5)
 
 
-def seed(base: str, token: str) -> dict[str, str]:
+def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str]:
     ids: dict[str, str] = {}
     for ptype, (name, fields) in PROVIDERS.items():
         row = _api(base, token, "POST", "/api/providers", {"name": name, "type": ptype, **fields})
@@ -566,6 +786,8 @@ def seed(base: str, token: str) -> dict[str, str]:
         },
     )
     seed_tabs_agent(base, token, ids)
+    if files_root is not None:
+        seed_library(base, token, ids, files_root)
     return ids
 
 
@@ -637,6 +859,57 @@ def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
     return ids
 
 
+def seed_library(base: str, token: str, ids: dict[str, str], files_root: Path) -> None:
+    """A knowledge base with a registered scratch folder (indexed) and a stub connector
+    (Flight 3 DD2). ``files_root`` sits beside the scratch data dir, never inside it (a
+    folder inside the data dir is refused with 422)."""
+    folder = files_root / "library-docs"
+    for rel, text in LIBRARY_FILES.items():
+        path = folder / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    kbl = _api(
+        base,
+        token,
+        "POST",
+        "/api/knowledge-bases",
+        {"name": "Capture library", "description": "Four small text files, indexed."},
+    )["id"]
+    ids["kbl"] = kbl
+    _api(
+        base,
+        token,
+        "POST",
+        f"/api/knowledge-bases/{kbl}/items",
+        {"type": "folder", "path_or_url": str(folder)},
+    )
+    deadline = time.monotonic() + 90
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = _api(base, token, "GET", f"/api/knowledge-bases/{kbl}/status")
+        if status["items"].get("indexed") == len(LIBRARY_FILES) and status["indexer"] == "idle":
+            break
+        time.sleep(1)
+    else:
+        raise CaptureError(f"the capture knowledge base did not finish indexing: {status}")
+    ids["conn"] = _api(
+        base,
+        token,
+        "POST",
+        "/api/connectors",
+        {
+            "name": "Capture stub connector",
+            "type": "stub",
+            "config": {
+                "enabled": False,
+                "default_agent": "Capture agent",
+                "channel_map": {"general": "Capture agent", "support": TABS_AGENT},
+            },
+            "secrets": {},
+        },
+    )["id"]
+
+
 # ── Capture ──────────────────────────────────────────────────────────────────
 
 
@@ -702,7 +975,7 @@ def capture_one(
         if "Unauthorized" in text or '"detail"' in text[:200]:
             raise CaptureError(f"{s.name}: the page is the unauthenticated state")
         if s.prepare:
-            s.prepare(Ctx(page, base, ids, theme))
+            s.prepare(Ctx(page, base, ids, theme, token))
         page.evaluate("document.fonts.ready")
         page.wait_for_timeout(500)  # transitions settle; the flash is visible for 5 s
         target = out / f"{s.name}--{theme}.png"
@@ -832,7 +1105,7 @@ def run(argv: list[str]) -> int:
     failed: list[dict] = []
     try:
         base, proc, token = start_instance(port, data_dir, scratch / "cwd", scratch / "serve.log")
-        ids = seed(base, token)
+        ids = seed(base, token, scratch / "home")
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             try:

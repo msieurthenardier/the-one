@@ -151,7 +151,11 @@
   //   role: 'status' (default) or 'alert' (the line is role=alert, for an error that
   //   must interrupt); ignored when live is 'off'.
   //   led: false draws no LED at all (the words alone; the state stays on data-state).
-  //   The test id option is placed on the p.ui-status root (supplied by the caller).
+  //   The test id option is placed on the p.ui-status root (supplied by the caller);
+  //   ledTestid is placed on the LED span (ignored with led:false; set() rewrites only
+  //   the LED's class and aria attributes, so it persists).
+  //   textTone: true colours the text with the danger or warning token for those states
+  //   (root class ui-status--tone); other states and the default are unchanged.
   //   With text the LED is decorative (aria-hidden). Without text the LED is role=img
   //   named by ledLabel only when one is given (opts.ledLabel, or per call:
   //   set(state, text, {ledLabel})); with no label it stays aria-hidden, never an unnamed
@@ -168,6 +172,8 @@
     }
     if (opts.live !== 'off') root.setAttribute('role', opts.role || 'status');
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
+    if (opts.textTone) root.classList.add('ui-status--tone');
+    if (showLed && opts.ledTestid) led.setAttribute('data-testid', opts.ledTestid);
     function set(state, text, callOpts) {
       if (STATUS_STATES.indexOf(state) === -1) {
         throw new Error('App.ui.status: unknown state "' + state + '"');
@@ -192,7 +198,8 @@
   };
 
   // App.ui.chip(opts) -> HTMLSpanElement (class chip), display only.
-  //   label (required), tone: neutral (default) | danger, size: omit | 'sm', title.
+  //   label (required), tone: neutral (default) | danger | warning, size: omit | 'sm',
+  //   title, dataset (a plain object copied to data-*).
   //   The test id option is placed on the span itself (supplied by the caller).
   App.ui.chip = function (opts) {
     opts = opts || {};
@@ -200,7 +207,7 @@
       throw new Error('App.ui.chip: label is required');
     }
     var tone = opts.tone || 'neutral';
-    if (tone !== 'neutral' && tone !== 'danger') {
+    if (tone !== 'neutral' && tone !== 'danger' && tone !== 'warning') {
       throw new Error('App.ui.chip: unknown tone "' + tone + '"');
     }
     if (opts.size && opts.size !== 'sm') {
@@ -208,9 +215,11 @@
     }
     var classes = ['chip'];
     if (tone === 'danger') classes.push('chip--danger');
+    if (tone === 'warning') classes.push('chip--warning');
     if (opts.size === 'sm') classes.push('chip--sm');
     var node = App.ui.util.el('span', { className: classes.join(' '), text: String(opts.label) });
     if (opts.title) node.setAttribute('title', opts.title);
+    App.ui.util.applyDataset(node, opts.dataset);
     if (opts.testid) node.setAttribute('data-testid', opts.testid);
     return node;
   };

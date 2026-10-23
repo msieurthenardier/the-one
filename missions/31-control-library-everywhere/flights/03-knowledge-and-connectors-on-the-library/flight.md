@@ -252,7 +252,7 @@ It is 1493 lines and moves into modules under `static/js/areas/studio/`. They fo
   - Any testid that cannot survive gets a retired-table row and a `RETIRED_SELECTORS` entry in the leg that retires it (DD10).
 - **0192's scope** is the Library's knowledge group: the router's spoken label, and any Library heading or menu item that says "Knowledge". The agent editor's "Knowledge" *tab* (`agent-editor.js` about `:43`) names an agent's attachments and stays as it is. The HAT asks the operator whether it should change too.
 - **Aliases retired in these files:** `App.confirmDelete` (knowledge 2, connector 1), `App.showFlash` (connector 4, knowledge 1) and `App.icon(` (knowledge 1). `_errorMessageFromResponse` and the knowledge copy give way to `App.api.fetchJson`'s error text, where its shape fits.
-- **Error feedback is one surface per editor.** Editor-level failures go to the header error (`editorShell.setError`): Save, Delete and folder delete. The knowledge-base **create** form is the exception, and keeps its body error `kb-create-error` (role=alert) as its one surface. It is pinned at `test_flow_studio_library_list.py` (about `:481`) and `test_flow_studio_knowledge_inventory.py` (about `:192`). The knowledge-base detail delete no longer reverts silently. The folder delete keeps its revert and also states the error there rather than flashing.
+- **Error feedback is one surface per editor.** Editor-level failures go to the header error (`editorShell.setError`): Save and the folder delete. *(Amended at the leg 05b design review, 2026-10-22: a Delete failure goes to the danger zone's own `role=alert` notice next to the button, in both the knowledge-base and connector editors, because the danger zone sits at the bottom of the page, out of sight of the header.)* The knowledge-base **create** form is the exception, and keeps its body error `kb-create-error` (role=alert) as its one surface. It is pinned at `test_flow_studio_library_list.py` (about `:481`) and `test_flow_studio_knowledge_inventory.py` (about `:192`). The knowledge-base detail delete no longer reverts silently. The folder delete keeps its revert and also states the error there rather than flashing.
 
 **DD7: Visible changes, and the ledger.**
 - **Approved now:**
@@ -368,16 +368,16 @@ Verified at `08562ec` (planning surveys and Flight Director spot-checks, 2026-10
 
 ### Prerequisites
 - [x] Flight 2 is completed and merged (`main` at `08562ec`).
-- [ ] The branch `flight/03-knowledge-and-connectors-on-the-library` is created from `main` at flight start.
+- [x] The branch `flight/03-knowledge-and-connectors-on-the-library` is created from `main` at flight start.
 - [x] The operator's decisions (DD1, DD4, DD7, DD9) were taken on 2026-10-22.
-- [ ] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of **every** leg that runs browser tests.
-- [ ] The before captures are taken in leg 01, before any knowledge or connector file changes.
+- [x] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of **every** leg that runs browser tests.
+- [x] The before captures are taken in leg 01, before any knowledge or connector file changes.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -396,14 +396,14 @@ Groundwork, restructure, controls, surfaces, then close: the order Flights 1 and
 - **Leg 10:** the HAT.
 
 ### Checkpoints
-- [ ] The contracts lane is split and the script pin is fixed; editor contracts are documented; before captures taken; the gate is green.
-- [ ] `knowledge-section.js` is split into modules of ≤ 800 lines with no test-behaviour change; full gate green.
-- [ ] The disclosure, the key-value table and the options are contract-tested in both engines; the chip cascade is fixed.
-- [ ] The knowledge-base frame is mounted once through its glue and patches in place on Save.
-- [ ] The knowledge-base folders are on the library; the 0088 invariant holds; DD8-4/5/7 fixed.
-- [ ] The connector frame is on the library and its token keeps the masked round-trip; DD8-2/3 fixed.
-- [ ] The connector sections are on the library; DD8-1/8 fixed.
-- [ ] Every knowledge, connector and glue file is at zero sinks and zero allowance rows; budgets re-measured; full gate green.
+- [x] The contracts lane is split and the script pin is fixed; editor contracts are documented; before captures taken; the gate is green.
+- [x] `knowledge-section.js` is split into modules of ≤ 800 lines with no test-behaviour change; full gate green.
+- [x] The disclosure, the key-value table and the options are contract-tested in both engines; the chip cascade is fixed.
+- [x] The knowledge-base frame is mounted once through its glue and patches in place on Save.
+- [x] The knowledge-base folders are on the library; the 0088 invariant holds; DD8-4/5/7 fixed.
+- [x] The connector frame is on the library and its token keeps the masked round-trip; DD8-2/3 fixed.
+- [x] The connector sections are on the library; DD8-1/8 fixed.
+- [x] Every knowledge, connector and glue file is at zero sinks and zero allowance rows; budgets re-measured; full gate green.
 - [ ] HAT passed.
 
 ### Adaptation Criteria
@@ -423,20 +423,20 @@ Groundwork, restructure, controls, surfaces, then close: the order Flights 1 and
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `groundwork-and-before-set` (01): the contracts lane split, squawk 0233, squawk 0235 docs and the `state` key pin, `scripts/unused_selectors.py`, the Library capture surfaces, the before set, and the opened ledger. No product code changes (DD2).
-- [ ] `knowledge-split` (02): `knowledge-section.js` into the DD3 modules, behaviour-free; pins retargeted; full gate.
-- [ ] `disclosure` (03a): `App.ui.disclosure` with the bordered and plain variants, summary actions and the armed-on-summary look; the self-configuration history as a consumer (runs `agent-tabs`, which is at 94% of its budget); catalogue row and contract tests (DD4).
-- [ ] `control-options` (03b): `chip` `dataset`/`warning`, `App.ui.clearableInput`, the `more` icon, the menu gaps, `editorShell` `save.enabledWhenClean` and error `role`, `status` `ledTestid` and `data-state`, `copyField` `buttonLabel`; catalogue rows and contract tests (DD4).
-- [ ] `chip-cascade` (03c): the `chipList` marker class and the narrowed `admin.css` area rules, test-first under area ancestors in both themes. Runs `agent-tabs`, `settings`, `mcp` and both contracts lanes (DD8-6). Split from 03b at Architect cycle 2: CSS across three lanes.
-- [ ] `key-value-table` (04): `App.ui.keyValueTable` core with the keyed model and accessible names; catalogue row; contract tests with size and role assertions (DD4).
-- [ ] `knowledge-frame` (05a): the create and detail frames on `editorShell` through `mountSlot`, the fields, the value-model dirty state, Save patches in place, and the handle's `destroy`. Owns `knowledge-glue.js`'s mount path and its three sinks (DD5). Retargets the pins its moved calls break (DD11).
-- [ ] `knowledge-status-search-danger` (05b): Status and re-index on `status`/`chip`/`button`; Search with `clearableInput` (0100) and its generation guard (DD8-5); the danger zone and the header error surface (DD6); alias calls retired.
-- [ ] `knowledge-folder-panels` (06a): `disclosure` panels and Other items; keyed, focus-preserving rows with no menu close on refresh (DD8-4); chips patched through their own nodes; the 0088 invariant kept (summaries are never rewritten while a delete is armed); the folder delete error.
-- [ ] `knowledge-item-menu-and-inspect` (06b): the item menu on `App.ui.menu` (DD8-7 test first, the capture listeners gone); chunks and source with generation guards and focus on the opened panel (DD8-5).
-- [ ] `connector-frame` (07a), **tier high, a security surface**: `editorShell` through `mountSlot`; fields; the `secretInput` masked round-trip pinned by tests (DD5); the Enabled `toggle`; the header status line (`ledTestid`, visible text kept); value-model dirty state; `setBusy` (DD8-2); doctor non-OK (DD8-3); the handle's `destroy`. Owns `connector-glue.js`'s mount path and its sink.
-- [ ] `connector-sections` (07b): pairing with `copyField`, the channel map on `keyValueTable` (DD8-1 for both sequences, DD8-8), admission fields, the danger zone; alias calls retired.
-- [ ] `library-pane-and-labels` (08): the `mcp-glue.js` clear; squawk 0191 (the hoisted `LIBRARY_GROUPS`); squawk 0192 ("Knowledge bases", with the `routing` and `mcp` lane pins).
-- [ ] `library-close` (09): zero counts on every Library-half file, the unused-selector report for `studio.css`, the single-consumer option recheck, after captures, the `library` lane re-budget, catalogue/registry/docs (CLAUDE.md, `agents.md`), and the behavior-spec amendments check.
+- [x] `groundwork-and-before-set` (01): the contracts lane split, squawk 0233, squawk 0235 docs and the `state` key pin, `scripts/unused_selectors.py`, the Library capture surfaces, the before set, and the opened ledger. No product code changes (DD2).
+- [x] `knowledge-split` (02): `knowledge-section.js` into the DD3 modules, behaviour-free; pins retargeted; full gate.
+- [x] `disclosure` (03a): `App.ui.disclosure` with the bordered and plain variants, summary actions and the armed-on-summary look; the self-configuration history as a consumer (runs `agent-tabs`, which is at 94% of its budget); catalogue row and contract tests (DD4).
+- [x] `control-options` (03b): `chip` `dataset`/`warning`, `App.ui.clearableInput`, the `more` icon, the menu gaps, `editorShell` `save.enabledWhenClean` and error `role`, `status` `ledTestid` and `data-state`, `copyField` `buttonLabel`; catalogue rows and contract tests (DD4).
+- [x] `chip-cascade` (03c): the `chipList` marker class and the narrowed `admin.css` area rules, test-first under area ancestors in both themes. Runs `agent-tabs`, `settings`, `mcp` and both contracts lanes (DD8-6). Split from 03b at Architect cycle 2: CSS across three lanes.
+- [x] `key-value-table` (04): `App.ui.keyValueTable` core with the keyed model and accessible names; catalogue row; contract tests with size and role assertions (DD4).
+- [x] `knowledge-frame` (05a): the create and detail frames on `editorShell` through `mountSlot`, the fields, the value-model dirty state, Save patches in place, and the handle's `destroy`. Owns `knowledge-glue.js`'s mount path and its three sinks (DD5). Retargets the pins its moved calls break (DD11).
+- [x] `knowledge-status-search-danger` (05b): Status and re-index on `status`/`chip`/`button`; Search with `clearableInput` (0100) and its generation guard (DD8-5); the danger zone and the header error surface (DD6); alias calls retired.
+- [x] `knowledge-folder-panels` (06a): `disclosure` panels and Other items; keyed, focus-preserving rows with no menu close on refresh (DD8-4); chips patched through their own nodes; the 0088 invariant kept (summaries are never rewritten while a delete is armed); the folder delete error.
+- [x] `knowledge-item-menu-and-inspect` (06b): the item menu on `App.ui.menu` (DD8-7 test first, the capture listeners gone); chunks and source with generation guards and focus on the opened panel (DD8-5).
+- [x] `connector-frame` (07a), **tier high, a security surface**: `editorShell` through `mountSlot`; fields; the `secretInput` masked round-trip pinned by tests (DD5); the Enabled `toggle`; the header status line (`ledTestid`, visible text kept); value-model dirty state; `setBusy` (DD8-2); doctor non-OK (DD8-3); the handle's `destroy`. Owns `connector-glue.js`'s mount path and its sink.
+- [x] `connector-sections` (07b): pairing with `copyField`, the channel map on `keyValueTable` (DD8-1 for both sequences, DD8-8), admission fields, the danger zone; alias calls retired.
+- [x] `library-pane-and-labels` (08): the `mcp-glue.js` clear; squawk 0191 (the hoisted `LIBRARY_GROUPS`); squawk 0192 ("Knowledge bases", with the `routing` and `mcp` lane pins).
+- [x] `library-close` (09): zero counts on every Library-half file, the unused-selector report for `studio.css`, the single-consumer option recheck, after captures, the `library` lane re-budget, catalogue/registry/docs (CLAUDE.md, `agents.md`), and the behavior-spec amendments check.
 - [ ] `flight-hat` *(optional; the operator wants one per flight)*: the operator walks the knowledge-base and connector editors in both themes. The steps come from the ledger and the DD7 list, and the operator approves the capture set.
 
 > Leg design greps every moved path, renamed class and retired selector across `tests/`, `scripts/`, `Makefile`, `docs/ui-testid-registry.md` and `tests/behavior/`, and pastes the hits into the leg.

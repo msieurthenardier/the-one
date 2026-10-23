@@ -42,6 +42,11 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-chat-btn` | studio | The agent editor header's **Chat** (`App.ui.button` secondary, the `chat` icon), DOM-inserted into `.form-actions` before Cancel on a SAVED agent only (absent in create mode); `App.chat.chatWith(name)`: the guarded go() to `#chats/~new/{name}` with the chat area's pick intent, so a dirty editor asks once (M25 F4 L6, DD8) |
 | `agent-empty` | studio | Agents start page node with NO agents (the description plus the line "No agents yet."; M25 F3 L3, copy and structure changed in M25 F6 L4c) |
 | `agent-empty-new` | studio | Agents start page action "New agent" (both variants) -> `#agents/~new` (M25 F3 L3) |
+| `cancel-connector-btn` | studio | Connector-editor header Cancel, from `App.ui.editorShell` (`actions.cancel`); enabled from the first render on the create form, else once the form is dirty (M31 F3 L07a) |
+| `cancel-knowledge-btn` | studio | Knowledge detail view header Cancel, disabled until dirty (`App.ui.editorShell` `cancel`; L6-D1, M24 F06 L06; M31 F3 L05a) |
+| `connector-doctor-btn` | studio | Connector-editor Diagnostics "Run doctor" (`App.ui.button`) (M23 F02 L02; M31 F3 L07a) |
+| `kb-create-cancel-btn` | studio | Knowledge-base create form Cancel: discards and replaces to `#library/knowledge`; enabled on a clean form, disabled while Create is in flight (`editorShell` `cancel`; M25 F3 L4a, DD8; M31 F3 L05a) |
+| `kb-create-submit-btn` | studio | Knowledge-base create form Create (enabled on a clean form; busy from submit until the request fails; `editorShell` `save`; M24 F06 L01; M25 F3 L4a; M31 F3 L05a) |
 | `root-heading` | studio | The page `h1` ("Agents" / "Library") at an Agents or Library root with no editor open, visible as the start page's title since M25 F6 L4c (DD15; it was visually hidden in L1a, DD11); absent with an item open |
 | `provider-models-help` | admin | The provider editor's one line of help under "Available models" (M25 F6 L1a, DD10) |
 | `provider-api-key-help` | admin | The provider editor's help line under the API-key / Token field (hidden when the selected type has none; sortie 03 DD6) |
@@ -84,6 +89,8 @@ caught — but it cannot see where the attribute is emitted.
 | `date-time-status` | admin | The "Saved." status line on the Date and time page (M28 F2 L3) |
 | `date-time-use-browser` | admin | The "Use {browser zone}" button in the mismatch hint (M28 F2 L3) |
 | `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
+| `save-connector-btn` | studio | Connector-editor header Save / Create, from `App.ui.editorShell` (`actions.save`); busy (disabled) while its request is in flight (M31 F3 L07a) |
+| `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty (`App.ui.editorShell` `save`; L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`; M31 F3 L05a) |
 | `time-tool-note` | studio | The agent Tools tab's note on the `current_time` tool row: always available, even with a limited tool list (M28 F1 L3) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
@@ -132,18 +139,26 @@ caught — but it cannot see where the attribute is emitted.
 | `chats-new-btn` | chat | The Chats list's full-width New chat button (the pane's header block); opens the agent picker; natively disabled while setup is incomplete (M25 F4 L4a) |
 | `confirm-dialog-overlay` | shell | |
 | `connector-card` | studio | Library list connector row (an `<a href="#library/connectors/{id}">`, M25 F3 L4a; was the Connectors grid tile, M23 F02 L02) |
+| `connector-channel-map-add-btn` | studio | Connector-editor channel→agent map "+ Add row" (`App.ui.keyValueTable` `addTestid`) (M23 F02 L02; M31 F3 L07b) |
+| `connector-channel-map-agent` | studio | Connector-editor channel→agent map, a row's agent input (`inputTestid`) (M31 F3 L07b) |
+| `connector-channel-map-channel` | studio | Connector-editor channel→agent map, a row's channel-id input (`inputTestid`) (M31 F3 L07b) |
+| `connector-channel-map-remove-btn` | studio | Connector-editor channel→agent map per-row remove, an icon button named "Remove row {n}" (`removeTestid`) (M23 F02 L02; M31 F3 L07b) |
 | `connector-channel-map-row` | studio | Connector-editor channel→agent map, one row (M23 F02 L02) |
-| `connector-doctor-result` | studio | Connector-editor doctor probe result region (M23 F02 L02) |
-| `connector-pairing-code` | studio | Connector-editor pairing-code result — the code itself, in its own selectable `<code>` element (Squawk 0043) |
-| `connector-pairing-result` | studio | Connector-editor pairing-code + expiry result region (M23 F02 L02) |
+| `connector-delete-error` | studio | Connector-editor Danger Zone failed-DELETE notice (`App.ui.dangerZone` `notice`, role=alert) (M31 F3 L07b) |
+| `connector-doctor-result` | studio | Connector-editor doctor probe result, an `App.ui.status` line (hidden until a run; danger with the response's error text on a non-OK response) (M23 F02 L02; M31 F3 L07a) |
+| `connector-pairing-btn` | studio | Connector-editor "Generate pairing code" (`App.ui.button`) (M23 F02 L02; M31 F3 L07b) |
+| `connector-pairing-code` | studio | Connector-editor pairing-code result — the code itself, a read-only input named "Pairing code" (`App.ui.copyField`) (Squawk 0043; M31 F3 L07b) |
+| `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy button, named "Copy pairing code" (`copyField` `copyTestid`) (Squawk 0043; M31 F3 L07b) |
+| `connector-pairing-result` | studio | Connector-editor pairing result region: a status line (Generating…/failure), then the copy field and the expiry line (M23 F02 L02; M31 F3 L07b) |
 | `connector-setup-steps` | studio | Connector-editor inline setup-steps section container, both create and edit (Squawk 0046) |
 | `connector-setup-steps-doc-ref` | studio | Connector-editor inline setup-steps plain-text reference naming `docs/connector-setup.md` — not a link; only `/static` is mounted, so an anchor would 404 (renamed from `connector-setup-steps-link` in the squawk 0046 review fix) (Squawk 0046) |
-| `connector-status-label` | studio | Connector-editor header connection-status text, edit mode only (Squawk 0045) |
-| `connector-status-led` | studio | Connector-editor header connection-status LED, edit mode only (Squawk 0045) |
+| `connector-status-label` | studio | Connector-editor header connection-status line: the root `p.ui-status` of an `App.ui.status` (its `data-state` carries the outcome; "Connection check failed" when the automatic probe gets a non-OK response), edit mode only (Squawk 0045; M31 F3 L07a) |
+| `connector-status-led` | studio | The `status`-owned LED span inside the header status line (decorative, `aria-hidden`; its class carries the state), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
+| `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
 | `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's link to its root: "Agents" -> `#agents` (agent editor); on a Library editor (knowledge-base detail and `~new` form, MCP server, connector) the header reads `Library / {Group}` and "Library" is the link, to `#library` (the group is plain text; model providers: `Library / Model providers`, sortie 02, DD3); studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings: "Settings / Built-in tools" -> `#settings/tools` (tool editor; admin routes it the same way, focus: the closed tool's name link). Settings has no provider editor since sortie 02 leg 2 |
@@ -161,18 +176,18 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-create-name-input` | studio | Knowledge-base create form name field (M24 F06 L01; M25 F3 L4a) |
 | `kb-description-input` | studio | Knowledge detail view always-live description field, header region (L6-D1, M24 F06 L06) |
 | `kb-folder-add-error` | studio | Knowledge detail view Folders section "Add folder" submission error, renders the route's `detail` message (DD-10, M24 F06 L01; renamed from `kb-folder-register-error` in M24 F06 L06) |
-| `kb-folder-delete-btn` | studio | Knowledge detail view folder panel summary — trash-icon delete behind the canonical two-step `App.confirmDelete` (armed on the `<summary>`, folder-path span as `[data-confirm-title]`). Takes only its VISUAL form from the Custom Headers row; that row's bare click does not carry, because this one is an irreversible server-side cascading DELETE (amended L6-D3, M24 F06 L06; replaces the labelled two-step `kb-folder-remove-btn`) |
+| `kb-folder-delete-btn` | studio | Knowledge detail view folder panel — library ghost icon button in the disclosure's `actions` (outside the summary's accessible name), trash-icon delete behind the canonical two-step `App.ui.confirm` (armed on the `<summary>`, the disclosure text as `[data-confirm-title]`; M31 F3 L06a). Takes only its VISUAL form from the Custom Headers row; that row's bare click does not carry, because this one is an irreversible server-side cascading DELETE (amended L6-D3, M24 F06 L06; replaces the labelled two-step `kb-folder-remove-btn`) |
 | `kb-folder-panel` | studio | Knowledge detail view Folders section — one native `<details>` panel per registered folder, carrying path/status/watch in its summary and that folder's files in its body (L6-D2, M24 F06 L06; renamed from `kb-folder-row`) |
 | `kb-folder-path-input` | studio | Knowledge detail view Folders section "Add folder" path field (M24 F06 L01) |
-| `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, absent (not zero) until a walk has completed (DD-7, Flight 7 Leg 2) |
-| `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
-| `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
+| `kb-folder-status` | studio | Knowledge detail view folder panel summary — the "status: X" chip (M31 F3 L06a) |
+| `kb-folder-summary` | studio | Knowledge detail view folder panel — the `<summary>` element (the disclosure's `summaryTestid`); the armed two-step confirm's `.confirm-delete`/`.confirm-lapsed` state lives here (M31 F3 L06a) |
+| `kb-folder-watch` | studio | Knowledge detail view folder panel summary — the "watch: X" chip (M31 F3 L06a) |
 | `kb-folders-cascade-hint` | studio | Knowledge detail view Folders section — persistent helper text naming the removal's cascade, section-level rather than per-row (L6-D3, M24 F06 L06; replaces the per-row `kb-folder-remove-caption`) |
 | `kb-folders-list` | studio | Knowledge detail view Folders section — folder-panel + "Other items" panel container (M24 F06 L01; moved out of Status in M24 F06 L06) |
 | `kb-indexer-state` | studio | Knowledge detail view status summary — indexer state word (M24 F06 L01) |
 | `kb-item-error` | studio | Knowledge detail view item row — a `failed` item's error text (M24 F06 L01) |
 | `kb-item-indexed-at` | studio | Knowledge detail view item row — the item's content-freshness signal, rendered from `indexed_at` (only when the item has ever indexed — never a fabricated timestamp); `content_hash`, when present, rides along as the hover title (DD-6, Flight 7 Leg 2) |
-| `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
+| `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`, an `App.ui.menu` popup since M31 F3 L06b), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
 | `kb-item-menu-btn` | studio | Knowledge detail view item row — the overflow menu's trigger (`aria-haspopup="menu"`) (L5-D4, M24 F06 L05) |
 | `kb-item-row` | studio | Knowledge detail view — one row per file item, nested inside a folder panel or the "Other items" panel (M24 F06 L01) |
 | `kb-item-standalone-badge` | studio | Knowledge detail view item row — standalone-inside-folder badge, only rendered inside the "Other items" panel (DD-9, M24 F06 L01) |
@@ -180,9 +195,14 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-name-hint` | studio | Knowledge detail view always-live name field's advisory hint, shown over 43 code points, reuses the create form's DD-16 hint text (L6-D1, M24 F06 L06; renamed from `kb-edit-name-hint`) |
 | `kb-name-input` | studio | Knowledge detail view always-live name field, header region — no edit-button toggle (L6-D1, M24 F06 L06; renamed from `kb-edit-name-input`) |
 | `kb-other-items-panel` | studio | Knowledge detail view Folders section — trailing native `<details>` panel for items with no real folder parent (L6-D2 chosen option (a), M24 F06 L06) |
-| `kb-panel-title` | studio | Knowledge detail view chunks/source panel — titled with the open item's path so the panel is attributable when it isn't beside its row (kb-studio-round-trip remediation FIX 4, M24 F06) |
+| `kb-panel-title` | studio | Knowledge detail view chunks/source panel — the panel's one stable `h3` heading (`tabindex=-1`, built once; focus lands on it when a panel opens), titled with the open item's path so the panel is attributable when it isn't beside its row (kb-studio-round-trip remediation FIX 4, M24 F06; an `h3` since M31 F3 L06b) |
+| `kb-reindex-all-btn` | studio | Knowledge detail view Status section re-index control (`scope=all`) (M24 F06 L01; label "Re-index all files"; an `App.ui.button` since M31 F3 L05b) |
+| `kb-reindex-changed-btn` | studio | Knowledge detail view Status section re-index control (`scope=changed`) (M24 F06 L01; an `App.ui.button` since M31 F3 L05b) |
 | `kb-reindex-scope-hint` | studio | Knowledge detail view Status section — helper text stating that re-indexing covers every registered folder (there is no per-folder re-index) and what each scope does (M24 F06 L06 HAT polish pass) |
+| `kb-search-btn` | studio | Knowledge detail view search submit (M24 F06 L01; an `App.ui.button` since M31 F3 L05b) |
+| `kb-search-clear-btn` | studio | Knowledge detail view search field's x button, empties the query, results and degraded line (squawk 0100, M31 F3 L05b) |
 | `kb-search-degraded` | studio | Knowledge detail view search degrade line, shown alongside the response's own `indexer` word (AC-12, M24 F06 L01) |
+| `kb-search-announcer` | studio | Knowledge detail view search: visually hidden polite status announcing the result count ("N results", "1 result", "No results."); empty on clear (WCAG 4.1.3, M31 F3 review fix) |
 | `kb-search-hit` | studio | Knowledge detail view — one search result row, carries `score` (M24 F06 L01) |
 | `kb-search-input` | studio | Knowledge detail view search query field (DD-6, M24 F06 L01) |
 | `kb-search-results` | studio | Knowledge detail view search results container (M24 F06 L01) |
@@ -311,7 +331,7 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-error` | studio | Self-configuration pending-revision card action error (M21 F02 L02) |
 | `revision-field` | studio | Self-configuration pending-revision card field label (M21 F02 L02) |
 | `revision-history` | studio | Self-configuration revision-history timeline container (M21 F02 L03); lives inside the collapsible `revision-history-details` as of the HAT UX pass (M21 F02 L04) |
-| `revision-history-details` | studio | Self-configuration chronological-log `<details class="advanced-collapsible">` wrapper (M21 F02 L04 HAT — collapses the full log; the restore-node list stays outside it, always visible) |
+| `revision-history-details` | studio | Self-configuration chronological-log `App.ui.disclosure` (plain) `<details>` wrapper (M21 F02 L04 HAT — collapses the full log; the restore-node list stays outside it, always visible) |
 | `revision-history-empty` | studio | Self-configuration revision-history empty notice (M21 F02 L03) |
 | `revision-history-entry` | studio | Self-configuration revision-history entry (M21 F02 L03) |
 | `revision-history-summary` | studio | Self-configuration chronological-log `<summary>`, text "History (N)" (M21 F02 L04 HAT) |
@@ -414,23 +434,13 @@ caught — but it cannot see where the attribute is emitted.
 
 | Testid | Surface | Notes |
 |--------|---------|-------|
-| `cancel-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
-| `cancel-knowledge-btn` | studio | Knowledge detail view header Cancel, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06) |
-| `connector-channel-map-add-btn` | studio | Connector-editor channel→agent map add-row, same `_btn` indirection (M23 F02 L02) |
-| `connector-channel-map-remove-btn` | studio | Connector-editor channel→agent map per-row remove, same `_btn` indirection (M23 F02 L02) |
-| `connector-doctor-btn` | studio | Connector-editor doctor probe, same `_btn` indirection (M23 F02 L02) |
-| `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
-| `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy-to-clipboard button, same `_btn` indirection (Squawk 0043) |
 | `kb-add-folder-btn` | studio | Knowledge detail view Folders section "Add folder" submit, same `_btn` indirection (M24 F06 L01; renamed from `kb-register-folder-btn`, and the button's own text from "Register folder", in M24 F06 L06) |
-| `kb-create-cancel-btn` | studio | Knowledge-base create form Cancel: discards and replaces to `#library/knowledge`, same `_btn` indirection (M25 F3 L4a, DD8) |
-| `kb-create-submit-btn` | studio | Knowledge-base create form Create (stays enabled; disabled from submit until the request fails), same `_btn` indirection (M24 F06 L01; M25 F3 L4a) |
+| `kb-folder-path` | studio | Knowledge detail view folder panel summary — the folder path text (the disclosure's `summaryTextTestid`; `[data-confirm-title]`, so it reads "Confirm delete?" while armed; M31 F3 L06a) |
+| `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, absent (not zero) until a walk has completed (DD-7, Flight 7 Leg 2) |
+| `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
+| `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
-| `kb-reindex-all-btn` | studio | Knowledge detail view Status section re-index control (`scope=all`), same `_btn` indirection (M24 F06 L01; label "Re-index all" -> "Re-index all files" and moved from Folders into Status in the L06 HAT polish pass) |
-| `kb-reindex-changed-btn` | studio | Knowledge detail view Status section re-index control (`scope=changed`), same `_btn` indirection (M24 F06 L01; label "Re-index changed" -> "Re-index changed files" and moved from Folders into Status in the L06 HAT polish pass) |
-| `kb-search-btn` | studio | Knowledge detail view search control submit, same `_btn` indirection (M24 F06 L01) |
-| `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
-| `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`) |
 
 ## Retired testids (not extracted; kept for the record)
 

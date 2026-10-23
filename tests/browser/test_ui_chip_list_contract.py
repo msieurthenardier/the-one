@@ -70,13 +70,19 @@ def test_dom_shape_attributes_and_api(engine_page: Page) -> None:
           };
         }"""
     )
-    assert out["root"] == "chip-list-editor" and out["tid"] == "cl"
+    assert out["root"] == "chip-list-editor ui-chip-list" and out["tid"] == "cl"
     assert out["role"] == ["group", "Allowed hosts"]
     assert out["data"] == ["hosts", "array", "m1"]
-    assert out["kids"] == ["SPAN.chip", "SPAN.chip", "INPUT.chip-list-input"]
+    assert out["kids"] == ["SPAN.chip", "SPAN.chip", "INPUT.chip-list-input ui-chip-list-input"]
     assert out["locked"] == ["true", "alpha (locked by operator)", "alpha", 0]
     assert out["editable"] == ["beta×", None, "ui-chip-remove", "Remove beta", "button", "×"]
-    assert out["input"] == ["text", "chip-list-input", "cl-input", "Add entry", "Add entry…"]
+    assert out["input"] == [
+        "text",
+        "chip-list-input ui-chip-list-input",
+        "cl-input",
+        "Add entry",
+        "Add entry…",
+    ]
     assert out["values"] == [
         "alpha",
         "beta",
@@ -327,3 +333,57 @@ def test_focus_within_border_is_accent(engine_page: Page) -> None:
     p.locator(".chip-list-input").focus()
     focused = p.evaluate("() => getComputedStyle(window.__cl.el).borderTopColor")
     assert rest != focused
+
+
+# --- M31 F3 L03c (flight DD4, DD8-6, DD11): the area cascade must not restyle a library chip list ---
+
+CASCADE_JS = """([area, legacy]) => {
+  const tok = (name, prop) => { const p = document.createElement('span'); p.style[prop] = 'var(' + name + ')';
+    document.getElementById('harness-root').appendChild(p); const v = getComputedStyle(p)[prop]; p.remove(); return v; };
+  const host = document.createElement('div'); host.className = area; host.id = 'cascade-host';
+  document.getElementById('harness-root').appendChild(host);
+  let el;
+  if (legacy) {
+    host.insertAdjacentHTML('beforeend', '<div class="chip-list-editor"><span class="chip" data-locked="true">a</span>'
+      + '<span class="chip">b<button type="button" class="chip-remove">x</button></span><input class="chip-list-input"></div>');
+    el = host.firstElementChild;
+  } else {
+    const c = App.ui.chipList({values: ['a', 'b'], locked: ['a']});
+    host.appendChild(c.el); el = c.el; window.__cl = c;
+    c.setError(true);
+  }
+  const cs = (n) => getComputedStyle(n);
+  const locked = el.querySelector('[data-locked]');
+  const rm = el.querySelector('.ui-chip-remove, .chip-remove');
+  return {
+    lockedBg: cs(locked).backgroundColor, lockedOpacity: cs(locked).opacity,
+    rootBorder: cs(el).borderTopColor, removeColor: cs(rm).color,
+    surfaceElevated: tok('--surface-elevated', 'backgroundColor'), danger: tok('--status-danger', 'borderTopColor') ,
+    fgSecondary: tok('--fg-secondary', 'color'), accent: tok('--accent', 'color'),
+    accentTranslucent: tok('--accent-translucent', 'backgroundColor')
+  };
+}"""
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("area", ["area-studio", "area-admin"])
+def test_library_chip_list_keeps_its_own_look_under_an_area(
+    engine_page: Page, area: str, theme: str
+) -> None:
+    load_harness(engine_page, theme)
+    out = engine_page.evaluate(CASCADE_JS, [area, False])
+    assert out["lockedBg"] == out["surfaceElevated"], out
+    assert out["lockedOpacity"] == "0.7", out
+    assert out["rootBorder"] == out["danger"], out
+    assert out["removeColor"] == out["fgSecondary"], out
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("area", ["area-studio", "area-admin"])
+def test_string_built_chip_list_keeps_the_area_look(
+    engine_page: Page, area: str, theme: str
+) -> None:
+    load_harness(engine_page, theme)
+    out = engine_page.evaluate(CASCADE_JS, [area, True])
+    assert out["lockedBg"] == out["accentTranslucent"], out
+    assert out["removeColor"] == out["accent"], out

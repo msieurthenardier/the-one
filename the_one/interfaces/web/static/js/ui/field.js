@@ -239,7 +239,7 @@
   //   wrapper: the group places it in the control's slot, while the label,
   //   aria-describedby and aria-invalid still belong to the control),
   //   hint, hintTestid (the test id of the hint element, kept across setHint
-  //   calls), error, info (a description: the label then sits in
+  //   calls), errorTestid (the same for the error element), error, info (a description: the label then sits in
   //   div.field-group-label beside an infoButton, as siblings, and the control's
   //   aria-describedby leads with the description id). The test id option goes
   //   on the .field-group wrapper.
@@ -323,6 +323,7 @@
             role: 'alert',
             text: message
           });
+          if (opts.errorTestid) errorEl.setAttribute('data-testid', opts.errorTestid);
           wrapper.appendChild(errorEl);
         }
         control.classList.add('is-invalid');
@@ -343,6 +344,90 @@
       setHint: setHint,
       setLabel: function (text) {
         label.textContent = text;
+      }
+    };
+  };
+
+  // App.ui.clearableInput(opts) -> controller {el, input, clear(), setValue(text), destroy()}
+  // (M31 F3 L03b, squawk 0100): a text input with an explicit in-field x button.
+  //   Mirrors textInput (value, id, name, placeholder, autocomplete, disabled, dataset,
+  //   testid on the input, onInput), plus label (the input's accessible name when there
+  //   is no visible label), clearLabel (the button's name; default "Clear" plus the
+  //   label), clearTestid (on the button) and onClear. Place it with
+  //   App.ui.field({control: c.input, host: c.el}).
+  //   el is div.ui-clearable holding input.field-input.ui-clearable-input and the icon-only
+  //   ghost small button.ui-clearable-clear. The button is hidden (so out of the tab order)
+  //   while the input is empty. Pressing it, or Escape while the input has text, empties the
+  //   value (focus goes to the input BEFORE the button hides), fires one bubbling input
+  //   event, then onClear; Escape then calls preventDefault and stopPropagation. Escape on
+  //   an empty input, or during IME composition, passes through untouched. setValue updates
+  //   the button without firing input. It never uses type=search and adds no document,
+  //   window or body listener; destroy removes the input listeners.
+  App.ui.clearableInput = function (opts) {
+    opts = opts || {};
+    var util = App.ui.util;
+    var input = App.ui.textInput({
+      id: opts.id,
+      name: opts.name,
+      value: opts.value,
+      placeholder: opts.placeholder,
+      autocomplete: opts.autocomplete,
+      disabled: opts.disabled,
+      dataset: opts.dataset,
+      testid: opts.testid
+    });
+    input.className += ' ui-clearable-input';
+    if (opts.label) input.setAttribute('aria-label', opts.label);
+    var button = App.ui.button({
+      variant: 'ghost',
+      size: 'sm',
+      iconOnly: true,
+      icon: 'x',
+      ariaLabel: opts.clearLabel || (opts.label ? 'Clear ' + opts.label : 'Clear'),
+      className: 'ui-clearable-clear',
+      testid: opts.clearTestid
+    });
+    var destroyed = false;
+    function sync() {
+      button.hidden = input.value === '';
+    }
+    function clear() {
+      input.value = '';
+      input.focus();
+      sync();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (typeof opts.onClear === 'function') opts.onClear();
+    }
+    function onInput(e) {
+      sync();
+      if (typeof opts.onInput === 'function') opts.onInput(e);
+    }
+    function onKeyDown(e) {
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;
+      if (input.value === '') return;
+      e.preventDefault();
+      e.stopPropagation();
+      clear();
+    }
+    input.addEventListener('input', onInput);
+    input.addEventListener('keydown', onKeyDown);
+    button.addEventListener('click', clear);
+    sync();
+    return {
+      el: util.el('div', { className: 'ui-clearable' }, [input, button]),
+      input: input,
+      button: button,
+      clear: clear,
+      setValue: function (text) {
+        input.value = text === null || text === undefined ? '' : String(text);
+        sync();
+      },
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        input.removeEventListener('input', onInput);
+        input.removeEventListener('keydown', onKeyDown);
+        button.removeEventListener('click', clear);
       }
     };
   };

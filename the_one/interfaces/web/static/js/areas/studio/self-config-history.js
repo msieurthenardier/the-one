@@ -73,18 +73,18 @@
     restoreControls.setAttribute('aria-label', 'Restore an earlier value');
     historySection.appendChild(restoreControls);
 
-    // …and the collapsible "History (N)" `<summary>` below for the
-    // chronological log (HAT fix #10 — native `<details>`, zero-JS
-    // disclosure, components.css `.advanced-collapsible`). The restore
-    // list above stays always visible; only the full log collapses.
-    var historyDetails = document.createElement('details');
-    historyDetails.className = 'advanced-collapsible self-configuration-history-details';
-    historyDetails.setAttribute('data-testid', 'revision-history-details');
-
-    var historySummary = document.createElement('summary');
-    historySummary.setAttribute('data-testid', 'revision-history-summary');
-    historySummary.textContent = 'History';
-    historyDetails.appendChild(historySummary);
+    // …and the collapsible "History (N)" disclosure below for the
+    // chronological log (HAT fix #10 — App.ui.disclosure, plain variant, a
+    // native `<details>`). The restore list above stays always visible; only
+    // the full log collapses.
+    var historyCtl = App.ui.disclosure({
+      variant: 'plain',
+      summary: 'History',
+      testid: 'revision-history-details',
+      summaryTestid: 'revision-history-summary',
+      className: 'self-configuration-history-details'
+    });
+    var historyDetails = historyCtl.el;
 
     // The full timeline (all statuses). This is a data view the user
     // browses, not an append-only log — it is entirely rebuilt on every
@@ -99,7 +99,7 @@
     historyList.setAttribute('role', 'group');
     historyList.setAttribute('aria-label', 'Revision history');
     historyList.textContent = 'Loading…';
-    historyDetails.appendChild(historyList);
+    historyCtl.body.appendChild(historyList);
 
     historySection.appendChild(historyDetails);
 
@@ -200,7 +200,7 @@
 
       // ── the full chronological log (newest-first, all statuses) ──
       historyList.textContent = '';
-      historySummary.textContent = 'History (' + revisions.length + ')';
+      historyCtl.setSummary('History (' + revisions.length + ')');
       if (revisions.length === 0) {
         historyList.appendChild(App.ui.emptyState({
           title: 'No revisions yet.',

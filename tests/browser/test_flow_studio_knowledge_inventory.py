@@ -477,8 +477,8 @@ def test_detail_view_indexing_poll_reindex_and_search(
     # a fresh registration reaches "starting" or "watching" (never "off"
     # or "unavailable", which need no manager / a real notifier failure
     # respectively — see this file's module docstring).
-    expect(folder_row.locator(".kb-folder-path")).to_have_text(str(fixture_dir))
-    expect(folder_row.locator(".kb-folder-watch")).to_have_text(
+    expect(folder_row.locator('[data-testid="kb-folder-path"]')).to_have_text(str(fixture_dir))
+    expect(folder_row.locator('[data-testid="kb-folder-watch"]')).to_have_text(
         _re.compile(r"watch: (starting|watching)"), timeout=10000
     )
 
@@ -564,12 +564,13 @@ def test_detail_view_indexing_poll_reindex_and_search(
     # appear here. This assertion is DELIBERATELY order-encoding: the
     # operator asked for Status (and its re-index pair) to sit BELOW
     # Folders, which is a change from the leg's original AC-6 order.
-    # Direct-child `>` on purpose: `_panelTitle` gives an OPEN chunks or
-    # source panel a `.section-title` of its own, nested one level deeper
-    # inside the Folders section, which a descendant selector would splice
-    # into this sequence.
+    # The chunks and source panels are `.editor-section.kb-inspect-panel`
+    # blocks nested in the Folders section, each with a heading of its own;
+    # exclude them so they are not spliced into this sequence.
     root = page.locator('[data-testid="studio-knowledge-inventory"]')
-    assert root.locator(".editor-section > .section-title").all_text_contents() == [
+    assert root.locator(
+        ".editor-section:not(.kb-inspect-panel) > .section-title"
+    ).all_text_contents() == [
         "Folders",
         "Status",
         "Search",
@@ -655,6 +656,12 @@ def test_detail_view_indexing_poll_reindex_and_search(
     expect(hits.first.locator(".kb-search-hit-score")).to_contain_text("score:")
     expect(hits.filter(has_text=str(fixture_dir / "note.txt"))).to_have_count(1)
     expect(page.locator('[data-testid="kb-search-degraded"]')).to_be_hidden()
+    # WCAG 4.1.3: a visually hidden polite status announces the outcome.
+    announcer = page.locator('[data-testid="kb-search-announcer"]')
+    expect(announcer).to_have_attribute("role", "status")
+    expect(announcer).to_have_text(_re.compile(r"^\d+ results?$"))
+    page.locator('[data-testid="kb-search-clear-btn"]').click()
+    expect(announcer).to_have_text("")
 
 
 @pytest.mark.browser
@@ -899,7 +906,7 @@ def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
     assert folder_panel.evaluate("el => el.open") is False
     remove_btn.click()
 
-    summary = folder_panel.locator(".kb-folder-summary")
+    summary = folder_panel.locator('[data-testid="kb-folder-summary"]')
     expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
     # ...and arming did NOT toggle the panel. The summary's default
     # handler skips clicks whose TARGET is a form control, and Blink tests
@@ -910,7 +917,7 @@ def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
     # glyph the target was the button and this could not happen, so the
     # invariant only became assertable-and-breakable with the icon.
     assert folder_panel.evaluate("el => el.open") is False
-    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    expect(folder_panel.locator('[data-testid="kb-folder-path"]')).to_have_text("Confirm delete?")
     # The arming click issued no DELETE: the folder and its indexed file
     # are both still there, and no DELETE left the browser at all.
     assert delete_requests == [], f"arming click issued a DELETE: {delete_requests}"
@@ -982,7 +989,7 @@ def test_folder_panel_open_state_survives_poll_ticks(
 
     # Expand via the path span — inside the <summary>, and well away from
     # the trash icon (whose clicks must NOT toggle the panel).
-    folder_panel.locator(".kb-folder-path").click()
+    folder_panel.locator('[data-testid="kb-folder-path"]').click()
     assert folder_panel.get_attribute("open") is not None, "panel did not expand"
 
     # Stamp the live node so a recreated panel is distinguishable from a
@@ -1217,7 +1224,7 @@ def test_armed_folder_confirm_survives_items_signature_tick(
     2. `updateFolderMeta` never rewrites the path span (tested).
     3. `renderAllItems` must not rebuild the `<summary>` either — it
        reaches a panel only through `renderFolderFiles`
-       (`knowledge-section.js:1111`), which writes `panel.filesEl` (the
+       (`knowledge-folders.js` `renderFolderFiles`), which writes `panel.filesEl` (the
        panel BODY), never the summary. **This test.**
 
     AC-10a: a naive version of this test — arm, then wait on the real
@@ -1269,7 +1276,7 @@ def test_armed_folder_confirm_survives_items_signature_tick(
     # Stamp the live summary node so a REBUILT node is distinguishable
     # from the SAME node surviving in place — the identity technique
     # `test_folder_panel_open_state_survives_poll_ticks` already uses.
-    summary = folder_panel.locator(".kb-folder-summary")
+    summary = folder_panel.locator('[data-testid="kb-folder-summary"]')
     summary.evaluate("el => { el.dataset.lapseInvariantProbe = 'original-node'; }")
 
     items_requests: list[str] = []
@@ -1332,7 +1339,7 @@ def test_armed_folder_confirm_survives_items_signature_tick(
     remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
     remove_btn.click()
     expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
-    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    expect(folder_panel.locator('[data-testid="kb-folder-path"]')).to_have_text("Confirm delete?")
 
     # The next natural tick — carrying the already-landed signature
     # change — fires here, well inside revertMs per the phase lock.
@@ -1352,7 +1359,7 @@ def test_armed_folder_confirm_survives_items_signature_tick(
     # The invariant: still armed, and it is the SAME node — not a fresh
     # one recreated with the armed markers coincidentally reapplied.
     expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
-    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    expect(folder_panel.locator('[data-testid="kb-folder-path"]')).to_have_text("Confirm delete?")
     assert summary.get_attribute("data-lapse-invariant-probe") == "original-node", (
         "an items-signature tick RECREATED the armed folder summary instead of leaving it in place"
     )
@@ -1384,7 +1391,7 @@ def test_folder_delete_confirm_lapse_is_visually_distinct(
     folder_panel = page.locator('[data-testid="kb-folder-panel"]')
     expect(folder_panel).to_be_visible(timeout=5000)
 
-    summary = folder_panel.locator(".kb-folder-summary")
+    summary = folder_panel.locator('[data-testid="kb-folder-summary"]')
     remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
 
     expect(summary).not_to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
@@ -1396,7 +1403,7 @@ def test_folder_delete_confirm_lapse_is_visually_distinct(
     # the lapse cue distinguishing it from never-armed.
     expect(summary).not_to_have_class(_re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(summary).to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
-    expect(folder_panel.locator(".kb-folder-path")).to_have_text(str(fixture_dir))
+    expect(folder_panel.locator('[data-testid="kb-folder-path"]')).to_have_text(str(fixture_dir))
 
     # AC-7 (re-arm): the next click clears the lapse cue (per the
     # helper's "cleared on the next interaction" contract) and arms fresh
@@ -1405,7 +1412,7 @@ def test_folder_delete_confirm_lapse_is_visually_distinct(
     remove_btn.click()
     expect(summary).not_to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
     expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
-    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    expect(folder_panel.locator('[data-testid="kb-folder-path"]')).to_have_text("Confirm delete?")
 
 
 @pytest.mark.browser
@@ -1426,3 +1433,925 @@ def test_kb_delete_confirm_lapse_is_visually_distinct(app_clean: str, page: Page
     expect(delete_btn).not_to_have_class(_re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
     expect(delete_btn).to_have_text("Delete Knowledge Base")
+
+
+# ── M31 F3 L05a: the knowledge frame on the library (mount once, patch in place) ──
+
+_HEADER = ".studio-section-content .editor-header"
+
+
+def _kb_url_tail(kb_id: str) -> str:
+    return f"/api/knowledge-bases/{kb_id}"
+
+
+def _seed_folder_kb(base_url: str, tmp_path: Path, name: str) -> str:
+    """A knowledge base with one indexed folder (note.txt), created over HTTP."""
+    folder = tmp_path / "frame-fixture"
+    folder.mkdir()
+    (folder / "note.txt").write_text("Frame fixture. The quick brown fox jumps over the lazy dog.")
+    headers = auth_headers_for(base_url)
+    kb = httpx.post(
+        f"{base_url}/api/knowledge-bases",
+        json={"name": name, "description": "first"},
+        headers=headers,
+        timeout=10.0,
+    ).json()
+    resp = httpx.post(
+        f"{base_url}{_kb_url_tail(kb['id'])}/items",
+        json={"type": "folder", "path_or_url": str(folder)},
+        headers=headers,
+        timeout=10.0,
+    )
+    assert resp.status_code in (200, 201, 202), resp.text
+    return kb["id"]
+
+
+@pytest.mark.browser
+def test_save_patches_in_place_and_keeps_panels_search_and_requests_quiet(
+    app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
+) -> None:
+    """L05a (a) + (b): Save keeps the editor mounted (a marker on the header
+    node), an expanded folder panel open, a typed search query and its results,
+    and makes no /items request; the title, the subtitle and the Library row
+    follow the saved record."""
+    base_url, _ = app_with_data_dir
+    kb_id = _seed_folder_kb(base_url, tmp_path, "Frame KB")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
+    expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("Frame KB", timeout=10000)
+    expect(page.locator(_HEADER + " .editor-subtitle")).to_have_text("first")
+    expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
+        "indexed: 1", timeout=30000
+    )
+
+    panel = page.locator('[data-testid="kb-folder-panel"]')
+    expect(panel).to_be_visible(timeout=5000)
+    panel.locator('[data-testid="kb-folder-path"]').click()
+    assert panel.get_attribute("open") is not None
+    page.locator('[data-testid="kb-search-input"]').fill("fox")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    results = page.locator('[data-testid="kb-search-results"]')
+    expect(page.locator('[data-testid="kb-search-hit"]').first).to_be_visible(timeout=30000)
+    results_text = results.inner_text()
+    page.evaluate(
+        "sel => { document.querySelector(sel).dataset.keep = 'frame'; "
+        "document.querySelector('[data-testid=\"kb-folder-panel\"]').dataset.keep = 'panel'; }",
+        _HEADER,
+    )
+
+    items_requests: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            items_requests.append(r.url)
+            if r.method == "GET" and r.url.split("?")[0].endswith(_kb_url_tail(kb_id) + "/items")
+            else None
+        ),
+    )
+    page.locator('[data-testid="kb-name-input"]').fill("Frame KB renamed")
+    page.locator('[data-testid="kb-description-input"]').fill("second")
+    page.locator('[data-testid="save-knowledge-btn"]').click()
+
+    # (b): the title, the subtitle and the Library row follow the saved record.
+    expect(page.locator(_HEADER + " .editor-title")).to_have_text("Frame KB renamed", timeout=8000)
+    expect(page.locator(_HEADER + " .editor-subtitle")).to_have_text("second")
+    expect(_lists.list_row(page, "library/knowledge", "Frame KB renamed")).to_be_visible(
+        timeout=8000
+    )
+    # (a): mounted once; panel open; search kept; no /items refetch.
+    assert page.evaluate("sel => document.querySelector(sel).dataset.keep", _HEADER) == "frame"
+    assert (
+        page.evaluate(
+            "() => document.querySelector('[data-testid=\"kb-folder-panel\"]').dataset.keep"
+        )
+        == "panel"
+    )
+    assert panel.get_attribute("open") is not None
+    expect(page.locator('[data-testid="kb-search-input"]')).to_have_value("fox")
+    assert results.inner_text() == results_text
+    page.wait_for_timeout(600)
+    assert items_requests == [], items_requests
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+
+
+@pytest.mark.browser
+def test_dirty_follows_a_value_model_and_cancel_restores_the_last_saved_record(
+    app_clean: str, page: Page
+) -> None:
+    """L05a (c) + (d): type and revert is clean; after a Save then an edit, Cancel
+    shows the SAVED values, not the values the editor opened with."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Model KB")
+    name = page.locator('[data-testid="kb-name-input"]')
+    save = page.locator('[data-testid="save-knowledge-btn"]')
+    cancel = page.locator('[data-testid="cancel-knowledge-btn"]')
+    unsaved = page.locator('[data-testid="editor-unsaved"]')
+
+    name.fill("Model KB x")
+    expect(unsaved).to_have_text("Unsaved changes")
+    expect(save).to_be_enabled()
+    name.fill("Model KB")
+    expect(unsaved).to_have_text("")
+    expect(save).to_be_disabled()
+    expect(cancel).to_be_disabled()
+    assert page.evaluate("App.nav.isDirty()") is False
+
+    name.fill("  Model KB two  ")
+    save.click()
+    expect(page.locator(_HEADER + " .editor-title")).to_have_text("Model KB two", timeout=8000)
+    expect(name).to_have_value("Model KB two")  # written back from the saved (trimmed) record
+    page.locator('[data-testid="kb-description-input"]').fill("typed then cancelled")
+    name.fill("Model KB three")
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    expect(name).to_have_value("Model KB two")
+    expect(page.locator('[data-testid="kb-description-input"]')).to_have_value("")
+    expect(unsaved).to_have_text("")
+    assert page.evaluate("App.nav.isDirty()") is False
+
+
+class _PostHold:
+    """Hold one matching request until released (state, not timing)."""
+
+    def __init__(self, page: Page, pattern: str, method: str) -> None:
+        self.routes: list = []
+        self.method = method
+        self.released = False
+        page.route(pattern, self._handle)
+
+    def _handle(self, route) -> None:  # noqa: ANN001
+        if self.released or route.request.method != self.method:
+            route.continue_()
+        else:
+            self.routes.append(route)
+
+    def wait_held(self, page: Page, timeout: float = 8000) -> None:
+        left = timeout
+        while not self.routes and left > 0:
+            page.wait_for_timeout(50)
+            left -= 50
+        assert self.routes, "request was not held"
+
+    def release(self) -> None:
+        self.released = True
+        while self.routes:
+            self.routes.pop(0).continue_()
+
+
+@pytest.mark.browser
+def test_create_is_busy_while_in_flight_and_makes_one_knowledge_base(
+    app_clean: str, page: Page
+) -> None:
+    """L05a (e): while the POST is in flight Create AND Cancel are disabled
+    (setBusy), a second click makes no second request, and exactly one knowledge
+    base results."""
+    _goto_knowledge_grid(app_clean, page)
+    _lists.library_add(page, "knowledge")
+    posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: (
+            posts.append(r.url)
+            if r.method == "POST" and r.url.endswith("/api/knowledge-bases")
+            else None
+        ),
+    )
+    hold = _PostHold(page, _re.compile(r".*/api/knowledge-bases$"), "POST")
+    page.locator('[data-testid="kb-create-name-input"]').fill("Busy KB")
+    create = page.locator('[data-testid="kb-create-submit-btn"]')
+    cancel = page.locator('[data-testid="kb-create-cancel-btn"]')
+    expect(cancel).to_be_enabled()
+    create.click()
+    hold.wait_held(page)
+    expect(create).to_be_disabled()
+    expect(cancel).to_be_disabled()
+    page.evaluate("() => document.querySelector('[data-testid=\"kb-create-submit-btn\"]').click()")
+    hold.release()
+    _wait_kb_open(page, "Busy KB")
+    assert len(posts) == 1, posts
+    names = [
+        k["name"]
+        for k in httpx.get(
+            f"{app_clean}/api/knowledge-bases", headers=auth_headers_for(app_clean), timeout=5.0
+        ).json()
+    ]
+    assert names.count("Busy KB") == 1
+
+
+@pytest.mark.browser
+def test_leaving_during_a_save_in_flight_writes_nothing_after_destroy(
+    app_clean: str, page: Page
+) -> None:
+    """L05a (f): leave for the Library root while the PUT is held; once it lands
+    nothing is written (no editor, no header patch, no remount) and the route
+    stays at the root."""
+    _goto_knowledge_grid(app_clean, page)
+    kb_id = _create_knowledge_base(page, "Leaver KB")
+    hold = _PostHold(page, _re.compile(r".*/api/knowledge-bases/[^/]+$"), "PUT")
+    page.locator('[data-testid="kb-name-input"]').fill("Leaver KB edited")
+    page.locator('[data-testid="save-knowledge-btn"]').click()
+    hold.wait_held(page)
+    expect(page.locator('[data-testid="kb-name-input"]')).to_be_disabled()
+
+    page.locator('[data-testid="editor-breadcrumb-link"]').click()
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible(timeout=5000)
+    hold.release()
+    page.wait_for_timeout(800)
+    _nav.expect_route(page, "library")
+    expect(_lists.library_start(page)).to_be_visible()
+    expect(page.locator('[data-testid="kb-name-input"]')).to_have_count(0)
+    expect(page.locator(".studio-section-content .editor-title")).to_have_count(0)
+    # The save itself landed server-side (the list row is not reloaded by a
+    # destroyed mount; that gate is unchanged from before 05a).
+    body = httpx.get(
+        f"{app_clean}{_kb_url_tail(kb_id)}", headers=auth_headers_for(app_clean), timeout=5.0
+    ).json()
+    assert body["name"] == "Leaver KB edited"
+
+
+@pytest.mark.browser
+def test_focus_after_save_is_the_title_and_after_a_failed_save_is_save(
+    app_clean: str, page: Page
+) -> None:
+    """L05a (g) + the busy contract: the inputs are disabled while Save is in
+    flight; after Save focus is on the title; after a failed Save the error is in
+    the header and focus is back on Save."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Focus KB")
+    name = page.locator('[data-testid="kb-name-input"]')
+    save = page.locator('[data-testid="save-knowledge-btn"]')
+    title = page.locator(_HEADER + " .editor-title")
+
+    hold = _PostHold(page, _re.compile(r".*/api/knowledge-bases/[^/]+$"), "PUT")
+    name.fill("Focus KB 2")
+    save.focus()
+    page.keyboard.press("Enter")
+    hold.wait_held(page)
+    expect(name).to_be_disabled()
+    expect(page.locator('[data-testid="kb-description-input"]')).to_be_disabled()
+    hold.release()
+    expect(title).to_have_text("Focus KB 2", timeout=8000)
+    expect(name).to_be_enabled()
+    expect(title).to_be_focused()
+
+    # A failed Save: the header error, inputs back, focus on Save.
+    page.route(
+        _re.compile(r".*/api/knowledge-bases/[^/]+$"),
+        lambda route: (
+            route.fulfill(status=500, content_type="application/json", body='{"detail": "boom"}')
+            if route.request.method == "PUT"
+            else route.continue_()
+        ),
+    )
+    name.fill("Focus KB 3")
+    save.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("boom", timeout=8000)
+    expect(name).to_be_enabled()
+    expect(save).to_be_enabled()
+    expect(save).to_be_focused()
+    expect(title).to_have_text("Focus KB 2")
+
+
+@pytest.mark.browser
+def test_leaving_the_area_and_returning_is_a_fresh_mount_and_the_poll_resumes(
+    app_clean: str, page: Page
+) -> None:
+    """L05a amendment 1: Library -> Chats -> Library tears the editor down
+    (deactivate resets the glue) and the return is a fresh mount, so /status
+    requests resume and an unsaved edit does not survive."""
+    _goto_knowledge_grid(app_clean, page)
+    kb_id = _create_knowledge_base(page, "Area KB")
+    route = f"library/knowledge/{_nav.seg(kb_id)}"
+    page.locator('[data-testid="kb-name-input"]').fill("typed, not saved")
+    _nav.open_destination(page, "chats")
+    page.locator('[data-testid="confirm-dialog-overlay"]').wait_for(timeout=5000)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    _nav.expect_route(page, "chats")
+    with page.expect_request(
+        lambda r: r.url.endswith(f"{_kb_url_tail(kb_id)}/status"), timeout=9000
+    ):
+        _nav.set_route(page, route)
+    expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("Area KB", timeout=8000)
+    # And the poll keeps running on the fresh mount (one 5s tick).
+    with page.expect_request(
+        lambda r: r.url.endswith(f"{_kb_url_tail(kb_id)}/status"), timeout=9000
+    ):
+        pass
+
+
+# ── Leg 05b: status, search and danger zone on the library ───────────────
+
+
+def _fulfill_search(route, hits: list[dict], degraded: str | None = None) -> None:  # noqa: ANN001
+    route.fulfill(
+        status=200,
+        content_type="application/json",
+        json={"hits": hits, "degraded": degraded, "indexer": "idle"},
+    )
+
+
+def _search_and_see_degraded(page: Page) -> None:
+    page.route(
+        _re.compile(r".*/api/knowledge-bases/[^/]+/search\?.*"),
+        lambda route: _fulfill_search(
+            route, [{"path": "/x/a.txt", "score": 0.5, "text": "alpha"}], degraded="vector stale"
+        ),
+    )
+    page.locator('[data-testid="kb-search-input"]').fill("alpha")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    expect(page.locator('[data-testid="kb-search-hit"]')).to_have_count(1, timeout=8000)
+    expect(page.locator('[data-testid="kb-search-degraded"]')).to_be_visible()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("how", ["button", "escape"])
+def test_search_clear_empties_query_results_and_degraded_line(
+    app_clean: str, page: Page, how: str
+) -> None:
+    """L05b (a)/(b), squawk 0100: the x button, or Escape with text, empties the
+    query, the results and the degraded line, and focus is in the input."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, f"Clear KB {how}")
+    _search_and_see_degraded(page)
+    query = page.locator('[data-testid="kb-search-input"]')
+    if how == "button":
+        page.locator('[data-testid="kb-search-clear-btn"]').click()
+    else:
+        query.focus()
+        page.keyboard.press("Escape")
+    expect(query).to_have_value("")
+    expect(query).to_be_focused()
+    expect(page.locator('[data-testid="kb-search-hit"]')).to_have_count(0)
+    expect(page.locator('[data-testid="kb-search-degraded"]')).to_be_hidden()
+    expect(page.locator('[data-testid="kb-search-results"]')).to_have_text("")
+    expect(page.locator('[data-testid="kb-search-clear-btn"]')).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_a_late_older_search_response_is_dropped(app_clean: str, page: Page) -> None:
+    """L05b (c): two searches where the first response arrives after the second:
+    the second's results stay and "Searching..." is gone."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Race KB")
+    held: list = []
+
+    def handler(route) -> None:  # noqa: ANN001
+        if "q=first" in route.request.url:
+            held.append(route)
+        else:
+            _fulfill_search(route, [{"path": "/x/second.txt", "score": 0.9, "text": "SECOND"}])
+
+    page.route(_re.compile(r".*/api/knowledge-bases/[^/]+/search\?.*"), handler)
+    query = page.locator('[data-testid="kb-search-input"]')
+    query.fill("first")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "the first search was not held"
+    query.fill("second")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    hits = page.locator('[data-testid="kb-search-hit"]')
+    expect(hits).to_have_count(1, timeout=8000)
+    expect(hits.first).to_contain_text("SECOND")
+    _fulfill_search(held.pop(), [{"path": "/x/first.txt", "score": 0.1, "text": "FIRST"}])
+    page.wait_for_timeout(500)
+    expect(hits).to_have_count(1)
+    expect(hits.first).to_contain_text("SECOND")
+    expect(page.locator('[data-testid="kb-search-results"]')).not_to_contain_text("Searching")
+
+
+@pytest.mark.browser
+def test_clearing_during_an_in_flight_search_drops_the_late_response(
+    app_clean: str, page: Page
+) -> None:
+    """L05b: clearing bumps the generation, so a held response lands on nothing."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Clear Race KB")
+    held: list = []
+    page.route(
+        _re.compile(r".*/api/knowledge-bases/[^/]+/search\?.*"),
+        lambda route: held.append(route),
+    )
+    page.locator('[data-testid="kb-search-input"]').fill("slow")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    page.locator('[data-testid="kb-search-clear-btn"]').click()
+    _fulfill_search(held.pop(), [{"path": "/x/late.txt", "score": 0.1, "text": "LATE"}])
+    page.wait_for_timeout(500)
+    expect(page.locator('[data-testid="kb-search-hit"]')).to_have_count(0)
+    expect(page.locator('[data-testid="kb-search-results"]')).to_have_text("")
+
+
+@pytest.mark.browser
+def test_a_failed_delete_shows_the_danger_zone_notice_and_reverts(
+    app_clean: str, page: Page
+) -> None:
+    """L05b (d): a 500 DELETE shows its reason in the danger zone's own notice,
+    the button reverts and is enabled, and the knowledge base stays open."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Undeletable KB")
+    page.route(
+        _re.compile(r".*/api/knowledge-bases/[^/]+$"),
+        lambda route: (
+            route.fulfill(status=500, json={"detail": "disk on fire"})
+            if route.request.method == "DELETE"
+            else route.continue_()
+        ),
+    )
+    delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')
+    delete_btn.click()
+    delete_btn.click()
+    notice = page.locator('[data-testid="kb-delete-error"]')
+    expect(notice).to_contain_text("disk on fire", timeout=8000)
+    expect(delete_btn).not_to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(delete_btn).to_be_enabled()
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_a_double_confirm_sends_one_delete(app_clean: str, page: Page) -> None:
+    """L05b (e): further clicks while the DELETE is in flight send no second one."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Once KB")
+    deletes: list[str] = []
+    page.on(
+        "request",
+        lambda r: deletes.append(r.url) if r.method == "DELETE" else None,
+    )
+    hold = _PostHold(page, _re.compile(r".*/api/knowledge-bases/[^/]+$"), "DELETE")
+    delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')
+    delete_btn.click()
+    delete_btn.click()
+    hold.wait_held(page)
+    for _ in range(3):
+        delete_btn.dispatch_event("click")
+    page.wait_for_timeout(500)
+    assert len(deletes) == 1, deletes
+    expect(delete_btn).to_be_disabled()
+    hold.release()
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0, timeout=8000)
+    assert len(deletes) == 1, deletes
+
+
+@pytest.mark.browser
+def test_an_unchanged_poll_tick_rewrites_nothing_in_the_status_summary(
+    app_clean: str, page: Page
+) -> None:
+    """L05b (f): across two real poll ticks with an unchanging status, a
+    MutationObserver over kb-status-summary records nothing."""
+    _goto_knowledge_grid(app_clean, page)
+    kb_id = _create_knowledge_base(page, "Quiet KB")
+    expect(page.locator('[data-testid="kb-status-summary"]')).to_be_visible()
+    page.evaluate(
+        """() => {
+          window.__mut = [];
+          const o = new MutationObserver(r => window.__mut.push(...r.map(m => m.type)));
+          o.observe(document.querySelector('[data-testid="kb-status-summary"]'),
+            {subtree: true, childList: true, characterData: true, attributes: true});
+        }"""
+    )
+    ticks = 0
+    for _ in range(2):
+        with page.expect_response(
+            lambda r: r.url.endswith(f"{_kb_url_tail(kb_id)}/status"), timeout=12000
+        ):
+            pass
+        ticks += 1
+    page.wait_for_timeout(300)
+    assert ticks == 2
+    assert page.evaluate("() => window.__mut") == []
+
+
+# ── Leg 06a: folder panels on the library (DD8-4, keyed rows, header error) ──
+#
+# These tests stub /status and /items with page.route and drive the 5 s poll
+# with page.clock, so the folder panels, rows and ticks are deterministic and
+# the library lane pays no real waits.
+
+
+class _KbStub:
+    """Mutable /status and /items bodies for one knowledge base."""
+
+    def __init__(self, page: Page, kb_id: str) -> None:
+        self.chunks = 1
+        self.folders: list[dict] = []
+        self.items: list[dict] = []
+        self.items_requests = 0
+        self.status_requests = 0
+        pattern = _re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/(status|items)(\?.*)?$")
+        page.route(pattern, self._handle)
+
+    @staticmethod
+    def folder(fid: str, path: str, watch: str = "idle", **extra) -> dict:  # noqa: ANN003
+        row = {
+            "id": fid,
+            "path": path,
+            "status": "indexed",
+            "watch": watch,
+            "watch_error": None,
+            "error": None,
+            "indexed_at": None,
+            "skipped_dirs": None,
+            "skipped_entries": None,
+        }
+        row.update(extra)
+        return row
+
+    @staticmethod
+    def item(iid: str, path: str, parent: str | None = None, status: str = "indexed") -> dict:
+        return {
+            "id": iid,
+            "type": "file",
+            "path_or_url": path,
+            "parent_id": parent,
+            "status": status,
+            "error": None,
+            "indexed_at": None,
+            "content_hash": None,
+        }
+
+    def _handle(self, route) -> None:  # noqa: ANN001
+        if route.request.method != "GET":
+            route.continue_()
+            return
+        if route.request.url.split("?")[0].endswith("/status"):
+            self.status_requests += 1
+            counts = {"pending": 0, "indexing": 0, "indexed": 0, "failed": 0}
+            for it in self.items:
+                counts[it["status"]] = counts.get(it["status"], 0) + 1
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                json={
+                    "items": counts,
+                    "chunks": self.chunks,
+                    "indexer": "idle",
+                    "content_freshness": None,
+                    "folders": self.folders,
+                },
+            )
+        else:
+            self.items_requests += 1
+            route.fulfill(status=200, content_type="application/json", json=self.items)
+
+
+def _stubbed_kb_page(app_clean: str, page: Page, name: str) -> tuple[str, _KbStub]:
+    """Create a knowledge base over HTTP, stub its status and items, install the
+    page clock, and open its detail. Returns (kb_id, stub)."""
+    headers = auth_headers_for(app_clean)
+    kb_id = httpx.post(
+        f"{app_clean}/api/knowledge-bases", headers=headers, json={"name": name}, timeout=10.0
+    ).json()["id"]
+    stub = _KbStub(page, kb_id)
+    page.clock.install()
+    return kb_id, stub
+
+
+def _open_stubbed(page: Page, base_url: str, kb_id: str) -> None:
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=8000)
+
+
+def _tick(page: Page) -> None:
+    """One 5 s status poll tick (the page clock owns the interval)."""
+    page.clock.run_for(5000)
+
+
+@pytest.mark.browser
+def test_an_items_refresh_keeps_a_focused_menu_trigger(app_clean: str, page: Page) -> None:
+    """L06a (a1), DD8-4: an items refresh must not steal focus from a row's menu
+    trigger."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Focus Rows KB")
+    stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    trigger = page.locator(
+        '[data-testid="kb-item-row"][data-item-id="i1"] [data-testid="kb-item-menu-btn"]'
+    )
+    expect(trigger).to_be_visible()
+    # The trigger is focused; an items refresh (the chunk count moves, a row is
+    # added so the render is observable) leaves focus on it.
+    trigger.focus()
+    stub.chunks += 1
+    stub.items = stub.items + [stub.item("i3", "/x/three.txt")]
+    _tick(page)
+    expect(page.locator('[data-testid="kb-item-row"][data-item-id="i3"]')).to_be_visible(
+        timeout=8000
+    )
+    expect(trigger).to_be_focused()
+
+
+@pytest.mark.browser
+def test_an_items_refresh_keeps_an_open_menu_open(app_clean: str, page: Page) -> None:
+    """L06a (a2), DD8-4: an items refresh must not close an open item menu."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Open Menu KB")
+    stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    row1 = page.locator('[data-testid="kb-item-row"][data-item-id="i1"]')
+    trigger = row1.locator('[data-testid="kb-item-menu-btn"]')
+    trigger.click()
+    menu = row1.locator('[data-testid="kb-item-menu"]')
+    expect(menu).to_be_visible()
+    stub.chunks += 1
+    stub.items = stub.items + [stub.item("i4", "/x/four.txt")]
+    _tick(page)
+    expect(page.locator('[data-testid="kb-item-row"][data-item-id="i4"]')).to_be_visible(
+        timeout=8000
+    )
+    expect(menu).to_be_visible()
+    expect(trigger).to_have_attribute("aria-expanded", "true")
+
+
+@pytest.mark.browser
+def test_a_status_tick_keeps_focus_on_a_folder_summary_and_delete_button(
+    app_clean: str, page: Page
+) -> None:
+    """L06a (a3): moving an attached node blurs its focused descendant, so the
+    reconcile must not re-append panels on a tick that changes nothing in order."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Focus Panels KB")
+    stub.folders = [stub.folder("f1", "/x/a"), stub.folder("f2", "/x/b")]
+    _open_stubbed(page, app_clean, kb_id)
+    panel = page.locator('[data-testid="kb-folder-panel"][data-folder-id="f1"]')
+    expect(panel).to_be_visible()
+    summary = panel.locator("summary")
+    delete_btn = panel.locator('[data-testid="kb-folder-delete-btn"]')
+    watch = panel.locator('[data-testid="kb-folder-watch"]')
+
+    for target, label in ((summary, "native"), (delete_btn, "poll")):
+        target.focus()
+        expect(target).to_be_focused()
+        stub.folders = [stub.folder("f1", "/x/a", watch=label), stub.folders[1]]
+        _tick(page)
+        expect(watch).to_have_text(f"watch: {label}", timeout=8000)
+        expect(target).to_be_focused()
+
+
+@pytest.mark.browser
+def test_a_row_node_survives_a_poll_refresh_that_only_changes_its_status(
+    app_clean: str, page: Page
+) -> None:
+    """L06a (b): rows are keyed by item id and patched in place."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Keyed Rows KB")
+    stub.folders = [stub.folder("f1", "/x/a")]
+    stub.items = [
+        stub.item("i1", "/x/a/one.txt", parent="f1", status="pending"),
+        stub.item("i2", "/x/a/two.txt", parent="f1"),
+    ]
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-folder-panel"] summary').click()
+    row = page.locator('[data-testid="kb-item-row"][data-item-id="i1"]')
+    expect(row.locator('[data-testid="kb-item-status"]')).to_have_text("pending")
+    row.evaluate("el => { el.dataset.probe = 'same-node'; }")
+
+    stub.items[0] = stub.item("i1", "/x/a/one.txt", parent="f1", status="indexed")
+    _tick(page)
+    expect(row.locator('[data-testid="kb-item-status"]')).to_have_text("indexed", timeout=8000)
+    assert row.get_attribute("data-probe") == "same-node"
+    rows = page.locator('[data-testid="kb-item-row"]')
+    assert rows.evaluate_all("els => els.map(e => e.dataset.itemId)") == ["i1", "i2"]
+
+
+@pytest.mark.browser
+def test_a_removed_item_row_disappears_and_its_open_menu_is_released(
+    app_clean: str, page: Page
+) -> None:
+    """L06a (c): a gone item's row is removed and the document listeners its open
+    menu registered are removed with it (no leaked capture listener)."""
+    page.add_init_script(
+        """(() => {
+          window.__docListeners = new Set();
+          const add = document.addEventListener.bind(document);
+          const rem = document.removeEventListener.bind(document);
+          const key = (t, f, c) => t + '|' + (c === true || (c && c.capture) ? 'c' : 'b');
+          const ids = new WeakMap(); let n = 0;
+          const idOf = f => { if (!ids.has(f)) ids.set(f, ++n); return ids.get(f); };
+          document.addEventListener = function (t, f, c) {
+            if (t === 'click' || t === 'keydown' || t === 'pointerdown') {
+              window.__docListeners.add(key(t, f, c) + idOf(f));
+            }
+            return add(t, f, c);
+          };
+          document.removeEventListener = function (t, f, c) {
+            window.__docListeners.delete(key(t, f, c) + idOf(f));
+            return rem(t, f, c);
+          };
+        })()"""
+    )
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Gone Rows KB")
+    stub.items = [stub.item("i1", "/x/one.txt"), stub.item("i2", "/x/two.txt")]
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-other-items-panel"] summary').click()
+    row1 = page.locator('[data-testid="kb-item-row"][data-item-id="i1"]')
+    base = page.evaluate("() => window.__docListeners.size")
+    row1.locator('[data-testid="kb-item-menu-btn"]').click()
+    expect(row1.locator('[data-testid="kb-item-menu"]')).to_be_visible()
+    assert page.evaluate("() => window.__docListeners.size") > base
+
+    stub.chunks += 1
+    stub.items = [stub.items[1]]
+    _tick(page)
+    expect(row1).to_have_count(0, timeout=8000)
+    assert page.evaluate("() => window.__docListeners.size") == base
+    expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_the_folder_summary_name_is_the_path_and_the_chips_not_the_delete(
+    app_clean: str, page: Page
+) -> None:
+    """L06a (d): the delete action is outside the summary's accessible name."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Name KB")
+    stub.folders = [stub.folder("f1", "/x/named")]
+    _open_stubbed(page, app_clean, kb_id)
+    summary = page.locator('[data-testid="kb-folder-summary"]')
+    expect(summary).to_have_accessible_name("/x/named status: indexed watch: idle")
+    expect(page.locator('[data-testid="kb-folder-delete-btn"]')).to_have_accessible_name(
+        "Delete folder /x/named (press twice to confirm)"
+    )
+
+
+@pytest.mark.browser
+def test_a_failed_folder_delete_shows_the_header_error_and_the_summary_reverts(
+    app_clean: str, page: Page
+) -> None:
+    """L06a (e): the folder-delete failure is in the editor header (DD6), the
+    summary reverts, the button is enabled again, and one DELETE was sent."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Fail Delete KB")
+    stub.folders = [stub.folder("f1", "/x/keep")]
+    deletes: list[str] = []
+    page.route(
+        _re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items/f1$"),
+        lambda route: (
+            deletes.append(route.request.url),
+            route.fulfill(status=500, json={"detail": "disk on fire"}),
+        ),
+    )
+    _open_stubbed(page, app_clean, kb_id)
+    summary = page.locator('[data-testid="kb-folder-summary"]')
+    btn = page.locator('[data-testid="kb-folder-delete-btn"]')
+    btn.click()
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    btn.click()
+    expect(page.locator(_HEADER + " .editor-error")).to_contain_text("disk on fire", timeout=8000)
+    expect(summary).not_to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(page.locator('[data-testid="kb-folder-path"]')).to_have_text("/x/keep")
+    expect(btn).to_be_enabled()
+    assert len(deletes) == 1, deletes
+    # The next folder action (Add folder) clears the stale header error.
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("")
+    expect(page.locator('[data-testid="kb-folder-add-error"]')).to_have_text(
+        "Folder path is required."
+    )
+
+
+@pytest.mark.browser
+def test_a_successful_folder_delete_moves_focus_to_the_add_folder_input(
+    app_clean: str, page: Page
+) -> None:
+    """L06a amendment 8: focus goes to the Add-folder input after a folder delete."""
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Focus Delete KB")
+    stub.folders = [stub.folder("f1", "/x/gone")]
+
+    def delete(route) -> None:  # noqa: ANN001
+        stub.folders = []
+        route.fulfill(status=204, body="")
+
+    page.route(_re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items/f1$"), delete)
+    _open_stubbed(page, app_clean, kb_id)
+    btn = page.locator('[data-testid="kb-folder-delete-btn"]')
+    btn.click()
+    btn.click()
+    expect(page.locator('[data-testid="kb-folder-panel"]')).to_have_count(0, timeout=8000)
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_focused()
+
+
+# ── Leg 06b: the item menu on App.ui.menu, and the inspect panels ───────────
+
+
+def _seed_two_standalone_items(base_url: str, name: str) -> tuple[str, list[str]]:
+    headers = auth_headers_for(base_url)
+    kb_id = httpx.post(
+        f"{base_url}/api/knowledge-bases", headers=headers, json={"name": name}
+    ).json()["id"]
+    ids = []
+    for n in ("a", "b"):
+        item_id = f"{name}-{n}"
+        httpx.post(
+            f"{base_url}/api/knowledge-bases/{kb_id}/items",
+            headers=headers,
+            json={
+                "id": item_id,
+                "type": "file",
+                "path_or_url": f"/tmp/{name}-{n}.txt",
+                "status": "indexed",
+            },
+        )
+        ids.append(item_id)
+    return kb_id, ids
+
+
+def _open_other_items(page: Page, base_url: str, kb_id: str) -> None:
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
+    _wait_studio_ready(page)
+    other = page.locator('[data-testid="kb-other-items-panel"]')
+    expect(other).to_be_visible(timeout=5000)
+    other.locator("summary").click()
+
+
+@pytest.mark.browser
+def test_ctrl_k_with_an_item_menu_open_leaves_the_palette_its_keys(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """DD8-7: with a row's menu open, Ctrl K opens Jump to, and the arrow
+    keys and Escape then act on the palette, not on the menu."""
+    base_url, _ = app_with_data_dir
+    kb_id, ids = _seed_two_standalone_items(base_url, "dd87")
+    _open_other_items(page, base_url, kb_id)
+    row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{ids[0]}"]')
+    row.locator('[data-testid="kb-item-menu-btn"]').click()
+    expect(row.locator('[data-testid="kb-item-menu"]')).to_be_visible()
+
+    page.keyboard.press("Control+k")
+    palette_input = page.locator('[data-testid="jump-to-input"]')
+    expect(palette_input).to_be_focused()
+    page.keyboard.press("ArrowDown")
+    # The arrow acted on the palette: focus stays in its input, and the menu
+    # item did not take focus.
+    expect(palette_input).to_be_focused()
+    expect(page.locator('[data-testid="kb-item-chunks-btn"]:focus')).to_have_count(0)
+    expect(page.locator('[data-testid="kb-item-source-btn"]:focus')).to_have_count(0)
+    page.keyboard.press("Escape")
+    expect(page.locator('[data-testid="jump-to"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_a_late_chunks_response_never_paints_over_a_later_item(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """DD8-5: open chunks for item A, hold its response, open chunks for item B,
+    release A: the panel shows B."""
+    base_url, _ = app_with_data_dir
+    kb_id, ids = _seed_two_standalone_items(base_url, "dd85")
+    held: list = []
+
+    def _hold_a(route) -> None:  # noqa: ANN001
+        held.append(route)
+
+    page.route(f"**/items/{ids[0]}/chunks", _hold_a)
+    _open_other_items(page, base_url, kb_id)
+
+    def open_chunks(item_id: str) -> None:
+        row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{item_id}"]')
+        row.locator('[data-testid="kb-item-menu-btn"]').click()
+        row.locator('[data-testid="kb-item-chunks-btn"]').click()
+
+    open_chunks(ids[0])
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "item A's chunks request was never made"
+    open_chunks(ids[1])
+    panel = page.locator('[data-testid="kb-chunks-panel"]')
+    title = panel.locator('[data-testid="kb-panel-title"]')
+    expect(title).to_have_text("/tmp/dd85-b.txt")
+    expect(panel.locator(".empty-state")).to_be_visible(timeout=5000)
+    held[0].continue_()
+    page.wait_for_timeout(500)
+    expect(title).to_have_text("/tmp/dd85-b.txt")
+
+
+@pytest.mark.browser
+def test_view_chunks_and_source_leave_focus_on_the_panel_heading(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """DD8-5: after the response lands, focus is on the panel's own heading."""
+    base_url, _ = app_with_data_dir
+    kb_id, ids = _seed_two_standalone_items(base_url, "focus")
+    _open_other_items(page, base_url, kb_id)
+    row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{ids[0]}"]')
+    for btn, panel_id in (
+        ("kb-item-chunks-btn", "kb-chunks-panel"),
+        ("kb-item-source-btn", "kb-source-panel"),
+    ):
+        row.locator('[data-testid="kb-item-menu-btn"]').click()
+        row.locator(f'[data-testid="{btn}"]').click()
+        panel = page.locator(f'[data-testid="{panel_id}"]')
+        expect(panel).to_be_visible()
+        # Wait for the content to settle (loading line gone).
+        page.wait_for_timeout(400)
+        heading = panel.locator('[data-testid="kb-panel-title"]')
+        expect(heading).to_be_focused()
+        expect(heading).to_have_text("/tmp/focus-a.txt")
+        assert heading.evaluate("e => e.tagName") == "H3"

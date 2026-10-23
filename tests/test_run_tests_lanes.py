@@ -26,11 +26,13 @@ LANES = (
     "agents",
     "agent-tabs",
     "library",
+    "knowledge",
     "mcp",
     "routing",
     "settings",
     "providers",
-    "contracts",
+    "contracts-overlay",
+    "contracts-controls",
     "shared",
 )
 
@@ -78,9 +80,12 @@ def test_lanes_union_is_the_browser_suite(lanes: dict[str, set[str]]) -> None:
     )
 
 
-def test_contracts_lane_is_exactly_the_ui_contract_files(lanes: dict[str, set[str]]) -> None:
+def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[str]]) -> None:
     ui = {f"tests/browser/{p.name}" for p in (REPO / "tests" / "browser").glob("test_ui_*.py")}
-    assert lanes["contracts"] == ui
+    assert lanes["contracts-overlay"] | lanes["contracts-controls"] == ui
+    # `contracts` stays an alias for the union (not a canonical lane).
+    assert _lane_files("contracts") == ui
+    assert "tests/browser/test_ui_listener_cleanup.py" in lanes["contracts-controls"]
     assert not (lanes["shared"] & ui)
 
 
@@ -94,7 +99,10 @@ def test_list_without_lane_exits_2() -> None:
 def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
-    lanes = "chats|agents|agent-tabs|library|mcp|routing|settings|providers|contracts|shared"
+    lanes = (
+        "chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|providers|"
+        "contracts-overlay|contracts-controls|shared"
+    )
     assert lanes in proc.stderr
     assert proc.stdout == ""
 
@@ -266,7 +274,7 @@ def test_ci_browser_task_runs_every_lane_through_parallel_1() -> None:
     for lane in LANES:
         assert not re.search(rf"\b{lane}\b", script.replace("tests/browser", "")), lane
     assert "--lane" not in script
-    # WebKit is required in this one task: contracts is engine-parametrized.
+    # WebKit is required in this one task: the contracts lanes are engine-parametrized.
     assert "THE_ONE_REQUIRE_WEBKIT=1" in script
     assert "chromium webkit" in script
 

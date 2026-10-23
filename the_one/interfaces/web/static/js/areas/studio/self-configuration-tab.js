@@ -68,7 +68,7 @@
 //     testids stay on the underlying `<input>`.
 //   - Restore-node value + Restore button lay out side-by-side, grouped by
 //     field ("Description" / "System prompt" subheadings).
-//   - The chronological log lives in a `<details class="advanced-collapsible">`
+//   - The chronological log lives in an `App.ui.disclosure` (plain)
 //     below a "Restore to an earlier value" subheading; the restore-node
 //     list itself (the actionable part) stays always visible.
 //   - Before/after values get a small prefix/suffix diff highlight

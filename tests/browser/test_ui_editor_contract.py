@@ -533,3 +533,56 @@ def test_danger_zone_singular_action_form_is_the_one_item_form(engine_page: Page
     assert engine_page.evaluate(
         "() => [window.__zone.buttons.length, window.__zone.buttons[0] === window.__zone.button]"
     ) == [1, True]
+
+
+def test_shell_save_enabled_when_clean_and_busy_order(engine_page: Page) -> None:
+    """M31 F3 L03b: `save.enabledWhenClean` enables Save on a clean form without the caption."""
+    page = engine_page
+    _mount(page, "{actions: {save: {enabledWhenClean: true, testid: 's'}}}")
+    state = "() => [window.__shell.saveButton.disabled, document.querySelector('.editor-unsaved').textContent]"
+    assert page.evaluate(state) == [False, ""]
+    page.evaluate("window.__shell.setDirty(true)")
+    assert page.evaluate(state) == [False, "Unsaved changes"]
+    page.evaluate("window.__shell.setDirty(false)")
+    assert page.evaluate(state) == [False, ""]
+    page.evaluate("window.__shell.setBusy(true)")
+    assert page.evaluate(state)[0] is True
+    page.evaluate("window.__shell.setDirty(false)")
+    assert page.evaluate(state)[0] is True
+    page.evaluate("window.__shell.setBusy(false)")
+    assert page.evaluate(state) == [False, ""]
+
+
+def test_shell_save_default_is_unchanged_and_error_role(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page)
+    assert page.evaluate("() => window.__shell.saveButton.disabled") is True
+    assert (
+        page.evaluate("() => document.querySelector('.editor-error').getAttribute('role')") is None
+    )
+    _mount(page, "{errorRole: 'alert'}")
+    assert (
+        page.evaluate("() => document.querySelector('.editor-error').getAttribute('role')")
+        == "alert"
+    )
+    page.evaluate("window.__shell.setError('Boom')")
+    expect(page.get_by_role("alert")).to_have_text("Boom")
+    msg = page.evaluate(
+        "() => { try { App.ui.editorShell({title: 't', errorRole: 'status', actions: {save: {}}}); return ''; } catch (e) { return e.message; } }"
+    )
+    assert "errorRole" in msg
+
+
+def test_section_description_testid(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const s = App.ui.section({title: 'T', description: 'Words', descriptionTestid: 'sec-desc'});
+          const n = App.ui.section({title: 'T', description: 'Words'});
+          document.getElementById('harness-root').append(s.el, n.el);
+          return [s.el.querySelector('p.section-description').getAttribute('data-testid'),
+                  n.el.querySelector('p.section-description').getAttribute('data-testid')];
+        }"""
+    )
+    assert out == ["sec-desc", None]

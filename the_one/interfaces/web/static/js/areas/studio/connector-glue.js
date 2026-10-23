@@ -43,8 +43,43 @@
     // The mcp-sources dispatch (mcp-glue.js): the editor, a pending id resolving
     // (nothing), or the section root's empty state. Connectors are routed
     // (`connectors/new`, `connectors/{id}`) with the same pending pair.
+    //
+    // M31 F3 L07a (DD5): the editor is mounted once and kept by an identity key
+    // ('add' or 'edit:' + id). `handle` is the editor's `{destroy, setBusy,
+    // setError}`. A same-key render (a pending-item consume, a store
+    // notification, `setActiveSection` re-entering while mounted) keeps the editor
+    // and its unsaved edits, and so does not refresh the agents or types lists
+    // (accepted). A different key destroys the old handle, then the host clears
+    // with replaceChildren(); `reset()` (leaving the section, closing the open
+    // item) destroys and nulls both, so re-entering the section remounts. The key
+    // is compared INSIDE the load's `then`, so two renders racing on the same
+    // identity mount once. `epoch` is bumped by every teardown: a load that
+    // finishes after one never mounts.
+    var handle = null;
+    var handleKey = null;
+    var epoch = 0;
+
+    function formKey() {
+      if (state.connectorFormMode === 'add') return 'add';
+      if (state.connectorFormMode === 'edit' && state.editingConnector) {
+        return 'edit:' + state.editingConnector.id;
+      }
+      return null;
+    }
+
+    function destroyHandle() {
+      var old = handle;
+      handle = null;
+      handleKey = null;
+      if (old && old.destroy) old.destroy();
+    }
+
+    function teardown() {
+      epoch += 1;
+      destroyHandle();
+    }
+
     function renderConnectorsSection() {
-      sectionContentEl.innerHTML = '';
       if (!state.connectorFormMode && state.pendingConnectorFormMode === 'add') {
         state.connectorFormMode = 'add';
         state.editingConnector = null;
@@ -52,6 +87,12 @@
         state.pendingConnectorId = null;
       }
       if (state.connectorFormMode) {
+        var key = formKey();
+        if (handle && key !== null && key === handleKey) {
+          syncLibrarySelection(false); // same editor: its unsaved edits survive
+          return;
+        }
+        if (!handle) sectionContentEl.replaceChildren();
         state.dirty = false;
         var typesReady = connectorTypesReady || fetchConnectorTypes();
         // Fetch agents directly rather than reading `self._agents` — the
@@ -62,20 +103,26 @@
         // dedicated fetch here is always fresh and never depends on load
         // order.
         var connGen = state.editorGen;
+        var myEpoch = epoch;
         Promise.all([typesReady, agentData.fetchAgents(true)]).then(function (results) {
-          if (connGen !== state.editorGen) return; // discarded while the lists loaded
+          if (connGen !== state.editorGen || myEpoch !== epoch) return; // discarded while the lists loaded
           var agentsForDropdown = results[1];
           if (state.connectorFormMode == null || self._activeSection !== 'connectors') return;
-          App.studio.renderConnectorEditor(
+          var nowKey = formKey();
+          if (handle && nowKey === handleKey) return; // a racing render already mounted it
+          destroyHandle();
+          sectionContentEl.replaceChildren();
+          handleKey = nowKey;
+          handle = App.studio.renderConnectorEditor(
             sectionContentEl, state.editingConnector, CONNECTOR_TYPES, agentsForDropdown, {
               // Back is retired (M25 F3 L4b, DD2): the header breadcrumb's
               // "Connectors" link closes the editor (onBreadcrumbClick).
-              // DD8: edit mode reverts in place (the route stays the item);
-              // create mode discards and replaces to the section root.
+              // DD8: edit mode reverts in place (the editor patches its own
+              // controls; the route stays the item); create mode discards and
+              // replaces to the section root.
               onCancel: function () {
                 if (state.connectorFormMode === 'edit' && state.editingConnector) {
                   state.dirty = false;
-                  renderConnectorsSection();
                   return;
                 }
                 discardOpen_();
@@ -88,7 +135,8 @@
               // row and the URL moves from ~new to the item through sync(),
               // whose create->item rule announces the name. The editor
               // invalidated 'connectors'; the list reloads and `dirty` clears
-              // before the URL write.
+              // before the URL write. An edit Save is patched in place by the
+              // editor and only reloads the list.
               onSaveSuccess: function (updated, isCreate) {
                 if (connGen !== state.editorGen) return; // discarded mid-save: no resurrection
                 state.editingConnector = updated;
@@ -109,15 +157,25 @@
                   { replace: true, bypassGuard: true });
                 reloadLibrary('connectors').then(function () { focusLibraryRowNear(rowIndex); });
               },
-              onDirtyChange: function (d) { state.dirty = d; }
+              onDirtyChange: function (d) { if (connGen === state.editorGen) state.dirty = d; }
             }
           );
-          // A create's or an edit-mode Cancel's parked focus restore (M25 F6 L1b).
+          // A create's parked focus restore (M25 F6 L1b).
           App.focusAfter.flush();
+        }).catch(function (err) {
+          // The new record could not be opened (the agent list failed): the editor
+          // that asked (a create that already saved) is still mounted and busy.
+          if (connGen !== state.editorGen || myEpoch !== epoch) return;
+          if (handle) {
+            handle.setBusy(false);
+            handle.setError("Couldn't reopen the connector: " + ((err && err.message) || String(err)));
+          }
         });
         syncLibrarySelection(false);
         return;
       }
+      teardown();
+      sectionContentEl.replaceChildren();
       if (state.pendingConnectorFormMode === 'edit' && state.pendingConnectorId) {
         syncLibrarySelection(false);
         return;
@@ -143,6 +201,7 @@
     }
 
     self._closeConnectorForm = function () {
+      teardown();
       state.connectorFormMode = null;
       state.editingConnector = null;
       state.dirty = false;
@@ -260,6 +319,7 @@
       render: renderConnectorsSection,
       tryConsumePending: tryConsumePendingConnector,
       reset: function () {
+        teardown();
         state.connectorFormMode = null;
         state.editingConnector = null;
       },

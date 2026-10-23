@@ -1,6 +1,6 @@
 # Leg: groundwork-and-before-set
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Knowledge and connectors on the library](../flight.md)
 
 ## Objective
@@ -46,26 +46,39 @@ Land the flight's shared groundwork with no product-code change:
   - The canonical lane count is 11. The budgets come from a full `--parallel 3` run.
   - `--help` and the unknown-lane message list the new lanes and the alias.
 - **Pins and docs follow the split:**
-  - `tests/test_run_tests_lanes.py` is updated, and still pins pairwise disjointness, the union and the budget table;
-  - CLAUDE.md's lane list, lane descriptions, the budget table, the `THE_ONE_REQUIRE_WEBKIT=1` notes and the "ten lanes"/"nine named lanes" wording;
-  - the `ci/tasks/browser.yml` comment;
-  - `the_one/agents.md`, if it names the contracts lane.
+  - **`tests/test_run_tests_lanes.py`** still pins pairwise disjointness, the union and the budget table. The hard-coded spots to change are:
+    - the `LANES` tuple (about `:33`);
+    - `test_contracts_lane_is_exactly_the_ui_contract_files` (about `:81`, which indexes `lanes["contracts"]`; keep it, now asserting the two lanes' union);
+    - the literal `LANE_LIST` string (about `:97`);
+    - any lane-count, budget or wording assertions;
+  - **`scripts/run-tests.sh`:** the `shared` complement uses `contracts_pat`, so replace it with both new patterns. The `contracts)` alias goes in `resolve_lane`, not in `CANON_LANES`, so `--parallel` never runs it twice. Also update the header comments (about `:23`, `:29`);
+  - **CLAUDE.md:** the lane list, the `--lane contracts` example (about `:355`, which still works as an alias; add the two new lanes), the budget table (about `:371`), the lane bullets and "nine named lanes" (about `:392-393`), and "ten lanes"/"all eight lanes" (about `:395`, the latter already stale);
+  - **`ci/tasks/browser.yml`:** the comment at `:13` and "first eight"/"ninth" (about `:8-10`);
+  - **`the_one/agents.md`:** only "nine lanes" (about `:173`). Its "contracts lane" mentions stay valid because `contracts` stays an alias.
+- **Balance.** `test_ui_listener_cleanup.py` stays in controls. If the first `--parallel 3` run shows the two lanes badly unbalanced (one more than 1.5× the other), move whole files to rebalance and record it.
 - **Squawk 0233.** `tests/test_index_asset_cache_busting.py` no longer pins the exact count. It asserts:
   - (a) every `/static/…js|css` ref in the served `index.html` exists on disk under `static/`;
   - (b) each carries exactly one `?v={__version__}` (as today);
-  - (c) the load order holds: `js/ui/core.js` before every other `js/ui/*.js`, every `js/ui/*.js` before any `js/areas/**`, and `js/areas/studio.js` before the `js/areas/studio/*.js` modules (check that last one against today's real order before pinning; if the shell loads after its modules, pin what is true);
+  - (c) the relative load order of the `.js` refs only (the regex also matches `.css`, so filter it), not adjacency, since non-ui scripts such as `app.js`, `router.js` and `store.js` sit between the groups:
+    - `js/ui/core.js` before every other `js/ui/*.js`;
+    - every `js/ui/*.js` before any `js/areas/**`;
+    - every `js/areas/studio/*.js` before the shell `js/areas/studio.js`, and every `js/areas/chat/*.js` before `js/areas/chat.js`. The shells load last (`index.html` about `:77`, `:110`) and read `window.App.<area>.*` at call time;
   - (d) no duplicate refs.
 
   The history comment collapses to one line that points to the git log. The squawk is set to `completed` at the flight commit, with its corrective action and verification written in.
 - **Squawk 0235.** A new `the_one/agents.md` subsection, "Editor contracts (M31 F3 L01)", under the studio modules section:
-  - **the tab-handle contract:** `destroy` is required; `setAgent`, `deactivate`, `setSources`, `applyStored` and `setStoredChangeNote` are optional, each with what calls it. Rules and notes deliberately has no `setAgent`;
-  - **the `App.ui.util.mountSlot()` lifecycle:** `mount(fn)` returns `{gen, isCurrent(), …}`; mounting a new one destroys the previous one first; async results check `isCurrent()`;
+  - **the tab-handle contract,** as the code stands:
+    - `destroy` is required of every tab that holds listeners or controllers: knowledge, mcps, tools and self-configuration;
+    - General (`renderGeneralTab` returns its controls plus `setAgent`/`applyStored`/`setStoredChangeNote`/`setTestResult`/`clearTestResult`, no `destroy`) and Rules and notes (`renderRulesNotesTab` returns nothing) are **known exemptions**, each with its reason;
+    - `agent-editor.js`'s `h.destroy` calls only `selfConfig.destroy()` and `tabs.destroy()`. Document that as found and say which tabs it should cover;
+    - `setAgent`, `deactivate`, `setSources`, `applyStored` and `setStoredChangeNote` are optional, each with what calls it. Rules and notes deliberately has no `setAgent`;
+  - **the `App.ui.util.mountSlot()` lifecycle,** the real API from `ui/core.js` (about `:73-115`): `mount(destroyFn, data)` returns a token; `isCurrent(token)`; `current()`; `release(token)`; `destroy()`. Include the late-binding rule. Mounting a new one destroys the previous one first, and async results check `isCurrent(token)`. The studio `editorGen` counter is a separate thing;
   - **the studio `state` object's fields,** each with its owner;
   - **the hidden-editor patch:** `_activeSection` stays `'agents'` on Chats and Settings, so a self-configuration write patches the hidden editor in place (accepted; cross-reference squawk 0232).
 
-  Plus:
-  - a unit test that pins the `state` key set (static or behavioural: read how `studio.js` builds `state` and choose the robust one);
-  - a frame-level check that every agent-tab handle the editor frame mounts has a `destroy` function (static over the tab modules' return objects, or a browser assertion in an existing agent-editor test file).
+  Plus one new unit-tier file, `tests/test_studio_editor_contracts_static.py`, with two checks:
+  - **The `state` key set, by static parse.** `state` is a closure-local `var state = {…}` inside `init` (`studio.js` about `:89`), which a unit test cannot reach. Parse the object literal's top-level keys, brace-balanced and skipping comments; today there are 21. Also grep `state\.(\w+)\s*=` across `studio.js` and `studio/*.js`, and fail on a written name that is not in the literal.
+  - **The tab `destroy` check,** static over the tab modules' returned objects. A tab returning a handle without `destroy` fails, except for the explicit allow-list `{general, rules-and-notes}`, each entry with its reason.
 
   The squawk is completed at the flight commit.
 - **`scripts/unused_selectors.py`** (new; a developer tool, not a gate):
@@ -84,7 +97,7 @@ Land the flight's shared groundwork with no product-code change:
 
   How they work:
   - **The seeder** creates a knowledge base and registers a scratch folder of 3-4 small text files created under the capture's scratch home, beside its scratch data dir and never inside it (a folder inside the data dir is refused with 422). It waits for indexing to finish (poll `GET /api/knowledge-bases/{id}/status` with a timeout) and creates a stub connector with a channel map.
-  - **The stub connector** type needs `THE_ONE_STUB_TEST_ENDPOINT=1` with dev mode on the capture instance. Set it in the capture's own instance env only.
+  - **The stub connector** type needs `THE_ONE_STUB_TEST_ENDPOINT=1` with dev mode on the capture instance. `start_instance` (`ui_capture.py` about `:497-501`) strips every `THE_ONE_*` var and then sets `DATA_DIR` and `DEV_MODE`. Add `env["THE_ONE_STUB_TEST_ENDPOINT"] = "1"` there, in that instance env only.
   - **Run-to-run text is frozen or masked** before the screenshot, through the existing `_patch_*`/route or evaluate hooks: `Indexed:` timestamps, search scores, the watch state and the pairing code.
 - **The before set** is taken and recorded in the flight log: its directory (`$HOME/.cache/the-one-ui-capture/m31-f3-before/`), surface count, both themes, and the git sha it was taken at.
 - **The flight log's ledger** is open (it exists from planning). This leg adds a "no visible change" row.
@@ -93,9 +106,9 @@ Land the flight's shared groundwork with no product-code change:
 - [ ] `bash scripts/run-tests.sh --lane contracts-overlay --list` and `--lane contracts-controls --list` list disjoint file sets whose union equals `--lane contracts --list`, which is every `tests/browser/test_ui_*.py`. Every file in the overlay list exists.
 - [ ] `bash scripts/run-tests.sh --parallel 3 --plan` shows 11 canonical lanes, with budgets for both new lanes, and `--help` names the `contracts` alias.
 - [ ] `tests/test_run_tests_lanes.py` passes and pins the two new lanes (disjointness, union, budget rows).
-- [ ] `tests/test_index_asset_cache_busting.py` no longer contains `len(refs) ==` and asserts existence, the single `?v=`, no duplicates and the load order. It fails if a referenced script is deleted from disk or if a `js/areas/` script is moved above `js/ui/core.js`: try both on a scratch copy of `index.html` (or by monkeypatching the read) and revert.
+- [ ] `tests/test_index_asset_cache_busting.py` no longer contains `len(refs) ==` and asserts existence, the single `?v=`, no duplicates and the load order. It fails if a referenced script is missing or if a `js/areas/` script is moved above `js/ui/core.js`. Try both by monkeypatching the served body the test reads through `TestClient`, then revert.
 - [ ] `the_one/agents.md` has the "Editor contracts" subsection covering the four parts above.
-- [ ] The `state` key-set pin and the `destroy` check exist and pass. Each fails when a key is added or removed, or a tab handle's `destroy` is deleted: try once and revert.
+- [ ] The `state` key-set pin and the `destroy` check exist and pass. Each fails when a key is added or removed, or when the knowledge tab's `destroy` is deleted: try once and revert.
 - [ ] `python scripts/unused_selectors.py the_one/interfaces/web/static/css/studio.css` runs and prints a report, and its smoke test passes.
 - [ ] `python scripts/ui_capture.py --list` shows the eleven new surfaces, and a capture run writes light and dark PNGs for each to the before directory. The flight log records the path, count and sha.
 - [ ] No file under `the_one/interfaces/web/static/` is changed (`git diff --stat -- the_one/interfaces/web/static` is empty).
@@ -135,6 +148,8 @@ Land the flight's shared groundwork with no product-code change:
 - **Indexing in the capture seeder** uses the bundled local embedding model. Allow up to about 60 s, and fail loudly with the status JSON if it does not finish.
 - **The stub connector endpoint flag** must be set only on the capture's own scratch instance, never on 8484 or 8485.
 - **The `--plan` budget order** is longest first. The new lanes' interim budgets only affect scheduling.
+- **Unit-tier rules:** a new test must not call `ensure_schema`/`init_db` directly.
+- **`unused_selectors.py` parsing:** strip `/* */` comments from the CSS before extracting class tokens, and take class names from within `:not(...)` and compound selectors correctly.
 
 ## Files Affected
 - `scripts/run-tests.sh`, `tests/test_run_tests_lanes.py`, `CLAUDE.md`, `ci/tasks/browser.yml` (comment)
@@ -145,7 +160,7 @@ Land the flight's shared groundwork with no product-code change:
 - The flight log
 
 ## Citation Audit
-Checked at `08562ec` on 2026-10-22:
+Checked at `08562ec` on 2026-10-22, and corrected at the design review (Sonnet Developer, cycle 1: approve with changes; the `mountSlot` API, the real load order, the tab `destroy` exemptions, the `state` keys, and the lane-test hard-coded spots):
 - `run-tests.sh:54-55,68,201,213-231,443` (FD grep);
 - `test_index_asset_cache_busting.py:99` (FD read);
 - `ui_capture.py:129,305,547,581,659` (FD grep);

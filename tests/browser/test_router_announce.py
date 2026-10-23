@@ -198,7 +198,7 @@ def _seed_items(app: SeededApp) -> dict[str, tuple[str, str]]:
 # kind -> (section route, store collection, spoken prefix, type noun)
 KINDS = {
     "provider": ("library/providers", "providers", "Library — Model providers", "Model provider"),
-    "kb": ("library/knowledge", "knowledge-bases", "Library — Knowledge", "Knowledge base"),
+    "kb": ("library/knowledge", "knowledge-bases", "Library — Knowledge bases", "Knowledge base"),
     "mcp": ("library/mcp", "mcp-sources", "Library — MCP servers", "MCP server"),
     "connector": ("library/connectors", "connectors", "Library — Connectors", "Connector"),
 }
