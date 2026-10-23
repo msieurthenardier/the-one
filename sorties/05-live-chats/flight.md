@@ -1,6 +1,6 @@
 # Sortie: Live Chats list and connector chats
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
