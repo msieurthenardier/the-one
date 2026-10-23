@@ -373,6 +373,10 @@ def reset_lifespan_singletons():
 
     _asyncio.run(_reset())
 
+    from the_one.db import _session_changes
+
+    _session_changes.clear_for_test()
+
 
 # Modules that own the ONLY sanctioned real embedding-model load
 # (``tests.test_doctor_embedding_model`` — see that file's docstring) or

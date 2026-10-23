@@ -9,9 +9,13 @@ per-session lock unification.
 """
 
 from the_one.sessions._broadcast import (
+    add_socket,
     add_subscriber,
+    all_sockets,
+    broadcast_to_all,
     broadcast_to_session,
     clear_subscribers_for_test,
+    remove_socket,
     remove_subscriber,
     subscribers_for,
 )
@@ -25,6 +29,10 @@ __all__ = [
     "session_locks",
     "is_session_processing",
     "clear_locks_for_test",
+    "add_socket",
+    "remove_socket",
+    "all_sockets",
+    "broadcast_to_all",
     "add_subscriber",
     "remove_subscriber",
     "subscribers_for",

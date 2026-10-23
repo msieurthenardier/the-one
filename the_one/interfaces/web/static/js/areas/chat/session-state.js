@@ -170,7 +170,7 @@
 
     function accepts(frame) {
       var t = frame && frame.type;
-      if (t === 'session_list' || t === 'session_deleted') return true;
+      if (t === 'session_list' || t === 'session_deleted' || t === 'sessions_changed') return true;
       if (t === 'session_joined') {
         if (cur.name === 'starting') return frame.session_id === cur.clientId;
         if (cur.name === 'joining') return frame.session_id === cur.id;
@@ -181,6 +181,9 @@
       if (t === 'start_failed') return cur.name === 'starting' && frame.session_id === cur.clientId;
       if (t === 'join_failed') return cur.name === 'joining' && frame.session_id === cur.id;
       // Every other frame is session-scoped: only a joined session renders.
+      // `session_updated` (a connector turn ended) is one of them; chat.js
+      // checks its session_id against boundId() and handles a same-id
+      // `joining` case before this gate.
       return cur.name === 'joined';
     }
 
@@ -193,7 +196,7 @@
           ? { accept: false, refreshList: true }
           : { accept: false };
       }
-      if (t === 'session_list') return { accept: true };
+      if (t === 'session_list' || t === 'sessions_changed') return { accept: true };
       if (t === 'session_deleted') {
         if (cur.name === 'joined' && frame.session_id === cur.id) {
           enter('idle');

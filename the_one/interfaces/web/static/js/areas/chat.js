@@ -26,6 +26,31 @@ App.registerArea({
     // that caused the input to stay disabled in a NEW conversation when
     // the user switched away from a still-running one (post-F4 surfacing).
     var inFlightSessions = Object.create(null);
+    // Sortie 05 leg 3 (DD6): live refresh of an open chat. ownTurn marks a turn
+    // THIS client sent (distinct from inFlightSessions, which an is_processing
+    // join also sets); refreshAfterTurn defers a session_updated re-join until
+    // that turn ends; updateRejoin records a re-join sent for session_updated
+    // (its pin state and scroll offset); refreshAfterJoin notes a session_updated
+    // that landed while the same id was being joined. All keyed by session id.
+    var ownTurn = Object.create(null);
+    var refreshAfterTurn = Object.create(null);
+    var updateRejoin = null;
+    var refreshAfterJoin = null;
+    // Clear the live-refresh flags for one session id, or for all when omitted.
+    function clearLiveRefresh(id) {
+      var k;
+      if (id == null) {
+        for (k in ownTurn) delete ownTurn[k];
+        for (k in refreshAfterTurn) delete refreshAfterTurn[k];
+        updateRejoin = null;
+        refreshAfterJoin = null;
+        return;
+      }
+      delete ownTurn[id];
+      delete refreshAfterTurn[id];
+      if (updateRejoin && updateRejoin.id === id) updateRejoin = null;
+      if (refreshAfterJoin === id) refreshAfterJoin = null;
+    }
     // M25 F4 L3b (DD1): the session state machine (areas/chat/session-state.js).
     // Every inbound frame passes its gate; busy, the hold queue and Stop key
     // on its activeId() (the client id while starting, the session id while
@@ -485,11 +510,30 @@ App.registerArea({
     // open, joined, the starting-to-joined swap, idle, delete). Safe off
     // Chats: a REST-primed list with no socket renders into the hidden
     // sidebar panel, with the state idle.
+    // A server list row -> the REST summary shape the store's `sessions`
+    // collection holds (shared by the session_list reply and sessions_changed).
+    function toSessionSummary(s) {
+      return {
+        id: s.id,
+        agent_name: s.agent_name,
+        title: s.title,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+        platform: s.platform || null
+      };
+    }
+
     function renderChatsList() {
       var st = chatState.state();
       var pendingActive = st.name === 'pending' || st.name === 'starting';
       var peeked = App.store.peek('sessions');
-      chatsList.render(Array.isArray(peeked.value) ? peeked.value : [], {
+      var rows = Array.isArray(peeked.value) ? peeked.value : [];
+      // While starting, the pending row stands for the new chat: a pushed
+      // listing may already hold its real row (same id), so omit it.
+      if (st.name === 'starting') {
+        rows = rows.filter(function (r) { return r.id !== st.clientId; });
+      }
+      chatsList.render(rows, {
         pending: pendingActive ? { agent: st.agent } : null,
         selectedId: pendingActive ? App.chat.chatsList.PENDING_ID : chatState.boundId()
       });
@@ -611,6 +655,7 @@ App.registerArea({
       if (eff.noop) return false;
       if (eff.leave && socketOpen()) sendBinding({ action: 'leave' });
       if (eff.discardHeld) delete pendingQueuedMessages[eff.discardHeld];
+      clearLiveRefresh();
       if (eff.clearPendingJoin) pendingJoinId = null;
       rebinding = false;
       startBubbleNodes = [];
@@ -656,6 +701,9 @@ App.registerArea({
     // empty state flashes before the session_joined), with the header read
     // from the `sessions` store.
     function openConversation(id) {
+      // A move to another session drops the live-refresh flags; a same-id
+      // re-join (rejoinForUpdate) keeps them.
+      if (chatState.boundId() !== id) clearLiveRefresh();
       var eff = chatState.openConversation(id);
       if (eff.discardHeld) {
         delete pendingQueuedMessages[eff.discardHeld];
@@ -672,6 +720,7 @@ App.registerArea({
 
     function resetToIdle() {
       var eff = chatState.reset();
+      clearLiveRefresh();
       if (eff.discardHeld) delete pendingQueuedMessages[eff.discardHeld];
       clearPendingQueued();
       rebinding = false;
@@ -684,6 +733,7 @@ App.registerArea({
     // The pane after the state went idle: today's session_deleted reset.
     // The next session_list's idle rules pick what shows next.
     function clearConversation() {
+      clearLiveRefresh();
       hideThinking();
       resetStream();
       currentAgentName = null;
@@ -822,6 +872,7 @@ App.registerArea({
         startBubbleNodes.push(n);
       }
       sendBinding(eff.send);
+      ownTurn[eff.send.session_id] = true;
       sendBtn.disabled = true;
       updateStopControl();
       // pending -> starting: the new-chat state gives way to the log.
@@ -842,6 +893,7 @@ App.registerArea({
       var held = null;
       if (eff.clientId) {
         delete inFlightSessions[eff.clientId];
+        clearLiveRefresh(eff.clientId);
         held = pendingQueuedMessages[eff.clientId] || null;
         delete pendingQueuedMessages[eff.clientId];
       }
@@ -1409,10 +1461,38 @@ App.registerArea({
       // Keyed on activeId() (AC6): the joined session (the `done` handler's
       // held message also comes through here, on the joined path).
       var active = chatState.activeId();
-      if (active) inFlightSessions[active] = true;
+      if (active) {
+        inFlightSessions[active] = true;
+        ownTurn[active] = true;
+      }
       sendBtn.disabled = true;
       updateStopControl();
       showThinking();
+    }
+
+    // Send the held message of a session through the normal send path. Shared
+    // by the `done` handler and a session_updated re-join's reply, so the two
+    // cannot drift.
+    function sendHeld(sid) {
+      var held = pendingQueuedMessages[sid];
+      delete pendingQueuedMessages[sid];
+      clearPendingQueued();
+      performSend(held);
+    }
+
+    // Re-join the open chat after a session_updated (a connector turn changed
+    // its stored history). Records whether the reader was at the bottom, and
+    // the offset, so the reply can keep an unpinned reader where they were.
+    function rejoinForUpdate(id) {
+      var dist = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+      updateRejoin = { id: id, pinned: dist <= SCROLL_PIN_THRESHOLD, scrollTop: messagesEl.scrollTop };
+      openConversation(id);
+    }
+
+    // Refresh now, or after this client's own outstanding turn ends.
+    function requestRefresh(id) {
+      if (ownTurn[id]) refreshAfterTurn[id] = true;
+      else rejoinForUpdate(id);
     }
 
     // Every scripted write to the composer's text goes through here, so the
@@ -1580,6 +1660,7 @@ App.registerArea({
         var errActive = chatState.activeId();
         if (errActive && inFlightSessions[errActive]) {
           delete inFlightSessions[errActive];
+          clearLiveRefresh(errActive);
           // Also clear any pending queued message — the session is no longer
           // processing so the queue slot is moot (the error terminated the turn).
           delete pendingQueuedMessages[errActive];
@@ -1632,6 +1713,7 @@ App.registerArea({
           // the one-slot queue guard nor the stop control get stuck after reconnect.
           for (var k in inFlightSessions) delete inFlightSessions[k];
           for (var k2 in pendingQueuedMessages) delete pendingQueuedMessages[k2];
+          clearLiveRefresh();
           clearPendingQueued();
           updateStopControl();
           if (!sessionBannerEl) applyComposerState();
@@ -1644,6 +1726,30 @@ App.registerArea({
         var data = JSON.parse(e.data);
         if (data.type === 'session_joined') boundOn = sock;
 
+        if (data.type === 'sessions_changed') {
+          // Server push (a connector chat, another tab, a delete, a purge):
+          // refresh the local list and the store only. Never the rebind logic,
+          // the idle rules, a render call or the open conversation.
+          sessions = data.sessions || [];
+          App.store.prime('sessions', sessions.map(toSessionSummary));
+          return;
+        }
+
+        if (data.type === 'session_updated') {
+          // A connector turn finished in a chat this socket is subscribed to.
+          // Joining that very id: re-join once more after its reply (the update
+          // can land between the server's join read and its reply). Otherwise
+          // only the joined chat reacts (the gate), and only for its own id.
+          var updState = chatState.state();
+          if (updState.name === 'joining' && updState.id === data.session_id) {
+            refreshAfterJoin = data.session_id;
+            return;
+          }
+          if (data.session_id !== chatState.boundId() || !chatState.accepts(data)) return;
+          requestRefresh(data.session_id);
+          return;
+        }
+
         if (data.type === 'session_list') {
           sessions = data.sessions || [];
           listSeen = true;
@@ -1653,16 +1759,7 @@ App.registerArea({
           // row never differ. While Chats is active the WebSocket is the
           // source; nothing here fetches. (A start_session join's refresh
           // lands here too: DD4's start_session invalidation row.)
-          App.store.prime('sessions', sessions.map(function (s) {
-            return {
-              id: s.id,
-              agent_name: s.agent_name,
-              title: s.title,
-              created_at: s.created_at,
-              updated_at: s.updated_at,
-              platform: s.platform || null
-            };
-          }));
+          App.store.prime('sessions', sessions.map(toSessionSummary));
           // M25 F4 L4a (AC6): the prime above notifies the `sessions`
           // subscription, which renders the Chats list; nothing here renders
           // it a second time.
@@ -1706,6 +1803,12 @@ App.registerArea({
           }
           rebinding = false;
           liveToolNames = {};
+          // Did this reply answer a session_updated re-join (or a session_updated
+          // that landed while joining)? Both marks are consumed by any reply.
+          var upd = updateRejoin && updateRejoin.id === data.session_id ? updateRejoin : null;
+          var again = refreshAfterJoin === data.session_id;
+          updateRejoin = null;
+          refreshAfterJoin = null;
           if (joinedEff.startFailed) {
             applyStartFailed(joinedEff);
             return;
@@ -1771,8 +1874,15 @@ App.registerArea({
             delete inFlightSessions[joinedId];
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
+          var sentHeld = false;
           if (pendingQueuedMessages[joinedId]) {
-            showPendingQueued(pendingQueuedMessages[joinedId]);
+            if (upd && !data.is_processing) {
+              // The re-join found the chat idle: the message held meanwhile goes now.
+              sendHeld(joinedId);
+              sentHeld = true;
+            } else {
+              showPendingQueued(pendingQueuedMessages[joinedId]);
+            }
           }
           updateStopControl();
           showChrome();
@@ -1804,6 +1914,15 @@ App.registerArea({
           // recent message — that's where the user expects to land when
           // they open a session.
           messagesEl.scrollTop = messagesEl.scrollHeight;
+          // A session_updated re-join keeps an unpinned reader where they were.
+          if (upd && !upd.pinned && !sentHeld) messagesEl.scrollTop = upd.scrollTop;
+          // Still processing (another turn is running): re-join on its end.
+          // Otherwise a session_updated that landed during the join re-joins now.
+          if (data.is_processing) {
+            if (upd || again) refreshAfterTurn[joinedId] = true;
+          } else if (again) {
+            requestRefresh(joinedId);
+          }
           App.perf.mark('session-join:dom-mutated');
           App.perf.measure('session-join.ws-to-dom', 'session-join:received', 'session-join:dom-mutated');
           requestAnimationFrame(function () {
@@ -2054,17 +2173,24 @@ App.registerArea({
           // because it flows through the same path as a normal send.
           var held = sid ? pendingQueuedMessages[sid] : null;
           if (held) {
-            delete pendingQueuedMessages[sid];
-            clearPendingQueued();
-            performSend(held);
+            sendHeld(sid);
           } else {
             // No held message — normal idle reset.
-            if (sid) delete inFlightSessions[sid];
+            if (sid) {
+              delete inFlightSessions[sid];
+              delete ownTurn[sid];
+            }
             clearPendingQueued();
             updateStopControl();
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
           refreshSessionList();
+          // A session_updated waited for this turn: re-join now (a held message
+          // started a new own turn above, so the wait continues).
+          if (sid && refreshAfterTurn[sid] && !ownTurn[sid]) {
+            delete refreshAfterTurn[sid];
+            rejoinForUpdate(sid);
+          }
         }
         else if (data.type === 'cancelled') {
           // F7 L04: cancel — mirror the FULL done reset (binding per design review).
@@ -2076,6 +2202,7 @@ App.registerArea({
           var cancelledActive = chatState.activeId();
           if (cancelledActive) {
             delete inFlightSessions[cancelledActive];
+            delete ownTurn[cancelledActive];
             // Cancel also discards any pending queued message (DD4 sub-decision:
             // "stop" means stop everything). Both the optimistic click handler and
             // this arrival path clear it so a race between the two is safe.
@@ -2085,6 +2212,10 @@ App.registerArea({
           updateStopControl();
           if (!sessionBannerEl) sendBtn.disabled = false;
           refreshSessionList();
+          if (cancelledActive && refreshAfterTurn[cancelledActive]) {
+            delete refreshAfterTurn[cancelledActive];
+            rejoinForUpdate(cancelledActive);
+          }
         }
       };
     }
