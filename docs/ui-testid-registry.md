@@ -171,7 +171,8 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
 | `kb-chunks-panel` | studio | Knowledge detail view — an item's chunks, opened on demand (DD-8, M24 F06 L01) |
 | `kb-create-description-input` | studio | Knowledge-base create form description field (AC-4, M24 F06 L05; the form moved to `#library/knowledge/~new` in M25 F3 L4a) |
-| `kb-create-error` | studio | Knowledge-base create form submission error line ("Name is required.", or the server's message) (M24 F06 L01; M25 F3 L4a) |
+| `kb-create-error` | studio | Knowledge-base create form submission error line: the server's or the network's message only (M24 F06 L01; M25 F3 L4a; the empty-name error moved to `kb-create-name-error` in M31 F3) |
+| `kb-create-name-error` | studio | Knowledge-base create form Name field error ("Name is required.", an `App.ui.field` error: the input gets `aria-invalid` and is focused; cleared on edit and on the next submit) (M31 F3 HAT) |
 | `kb-create-name-hint` | studio | Knowledge-base create form advisory name-length hint, shown over 43 code points (DD-16, M24 F06 L01; M25 F3 L4a) |
 | `kb-create-name-input` | studio | Knowledge-base create form name field (M24 F06 L01; M25 F3 L4a) |
 | `kb-description-input` | studio | Knowledge detail view always-live description field, header region (L6-D1, M24 F06 L06) |
@@ -186,7 +187,8 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-folders-list` | studio | Knowledge detail view Folders section — folder-panel + "Other items" panel container (M24 F06 L01; moved out of Status in M24 F06 L06) |
 | `kb-indexer-state` | studio | Knowledge detail view status summary — indexer state word (M24 F06 L01) |
 | `kb-item-error` | studio | Knowledge detail view item row — a `failed` item's error text (M24 F06 L01) |
-| `kb-item-indexed-at` | studio | Knowledge detail view item row — the item's content-freshness signal, rendered from `indexed_at` (only when the item has ever indexed — never a fabricated timestamp); `content_hash`, when present, rides along as the hover title (DD-6, Flight 7 Leg 2) |
+| `kb-item-indexed-at` | studio | Knowledge detail view item row — the item's content-freshness signal, rendered from `indexed_at` (only when the item has ever indexed — never a fabricated timestamp) as "Indexed {date}, {time}"; the precise value is `data-indexed-at` and leads the hover title, with `content_hash`, when present, after it (DD-6, Flight 7 Leg 2; date and time since the M31 F3 HAT) |
+| `kb-folder-indexed-at` | studio | Knowledge detail view folder panel body — "Last checked {date}, {time}" from the folder's own `indexed_at` (every completed walk), the precise value in `title` and `data-indexed-at` (M31 F3 HAT) |
 | `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`, an `App.ui.menu` popup since M31 F3 L06b), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
 | `kb-item-menu-btn` | studio | Knowledge detail view item row — the overflow menu's trigger (`aria-haspopup="menu"`) (L5-D4, M24 F06 L05) |
 | `kb-item-row` | studio | Knowledge detail view — one row per file item, nested inside a folder panel or the "Other items" panel (M24 F06 L01) |
@@ -203,7 +205,7 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-search-clear-btn` | studio | Knowledge detail view search field's x button, empties the query, results and degraded line (squawk 0100, M31 F3 L05b) |
 | `kb-search-degraded` | studio | Knowledge detail view search degrade line, shown alongside the response's own `indexer` word (AC-12, M24 F06 L01) |
 | `kb-search-announcer` | studio | Knowledge detail view search: visually hidden polite status announcing the result count ("N results", "1 result", "No results."); empty on clear (WCAG 4.1.3, M31 F3 review fix) |
-| `kb-search-hit` | studio | Knowledge detail view — one search result row, carries `score` (M24 F06 L01) |
+| `kb-search-hit` | studio | Knowledge detail view — one search result row (an `li` since the M31 F3 HAT): the file name, a meta line with the full path and "score 0.016", and the snippet (M24 F06 L01) |
 | `kb-search-input` | studio | Knowledge detail view search query field (DD-6, M24 F06 L01) |
 | `kb-search-results` | studio | Knowledge detail view search results container (M24 F06 L01) |
 | `kb-source-panel` | studio | Knowledge detail view — an item's source text, opened on demand (DD-8, M24 F06 L01) |
@@ -436,7 +438,7 @@ caught — but it cannot see where the attribute is emitted.
 |--------|---------|-------|
 | `kb-add-folder-btn` | studio | Knowledge detail view Folders section "Add folder" submit, same `_btn` indirection (M24 F06 L01; renamed from `kb-register-folder-btn`, and the button's own text from "Register folder", in M24 F06 L06) |
 | `kb-folder-path` | studio | Knowledge detail view folder panel summary — the folder path text (the disclosure's `summaryTextTestid`; `[data-confirm-title]`, so it reads "Confirm delete?" while armed; M31 F3 L06a) |
-| `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, absent (not zero) until a walk has completed (DD-7, Flight 7 Leg 2) |
+| `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, as " · Skipped 2 folders, 1 file" after the Last checked text, naming only non-zero counts; absent until a walk has completed and when both counts are zero (DD-7, Flight 7 Leg 2; wording since the M31 F3 HAT) |
 | `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
 | `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |

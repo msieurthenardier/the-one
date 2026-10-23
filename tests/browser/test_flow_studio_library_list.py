@@ -14,7 +14,7 @@ that hosts the three editors. Covers:
   click asks once, delete replaces to the section root and moves focus (DD8),
   and the list follows create / rename / delete with no reload;
 * AC4 -- knowledge-base create opens the new item (squawk 0101): the form,
-  "Name is required.", one POST, the replaced route, the selected row, the
+  "Name is required." under Name, one POST, the replaced route, the selected row, the
   announced name and the folder field's focus; Cancel returns to the root;
 * AC5 -- connector URLs: cold deep links, a dead id healing, save-create with no
   navigation and no hydrate, Cancel by mode;
@@ -478,7 +478,12 @@ def test_kb_create_form_opens_the_new_knowledge_base(app_with_agent: SeededApp, 
         ),
     )
     create.click()
-    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("Name is required.")
+    # The empty-name error sits under the Name field (M31 F3 HAT decision);
+    # the form-level line is for server failures only.
+    name_input = page.locator('[data-testid="kb-create-name-input"]')
+    expect(page.locator('[data-testid="kb-create-name-error"]')).to_have_text("Name is required.")
+    expect(name_input).to_have_attribute("aria-invalid", "true")
+    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("")
     assert posts == []
 
     # The POST is held: Create stays disabled while it is in flight.

@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: ready
+**Status**: in-flight
 **Flight**: [Knowledge and connectors on the library](../flight.md)
 
 ## Objective

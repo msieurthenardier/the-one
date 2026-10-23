@@ -110,6 +110,13 @@ def test_studio_connector_doctor_reports_plugin_failure_without_token(
     expect(result).to_contain_text("failed", timeout=8000)
     expect(result).to_contain_text("token", timeout=8000)
 
+    # HAT fix (M31 F3 L10): the result line does not sit against the button (the
+    # 12px button-to-content gap).
+    btn_box = doctor_btn.bounding_box()
+    result_box = result.bounding_box()
+    assert btn_box and result_box
+    assert result_box["y"] - (btn_box["y"] + btn_box["height"]) >= 12
+
 
 @pytest.mark.browser
 def test_studio_connector_create_form_shows_no_status_led(
@@ -215,6 +222,15 @@ def test_studio_connector_pairing_code_generation(app_with_agent: SeededApp, pag
 
     result = page.locator('[data-testid="connector-pairing-result"]')
     expect(result).to_contain_text("Expires", timeout=8000)
+
+    # HAT fix (M31 F3 L10): the code field does not touch the button, and the expiry
+    # line does not touch the code field (a gap of at least the 8px spacing token).
+    btn_box = pairing_btn.bounding_box()
+    field_box = page.locator('[data-testid="connector-pairing-code"]').bounding_box()
+    expiry_box = page.locator(".connector-pairing-expiry").bounding_box()
+    assert btn_box and field_box and expiry_box
+    assert field_box["y"] - (btn_box["y"] + btn_box["height"]) >= 8
+    assert expiry_box["y"] - (field_box["y"] + field_box["height"]) >= 8
 
 
 @pytest.mark.browser
@@ -875,3 +891,96 @@ def test_a_late_auto_probe_cannot_overwrite_a_newer_manual_doctor_on_the_header(
     held[0].fulfill(status=200, content_type="application/json", json=bad)
     page.wait_for_timeout(400)
     expect(header).to_have_attribute("data-state", "success")
+
+
+@pytest.mark.browser
+def test_an_edit_save_re_probes_the_header_for_the_saved_config(app_clean: str, page: Page) -> None:
+    """HAT fix (M31 F3 L10): an edit Save patches in place (no remount, DD5), so it
+    re-runs the open-time probe itself. The header follows the SAVED config: a
+    disabled connector reads "Disabled"; enabled and saved, it reads the probe's
+    verdict (a tokenless discord connector fails doctor: "Not connected"); disabled
+    and saved again, it reads "Disabled" again, with no reopen in between."""
+    from browser.seeders import seed_connector
+
+    seed_connector(app_clean, "Re-probe")
+    _open_connector(page, app_clean, "Re-probe")
+    _mark_header(page)
+    header = page.locator('[data-testid="connector-status-label"]')
+    toggle = page.locator('label.ui-toggle-label:has([data-field="enabled"])')
+    save = page.locator('[data-testid="save-connector-btn"]')
+    expect(header).to_have_text("Disabled", timeout=8000)
+
+    toggle.click()
+    save.click()
+    expect(save).to_be_disabled(timeout=8000)
+    expect(header).to_have_text("Not connected", timeout=8000)
+    expect(header).to_have_attribute("data-state", "danger")
+
+    toggle.click()
+    save.click()
+    expect(save).to_be_disabled(timeout=8000)
+    expect(header).to_have_text("Disabled", timeout=8000)
+    expect(header).to_have_attribute("data-state", "idle")
+    assert _header_marked(page), "the editor was re-mounted by an edit Save"
+
+
+@pytest.mark.browser
+def test_an_edit_save_clears_the_doctor_result_and_drops_a_run_in_flight(
+    app_clean: str, page: Page
+) -> None:
+    """HAT fix (M31 F3 L10): the Diagnostics result describes the config it ran on,
+    so a successful edit Save hides it (it must not contradict the re-probed
+    header). A manual run still in flight at Save time never repaints the line or
+    the header afterwards, and the button is usable again."""
+    from browser.seeders import seed_connector
+
+    seed_connector(app_clean, "Doctor clear")
+    held: list = []
+    calls: list[int] = []
+    ok = {"status": "ok", "message": "fine", "warnings": [], "disabled": False}
+    late = {"status": "failed", "message": "stale run", "warnings": [], "disabled": False}
+
+    def handler(route) -> None:  # noqa: ANN001
+        calls.append(1)
+        # 1 the open probe, 2 a manual run, 3 the first Save's re-probe, 4 the
+        # second manual run (held across the second Save), 5 that Save's re-probe.
+        if len(calls) == 4:
+            held.append(route)
+            return
+        route.fulfill(status=200, content_type="application/json", json=ok)
+
+    page.route("**/api/connectors/*/test", handler)
+    _open_connector(page, app_clean, "Doctor clear")
+    header = page.locator('[data-testid="connector-status-label"]')
+    btn = page.locator('[data-testid="connector-doctor-btn"]')
+    result = page.locator('[data-testid="connector-doctor-result"]')
+    save = page.locator('[data-testid="save-connector-btn"]')
+    expect(header).to_have_text("Connected", timeout=8000)
+
+    # A finished run: its line is shown, then a Save clears it.
+    btn.click()
+    expect(result).to_contain_text("fine", timeout=8000)
+    page.locator('[data-field="name"]').fill("Doctor clear 2")
+    save.click()
+    expect(save).to_be_disabled(timeout=8000)
+    expect(result).to_be_hidden()
+    expect(header).to_have_text("Connected", timeout=8000)
+
+    # A run in flight at Save time: held, the Save lands, then it is released.
+    btn.click()
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    expect(btn).to_be_disabled()
+    page.locator('[data-field="name"]').fill("Doctor clear 3")
+    save.click()
+    expect(save).to_be_disabled(timeout=8000)
+    expect(result).to_be_hidden()
+    expect(btn).to_be_enabled()
+    expect(header).to_have_text("Connected", timeout=8000)
+    held[0].fulfill(status=200, content_type="application/json", json=late)
+    page.wait_for_timeout(400)
+    expect(result).to_be_hidden()
+    expect(header).to_have_text("Connected")

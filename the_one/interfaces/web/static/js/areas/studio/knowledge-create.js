@@ -18,7 +18,12 @@
   // caption, Cancel and Create, both enabled on a clean form); the fields are
   // `App.ui.field`s. The M24 contract is kept: an empty name shows "Name is
   // required." with no request, and the 43-code-point hint (DD-16).
-  // `kb-create-error` stays the one error surface (DD6).
+  // The empty-name error is a field error on Name (`kb-create-name-error`,
+  // aria-invalid on the input, focus moved to it; cleared when the name is
+  // edited and on the next submit). `kb-create-error` under Description shows
+  // only server and network failures (an operator-approved exception to
+  // flight DD6, "kb-create-error stays the one error surface", made at the
+  // M31 F3 HAT).
   //
   // callbacks: {onDirtyChange(bool), onCancel(), onCreateSuccess(kb)}.
   // Returns {focus(), destroy()}. Create keeps the shell busy from submit until
@@ -64,6 +69,7 @@
       testid: 'kb-create-name-input',
       dataset: { field: 'name' },
       onInput: function () {
+        nameField.setError(null);
         refreshHint();
         reportDirty();
       }
@@ -74,7 +80,8 @@
     var nameField = App.ui.field({
       label: 'Name',
       control: nameInput,
-      hintTestid: 'kb-create-name-hint'
+      hintTestid: 'kb-create-name-hint',
+      errorTestid: 'kb-create-name-error'
     });
     function refreshHint() {
       nameField.setHint(Array.from(nameInput.value).length > 43
@@ -93,9 +100,9 @@
     });
     var descField = App.ui.field({ label: 'Description', control: descInput });
 
-    // kb-studio-round-trip remediation FIX 3: a block-level line carries the
-    // create error (a library status line, text tone, no LED; empty until an
-    // error).
+    // kb-studio-round-trip remediation FIX 3: a block-level line carries a
+    // server or network create error (a library status line, text tone, no
+    // LED; empty until such an error). The empty-name error is Name's own.
     var errorLine = App.ui.status({
       state: 'danger', led: false, role: 'alert', textTone: true, testid: 'kb-create-error'
     });
@@ -118,10 +125,12 @@
     function submit() {
       if (!alive) return;
       errorLine.set('danger', '');
+      nameField.setError(null);
       // AC-2: an empty name is refused client-side — no request sent.
       var name = nameInput.value.trim();
       if (!name) {
-        errorLine.set('danger', 'Name is required.');
+        nameField.setError('Name is required.');
+        nameInput.focus();
         return;
       }
       shell.setBusy(true);

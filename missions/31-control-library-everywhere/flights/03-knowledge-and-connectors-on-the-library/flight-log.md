@@ -299,6 +299,20 @@ Every leg appends one row for each visible difference it causes (DD7, DD11). The
   - signs off squawks 0100, 0191, 0192, 0233 and 0235;
   - writes `legs/10-flight-hat.md` (`ready`) from the completed ledger, DD7 and DD8. Step 10 now includes the doctor button's busy state from the fix pass.
 
+- **Committed and the HAT opened (2026-10-23).**
+  - The flight commit is `330f406`, pushed, with draft PR #303.
+  - The HAT dev instance:
+    - port 8496, PID 2604830;
+    - scratch data dir `~/the-one-m31f3-hat/data`, credential minted with `rotate-api-credential`;
+    - started from the scratch cwd;
+    - `THE_ONE_DEV_MODE=true` and `THE_ONE_STUB_TEST_ENDPOINT=1`.
+  - Seeded with:
+    - the Mock provider;
+    - Agent A, attached;
+    - "HAT notes": the folders `files/notes` (3 files) and a long nested runbooks path (10 files), plus a standalone `loose-note.txt`. 14 items indexed, indexer idle;
+    - "HAT stub connector", disabled, default agent Agent A, channel map general and support.
+  - Leg 10 is `in-flight`.
+
 ### Leg 03a: disclosure (in progress -> landed, awaiting review)
 
 - `App.ui.disclosure` in `js/ui/disclosure.js` (loaded after `button.js`); CSS section `.ui-disclosure*` in `components.css`; catalogue row; `.advanced-collapsible` and `.advanced-caption` deleted; stale references updated (self-configuration tab comment, `studio.css` comment, testid registry, `agents.md`, and the dead "Advanced collapsible" line in the `test_flow_agent_tabs.py` docstring). `git grep -E 'advanced-(collapsible|caption)' -- ':!missions'` is empty.
@@ -487,3 +501,42 @@ Each row above is marked: "HAT item" (the operator is asked to look) or "approve
 | 07a Enabled switch, token secret input, doctor result, header status, dirty revert, Save/Cancel in place, errors, copy flash | approved by DD7-1, DD7-4, DD7-6, DD7-10, DD5, DD8, DD6 |
 | 07b pairing code input, channel map table, danger zone | approved by DD7-7, DD7-8, DD7-5 |
 | 08 router announcement "Knowledge bases" | approved by DD7-3 (squawk 0192); the agent editor's Knowledge tab label is a HAT question |
+
+## HAT (leg 10) results
+
+Instance: port 8496, scratch data `~/the-one-m31f3-hat/data`, PID 2604830.
+
+- **Step 1 [fresh]:** pass. The Library groups each show once, and the breadcrumb and title name "Knowledge bases".
+- **HAT item 7:** the operator keeps "Knowledge" as the agent editor's tab label. No change.
+- **Step 2 [kb-create]:** create passes; HAT item 1 (header inset) approved. Finding: "Name is required." shows on the form-level line under Description. This placement is unchanged from main; DD6 kept the one error line, and the step text wrongly promised a field error. The operator chose option A: the empty-name error moves to the Name field (`kb-create-name-error`, aria-invalid), and server errors stay on `kb-create-error`. This overrides DD6 for this form only.
+- **Step 3 [kb-detail]:** HAT item 2 (loading line) accepted. Unsaved state, revert and Save in place pass. Finding: the expanded folder panel and the search results read as clunky:
+  - raw ISO `Indexed:` timestamps, the `Indexed:` line larger than the file name, and `Skipped: 0 dirs, 0 entries` at body size;
+  - search hits headed by the full absolute path, with a raw score and unclamped chunk text.
+  These pre-date the flight. The FD classifies them as look-and-feel fixes on one surface (the knowledge editor), so they ride inline. A Developer was spawned with fixes A, B (folder panel) and C (search results). The fix revises the DD14 note "Knowledge `Indexed:` stays precise": the lines show date and time, with the precise value in a tooltip.
+- **Step 4 [kb-status]:** pass. HAT item 3 (the scope hint above the counts) is approved. Re-index (changed) updates in place.
+- **Order change:** steps 5-8 (folders, items, poll, search) wait for the fix pass. The walk continues with step 9, then 10-13.
+- **Step 9 [kb-danger]:** pass. Arm, then commit; the row drops from the list.
+- **Step 10 [connector]:** two findings.
+  - (a) **Header status goes stale after Save.** This is a regression from DD5. Before Flight 3, an edit Save remounted the editor, which re-ran the one-shot auto-probe. With patch in place, the header keeps its pre-save verdict. Repro: enable and Save, the header still reads the old state; disable and Save, it still reads "Connected".
+  - (b) **Pairing layout:** the "Generate pairing code" button and the code field touch.
+  Both are fixes on one surface, the connector editor. A second Developer was spawned for them, scoped away from the knowledge files. Its fix: re-probe the header after an edit Save, clear the stale doctor line, and add a gap at the pairing result.
+- **Step 10, remainder:** pass. The switch with Tab and Space, the token re-mask after Save, dirty revert, doctor disabled while running, and the pairing copy all work.
+- **Step 13 [agent-tools]:** pass. The locked chips have the library fill. The invalid-chip border was not walked live; it is pinned by the 03c tests.
+- **Step 10 fix landed (uncommitted):**
+  - `connector-editor.js`: `runHeaderProbe` re-runs after an edit Save, and `resetDoctorResult` clears the doctor line and drops any run in flight.
+  - `studio.css`: the pairing result gets a 12px gap above it and an 8px gap between its children.
+  - Two new tests, plus a spacing assertion.
+  - Library lane: 51 passed, 154 s.
+  - Noted: Run doctor's result line has the same no-gap layout. It is left for the operator's call.
+- **Step 11 [channel-map]:** pass (column labels, trash per row, typed values kept across add/remove, second Save stores newest, reload confirms).
+- **Step 10 re-check:** pass. The header re-probes after each Save, and the pairing gap is in. The operator asked for the same gap under Run doctor's result line; the connector Developer was resumed for it.
+- **Step 12 [connector-create]:** pass. A double-click on Create makes one connector, and its danger-zone delete removes it.
+- **Main merge requested:** sortie 5 (#302, 11b61b4). It is deferred until the knowledge fix lands, because CLAUDE.md and `agents.md` overlap. Then: commit the HAT fixes, merge, and restart the HAT instance.
+- **Knowledge fix landed (uncommitted):** fixes A, B and C.
+  - **A:** `kb-create-name-error` on the Name field.
+  - **B:** the "Last checked …" meta line; compact file rows reading "Indexed {date}, {time}", with the precise ISO in `title`/`data-indexed-at`; Skipped shown only when non-zero; an `App.time.onChange` repaint.
+  - **C:** search hits as a list: basename title, path and score meta line, snippet clamped to 3 lines.
+  - **Docs:** CLAUDE.md (the DD14 wording), `agents.md`, the registry, and two behavior specs amended.
+  - **Tests:** guards 135 + 325 passed; knowledge lane 43 passed (217 s); mcp lane 110 passed (305 s); routing `-k knowledge` 18 passed.
+  - The FD reviewed the scratch captures in `cap1/`: the layout is as specified.
+- **Doctor gap landed (uncommitted):** `.doctor-btn + :not([hidden])` gets a 12px margin-top; spacing assertion added; library lane 51 passed (152 s).

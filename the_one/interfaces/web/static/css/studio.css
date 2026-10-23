@@ -760,10 +760,28 @@
 
   /* === Connector editor: pairing expiry (the Enabled row and the status row
      moved to App.ui.toggle and App.ui.status, M31 F3 L07a) === */
-  /* The generated code is an App.ui.copyField; only the expiry line is area layout. */
+  /* The generated code is an App.ui.copyField; only the result's stacking and the
+     expiry line are area layout. The result region stacks its lines (the status,
+     or the code field then the expiry) with the standard field gap, and takes the
+     button-to-content gap above it only while something in it is shown, so an
+     empty region adds no space under the button. */
+  .area-studio .connector-pairing-result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .area-studio .connector-pairing-result:has(> :not([hidden])) {
+    margin-top: var(--space-3);
+  }
   .area-studio .connector-pairing-expiry {
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
+  }
+  /* Diagnostics: the Run doctor result line (an App.ui.status, the button's next
+     sibling) takes the same button-to-content gap, only while it is shown. Reached
+     through the area's own button class, not the library-owned status class. */
+  .area-studio .doctor-btn + :not([hidden]) {
+    margin-top: var(--space-3);
   }
 
   /* Inline setup steps (Squawk 0046) — a short per-type bullet list plus a
@@ -804,8 +822,7 @@
     margin-bottom: 8px;
   }
   .area-studio .kb-item-row,
-  .area-studio .kb-chunk-row,
-  .area-studio .kb-search-hit {
+  .area-studio .kb-chunk-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -814,48 +831,91 @@
     border-bottom: 1px solid var(--border);
   }
   .area-studio .kb-item-row:last-child,
-  .area-studio .kb-chunk-row:last-child,
-  .area-studio .kb-search-hit:last-child {
+  .area-studio .kb-chunk-row:last-child {
     border-bottom: none;
   }
-  .area-studio .kb-search-hit-path {
-    font-weight: var(--font-weight-medium);
-    word-break: break-all;
-  }
-  /* HAT polish pass (2026-09-19): the folder is the parent item and the
-     files inside its panel are sub-items, so they must not read at the
-     same weight — or, as they did, LARGER. `.kb-item-path` inherited the
-     section's body size (13px) at weight 500, while the folder's own
-     summary line sits at `--font-size-body-sm` (12px) from
-     `.mcp-tool-summary`. Dropping the file path to that same 12px at
-     regular weight puts it a clear notch below its folder. Both
-     consumers of this class are file rows (a folder panel's body and the
-     trailing "Other items" panel), so no scoping split is needed;
-     `.kb-search-hit-path` keeps medium weight above, since it is not a
-     sub-item of anything. */
+  /* M31 F3 HAT: a file row is one compact line. The file name is the row's
+     one body-size text; the status word and the "Indexed {date}, {time}"
+     stamp sit beside it at the small size in the secondary tone, and the
+     item menu ends the row (`.kb-item-menu-slot`). A failed item's error
+     line wraps to its own line below (`.kb-item-error-line`). Both consumers
+     are file rows (a folder panel's body and the "Other items" panel). */
+  .area-studio .kb-item-row { gap: var(--space-2) var(--space-3); padding: 6px 0; }
   .area-studio .kb-item-path {
+    min-width: 0;
     font-weight: var(--font-weight-regular);
-    font-size: var(--font-size-body-sm);
+    font-size: var(--font-size-body);
     word-break: break-all;
   }
-  /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` moved onto the
-     shared `.chip` vocabulary (folder summary line, one-line requirement) —
-     dropped from this muted-text group since `.chip` already supplies their
-     color/sizing. `.kb-folder-indexed-at` stays here; it lives in the
-     folder panel's meta body, still plain muted text. */
-  .area-studio .kb-folder-indexed-at,
+  .area-studio .kb-item-error-line { flex-basis: 100%; }
+  /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` are chips on the
+     folder summary line. The folder body's meta line ("Last checked …
+     · Skipped …") is plain small secondary text. */
+  .area-studio .kb-folder-meta-line,
   .area-studio .kb-item-status,
-  .area-studio .kb-chunk-seq,
-  .area-studio .kb-search-hit-score {
+  .area-studio .kb-item-indexed-at,
+  .area-studio .kb-chunk-seq {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
+    white-space: nowrap;
   }
-  .area-studio .kb-chunk-text,
-  .area-studio .kb-search-hit-text {
+  .area-studio .kb-folder-meta-line { white-space: normal; margin-bottom: var(--space-1); }
+  .area-studio .kb-chunk-text {
     flex-basis: 100%;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
     white-space: pre-wrap;
+  }
+  /* M31 F3 HAT: search results are a list of hits with hairline separators:
+     the file name (body, medium), one small meta line (the full path,
+     ellipsised on one line, then the muted score), and the snippet (small,
+     secondary, blank-line runs collapsed in JS, clamped to three lines). */
+  .area-studio .kb-search-hit-list { list-style: none; margin: 0; padding: 0; }
+  .area-studio .kb-search-hit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .kb-search-hit:last-child { border-bottom: none; }
+  .area-studio .kb-search-hit-title {
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .area-studio .kb-search-hit-meta {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .kb-search-hit-path {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-studio .kb-search-hit-score {
+    flex: none;
+    color: var(--fg-muted);
+  }
+  .area-studio .kb-search-hit-text {
+    margin-top: 2px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
   }
   .area-studio .kb-source-text {
     white-space: pre-wrap;

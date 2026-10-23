@@ -57,6 +57,7 @@
   var _errorMessageFromResponse = K.errorMessageFromResponse;
   var _containingFolder = K.containingFolder;
   var _relativeItemPath = K.relativeItemPath;
+  var _formatStamp = K.formatStamp;
 
   // Makes `parent.children` (from `offset`) exactly `nodes`, in order, touching
   // only what is wrong: a child not in `nodes` is removed first, then a node is
@@ -76,6 +77,19 @@
 
   function setTextIfChanged(node, text) {
     if (node.textContent !== text) node.textContent = text;
+  }
+
+  function setAttrIfChanged(node, name, value) {
+    if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  }
+
+  // "Skipped 2 folders, 1 file" from a walk's skip counters, naming only the
+  // non-zero counts; '' when both are zero or the folder has not been walked.
+  function skipText(dirs, entries) {
+    var parts = [];
+    if (dirs) parts.push(dirs + (dirs === 1 ? ' folder' : ' folders'));
+    if (entries) parts.push(entries + (entries === 1 ? ' file' : ' files'));
+    return parts.length ? 'Skipped ' + parts.join(', ') : '';
   }
 
   function create(ctx) {
@@ -229,6 +243,8 @@
           entry.errorLine = App.ui.status({
             led: false, live: 'off', textTone: true, testid: 'kb-item-error'
           });
+          // Its own line under the row (an area-owned placement class).
+          entry.errorLine.el.classList.add('kb-item-error-line');
           entry.errorText = null;
         }
         if (entry.errorText !== item.error) {
@@ -241,16 +257,21 @@
 
       // Flight 7 Leg 2 (DD-6, AC-1): the freshness signal — derived from
       // `indexed_at`, which only advances when THIS item actually re-indexes.
-      // `content_hash` rides along as the hover title. Rendered only when the
-      // item has ever indexed (a never-indexed item gets no fabricated stamp).
+      // Rendered only when the item has ever indexed (a never-indexed item
+      // gets no fabricated stamp). The visible text is minute-grained
+      // ("Indexed Oct 23, 2026, 8:57 AM", M31 F3 HAT); the precise value is
+      // `data-indexed-at` and leads the hover title, with `content_hash`
+      // after it. Each is written only when it changed (no row rebuild).
       if (item.indexed_at) {
         if (!entry.freshEl) {
           entry.freshEl = _el('span', { className: 'kb-item-indexed-at' });
           entry.freshEl.setAttribute('data-testid', 'kb-item-indexed-at');
         }
-        setTextIfChanged(entry.freshEl, 'Indexed: ' + item.indexed_at);
-        var hashTitle = item.content_hash ? 'content hash: ' + item.content_hash : '';
-        if (entry.freshEl.title !== hashTitle) entry.freshEl.title = hashTitle;
+        setTextIfChanged(entry.freshEl, 'Indexed ' + _formatStamp(item.indexed_at));
+        setAttrIfChanged(entry.freshEl, 'data-indexed-at', item.indexed_at);
+        var freshTitle = item.indexed_at +
+          (item.content_hash ? '\ncontent hash: ' + item.content_hash : '');
+        if (entry.freshEl.title !== freshTitle) entry.freshEl.title = freshTitle;
       } else {
         entry.freshEl = null;
       }
@@ -271,9 +292,10 @@
         entry.badge = null;
       }
 
-      syncChildren(entry.row, [entry.pathEl, entry.statusEl,
-        entry.errorLine && entry.errorLine.el, entry.freshEl, entry.badge,
-        entry.menuSlot].filter(Boolean), 0);
+      // One compact line: name, status, indexed time, badge, then the menu at
+      // the row's end; a failed item's error wraps to its own line below.
+      syncChildren(entry.row, [entry.pathEl, entry.statusEl, entry.freshEl, entry.badge,
+        entry.menuSlot, entry.errorLine && entry.errorLine.el].filter(Boolean), 0);
     }
 
     function renderRows(group, items, opts) {
@@ -398,13 +420,8 @@
       };
     }
 
-    // One keyed meta line: built the first time its text is non-empty, patched
+    // One keyed error line: built the first time its text is non-empty, patched
     // only when the text changes, dropped (and rebuilt later) when it empties.
-    function plainLine(className, testid) {
-      var el = _el('div', { className: className });
-      if (testid) el.setAttribute('data-testid', testid);
-      return { el: el, write: function (t) { el.textContent = t; } };
-    }
     function dangerLine(st) {
       return { el: st.el, write: function (t) { st.set('danger', t); } };
     }
@@ -431,18 +448,41 @@
     // captured at arm time — so this never calls `setSummary` (squawk 0088;
     // the library's `setSummary` is also a no-op while armed). Chips and the
     // meta lines are separate nodes, patched only when their text changed.
+    // The folder's one small meta line (M31 F3 HAT): "Last checked {date},
+    // {time}" from the folder's own `indexed_at` (it advances on every
+    // completed walk), then " · Skipped 2 folders, 1 file" only when a skip
+    // counter is non-zero (Flight 7 Leg 2, DD-7, AC-10: `null` means "not yet
+    // walked" and renders nothing, never a fabricated "0"). The precise value
+    // is the `title` and `data-indexed-at` of the date span. Built once per
+    // panel; each part is patched only when it changed.
+    function updateCheckedLine(panel, f) {
+      var ln = panel.checked;
+      if (!ln) {
+        ln = panel.checked = {
+          el: _el('div', { className: 'kb-folder-meta-line' }),
+          whenEl: _el('span', { className: 'kb-folder-indexed-at' }),
+          skipEl: _el('span', { className: 'kb-folder-skip-counts' })
+        };
+        ln.whenEl.setAttribute('data-testid', 'kb-folder-indexed-at');
+        ln.skipEl.setAttribute('data-testid', 'kb-folder-skip-counts');
+      }
+      var when = f.indexed_at ? 'Last checked ' + _formatStamp(f.indexed_at) : '';
+      var skip = (f.skipped_dirs != null && f.skipped_entries != null)
+        ? skipText(f.skipped_dirs, f.skipped_entries) : '';
+      if (when) {
+        setTextIfChanged(ln.whenEl, when);
+        if (ln.whenEl.title !== f.indexed_at) ln.whenEl.title = f.indexed_at;
+        setAttrIfChanged(ln.whenEl, 'data-indexed-at', f.indexed_at);
+      }
+      if (skip) setTextIfChanged(ln.skipEl, (when ? ' · ' : '') + skip);
+      syncChildren(ln.el, [when && ln.whenEl, skip && ln.skipEl].filter(Boolean), 0);
+      return when || skip ? ln.el : null;
+    }
+
     function updateFolderMeta(panel, f) {
       setTextIfChanged(panel.statusChip, 'status: ' + f.status);
       setTextIfChanged(panel.watchChip, 'watch: ' + f.watch);
-      setLine(panel, 'indexed', f.indexed_at ? 'Indexed: ' + f.indexed_at : null,
-        function () { return plainLine('kb-folder-indexed-at'); });
-      // Flight 7 Leg 2 (DD-7, AC-10): the last completed walk's skip counters.
-      // `null` means "not yet walked", which renders nothing (not a fabricated
-      // "0").
-      setLine(panel, 'skip',
-        f.skipped_dirs != null && f.skipped_entries != null
-          ? 'Skipped: ' + f.skipped_dirs + ' dirs, ' + f.skipped_entries + ' entries' : null,
-        function () { return plainLine('kb-folder-skip-counts', 'kb-folder-skip-counts'); });
+      var checkedEl = updateCheckedLine(panel, f);
       // AC-5 (carried, M24 F06 L01): the folder's own walk `error`.
       setLine(panel, 'error', f.error,
         function () {
@@ -456,8 +496,8 @@
             led: false, live: 'off', textTone: true, testid: 'kb-folder-watch-error'
           }));
         });
-      var nodes = [];
-      ['indexed', 'skip', 'error', 'werror'].forEach(function (k) {
+      var nodes = checkedEl ? [checkedEl] : [];
+      ['error', 'werror'].forEach(function (k) {
         if (panel.lines[k]) nodes.push(panel.lines[k].el);
       });
       syncChildren(panel.metaEl, nodes, 0);
@@ -558,8 +598,10 @@
     // ── Items reconciliation (L1-D2/FIX1 carried) — only ever called at
     // mount, on an actual items-signature change, or right after a folder
     // mutation. Never called from `renderFolders`.
+    var lastItems = null;
     function renderAllItems(nextItems) {
       if (destroyed) return;
+      lastItems = nextItems;
       // id -> folder: the folder OBJECT is what the rows need, to render each
       // file's path relative to its own root.
       var foldersById = {};
@@ -585,6 +627,16 @@
       });
       renderOtherItems(other);
     }
+
+    // The shown dates and times follow the operator zone: a zone change
+    // re-patches the meta lines and rows in place (only changed text is
+    // written). The owner element drops the listener if the section leaves
+    // the page without a destroy.
+    var offTimeChange = App.time.onChange(function () {
+      if (destroyed) return;
+      renderFolders(currentFolders);
+      if (lastItems) renderAllItems(lastItems);
+    }, foldersSection);
 
     function addFolder() {
       folderField.setError(null);
@@ -634,6 +686,7 @@
       // The mount is dead: release every panel control and every row's menu.
       destroy: function () {
         destroyed = true;
+        offTimeChange();
         Object.keys(folderPanels).forEach(function (id) {
           releaseGroup(folderPanels[id].group);
           folderPanels[id].ctl.destroy();

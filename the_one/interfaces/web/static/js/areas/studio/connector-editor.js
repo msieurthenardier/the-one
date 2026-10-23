@@ -306,7 +306,7 @@
     if (!isCreate) {
       headerStatus = App.ui.status({
         led: true, ledTestid: 'connector-status-led', testid: 'connector-status-label',
-        state: 'idle', text: 'Checking connection…'
+        state: 'pending', text: 'Checking connection…'
       });
     }
     h.shell = App.ui.editorShell({
@@ -485,6 +485,9 @@
     frag.appendChild(App.ui.section({ title: 'Channel → agent map', children: [kv.el] }).el);
 
     // ── Diagnostics (edit mode only) ──────────────────────────────────
+    // Both are set in edit mode only (below) and called by an edit Save.
+    var runHeaderProbe = null;
+    var resetDoctorResult = null;
     if (!isCreate) {
       var doctorStatus = App.ui.status({ testid: 'connector-doctor-result' });
       doctorStatus.el.hidden = true;
@@ -534,16 +537,37 @@
       // line only — the Diagnostics result stays a manual-click affordance. A
       // non-OK response is "Connection check failed"; a network failure leaves
       // "Checking…" (best-effort convenience indicator).
-      var probeHeader = ++headerSeq;
-      App.api.fetchJson('/api/connectors/' + encodeURIComponent(cfg.id) + '/test', { method: 'POST' })
-        .then(function (result) {
-          if (!current() || probeHeader !== headerSeq) return;
-          applyDoctorStatusToHeader(result.status, result.disabled);
-        })
-        .catch(function (err) {
-          if (!current() || probeHeader !== headerSeq || _isTransportError(err)) return;
-          if (headerStatus) headerStatus.set('danger', 'Connection check failed');
-        });
+      //
+      // An edit Save patches in place (no remount, DD5), so it re-runs this probe
+      // itself: the header must follow the SAVED config (enabled or not), not the
+      // verdict from before the Save. Assigned to a function-scoped var so the
+      // Save handler can reach it; it stays null on the create form.
+      runHeaderProbe = function () {
+        var probeHeader = ++headerSeq;
+        if (headerStatus) headerStatus.set('pending', 'Checking connection…');
+        App.api.fetchJson('/api/connectors/' + encodeURIComponent(cfg.id) + '/test', { method: 'POST' })
+          .then(function (result) {
+            if (!current() || probeHeader !== headerSeq) return;
+            applyDoctorStatusToHeader(result.status, result.disabled);
+          })
+          .catch(function (err) {
+            if (!current() || probeHeader !== headerSeq || _isTransportError(err)) return;
+            if (headerStatus) headerStatus.set('danger', 'Connection check failed');
+          });
+      };
+
+      // After a successful edit Save the Diagnostics result describes the previous
+      // config, so it is cleared rather than left to contradict the header. A run
+      // still in flight is orphaned (doctorSeq moves on, so it never repaints the
+      // line) and the button is released here, since its own settle() no longer will.
+      resetDoctorResult = function () {
+        ++doctorSeq;
+        doctorStatus.el.hidden = true;
+        doctorStatus.set('idle', '');
+        doctorBtn.disabled = false;
+      };
+
+      runHeaderProbe();
 
       // ── Danger Zone ─────────────────────────────────────────────────
       var deleting = false;
@@ -649,6 +673,10 @@
         snapshot = JSON.stringify(readValues());
         // Squawk 0126: the title follows the saved row (a rename).
         shell.setTitle(updated.name || '');
+        // No remount, so the open-time probe does not re-run on its own: re-probe for
+        // the saved config, and drop the Diagnostics line that describes the old one.
+        if (resetDoctorResult) resetDoctorResult();
+        if (runHeaderProbe) runHeaderProbe();
         shell.setBusy(false);
         shell.setDirty(false);
         if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);

@@ -91,7 +91,18 @@
     return rel.length > 0 ? rel : null;
   }
 
+  // "Oct 23, 2026, 8:57 AM": a server ISO timestamp as a person reads it, in
+  // the operator zone through App.time (the only module that may call the
+  // Date getters). The precise value stays with the caller, in a `title` and
+  // `data-indexed-at`. An unparseable value is shown as it came.
+  function _formatStamp(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return App.time.formatDate(d) + ', ' + App.time.formatClock(d);
+  }
+
   window.App.studio.knowledgeShared = {
+    formatStamp: _formatStamp,
     STATUS_LABELS: STATUS_LABELS,
     el: _el,
     errorMessageFromResponse: _errorMessageFromResponse,

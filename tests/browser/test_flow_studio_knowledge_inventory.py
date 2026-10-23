@@ -82,6 +82,7 @@ from __future__ import annotations
 import os
 import re as _re
 import time
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -187,14 +188,25 @@ def test_create_knowledge_base_hint_and_empty_name_refused(app_clean: str, page:
 
     page.on("request", _on_request)
 
-    # Empty name: refused client-side, no request sent.
+    # Empty name: refused client-side, no request sent. The error is Name's own
+    # field error (operator HAT decision, M31 F3): under the Name field, the
+    # input marked invalid and focused; the form-level line stays empty.
+    name_error = page.locator('[data-testid="kb-create-name-error"]')
     page.locator('[data-testid="kb-create-submit-btn"]').click()
-    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("Name is required.")
+    expect(name_error).to_have_text("Name is required.")
+    expect(name_input).to_have_attribute("aria-invalid", "true")
+    error_id = name_error.get_attribute("id")
+    assert error_id and error_id in (name_input.get_attribute("aria-describedby") or "")
+    expect(name_input).to_be_focused()
+    expect(page.locator('[data-testid="kb-create-error"]')).to_have_text("")
     assert create_requests == []
 
-    # Over-length name: advisory hint shows, creation still succeeds.
+    # Over-length name: advisory hint shows, creation still succeeds. Editing
+    # the name clears the field error.
     long_name = "n" * 50
     name_input.fill(long_name)
+    expect(name_error).to_have_count(0)
+    expect(name_input).not_to_have_attribute("aria-invalid", "true")
     expect(hint).to_be_visible()
     page.locator('[data-testid="kb-create-submit-btn"]').click()
     _wait_kb_open(page, long_name)
@@ -653,7 +665,9 @@ def test_detail_view_indexing_poll_reindex_and_search(
     # among the hits, which the old single-hit form could only imply.
     hits = page.locator('[data-testid="kb-search-hit"]')
     expect(hits.first).to_be_visible(timeout=10000)
-    expect(hits.first.locator(".kb-search-hit-score")).to_contain_text("score:")
+    expect(hits.first.locator(".kb-search-hit-score")).to_have_text(
+        _re.compile(r"^score \d+\.\d{3}$")
+    )
     expect(hits.filter(has_text=str(fixture_dir / "note.txt"))).to_have_count(1)
     expect(page.locator('[data-testid="kb-search-degraded"]')).to_be_hidden()
     # WCAG 4.1.3: a visually hidden polite status announces the outcome.
@@ -1182,12 +1196,38 @@ def test_content_only_edit_updates_item_freshness_with_no_reload(
     )
     folder_row.locator("summary").click()
 
+    # The folder's meta line (M31 F3 HAT): "Last checked {date}, {time}", the
+    # precise value in the title and `data-indexed-at`; a walk that skipped
+    # nothing adds no "Skipped" part.
+    checked = folder_row.locator('[data-testid="kb-folder-indexed-at"]')
+    expect(checked).to_have_text(
+        _re.compile(r"^Last checked [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M$")
+    )
+    checked_stamp = checked.get_attribute("data-indexed-at")
+    assert checked_stamp and checked.get_attribute("title") == checked_stamp
+    expect(folder_row.locator('[data-testid="kb-folder-skip-counts"]')).to_have_count(0)
+
     item_row = page.locator('[data-testid="kb-item-row"]')
     expect(item_row).to_have_count(1)
     fresh_el = item_row.locator('[data-testid="kb-item-indexed-at"]')
     expect(fresh_el).to_be_visible()
-    initial_text = fresh_el.text_content()
-    assert initial_text and initial_text.startswith("Indexed: ")
+    # M31 F3 HAT: the visible stamp is minute-grained ("Indexed Oct 23, 2026,
+    # 8:57 AM"), so it may not change inside this test; the precise value is
+    # `data-indexed-at` (and leads the hover title), which is what moves.
+    expect(fresh_el).to_have_text(
+        _re.compile(r"^Indexed [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M$")
+    )
+    initial_stamp = fresh_el.get_attribute("data-indexed-at")
+    assert initial_stamp and "T" in initial_stamp
+    assert (fresh_el.get_attribute("title") or "").startswith(initial_stamp)
+    row_handle = item_row.element_handle()
+    # At the default 1280px viewport the row's menu trigger sits fully inside
+    # its folder panel (never clipped at the right edge).
+    trigger_box = item_row.locator('[data-testid="kb-item-menu-btn"]').bounding_box()
+    panel_box = folder_row.bounding_box()
+    assert trigger_box and panel_box
+    assert trigger_box["x"] + trigger_box["width"] <= panel_box["x"] + panel_box["width"]
+    assert page.viewport_size and page.viewport_size["width"] == 1280
 
     # A content-only edit, on disk, with no operator action in the app at
     # all — no button click, no navigation, no reload. Longer content
@@ -1203,11 +1243,16 @@ def test_content_only_edit_updates_item_freshness_with_no_reload(
     # poll intervals — proving the whole chain: the watcher/walk re-
     # indexes -> `indexed_at` advances -> `content_freshness` moves ->
     # `knowledgeItemsSignature` differs -> `/items` re-fetches -> the row
-    # re-renders with a new `kb-item-indexed-at` text. Generous timeout:
+    # patches the row's `kb-item-indexed-at` stamp in place. Generous timeout:
     # the local embedding backend loads its model lazily on first use.
-    expect(fresh_el).not_to_have_text(initial_text, timeout=45000)
-    updated_text = fresh_el.text_content()
-    assert updated_text and updated_text.startswith("Indexed: ") and updated_text != initial_text
+    expect(fresh_el).not_to_have_attribute("data-indexed-at", initial_stamp, timeout=45000)
+    updated_stamp = fresh_el.get_attribute("data-indexed-at")
+    assert updated_stamp
+    assert datetime.fromisoformat(updated_stamp) > datetime.fromisoformat(initial_stamp)
+    assert (fresh_el.get_attribute("title") or "").startswith(updated_stamp)
+    expect(fresh_el).to_have_text(_re.compile(r"^Indexed [A-Z][a-z]{2} \d{1,2}, \d{4}, "))
+    # Patched in place: the same row node, never rebuilt.
+    assert item_row.evaluate("(el, prev) => el === prev", row_handle)
 
 
 @pytest.mark.browser

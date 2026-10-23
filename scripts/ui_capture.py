@@ -311,16 +311,17 @@ def _flash_after_save(ctx: Ctx) -> None:
 MASK_JS = """
 () => {
   const SETS = [
-    ['.kb-item-indexed-at, .kb-folder-indexed-at', 'Indexed: (time masked)'],
+    ['.kb-item-indexed-at', 'Indexed (time masked)'],
+    ['.kb-folder-indexed-at', 'Last checked (time masked)'],
     ['.kb-folder-watch, [data-testid="kb-folder-watch"]', 'watch: watching'],
-    ['[data-testid="kb-search-hit-score"]', 'score 0.000'],
+    ['.kb-search-hit-score, [data-testid="kb-search-hit-score"]', 'score 0.000'],
     ['[data-testid="connector-pairing-code"]', 'AAAA-BBBB'],
     ['.connector-pairing-expiry', 'Expires (time masked)'],
   ];
   // The run id sits in the scratch folder path: pin everything up to library-docs.
   const PATHS = '.kb-folder-path, [data-testid="kb-folder-path"], '
-    + '[data-testid="kb-search-hit-path"], [data-testid="kb-panel-title"], '
-    + '[data-testid="kb-item-path"]';
+    + '.kb-search-hit-path, [data-testid="kb-search-hit-path"], '
+    + '[data-testid="kb-panel-title"], .kb-item-path, [data-testid="kb-item-path"]';
   const apply = () => {
     document.querySelectorAll(PATHS).forEach((n) => {
       const t = n.textContent.replace(

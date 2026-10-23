@@ -63,11 +63,48 @@
     });
     root.appendChild(section.el);
 
-    function el(cls, text) {
-      var n = document.createElement('span');
+    function el(tag, cls, text) {
+      var n = document.createElement(tag);
       n.className = cls;
-      n.textContent = text;
+      if (text !== undefined) n.textContent = text;
       return n;
+    }
+
+    // The last path segment (either separator); the whole path when it ends
+    // in one.
+    function baseName(path) {
+      var p = String(path || '');
+      var cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      var tail = p.slice(cut + 1);
+      return tail || p;
+    }
+
+    // The snippet as plain text: line endings normalised, whitespace-only
+    // lines emptied, every run of blank lines collapsed to one, and the ends
+    // trimmed. Shown with textContent only (pre-line, clamped to three lines
+    // in CSS).
+    function snippetText(text) {
+      return String(text || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/^[ \t]+$/gm, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    // One hit: the file name, a meta line (the full path, ellipsised, with
+    // the path also as its title, then the score), and the snippet.
+    function buildHit(hit) {
+      var row = el('li', 'kb-search-hit');
+      row.setAttribute('data-testid', 'kb-search-hit');
+      row.appendChild(el('div', 'kb-search-hit-title', baseName(hit.path)));
+      var meta = el('div', 'kb-search-hit-meta');
+      var path = el('span', 'kb-search-hit-path', hit.path);
+      path.title = hit.path;
+      meta.appendChild(path);
+      meta.appendChild(el('span', 'kb-search-hit-score', 'score ' + hit.score.toFixed(3)));
+      row.appendChild(meta);
+      row.appendChild(el('div', 'kb-search-hit-text', snippetText(hit.text)));
+      return row;
     }
 
     function runSearch() {
@@ -104,15 +141,9 @@
             resultsEl.appendChild(App.ui.emptyState({ title: 'No results.', titleTag: 'p' }));
             return;
           }
-          result.hits.forEach(function (hit) {
-            var row = document.createElement('div');
-            row.className = 'kb-search-hit';
-            row.setAttribute('data-testid', 'kb-search-hit');
-            row.appendChild(el('kb-search-hit-path', hit.path));
-            row.appendChild(el('kb-search-hit-score', 'score: ' + hit.score.toFixed(3)));
-            row.appendChild(el('kb-search-hit-text', hit.text));
-            resultsEl.appendChild(row);
-          });
+          var list = el('ul', 'kb-search-hit-list');
+          result.hits.forEach(function (hit) { list.appendChild(buildHit(hit)); });
+          resultsEl.appendChild(list);
         })
         .catch(function (err) {
           if (!isLive() || mine !== generation) return;
