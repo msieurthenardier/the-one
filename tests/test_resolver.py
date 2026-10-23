@@ -383,3 +383,56 @@ class TestMutualExclusion:
         with pytest.raises(ValueError) as exc:
             resolve(schema, {"bad": []}, {"bad": []})
         assert "multiple narrow/substitute" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Squawk 0248: a never-saved tool's default_factory baseline
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultFactoryBaseline:
+    """With no stored operator config, a `default_factory` denylist's baseline
+    is the factory's value (was `PydanticUndefined`, which raised
+    `NotImplementedError` and stopped the agent from being built)."""
+
+    def _tools(self, override: dict) -> dict:
+        from the_one.tools.builtins import BuiltinToolProvider
+
+        tools = BuiltinToolProvider().get_tools(tool_configs={}, agent_overrides=override)
+        return {t.name: t for t in tools}
+
+    def test_filesystem_override_with_defaults_builds(self) -> None:
+        from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST, FilesystemConfig
+
+        value = [*DEFAULT_PATH_DENYLIST, "/probe"]
+        resolved = resolve(FilesystemConfig, {}, {"path_denylist": value})
+        assert set(value) <= set(resolved.path_denylist)
+        tool = self._tools({"read_file": {"path_denylist": value}})["read_file"]
+        assert set(value) <= set(tool._config.path_denylist)
+
+    def test_execution_override_with_defaults_builds(self) -> None:
+        from the_one.tools.execution import DEFAULT_COMMAND_DENYLIST, ExecutionConfig
+
+        value = [*DEFAULT_COMMAND_DENYLIST, "curl "]
+        resolved = resolve(ExecutionConfig, {}, {"command_denylist": value})
+        assert set(value) <= set(resolved.command_denylist)
+        tool = self._tools({"shell": {"command_denylist": value}})["shell"]
+        assert set(value) <= set(tool._config.command_denylist)
+
+    def test_filesystem_override_dropping_a_default_is_refused(self) -> None:
+        from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST, FilesystemConfig
+
+        value = [p for p in DEFAULT_PATH_DENYLIST if p != "~/.ssh"] + ["/probe"]
+        with pytest.raises(ValueError, match="widens FilesystemConfig.path_denylist.*~/.ssh"):
+            resolve(FilesystemConfig, {}, {"path_denylist": value})
+        with pytest.raises(ValueError, match="widens"):
+            self._tools({"read_file": {"path_denylist": value}})
+
+    def test_execution_override_dropping_a_default_is_refused(self) -> None:
+        from the_one.tools.execution import DEFAULT_COMMAND_DENYLIST, ExecutionConfig
+
+        value = [c for c in DEFAULT_COMMAND_DENYLIST if c != "sudo "]
+        with pytest.raises(ValueError, match="widens ExecutionConfig.command_denylist.*sudo"):
+            resolve(ExecutionConfig, {}, {"command_denylist": value})
+        with pytest.raises(ValueError, match="widens"):
+            self._tools({"shell": {"command_denylist": value}})
