@@ -99,20 +99,35 @@ def test_store_prime_bumps_the_generation_and_is_exported() -> None:
 
 
 def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
-    """AC21: the session_list handler primes 'sessions' with the REST summary
-    keys, before it renders anything."""
+    """AC21: one shared helper maps server rows to the REST summary keys; the
+    session_list handler and the sessions_changed branch each prime
+    'sessions' through it exactly once and render nothing themselves."""
     src = _src("areas/chat.js")
+    helper = _window(src, "function toSessionSummary(s) {", "\n    }")
+    for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
+        assert re.search(rf"\b{key}: s\.{key}\b", helper), key
+    assert helper.count(": s.") == 6
     handler = _window(
         src, "if (data.type === 'session_list') {", "if (data.type === 'session_joined')"
     )
-    assert handler.count("App.store.prime('sessions'") == 1
-    prime = _window(handler, "App.store.prime('sessions'", "}));")
-    for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
-        assert re.search(rf"\b{key}: s\.{key}\b", prime), key
-    assert prime.count(": s.") == 6
-    # Since M25 F4 L4a the handler renders nothing itself: the prime notifies
-    # the `sessions` subscription, which renders the Chats list (AC6).
-    assert "renderChatsList(" not in handler
+    pushed = _window(
+        src, "if (data.type === 'sessions_changed') {", "if (data.type === 'session_list')"
+    )
+    for branch in (handler, pushed):
+        assert branch.count("App.store.prime('sessions'") == 1
+        assert "sessions.map(toSessionSummary)" in branch
+        # Since M25 F4 L4a the handlers render nothing themselves: the prime
+        # notifies the `sessions` subscription, which renders the Chats list.
+        assert "renderChatsList(" not in branch
+    # A push never reaches the rebind logic or the idle rules.
+    for needle in (
+        "listSeen",
+        "firstListPending",
+        "rebinding",
+        "runIdleRules(",
+        "openConversation",
+    ):
+        assert needle not in pushed, needle
     assert "renderList(" not in src and "renderSessionList" not in src
 
 

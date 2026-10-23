@@ -43,6 +43,7 @@ from the_one.db._rules import (
     total_limit_error,
     validate_rule_text,
 )
+from the_one.db._session_changes import notify_sessions_changed
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import (
     AgentNote,
@@ -396,6 +397,7 @@ class SQLiteAgentStore:
                 "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
                 (new_name, old_name),
             )
+        notify_sessions_changed()
 
     def _row_to_config(self, row: aiosqlite.Row) -> AgentConfig:
         # Local import (squawk 0003): AgentConfig is TYPE_CHECKING-only at module
@@ -2478,6 +2480,19 @@ class ChatSessionRepository:
         async with self.conn.execute(sql, params) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
+    async def list_summaries(self) -> list[ChatSession]:
+        """Like :meth:`list` (all sessions, newest first) but without reading
+        the ``messages`` or ``session_metadata`` columns (they come back as
+        NULL, so ``messages`` defaults to ``"[]"``). For list payloads."""
+        sql = (
+            "SELECT id, agent_name, title, created_at, updated_at, platform,"
+            " connector_id, channel_id, thread_id, peer_id, last_inbound_at,"
+            " NULL AS messages, NULL AS session_metadata"
+            " FROM chat_sessions ORDER BY updated_at DESC"
+        )
+        async with self.conn.execute(sql) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
     async def get(self, session_id: str) -> ChatSession:
         async with self.conn.execute(
             "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
@@ -2551,6 +2566,7 @@ class ChatSessionRepository:
                     session.last_inbound_at,
                 ),
             )
+        notify_sessions_changed()
 
     async def update(self, session: ChatSession) -> None:
         """Update the mutable session fields (title, messages, updated_at).
@@ -2583,6 +2599,7 @@ class ChatSessionRepository:
                 "UPDATE chat_sessions SET title=?, messages=?, updated_at=? WHERE id=?",
                 (session.title, session.messages, now_iso(), session.id),
             )
+        notify_sessions_changed()
 
     async def delete(self, session_id: str) -> None:
         async with self.conn.execute(
@@ -2592,6 +2609,7 @@ class ChatSessionRepository:
                 raise KeyError(f"Chat session not found: {session_id}")
         async with write_transaction(self.conn):
             await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        notify_sessions_changed()
 
     async def delete_all_for_agent(self, agent_name: str) -> int:
         """Delete every chat session for an agent (interactive AND
@@ -2608,6 +2626,8 @@ class ChatSessionRepository:
                 "DELETE FROM chat_sessions WHERE agent_name = ?", (agent_name,)
             ) as cur:
                 count = cur.rowcount
+        if count:
+            notify_sessions_changed()
         return count
 
     async def delete_older_than(self, agent_name: str, cutoff: str) -> list[str]:
@@ -2646,6 +2666,7 @@ class ChatSessionRepository:
                     "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
                     (agent_name, cutoff),
                 )
+            notify_sessions_changed()
         return ids
 
     async def purge_messages(self, session_id: str) -> None:
@@ -2660,6 +2681,7 @@ class ChatSessionRepository:
                 "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
                 (now_iso(), session_id),
             )
+        notify_sessions_changed()
 
     async def update_last_inbound(self, session_id: str, when: str) -> None:
         """Bump the connector-driven activity timestamps for a session.
@@ -2691,6 +2713,7 @@ class ChatSessionRepository:
                 "UPDATE chat_sessions SET last_inbound_at = ?, updated_at = ? WHERE id = ?",
                 (when, when, session_id),
             )
+        notify_sessions_changed()
 
     async def append_to_session_metadata(self, session_id: str, key: str, value: Any) -> None:
         """Append ``value`` to the list at ``session_metadata[key]``.

@@ -14,6 +14,7 @@ interception, no engagement-inference LLM gate.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import uuid
@@ -42,7 +43,7 @@ from the_one.connectors.base import (
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.llm.base import Message, Role, tag_post_step_visibility
-from the_one.sessions import session_locks
+from the_one.sessions import broadcast_to_session, session_locks
 
 if TYPE_CHECKING:
     from the_one.connectors.manager import ConnectorManager
@@ -438,45 +439,57 @@ async def dispatch_inbound(
         envelope, connector, chat_repo, dir_repo, agent_name=agent_name
     )
 
-    async with session_locks[session_row.id]:
-        await chat_repo.update_last_inbound(session_row.id, now_iso())
-        try:
-            agent = await factory.create(agent_name)
-        except (AgentNotFoundError, ProviderNotFoundError, ProviderNotConfiguredError):
-            logger.exception("dispatch_inbound: failed to build agent %r", agent_name)
-            return
+    try:
+        async with session_locks[session_row.id]:
+            await chat_repo.update_last_inbound(session_row.id, now_iso())
+            try:
+                agent = await factory.create(agent_name)
+            except (AgentNotFoundError, ProviderNotFoundError, ProviderNotConfiguredError):
+                logger.exception("dispatch_inbound: failed to build agent %r", agent_name)
+                return
 
-        db_session = await chat_repo.get(session_row.id)
-        stored = decode_messages(db_session.messages)
-        if stored:
-            non_system = [m for m in stored if m.role != Role.SYSTEM]
-            agent.messages = agent.messages[:1] + non_system
+            db_session = await chat_repo.get(session_row.id)
+            stored = decode_messages(db_session.messages)
+            if stored:
+                non_system = [m for m in stored if m.role != Role.SYSTEM]
+                agent.messages = agent.messages[:1] + non_system
 
-        pre_step_len = len(agent.messages)
-        token = current_chat_session_id.set(session_row.id)
-        # M27 F2 DD5: the peer whose message starts this turn (notes taint/origin).
-        turn_token = current_turn.set(
-            TurnContext(
-                peer=TurnPeer(
-                    platform=envelope.platform,
-                    connector_id=connector_id,
-                    peer_id=envelope.peer_id,
-                    peer_name=envelope.peer_name,
-                ),
-                session_id=session_row.id,
+            pre_step_len = len(agent.messages)
+            token = current_chat_session_id.set(session_row.id)
+            # M27 F2 DD5: the peer whose message starts this turn (notes taint/origin).
+            turn_token = current_turn.set(
+                TurnContext(
+                    peer=TurnPeer(
+                        platform=envelope.platform,
+                        connector_id=connector_id,
+                        peer_id=envelope.peer_id,
+                        peer_name=envelope.peer_name,
+                    ),
+                    session_id=session_row.id,
+                )
             )
-        )
-        try:
-            async for _ in agent.step(envelope.text):
-                pass
-            _bind_peer_name(agent.messages, pre_step_len, envelope.peer_name)
-            tag_post_step_visibility(agent.messages, pre_step_len)
-            await _auto_deliver_reply(agent.messages, pre_step_len, envelope, connector_id, manager)
-            encoded = encode_messages(agent.messages)
-            updated = db_session.model_copy(update={"messages": encoded})
-            await chat_repo.update(updated)
-        except Exception:
-            logger.exception("dispatch_inbound: agent.step failed for session %s", session_row.id)
-        finally:
-            current_turn.reset(turn_token)
-            current_chat_session_id.reset(token)
+            try:
+                async for _ in agent.step(envelope.text):
+                    pass
+                _bind_peer_name(agent.messages, pre_step_len, envelope.peer_name)
+                tag_post_step_visibility(agent.messages, pre_step_len)
+                await _auto_deliver_reply(
+                    agent.messages, pre_step_len, envelope, connector_id, manager
+                )
+                encoded = encode_messages(agent.messages)
+                updated = db_session.model_copy(update={"messages": encoded})
+                await chat_repo.update(updated)
+            except Exception:
+                logger.exception(
+                    "dispatch_inbound: agent.step failed for session %s", session_row.id
+                )
+            finally:
+                current_turn.reset(turn_token)
+                current_chat_session_id.reset(token)
+    finally:
+        # DD5: tell the chat's subscribers the stored history may have changed,
+        # after the lock is released (every exit path once a session is resolved).
+        with contextlib.suppress(Exception):
+            await broadcast_to_session(
+                session_row.id, {"type": "session_updated", "session_id": session_row.id}
+            )
