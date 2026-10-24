@@ -80,15 +80,18 @@ def main() -> int:
 
     patch_dir = REPO / "packaging" / args.candidate / "patches"
     for diff in sorted(patch_dir.glob("*.diff")):
-        if sys.platform == "darwin":
-            # macOS ships BSD patch, whose option set differs from GNU's; git is already a
-            # build requirement (Briefcase clones its template) and applies the same diffs.
+        use_git = sys.platform in ("darwin", "win32")
+        if use_git:
+            # macOS ships BSD patch, whose option set differs from GNU's, and GNU patch is not
+            # on a Windows runner's PATH; git is already a build requirement (Briefcase clones
+            # its template) and applies the same diffs. (Windows: the workflow sets
+            # core.autocrlf=false before checkout, so the sources and diffs keep LF.)
             cmd = ["git", "apply", "-p1", "--verbose", str(diff)]
         else:
             cmd = ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(dest), "-i", str(diff)]
         r = subprocess.run(
             cmd,
-            cwd=dest if sys.platform == "darwin" else None,
+            cwd=dest if use_git else None,
             capture_output=True,
             text=True,
         )

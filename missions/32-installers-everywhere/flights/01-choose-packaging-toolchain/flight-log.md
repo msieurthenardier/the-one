@@ -128,6 +128,19 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
   - no release;
   - no further change to `main`.
 - **`windows-cost` designed; risk tier high** (it produces an installer the operator will run on their real machine, and spends hosted minutes), so it gets a Developer design review. Its autonomous part stops at `[HANDOFF:review-needed]` for review, commit, push and dispatch. The operator's real-machine install is a morning step, outside its acceptance.
+- **`macos-probe-run` landed.**
+  - Run 1: B passed every hard check on macOS. A died at its icon step (`$WORK` missing, a one-line recipe defect), so none of A's checks were reached.
+  - Flight Director call, under the operator's overnight delegation: **dispatched run 2 (the last macOS job) with `candidates="A"` only**, since B's row is complete. Run `40058513153`, https://github.com/msieurthenardier/the-one/actions/runs/40058513153. Expected 80-120 billed minutes.
+  - The fix (`mkdir -p "$WORK"`, plus a cosmetic NSLog filter in the summary lines) was checked by the Flight Director and committed at `2b5c543` without a separate Reviewer pass: a one-line correction, covered again by the flight-end review.
+  - `macos-probe-run` stays `landed` until a follow-up pass records run 2.
+- **`windows-cost` design review (Developer, from Briefcase 0.4.6 source): approve with changes.** Folded in as ten findings. Flight Director calls, under the overnight delegation:
+  - **a per-user MSI** (`system_installer = false`, with `MSIINSTALLPERUSER=1 ALLUSERS=2`), so it cannot land in Inno's `Program Files` directory;
+  - the MSI is built at `0.11.9.dev1`;
+  - `stage.py` changes in this leg (`git apply` on `win32`);
+  - the MSI and its hash are uploaded before the upgrade scenario;
+  - the operator's guide is rewritten: quit before backup, PowerShell syntax, `msiexec /x <file>` rollback, the SHA-256 check, and an explicit-variable restore.
+
+  No second review (these are the reviewer's own fixes). Set to `ready`.
 
   The Flight Director checked the triggers and caps, then committed. The operator approved (2026-10-23) the push, the `.github/`-only PR to `main`, its merge after `pr-lint`, and one macOS dispatch building both candidates, and confirmed the minutes budget. A second dispatch needs the operator's go.
 
@@ -137,6 +150,10 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
 
 
 
+- **`windows-cost` autonomous half: `[HANDOFF:review-needed]`. Review checkpoint (Sonnet; the env seam patch): `[HANDOFF:confirmed]`, no blocking issues.** The Flight Director applied guide notes 3 and 4 itself (artifact text): re-define the restore variables in a new session, and warn that the MSI build may migrate the real database, so a rollback restores the backup.
+  - Note 1 (a step cap firing reads green in the final step) is accepted: the Flight Director reads per-step conclusions.
+  - Note 2 (patch 02's Windows marker could be stricter) is carried to Flight 2.
+  - Commit, push, then dispatch the single Windows job (`candidates="B"`).
 ### linux-pyinstaller-build
 **Status**: landed
 **Started**: 2026-10-23
@@ -507,6 +524,150 @@ Lint: `shellcheck` 0.10.0 on both scripts, `bash -n`, `ruff check` and `ruff for
 - Expected cost: A alone is estimated at 8-12 min wall (closure install about 20 s, PyInstaller on a big closure 3-6 min, ad-hoc sign, 2 hdiutil attempts at most, checks about 1-2 min); billed at the 10x macOS rate about 80-120 billed minutes. Single dispatch, budget total 2 jobs.
 - Exact command: `gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A"`
 
+#### Run 2 (candidate A, follow-up pass)
+- Run 40058513153, https://github.com/msieurthenardier/the-one/actions/runs/40058513153, `candidates="A"`, same runner image. Conclusion `success`; job 03:29:37 to 03:31:15 UTC, **1 min 38 s** (the API's start/complete stamps; about 1 m 42 s with queueing). Job 2 of 2 used; no macOS job remains. Evidence: `$HOME/the-one-m32-evidence/macos/run-2/` (`job.log`, `packaging-probe-macos-logs/{A,A-step.log,runner.txt}`).
+- **The fast green is real, not a silent skip.** Step timeline from `job.log`: closure install and tool pins 03:29:47 to 03:30:10 (23 s, wheels only, no builds); icon step 0.2 s (`make-icns` now has its `$WORK`); `pyinstaller rc=0 in 39 s` (`pyinstaller.log` runs Analysis, EXE, COLLECT and BUNDLE, `Build complete!`, with `Signing the BUNDLE`); ad-hoc `codesign` `rc=0` (0.3 s); `hdiutil create` attempt 1 `rc=0` (9 s); checks 03:31:01 to 03:31:15. `layout.txt` lists the real bundle (`Contents/{Frameworks,Resources,MacOS/the-one,Info.plist,_CodeSignature}`). B's step was `skipped` by design. My earlier 8-12 min estimate assumed a slower freeze; PyInstaller on 3 cores with a warm wheel set took 39 s. Every check wrote its own artifact (`doctor.txt` with 12 gates, `gate2.txt`, `serve.log` with `GET /api/live 200`, `codesign-dv.txt`, `codesign-verify.txt`, `dmg.txt`), and `SUMMARY.txt` ends `== A done: 0 hard check(s) failed`. The one "Terminated: 15" line in `A-step.log` is `macos-checks.sh` stopping its own `serve` (the probe's `perl alarm` wrapper), not a failure.
+- Caveat on the elapsed time: the job is fast because this is a thin-closure macOS build (`.app` 177 MB), not because anything was skipped.
+
+| check | result | excerpt |
+|---|---|---|
+| codesign verify (`--deep --strict`) | PASS | `rc=0`; `Identifier=ai.gleepglorp.the-one`, `Signature=adhoc`, `Format=app bundle with Mach-O thin (arm64)`, `Sealed Resources version=2 rules=13 files=1196`, `TeamIdentifier=not set`; `valid on disk`, `satisfies its Designated Requirement`. The 45 KB verify log is `--prepared:`/`--validated:` lines per nested `.so` (data), no error lines |
+| G1 doctor, strict | PASS | `doctor score: {"pass": true, "rc": 0, "gates": 12, "bad": []}`; `frozen: True`; `window chrome: OK — skipped (not Windows)` is the only skip; `usearch: OK — HNSW round-trip ... (numkong=yes, simd=neon)`; `embedding model: OK — 512-dim float16 ... peak RSS 255.0 MiB` (loaded from `.app/Contents/Frameworks/the_one/embeddings/data/potion-retrieval-32M`); `file watcher: OK — native change notification round-trip OK`; `desktop shell: OK — pystray + PIL importable`; `mcp sdk: OK — mcp 2.3.0 ...`; `time zones: OK — 345 zones` |
+| G2 interpreter outside bundle | PASS | `python interpreter: OK — resolved to /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11`; run: prefix `/Library/Frameworks/Python.framework/Versions/3.11`, `Python 3.11.9`, no `.app`/`Contents` in either |
+| serve `/api/live` | PASS | `{"status":"ok"}`; `serve.log`: `GET /api/live HTTP/1.1" 200 OK` |
+| G4 data dir | PASS | `Local API credential created at /Users/runner/Library/Application Support/the-one/api-credential (mode 0600)`; `ls` shows only `api-credential` |
+| version | PASS | `GleepGlorp AI v0.11.8`, rc 0 |
+| size | `.app` 177 MB (181,468 KB), `.dmg` 125.2 MB (125,218,150 B, UDZO, `hdiutil verify` checksum VALID) | `A/dmg.txt`, `layout.txt` |
+| build time | PyInstaller 39 s; closure install 23 s; whole build step about 1 min 14 s (03:29:47 to 03:31:01) incl. sign and `.dmg`; cold runner | `job.log` |
+| finder-style `open -n` (best effort, unscored) | `open rc=0`, `/api/live` answered `{"status":"ok"}`, and `open-screen.png` shows a real native window titled "GleepGlorp AI" (traffic lights, menu bar "GleepGlorp AI / View", Dock icon with the app's mascot) whose web content is a blank dark (`#111216`-like) panel at capture time; `POST /api/window/focus` returned `{"focused":false}`. So the Cocoa window was created through A's frozen pywebview, but the page had not painted (or the capture raced the load) and focus was not reported; this headless runner session cannot say which |
+| window, Dock, single-instance | N/A (contributor, Flight 3) | DD6 |
+
+Windows-only ctypes libraries (`ole32`, `shell32`, `dwmapi`) and `httpx2.websockets` (needs `wsproto`, not in the closure) are PyInstaller warnings only; nothing failed at runtime.
+
+#### Residual risks resolved by run 2 (AC3)
+- **A's pyobjc hidden imports: confirmed sufficient for what was exercised.** `layout.txt` shows `objc`, `Foundation`, `CoreFoundation`, `WebKit` (`_WebKit.cpython-311-darwin.so`) and friends in `Contents/Frameworks`; the bare `open` produced a native window, which requires pywebview's Cocoa backend to import `AppKit`/`WebKit` in the frozen app; `doctor`'s `desktop shell` gate (pystray + PIL) passed. Not exercised: pystray's Darwin tray icon in a live session and pywebview JS bridge calls (the focus call returned `focused:false`). That is a Flight 3 contributor item, not a toolchain differentiator.
+- **A's strict codesign verify: PASS** (`--verify --deep --strict` rc 0, valid on disk, satisfies its Designated Requirement; the spec's PyInstaller re-sign plus the explicit `codesign --force --deep -s -` is enough for ad hoc).
+- **Job cap: refuted** (A's whole job is under 2 minutes; the 15-minute step cap and 30-minute job cap were never near).
+
+#### macOS comparison (A vs B)
+Both candidates pass every scored macOS hard check: strict G1 (12 gates, only window chrome skipped), G2 (both resolve `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11`), serve `/api/live`, the data dir under `~/Library/Application Support/the-one/`, and ad-hoc `codesign --verify --deep --strict` rc 0. Build time: A about 1 min 14 s for sign plus `.dmg` (PyInstaller 39 s), B about 2 min 20 s (create, build, package, incl. a template and support-package download from GitHub). Size: A `.app` 177 MB and `.dmg` 125.2 MB; B `.app` 353 MB and `.dmg` 138.6 MB (B embeds a full `Python.framework`, nearly twice A's `.app` for a `.dmg` only 11% larger). Signing: identical ad hoc, Developer ID and notarization untested for both (paper, DD6). Launch: A's bare `open` made a visible native window (blank content at capture, focus false); B's bare `open` started the server but showed no window, which fits B's stub reaching `app`/`serve` without registering a window. Upkeep macOS adds: A has `packaging/macos/` (379 lines in 5 files: spec 182, `build.sh` 75, entry shim 39 for the Finder `-psn_*` argv, icns 41, README 42) and is the only one whose `sys.frozen`/`_MEIPASS` logic needs nothing; B needs patch 02's macOS clause (a `MacOS`/`app_packages` heuristic), `universal_build = false`, `--no-binary proxy-tools`, a `min_os_version` pin and a template/support download, and its `doctor` only passes because the clause makes `is_frozen()` true. Neither bundles Python resolution: both rely on a host Python 3.11 (paper item 1: on a stock Mac `/usr/bin/python3` is the CLT stub).
+
+#### Status
+Run 2 recorded; macOS evidence is complete for the toolchain decision (both candidates have a fully scored row). Leg status stays `landed`.
+
+
+### windows-cost
+**Status**: in-flight (autonomous half done; handed back for review, commit, push and the Flight Director's dispatch; AC6 is the follow-up pass)
+**Started**: 2026-10-24
+
+#### Changes Made
+- `.github/workflows/packaging-probe-windows.yml` filled in on the flight branch (header comment rewritten; the `on:` block is byte-identical to `main`'s).
+- `packaging/briefcase/`: `pyproject.toml.in` gained `[tool.briefcase.app.the-one.windows]` (`system_installer = false`, `--no-binary proxy-tools`); patch 02 gained a Windows clause; `build-windows.ps1` (new); `check-env-layouts.py` gained five Windows layouts; `windows-resolution-rehearsal.py` (new, the Linux `win_amd64` pip rehearsal); README gained a Windows section.
+- `packaging/spike/`: `windows-lib.ps1` (shared, time-limited process helpers), `windows-checks.ps1` (new; phases `fresh` and `upgrade`), `m32probe_win.py` (stub probe), `m32run.py` (a redirect wrapper, the fallback if the GUI stub prints nothing), `score_doctor_file.py` (scores a doctor file, UTF-8 with a cp1252 fallback); `stage.py` uses `git apply` on `win32` as well as `darwin` (Linux path unchanged; proved byte-identical to `patch` on this host).
+- Nothing under `the_one/` or `tests/` changed (the patch is a diff file). No commit, push, PR or dispatch.
+- Tools: `pwsh` 7.6.7 linux-x64 (the official tar.gz, no root) in `$HOME/the-one-m32-build/tools/pwsh-7.6.7/`, sha256 `6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431` (matches the release's `hashes.sha256`; recorded in `tools/SHA256SUMS`); `tools/parse-ps.ps1` is the parser harness. Rehearsal scratch: `$HOME/the-one-m32-build/win-rehearsal/`.
+
+#### What Briefcase 0.4.6 does on Windows (read from its source and the v0.4.6 template, not assumed)
+- Installs requirements with the host's own pip, `--target=<src\app_packages>`, `--only-binary :all:` (`require_binary_installs` is True) and no `--platform` (`virtual_environment/base.py::platform_tag` returns None off macOS/iOS). The support package is python.org's **embeddable** zip for the Python that runs Briefcase (3.11 -> 3.11.9, support revision 9 in the template's `briefcase.toml`); so the job pins `setup-python` 3.11, as A's CI does.
+- The stub is a GUI-subsystem exe unless `console_app` (`windows/__init__.py::stub_binary_filename`: "GUI-Stub" or "Console-Stub"); the app exe is `GleepGlorp AI.exe` (`bundle_package_executable_path`: `formal_name.exe`, or `app_name.exe` for a console app). `build` runs rcedit for icon and version strings; the template's `cleanup_paths` removes `src/python*.exe`.
+- `package` builds the MSI with WiX 5.0.2 (`integrations/wix.py`, downloaded from github.com by Briefcase). `--adhoc-sign` is Briefcase's explicit "do not sign"; with a `--identity` it would sign through signtool. The MSI is **unsigned**.
+- **Scope, from the rendered `.wxs`** (`faked-render.wxs`, the real v0.4.6 template rendered with `install_scope=perUser`): `system_installer = false` renders `Scope="perUserOrMachine"` (the template maps any scope containing "User" to it) and, because the scope is fixed, skips the scope dialog; the install folder is `ProgramFiles64Folder\GleepGlorp AI\GleepGlorp AI`, which for ALLUSERS=2/MSIINSTALLPERUSER=1 is `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI`. `UpgradeCode` is `app.guid`, default `uuid5(NAMESPACE_DNS, "gleepglorp.ai")` (the reversed bundle id), unrelated to Inno's AppId. The template has `<MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize">`, `ARPNOREPAIR`/`ARPNOMODIFY`, one Start-menu shortcut in a "GleepGlorp AI" folder, no `CloseApplications`/`util:CloseApplication` (the `Util` extension is loaded but unused), and `post_install_script`/`pre_uninstall_script` as deferred `.bat` custom actions.
+- The generated `.wxs`, the bundle's top level and any `._pth` are dumped into the logs by `build-windows.ps1`.
+
+#### Rehearsal (AC1, AC2)
+- **AC1.** `actionlint` 1.7.7 (`-shellcheck` 0.10.0): clean. `diff <(git show origin/main:...packaging-probe-windows.yml | sed -n '/^on:/,/^[a-z]/p') <(sed -n '/^on:/,/^[a-z]/p' <branch copy>)` after a fresh `git fetch origin main`: empty. YAML: only `workflow_dispatch`, `candidates` is `type: choice`, `permissions: {contents: read}`, no `secrets.`, `timeout-minutes: 40` on the job, 14 / 9 / 11 on the build / fresh / upgrade steps, a `concurrency` group that never cancels. Uploads: the MSI + its hash (own step, `if: always()`, `retention-days: 7`) and the logs (`retention-days: 7`). `GH_TOKEN` is set only on the upgrade step. The draft-release fallback is described in the header, not wired (it needs `contents: write`).
+- **win_amd64 pip resolution** (`windows-resolution-rehearsal.py`; the closure's markers are evaluated as Windows AMD64 first, so `pywinpty`, `pywin32` and `pythonnet` stay in and `pygobject`/`pyobjc` drop out; 89 pins kept, 13 dropped), `pip download --platform win_amd64 --only-binary :all: --no-binary proxy-tools --no-deps --require-hashes`:
+
+```
+win_amd64 py3.11: rc=0 files=89     (B's Python: setup-python 3.11 -> embeddable 3.11.9)
+win_amd64 py3.12: rc=0 files=89
+  pywinpty-3.0.5-cp311-cp311-win_amd64.whl   pywin32-311-cp311-cp311-win_amd64.whl
+  pythonnet-3.1.0-cp310.cp311.cp312.cp313.cp314-none-win32.win_amd64.whl   usearch-2.26.4-cp311-cp311-win_amd64.whl
+  numpy-2.4.6-cp311-cp311-win_amd64.whl   proxy_tools-0.1.0.tar.gz
+negative control (no --no-binary proxy-tools): rc=1  ERROR: No matching distribution found for proxy-tools==0.1.0
+```
+  `proxy-tools` is the one sdist, as on macOS; its hash is in the closure, so `--require-hashes` holds. Evidence: `win-rehearsal/result-py3.11.txt`, `result-py3.12.txt`, `result-negctl.txt`.
+- **Patch 02, Windows clause** (additive; `diff 02-old.diff 02-new.diff | grep '^<'` shows only the two hunk-header lines):
+
+```
+< @@ -152,14 +153,49 @@
+< @@ -175,6 +211,12 @@
+```
+  The new `_is_briefcase_windows_app()` (`functools.lru_cache`) is true when `sys.executable`'s suffix is `.exe` (case-insensitive) and `<exe dir>/app_packages` is a directory; it is **not** gated on `sys.platform`. `is_frozen()` gains one `or _is_briefcase_windows_app()` line and `_bundle_dir()` returns `None` for it (the stub's directory holds the app and its runtime, not the runtimes the agent spawns). The Linux and macOS clauses are unchanged. `git apply --check` passes on the original `env.py`; the staged tree compiles; `git apply` and `patch` give byte-identical trees.
+- **`check-env-layouts.py`** (output in `win-rehearsal/faked-layout.txt`):
+
+```
+ok   macos-app / linux-system / source-install / macos-shaped-not-MacOS / macos-no-app_packages     (unchanged)
+ok   windows-app: frozen=True bundle=None            (strip_path unchanged=True; clean_path = given PATH + runtime dirs appended)
+ok   windows-app-upper-EXE: frozen=True bundle=None
+ok   windows-no-app_packages: frozen=False           ok   windows-no-.exe: frozen=False (app_packages present, stub not .exe)
+ok   windows-venv-python.exe: frozen=False           RESULT PASS
+```
+- **Briefcase's own config parse** of the generated `pyproject.toml` for `platform="windows"`: `system_installer False`, the three installer args, `allow_subprocesses True`, `icon icon`; for macOS the merged result is unchanged.
+- **PowerShell:** `pwsh` 7.6.7 `Parser::ParseFile` on `windows-lib.ps1`, `windows-checks.ps1`, `build-windows.ps1`: no errors. `Invoke-Capped`, `Use-EnvVars` and the quoting helper were run for real under Linux `pwsh` (rc propagation, stderr capture, em dash, env restore, timeout rc 124, "will not start" rc -1). The Windows-only calls (`msiexec`, registry, COM shortcuts, `taskkill`) are **unrehearsed**.
+- `ruff check` and `ruff format --check packaging/`: clean. `m32run.py` ran for real against the repo (`version`, an unknown command): file output and `rc=` correct.
+
+#### Decisions (beyond the leg's ten findings)
+1. **`candidates`**: "A" or "A B" logs "A is the existing Inno installer, not built here"; "B" and "A B" build B.
+2. **The job refuses to run its checks outside GitHub Actions** (`windows-checks.ps1` exits 2 unless `GITHUB_ACTIONS=true`): it deletes `%LOCALAPPDATA%\the-one` and installs/removes programs, which must never happen on a person's PC.
+3. **GUI stub fallback**: if `version` prints nothing the checks record "CLI COST", run `doctor` through `m32run.py` (a `BRIEFCASE_MAIN_MODULE` wrapper that points stdout at a file) on a copy of the install, and retry `serve` the same way, so one run still yields gate data.
+4. **`pywin32` risk probed**: `mcp` 2.x's Windows helpers import `win32api`/`win32job` (`mcp/os/win32/utilities.py`), and the embeddable Python does not process `.pth` files, so `pywin32.pth`'s path setup may not run. `m32probe_win.py` imports them and `mcp.os.win32.utilities` and prints whether they came up None; the stdio MCP server path on Windows depends on it.
+5. **Uploads**: the MSI (artifact `m32-probe-msi-<sha>`) goes up before any check; the logs artifact is `packaging-probe-windows-logs`.
+
+#### Paper half (AC3)
+**A (keep PyInstaller and Inno).**
+- *Two-exe split.* `the-one.exe` (console CLI: `chat|serve|doctor|version`, CI smoke) and `the-one-app.exe` (`console=False`, what the shortcut runs) share one `_internal` payload (`packaging/windows/the-one.spec:348-352, 383-411`; `the-one.iss` [Icons]). It exists because a console-subsystem exe pops a blank console when double-clicked. Upkeep: two EXE() blocks in one COLLECT; the CLI is a real console program, so `doctor` output works from any terminal and from CI.
+- *Restart Manager.* `CloseApplications=force` + `RestartApplications=no` (`the-one.iss:69-70`) plus a `[Code] KillRunning` backstop that `taskkill`s both exes in `PrepareToInstall`, because close-to-tray makes `WM_CLOSE` only hide the window so the graceful close leaves the process alive (comment at `the-one.iss:63-68`; the F6 HAT fix). Inherited from Inno at no marginal cost.
+- *Stable AppId upgrade path.* `AppId={{CAEEFB46-...}}` (`the-one.iss:35`, "frozen, NEVER regenerate"), `DefaultDirName={autopf}\GleepGlorp AI` (`:39`), `PrivilegesRequired=admin` (`:61`): every release installs in place over the last; this is the path the operator's PC is on today. The data dir (`%LOCALAPPDATA%\the-one`, `the_one/config.py:23`) lives outside `{app}`, so an uninstall leaves it.
+- *pywinpty helper exes.* Squawk 0162: pywinpty 3's `OpenConsole.exe` and `winpty-agent.exe` were missing from the frozen bundle until `collect_dynamic_libs("winpty", search_patterns=["*.dll","*.pyd","*.exe"])` (`the-one.spec:113-118`). A carries a collection rule per native dependency (`pythonnet`, `winpty`, `uvicorn`, ...) and finds gaps only by running the frozen app.
+- *WebView2 and the title bar.* `_webview_available` returns True on win32 without probing (`the_one/interfaces/desktop/shell.py:315-321`, WebView2 assumed); the M25 F5 tint is `DwmSetWindowAttribute` through `ctypes` on the window handle (`the_one/interfaces/desktop/chrome.py:62-65, 110-120`), so it is independent of the packager. The packager-dependent part is `pywebview -> pythonnet/clr_loader`, which the spec collects (`packaging/windows/README.md:23, 41`).
+- *Per-push Concourse build.* The `build-windows-installer` job (`ci/windows-installer.pipeline.yml:36-41`, `trigger: true`, `passed: [ci]`) runs `ci/tasks/windows-installer-build.yml` (choco Python 3.11 + Inno Setup on an uncontainerised worker, freeze, iscc, publish to MinIO); the GitHub `windows-installer.yml` does the `v*`-tag release (`iscc //DAppVersion=$VER`, line 196). It already exists and runs; keeping A costs no CI migration.
+- *"One metadata source".* The version is already single-sourced: `the-one.iss:25-31` has `#ifndef AppVersion` so `iscc /DAppVersion=` wins. What is still repeated (name, publisher, AppId, icon, install dir, the `.spec`'s version resource) would need one small generator that reads one block (the root `pyproject.toml` or a `packaging/metadata.toml`) and emits `/D` defines or an `#include`d `.iss` fragment plus the spec's values: roughly one stdlib script and an `#ifndef` guard per define. A smaller cost than B's template fork (below).
+
+**B (Briefcase MSI).**
+- *What the hosted job showed.* Pending the run (AC6): install path, Start-menu and Add/Remove entries, `doctor`, gate 2, `serve`, gate 4, build time, MSI size, and the upgrade scenario.
+- *AppId versus the MSI upgrade code.* Inno's `{CAEEFB46-...}` and the MSI's `UpgradeCode` (`uuid5` of the reversed bundle id) are unrelated, so Windows Installer cannot see an Inno install as an earlier version: there is **no in-place upgrade from Inno**. MSI to MSI is fine (`MajorUpgrade`, `AllowSameVersionUpgrades`). Migration options: (a) a `post_install_script` `.bat` (a deferred custom action) that finds Inno's `...\Uninstall\{CAEEFB46-...}_is1` key and runs its `UninstallString /VERYSILENT`: it works only for a per-machine (elevated) MSI, because Inno is per-machine; (b) a one-time documented step ("uninstall the old GleepGlorp AI, then install this"), data intact because the data dir sits outside both install dirs. The per-user MSI chosen for this probe does not replace Inno, it sits beside it; a per-machine MSI (`system_installer = true`) is the like-for-like scope.
+- *Restart Manager.* The template references the MSI `FilesInUse`/`MsiRMFilesInUse` dialogs, so an interactive install asks to close locked apps; a silent `/qn` install with the app running schedules a reboot instead. It has no `CloseApplications` or `util:CloseApplication` (the `Util` extension is loaded by `_package_msi` but unused), and because close-to-tray hides rather than closes, even Restart Manager's graceful close would leave the app alive. Matching Inno's `force` needs a `pre_uninstall_script` (`taskkill`, Briefcase supports `.bat` only) or a forked template (`template`/`template_branch` config keys exist) carrying `util:CloseApplication Terminate="yes"`: a template fork is a new upkeep item A does not have.
+- *Tray, WebView2 and the title bar under the stub.* The tray (`pystray`, in-process) and the DWM tint (`ctypes`, window handle) do not depend on the packager. WebView2 goes through `pythonnet`/`clr_loader` loading `Python.Runtime.dll` inside the embeddable Python: `doctor`'s desktop-shell gate only proves `pystray + PIL`, so the window itself is unproven off a real desktop (the probe's bare launch is best effort). rcedit sets the icon and version strings; the taskbar identity is the stub's path.
+- *pywinpty's helper exes and `.pth` files.* pip extracts the wheel as-is into `app_packages\winpty` (`OpenConsole.exe`, `winpty-agent.exe`, `conpty.dll` side by side), so no collection rule exists to forget (A's squawk 0162 class of defect cannot occur); the probe spawns a PTY to prove it. The B-specific risk is the embeddable Python ignoring `.pth` files: `pywin32.pth` is how `win32api`/`win32job` find `win32\` and `pywin32_system32\`, and `mcp`'s Windows stdio helpers use them (decision 4).
+- *The CLI story.* The default stub is GUI-subsystem, so a console cannot show its output (unconfirmed until the run). Briefcase has one exe per app and one MSI per app, so A's two-exe split inside one installer is not available; the options are `console_app = true` for the whole app (a console window on every launch, rejected), a second Briefcase app (a second MSI), or nothing (no CLI on Windows). The probe measures which of those applies.
+- *Moving the Concourse Windows build to Briefcase.* Replace the choco Inno step with a Briefcase venv, the staged closure and `create|build|package windows app`; Python must stay 3.11 (the embeddable support revision); WiX 5.0.2, rcedit, the stub, the template and the support package all download from github.com/python.org at build time (an offline or flaky worker fails the build, and the worker's `~\.briefcase` caches persist across runs); the MSI is named `GleepGlorp AI-<ver>.msi` (`distribution_path`), so the MinIO publish glob and the smoke steps that call `dist\the-one\the-one.exe` change; signing is `--identity <thumbprint>` from a cert store, as inert as A's `SignTool` hook today.
+
+#### The operator's morning guide (AC4; PowerShell throughout; the Flight Director walks it)
+The MSI is unsigned and per-user: it installs to `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI` beside the Inno install in `C:\Program Files\GleepGlorp AI`, and needs no elevation. Both show as "GleepGlorp AI" in Add/Remove Programs.
+1. **Quit** GleepGlorp AI from the tray (right-click the tray icon, Quit). Then `Get-Process the-one-app, the-one -ErrorAction SilentlyContinue` must print nothing.
+2. **Back up the data dir.** Confirm the real path first: open Explorer on `%LOCALAPPDATA%\the-one` and check it holds `the-one.db` and `api-credential`. Then, with these exact variables:
+   `$src = "$env:LOCALAPPDATA\the-one"; $bak = "$env:USERPROFILE\the-one-backup-m32"; robocopy $src $bak /E`
+   (robocopy exit codes 0 to 7 mean success). Check that `$bak` holds `the-one.db`.
+3. **Download the MSI** from the run's artifact `m32-probe-msi-<sha>` (GitHub Actions run page > Artifacts; it unzips to the `.msi` and a `.msi.sha256`). Check it: `(Get-FileHash -Algorithm SHA256 '<path to the .msi>').Hash` must equal the hash in the `.sha256` file (case-insensitive).
+4. **Install, per-user:** `msiexec /i "<path to the .msi>" MSIINSTALLPERUSER=1 ALLUSERS=2`. If SmartScreen appears, choose "More info", then "Run anyway". No wizard option should ask for a scope; if one does, pick "Just me" (per-user).
+5. **Checklist** (report each):
+   - Start menu: one "GleepGlorp AI" entry or two? Which one starts which install (right-click > Open file location)?
+   - Add/Remove Programs: how many "GleepGlorp AI" entries (one or two), with which versions (Inno 0.11.8, MSI 0.11.9)?
+   - The new shortcut opens the app. Existing chats, agents and providers are all there (the MSI's `serve` reads the same `%LOCALAPPDATA%\the-one`).
+   - `doctor`, from a console: `& "$env:LOCALAPPDATA\Programs\GleepGlorp AI\GleepGlorp AI\GleepGlorp AI.exe" doctor` (prints nothing or hangs = the GUI stub's CLI cost; the Inno one still works: `& "C:\Program Files\GleepGlorp AI\the-one.exe" doctor`).
+   - Close-to-tray (the window's x hides it; the tray icon stays) and Quit from the tray really exits (`Get-Process 'GleepGlorp AI' -ErrorAction SilentlyContinue` is empty).
+   - The Windows 11 title bar is tinted to the theme, and follows a light/dark switch.
+   - A second launch focuses the existing window instead of opening another.
+6. **Rollback.** Uninstall the MSI by file, which is unambiguous even though both installs are named "GleepGlorp AI": `msiexec /x "<path to the .msi>"`. If the Inno install was removed or broken, reinstall the latest `the-one-setup-*.exe` from the releases page. Restore data only if it changed, with the app quit, using the variables exactly as defined in step 2 (the direction cannot be swapped). In a new PowerShell window, first re-run step 2's variable line, `$src = "$env:LOCALAPPDATA\the-one"; $bak = "$env:USERPROFILE\the-one-backup-m32"`, then run `robocopy $bak $src /MIR`.
+
+   **Why the backup matters (review note):** the test MSI is built from the flight branch, which carries `main`'s code. That may include database migrations newer than the installed v0.11.8 release. Its first launch can migrate the real database one way, and the older Inno build may then refuse it or misread it. **If you roll back to the Inno install after running the MSI build, restore the backup too.**
+
+#### Dispatch (for the Flight Director, after commit and push of the flight branch)
+`gh workflow run packaging-probe-windows.yml --ref flight/01-choose-packaging-toolchain -f candidates="B"`
+Estimated job: setup (checkout, setup-python, uv export) 3-4 min; B build 8-12 min (venv + Briefcase install 1, template clone, embeddable Python + stub + WiX + rcedit downloads and 89 wheels into `app_packages` 4-6, rcedit, WiX `build` 1-2); fresh checks 4-6 (install, `doctor` with the embedding gate, `serve`, probe copy of a few hundred MB, bare launch up to 90 s, uninstall); upgrade 7-10 (138 MB Inno download, silent Inno install, `serve`, MSI install, `serve`, uninstall). **About 25-32 minutes, worst case the 40-minute job cap** (step caps 14 + 9 + 11 fire first; both uploads and the summary still run). Windows minutes bill at 2x on a private repo: about 50-65 billed minutes. One job; no second dispatch is planned.
+
+#### AC status
+- AC1 met. AC2 met except that nothing could be run on Windows itself (the parse, the library helpers and the layout/resolution/stage rehearsals ran on Linux; `msiexec`, registry, COM and `taskkill` are unrehearsed). AC3 and AC4 met (above). AC5 met (`git status` shows edits only; no `gh workflow run`, push, PR or commit; `gh release list/view` and `git fetch` only). AC6 pending the dispatch.
+
+#### Residual risks for the run
+- Briefcase's WiX/rcedit/stub/template/support-package downloads (github.com, python.org) and the 14-minute build cap on a cold runner; a build failure still uploads logs and skips the checks with an honest FAIL.
+- The stub's behaviour is unconfirmed on Windows: `sys.executable` (patch 02's marker also holds if it is an `.exe` in the install dir), argv forwarding (confirmed on macOS), GUI-stub stdout (fallback built), `BRIEFCASE_MAIN_MODULE` (confirmed on macOS; the wrapper and probe depend on it).
+- `pywin32` under the embeddable Python (decision 4) may fail `mcp`'s stdio helpers even if `doctor` passes; the probe shows it.
+- `doctor` first run on Windows from an embeddable Python: the file-watcher (ReadDirectoryChangesW), window-chrome (DWM) and embedding gates are unproven there; the hosted runner may have no usable desktop for the bare launch and screenshot (unscored).
+- `msiexec` against a per-user scope while the runner is an admin session, `gh release download` of a 138 MB asset, and `Get-Process ... .Path` across the whole process list are untested on the runner; each is time-limited and logged, none aborts later steps.
+- Billing: Windows minutes are 2x on a private repo.
+
 ---
 
 ## Evidence Table
@@ -564,14 +725,14 @@ Lint: `shellcheck` 0.10.0 on both scripts, `bash -n`, `ruff check` and `ruff for
 - Sandbox: same as A (inside Docker `bwrap` is denied; not representative).
 - Closure pinned with hashes (`-r closure.txt` + `--require-hashes`, `--no-deps`): no deviation.
 
-**macOS (hosted macos-15, arm64), run 1 (40058032297, 2026-10-24, 3 min 17 s), DD6.** Evidence root `$HOME/the-one-m32-evidence/macos/run-1/packaging-probe-macos-logs/<A|B>/`. Window, Dock and single-instance columns are N/A (contributor, Flight 3).
+**macOS (hosted macos-15, arm64), run 1 (40058032297, 2026-10-24, 3 min 17 s; B) and run 2 (40058513153, 1 min 38 s; A), DD6.** Evidence roots `$HOME/the-one-m32-evidence/macos/run-1/packaging-probe-macos-logs/B/` and `.../run-2/packaging-probe-macos-logs/A/`. Window, Dock and single-instance columns are N/A (contributor, Flight 3).
 
 | candidate | G1 strict | G2 | serve/live | data dir | signature | size | build time | notes |
 |---|---|---|---|---|---|---|---|---|
-| A / .app + .dmg | not reached | not reached | not reached | not reached | not reached | not reached | not reached | `make-icns` ran before `$WORK` existed (recipe defect, fixed, run 2 pending); closure and PyInstaller 6.22.3 installed fine |
+| A / .app + .dmg | PASS (12 gates, only window chrome skipped) | PASS `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11` | PASS | PASS `~/Library/Application Support/the-one/` | PASS ad hoc, `--deep --strict` rc 0 | .app 177 MB, .dmg 125.2 MB | PyInstaller 39 s; build step about 1 min 14 s cold (run 2; run 1 died at the icon step) | run 2 (40058513153, job 1 m 38 s) is a genuine green: real `.app`, every check ran; bare `open` made a native window (blank dark content, `focused:false`), pyobjc imports present; PyInstaller warnings only for Windows ctypes libs and `httpx2.websockets` |
 | B / .app + .dmg (patched) | PASS (12 gates, only window chrome skipped) | PASS `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11` | PASS | PASS `~/Library/Application Support/the-one/` | PASS ad hoc, `--deep --strict` rc 0 | .app 353 MB, .dmg 138.6 MB | about 2 min 20 s cold (create+build+package) | stub `sys.executable` is the stub, argv forwarded, stdout reaches the terminal, `BRIEFCASE_MAIN_MODULE` works; each launch prints two `NSLog` lines; best-effort bare `open` started the server, no window visible in the screenshot |
 
-macOS upkeep notes for B: patch 02's macOS clause held with no change; `universal_build = false` and `min_os_version = 11.0` as configured; the app embeds Python 3.11.9 (`Python.framework`), and the interpreter it resolves is the system/toolcache one (a real macOS install would need a Python installed: paper item 1 stands). Nothing macOS added to A yet.
+macOS upkeep notes for B: patch 02's macOS clause held with no change; `universal_build = false` and `min_os_version = 11.0` as configured; the app embeds Python 3.11.9 (`Python.framework`), and the interpreter it resolves is the system/toolcache one (a real macOS install would need a Python installed: paper item 1 stands). A (run 2) adds `packaging/macos/` (379 lines, 5 files) and the Finder `-psn_*` argv shim; see the comparison in `### macos-probe-run`.
 
 ---
 

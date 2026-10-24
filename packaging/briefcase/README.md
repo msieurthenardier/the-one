@@ -91,3 +91,28 @@ then `../spike/macos-checks.sh`.
   install as `pip download --platform macosx_<V>_arm64` so a missing wheel shows before a hosted minute.
 - The macOS stub's behaviour (`sys.executable`, `sys.frozen`, argv forwarding, whether stdout reaches the
   terminal) is from memory until the run; `macos-checks.sh` prints it from inside the app first.
+
+## Windows (hosted probe, leg `windows-cost`)
+
+Built and checked only by `.github/workflows/packaging-probe-windows.yml` on a hosted `windows-2022`
+runner. `build-windows.ps1 -Version 0.11.9.dev1` installs Briefcase 0.4.6 into a venv on the runner's
+Python 3.11, stages (patches 01 and 02; `stage.py` uses `git apply` on Windows), writes the placeholders,
+copies A's committed `.ico` as `icon.ico`, fills `pyproject.toml.in`, and runs
+`briefcase create|build|package windows app --no-input` (`package` adds `--adhoc-sign`, Briefcase's explicit
+"do not sign"; the result is an unsigned MSI). `../spike/windows-checks.ps1` then installs the MSI
+(per-user), runs the checks, and does the upgrade scenario over the released Inno installer.
+
+- The `[tool.briefcase.app.the-one.windows]` section: `system_installer = false` (per-user: the install goes
+  to `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI`, needs no elevation, and cannot collide with the
+  Inno install in `C:\Program Files\GleepGlorp AI`) and `--no-binary proxy-tools` appended to
+  `requirement_installer_args` (Briefcase passes `--only-binary :all:` on Windows too, and installs with the
+  host's own pip, no `--platform`).
+- Patch 02 gained a Windows clause (`_is_briefcase_windows_app()`): a layout marker only (an `.exe`
+  `sys.executable` with an `app_packages` directory beside it), never gated on `sys.platform`;
+  `_bundle_dir()` returns None there. The Linux and macOS clauses are untouched.
+- `check-env-layouts.py` gained the Windows layouts; `windows-resolution-rehearsal.py` reproduces the
+  Windows install as `pip download --platform win_amd64` with the same marker filtering as the macOS twin.
+- A GUI-subsystem stub may give the embedded Python no usable stdout. `windows-checks.ps1` redirects the
+  stub's output to files first; if nothing arrives it records that as B's CLI cost and runs `doctor` and
+  `serve` through `m32run.py`, a wrapper main module (`BRIEFCASE_MAIN_MODULE`) that points stdout at a file,
+  on a copy of the install.

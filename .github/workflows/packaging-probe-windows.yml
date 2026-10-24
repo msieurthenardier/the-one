@@ -1,10 +1,28 @@
 name: packaging-probe-windows
 
-# Mission 32 Flight 1 (choose the packaging toolchain), DD6/DD7: STUB. It exists so that the
-# single `.github/`-only PR to main makes both probe workflows dispatchable (GitHub offers a
-# manual run only for a workflow file on the default branch). Leg `windows-cost` fills in the
-# real steps on the flight branch, and `gh workflow run packaging-probe-windows.yml --ref
-# flight/01-choose-packaging-toolchain` then runs that copy. Dispatch-only; no secrets.
+# Mission 32 Flight 1 (choose the packaging toolchain), DD7: ONE dispatched Windows job that builds
+# candidate B's (Briefcase) per-user MSI on a hosted runner and records what it does: a fresh
+# install (install path, Start-menu entries, Add/Remove entries, `doctor`, the interpreter gate,
+# `serve`, the default data dir), then an upgrade scenario on the same disposable runner: the
+# latest released Inno installer is installed and seeded with an agent, the MSI is installed over
+# it, and the job records two entries or one, the shortcuts, and whether the seeded data reads
+# back. A spike probe, not a release: it publishes nothing and uses no secrets. The MSI and the
+# logs are uploaded as Actions artifacts (retention 7 days) for the operator's real-machine try.
+# Candidate A is today's Inno installer and is not built here (`candidates` = "A" skips the job's
+# work with a log note; "A B" and "B" build B). Dispatch-only, so it never runs on a push, PR or
+# tag:
+#
+#   gh workflow run packaging-probe-windows.yml --ref flight/01-choose-packaging-toolchain -f candidates="B"
+#
+# (GitHub offers a manual run only for a workflow file that exists on the default branch; the
+# stub landed on main in a `.github/`-only PR, and --ref runs the flight branch's copy, so the
+# `on:` block below must stay identical to main's.)
+#
+# Cost guard: a 40-minute job cap, a timeout on every long step (14 + 9 + 11 minutes for build,
+# fresh install and upgrade, so the log upload is always reached), a concurrency group that never
+# cancels a running probe, and time limits inside the scripts around every external call.
+# If the artifact upload ever fails on quota (Mission 15 hit it), the fallback is a DRAFT release
+# asset named m32-probe-<sha>, which needs `contents: write`; it is not used by default.
 on:
   workflow_dispatch:
     inputs:
@@ -28,9 +46,145 @@ concurrency:
 
 jobs:
   probe:
+    # pinned, not windows-latest
     runs-on: windows-2022
-    timeout-minutes: 5
+    timeout-minutes: 40
+    env:
+      # a short build root, against MAX_PATH (the support package and app_packages nest deeply)
+      M32_BUILD: C:\m32
+      M32_LOGS: C:\m32\logs
+      M32_REQUIREMENTS: C:\m32\requirements-closure.txt
+      # newer than the released Inno installer, so the upgrade is a real version step
+      M32_MSI_VERSION: 0.11.9.dev1
     steps:
-      - name: Stub
-        shell: bash
-        run: echo "packaging-probe-windows is a stub; leg windows-cost fills it in on the flight branch."
+      # before checkout: the diffs and sources must keep LF (git apply stages the patches)
+      - name: Line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v5
+
+      - name: Runner evidence
+        shell: pwsh
+        env:
+          CANDIDATES: ${{ inputs.candidates }}
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:M32_LOGS | Out-Null
+          $lines = @(
+            '== OS', ((Get-CimInstance Win32_OperatingSystem) | ForEach-Object { "$($_.Caption) $($_.Version) $($_.OSArchitecture)" }),
+            '== cpu/mem', ((Get-CimInstance Win32_ComputerSystem) | ForEach-Object { "$($_.NumberOfLogicalProcessors) logical, $([int]($_.TotalPhysicalMemory/1MB)) MB" }),
+            '== disk', ((Get-PSDrive C) | ForEach-Object { "free $([int]($_.Free/1GB)) GB" }),
+            '== git', (git --version),
+            '== gh', (gh --version | Select-Object -First 1),
+            '== pwsh', $PSVersionTable.PSVersion.ToString(),
+            '== autocrlf', (git config --global core.autocrlf),
+            '== candidates', $env:CANDIDATES
+          )
+          $lines | Tee-Object -FilePath "$env:M32_LOGS\runner.txt"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Python and tool versions
+        shell: pwsh
+        run: |
+          $lines = @((python --version), (python -m pip --version), "which python: $((Get-Command python).Source)")
+          $lines | Tee-Object -FilePath "$env:M32_LOGS\runner.txt" -Append
+
+      # The same hash-pinned closure the Windows CI and the release pip-audit use (DD3), exported
+      # once by uv straight to a file (LF endings; a shell redirect could write CRLF).
+      - name: Export the pinned dependency closure
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check uv==0.10.0
+          uv --version | Tee-Object -FilePath "$env:M32_LOGS\runner.txt" -Append
+          uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt --output-file $env:M32_REQUIREMENTS
+          (Get-Content $env:M32_REQUIREMENTS | Measure-Object -Line).Lines
+
+      - name: Candidate A (not built here)
+        if: ${{ contains(inputs.candidates, 'A') }}
+        shell: pwsh
+        run: Write-Host 'A is the existing Inno installer (packaging/windows), not built here'
+
+      # continue-on-error: a failed build must not lose the logs or skip the summary
+      - name: Candidate B build (Briefcase MSI)
+        if: ${{ inputs.candidates == 'A B' || inputs.candidates == 'B' }}
+        continue-on-error: true
+        timeout-minutes: 14
+        shell: pwsh
+        run: ./packaging/briefcase/build-windows.ps1 -Version $env:M32_MSI_VERSION
+
+      # The MSI and its SHA-256, uploaded before any check runs so the operator has it even if
+      # a later step fails. Never an installer other than the MSI.
+      - name: Upload the MSI
+        if: ${{ always() && (inputs.candidates == 'A B' || inputs.candidates == 'B') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: m32-probe-msi-${{ github.sha }}
+          path: ${{ env.M32_BUILD }}\out
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Candidate B fresh install and checks
+        if: ${{ always() && (inputs.candidates == 'A B' || inputs.candidates == 'B') }}
+        continue-on-error: true
+        timeout-minutes: 9
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem "$env:M32_BUILD\out" -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $msi) { $msi = "$env:M32_BUILD\out\missing.msi" }
+          ./packaging/spike/windows-checks.ps1 -Phase fresh -Msi $msi
+
+      - name: Candidate B upgrade over the released Inno installer
+        if: ${{ always() && (inputs.candidates == 'A B' || inputs.candidates == 'B') }}
+        continue-on-error: true
+        timeout-minutes: 11
+        shell: pwsh
+        env:
+          # reads the latest release's Inno installer: contents: read suffices for a same-repo release
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $msi = (Get-ChildItem "$env:M32_BUILD\out" -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $msi) { $msi = "$env:M32_BUILD\out\missing.msi" }
+          ./packaging/spike/windows-checks.ps1 -Phase upgrade -Msi $msi
+
+      - name: Summary
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          foreach ($f in @("$env:M32_LOGS\B\BUILD-SUMMARY.txt", "$env:M32_LOGS\B\fresh\SUMMARY.txt", "$env:M32_LOGS\B\upgrade\SUMMARY.txt")) {
+            if (-not (Test-Path $f)) { continue }
+            "### $(Split-Path -Leaf (Split-Path -Parent $f)) / $(Split-Path -Leaf $f)" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            Get-Content $f | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            Get-Content $f
+          }
+          "{0:N1} MB of logs" -f ((Get-ChildItem $env:M32_LOGS -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+
+      # Logs, listings, wxs and `doctor` outputs only. The MSI went up in its own step above.
+      - name: Upload logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-probe-windows-logs
+          path: ${{ env.M32_LOGS }}
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed probe reads as a red job without ever blocking the uploads.
+      - name: Fail on a failed or missing candidate
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          CANDIDATES: ${{ inputs.candidates }}
+        run: |
+          $rc = 0
+          if ($env:CANDIDATES -ne 'A') {
+            foreach ($f in @("$env:M32_LOGS\B\BUILD-SUMMARY.txt", "$env:M32_LOGS\B\fresh\SUMMARY.txt", "$env:M32_LOGS\B\upgrade\SUMMARY.txt")) {
+              if (-not (Test-Path $f)) { Write-Host "missing: $f"; $rc = 1 }
+              elseif (Select-String -Path $f -Pattern 'FAIL' -Quiet) { Write-Host "FAIL in $f"; $rc = 1 }
+            }
+          }
+          exit $rc

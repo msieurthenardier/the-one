@@ -1,6 +1,6 @@
 # Leg: windows-cost
 
-**Status**: planning
+**Status**: in-flight
 **Flight**: [Choose the packaging toolchain](../flight.md)
 
 ## Objective
@@ -68,6 +68,34 @@ Price the Windows side of each candidate. On paper: what keeping PyInstaller and
   4. The checklist: one or two Start-menu entries; Add/Remove Programs entries; does the app open from the new shortcut; are the existing chats, agents and providers there; `doctor` (from a console, if B has a console path); close-to-tray; the tinted title bar; a second launch focuses the existing window.
   5. **Rollback:** uninstall "GleepGlorp AI" (the MSI entry) from Add/Remove Programs. If the Inno install was removed or broken, reinstall the latest release's `the-one-setup-*.exe` from the releases page. If the data changed, quit the app and restore the backup with `robocopy … /MIR` back to `%LOCALAPPDATA%\the-one`.
 
+- **Findings from the leg design review (folded in; these override anything above that conflicts):**
+  1. **`stage.py` on Windows:** use `git apply` on `win32` as well as `darwin`; GNU `patch` is not on `PATH` under pwsh. The workflow sets `git config --global core.autocrlf false` before checkout, so the diffs and sources keep LF.
+  2. **Install scope, a Flight Director call:** a **per-user** MSI. Set `system_installer = false` in B's Windows config section, if 0.4.6 honours it (confirm from the generated `.wxs`), and pass `MSIINSTALLPERUSER=1 ALLUSERS=2` on every `msiexec` in the job. Per-user avoids the real collision, which is the MSI landing in `C:\Program Files\GleepGlorp AI` beside the Inno install. (The AppId is not the collision: the MSI's upgrade code is a uuid5 of the bundle, unrelated to Inno.) The `.wxs` is dumped into the logs. The operator's guide says which wizard option to pick, if a wizard asks.
+  3. **Step order and uploads:** separate workflow steps, each with its own cap: build; **upload the MSI and its SHA-256 (`if: always()`)**; fresh-install checks; the upgrade-over-Inno scenario; upload the logs (`if: always()`); the fail-on-FAIL step. `gh release download` gets `GH_TOKEN: ${{ github.token }}`; `contents: read` suffices for a same-repo release.
+  4. **`doctor` from the GUI stub:** `Start-Process -PassThru -RedirectStandardOutput <out> -RedirectStandardError <err>` (two different files), `Wait-Process -Timeout`, `PYTHONUTF8=1`, files read with `-Encoding utf8`, and `rc=N` appended for `score_doctor`. If stdout is `None` under the stub, `serve` may crash on uvicorn's `isatty` too. Record it either way (a CLI cost for B).
+  5. **Patch 02's Windows clause:** a layout marker only, never gated on `sys.platform`: the exe's suffix is `.exe` (case-insensitive) and `<exe dir>/app_packages` is a directory; `_bundle_dir()` returns `None`. `check-env-layouts.py` builds a real tree (`X/src/GleepGlorp AI.exe` and `X/src/app_packages`), plus near-misses: no `app_packages`; `app_packages` with a non-`.exe` stub; a venv `Scripts/python.exe`. The "byte-identical" check is on the patched file's existing clauses, not the hunk (the `is_frozen` return line gains an `or`). The job lists the install dir's top level, any `._pth` file, and `PATH`. If an embeddable `python.exe` sits in the stub's directory and that directory is on `PATH`, gate 2 shows it.
+  6. **Upgrade-scenario hygiene:**
+     - delete `%LOCALAPPDATA%\the-one` between the fresh-install step and the Inno scenario;
+     - build the MSI at version `0.11.9.dev1` (or `0.11.9` if WiX refuses a dev version; logged), so the scenario is a real version step;
+     - seed the agent as `inner.sh` does (a bearer `POST /api/agents`), with `curl.exe` or `Invoke-RestMethod`;
+     - stop `serve` with `Stop-Process -Force`;
+     - never run two builds' servers at once.
+  7. **Build environment:**
+     - a short build root (`C:\m32`) against `MAX_PATH`;
+     - time Briefcase's WiX and rcedit downloads;
+     - `--no-binary proxy-tools` on Windows too (binary-only by default);
+     - the Linux `win_amd64` pip rehearsal uses the same marker filtering as `macos-resolution-rehearsal.py`, so `pywinpty` and `pywin32` are included;
+     - note that the embeddable Python ignores `.pth` files (`pywin32`'s path setup), which the `mcp sdk` gate may reveal.
+  8. **`candidates`:** this job builds only B; A is today's Inno path. With `A` selected, it logs "A: the existing Inno installer, not built here" and skips. The input stays as declared on `main`.
+  9. **AC1's diff:** `git fetch origin main` first. The `on:` block, comment lines included, stays byte-identical to `main`'s.
+  10. **The operator's guide, rewritten for safety** (PowerShell syntax throughout):
+      1. Quit GleepGlorp AI from the tray. Confirm `Get-Process the-one-app -ErrorAction SilentlyContinue` returns nothing.
+      2. Back up: `$src = "$env:LOCALAPPDATA\the-one"; $bak = "$env:USERPROFILE\the-one-backup-m32"; robocopy $src $bak /E` (exit codes 0 to 7 mean success). Check that `$bak` holds the database.
+      3. Download the MSI and check its SHA-256 against the run's hash file.
+      4. Install, per-user. If SmartScreen appears, choose "More info", then "Run anyway".
+      5. The checklist.
+      6. **Rollback:** `msiexec /x "<path to the downloaded .msi>"` (unambiguous, even though both installs show as "GleepGlorp AI"). If the Inno install is broken, reinstall the latest `the-one-setup-*.exe` from the releases page. Restore data only if needed, with the app quit: `robocopy $bak $src /MIR`, with the variables exactly as defined in step 2, so the direction cannot be swapped.
+
 ## Inputs
 - The flight branch at its current head; the Briefcase recipe and patches; `score.py`; `macos-checks.sh` (a model for the checks script).
 - `gh` authenticated. Dispatching is the Flight Director's job; this leg only prepares, then reads.
@@ -75,6 +103,7 @@ Price the Windows side of each candidate. On paper: what keeping PyInstaller and
 ## Outputs
 - `packaging/briefcase/`: a Windows config section, patch 02's Windows clause, `build-windows.ps1` (or `.sh` under Git Bash), and the Windows case in `check-env-layouts.py`.
 - `packaging/spike/windows-checks.ps1`: the Windows checks and the upgrade scenario.
+- `packaging/spike/stage.py`: `git apply` on `win32` (finding 1), with the Linux path unchanged.
 - `.github/workflows/packaging-probe-windows.yml`, filled in on the flight branch, with its trigger and inputs unchanged from `main`.
 - The flight log: a `### windows-cost` entry with the rehearsal, the paper half, and the operator's morning guide. After the Flight Director's dispatch, the hosted results and Evidence Table rows (Windows, B).
 
@@ -112,7 +141,7 @@ Price the Windows side of each candidate. On paper: what keeping PyInstaller and
 
 ## Files Affected
 - `packaging/briefcase/` (the Windows section, patch 02, `build-windows.ps1`, `check-env-layouts.py`).
-- `packaging/spike/windows-checks.ps1` (new).
+- `packaging/spike/windows-checks.ps1` (new); `packaging/spike/stage.py` (`git apply` on `win32`).
 - `.github/workflows/packaging-probe-windows.yml` (the flight branch only).
 - The flight log.
 

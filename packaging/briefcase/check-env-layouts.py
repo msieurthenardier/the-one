@@ -11,6 +11,11 @@ fresh interpreter per layout, with ``sys.executable`` faked, to prove how ``is_f
   macos-shaped     X.app/Contents/Resources/app_packages but exe is NOT    not frozen
                    under a directory named MacOS
   macos-no-pkgs    .../Contents/MacOS/<stub> with no Resources/app_packages not frozen
+  windows-app      X/src/<name>.exe with X/src/app_packages beside it      frozen, bundle None
+  windows-upper    same, but the stub is named <name>.EXE                  frozen, bundle None
+  windows-no-pkgs  X/src/<name>.exe with no app_packages                   not frozen
+  windows-no-exe   X/src/<name> (no .exe) with app_packages beside it      not frozen
+  windows-venv     <venv>/Scripts/python.exe, no app_packages             not frozen
 
 For the frozen layouts it also checks the child-process PATH: ``strip_bundle_dir_from_path``
 must leave a PATH that contains the stub's directory exactly as given (nothing to strip),
@@ -89,6 +94,14 @@ def main() -> int:
     shaped = touch(root / "Other.app/Contents/Elsewhere/GleepGlorp AI")
     (root / "Other.app/Contents/Resources/app_packages").mkdir(parents=True)
     nopkgs = touch(root / "Bare.app/Contents/MacOS/GleepGlorp AI")
+    win = touch(root / "win/src/GleepGlorp AI.exe")
+    (root / "win/src/app_packages").mkdir(parents=True)
+    winup = touch(root / "winup/src/GleepGlorp AI.EXE")
+    (root / "winup/src/app_packages").mkdir(parents=True)
+    winbare = touch(root / "winbare/src/GleepGlorp AI.exe")
+    winnoexe = touch(root / "winnoexe/src/GleepGlorp AI")
+    (root / "winnoexe/src/app_packages").mkdir(parents=True)
+    winvenv = touch(root / "winvenv/Scripts/python.exe")
 
     cases = [
         ("macos-app", mac, True, None),
@@ -96,6 +109,11 @@ def main() -> int:
         ("source-install", src, False, None),
         ("macos-shaped-not-MacOS", shaped, False, None),
         ("macos-no-app_packages", nopkgs, False, None),
+        ("windows-app", win, True, None),
+        ("windows-app-upper-EXE", winup, True, None),
+        ("windows-no-app_packages", winbare, False, None),
+        ("windows-no-.exe", winnoexe, False, None),
+        ("windows-venv-python.exe", winvenv, False, None),
     ]
     bad = 0
     for name, exe, want_frozen, want_bundle in cases:

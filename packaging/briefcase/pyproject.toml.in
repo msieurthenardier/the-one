@@ -78,3 +78,17 @@ requirement_installer_args = ["--no-deps", "--require-hashes", "--no-binary", "p
 [tool.briefcase.app.the-one.macOS.info]
 # Retina rendering for the web view; the Briefcase template's Info.plist does not set it.
 NSHighResolutionCapable = true
+
+[tool.briefcase.app.the-one.windows]
+# Windows (hosted probe, Mission 32 Flight 1 leg 6). The Python in the app is Briefcase's own
+# embeddable support package (python.org, matching the Python that runs Briefcase: 3.11).
+#
+# Per-user MSI. Without this key the template builds a "perUserOrMachine" package and asks; with
+# it the install lands in %LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI and needs no
+# elevation, so it does not collide with the Inno install in C:\Program Files\GleepGlorp AI.
+system_installer = false
+# Windows installs natively with pip (no --platform) and Briefcase adds `--only-binary :all:`.
+# proxy-tools is the one pure-Python package that ships only an sdist, so it is the one exception
+# (rehearsed on Linux with `pip download --platform win_amd64`: it fails without it and resolves
+# with it; its sdist hash is already in the hashed closure, so --require-hashes still holds).
+requirement_installer_args = ["--no-deps", "--require-hashes", "--no-binary", "proxy-tools"]
