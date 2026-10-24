@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Checks against one built macOS .app (Mission 32 Flight 1 spike, DD6). Candidate-neutral.
+# Checks against one built macOS .app (packaging checks, DD6).
 # Run on the hosted macos-15 runner by packaging/macos/build.sh; every step is logged, none aborts the later ones.
 #
-#   macos-checks.sh LABEL APP EXE LOGDIR
+#   checks.sh LABEL APP EXE LOGDIR
 #     LABEL   A (the PyInstaller build; names the evidence directory)
 #     APP     path of "GleepGlorp AI.app" (quote it: the name has a space)
 #     EXE     path of the bundle's main executable (.../Contents/MacOS/the-one)
@@ -70,7 +70,7 @@ import json, sys
 sys.path.insert(0, sys.argv[1])
 import score
 print(json.dumps(score.score_doctor(open(sys.argv[2], errors="replace").read())))
-' "$HERE" "$OUT/doctor.txt" > "$OUT/doctor-score.json" 2> "$OUT/doctor-score.err"
+' "$HERE/../linux/checks" "$OUT/doctor.txt" > "$OUT/doctor-score.json" 2> "$OUT/doctor-score.err"
 note "doctor score: $(cat "$OUT/doctor-score.json")"
 grep -q '"pass": true' "$OUT/doctor-score.json"; hard "gate 1 doctor" $?
 grep -E "desktop shell|file watcher|window chrome|python interpreter|time zones|mcp sdk" "$OUT/doctor.txt" | while IFS= read -r l; do note "  $l"; done

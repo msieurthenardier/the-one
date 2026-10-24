@@ -1,0 +1,42 @@
+#cloud-config
+# Ubuntu 26.04.1 desktop autoinstall for the Mission 32 fresh-VM apparatus.
+# Schema read from the installer's own autoinstall-schema.json (ubuntu-desktop-bootstrap 665).
+# Apparatus settings, not product.
+autoinstall:
+  version: 1
+  refresh-installer:
+    update: false
+  source:
+    id: @SOURCE_ID@
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: UTC
+  identity:
+    realname: M32 test user
+    username: @USER@
+    hostname: m32-ubuntu
+    password: "@PWHASH@"
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - @PUBKEY@
+  storage:
+    layout:
+      name: direct
+      match:
+        size: largest
+  shutdown: poweroff
+  late-commands:
+    # GDM autologin.
+    - curtin in-target --target=/target -- sh -c "mkdir -p /etc/gdm3 && printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=@USER@\n' > /etc/gdm3/custom.conf"
+    # Seed through /etc/skel (covers a home created later) ...
+    - curtin in-target --target=/target -- sh -c "mkdir -p /etc/skel/.config && echo yes > /etc/skel/.config/gnome-initial-setup-done && mkdir -p /etc/skel/.config/gnome-initial-setup && echo yes > /etc/skel/.config/gnome-initial-setup/upgrade-26.04-done"
+    # ...but the installer already created the home (from the old skel) before late-commands.
+    - curtin in-target --target=/target -- sh -c "install -d -o @USER@ -g @USER@ -m 700 /home/@USER@/.config && echo yes > /home/@USER@/.config/gnome-initial-setup-done && mkdir -p /home/@USER@/.config/gnome-initial-setup && echo yes > /home/@USER@/.config/gnome-initial-setup/upgrade-26.04-done && chown -R @USER@:@USER@ /home/@USER@/.config"
+    - curtin in-target --target=/target -- sh -c "printf '@USER@ ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/90-m32 && chmod 440 /etc/sudoers.d/90-m32"
+    # Lock, blanking and idle-suspend off (system dconf default).
+    - curtin in-target --target=/target -- sh -c "mkdir -p /etc/dconf/profile /etc/dconf/db/local.d && test -f /etc/dconf/profile/user || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user"
+    - curtin in-target --target=/target -- sh -c "grep -q system-db:local /etc/dconf/profile/user || echo system-db:local >> /etc/dconf/profile/user"
+    - curtin in-target --target=/target -- sh -c "printf '[org/gnome/desktop/session]\nidle-delay=uint32 0\n[org/gnome/desktop/screensaver]\nlock-enabled=false\nidle-activation-enabled=false\n[org/gnome/settings-daemon/plugins/power]\nsleep-inactive-ac-type=\"nothing\"\nsleep-inactive-battery-type=\"nothing\"\n[org/gnome/desktop/lockdown]\ndisable-lock-screen=true\n' > /etc/dconf/db/local.d/00-m32 && dconf update"

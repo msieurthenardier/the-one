@@ -31,7 +31,7 @@ def _load_icon_image():
     return Image.open(icon_path)
 
 
-def build_tray(*, on_show: Callable, on_quit: Callable):
+def build_tray(*, on_show: Callable, on_quit: Callable, backend: str | None = None):
     """Build and return a pystray Icon with a Show / Quit menu.
 
     The icon is **not started** by this function; the caller is responsible for
@@ -40,8 +40,14 @@ def build_tray(*, on_show: Callable, on_quit: Callable):
 
     :param on_show: Callback for the "Show" menu item.
     :param on_quit: Callback for the "Quit" menu item.
+    :param backend: pystray backend chosen by the shell (Linux). Applied via
+        ``PYSTRAY_BACKEND`` right before the import, only when unset.
     :returns: A configured ``pystray.Icon`` instance.
     """
+    import os
+
+    if backend and not os.environ.get("PYSTRAY_BACKEND"):
+        os.environ["PYSTRAY_BACKEND"] = backend
     import pystray  # lazy: optional [gui] extra
 
     image = _load_icon_image()

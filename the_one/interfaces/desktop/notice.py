@@ -13,6 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 
 _MARKER_NAME = ".close_to_tray_notice_shown"
+# The no-tray (Linux desktop without a tray) notice has its own marker: a user
+# who saw the tray notice has not seen the "open it again to bring it back" one.
+_NO_TRAY_MARKER_NAME = ".no_tray_notice_shown"
 
 
 def _marker_path() -> Path:
@@ -26,6 +29,13 @@ def _marker_path() -> Path:
     from the_one.config import settings
 
     return settings.data_dir / _MARKER_NAME
+
+
+def _no_tray_marker_path() -> Path:
+    """The no-tray notice marker path (call-time, like ``_marker_path``)."""
+    from the_one.config import settings
+
+    return settings.data_dir / _NO_TRAY_MARKER_NAME
 
 
 def notice_shown() -> bool:
@@ -43,5 +53,17 @@ def mark_notice_shown() -> None:
     """
     path = _marker_path()
     # Must mkdir ourselves; do NOT assume data_dir already exists.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def no_tray_notice_shown() -> bool:
+    """Return True if the no-tray close notice has already been shown."""
+    return _no_tray_marker_path().exists()
+
+
+def mark_no_tray_notice_shown() -> None:
+    """Persist the no-tray notice marker (creates ``data_dir`` if needed)."""
+    path = _no_tray_marker_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()

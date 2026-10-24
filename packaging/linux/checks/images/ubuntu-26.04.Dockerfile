@@ -1,4 +1,4 @@
-# Mission 32 Flight 1 spike tooling (not product). Candidate-neutral images.
+# Packaging check images (Mission 32 Flight 2, DD8): the container images the gate suite runs in.
 #   docker build --target baseline -t m32/ubuntu-26.04:baseline -f ubuntu-26.04.Dockerfile .
 #   docker build --target bare     -t m32/ubuntu-26.04:bare     -f ubuntu-26.04.Dockerfile .
 # baseline = a stock GNOME desktop's packages (ubuntu-desktop-minimal, default

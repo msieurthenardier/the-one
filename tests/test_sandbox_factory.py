@@ -347,3 +347,44 @@ def test_factory_userns_error_selects_passthrough_with_error_log(
     # Confirm the distinct key is different from the unavailable key
     assert "passthrough:userns-probe-error" in factory_module._LOGGED
     assert "passthrough:userns-unavailable" not in factory_module._LOGGED
+
+
+# ── M32 F2 L02: describe_selection agrees with get_sandbox_backend ───────────
+
+
+@pytest.mark.parametrize(
+    "case,expected_cls,expected_name,reason_part",
+    [
+        ("bypass", PassthroughSandbox, "passthrough", "test bypass"),
+        ("non-linux", PassthroughSandbox, "passthrough", "non-Linux"),
+        ("no-bwrap", PassthroughSandbox, "passthrough", "not installed"),
+        ("userns-unavailable", PassthroughSandbox, "passthrough", "user namespaces"),
+        ("userns-error", PassthroughSandbox, "passthrough", "probe failed"),
+        ("ok", BubblewrapSandbox, "bubblewrap", ""),
+    ],
+)
+def test_describe_selection_agrees_with_factory(
+    monkeypatch: pytest.MonkeyPatch, case, expected_cls, expected_name, reason_part, caplog
+) -> None:
+    monkeypatch.setattr(
+        factory_module.sys, "platform", "darwin" if case == "non-linux" else "linux"
+    )
+    monkeypatch.setattr(
+        factory_module.shutil, "which", lambda _: None if case == "no-bwrap" else "/usr/bin/bwrap"
+    )
+    if case == "bypass":
+        monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
+        monkeypatch.setenv("THE_ONE_TEST_MODE", "1")
+    else:
+        monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+        monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
+    probe = {"userns-unavailable": "unavailable", "userns-error": "error"}.get(case, "ok")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: probe)
+
+    with caplog.at_level(logging.DEBUG, logger=factory_module._logger.name):
+        name, reason = factory_module.describe_selection()
+    assert caplog.records == []
+    assert factory_module._LOGGED == set()
+    assert name == expected_name
+    assert reason_part in reason
+    assert isinstance(get_sandbox_backend(), expected_cls)

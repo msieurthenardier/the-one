@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=@APPIMAGE_NAME@
+Comment=@SUMMARY@
+Exec=@APPIMAGE_EXEC@ app
+TryExec=@APPIMAGE_PATH@
+Icon=@ICON_PATH@
+Terminal=false
+Categories=@CATEGORIES@
+StartupWMClass=@WM_CLASS@
+StartupNotify=true
+Actions=quit;
+
+[Desktop Action quit]
+Name=@QUIT_ACTION_NAME@
+Exec=@APPIMAGE_EXEC@ quit

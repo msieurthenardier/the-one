@@ -125,7 +125,7 @@ def detect_runtimes(env: dict[str, str]) -> list[ProbeResult]:
     return results
 
 
-def _probe_desktop_shell() -> ProbeResult:
+def _probe_desktop_shell_generic() -> ProbeResult:
     """Import the desktop-tray module (and its pystray/PIL deps) as a smoke check.
 
     On success prints ``desktop shell: OK`` — confirming pystray + Pillow are
@@ -163,6 +163,103 @@ def _probe_desktop_shell() -> ProbeResult:
         if is_frozen():
             return ProbeResult("desktop shell", False, f"unexpected error: {exc}")
         return ProbeResult("desktop shell", True, f"skipped — unexpected error: {exc}")
+
+
+def bundle_has_modules(names: tuple[str, ...] | list[str]) -> list[str]:
+    """Return the dotted module names NOT present, without importing a package.
+
+    ``find_spec`` of a top-level name imports nothing; each further segment is
+    looked up with ``pkgutil.iter_modules`` over the parent's search locations
+    (PyInstaller's finder serves ``iter_modules`` for its virtual paths).  A
+    package ``__init__`` (e.g. ``pystray``'s, which selects a backend) is never
+    run.  Never raises.
+    """
+    import importlib.util
+    import pkgutil
+
+    missing: list[str] = []
+    for name in names:
+        try:
+            top, *rest = name.split(".")
+            spec = importlib.util.find_spec(top)
+            if spec is None:
+                missing.append(name)
+                continue
+            locations = list(spec.submodule_search_locations or [])
+            found = True
+            for i, seg in enumerate(rest):
+                mods = {m.name: m for m in pkgutil.iter_modules(locations)}
+                if seg not in mods:
+                    found = False
+                    break
+                if i < len(rest) - 1:
+                    locations = [os.path.join(loc, seg) for loc in locations]
+            if not found:
+                missing.append(name)
+        except Exception:  # noqa: BLE001
+            missing.append(name)
+    return missing
+
+
+def _probe_desktop_shell() -> ProbeResult:
+    """Desktop-shell gate.
+
+    Windows/macOS and non-frozen Linux keep the original import smoke check
+    (``_probe_desktop_shell_generic``).  A frozen Linux build splits "this
+    bundle is broken" from "this host has no desktop GTK or no display" by
+    asking the HOST first (M32 F2 DD11) and never importing ``pystray`` unless
+    the host can actually show a tray (its package ``__init__`` selects a
+    backend at import and can raise ``ValueError`` or open an X display).
+    """
+    if not (sys.platform.startswith("linux") and is_frozen()):
+        return _probe_desktop_shell_generic()
+    try:
+        from the_one.interfaces.desktop import host
+
+        def _bundle_fail(extra: tuple[str, ...] = ()) -> ProbeResult | None:
+            missing = bundle_has_modules(("pystray", *extra))
+            if missing:
+                return ProbeResult(
+                    "desktop shell", False, f"missing from the bundle: {', '.join(missing)}"
+                )
+            try:
+                import PIL  # noqa: F401
+
+                import the_one.interfaces.desktop.tray  # noqa: F401
+            except ImportError as exc:
+                return ProbeResult("desktop shell", False, f"import failed in frozen build: {exc}")
+            return None
+
+        if not host.host_has_desktop_gtk():
+            return _bundle_fail() or ProbeResult(
+                "desktop shell", True, "no desktop GTK on this host; the app opens in the browser"
+            )
+        if host.display_session() is None:
+            return _bundle_fail(("gi", "webview.platforms.gtk")) or ProbeResult(
+                "desktop shell", True, "no display session; tray not probed"
+            )
+        backend = host.choose_pystray_backend()
+        if backend is None:
+            return _bundle_fail() or ProbeResult(
+                "desktop shell",
+                True,
+                "no tray backend for this session (no AppIndicator, Wayland); PIL importable",
+            )
+        saved = os.environ.get("PYSTRAY_BACKEND")
+        os.environ["PYSTRAY_BACKEND"] = backend
+        try:
+            import PIL  # noqa: F401
+            import pystray  # noqa: F401
+
+            import the_one.interfaces.desktop.tray  # noqa: F401
+        finally:
+            if saved is None:
+                os.environ.pop("PYSTRAY_BACKEND", None)
+            else:
+                os.environ["PYSTRAY_BACKEND"] = saved
+        return ProbeResult("desktop shell", True, f"pystray ({backend}) + PIL importable")
+    except Exception as exc:  # noqa: BLE001 - never crash doctor
+        return ProbeResult("desktop shell", False, f"import failed in frozen build: {exc}")
 
 
 # LLM provider modules registered via the lazy string-import loader in
@@ -995,6 +1092,39 @@ def _probe_window_chrome() -> ProbeResult:
         return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
 
 
+def _advisory_lines() -> list[str]:
+    """The advisory ``sandbox:`` and ``tray:`` lines (never gates; never raise)."""
+    lines: list[str] = []
+    try:
+        from the_one.platform.sandbox.factory import describe_selection
+
+        name, reason = describe_selection()
+        lines.append(f"sandbox: {name}" + (f" — {reason}" if reason else ""))
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"sandbox: unknown — {exc.__class__.__name__}")
+    try:
+        lines.append(_tray_line())
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"tray: unavailable — {exc.__class__.__name__}")
+    return lines
+
+
+def _tray_line() -> str:
+    if sys.platform == "win32":
+        return "tray: system tray (Windows)"
+    if sys.platform == "darwin":
+        return "tray: not probed (macOS)"
+    from the_one.interfaces.desktop import host
+
+    if not host.host_has_desktop_gtk():
+        return "tray: none — no desktop GTK on this host"
+    if host.display_session() is None:
+        return "tray: none — no display session"
+    backend = host.choose_pystray_backend()
+    mode, reason = host.detect_tray(backend)
+    return f"tray: {mode} — {reason}"
+
+
 def run_doctor(out=None) -> int:
     """Run all diagnostics, print a structured report, return an exit code.
 
@@ -1109,6 +1239,10 @@ def run_doctor(out=None) -> int:
     for res in gates:
         status = "OK" if res.ok else "FAIL"
         emit(f"  {res.name}: {status} — {res.detail}")
+
+    emit("")
+    for line in _advisory_lines():
+        emit(f"  {line}")
 
     emit("")
     emit("  runtimes:")

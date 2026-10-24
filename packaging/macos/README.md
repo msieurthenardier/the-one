@@ -20,7 +20,7 @@ on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator'
 - `make-icns.py`: writes the `.icns` from the staged 512 px icon with Pillow.
 - `build.sh <version>`: stage, venv, hash-pinned closure install (`--require-hashes --no-deps`),
   pinned PyInstaller, freeze, `codesign --force --deep -s -`, `hdiutil create` (one retry, 300 s
-  limit), then `../spike/macos-checks.sh`.
+  limit), then `checks.sh`.
 
 ## Pinned tools
 

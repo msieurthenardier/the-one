@@ -142,6 +142,47 @@ def _sandbox_disabled_for_tests() -> bool:
     )
 
 
+def _select() -> tuple[str, str]:
+    """Return ``(backend_name, key)`` for the current host (first match wins).
+
+    The one selection order shared by ``get_sandbox_backend`` and
+    ``describe_selection``.  ``backend_name`` is ``"passthrough"`` or
+    ``"bubblewrap"``; ``key`` is the log-once key.  Logs nothing.
+    """
+    if _sandbox_disabled_for_tests():
+        return "passthrough", "passthrough:test-bypass"
+    if sys.platform != "linux":
+        return "passthrough", f"passthrough:non-linux:{sys.platform}"
+    if shutil.which("bwrap") is None:
+        return "passthrough", "passthrough:bwrap-missing"
+    probe = _userns_available()
+    if probe == "unavailable":
+        return "passthrough", "passthrough:userns-unavailable"
+    if probe == "error":
+        return "passthrough", "passthrough:userns-probe-error"
+    return "bubblewrap", "bubblewrap:linux"
+
+
+def describe_selection() -> tuple[str, str]:
+    """Return ``(backend_name, reason)`` without logging or instantiating.
+
+    Uses exactly ``get_sandbox_backend()``'s order (via ``_select``) and the
+    cached userns probe.  ``reason`` is "" for bubblewrap.
+    """
+    name, key = _select()
+    if key == "passthrough:test-bypass":
+        return name, "test bypass"
+    if key.startswith("passthrough:non-linux"):
+        return name, f"non-Linux host ({sys.platform})"
+    if key == "passthrough:bwrap-missing":
+        return name, "bubblewrap not installed"
+    if key == "passthrough:userns-unavailable":
+        return name, "user namespaces unavailable"
+    if key == "passthrough:userns-probe-error":
+        return name, "user namespace probe failed"
+    return name, ""
+
+
 def get_sandbox_backend() -> "ToolSandbox":
     """Select and return the appropriate ToolSandbox backend.
 
@@ -157,10 +198,10 @@ def get_sandbox_backend() -> "ToolSandbox":
     from the_one.platform.sandbox.bubblewrap import BubblewrapSandbox
     from the_one.platform.sandbox.passthrough import PassthroughSandbox
 
-    # --- Selection (first match wins) ---
+    # --- Selection (first match wins; shared with describe_selection) ---
+    name, key = _select()
 
-    if _sandbox_disabled_for_tests():
-        key = "passthrough:test-bypass"
+    if key == "passthrough:test-bypass":
         if key not in _LOGGED:
             _LOGGED.add(key)
             _logger.info(
@@ -169,8 +210,7 @@ def get_sandbox_backend() -> "ToolSandbox":
             )
         return PassthroughSandbox()
 
-    if sys.platform != "linux":
-        key = f"passthrough:non-linux:{sys.platform}"
+    if key.startswith("passthrough:non-linux"):
         if key not in _LOGGED:
             _LOGGED.add(key)
             _logger.info(
@@ -179,8 +219,7 @@ def get_sandbox_backend() -> "ToolSandbox":
             )
         return PassthroughSandbox()
 
-    if shutil.which("bwrap") is None:
-        key = "passthrough:bwrap-missing"
+    if key == "passthrough:bwrap-missing":
         if key not in _LOGGED:
             _LOGGED.add(key)
             _logger.warning(
@@ -189,10 +228,7 @@ def get_sandbox_backend() -> "ToolSandbox":
             )
         return PassthroughSandbox()
 
-    # Linux + bwrap present → probe for unprivileged user-namespace support.
-    probe = _userns_available()
-    if probe == "unavailable":
-        key = "passthrough:userns-unavailable"
+    if key == "passthrough:userns-unavailable":
         if key not in _LOGGED:
             _LOGGED.add(key)
             _logger.warning(
@@ -201,8 +237,7 @@ def get_sandbox_backend() -> "ToolSandbox":
                 "(e.g. sysctl kernel.unprivileged_userns_clone=1 on kernels that expose it)"
             )
         return PassthroughSandbox()
-    if probe == "error":
-        key = "passthrough:userns-probe-error"
+    if key == "passthrough:userns-probe-error":
         if key not in _LOGGED:
             _LOGGED.add(key)
             _logger.error(
@@ -212,8 +247,7 @@ def get_sandbox_backend() -> "ToolSandbox":
             )
         return PassthroughSandbox()
 
-    # probe == "ok": Linux + bwrap present + userns ok + no test bypass → bubblewrap
-    key = "bubblewrap:linux"
+    # Linux + bwrap present + userns ok + no test bypass → bubblewrap
     if key not in _LOGGED:
         _LOGGED.add(key)
         _logger.info("sandbox backend: bubblewrap — tool spawns are sandboxed")

@@ -27,13 +27,17 @@ ensure_stdio_streams()
 
 from the_one.main import cli_entry  # noqa: E402 (must come after the stdio fix)
 
+
+def launch_args(argv: list[str]) -> list[str]:
+    """The CLI arguments for a launch: Finder's ``-psn_*`` dropped, bare launch means ``app``."""
+    # Finder adds -psn_* on older macOS; it is not a subcommand.
+    args = [a for a in argv if not a.startswith("-psn_")]
+    return args or ["app"]  # a bare double-click opens the window
+
+
 if __name__ == "__main__":
     # Spawned multiprocessing children re-execute the bundle executable; this runs first so
     # they take the child bootstrap instead of re-running cli_entry (the fork-bomb guard).
     multiprocessing.freeze_support()
-    # Finder adds -psn_* on older macOS; it is not a subcommand.
-    args = [a for a in sys.argv[1:] if not a.startswith("-psn_")]
-    if not args:
-        args = ["app"]  # a bare double-click opens the window
-    sys.argv = [sys.argv[0], *args]
+    sys.argv = [sys.argv[0], *launch_args(sys.argv[1:])]
     cli_entry()

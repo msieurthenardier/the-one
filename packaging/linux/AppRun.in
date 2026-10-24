@@ -1,0 +1,106 @@
+#!/bin/sh
+# AppImage entry point (Mission 32 Flight 2, DD5). Rendered from AppRun.in by render.py.
+# Runs the frozen bundle. With no argument, or `app`, it first adds the AppImage to the
+# desktop's application menu (best effort, never stops the launch). Any other argument
+# (quit, doctor, version, serve, ...) passes straight through.
+# PATH is deliberately NOT modified: the app resolves node, uv and python from the user's
+# PATH, and an AppDir ahead of the system directories would shadow them. APPIMAGE, APPDIR,
+# XDG_ACTIVATION_TOKEN and DESKTOP_STARTUP_ID are left as they are.
+set -u
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Write the menu entry and icon for this AppImage's current path. Escapes follow the Desktop
+# Entry spec: Exec is a double-quoted argument (Exec layer: backslash before " ` $ \), then
+# the string layer doubles every backslash and % becomes %%; TryExec and Icon take the path
+# as it is, with only the string layer's backslash doubling. awk reads the values from the
+# environment (never -v, which interprets backslashes) and builds the output by index/substr,
+# so no character of a path is special.
+integrate() {
+    [ -n "${APPIMAGE:-}" ] && [ -f "$APPIMAGE" ] && [ -n "${APPDIR:-}" ] || return 0
+    tpl="$APPDIR/usr/share/@PACKAGE@/integration.desktop.in"
+    [ -f "$tpl" ] || return 0
+    case "${XDG_DATA_HOME:-}" in
+        /*) data="$XDG_DATA_HOME" ;;
+        *) [ -n "${HOME:-}" ] || return 0; data="$HOME/.local/share" ;;
+    esac
+    # a control character (newline, tab, ...) cannot be written into a .desktop file
+    case "$APPIMAGE$data" in
+        *[[:cntrl:]]*) return 0 ;;
+    esac
+    umask 022
+    icondir="$data/icons/hicolor/512x512/apps"
+    appdir="$data/applications"
+    icon="$icondir/@APPIMAGE_DESKTOP_ID@.png"
+    entry="$appdir/@APPIMAGE_DESKTOP_ID@.desktop"
+    mkdir -p "$icondir" "$appdir" || return 0
+    same() {
+        if command -v cmp > /dev/null 2>&1; then
+            cmp -s "$1" "$2"
+        else
+            [ "$(cat "$1")" = "$(cat "$2")" ]
+        fi
+    }
+    if [ -f "$APPDIR/@DESKTOP_ID@.png" ] \
+            && { [ ! -f "$icon" ] || ! same "$APPDIR/@DESKTOP_ID@.png" "$icon"; }; then
+        tmp="$(mktemp "$icondir/.icon.XXXXXX" 2> /dev/null)" || tmp="$icondir/.icon.$$"
+        if cp "$APPDIR/@DESKTOP_ID@.png" "$tmp"; then
+            mv -f "$tmp" "$icon" || rm -f "$tmp"
+        else
+            rm -f "$tmp"
+        fi
+    fi
+    tmp="$(mktemp "$appdir/.entry.XXXXXX" 2> /dev/null)" || tmp="$appdir/.entry.$$"
+    if A_PATH="$APPIMAGE" A_ICON="$icon" awk '
+        function bs(s,    out, i, c) {         # string layer: double the backslashes
+            out = ""
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                out = out (c == "\\" ? "\\\\" : c)
+            }
+            return out
+        }
+        function ex(s,    out, i, c) {         # Exec layer, then string layer, then %%
+            out = ""
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (c == "\"" || c == "`" || c == "$" || c == "\\") c = "\\" c
+                out = out c
+            }
+            out = bs(out)
+            gsub(/%/, "%%", out)
+            return "\"" out "\""
+        }
+        function rep(line, key, val,    p, out) {
+            out = ""
+            while ((p = index(line, key)) > 0) {
+                out = out substr(line, 1, p - 1) val
+                line = substr(line, p + length(key))
+            }
+            return out line
+        }
+        BEGIN { e = ex(ENVIRON["A_PATH"]); t = bs(ENVIRON["A_PATH"]); i = bs(ENVIRON["A_ICON"]) }
+        {
+            $0 = rep($0, "@APPIMAGE_EXEC@", e)
+            $0 = rep($0, "@APPIMAGE_PATH@", t)
+            $0 = rep($0, "@ICON_PATH@", i)
+            print
+        }' "$tpl" > "$tmp"; then
+        if [ -f "$entry" ] && same "$tmp" "$entry"; then
+            rm -f "$tmp"
+        else
+            mv -f "$tmp" "$entry" || rm -f "$tmp"
+        fi
+    else
+        rm -f "$tmp"
+    fi
+    return 0
+}
+
+if [ "$#" -eq 0 ]; then
+    set -- app
+fi
+if [ "$1" = app ]; then
+    # LC_ALL=C: byte-wise classes, and awk works in bytes
+    ( LC_ALL=C integrate ) > /dev/null 2>&1 || true
+fi
+exec "$HERE/usr/lib/@PACKAGE@/@EXECUTABLE@" "$@"

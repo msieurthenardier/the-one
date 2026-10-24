@@ -1067,3 +1067,189 @@ class TestTimeZonesProbe:
         buf = io.StringIO()
         run_doctor(out=buf)
         assert "time zones: OK" in buf.getvalue()
+
+
+# ── M32 F2 L02: Linux frozen desktop-shell split (AC4) and advisory lines (AC5) ─
+
+
+class TestFrozenLinuxDesktopShell:
+    @pytest.fixture(autouse=True)
+    def _frozen_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(diagnostics, "is_frozen", lambda: True)
+        monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: True)
+        monkeypatch.setattr(host, "display_session", lambda: "x11")
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: [])
+        # An import of pystray raises ValueError (as with no Gtk typelib):
+        # a test that reaches it fails loudly, so "never imported" is proven.
+        import importlib.abc
+
+        class _Bomb(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, path=None, target=None):
+                if name == "pystray" or name.startswith("pystray."):
+                    raise ValueError("Namespace Gtk not available")
+                return None
+
+        monkeypatch.delitem(sys.modules, "pystray", raising=False)
+        monkeypatch.setattr(sys, "meta_path", [_Bomb(), *sys.meta_path])
+        monkeypatch.setitem(sys.modules, "PIL", _make_stub_module("PIL"))
+
+    def test_no_gtk_ok_browser_wording_no_pystray(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: False)
+        r = _probe_desktop_shell()
+        assert r.ok and "opens in the browser" in r.detail
+        assert "skipped" not in r.detail
+
+    def test_no_gtk_pystray_missing_from_bundle_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: False)
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: ["pystray"])
+        r = _probe_desktop_shell()
+        assert not r.ok and "pystray" in r.detail
+
+    def test_no_display_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "display_session", lambda: None)
+        asked: list = []
+        monkeypatch.setattr(
+            diagnostics, "bundle_has_modules", lambda names: asked.append(tuple(names)) or []
+        )
+        r = _probe_desktop_shell()
+        assert r.ok and "no display session" in r.detail and "skipped" not in r.detail
+        assert ("pystray", "gi", "webview.platforms.gtk") in asked
+
+    def test_no_display_missing_module_fails_naming_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "display_session", lambda: None)
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: ["gi"])
+        r = _probe_desktop_shell()
+        assert not r.ok and "gi" in r.detail
+
+    def test_no_backend_ok_without_pystray(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "choose_pystray_backend", lambda: None)
+        r = _probe_desktop_shell()
+        assert r.ok and "no tray backend" in r.detail and "skipped" not in r.detail
+
+    @pytest.mark.parametrize("before", [None, "dummy"])
+    def test_backend_import_sets_and_restores_env(
+        self, monkeypatch: pytest.MonkeyPatch, before: str | None
+    ) -> None:
+        import os
+
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "choose_pystray_backend", lambda: "gtk")
+        if before is None:
+            monkeypatch.delenv("PYSTRAY_BACKEND", raising=False)
+        else:
+            monkeypatch.setenv("PYSTRAY_BACKEND", before)
+        import builtins
+
+        seen = {"during": None}
+        monkeypatch.setitem(sys.modules, "pystray", types.ModuleType("pystray"))
+        orig = os.environ.get("PYSTRAY_BACKEND")
+        real_import = builtins.__import__
+
+        def spy(name, *a, **k):
+            if name == "pystray":
+                seen["during"] = os.environ.get("PYSTRAY_BACKEND")
+            return real_import(name, *a, **k)
+
+        monkeypatch.setattr(builtins, "__import__", spy)
+        r = _probe_desktop_shell()
+        monkeypatch.setattr(builtins, "__import__", real_import)
+        assert r.ok and "pystray (gtk)" in r.detail
+        assert seen["during"] == "gtk"
+        assert os.environ.get("PYSTRAY_BACKEND") == orig
+
+    def test_backend_import_failure_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(host, "choose_pystray_backend", lambda: "appindicator")
+        r = _probe_desktop_shell()  # the bomb finder raises ValueError on import
+        assert not r.ok
+
+
+def test_win32_desktop_shell_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "pystray", _make_stub_module("pystray"))
+    monkeypatch.setitem(sys.modules, "PIL", _make_stub_module("PIL"))
+    r = _probe_desktop_shell()
+    assert (r.ok, r.detail) == (True, "pystray + PIL importable")
+
+
+def test_bundle_has_modules_does_not_import_package_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pystray.__init__ would run backend(); the check must not import it."""
+    monkeypatch.delitem(sys.modules, "pystray", raising=False)
+    monkeypatch.delitem(sys.modules, "pystray._base", raising=False)
+    import importlib.util
+
+    if importlib.util.find_spec("pystray") is None:
+        pytest.skip("pystray not installed")
+    assert diagnostics.bundle_has_modules(("pystray", "pystray._base")) == []
+    assert "pystray" not in sys.modules
+    assert diagnostics.bundle_has_modules(("pystray._nope", "no_such_pkg_xyz")) == [
+        "pystray._nope",
+        "no_such_pkg_xyz",
+    ]
+
+
+class TestAdvisoryLines:
+    @pytest.mark.parametrize(
+        "selection,needle",
+        [
+            (("passthrough", "test bypass"), "test bypass"),
+            (("passthrough", "non-Linux host (darwin)"), "non-Linux"),
+            (("passthrough", "bubblewrap not installed"), "not installed"),
+            (("passthrough", "user namespaces unavailable"), "user namespaces"),
+            (("passthrough", "user namespace probe failed"), "probe failed"),
+            (("bubblewrap", ""), "sandbox: bubblewrap"),
+        ],
+    )
+    def test_sandbox_line(self, monkeypatch: pytest.MonkeyPatch, selection, needle) -> None:
+        from the_one.platform.sandbox import factory
+
+        monkeypatch.setattr(factory, "describe_selection", lambda: selection)
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        out = buf.getvalue()
+        line = next(ln for ln in out.splitlines() if ln.strip().startswith("sandbox:"))
+        assert needle in line
+        assert code == 0
+        assert out.index("mcp sdk:") < out.index("sandbox:") < out.index("RESULT:")
+        line.encode("cp1252")
+        next(ln for ln in out.splitlines() if ln.strip().startswith("tray:")).encode("cp1252")
+
+    def test_tray_lines(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.interfaces.desktop import host
+
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: False)
+        assert diagnostics._tray_line() == "tray: none — no desktop GTK on this host"
+        monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: True)
+        monkeypatch.setattr(host, "display_session", lambda: None)
+        assert diagnostics._tray_line() == "tray: none — no display session"
+        monkeypatch.setattr(host, "display_session", lambda: "x11")
+        monkeypatch.setattr(host, "choose_pystray_backend", lambda: "gtk")
+        monkeypatch.setattr(host, "detect_tray", lambda b: ("xembed", "X11 system tray present"))
+        assert diagnostics._tray_line() == "tray: xembed — X11 system tray present"
+        monkeypatch.setattr(sys, "platform", "win32")
+        assert diagnostics._tray_line() == "tray: system tray (Windows)"
+        monkeypatch.setattr(sys, "platform", "darwin")
+        assert diagnostics._tray_line() == "tray: not probed (macOS)"
+
+
+pytestmark = pytest.mark.usefixtures("stub_desktop_host")

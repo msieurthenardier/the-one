@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@METAINFO_ID@</id>
+  <name>@DISPLAY_NAME@</name>
+  <summary>@SUMMARY@</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>@LICENSE@</project_license>
+  <developer id="io.github.msieurthenardier">
+    <name>msieurthenardier</name>
+  </developer>
+  <description>
+    <p>@DESCRIPTION@</p>
+  </description>
+  <url type="homepage">@HOMEPAGE@</url>
+  <launchable type="desktop-id">@DESKTOP_ID@.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@RELEASE_DATE@"/>
+  </releases>
+</component>

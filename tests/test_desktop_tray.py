@@ -662,7 +662,7 @@ def test_quit_stop_called_even_when_destroy_raises(
 # ── shell.py: tray-unavailable degrade ───────────────────────────────────────
 
 
-def test_tray_failure_no_closing_handler_registered(
+def test_tray_failure_closing_handler_registered_and_allows_destroy(
     shell_module: Any,
     webview_mock: MagicMock,
     pystray_mock: MagicMock,
@@ -670,10 +670,9 @@ def test_tray_failure_no_closing_handler_registered(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If tray construction raises, no closing handler is registered.
+    """If tray construction raises, the closing handler is still registered.
 
-    The window's X then uses pywebview's default destroy — F4 fallback.
-    The app must NOT crash.
+    It saves geometry and allows the destroy (M32 F2 L03). The app must NOT crash.
 
     Adapted for Leg 4 splash restructure: tray wiring now runs inside _boot, so
     the test extracts _boot from webview.start() and invokes it to reach the tray
@@ -712,9 +711,8 @@ def test_tray_failure_no_closing_handler_registered(
     with patch.object(shell_module, "_wait_until_serving"):
         _boot()  # NO args — matches pywebview's real call convention
 
-    assert len(closing_event.registered) == 0, (
-        "closing handler must NOT be registered when tray construction fails"
-    )
+    assert len(closing_event.registered) == 1
+    assert closing_event.fire() is True  # no tray: allow the destroy
 
 
 def test_show_callback_calls_window_show_not_restore(
@@ -762,3 +760,317 @@ def test_show_callback_calls_window_show_not_restore(
 
     mock_window.show.assert_called_once()
     mock_window.restore.assert_not_called()
+
+
+pytestmark = pytest.mark.usefixtures("stub_desktop_host")
+
+
+# ── M32 F2 L02: the tray is decided before pystray is imported ───────────────
+
+
+@pytest.mark.parametrize("mode", ["none", "unavailable"])
+def test_no_tray_never_imports_pystray_or_builds(
+    shell_module: Any,
+    webview_mock: MagicMock,
+    pil_mock: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """AC3: a "no tray" decision builds no tray and never imports pystray."""
+    import the_one.interfaces.desktop.host as host_mod
+    import the_one.interfaces.desktop.tray as tray_mod
+
+    monkeypatch.delitem(sys.modules, "pystray", raising=False)
+    monkeypatch.setattr(host_mod, "detect_tray", lambda backend: (mode, "test"))
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    def fail_build(**kw):
+        raise AssertionError("build_tray must not be called")
+
+    monkeypatch.setattr(tray_mod, "build_tray", fail_build)
+    _, closing_event = _run_desktop_with_tray(
+        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path
+    )
+    assert "pystray" not in sys.modules
+    assert shell_module._tray_mode == "none"
+    # Registered once (saves geometry); no tray: hide, never destroy (M32 F2 L05).
+    assert len(closing_event.registered) == 1
+    assert closing_event.fire() is False
+
+
+def test_indicator_mode_recorded_and_backend_passed(
+    shell_module: Any,
+    webview_mock: MagicMock,
+    pystray_mock: MagicMock,
+    pil_mock: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import the_one.interfaces.desktop.host as host_mod
+    import the_one.interfaces.desktop.tray as tray_mod
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(host_mod, "choose_pystray_backend", lambda: "appindicator")
+    monkeypatch.setattr(host_mod, "detect_tray", lambda backend: ("indicator", "ok"))
+    seen = {}
+    icon = MagicMock()
+
+    def fake_build(**kw):
+        seen.update(kw)
+        return icon
+
+    monkeypatch.setattr(tray_mod, "build_tray", fake_build)
+    _, closing_event = _run_desktop_with_tray(
+        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path
+    )
+    assert seen["backend"] == "appindicator"
+    assert shell_module._tray_mode == "indicator"
+    icon.run_detached.assert_called_once()
+    assert len(closing_event.registered) == 1
+
+
+def test_tray_start_failure_records_failed(
+    shell_module: Any,
+    webview_mock: MagicMock,
+    pystray_mock: MagicMock,
+    pil_mock: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import the_one.interfaces.desktop.tray as tray_mod
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    icon = MagicMock()
+    icon.run_detached.side_effect = RuntimeError("boom")
+    monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: icon)
+    _run_desktop_with_tray(shell_module, webview_mock, tray_mod, monkeypatch, tmp_path)
+    assert shell_module._tray_mode == "failed"
+
+
+def test_win32_never_probes(
+    shell_module: Any,
+    webview_mock: MagicMock,
+    pystray_mock: MagicMock,
+    pil_mock: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On win32 the host probes are never called and the mode stays None."""
+    import the_one.interfaces.desktop.host as host_mod
+    import the_one.interfaces.desktop.tray as tray_mod
+
+    def boom(*a, **k):
+        raise AssertionError("probe ran on win32")
+
+    monkeypatch.setattr(host_mod, "detect_tray", boom)
+    monkeypatch.setattr(host_mod, "choose_pystray_backend", boom)
+    monkeypatch.setattr(sys, "platform", "win32")
+    for name in ("native_show", "register", "deregister", "request"):
+        monkeypatch.setattr(shell_module.chrome, name, lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: MagicMock())
+    _run_desktop_with_tray(shell_module, webview_mock, tray_mod, monkeypatch, tmp_path)
+    assert shell_module._tray_mode is None
+
+
+def test_build_tray_applies_backend_only_when_env_unset(
+    tray_module: Any, pystray_mock: MagicMock, pil_mock: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PYSTRAY_BACKEND", raising=False)
+    tray_module.build_tray(on_show=lambda: None, on_quit=lambda: None, backend="gtk")
+    import os
+
+    assert os.environ["PYSTRAY_BACKEND"] == "gtk"
+    tray_module.build_tray(on_show=lambda: None, on_quit=lambda: None, backend="xorg")
+    assert os.environ["PYSTRAY_BACKEND"] == "gtk"  # explicit/earlier value wins
+    monkeypatch.delenv("PYSTRAY_BACKEND")
+
+
+# ── M32 F2 L03: GTK window fixes ─────────────────────────────────────────────
+
+
+class _GtkNative:
+    """A Gtk.Window stand-in: get_size/get_position, an optional Wayland display."""
+
+    def __init__(self, display_name: str = "X11Display") -> None:
+        self._display = type(display_name, (), {})()
+
+    def get_size(self):
+        return (900, 700)
+
+    def get_position(self):
+        return (10, 20)
+
+    def get_display(self):
+        return self._display
+
+
+class _GtkWindow:
+    """pywebview Window stand-in whose width/height/x/y raise if touched."""
+
+    def __init__(self, native) -> None:
+        self.native = native
+        self.events = MagicMock()
+        self.events.shown.is_set.return_value = True
+        self.hidden = True
+        self.show = MagicMock()
+        self.restore = MagicMock()
+
+    @property
+    def width(self):
+        raise AssertionError("window.width touched on GTK")
+
+    height = x = y = width
+
+
+def _saved(monkeypatch):
+    import the_one.interfaces.desktop.window_state as ws
+
+    calls: list = []
+    monkeypatch.setattr(ws, "save_state", lambda *a: calls.append(a))
+    return calls
+
+
+def test_gtk_geometry_reads_native_never_window_props(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    calls = _saved(monkeypatch)
+    win = _GtkWindow(_GtkNative("GdkX11Display"))
+    shell_module.DesktopSession()._save_current_geometry(win)
+    assert calls == [(900, 700, 10, 20)]
+
+
+def test_gtk_wayland_saves_size_only(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    calls = _saved(monkeypatch)
+    win = _GtkWindow(_GtkNative("GdkWaylandDisplay"))
+    shell_module.DesktopSession()._save_current_geometry(win)
+    assert calls == [(900, 700, None, None)]
+
+
+def test_gtk_geometry_skipped_off_main_thread(shell_module, monkeypatch) -> None:
+    import threading
+
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    calls = _saved(monkeypatch)
+    t = threading.Thread(
+        target=shell_module.DesktopSession()._save_current_geometry,
+        args=(_GtkWindow(_GtkNative()),),
+    )
+    t.start()
+    t.join()
+    assert calls == []
+
+
+def test_gtk_geometry_no_native_skipped(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    calls = _saved(monkeypatch)
+    shell_module.DesktopSession()._save_current_geometry(_GtkWindow(None))
+    assert calls == []
+
+
+def test_non_gtk_geometry_unchanged(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: False)
+    calls = _saved(monkeypatch)
+    win = MagicMock()
+    win.events.shown.is_set.return_value = True
+    win.width, win.height, win.x, win.y = 1, 2, 3, 4
+    shell_module.DesktopSession()._save_current_geometry(win)
+    assert calls == [(1, 2, 3, 4)]
+
+
+def test_on_wayland_falls_back_to_host_probe(shell_module, monkeypatch) -> None:
+    win = MagicMock()
+    win.native.get_display.side_effect = RuntimeError("x")
+    monkeypatch.setattr(shell_module.desktop_host, "display_session", lambda: "wayland")
+    assert shell_module._on_wayland(win) is True
+
+
+def test_show_window_gtk_clears_hidden_and_restores(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    win = _GtkWindow(_GtkNative())
+    shell_module._show_window(win)
+    assert win.hidden is False
+    win.show.assert_called_once()
+    win.restore.assert_called_once()
+
+
+def test_show_window_windows_path_unchanged(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: False)
+    win = MagicMock()
+    shell_module._show_window(win)
+    win.show.assert_called_once()
+    win.restore.assert_not_called()
+    shell_module._show_window(win, restore=True)
+    win.restore.assert_called_once()
+    assert shell_module.window_visible() is None  # no registered window
+
+
+def test_on_quit_with_no_icon_is_safe(shell_module, monkeypatch) -> None:
+    win = MagicMock()
+    monkeypatch.setattr(shell_module, "_desktop_window", win)
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    shell_module.DesktopSession()._on_quit(None)
+    win.destroy.assert_called_once()
+    assert shell_module._really_quit is True
+
+
+def test_on_closing_modes(shell_module, monkeypatch) -> None:
+    win = MagicMock()
+    monkeypatch.setattr(shell_module, "_desktop_window", win)
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: False)
+    # no tray: allow, never destroy() from inside the handler
+    s = shell_module.DesktopSession()
+    assert s._on_closing() is True
+    win.destroy.assert_not_called()
+    # tray: hide, cancel
+    s._icon = MagicMock()
+    monkeypatch.setattr(shell_module, "_close_to_tray_notice", None, raising=False)
+    import the_one.interfaces.desktop.notice as notice
+
+    monkeypatch.setattr(notice, "notice_shown", lambda: True)
+    assert s._on_closing() is False
+    win.hide.assert_called_once()
+    # really quit: allow
+    monkeypatch.setattr(shell_module, "_really_quit", True)
+    assert s._on_closing() is True
+
+
+def test_window_visible_is_bounded_when_idle_never_runs(shell_module, monkeypatch) -> None:
+    import threading
+    import time
+    import types
+
+    monkeypatch.setattr(shell_module, "_is_gtk_backend", lambda: True)
+    monkeypatch.setattr(shell_module, "_desktop_window", _GtkWindow(_GtkNative()))
+    glib = types.SimpleNamespace(idle_add=lambda fn: None)  # never runs
+    plat = types.ModuleType("webview.platforms.gtk")
+    plat.glib = glib
+    monkeypatch.setitem(sys.modules, "webview.platforms", types.ModuleType("webview.platforms"))
+    monkeypatch.setitem(sys.modules, "webview.platforms.gtk", plat)
+    monkeypatch.setattr(
+        sys.modules["webview"], "platforms", sys.modules["webview.platforms"], raising=False
+    )
+    sys.modules["webview.platforms"].gtk = plat
+    out: list = []
+    t0 = time.monotonic()
+    th = threading.Thread(target=lambda: out.append(shell_module.window_visible()))
+    th.start()
+    th.join(3)
+    assert out == [None]
+    assert time.monotonic() - t0 < 1.5
+
+
+def test_window_state_and_quit_without_window(shell_module, monkeypatch) -> None:
+    monkeypatch.setattr(shell_module, "_desktop_window", None)
+    st = shell_module.window_state()
+    assert st["desktop"] is False and st["mode"] == "serve" and st["visible"] is None
+    assert shell_module.quit_desktop() is None
+
+
+def test_quit_desktop_runs_session_on_quit(shell_module, monkeypatch) -> None:
+    sess = MagicMock()
+    sess._icon = "icon"
+    monkeypatch.setattr(shell_module, "_session", sess)
+    monkeypatch.setattr(shell_module, "_desktop_window", MagicMock())
+    assert shell_module.quit_desktop() == "window"
+    sess._on_quit.assert_called_once_with("icon")

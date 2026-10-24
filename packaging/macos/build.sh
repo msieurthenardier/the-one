@@ -29,7 +29,7 @@ tl() { local n="$1"; shift; perl -e 'alarm shift @ARGV; exec @ARGV or die "exec 
 die() { echo "build.sh: $*" >&2; exit 1; }
 
 echo "== A: stage $VERSION"
-python3 "$REPO/packaging/spike/stage.py" --version "$VERSION" --candidate macos --out "$M32_BUILD" \
+python3 "$REPO/packaging/stage.py" --version "$VERSION" --target macos --out "$M32_BUILD" \
     || die "stage failed"
 
 echo "== A: build venv (python $(python3 --version 2>&1), $(uname -m))"
@@ -72,4 +72,4 @@ done
 cat "$LOG/dmg.txt"
 
 echo "== A: checks"
-bash "$REPO/packaging/spike/macos-checks.sh" A "$APP" "$APP/Contents/MacOS/the-one" "$M32_LOGS"
+bash "$REPO/packaging/macos/checks.sh" A "$APP" "$APP/Contents/MacOS/the-one" "$M32_LOGS"

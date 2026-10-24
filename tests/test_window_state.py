@@ -842,3 +842,6 @@ def test_run_desktop_saved_tall_state_kept_apart_from_clamping(
     saved = {"width": 1294, "height": 1399, "x": 1273, "y": 0}
     kw = _run_with_state(webview_mock, tmp_path, monkeypatch, saved)
     assert (kw["width"], kw["height"], kw["x"], kw["y"]) == (1294, 1399, 1273, 0)
+
+
+pytestmark = pytest.mark.usefixtures("stub_desktop_host")

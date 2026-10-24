@@ -1,13 +1,17 @@
 #!/bin/bash
-# Gate runner, container side (Mission 32 Flight 1 spike). Candidate-neutral.
-# Run by check.sh inside ONE disposable container for one package x image.
+# Gate runner, container side (packaging checks). Run by gates.sh inside ONE disposable container for one package x image.
 # Env in: FORMAT=deb|appimage  WINDOW=0|1  PK=/packages  EV=/evidence
 #         VER_N VER_N1 (display versions, e.g. 0.11.8 0.11.9.dev1)  DEB_N DEB_N1 APPIMG_N APPIMG_N1
+#         EXTRA_APT (packages to apt-get install before the run, AC6 variants)
+#         DISPLAY_MODE=wslg|xvfb (default wslg: the mounted X socket is :0; xvfb: a private Xvfb :99)
+#         WENV_EXTRA (space separated K=V added to the window/probe environment)
 # Everything it learns is written under $EV as plain files; score.py reads them.
+# shellcheck disable=SC2164,SC2002,SC2086,SC2009,SC2034,SC2206
 set -u
 PORT_SERVE=8491
 PORT_APP=8490
 mkdir -p "$EV"
+XDISP=:0; [ "${DISPLAY_MODE:-wslg}" = xvfb ] && XDISP=:99
 log() { echo "[inner $(date +%T)] $*" | tee -a "$EV/inner.log"; }
 
 useradd -m -s /bin/bash tester 2>/dev/null
@@ -70,10 +74,39 @@ DD=/home/tester/.local/share/the-one
 
 apt-get update > "$EV/apt-update.txt" 2>&1; echo "rc=$?" >> "$EV/apt-update.txt"
 
+if [ -n "${EXTRA_APT:-}" ]; then
+  log "extra apt: $EXTRA_APT"
+  # shellcheck disable=SC2086
+  { apt-get install -y $EXTRA_APT 2>&1; echo "rc=$?"; } > "$EV/extra-apt.txt" 2>&1
+fi
+# Which fallback sonames does the HOST resolve, before the app is installed? (ldconfig, not dpkg)
+{
+  for so in libgirepository-2.0.so.0 libdbusmenu-glib.so.4 libdbusmenu-gtk3.so.4 libayatana-ido3-0.4.so.0 \
+            libayatana-indicator3.so.7 libayatana-appindicator3.so.1; do
+    if ldconfig -p | grep -q -F "$so "; then echo "$so yes $(ldconfig -p | grep -F "$so " | head -1 | sed 's/.*=> //')"; else echo "$so no -"; fi
+  done
+  for t in AyatanaAppIndicator3-0.1.typelib AppIndicator3-0.1.typelib; do
+    if compgen -G "/usr/lib/*/girepository-1.0/$t" >/dev/null || [ -e "/usr/lib/girepository-1.0/$t" ]; then echo "$t yes"; else echo "$t no"; fi
+  done
+} > "$EV/host-libs.txt"
+
 # ---- N installed -----------------------------------------------------------
 log "install N"
 install_pkg "$FORMAT" n "$EV/install-N.txt"
 rt the-one version > "$EV/version-N.txt" 2>&1; echo "rc=$?" >> "$EV/version-N.txt"
+
+# ---- probe mode (flight 2 AC4): after the install, run the ABI probe instead of the flow ----
+case " ${WENV_EXTRA:-} " in *" THE_ONE_PKG_ABI_PROBE=1 "*)
+  log "ABI probe"
+  # shellcheck disable=SC2206
+  WENV=(DISPLAY=$XDISP GDK_BACKEND=x11 PYWEBVIEW_GUI=gtk PYSTRAY_BACKEND=gtk
+        WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1
+        THE_ONE_DATA_DIR=/home/tester/scratch/data ${WENV_EXTRA:-})
+  (cd /home/tester/scratch/cwd; runuser -u tester -- env -i HOME=/home/tester PATH="$PATH" LANG=C.UTF-8 \
+     XDG_RUNTIME_DIR="$XRD" "${WENV[@]}" timeout 120 dbus-run-session -- the-one version \
+     > "$EV/probe.stdout" 2> "$EV/probe.stderr"; echo "rc=$?" > "$EV/probe.rc")
+  log "probe done"; exit 0;;
+esac
 
 # ---- gate 4 (default data dir, nothing seeded yet) + upgrade part 1 ---------
 log "gate 4: rotate-api-credential with no override"
@@ -127,12 +160,19 @@ grep -i 'desktop shell' "$EV/doctor-pinned.txt" "$EV/doctor-unpinned.txt" >> "$E
 [ "$WINDOW" = 1 ] || { log "no window on this image"; exit 0; }
 
 # ---- the window: gate 3, screenshot, single instance (AC6) -------------------
-log "window"
+log "window (display ${DISPLAY_MODE:-wslg} $XDISP)"
+if [ "${DISPLAY_MODE:-wslg}" = xvfb ]; then
+  (setsid runuser -u tester -- Xvfb "$XDISP" -screen 0 1920x1080x24 > "$EV/xvfb-main.log" 2>&1 & echo $! > "$EV/xvfb-main.pid")
+  for i in $(seq 1 50); do [ -S "/tmp/.X11-unix/X${XDISP#:}" ] && break; sleep 0.2; done
+fi
 export_env() { :; }
-WENV=(DISPLAY=:0 GDK_BACKEND=x11 PYWEBVIEW_GUI=gtk PYSTRAY_BACKEND=gtk
+WENV=(DISPLAY=$XDISP GDK_BACKEND=x11 PYWEBVIEW_GUI=gtk PYSTRAY_BACKEND=gtk
       WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 WEBKIT_DISABLE_COMPOSITING_MODE=1  WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1
       THE_ONE_PORT=$PORT_APP THE_ONE_DATA_DIR=$SC)
+# shellcheck disable=SC2206
+WENV+=(${WENV_EXTRA:-})
 printf '%s\n' "${WENV[@]}" > "$EV/window-env.txt"
+
 (cd /home/tester/scratch/cwd; setsid runuser -u tester -- env -i HOME=/home/tester PATH="$PATH" LANG=C.UTF-8 \
    XDG_RUNTIME_DIR="$XRD" "${WENV[@]}" dbus-run-session -- the-one app > "$EV/app.log" 2>&1 &
  echo $! > "$EV/app.pid")
@@ -164,6 +204,8 @@ for p in /proc/[0-9]*; do p=${p#/proc/}; echo "pid $p gtk=$(maps_of $p | grep -c
 { echo "ui=$UI"; echo "web=$WEB"; ps -eo pid,ppid,pgid,stat,args | grep -v grep | grep -E 'the-one|WebKit|dbus' ; } > "$EV/window-procs.txt"
 [ -n "$UI" ] && maps_of "$UI" > "$EV/ui.maps"
 for w in $WEB; do maps_of "$w" > "$EV/web-$w.maps"; done
+[ -n "$UI" ] && runuser -u tester -- cat "/proc/$UI/environ" 2>/dev/null | tr '\0' '\n' > "$EV/ui.environ"
+for w in $WEB; do runuser -u tester -- cat "/proc/$w/environ" 2>/dev/null | tr '\0' '\n' > "$EV/web-$w.environ"; done
 tail -30 "$EV/app.log" > "$EV/app.log.tail"
 
 # AC6: second launch
@@ -194,13 +236,13 @@ sleep 4
 # the main window is created hidden and only maps once a focus request arrives (finding).
 WID=""
 for i in $(seq 1 60); do
-  DISPLAY=:0 xwininfo -root -tree > "$EV/xwininfo-tree.txt" 2>&1
+  DISPLAY=$XDISP xwininfo -root -tree > "$EV/xwininfo-tree.txt" 2>&1
   WID=$(grep -E '"GleepGlorp AI"' "$EV/xwininfo-tree.txt" | head -1 | awk '{print $1}')
-  [ -n "$WID" ] && DISPLAY=:0 xwininfo -id "$WID" 2>&1 | grep -q IsViewable && break; sleep 1
+  [ -n "$WID" ] && DISPLAY=$XDISP xwininfo -id "$WID" 2>&1 | grep -q IsViewable && break; sleep 1
 done
-[ -n "$WID" ] && DISPLAY=:0 xwininfo -id "$WID" > "$EV/xwininfo-window.txt" 2>&1
+[ -n "$WID" ] && DISPLAY=$XDISP xwininfo -id "$WID" > "$EV/xwininfo-window.txt" 2>&1
 echo "window id: ${WID:-none}" > "$EV/screenshot.txt"
-if [ -n "$WID" ]; then DISPLAY=:0 xwd -id "$WID" -out "$EV/window.xwd" >> "$EV/screenshot.txt" 2>&1; fi
+if [ -n "$WID" ]; then DISPLAY=$XDISP xwd -id "$WID" -out "$EV/window.xwd" >> "$EV/screenshot.txt" 2>&1; fi
 stop_group "$APP"
 
 # Fallback screenshot: the forwarded WSLg X server leaves the window unmapped (xwd -> BadMatch),

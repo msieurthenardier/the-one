@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=@DISPLAY_NAME@
+Comment=@SUMMARY@
+Exec=@EXECUTABLE@ app
+TryExec=@EXECUTABLE@
+Icon=@DESKTOP_ID@
+Terminal=false
+Categories=@CATEGORIES@
+StartupWMClass=@WM_CLASS@
+StartupNotify=true
+Actions=quit;
+
+[Desktop Action quit]
+Name=@QUIT_ACTION_NAME@
+Exec=@EXECUTABLE@ quit
