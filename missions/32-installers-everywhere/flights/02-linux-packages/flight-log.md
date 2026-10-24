@@ -585,7 +585,8 @@ Planning (2026-10-24). Not yet in flight.
   4. A green "1" badge appeared on the Ubuntu `.deb` tile while the old instance was hidden.
   5. Debian's window has a close-only title bar.
   6. Spec improvements the Validator suggested: a window-geometry observable, timed notification captures, the apparatus facts (passwordless sudo, no GDM autologin after logout), the AppImage runtime-parent rule, and "hidden from the menu" wording.
-\n\n### Flight review fixes
+
+### Flight review fixes
 
 - Pid answers (takeover and `the-one quit --wait`) must be a positive int (bool and non-positive rejected as an invalid answer).
 - A repeat `POST /api/window/quit` while a quit is under way reports `window` without destroying again.
