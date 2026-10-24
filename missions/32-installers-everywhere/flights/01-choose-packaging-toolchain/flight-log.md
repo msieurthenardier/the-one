@@ -154,6 +154,7 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
   - Note 1 (a step cap firing reads green in the final step) is accepted: the Flight Director reads per-step conclusions.
   - Note 2 (patch 02's Windows marker could be stricter) is carried to Flight 2.
   - Commit, push, then dispatch the single Windows job (`candidates="B"`).
+- **Windows run 1 (`40060053657`) built no MSI.** A recipe defect: PowerShell's case-insensitive `$log` overwrote `$LOG` in `build-windows.ps1`, after `briefcase create` had succeeded. Flight Director call, under the overnight delegation: **one retry Windows job**, beyond DD7's single job. Category (a), the fix is contained, and the job is cheap at the 2× rate (run 1 cost about 5 billed minutes). The fix (a renamed loop variable; `Invoke-Capped` creates a missing output dir) was checked by the Flight Director and committed without a separate Reviewer pass, as one-line corrections covered by the flight-end review.
 ### linux-pyinstaller-build
 **Status**: landed
 **Started**: 2026-10-23
@@ -668,6 +669,36 @@ Estimated job: setup (checkout, setup-python, uv export) 3-4 min; B build 8-12 m
 - `msiexec` against a per-user scope while the runner is an admin session, `gh release download` of a 138 MB asset, and `Get-Process ... .Path` across the whole process list are untested on the runner; each is time-limited and logged, none aborts later steps.
 - Billing: Windows minutes are 2x on a private repo.
 
+#### Hosted run 1 (40060053657, 2026-10-24 03:52:07 to 03:54:27, 2 min 20 s; `candidates="B"`, windows-2022, flight-branch HEAD 5e5efd8)
+Evidence: `$HOME/the-one-m32-evidence/windows/run-1/` (`job.log`, `packaging-probe-windows-logs/`). Conclusion `failure`; **no MSI was built, none was uploaded, and the fresh-install and upgrade phases never ran.**
+
+What ran: setup, `uv export`, tool venv (33 s), Briefcase 0.4.6 install, `stage.py` (patches 01 and 02 applied with `git apply`), and `briefcase create windows app` (**rc=0 in 55 s**: template clone, embeddable Python 3.11.9, GUI-Stub-3.11-amd64-b14, 89 wheels into `app_packages`, "Created build\the-one\windows\app"). Then:
+
+```
+briefcase create rc=0 in 55 s (55 s so far)
+MethodInvocationException: windows-lib.ps1:32  Exception calling "WriteAllText" ... "Could not find a part of the path
+  'C:\m32\logs\B\briefcase-create.log\briefcase-build.log'."
+InvalidOperation: windows-lib.ps1:72  You cannot call a method on a null-valued expression.   ($p.WaitForExit)
+briefcase build rc=124 in 0 s (55 s so far)
+FAIL build-windows: briefcase build failed
+```
+Then "Upload the MSI" found `C:\m32\out` empty (`if-no-files-found: warn`), the fresh and upgrade steps got `missing.msi` and logged `FAIL msi present` and nothing else, and the final step failed on the `FAIL` lines. Scored (the leg's checks): install path, Start-menu entries, Add/Remove entries, `doctor`, gate 2, `serve`, gate 4, build time of the full build, MSI size, upgrade scenario (two-or-one entries, shortcuts, seeded agent): **all "not reached"**. Measured: the tool venv, create step and runner facts (2 logical CPUs, 8 GB, Windows Server 2022 10.0.20348, 82 GB free, pwsh 7.6.8, setup-python 3.11.9).
+
+**Root cause: a recipe defect, PowerShell variable names are case-insensitive.** `build-windows.ps1` defines `$LOG` (the log directory, `C:\m32\logs\B`) and its create/build/package loop assigned `$log = Join-Path $LOG "briefcase-$step.log"`: that is the same variable. After the first iteration `$LOG` became `...\briefcase-create.log`, so the second iteration built `...\briefcase-create.log\briefcase-build.log`, a path under a file. `Start-Process` could not open the redirect (null `$p`), `Invoke-Capped` returned its "timed out" code 124 with 0 s, and `Die` fired. Nothing is wrong with Briefcase, the MSI toolchain or the runner. Leg rehearsal missed it because the Linux `pwsh` rehearsal exercised `Invoke-Capped` alone, never the loop.
+
+Classification: **(a) a recipe/script defect with a contained fix.** No candidate limitation was observed in this run.
+
+**Fixes (uncommitted, working tree):**
+1. `packaging/briefcase/build-windows.ps1`: the loop variable is `$stepLog` (three uses). No other file defines a colliding name in one scope: a case-insensitive duplicate-variable scan of the three scripts finds only `$LOG/$log` (fixed), and `$Text/$text`, `$EXE/$exe`, `$APPDIR/$appDir` which live in different function scopes (checked: `$EXE`/`$APPDIR` are used only inside `Phase-Fresh`/`Phase-Upgrade`, `$exe`/`$appDir` only as parameters of other functions).
+2. `packaging/spike/windows-lib.ps1`: `Invoke-Capped` creates the output file's parent directory if it is missing, so a future bad path fails loudly in the log instead of as a null `Process`.
+No change to the workflow (its `on:` block and every step are untouched; `git diff` of the workflow is empty).
+
+**Latent-defect scan of the hidden phases:** read `windows-checks.ps1` end to end for scope and case collisions, `$script:` use inside `Use-EnvVars` bodies, `[bool]` casts in `Hard`, null `Process` arguments to `Wait-Live`, and the `$EXE` assignment on every path; found no further defect. Parse (`Parser::ParseFile`) clean for all three scripts, `actionlint` clean, `check-env-layouts.py` `RESULT PASS`, and the create/build/package loop was rehearsed under Linux `pwsh` with a stand-in executable: three iterations write `briefcase-create.log`, `briefcase-build.log`, `briefcase-package.log` in `$LOG` and `$LOG` is not reassigned. Still unrehearsable on Linux: `briefcase build` (rcedit download), `briefcase package` (WiX 5.0.2 download, `--adhoc-sign`), `msiexec`, registry, COM shortcuts, `taskkill`, the GUI stub's behaviour and `pywin32` under the embeddable Python.
+
+**Retry case (one run, `candidates="B"`):** what failed is a variable-name typo that cost 2 min 20 s (about 5 billed Windows minutes at 2x); it is contained and independently confirmed by the log. The retry adds the first-ever execution of `build`, `package`, the MSI, the fresh install, `doctor`, `serve`, the interpreter and data-dir gates and the Inno-to-MSI upgrade scenario, i.e. all of AC6. Expected cost: 25-32 minutes, worst case the 40-minute cap (50-64 billed minutes at 2x). Remaining risks are the ones listed under "Residual risks for the run" (downloads, 14-minute build cap, GUI-stub stdout, pywin32); each has a time limit and a logged fallback, so a failure after the build step is a candidate finding, not a retry reason. Dispatch: `gh workflow run packaging-probe-windows.yml --ref flight/01-choose-packaging-toolchain -f candidates="B"` (after the fix is committed and pushed).
+
+**MSI for the operator:** none yet (nothing was built). Its artifact will be `m32-probe-msi-<sha>` on the retry run, with a `.msi.sha256` beside it; the operator's guide (step 3) stands.
+
 ---
 
 ## Evidence Table
@@ -733,6 +764,14 @@ Estimated job: setup (checkout, setup-python, uv export) 3-4 min; B build 8-12 m
 | B / .app + .dmg (patched) | PASS (12 gates, only window chrome skipped) | PASS `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11` | PASS | PASS `~/Library/Application Support/the-one/` | PASS ad hoc, `--deep --strict` rc 0 | .app 353 MB, .dmg 138.6 MB | about 2 min 20 s cold (create+build+package) | stub `sys.executable` is the stub, argv forwarded, stdout reaches the terminal, `BRIEFCASE_MAIN_MODULE` works; each launch prints two `NSLog` lines; best-effort bare `open` started the server, no window visible in the screenshot |
 
 macOS upkeep notes for B: patch 02's macOS clause held with no change; `universal_build = false` and `min_os_version = 11.0` as configured; the app embeds Python 3.11.9 (`Python.framework`), and the interpreter it resolves is the system/toolcache one (a real macOS install would need a Python installed: paper item 1 stands). A (run 2) adds `packaging/macos/` (379 lines, 5 files) and the Finder `-psn_*` argv shim; see the comparison in `### macos-probe-run`.
+
+
+**Windows (hosted windows-2022), run 1 (40060053657, 2026-10-24, 2 min 20 s; B), DD7.** Evidence root `$HOME/the-one-m32-evidence/windows/run-1/packaging-probe-windows-logs/B/`. Run 1 died in the recipe (a variable-name collision, see `### windows-cost` "Hosted run 1"), so no MSI exists and B's Windows cells are not reached; the retry fills them.
+
+| candidate | install path | Start menu | Add/Remove | doctor | G2 | serve/live | G4 data dir | build time | MSI size | upgrade over Inno | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A / Inno installer | existing Inno path, not built here; proven by the Concourse per-push build (`build-windows-installer`) and `windows-installer.yml` | same | same | same | same | same | same | n/a | n/a (released `the-one-setup-*.exe`, 138 MB) | n/a (the baseline) | the "before" state for B's upgrade scenario |
+| B / Briefcase MSI (per-user) | not reached | not reached | not reached | not reached | not reached | not reached | not reached | create 55 s measured; build and package not reached | not built | not reached | `briefcase create` rc=0 (template, embeddable Python 3.11.9, GUI stub, 89 wheels); `build` never launched (path bug); no artifact |
 
 ---
 

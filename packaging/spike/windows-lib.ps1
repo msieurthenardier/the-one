@@ -53,6 +53,10 @@ function Invoke-Capped {
     )
     $o = "$OutFile.out"
     $e = "$OutFile.err"
+    $outDir = Split-Path -Parent $OutFile
+    if ($outDir -and -not (Test-Path -LiteralPath $outDir -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    }
     Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue
     $argLine = ($ArgList | ForEach-Object { ConvertTo-QuotedArg $_ }) -join ' '
     $sp = @{

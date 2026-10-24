@@ -88,11 +88,12 @@ foreach ($step in @('create', 'build', 'package')) {
     $a = @($step, 'windows', 'app', '--no-input', '-v')
     # no signing identity on the runner: --adhoc-sign is Briefcase's explicit "do not sign"
     if ($step -eq 'package') { $a += '--adhoc-sign' }
-    $log = Join-Path $LOG "briefcase-$step.log"
+    # NOT $log: PowerShell variable names are case-insensitive, so $log would overwrite $LOG
+    $stepLog = Join-Path $LOG "briefcase-$step.log"
     $s0 = Get-Date
-    $r = Invoke-Capped -Exe $BC -ArgList $a -OutFile $log -TimeoutSec 900 -WorkDir $STAGE
+    $r = Invoke-Capped -Exe $BC -ArgList $a -OutFile $stepLog -TimeoutSec 900 -WorkDir $STAGE
     Note ("briefcase $step rc=$($r.Rc) in $($r.Seconds) s ($([int]((Get-Date) - $t0).TotalSeconds) s so far)")
-    if ($r.Rc -ne 0) { Get-Content $log -Tail 60; Die "briefcase $step failed" }
+    if ($r.Rc -ne 0) { Get-Content $stepLog -Tail 60; Die "briefcase $step failed" }
 }
 
 # Timing of the downloads Briefcase makes (WiX, rcedit, stub, embeddable Python, template).
