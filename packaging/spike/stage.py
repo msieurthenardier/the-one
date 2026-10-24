@@ -44,7 +44,7 @@ def repo_toplevel() -> Path:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--version", required=True, help="e.g. 0.11.9.dev1")
-    ap.add_argument("--candidate", required=True, help="linux, briefcase, macos, ...")
+    ap.add_argument("--candidate", required=True, help="linux, macos, ...")
     ap.add_argument(
         "--out",
         default=os.environ.get("M32_BUILD") or str(Path.home() / "the-one-m32-build"),
@@ -83,9 +83,9 @@ def main() -> int:
         use_git = sys.platform in ("darwin", "win32")
         if use_git:
             # macOS ships BSD patch, whose option set differs from GNU's, and GNU patch is not
-            # on a Windows runner's PATH; git is already a build requirement (Briefcase clones
-            # its template) and applies the same diffs. (Windows: the workflow sets
-            # core.autocrlf=false before checkout, so the sources and diffs keep LF.)
+            # on a Windows runner's PATH; git is already a build requirement and applies the
+            # same diffs. (Windows: set core.autocrlf=false before checkout, so the sources and
+            # diffs keep LF.)
             cmd = ["git", "apply", "-p1", "--verbose", str(diff)]
         else:
             cmd = ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(dest), "-i", str(diff)]

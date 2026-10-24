@@ -164,6 +164,15 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
 **Status**: landed
 **Started**: 2026-10-23
 **Landed**: 2026-10-23
+- **`decision-hat` (2026-10-24):**
+  - The operator decided: **PyInstaller everywhere, Inno kept; the AppImage bundles the AppIndicator and girepository libraries.** The overnight calls stand.
+  - The MSI try and the Linux window walk were skipped.
+  - DD8 was applied: B's files were removed by a Developer, and the Flight Director edited the mission, the BACKLOG and the Decision section.
+- **Flight-end review (Haiku; no security-sensitive surface remains once B's env-seam patches are removed): `[HANDOFF:confirmed]`**, no blocking issues.
+  - Low items fixed: the leg 07 status, and a skip note under `windows-cost`.
+  - Accepted: the Windows stub's comment ("Leg windows-cost fills in…") is now stale, but must stay byte-identical to `main`'s copy. Flight 4 replaces or removes the stub. A cosmetic long comment line in the macOS workflow is left as is.
+  - Unit tests: not re-run. Nothing under `the_one/` or `tests/` changed across the flight, and leg 01 recorded `make test-unit` at 6783 passed / 12 skipped. Browser gate: not run, since no app code changed.
+- **Flight landed.** Seven legs complete; status `landed`. The debrief is next (`/mission-control:flight-debrief`).
 
 #### Changes Made
 - `packaging/spike/` (candidate-neutral): `stage.py`, `images/{ubuntu-26.04,debian-13}.Dockerfile` (targets `baseline` and `bare`, each with a final observe layer), `README.md` (says spike tooling, not product).
@@ -563,6 +572,8 @@ Run 2 recorded; macOS evidence is complete for the toolchain decision (both cand
 
 
 ### windows-cost
+
+> **2026-10-24, `decision-hat`:** the operator's real-machine MSI try was not run. Briefcase was rejected at the decision, so the try would decide nothing. The morning guide below is kept for the record only.
 **Status**: in-flight (autonomous half done; hosted run 2 recorded; no further Windows run; awaiting review, commit and the operator's real-machine try)
 **Started**: 2026-10-24
 
@@ -823,7 +834,39 @@ macOS upkeep notes for B: patch 02's macOS clause held with no change; `universa
 
 ## Decision
 
-_(The operator's decision is recorded at `decision-hat`. Below is the Flight Director's brief, written 2026-10-24 before the session: a recommendation, not a decision.)_
+### The operator's decision (2026-10-24, `decision-hat`)
+
+**Toolchain: candidate A, PyInstaller on every platform, with Inno Setup kept on Windows.** In the operator's words: "pyinstaller it is."
+
+**AppImage approach for Flight 2: bundle the two small libraries** (the Ayatana AppIndicator typelib and its library, and `libgirepository-2.0`) inside the AppImage, still using the desktop's own WebKitGTK, and make a missing tray indicator degrade rather than fail. In the operator's words: "bundle the two libs". This keeps the mission's "no manual step" criterion for the AppImage.
+
+**Also settled at the session:**
+- The overnight calls stand (operator: "All stand"): PR #305 merged with the pre-existing `pip-audit` red; squawk 0250; macOS run 2 on A only; the extra Windows run.
+- The real-machine MSI try is dropped: Briefcase is no longer a candidate, so it would decide nothing. `windows-cost`'s morning guide is kept for the record only.
+- The Linux window walk-through was skipped by the operator, who decided from the brief and the evidence.
+
+**Applied per DD8:**
+- Candidate B's files are removed (`packaging/briefcase/`, B's macOS workflow step, and the Windows probe's B build, which reverts to `main`'s stub).
+- A's recipes (`packaging/linux/`, `packaging/macos/`) are marked as the Flight 2 and Flight 3 starting points.
+- The mission's "Which toolchain?" question is resolved, with a link here, and the BACKLOG seed points here.
+
+**Handed on (patches none; open items):**
+- **Flight 2 (Linux):**
+  - bundle the two libraries in the AppImage;
+  - fix the pystray `ValueError` fall-through (Planning Notes finding), so a missing indicator degrades;
+  - the hide-without-tray behaviour the mission asks for;
+  - the single metadata source (the version lives in 3 places today);
+  - fresh-VM desktop checks, including WebKit's own sandbox and `bwrap` on a real desktop, and FUSE AppImage launch;
+  - the hidden-until-focused window seen with no window manager;
+  - keeping the exclude list in step with the build host's GLib.
+- **Flight 3 (macOS):**
+  - the darwin desktop-session mode (Dock reopen, Cmd-Q, close keeps running);
+  - A's blank first paint on a bare launch;
+  - the tray and the JS bridge;
+  - the Xcode-stub `python3`, and NVM/fnm paths (paper items).
+- **Flight 4 (Windows and release):** Inno stays, and reads the single metadata source; release wiring for all packages.
+
+_Below is the Flight Director's brief, written before the session: a recommendation, kept as written._
 
 ### Flight Director's decision brief (recommendation)
 

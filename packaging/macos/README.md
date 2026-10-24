@@ -1,6 +1,6 @@
 # packaging/macos - PyInstaller on macOS (candidate A)
 
-**Spike prototype, Mission 32 Flight 1. Not a release; ad-hoc signed; publishes nothing.**
+**Flight 1 winner (Mission 32): the starting point for Flight 3 (macOS). Still a prototype, not wired into CI; ad-hoc signed; publishes nothing.**
 It freezes GleepGlorp AI with PyInstaller on Python 3.11 into `GleepGlorp AI.app` and a `.dmg`.
 It is built and checked by the dispatch-only workflow `.github/workflows/packaging-probe-macos.yml`
 on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator's machine.
@@ -17,7 +17,7 @@ on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator'
   double-click opens the window instead of the terminal `chat`. Recipe upkeep, not an app patch (DD4).
   It calls `ensure_stdio_streams()` first, as the Windows GUI entry does, because the windowed
   bootloader (`console=False`) can leave `sys.stdout` as None.
-- `make-icns.py`: writes the `.icns` from the staged 512 px icon with Pillow (shared with candidate B).
+- `make-icns.py`: writes the `.icns` from the staged 512 px icon with Pillow.
 - `build.sh <version>`: stage, venv, hash-pinned closure install (`--require-hashes --no-deps`),
   pinned PyInstaller, freeze, `codesign --force --deep -s -`, `hdiutil create` (one retry, 300 s
   limit), then `../spike/macos-checks.sh`.

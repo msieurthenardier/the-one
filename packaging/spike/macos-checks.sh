@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Checks against one built macOS .app (Mission 32 Flight 1 spike, DD6). Candidate-neutral.
-# Run on the hosted macos-15 runner by packaging/macos/build.sh (A) and
-# packaging/briefcase/build-macos.sh (B); every step is logged, none aborts the later ones.
+# Run on the hosted macos-15 runner by packaging/macos/build.sh; every step is logged, none aborts the later ones.
 #
 #   macos-checks.sh LABEL APP EXE LOGDIR
-#     LABEL   A or B (B also runs the stub probe: Briefcase's launcher is not a Python)
+#     LABEL   A (the PyInstaller build; names the evidence directory)
 #     APP     path of "GleepGlorp AI.app" (quote it: the name has a space)
-#     EXE     path of the bundle's main executable (A: .../Contents/MacOS/the-one,
-#             B: ".../Contents/MacOS/GleepGlorp AI")
+#     EXE     path of the bundle's main executable (.../Contents/MacOS/the-one)
 #     LOGDIR  evidence directory; files land in LOGDIR/LABEL/
 # The window is not tested here (DD6), except for one best-effort Finder-style `open`.
 # Exits 1 when a hard check failed (so the workflow step shows red), else 0.
@@ -51,21 +49,6 @@ hard "codesign verify" "$VRC"
   echo "-- main executable"; file "$EXE" 2>&1; lipo -archs "$EXE" 2>&1
 } > "$OUT/layout.txt" 2>&1
 note "size: $(du -sh "$APP" | cut -f1) ($(du -sk "$APP" | cut -f1) KB)"
-
-# ---- B only: what is sys.executable inside Briefcase's stub? Printed first so the run's
-# reader can confirm or refute the layout assumptions behind patch 02's macOS clause. Run on a
-# COPY: adding the probe module to the signed bundle would break its seal.
-if [ "$LABEL" = B ]; then
-  PCOPY="$SCRATCH/probe-copy/$(basename "$APP")"; mkdir -p "$SCRATCH/probe-copy"
-  ditto "$APP" "$PCOPY" > "$OUT/probe-ditto.txt" 2>&1
-  PEXE="$PCOPY/Contents/MacOS/$(basename "$EXE")"
-  APPDIR="$(find "$PCOPY/Contents/Resources" -maxdepth 1 -name app -type d | head -1)"
-  if [ -n "$APPDIR" ]; then cp "$HERE/m32probe.py" "$APPDIR/"; fi
-  (cd "$SCRATCH/cwd" && tl 60 env THE_ONE_DATA_DIR="$SCRATCH/data" BRIEFCASE_MAIN_MODULE=m32probe "$PEXE" a b) \
-    > "$OUT/stub-probe.txt" 2>&1; echo "rc=$?" >> "$OUT/stub-probe.txt"
-  note "stub probe: $(grep -c '^PROBE' "$OUT/stub-probe.txt") PROBE lines (see stub-probe.txt)"
-  grep '^PROBE' "$OUT/stub-probe.txt" | head -8 | while IFS= read -r l; do note "  $l"; done
-fi
 
 # ---- version -----------------------------------------------------------------
 (cd "$SCRATCH/cwd" && tl 60 env THE_ONE_DATA_DIR="$SCRATCH/data" "$EXE" version) > "$OUT/version.txt" 2>&1

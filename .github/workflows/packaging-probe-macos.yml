@@ -1,18 +1,19 @@
 name: packaging-probe-macos
 
 # Mission 32 Flight 1 (choose the packaging toolchain), DD6: ONE dispatched macOS job that builds
-# every surviving candidate's .app on a hosted Apple Silicon runner and runs `doctor`, `serve`
-# and the data-dir probe against it. A spike probe, not a release: it signs ad hoc, publishes
+# the .app on a hosted Apple Silicon runner and runs `doctor`, `serve` and the data-dir probe
+# against it. The Flight 1 decision picked candidate A (PyInstaller); candidate B (Briefcase) was
+# removed, so a `B` selection logs that and skips. This is Flight 3's starting point. A spike probe, not a release: it signs ad hoc, publishes
 # nothing and uses no secrets. Dispatch-only, so it never runs on a push, PR or tag:
 #
-#   gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A B"
+#   gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A"
 #
 # (GitHub offers a manual run only for a workflow file that exists on the default branch; this
 # file lands on main in a `.github/`-only PR, and --ref then runs the flight branch's copy.)
 #
 # Cost: macOS minutes bill at 10x on a private repo, so the run caps itself in layers: the
 # job timeout (40 min, above the ~36 min worst case so the 15-minute step caps fire first), a timeout on each candidate step, a concurrency group that never cancels a
-# running probe and never lets two run at once, a three-way `candidates` choice, and time
+# running probe and never lets two run at once, a `candidates` choice, and time
 # limits inside the scripts around `doctor`, `serve` and `hdiutil`. At most two such jobs
 # are budgeted for the whole flight (one run plus one retry).
 on:
@@ -76,7 +77,7 @@ jobs:
           } 2>&1 | tee -a "$M32_LOGS/runner.txt"
 
       # The same hash-pinned closure the Windows CI and the release pip-audit use (DD3), exported
-      # once; both candidates install it with --no-deps --require-hashes.
+      # once; the build installs it with --no-deps --require-hashes.
       - name: Export the pinned dependency closure
         run: |
           python3 -m pip install --disable-pip-version-check uv==0.10.0
@@ -88,23 +89,20 @@ jobs:
           echo "M32_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "building version $VERSION"
 
-      # continue-on-error on each candidate: A failing must not lose B's data (and the reverse).
       - name: Candidate A (PyInstaller)
         if: ${{ inputs.candidates == 'A B' || inputs.candidates == 'A' }}
         continue-on-error: true
         timeout-minutes: 15
         run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
 
-      - name: Candidate B (Briefcase)
-        if: ${{ inputs.candidates == 'A B' || inputs.candidates == 'B' }}
-        continue-on-error: true
-        timeout-minutes: 15
-        run: bash packaging/briefcase/build-macos.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/B-step.log"; exit "${PIPESTATUS[0]}"
+      - name: Candidate B (removed)
+        if: ${{ inputs.candidates == 'B' }}
+        run: echo "candidate B (Briefcase) was removed by the Flight 1 decision (PyInstaller everywhere); nothing to build"
 
       - name: Summary
         if: ${{ always() }}
         run: |
-          for f in "$M32_LOGS"/A/SUMMARY.txt "$M32_LOGS"/B/SUMMARY.txt; do
+          for f in "$M32_LOGS"/A/SUMMARY.txt; do
             [ -f "$f" ] || continue
             echo "### $(basename "$(dirname "$f")")" >> "$GITHUB_STEP_SUMMARY"
             { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -128,10 +126,10 @@ jobs:
         run: |
           rc=0
           want=""
+          # B was removed by the Flight 1 decision: a B-only selection builds nothing and passes
           case "${{ inputs.candidates }}" in
-            "A B") want="A B" ;;
+            "A B") want="A" ;;
             A) want="A" ;;
-            B) want="B" ;;
           esac
           for c in $want; do
             f="$M32_LOGS/$c/SUMMARY.txt"

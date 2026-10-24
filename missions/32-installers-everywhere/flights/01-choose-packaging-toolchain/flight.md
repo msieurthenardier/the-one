@@ -1,6 +1,6 @@
 # Flight: Choose the packaging toolchain
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
@@ -243,7 +243,7 @@ Verified against the worktree at `b060d84` (`origin/main` `8a52a39` plus the mis
 - [x] `macos-probe-prepare` — A's and B's macOS recipes, the dispatch-only macOS workflow and a Windows stub workflow, all rehearsed on Linux. No push, PR or dispatch. *(Split from `macos-probe`.)*
 - [x] `macos-probe-run` — After the Flight Director's operator-approved PR to `main` and dispatch: read the run (≤ 2 macOS jobs), score it, and record the macOS rows.
 - [x] `windows-cost` — The paper pricing for each candidate. Since Briefcase survived Linux, also the hosted MSI build and the operator's install over the current Inno install, with backup and rollback.
-- [ ] `decision-hat` — The guided session: the operator tries the Linux builds and reads the evidence, then decides. Record the decision and keep the winner's recipe (DD8).
+- [x] `decision-hat` — The guided session: the operator tries the Linux builds and reads the evidence, then decides. Record the decision and keep the winner's recipe (DD8).
 
 ---
 

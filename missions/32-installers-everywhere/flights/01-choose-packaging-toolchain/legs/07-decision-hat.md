@@ -1,6 +1,6 @@
 # Leg: decision-hat
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Choose the packaging toolchain](../flight.md)
 
 ## Objective

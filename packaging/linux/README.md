@@ -1,6 +1,6 @@
 # packaging/linux - PyInstaller on Linux (candidate A)
 
-**Spike prototype, Mission 32 Flight 1. Not wired into CI, publishes nothing.**
+**Flight 1 winner (Mission 32): the starting point for Flight 2 (Linux). Still a prototype, not wired into CI, publishes nothing.**
 It freezes GleepGlorp AI with PyInstaller on Python 3.11 and wraps the one-dir bundle
 as an AppImage and a `.deb`. The bundle does not carry the GTK/WebKit stack: it uses
 the desktop's own WebKitGTK 4.1 through PyGObject.

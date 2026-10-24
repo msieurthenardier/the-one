@@ -34,7 +34,7 @@ python3 "$REPO/packaging/spike/stage.py" --version "$VERSION" --candidate macos 
 
 echo "== A: build venv (python $(python3 --version 2>&1), $(uname -m))"
 rm -rf "$VENV"; python3 -m venv "$VENV" || die "venv failed"
-# the same hash-pinned closure candidate B installs and the Windows CI ships (DD3); --no-deps
+# the same hash-pinned closure the Windows CI ships (DD3); --no-deps
 # because the export is complete (see packaging/linux/README.md)
 "$VENV/bin/python" -m pip install --disable-pip-version-check --require-hashes --no-deps -r "$REQS" \
     > "$LOG/pip-closure.log" 2>&1 || { tail -40 "$LOG/pip-closure.log"; die "closure install failed (package named above)"; }

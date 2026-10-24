@@ -5,7 +5,7 @@
 
 Pillow writes ICNS directly, so this runs the same on Linux (rehearsal) and on the macOS
 runner (where `iconutil` also exists but needs an .iconset folder). With --png-dir it also writes
-icon-<size>.png, the size set Briefcase looks for. Needs Pillow.
+icon-<size>.png. Needs Pillow.
 """
 
 import sys

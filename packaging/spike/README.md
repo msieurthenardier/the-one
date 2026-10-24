@@ -1,8 +1,9 @@
 # packaging/spike - Mission 32 Flight 1 spike tooling
 
-**This is spike tooling, not product.** It exists to compare packaging toolchains
-(PyInstaller vs Briefcase) on equal terms. It is candidate-neutral and is not
-wired into CI. What survives the flight's decision is recorded in the flight log.
+**This is spike tooling, not product.** It is the Flight 1 measurement harness
+(Mission 32); Flights 2-3 may reuse it. Flight 1 chose PyInstaller on every
+platform, so only the PyInstaller recipes remain. It is not wired into CI.
+The decision is recorded in the flight log.
 
 - `stage.py --version V --candidate C [--out DIR]`: copies `the_one/` to
   `$M32_BUILD/stage-C-V/` (default `$HOME/the-one-m32-build`), rewrites
@@ -19,7 +20,7 @@ docker build --target baseline -t m32/ubuntu-26.04:baseline -f packaging/spike/i
 
 ## Gate runner (leg `linux-pyinstaller-gates`)
 
-Candidate-neutral: nothing here knows which tool built a package.
+Nothing here knows which tool built a package.
 
 - `check.sh <candidate> <deb|appimage> <ubuntu-26.04|debian-13> <baseline|bare> --n N --n1 N1 [--pkgdir DIR] [--evidence DIR]`
   runs ONE disposable container (`m32-gate-<format>-<distro>-<image>`, no `--privileged`, no
@@ -27,8 +28,8 @@ Candidate-neutral: nothing here knows which tool built a package.
   `inner.sh`, and writes evidence to `$M32_EVIDENCE/<candidate>/<format>/<distro>-<image>/`.
   The window (gate 3, single instance, screenshot) runs only on `baseline`, on WSLg's X socket.
   Package file names follow `gleepglorp-ai_<N>_amd64.deb` and `GleepGlorp_AI-<N>-x86_64.AppImage`;
-  a candidate whose names differ passes `--pkg-n FILE --pkg-n1 FILE` (added in leg `linux-briefcase`;
-  default behaviour is unchanged).
+  a candidate whose names differ passes `--pkg-n FILE --pkg-n1 FILE`;
+  default behaviour is unchanged.
 - `inner.sh` (container side): non-root `tester` user, in this order: install N, gate 4 (no
   `THE_ONE_DATA_DIR`, before seeding), seed an agent, install N+1, serve again (upgrade),
   `doctor` pinned and unpinned, gate 2, window checks.

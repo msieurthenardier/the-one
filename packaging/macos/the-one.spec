@@ -176,7 +176,7 @@ app = BUNDLE(  # noqa: F821
         # macOS: Retina rendering for the web view and the window chrome.
         "NSHighResolutionCapable": True,
         # macOS: arm64 wheels in the pinned closure start at 11.0 (see the flight log's
-        # rehearsal); the same floor is declared for candidate B.
+        # rehearsal).
         "LSMinimumSystemVersion": "11.0",
     },
 )

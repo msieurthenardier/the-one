@@ -83,13 +83,13 @@ Someone on macOS or Linux can download GleepGlorp AI, install it the way they in
 - **Real Macs:** contributor-owned, for the single end-of-mission behavior test.
 
 ## Open Questions
-- **Which toolchain?** One tool for all three (Briefcase), PyInstaller extended to macOS and Linux with per-platform wrappers (a `.app`/`.dmg` and AppImage/`.deb`), or a hybrid. No default: the Flight 1 spike compares them on the load-bearing pieces, which are `doctor` in the bundle, the `pywebview` backend, the tray, native dependencies (`pywinpty` on Windows, arm64 wheels on macOS), the cost of each in maintenance, and the upgrade path from the existing Inno Setup install. The operator chooses.
+- ~~**Which toolchain?** One tool for all three (Briefcase), PyInstaller extended to macOS and Linux with per-platform wrappers (a `.app`/`.dmg` and AppImage/`.deb`), or a hybrid. No default: the Flight 1 spike compares them on the load-bearing pieces, which are `doctor` in the bundle, the `pywebview` backend, the tray, native dependencies (`pywinpty` on Windows, arm64 wheels on macOS), the cost of each in maintenance, and the upgrade path from the existing Inno Setup install. The operator chooses.~~ **Resolved 2026-10-24: PyInstaller on every platform, Inno Setup kept on Windows** ([Flight 1 decision](flights/01-choose-packaging-toolchain/flight-log.md#the-operators-decision-2026-10-24-decision-hat)).
 - **macOS tray:** can `pystray` and `pywebview` share AppKit's main thread (a menu-bar icon as a bonus), or does macOS use native Dock behaviour only (the agreed fallback)? How much PyObjC reach into `pywebview` does Dock reopen need?
 - **macOS headless proof on the runner:** how much of the window launch can be smoke-tested on a hosted runner (no logged-in GUI session guarantee) beyond `doctor` and a `serve` start?
-- **The CLI on macOS and Linux:** how does a user reach `the-one` from a terminal for `doctor` and other subcommands? The `.deb` can put it on `PATH`; on macOS (a drag-install disk image has no install script) a documented path inside the `.app` is the likely answer.
+- **The CLI on macOS and Linux:** how does a user reach `the-one` from a terminal for `doctor` and other subcommands? The `.deb` can put it on `PATH`; on macOS (a drag-install disk image has no install script) a documented path inside the `.app` is the likely answer. *(Flight 1: A's `.deb` installs `/usr/bin/the-one`; A's macOS `.app` runs the CLI as `Contents/MacOS/the-one <subcommand>`, and its Finder launch defaults to `app`.)*
 - **Side-by-side Linux installs:** the AppImage and the `.deb` share the data dir and port. Single-instance focus should treat them as one app; confirm and document.
 - **The macOS runner budget:** roughly how many hosted runs each flight plans for (the Architect estimates three to six across the mission).
-- **Windows upgrade path** if the toolchain changes: can a new installer replace an Inno Setup install in place (same AppId semantics, or an uninstall-first step), and does close-to-tray still get Restart Manager handling?
+- ~~**Windows upgrade path** if the toolchain changes: can a new installer replace an Inno Setup install in place (same AppId semantics, or an uninstall-first step), and does close-to-tray still get Restart Manager handling?~~ **Moot (2026-10-24):** the toolchain does not change on Windows; Inno Setup stays, so in-place upgrades by AppId are kept.
 - **Release vehicle during Mission 31:** build artifacts on a dispatched run, or a draft or pre-release on GitHub?
 
 ## Known Issues
@@ -99,7 +99,7 @@ _(none yet)_
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] **Flight 1: Choose the packaging toolchain.**
+- [x] **Flight 1: Choose the packaging toolchain.** *(Decided 2026-10-24: PyInstaller everywhere, Inno kept; the AppImage bundles the AppIndicator and girepository libraries.)*
   - A spike, ending in the operator's go/no-go: build the app with each candidate (Briefcase; PyInstaller extended with per-platform wrappers) on Linux, the cheapest platform to validate, and compare `doctor` inside the bundle, the window, the tray, and an upgrade over an older build.
   - One hosted macOS run per serious candidate, building a `doctor`-only bundle, retires the arm64 wheel and frozen-seam risks before Flight 3 depends on them.
   - Price the Windows side of each option: the in-place upgrade from the current Inno Setup install, `pywinpty`, WebView2, the tray and Restart Manager.
