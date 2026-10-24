@@ -5,8 +5,8 @@
 
   // App.ui.tabs(opts) -> {el, tablist, panels, select(id), selected(),
   // panel(id), destroy()}. The W3C manual-activation tablist (M31 F2 L4): the
-  // library form of the retired-in-time App.tabs helper (js/tabs.js, whose
-  // behaviour this reproduces exactly; the callers migrate in later legs).
+  // library form of the old App.tabs helper (js/tabs.js, deleted in M31 F4 L06
+  // when its last caller, the Built-in tools list, moved here).
   //   label (the tablist's aria-label), items [{id, label, testid}], initial,
   //   onBeforeChange(id, commit), onChange(id), idPrefix, panelClass, split.
   //   Tab ids are <idPrefix>-tab-<id>, panel ids <idPrefix>-panel-<id>; both

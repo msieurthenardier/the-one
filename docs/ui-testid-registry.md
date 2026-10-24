@@ -404,11 +404,18 @@ caught — but it cannot see where the attribute is emitted.
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |
 | `test-provider-result` | studio | |
+| `test-result` | admin | M31 F4 L07d — the Built-in tools editor's Test result: a polite live region (`aria-live=polite`, `data-state` pending / success / warning / danger) holding one `App.ui.status` with the fixed headline ("Returned a result ({N} ms)", "Blocked by this tool's settings ({N} ms)", "Request failed"); empty until a Test runs |
+| `test-saved-hint` | admin | M31 F4 L07d — "Tests the saved settings.", visible only while the editor is dirty |
 | `test-tool-btn` | admin | |
 | `thinking-disclosure` | chat | |
 | `thinking-indicator` | chat | |
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
-| `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
+| `tool-test-details` | admin | M31 F4 L07d — the collapsed "Technical details" `App.ui.disclosure` under the Test result (absent when the output is empty) |
+| `tool-test-output` | admin | M31 F4 L07d — the code block inside `tool-test-details`: the first 2 KB of the tool's output, with an ellipsis at the cut |
+| `tool-toggle` | admin | The tile's enable switch (`role=switch`, named "Enable {name} for all agents", M31 F4 L06); it never navigates (M25 F3 L5b) |
+| `tools-load-error` | admin | M31 F4 L06 — the Built-in tools list's load failure (`App.ui.status`, `role=alert`: "Couldn't load the built-in tools." and the server's reason); cleared by the next render |
+| `tools-load-retry` | admin | M31 F4 L06 — the Retry button beside `tools-load-error` |
+| `tools-loading` | admin | M31 F4 L06 — the "Loading tools…" status shown until the first list response |
 | `trace-shell` | chat | |
 | `ui-confirm-live` | shared | M31 F2 L5 (squawk 0220) — the one shared polite live region `App.ui.confirm` appends to `document.body` on the first arm; announces arm, lapse and commit |
 
@@ -437,7 +444,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
-| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items: the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
+| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)
 

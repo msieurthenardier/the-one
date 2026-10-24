@@ -560,12 +560,14 @@ SEED_KNOWLEDGE_SETTINGS = {
 STUB_TEST_REFUSED = {
     "output": "[error] [constraint] host 'example.com' is not in the fetch allowlist",
     "elapsed_ms": 3.0,
+    "outcome": "blocked",
 }
 STUB_TEST_OK = {
     "output": "<!doctype html><html><head><title>Example Domain</title></head>"
     "<body><h1>Example Domain</h1><p>This domain is for use in documentation.</p>"
     "</body></html>",
     "elapsed_ms": 142.0,
+    "outcome": "ok",
 }
 
 
@@ -659,7 +661,8 @@ def _tool_fetch_url_error(ctx: Ctx) -> None:
     page.locator('[data-field="redirect_cap"]').fill("-3")
     page.locator('[data-testid="save-tool-btn"]').click()
     page.locator(
-        ".tools-editor-field .field-error:not([hidden]), .field-error:not([hidden])"
+        '[data-field="redirect_cap"][aria-invalid="true"], '
+        ".tools-editor-field .field-error:not([hidden])"
     ).first.wait_for(timeout=10000)
 
 
@@ -671,10 +674,12 @@ def _tool_test(payload: dict):
             lambda r: r.fulfill(json=payload),
         )
         page.locator('[data-testid="test-tool-btn"]').click()
-        page.locator(".test-result .test-result-ok, .test-result .test-result-fail").first.wait_for(
-            timeout=10000
-        )
-        page.locator(".tool-test-output").scroll_into_view_if_needed()
+        page.locator(
+            '[data-testid="test-result"][data-state="success"], '
+            '[data-testid="test-result"][data-state="warning"], '
+            ".test-result .test-result-ok, .test-result .test-result-fail"
+        ).first.wait_for(timeout=10000)
+        page.locator('[data-testid="test-tool-btn"]').scroll_into_view_if_needed()
 
     return prepare
 

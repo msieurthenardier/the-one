@@ -165,7 +165,7 @@ def test_settings_tile_toggle_disables_and_reenables_current_time(
     page.locator('[data-testid="tab-time"]').click()
     toggle = _lists.tool_toggle(page, "current_time")
     expect(toggle).to_be_checked()
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(toggle).not_to_be_checked()
 
@@ -177,7 +177,7 @@ def test_settings_tile_toggle_disables_and_reenables_current_time(
         return row["enabled"]
 
     assert enabled() is False
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).to_be_checked(timeout=5000)
     expect(toggle).not_to_be_disabled(timeout=5000)
     assert enabled() is True

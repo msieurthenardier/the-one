@@ -99,17 +99,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/admin/knowledge-settings-page.js": [
         'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
     ],
-    "areas/admin/tools-editor.js": [
-        "container.innerHTML = html;",
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "banner.innerHTML = icon + '<span class=\"editor-error-banner-text\"></span>';",
-        "resultEl.innerHTML = '<span class=\"' + statusClass + '\">' + icon + ' (' + ms + '",
-        "resultEl.innerHTML = '<span class=\"test-result-fail\">✗ ' + window.App.escapeHtml",
-    ],
-    "areas/admin/tools-grid.js": [
-        "container.innerHTML = html;",
-    ],
     # M25 F4 L4a removed the chat sidebar sink (the Chats list is DOM-built)
     # and history-buckets.js with its delete-button sink; leg 4b removed the
     # content sink (the pane is areas/chat/chat-pane.js, the composer
@@ -147,8 +136,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/admin/knowledge-settings-page.js": 1,
-    "areas/admin/tools-editor.js": 8,
-    "areas/admin/tools-grid.js": 3,
     "areas/chat.js": 5,
     "areas/studio/mcp-server-editor.js": 18,
     "theme.js": 1,

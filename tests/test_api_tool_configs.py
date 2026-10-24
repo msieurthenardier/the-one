@@ -605,6 +605,41 @@ class TestTestEndpoint:
         assert "Paragraph" in data["output"] or "Heading" in data["output"]
         assert isinstance(data["elapsed_ms"], float)
 
+    async def test_test_endpoint_reports_outcome_ok(self, client: AsyncClient, monkeypatch) -> None:
+        """M31 F4 L07d: the route returns `outcome` ("ok" | "blocked" | "failed") computed
+        server-side, so the editor never parses the model-facing output string."""
+
+        async def fake_search(self, query, max_results):
+            return [SearchResult(title="T", url="https://example.org/x", snippet="s")]
+
+        monkeypatch.setattr("the_one.tools._search_backends.DDGSearchBackend.search", fake_search)
+        data = (await client.post("/api/tools/configs/web_search/test")).json()
+        assert data["outcome"] == "ok"
+        assert set(data) == {"output", "elapsed_ms", "outcome"}
+
+    async def test_test_endpoint_reports_outcome_blocked_for_a_constraint_refusal(
+        self, client: AsyncClient
+    ) -> None:
+        await client.put(
+            "/api/tools/configs/fetch_url",
+            json={"config": {"host_denylist": ["example.com"]}},
+        )
+        data = (await client.post("/api/tools/configs/fetch_url/test")).json()
+        assert data["output"].startswith("[error] [constraint]")
+        assert data["outcome"] == "blocked"
+
+    async def test_test_endpoint_reports_outcome_failed_for_a_runtime_error(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        async def broken_search(self, query, max_results):
+            raise RuntimeError("upstream is down")
+
+        monkeypatch.setattr("the_one.tools._search_backends.DDGSearchBackend.search", broken_search)
+        data = (await client.post("/api/tools/configs/web_search/test")).json()
+        assert data["output"].startswith("[error] ")
+        assert not data["output"].startswith("[error] [constraint]")
+        assert data["outcome"] == "failed"
+
     async def test_test_endpoint_rejects_non_testable_tool(self, client: AsyncClient) -> None:
         resp = await client.post("/api/tools/configs/shell/test")
         assert resp.status_code == 400

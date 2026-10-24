@@ -34,13 +34,21 @@ App.admin.toolsPage = {
     // Set by a hydrate for an item route; consumed when that item mounts
     // (scroll its header into view, focus its title).
     var openIntent = false;
-    // The mounted tool editor's { setEnabled } (tools-editor.js onMount).
+    // The mounted tool editor's { setEnabled, destroy } (tools-editor.js). Every tool's
+    // editor mounts into the same item section, so each mount is a mountSlot token: a
+    // stale editor (a Save for tool A resolving after tool B opened) writes no shared
+    // state, because it asks isCurrent(token) first.
     var toolEditorApi = null;
+    var editorSlot = App.ui.util.mountSlot();
     // null until the first fetch resolves; the grid shows a loading placeholder.
     var toolConfigs = null;
     // Per-tool in-flight PUT tracker: a second click while a PUT is pending is
     // dropped (closes the optimistic-update double-click race).
     var toolsInFlight = Object.create(null);
+    // The mounted list (App.admin.toolsGrid, tools-grid.js), built once per
+    // scaffold; the list-fetch "latest wins" helper (DD3).
+    var grid = null;
+    var listFetch = App.ui.util.latest();
 
     var toolFormMode = null; // null | 'edit'
     var editingTool = null; // { name, description, enabled, config, schema } | null
@@ -66,6 +74,7 @@ App.admin.toolsPage = {
       root.appendChild(listEl);
       root.appendChild(itemEl);
       scaffold = { category: category, listEl: listEl, itemEl: itemEl };
+      grid = category === 'tools' ? App.admin.toolsGrid.create(listEl, { onToggle: handleToolToggle }) : null;
       return scaffold;
     }
 
@@ -74,22 +83,11 @@ App.admin.toolsPage = {
       return scaffold && scaffold.category === category && ctx.getCategory() === category ? scaffold : null;
     }
 
-    // An editor's flashes (App.showFlash) are appended to its own container,
-    // the item section, which a close or a create->edit re-mount empties:
-    // move them to the page first so they stay on screen (position: fixed;
-    // their own timers remove them).
-    function rescueFlashes(itemEl) {
-      var flashes = itemEl.querySelectorAll('.app-flash');
-      for (var i = 0; i < flashes.length; i++) {
-        if (flashes[i].parentNode === itemEl) ctx.contentEl().appendChild(flashes[i]);
-      }
-    }
-
     // Close the open item's DOM: the item section is emptied (DD7).
     function clearItemSection() {
+      editorSlot.destroy();
       toolEditorApi = null;
       if (!scaffold) return;
-      rescueFlashes(scaffold.itemEl);
       scaffold.itemEl.textContent = '';
     }
 
@@ -132,50 +130,47 @@ App.admin.toolsPage = {
     // Re-render the tool LIST section only (never the item section).
     function renderToolsListNow() {
       var sc = scaffoldFor('tools');
-      if (!sc) return;
-      App.admin.renderToolsGrid(sc.listEl, toolConfigs, {
-        onToggle: handleToolToggle,
-        inFlight: toolsInFlight,
-        selectedName: selectedToolName()
-      });
+      if (!sc || !grid) return;
+      grid.render(toolConfigs, { inFlight: toolsInFlight, selectedName: selectedToolName() });
     }
 
     // Mount the tool editor in the item section.
     function mountToolItem() {
       var sc = scaffoldFor('tools');
       if (!sc || toolFormMode !== 'edit' || !editingTool) return;
-      // Reset the dirty mirror BEFORE editor mount: the fresh editor closure
-      // starts clean; onDirtyChange only fires on the first user input.
+      // Reset the dirty mirror BEFORE editor mount: the fresh editor starts clean;
+      // onDirtyChange only fires on the first user input.
       ctx.setDirty(false);
       var reveal = openIntent;
       openIntent = false;
-      var toolGen = ctx.getGen();
       toolEditorApi = null;
-      rescueFlashes(sc.itemEl);
-      App.admin.renderToolsEditor(sc.itemEl, editingTool, {
-        onCancel: function () {
-          // Cancel restores the original DOM (re-mounts with the original
-          // toolDetail). The page stays in editor mode: Cancel is a
-          // snapshot-revert, not a "discard and exit".
-          ctx.setDirty(false);
-        },
-        onSaveSuccess: function (updated) {
-          if (toolGen !== ctx.getGen() || !editingTool) return; // discarded mid-save
-          // Update the list cache (name, description, enabled, config); the
-          // list above re-renders so the tile's toggle shows the saved state.
-          if (toolConfigs) {
-            for (var i = 0; i < toolConfigs.length; i++) {
-              if (toolConfigs[i].name === updated.name) {
-                toolConfigs[i] = {
-                  name: updated.name,
-                  description: updated.description,
-                  enabled: updated.enabled,
-                  config: updated.config
-                };
-                break;
-              }
+      var api = null;
+      var token = editorSlot.mount(function () { if (api) api.destroy(); });
+      function isCurrent() { return editorSlot.isCurrent(token); }
+      api = App.admin.renderToolsEditor(sc.itemEl, editingTool, {
+        isCurrent: isCurrent,
+        // A Save response arrived (even for an editor that is no longer current): the
+        // list cache and the tiles follow the server.
+        onSaved: function (updated) {
+          if (ctx.getCategory() !== 'tools' || !toolConfigs) return;
+          for (var i = 0; i < toolConfigs.length; i++) {
+            if (toolConfigs[i].name === updated.name) {
+              // A list toggle for this tool still in flight decides `enabled` when its
+              // own response lands (the later write wins on the server).
+              toolConfigs[i] = Object.assign({}, toolConfigs[i], {
+                name: updated.name,
+                description: updated.description,
+                enabled: toolsInFlight[updated.name] ? toolConfigs[i].enabled : updated.enabled,
+                config: updated.config
+              });
+              break;
             }
           }
+          renderToolsListNow();
+        },
+        // Current editor only: Cancel and Save success keep the page's state in step.
+        onSaveSuccess: function (updated) {
+          if (!isCurrent() || !editingTool || editingTool.name !== updated.name) return;
           // Merge the PUT response (4 fields) preserving the prior schema:
           // upsert_tool_config's response does NOT include `schema`, and the
           // editor reads `toolDetail.schema` on each render.
@@ -186,13 +181,16 @@ App.admin.toolsPage = {
             config: updated.config,
             schema: editingTool.schema
           };
-          ctx.setDirty(false);
-          renderToolsListNow();
         },
-        onDirtyChange: function (d) { ctx.setDirty(d); },
-        onMount: function (api) { if (toolGen === ctx.getGen()) toolEditorApi = api; }
+        onCancel: function () {
+          // Cancel patches the form back to the saved values; the page stays in editor
+          // mode (a snapshot-revert, not a "discard and exit").
+          if (isCurrent()) ctx.setDirty(false);
+        },
+        onDirtyChange: function (d) { if (isCurrent()) ctx.setDirty(d); }
       });
-      App.admin.setToolsSelection(sc.listEl, editingTool.name);
+      toolEditorApi = api;
+      grid.setSelection(editingTool.name);
       if (reveal) revealItem(sc.itemEl);
     }
 
@@ -203,12 +201,7 @@ App.admin.toolsPage = {
     function selectTool(name) {
       var gen = ctx.getGen();
       // ALWAYS fetches: the list cache lacks `schema`.
-      return fetch('/api/tools/configs/' + encodeURIComponent(name))
-        .then(function (r) {
-          if (r.status === 404) { var gone = new Error('tool not found'); gone.gone = true; throw gone; }
-          if (!r.ok) throw new Error('Fetch failed: ' + r.status);
-          return r.json();
-        })
+      return App.api.fetchJson('/api/tools/configs/' + encodeURIComponent(name))
         .then(function (detail) {
           // Stale-then guard: if a hydrate that ran after the fetch started
           // has moved to another page, or closed / replaced the item, abandon
@@ -225,10 +218,14 @@ App.admin.toolsPage = {
         })
         .catch(function (err) {
           if (ctx.getCategory() !== 'tools' || gen !== ctx.getGen()) return;
-          if (err && err.gone) {
+          var gone = !!err && err.status === 404;
+          // An editor already open keeps standing when only its re-read fails.
+          var stranded = !(toolFormMode === 'edit' && editingTool);
+          if (gone || stranded) {
             // Dead id (an unknown name in the URL, or a tool removed while its
-            // editor was open): close any editor and heal the URL to the
-            // section root in place -- nothing is left pending.
+            // editor was open) or a detail that would not load: close any
+            // editor and heal the URL to the section root in place -- nothing is
+            // left pending, and the list stays usable.
             pendingToolName = null;
             pendingToolFormMode = null;
             toolFormMode = null;
@@ -237,31 +234,32 @@ App.admin.toolsPage = {
             openIntent = false;
             clearItemSection();
             App.router.sync('admin', 'tools');
-            var sc = scaffoldFor('tools');
-            if (sc) App.admin.setToolsSelection(sc.listEl, null);
-            return;
+            if (grid) grid.setSelection(null);
           }
-          App.showFlash(ctx.contentEl(), 'Failed to load ' + name + '.', true);
+          if (!gone) {
+            App.ui.flash((err && err.message) || ('Failed to load ' + name + '.'), {
+              error: true,
+              container: ctx.contentEl()
+            });
+          }
         });
     }
 
     function fetchToolConfigs() {
-      return fetch('/api/tools/configs')
-        .then(function (r) { return r.json(); })
+      var token = listFetch.next();
+      return App.api.fetchJson('/api/tools/configs')
         .then(function (data) {
           // Stale-then guard at cache-write: if the operator switched away
-          // mid-fetch, do not clobber the cache.
-          if (ctx.getCategory() !== 'tools') return;
+          // mid-fetch, or a newer fetch started, do not clobber the cache.
+          if (ctx.getCategory() !== 'tools' || !listFetch.isCurrent(token)) return;
           toolConfigs = data;
           renderToolsListNow();
         })
-        .catch(function () {
-          if (ctx.getCategory() !== 'tools') return;
+        .catch(function (err) {
+          if (ctx.getCategory() !== 'tools' || !listFetch.isCurrent(token)) return;
           // Only a list that never loaded reads as failed.
-          var sc = scaffoldFor('tools');
-          if (sc && toolConfigs === null) {
-            sc.listEl.textContent = '';
-            sc.listEl.appendChild(App.ui.util.el('div', { className: 'admin-loading', text: 'Failed to load tools.' }));
+          if (grid && toolConfigs === null) {
+            grid.setError(err && err.message, fetchToolConfigs);
           }
         });
     }
@@ -270,7 +268,7 @@ App.admin.toolsPage = {
       // Drop second click while a PUT is pending for this tool.
       if (toolsInFlight[name] || !toolConfigs) return;
 
-      // Optimistic update: flip cache, re-render, PUT. Revert on failure.
+      // Optimistic update: flip cache, patch the tile, PUT. Revert on failure.
       var idx = -1;
       for (var i = 0; i < toolConfigs.length; i++) {
         if (toolConfigs[i].name === name) { idx = i; break; }
@@ -281,12 +279,16 @@ App.admin.toolsPage = {
       toolsInFlight[name] = true;
       renderToolsListNow();
 
-      fetch('/api/tools/configs/' + encodeURIComponent(name), {
+      App.api.fetchJson('/api/tools/configs/' + encodeURIComponent(name), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: newEnabled })  // omit config: REPLACE preserves
-      }).then(function (r) {
-        if (!r.ok) throw new Error('PUT failed: ' + r.status);
+      }).then(function () {
+        // The server now holds newEnabled (a Save response that landed meanwhile
+        // left the optimistic value alone).
+        for (var j = 0; j < toolConfigs.length; j++) {
+          if (toolConfigs[j].name === name) toolConfigs[j].enabled = newEnabled;
+        }
         // The toggled tool is the one open below: its editor's Enabled
         // control and saved snapshot follow, in place (no re-mount, so an
         // unsaved edit elsewhere in the form is kept).
@@ -294,19 +296,19 @@ App.admin.toolsPage = {
           editingTool.enabled = newEnabled;
           if (toolEditorApi) toolEditorApi.setEnabled(newEnabled);
         }
-      }).catch(function () {
+      }).catch(function (err) {
         toolConfigs[idx].enabled = prev;
-        showAdminFlash('Failed to update ' + name + '.', true);
+        showAdminFlash((err && err.message) || ('Failed to update ' + name + '.'), true);
       }).then(function () {
-        // Always clear in-flight + re-render (success path also re-renders
-        // to clear the `disabled` attr on the toggle).
+        // Always clear in-flight and patch the tile back (a failed toggle
+        // reverts; a settled one is enabled again).
         delete toolsInFlight[name];
         renderToolsListNow();
       });
     }
 
     function showAdminFlash(msg, isError) {
-      App.showFlash(ctx.contentEl(), msg, isError);
+      App.ui.flash(msg, { error: !!isError, container: ctx.contentEl() });
     }
 
     // ── Opening and closing items from the page (M25 F3 L5b) ────────
@@ -344,7 +346,7 @@ App.admin.toolsPage = {
 
     function openItemLink(target) {
       if (!scaffold) return null;
-      var toolLink = target.closest('a.tool-tile-link');
+      var toolLink = target.closest('[data-testid="tool-card"] a');
       if (toolLink && scaffold.listEl.contains(toolLink)) {
         var tile = toolLink.closest('[data-testid="tool-card"]');
         return toolFormMode === 'edit' && editingTool && tile && tile.getAttribute('data-name') === editingTool.name
@@ -379,6 +381,10 @@ App.admin.toolsPage = {
       parseSub: App.admin.toolsPage.parseSub,
       // A page render replaces the content: drop the scaffold and editor.
       reset: function () {
+        if (grid) grid.destroy();
+        grid = null;
+        listFetch.invalidate();
+        editorSlot.destroy();
         scaffold = null;
         toolEditorApi = null;
       },
@@ -438,8 +444,7 @@ App.admin.toolsPage = {
       // The list's selection is the open item, else the pending one (a deep
       // link still loading): the tool tile. In place.
       syncItemSelection: function () {
-        var st = scaffoldFor('tools');
-        if (st) App.admin.setToolsSelection(st.listEl, selectedToolName());
+        if (scaffoldFor('tools') && grid) grid.setSelection(selectedToolName());
       },
       setOpenIntent: function (on) { openIntent = !!on; }
     };

@@ -1,6 +1,6 @@
 # Leg: tools-grid
 
-**Status**: ready
+**Status**: landed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

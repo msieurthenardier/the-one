@@ -46,15 +46,9 @@ EMITTED_EXEMPT: dict[str, str] = {
     "banner": "legacy name of banner; joins the owned list at the banner handover leg",
     "banner-": "legacy banner-{tone} family; joins the owned list at the handover leg",
     "code-block": "legacy name of codeBlock; joins the owned list at the handover leg",
-    # Legacy names the toolTile emits before its DD12 handover leg (04e, handover leg 06):
-    "entity-tile": "legacy name of the toolTile root; joins the owned list at leg 06",
-    "tool-tile": "legacy name of the toolTile root; joins the owned list at leg 06",
-    "tile-title-row": "legacy name of the toolTile title row; joins the owned list at leg 06",
-    "entity-tile-name": "legacy name of the toolTile link; joins the owned list at leg 06",
-    "tool-tile-link": "legacy name of the toolTile link; joins the owned list at leg 06",
-    "entity-tile-description": "legacy name of the toolTile description; owned at leg 06",
-    "entity-tile-grid": "legacy name of the toolTile grid; joins the owned list at leg 06",
-    "active": "legacy selected state of the toolTile; joins the owned list at leg 06",
+    # The toolTile's legacy names are owned since leg 06's handover (M31 F4 L06); only the
+    # state class stays exempt (an everyday word, not safe to own):
+    "active": "legacy selected state of the toolTile; an everyday word, deliberately not owned",
     # Internal parts and shared state classes with no row of their own:
     "badge-dot": "the status dot of the badge helper in feedback.js; the badge row covers it",
     "ui-info-bubble": "the field info bubble, a part of the field row",

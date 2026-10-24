@@ -199,8 +199,110 @@ ENTITY_TILE = "entity" + "-tile"
 
 # The Built-in tools admin tile, frozen at M31 F4 L04e (the toolTile contract compares the library
 # tile to it). Verbatim from admin.css (the tile title row, link, badge, tile and corner-switch
-# rules) and the shared components.css .@ET@* rules.
+# rules) and the shared components.css .@ET@* rules (both deleted from the product CSS at M31 F4 L06,
+# so this fixture now carries them itself).
 LEGACY_ADMIN_TILE_CSS = """<style>
+/* === the shared components.css .@ET@* rules, frozen at M31 F4 L06 when they were deleted === */
+.@ET@ {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  /* Quiet surface: solid fill + hairline border; hierarchy comes from
+     the surface ladder, not effects. No shadows at rest (M17 F3 tile
+     vocabulary: surface + hairline + radius-md). */
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  position: relative;
+  /* Motion — asymmetric transitions: fast on mouse-in (the :hover rule
+     overrides with --motion-fast), slower on mouse-out (this base rule's
+     --motion-base applies when :hover stops matching). Pattern reads as
+     crisp engagement + gentle disengagement. */
+  transition:
+    border-color var(--motion-base) var(--ease-tactile),
+    background-color var(--motion-base) var(--ease-tactile);
+}
+/* Hover — quiet: border steps to --border-hover + one surface-ladder
+   step up. Accent is reserved for the SELECTED state (below). */
+.@ET@:hover {
+  border-color: var(--border-hover);
+  background-color: var(--surface-elevated);
+  transition:
+    border-color var(--motion-fast) var(--ease-tactile),
+    background-color var(--motion-fast) var(--ease-tactile);
+}
+/* Inset ring: negative offset keeps the ring inside the tile bounds. */
+.@ET@:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.@ET@[aria-selected="true"],
+.@ET@.active {
+  border-color: var(--accent);
+  background-color: var(--accent-translucent-hover);
+}
+.@ET@-name {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.@ET@-description {
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: var(--line-height-normal);
+  min-height: 2.4em;
+}
+.@ET@-meta {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Entity-tile badge slot — absolute-positioned top-right corner.
+   Composes with per-area color classes (e.g. a `.badge--{type}` class). */
+.@ET@-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-tiny);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  /* Color comes from a per-type badge class composed alongside. */
+}
+/* Tile-grid layout container. Used by entity inventories that render
+   tiles as the primary view. Lifted from studio's per-area tile-grid
+   rule in F6 leg 02; admin's provider grid is the second consumer. */
+.@ET@-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
 .area-admin .tile-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .area-admin .tile-title-row .@ET@-name { flex: 1 1 auto; min-width: 0; }
 .area-admin .tile-title-row .admin-tool-badge { position: static; flex: none; }

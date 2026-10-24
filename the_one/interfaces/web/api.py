@@ -788,13 +788,32 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     }
 
 
+def _test_outcome(output: str) -> str:
+    """Classify a tool's Test result for the editor (M31 F4 L07d), so the browser never
+    parses the model-facing string. A tool reports a policy refusal as
+    ``[error] [constraint] ...`` (``ConstraintError`` in ``tools/base.py``) and any other
+    failure as ``[error] ...``; anything else is a normal result.
+
+    ``ok``      the tool returned a result.
+    ``blocked`` the operator's own settings refused the request.
+    ``failed``  the request failed (network, upstream, timeout, bad response).
+    """
+    if output.startswith("[error] [constraint]"):
+        return "blocked"
+    if output.startswith("[error]"):
+        return "failed"
+    return "ok"
+
+
 @router.post("/tools/configs/{name}/test")
 async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
     """Run a connection test against the named tool's currently-saved
     Config (Decision 5). Only `web_search` and `fetch_url` are
     testable. Tool-side failures (constraint refusals, network
     errors) come through as `[error] [constraint] ...` strings in
-    `output` — not HTTP 5xx — so the operator sees the agent's view.
+    `output` — not HTTP 5xx — so the operator sees the agent's view. The response
+    also carries `outcome` (`ok` | `blocked` | `failed`), computed here from that
+    prefix (M31 F4 L07d) so clients never parse the string.
 
     Named-tool isolation: `BuiltinToolProvider.get_tools` builds
     `cross_configs[Config]` by walking `_TOOL_CLASSES` in declared
@@ -869,7 +888,7 @@ async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
     start = time.perf_counter()
     output = await tool.execute(**fixture_kwargs)
     elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-    return {"output": output, "elapsed_ms": elapsed_ms}
+    return {"output": output, "elapsed_ms": elapsed_ms, "outcome": _test_outcome(output)}
 
 
 # ── Agents ────────────────────────────────────────────────────────────────
