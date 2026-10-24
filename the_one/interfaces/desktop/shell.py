@@ -53,6 +53,11 @@ _browser_server = None
 _NO_TRAY_NOTICE_SUMMARY = "GleepGlorp AI is still running"
 _NO_TRAY_NOTICE_BODY = "Open it again to show it, or right-click its icon to quit."
 
+# The one-time notice for a close that hides the window into the tray.
+# Short for the same reason; ``tray.notify(icon, message, title)`` order.
+_TRAY_NOTICE_TITLE = "GleepGlorp AI is still running"
+_TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
+
 # ── Splash screen ─────────────────────────────────────────────────────────────
 # Inline HTML rendered before the app server is up (no localhost URL, no CDN).
 # The splash is a frameless pywebview window shown during the uvicorn boot wait;
@@ -923,9 +928,8 @@ class DesktopSession:
             notice.mark_notice_shown()
             tray.notify(
                 self._icon,
-                "GleepGlorp AI is still running in the system tray"
-                " — Quit from the tray menu to exit",
-                "GleepGlorp AI",
+                _TRAY_NOTICE_BODY,
+                _TRAY_NOTICE_TITLE,
             )
 
         if _desktop_window is not None:

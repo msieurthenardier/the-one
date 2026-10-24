@@ -604,6 +604,11 @@ Leg 11, landed (not committed).
 - **Verification (AC3):** scratch build 0.11.9.dev14: `dpkg-deb -c` and the extracted AppImage both list 64, 128, 256 and 512 px icons; audit PASS (1025 files, max GLIBC_2.34); desktop-file-validate OK; `make test-unit` 7058 passed, 12 skipped; ruff check and format clean; shellcheck clean on `build-inner.sh`. No m32-* containers left.
 - **AC4:** App Center icon and publisher are checked in leg 12's VM run, not here.
 
+### linux-hat
+
+- **Tray notice (inline HAT fix, leg 13):** the close-to-tray notice was truncated in GNOME's banner. `shell.py` now sends title `_TRAY_NOTICE_TITLE` = "GleepGlorp AI is still running" and body `_TRAY_NOTICE_BODY` = "It's in the tray. Click its icon to show it or quit." (52 characters), replacing the single long string. Same code path as the Windows balloon (accepted). Pinned in `tests/test_desktop_tray.py`; once-only marker unchanged.
+- `docs/windows-install.md` (first-close notice quote) updated to the new title and body; historical mission and flight docs left as written.
+
 ## Decisions
 
 ---

@@ -507,8 +507,10 @@ def test_first_run_notice_notify_arg_order(
     assert len(captured_notify_calls) == 1
     captured_icon, captured_message, captured_title = captured_notify_calls[0]
     assert captured_icon is mock_icon
-    assert "system tray" in captured_message.lower()
-    assert "GleepGlorp" in captured_title
+    assert captured_title == shell_module._TRAY_NOTICE_TITLE == "GleepGlorp AI is still running"
+    assert captured_message == shell_module._TRAY_NOTICE_BODY
+    assert captured_message == "It's in the tray. Click its icon to show it or quit."
+    assert len(captured_message) <= 60
 
 
 # ── shell.py: Quit teardown ───────────────────────────────────────────────────
