@@ -1,0 +1,36 @@
+name: packaging-probe-windows
+
+# Mission 32 Flight 1 (choose the packaging toolchain), DD6/DD7: STUB. It exists so that the
+# single `.github/`-only PR to main makes both probe workflows dispatchable (GitHub offers a
+# manual run only for a workflow file on the default branch). Leg `windows-cost` fills in the
+# real steps on the flight branch, and `gh workflow run packaging-probe-windows.yml --ref
+# flight/01-choose-packaging-toolchain` then runs that copy. Dispatch-only; no secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      # same input names the real workflow will declare, so a dispatch against the flight
+      # branch validates against what main declares
+      candidates:
+        description: "Which candidates to build: A (PyInstaller), B (Briefcase), or both"
+        type: choice
+        options:
+          - "A B"
+          - "A"
+          - "B"
+        default: "A B"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-probe-windows
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Stub
+        shell: bash
+        run: echo "packaging-probe-windows is a stub; leg windows-cost fills it in on the flight branch."
