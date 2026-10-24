@@ -191,3 +191,63 @@ def test_probe_expect_fallback_needs_six_from_the_mount(tmp_path) -> None:
     mixed = good + f"PROBE_MAP {ARCH}/libother.so\n"
     assert not score.score_probe(_probe(tmp_path, "m", mixed, ""), None, True)["ok"]
     assert not score.score_probe(_probe(tmp_path, "h", "PROBE_OK\n", ""), None, True)["ok"]
+
+
+def _run_main(tmp_path: Path, *extra: str) -> tuple[int, dict]:
+    ev = tmp_path / "ev"
+    ev.mkdir()
+    argv = ["score.py", str(ev), "--format", "deb", "--distro", "debian-13", "--image", "bare"]
+    old = sys.argv
+    sys.argv = [*argv, *extra]
+    try:
+        rc = score.main()
+    finally:
+        sys.argv = old
+    import json
+
+    return rc, json.loads((ev / "score.json").read_text())
+
+
+def test_single_version_mode_reports_upgrade_na(tmp_path, capsys) -> None:
+    rc, r = _run_main(tmp_path, "--n", "0.11.9.dev12")
+    assert rc == 0
+    assert r["upgrade"]["pass"] is None
+    assert "upgrade=N/A" in capsys.readouterr().out
+
+
+def test_two_version_mode_still_scores_upgrade(tmp_path, capsys) -> None:
+    _, r = _run_main(tmp_path, "--n", "1", "--n1", "2")
+    assert r["upgrade"]["pass"] is False
+    assert "upgrade=FAIL" in capsys.readouterr().out
+
+
+def test_gates_sh_n1_is_optional_and_check_shim_is_gone() -> None:
+    d = Path(__file__).resolve().parents[1] / "packaging/linux/checks"
+    assert not (d / "check.sh").exists()
+    text = (d / "gates.sh").read_text()
+    assert "need --n and --n1" not in text and "SINGLE_VERSION" in text
+    assert "SINGLE_VERSION" in (d / "gates-inner.sh").read_text()
+
+
+def test_gates_sh_maps_a_dev_version_to_the_debian_tilde_name() -> None:
+    d = Path(__file__).resolve().parents[1] / "packaging/linux/checks"
+    assert "gleepglorp-ai_${VN/.dev/~dev}_amd64.deb" in (d / "gates.sh").read_text()
+
+
+def test_bare_without_window_flag_is_na_for_g3_and_single(tmp_path, capsys) -> None:
+    _, r = _run_main(tmp_path, "--n", "1")
+    assert r["g3"]["pass"] is None and r["single"]["pass"] is None
+    assert "G3=N/A" in capsys.readouterr().out
+
+
+def test_bare_with_window_flag_scores_g3_and_single(tmp_path, capsys) -> None:
+    _, r = _run_main(tmp_path, "--n", "1", "--window")
+    assert r["g3"]["pass"] is False  # no ui.maps: the window did not open
+    assert r["single"]["pass"] is None and r["single"]["note"] == "not run"
+    assert "G3=FAIL" in capsys.readouterr().out
+
+
+def test_gates_sh_runs_the_window_for_deb_on_bare_under_xvfb_only() -> None:
+    text = (Path(__file__).resolve().parents[1] / "packaging/linux/checks/gates.sh").read_text()
+    assert '[ "$IMAGE" = bare ] && [ "$FORMAT" = deb ] && [ "$DISP" = xvfb ] && WINDOW=1' in text
+    assert "--window" in text

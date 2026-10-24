@@ -124,15 +124,17 @@ stop_group "$SP"; echo "stopped N serve pgid $SP" >> "$EV/serve-N.state"
 ls -la "$DD" > "$EV/gate4-ls-after-stop.txt" 2>&1
 
 # ---- upgrade to N+1 --------------------------------------------------------
-log "install N+1"
-install_pkg "$FORMAT" n1 "$EV/install-N1.txt"
-rt the-one version > "$EV/version-N1.txt" 2>&1; echo "rc=$?" >> "$EV/version-N1.txt"
-SP=$(start_serve "" "$EV/serve-N1.log"); echo "$SP" > "$EV/serve-N1.pid"
-if wait_live $PORT_SERVE 90; then echo live > "$EV/serve-N1.state"; else echo "NOT live" > "$EV/serve-N1.state"; fi
-CRED1=$(cat "$DD/api-credential" 2>/dev/null | tr -d '[:space:]')
-echo "${CRED1%%.*}" > "$EV/cred-prefix-N1.txt"
-curl -sS -m 20 -H "Authorization: Bearer $CRED1" "http://127.0.0.1:$PORT_SERVE/api/agents" > "$EV/agents-N1.json" 2>&1
-stop_group "$SP"
+if [ "${SINGLE_VERSION:-0}" != 1 ]; then
+  log "install N+1"
+  install_pkg "$FORMAT" n1 "$EV/install-N1.txt"
+  rt the-one version > "$EV/version-N1.txt" 2>&1; echo "rc=$?" >> "$EV/version-N1.txt"
+  SP=$(start_serve "" "$EV/serve-N1.log"); echo "$SP" > "$EV/serve-N1.pid"
+  if wait_live $PORT_SERVE 90; then echo live > "$EV/serve-N1.state"; else echo "NOT live" > "$EV/serve-N1.state"; fi
+  CRED1=$(cat "$DD/api-credential" 2>/dev/null | tr -d '[:space:]')
+  echo "${CRED1%%.*}" > "$EV/cred-prefix-N1.txt"
+  curl -sS -m 20 -H "Authorization: Bearer $CRED1" "http://127.0.0.1:$PORT_SERVE/api/agents" > "$EV/agents-N1.json" 2>&1
+  stop_group "$SP"
+else log "single-version mode: no N+1, upgrade skipped"; fi
 
 # ---- gate 1 (doctor, pinned and unpinned), gate 2 ---------------------------
 log "doctor (under xvfb-run: the pystray gtk backend needs an X display to init Gtk)"

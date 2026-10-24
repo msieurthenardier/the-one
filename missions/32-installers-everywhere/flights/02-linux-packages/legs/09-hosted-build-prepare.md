@@ -1,6 +1,6 @@
 # Leg: hosted-build-prepare
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Linux packages](../flight.md)
 
 ## Objective
@@ -77,24 +77,24 @@ Rehearse every script it calls by executing it locally, exactly as the runner wi
   - A dry run with `set -u` and `set -o pipefail` everywhere.
 
 ## Acceptance Criteria
-- [ ] **AC1** — the workflow file exists as specified.
+- [x] **AC1** — the workflow file exists as specified.
   - `actionlint` is clean.
   - Its triggers are only `workflow_dispatch` and `workflow_call`.
   - No `secrets.` reference.
   - Every job and step has a timeout.
   - Concurrency is set.
   - Artifact retention is ≤ 7 days, and 3 for packages.
-- [ ] **AC2** — `gates.sh` single-version mode works and is unit-tested (`upgrade=N/A`). `check.sh` is deleted, with no references left (`git grep -n "checks/check.sh"`).
-- [ ] **AC3** — the local rehearsal executes every job's commands in the runner's env shape:
+- [x] **AC2** — `gates.sh` single-version mode works and is unit-tested (`upgrade=N/A`). `check.sh` is deleted, with no references left (`git grep -n "checks/check.sh"`).
+- [x] **AC3** — the local rehearsal executes every job's commands in the runner's env shape:
   - the build produces both packages, with the audit line PASS;
   - the two matrix cells pass under `--display xvfb` with no WSLg socket mounted (assert `/mnt/wslg` is not mounted in the cell's `docker run`);
   - the fail step fails on a doctored FAIL and passes on PASS;
   - the summary script renders.
 
   The transcripts are in the evidence dir and summarized in the flight log.
-- [ ] **AC4** — the stub exists in the evidence dir, its `on:` block is byte-identical to the branch file's (a `diff` of the extracted `on:` blocks is empty), and `actionlint` is clean on it.
-- [ ] **AC5** — the runner facts and budget are recorded: an estimated minutes per run (build plus the four cells), the 6-dispatch cap, and the artifact storage seen.
-- [ ] **AC6** — gates:
+- [x] **AC4** — the stub exists in the evidence dir, its `on:` block is byte-identical to the branch file's (a `diff` of the extracted `on:` blocks is empty), and `actionlint` is clean on it.
+- [x] **AC5** — the runner facts and budget are recorded: an estimated minutes per run (build plus the four cells), the 6-dispatch cap, and the artifact storage seen.
+- [x] **AC6** — gates:
   - `make test-unit` passes (12 skips);
   - `ruff` clean;
   - no `m32-` container left running;

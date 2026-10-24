@@ -427,7 +427,7 @@ Legs 1-9 are reviewed, committed and pushed before the first dispatch (Flight 1'
 - [ ] `vm-relaunch-probe` - A short VM run of a local container build of legs 1-5 on both guests: no-tray hide and relaunch, focus with the activation token, the tray on Ubuntu, quit. Answers the relaunch divert risk before any hosted spend.
 - [x] `linux-recipe` - `packaging/product.toml` and the renderer, the version pin test, the `.desktop` templates with "Quit GleepGlorp AI", AppStream metainfo, and `AppRun` self-integration (DD5).
 - [x] `packaging-checks-and-audit` - The spike fold into `packaging/stage.py` and `packaging/linux/checks/`, `macos-checks.sh` moved, the post-freeze bundle audit, and the packaging unit tier (DD8).
-- [ ] `hosted-build-prepare` - `linux-packages.yml` and the bare-image hosted matrix (DD10), rehearsal by execution, review, commit and push, then the `.github/`-only PR to `main`.
+- [x] `hosted-build-prepare` - `linux-packages.yml` and the bare-image hosted matrix (DD10), rehearsal by execution, review, commit and push, then the `.github/`-only PR to `main`.
 - [ ] `hosted-build-run` - Dispatch on the flight branch, the gate summary, and a listing comparison with the leg 9 rehearsal build.
 - [ ] `fresh-vm-checks` - `linux-package-install` on all four variants. `docs/linux-install.md`, README "Install", and the packaging sections in `CLAUDE.md` and `the_one/agents.md`.
 - [ ] `linux-hat` - The operator's guided walk on both VM desktops.

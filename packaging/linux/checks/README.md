@@ -16,13 +16,12 @@ docker build --target baseline -t m32/ubuntu-26.04:baseline \
 
 ## Gates
 
-`gates.sh <candidate> <deb|appimage> <ubuntu-26.04|debian-13> <baseline|bare> --n N --n1 N1
+`gates.sh <candidate> <deb|appimage> <ubuntu-26.04|debian-13> <baseline|bare> --n N [--n1 N1]
 [--pkgdir DIR] [--evidence DIR] [--display wslg|xvfb] [--env K=V]... [--variant NAME]
 [--extra-apt "pkgs"] [--pkg-n FILE] [--pkg-n1 FILE]` runs ONE disposable container
 (`m32-gate-<format>-<distro>-<image>`, no `--privileged`, no `--network host`) from
 `m32/<distro>:<image>`, mounts the packages read-only and `gates-inner.sh`, writes evidence to
 `$M32_EVIDENCE/<candidate>/<format>/<distro>-<image>/` and scores it with `score.py`.
-(`check.sh` is a forwarding shim for the old name, removed in leg 9.)
 
 - **Display.** The window phase (gate 3, single instance, screenshot) runs only on `baseline`.
   `--display wslg` mounts `/mnt/wslg/.X11-unix` (display `:0`); `--display xvfb` starts a private
@@ -39,7 +38,7 @@ docker build --target baseline -t m32/ubuntu-26.04:baseline \
   `THE_ONE_DATA_DIR`, before seeding), seed an agent, install N+1, serve again (upgrade), `doctor`
   pinned and unpinned, gate 2, window checks. It records `host-libs.txt` (`ldconfig -p` per
   fallback soname) and each process's `/proc/<pid>/environ`.
-- `score.py EVDIR --format F --distro D --image I --n N --n1 N1` scores a directory mechanically
+- `score.py EVDIR --format F --distro D --image I --n N [--n1 N1]` scores a directory mechanically
   and prints one summary line (`G1p G1u G2 G3 G4 upgrade single`). Gate 1 treats any "skipped"
   doctor gate as a failure (window chrome's `skipped (not Windows)` excepted). Gate 3 is per
   soname: a fallback library must come from `/usr/lib` when the host resolves it and from the

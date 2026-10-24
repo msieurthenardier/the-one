@@ -1,6 +1,6 @@
 """Score one gate-runner evidence directory (packaging checks). Stdlib only.
 
-usage: score.py EVDIR --format F --distro D --image I --n VN --n1 VN1
+usage: score.py EVDIR --format F --distro D --image I --n VN [--n1 VN1]
 
 Reads the files gates-inner.sh wrote, writes EVDIR/score.json and prints one summary line.
 Nothing here knows which tool built the package.
@@ -240,6 +240,9 @@ def main() -> int:
     ap.add_argument("--image", required=True)
     ap.add_argument("--n")
     ap.add_argument("--n1")
+    ap.add_argument(
+        "--window", action="store_true", help="the run had a window phase (implied by baseline)"
+    )
     ap.add_argument("--probe", action="store_true", help="score an ABI-probe run instead")
     ap.add_argument("--control", help="probe: a control run whose stderr lines are excluded")
     ap.add_argument(
@@ -257,8 +260,8 @@ def main() -> int:
             f"all_from_fallback={pr['all_from_fallback']}"
         )
         return 0 if pr["ok"] else 1
-    if not (a.n and a.n1):
-        ap.error("--n and --n1 are required")
+    if not a.n:
+        ap.error("--n is required")
     r: dict = {"format": a.format, "distro": a.distro, "image": a.image}
 
     r["g1_pinned"] = score_doctor(read(ev / "doctor-pinned.txt"))
@@ -279,8 +282,9 @@ def main() -> int:
         "version": ver.strip(),
     }
 
-    # gate 3 (window images only)
-    if a.image == "baseline":
+    # gate 3 (window runs only: baseline images, and the .deb on a bare image under xvfb)
+    windowed = a.image == "baseline" or a.window
+    if windowed:
         ui = read(ev / "ui.maps")
         webs = sorted(ev.glob("web-*.maps"))
         appimage = a.format == "appimage"
@@ -345,25 +349,29 @@ def main() -> int:
     v_n, v_n1 = read(ev / "version-N.txt"), read(ev / "version-N1.txt")
     p_n, p_n1 = read(ev / "cred-prefix-N.txt").strip(), read(ev / "cred-prefix-N1.txt").strip()
     ag = read(ev / "agents-N1.json")
-    r["upgrade"] = {
-        "pass": f"v{a.n}" in v_n
-        and f"v{a.n1}" in v_n1
-        and "m32-upgrade-agent" in ag
-        and bool(p_n)
-        and p_n == p_n1,
-        "version_N": f"v{a.n}" in v_n,
-        "version_N1": f"v{a.n1}" in v_n1,
-        "agent_readback": "m32-upgrade-agent" in ag,
-        "cred_prefix": p_n,
-        "cred_prefix_same": p_n == p_n1,
-    }
+    r["upgrade"] = (
+        {"pass": None, "note": "N/A (single version)"}
+        if not a.n1
+        else {
+            "pass": f"v{a.n}" in v_n
+            and f"v{a.n1}" in v_n1
+            and "m32-upgrade-agent" in ag
+            and bool(p_n)
+            and p_n == p_n1,
+            "version_N": f"v{a.n}" in v_n,
+            "version_N1": f"v{a.n1}" in v_n1,
+            "agent_readback": "m32-upgrade-agent" in ag,
+            "cred_prefix": p_n,
+            "cred_prefix_same": p_n == p_n1,
+        }
+    )
 
     # single instance
     si = read(ev / "single-instance.txt")
-    if a.image != "baseline" or not si:
+    if not windowed or not si:
         r["single"] = {
             "pass": None,
-            "note": "N/A (no window)" if a.image != "baseline" else "not run",
+            "note": "N/A (no window)" if not windowed else "not run",
         }
     else:
         el = re.search(r"elapsed=([\d.]+)", si)
