@@ -559,6 +559,14 @@ Planning (2026-10-24). Not yet in flight.
   - `appimage/debian-13-baseline`: `G1p=PASS G1u=PASS G2=PASS G3=PASS G4=PASS upgrade=N/A single=PASS`
 - Housekeeping: root-owned container output chowned back (`m32-leg10-chown`); no `m32-` container left; leg 6's VMs untouched; 8484/8485 and operator data dir untouched; no commit, push or dispatch.
 
+### fresh-vm-checks (part A)
+
+**Status**: part A (documentation) written, uncommitted; part B (behavior test on the four variants) is the Flight Director's.
+
+- **New:** `docs/linux-install.md` (modelled on `docs/windows-install.md`: which download, install, first launch and the three close states, quitting, WebKitGTK missing, window size/position (X11 only), upgrade, remove, data, both installed, `doctor` with the `sandbox:`/`tray:` lines, troubleshooting). The no-tray notice is described, not quoted (leg 11 owns the wording). The `apt` lines, the AppImage clean-up paths and `the-one quit [--wait]` are the ones the behavior test exercises (AC4's cross-check against the run log is still to do after part B).
+- **Edited, additively:** `README.md` (Linux paragraph in "Install"; source-install steps kept, marked source-only), `CLAUDE.md` (a "Linux packaging (M32 F2)" paragraph after "Windows packaging (M15 F5)", which also carries the window routes and `the-one quit` sentence, since the Desktop launcher paragraph did not name them), `the_one/agents.md` (a "Linux packaging (M32 F2)" section before "Time zones (M28)").
+- **Checks:** `ruff check the_one/ tests/ scripts/ evals/ packaging/` clean. `make test-unit`: 7058 passed, 12 skipped. No source, template or packaging file touched.
+
 ### Flight review fixes
 
 - Pid answers (takeover and `the-one quit --wait`) must be a positive int (bool and non-positive rejected as an invalid answer).
@@ -567,6 +575,15 @@ Planning (2026-10-24). Not yet in flight.
 - `activation_token` is printable ASCII without whitespace (max 256).
 - SECURITY-MODEL.md states the window routes share the existing posture (admitted localhost origin with a session cookie).
 - Flight log: gtk-window-fixes moved under Leg Progress; leg sections ordered by leg number.
+
+### notice-and-metainfo-polish
+
+Leg 11, landed (not committed).
+
+- **Notice (AC1):** `shell.py` now sends summary `_NO_TRAY_NOTICE_SUMMARY` = "GleepGlorp AI is still running" and body "Open it again to show it, or right-click its icon to quit." (57 characters). This supersedes the single-string wording in flight DD4 (DD4 text left as written). `test_none_mode_close_hides_and_notices_once` pins both strings and the 60-character bound.
+- **Icons and metainfo (AC2):** `metainfo.xml.in` gains `<icon type="stock">@DESKTOP_ID@</icon>`. `build-inner.sh` resizes 64/128/256 px from the 512 px source with Pillow (new `== icons` step, `install_icons` helper) into both the AppDir and the deb root. Deviation found while building: once an icon is declared, `appstreamcli validate` fails with `app-categories-missing`, so the template also gains `<categories><category>@APPSTREAM_CATEGORY@</category></categories>`, derived in `render.py` `load()` from the single `product.toml` `categories` value (exactly one entry required, else it fails loudly). After that, validate exits 0 (one pre-existing pedantic note).
+- **Verification (AC3):** scratch build 0.11.9.dev14: `dpkg-deb -c` and the extracted AppImage both list 64, 128, 256 and 512 px icons; audit PASS (1025 files, max GLIBC_2.34); desktop-file-validate OK; `make test-unit` 7058 passed, 12 skipped; ruff check and format clean; shellcheck clean on `build-inner.sh`. No m32-* containers left.
+- **AC4:** App Center icon and publisher are checked in leg 12's VM run, not here.
 
 ## Decisions
 

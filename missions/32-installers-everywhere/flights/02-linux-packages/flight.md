@@ -429,7 +429,7 @@ Legs 1-9 are reviewed, committed and pushed before the first dispatch (Flight 1'
 - [x] `packaging-checks-and-audit` - The spike fold into `packaging/stage.py` and `packaging/linux/checks/`, `macos-checks.sh` moved, the post-freeze bundle audit, and the packaging unit tier (DD8).
 - [x] `hosted-build-prepare` - `linux-packages.yml` and the bare-image hosted matrix (DD10), rehearsal by execution, review, commit and push, then the `.github/`-only PR to `main`.
 - [x] `hosted-build-run` - Dispatch on the flight branch, the gate summary, and a listing comparison with the leg 9 rehearsal build.
-- [ ] `notice-and-metainfo-polish` - Shorter no-tray notice text that fits GNOME's banner; AppStream icon and developer/publisher fields; more icon sizes (operator, 2026-10-24, after leg 6).
+- [x] `notice-and-metainfo-polish` - Shorter no-tray notice text that fits GNOME's banner; AppStream icon and developer/publisher fields; more icon sizes (operator, 2026-10-24, after leg 6).
 - [ ] `fresh-vm-checks` - `linux-package-install` on all four variants. `docs/linux-install.md`, README "Install", and the packaging sections in `CLAUDE.md` and `the_one/agents.md`.
 - [ ] `linux-hat` - The operator's guided walk on both VM desktops.
 ---

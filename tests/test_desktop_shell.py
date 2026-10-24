@@ -1482,8 +1482,9 @@ def test_none_mode_close_hides_and_notices_once(shell_state, monkeypatch, tmp_pa
     win.destroy.assert_not_called()
     assert shell_state._tracked_visible is False
     assert len(calls) == 1
-    assert calls[0][0] == "GleepGlorp AI"
-    assert "still running" in calls[0][1] and "Quit GleepGlorp AI" in calls[0][1]
+    assert calls[0][0] == "GleepGlorp AI is still running"
+    assert calls[0][1] == "Open it again to show it, or right-click its icon to quit."
+    assert len(calls[0][1]) <= 60
     assert (tmp_path / ".no_tray_notice_shown").exists()
     assert not (tmp_path / ".close_to_tray_notice_shown").exists()
     # a second close hides again without a second notice

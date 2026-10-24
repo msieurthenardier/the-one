@@ -103,6 +103,25 @@ sed -e 's|@APPIMAGE_EXEC@|"/home/u/My App/G.AppImage"|' -e 's|@APPIMAGE_PATH@|/h
 validate "$R/deb.desktop" "$R/appimage-root.desktop" "$WORK/integration-sample.desktop"
 appstreamcli validate --no-net "$R/metainfo.xml"
 
+echo "== icons"
+# 64/128/256 px resized from the 512 px source (software centres read the stock icon at several sizes)
+python - /stage/icon-512.png "$WORK/icons" <<'PY'
+import sys
+from pathlib import Path
+from PIL import Image
+src, out = Image.open(sys.argv[1]).convert("RGBA"), Path(sys.argv[2])
+for n in (64, 128, 256):
+    (out / f"{n}x{n}").mkdir(parents=True, exist_ok=True)
+    src.resize((n, n), Image.LANCZOS).save(out / f"{n}x{n}" / "icon.png", optimize=True)
+PY
+install_icons() {   # install_icons <root>: all four sizes under hicolor/<n>x<n>/apps/
+    local n
+    for n in 64 128 256; do
+        mkdir -p "$1/usr/share/icons/hicolor/${n}x${n}/apps"
+        cp "$WORK/icons/${n}x${n}/icon.png" "$1/usr/share/icons/hicolor/${n}x${n}/apps/$DESKTOP_ID.png"
+    done
+}
+
 echo "== AppImage"
 APPDIR="$WORK/AppDir"
 mkdir -p "$APPDIR/usr/lib" "$APPDIR/usr/share/icons/hicolor/512x512/apps" \
@@ -117,6 +136,7 @@ cp "$R/integration.desktop.in" "$APPDIR/usr/share/$PACKAGE/integration.desktop.i
 cp "$R/metainfo.xml" "$APPDIR/usr/share/metainfo/$METAINFO_ID.metainfo.xml"
 cp /stage/icon-512.png "$APPDIR/$DESKTOP_ID.png"
 cp /stage/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/$DESKTOP_ID.png"
+install_icons "$APPDIR"
 ln -sf "$DESKTOP_ID.png" "$APPDIR/.DirIcon"
 rm -f "$APPIMAGE"
 ARCH=x86_64 /opt/tools/appimagetool-x86_64.AppImage --appimage-extract-and-run \
@@ -131,6 +151,7 @@ ln -s "$INSTALL_DIR/$EXECUTABLE" "$ROOT/usr/bin/$EXECUTABLE"
 cp "$R/deb.desktop" "$ROOT/usr/share/applications/$DESKTOP_ID.desktop"
 cp "$R/metainfo.xml" "$ROOT/usr/share/metainfo/$METAINFO_ID.metainfo.xml"
 cp /stage/icon-512.png "$ROOT/usr/share/icons/hicolor/512x512/apps/$DESKTOP_ID.png"
+install_icons "$ROOT"
 sed "s|@INSTALLED_SIZE@|$SIZE_KB|" "$R/control" > "$ROOT/DEBIAN/control"
 find "$ROOT" -type d -exec chmod 755 {} +
 rm -f "$DEB"

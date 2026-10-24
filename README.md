@@ -107,7 +107,9 @@ Press Ctrl K (⌘ K on a Mac) to **Jump to** any agent, chat, knowledge base, MC
 
 **Windows:** download the installer from the [releases page](https://github.com/msieurthenardier/the-one/releases) and run it. You need no Python and no command line. [docs/windows-install.md](docs/windows-install.md) walks through it, including the unsigned-app warning.
 
-**From source, with Python 3.11+:**
+**Linux:** download the AppImage (any supported desktop, no terminal) or the `.deb` from the [releases page](https://github.com/msieurthenardier/the-one/releases). Ubuntu 26.04 LTS and Debian 13 on GNOME are supported. [docs/linux-install.md](docs/linux-install.md) covers installing, upgrading and removing it.
+
+**From source, with Python 3.11+** (the `gir1.2-webkit2-4.1` step below is for source installs only; the Linux packages bring their own):
 
 ```bash
 git clone https://github.com/msieurthenardier/the-one.git

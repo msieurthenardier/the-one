@@ -152,3 +152,12 @@ def test_every_template_renders(template):
         assert "StartupNotify=true" in out and "Name=Quit GleepGlorp AI" in out
     if template == "control.in":
         assert "spike" not in out.lower()
+
+
+def test_metainfo_category_derives_from_categories():
+    tpl = (LINUX / "metainfo.xml.in").read_text(encoding="utf-8")
+    values = render.load(REPO)
+    entry = values["categories"].strip(";")
+    assert f"<category>{entry}</category>" in render.render(tpl, values, xml=True)
+    with pytest.raises(render.RenderError):
+        render.load(REPO, {"categories": "Utility;Network;"})

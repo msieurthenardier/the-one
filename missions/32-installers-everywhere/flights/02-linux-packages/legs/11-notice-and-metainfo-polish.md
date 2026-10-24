@@ -1,6 +1,6 @@
 # Leg: notice-and-metainfo-polish
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Linux packages](../flight.md)
 
 ## Objective

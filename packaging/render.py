@@ -58,6 +58,14 @@ def release_date(override: str | None = None) -> str:
     return _dt.date.today().isoformat()
 
 
+def appstream_category(categories: str) -> str:
+    """AppStream takes one category; derive it from the desktop ``categories`` value."""
+    entries = [c for c in categories.split(";") if c.strip()]
+    if len(entries) != 1:
+        raise RenderError(f"categories must have exactly one entry, got {categories!r}")
+    return entries[0].strip()
+
+
 def load(repo: Path | str, overrides: dict[str, str] | None = None) -> dict[str, str]:
     """Return the flat value map (lowercase keys). ``overrides`` win over everything."""
     repo = Path(repo)
@@ -74,6 +82,7 @@ def load(repo: Path | str, overrides: dict[str, str] | None = None) -> dict[str,
     values["deb_version"] = deb_version(values["version"])
     values["release_date"] = release_date(overrides.pop("release_date", None))
     values.update(overrides)
+    values["appstream_category"] = appstream_category(values["categories"])
     return values
 
 

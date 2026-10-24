@@ -49,10 +49,9 @@ _quit_requested: bool = False
 _browser_server = None
 
 # The one-time notice for a close with no tray to go back to.
-_NO_TRAY_NOTICE_BODY = (
-    "GleepGlorp AI is still running. Open it again to bring it back, "
-    "or right-click its icon and choose Quit GleepGlorp AI."
-)
+# Short on purpose: GNOME's banner truncates long text with an ellipsis.
+_NO_TRAY_NOTICE_SUMMARY = "GleepGlorp AI is still running"
+_NO_TRAY_NOTICE_BODY = "Open it again to show it, or right-click its icon to quit."
 
 # ── Splash screen ─────────────────────────────────────────────────────────────
 # Inline HTML rendered before the app server is up (no localhost URL, no CDN).
@@ -838,7 +837,7 @@ def _no_tray_hide(window=None) -> bool:
     try:
         if not notice.no_tray_notice_shown():
             notice.mark_no_tray_notice_shown()
-            desktop_host.send_notification("GleepGlorp AI", _NO_TRAY_NOTICE_BODY)
+            desktop_host.send_notification(_NO_TRAY_NOTICE_SUMMARY, _NO_TRAY_NOTICE_BODY)
     except Exception:
         log.debug("no-tray notice failed", exc_info=True)
     return True
