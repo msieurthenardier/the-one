@@ -44,6 +44,7 @@ rm -rf "$VENV"; python3 -m venv "$VENV" || die "venv failed"
 "$VENV/bin/python" -m pip freeze > "$LOG/pip-freeze.txt" 2>&1
 
 echo "== A: icon"
+mkdir -p "$WORK"
 "$VENV/bin/python" "$HERE/make-icns.py" "$STAGE/icon-512.png" "$WORK/icon.icns" > "$LOG/icns.log" 2>&1 \
     || { cat "$LOG/icns.log"; die "icns failed"; }
 

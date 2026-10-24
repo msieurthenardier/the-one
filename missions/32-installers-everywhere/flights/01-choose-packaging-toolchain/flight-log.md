@@ -115,6 +115,19 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
   - the job cap raised from 30 to 40 minutes (the estimate sat at the cap, and 40 lets the 15-minute step caps fire first, so the log upload is always reached);
   - a final step that fails the job on a FAIL or missing candidate summary;
   - time limits on `log show` and `screencapture`.
+- **2026-10-24, the PR and the dispatch.**
+  - PR #305 (`.github/`-only: the two workflow files, cut from `origin/main` in a separate worktree, `~/projects/the-one-worktrees/m32-probe-pr`, branch `m32/probe-workflows`) passed `lint`. `pip-audit` failed on a pre-existing `filelock 3.29.0` CVE on `main`, unrelated to the PR.
+  - With the operator's go, it was merged anyway: squash `df30153`.
+  - The filelock finding is logged as squawk 0250. Id 0250 was taken because Mission 31's uncommitted tree holds 0249; the squawk notes it.
+  - **macOS run 1 dispatched:** run `40058032297`, https://github.com/msieurthenardier/the-one/actions/runs/40058032297 (`--ref flight/01-choose-packaging-toolchain`, `candidates="A B"`). It is job 1 of 2.
+- **`macos-probe-run` risk tier: low** (it reads logs, and nothing is outward-facing), so no design review. It is set to `ready`.
+- **The operator is away overnight (2026-10-24)** and asked for autonomous progress until needed. A second macOS dispatch, if warranted, waits for the operator. The `decision-hat` leg and the operator's Windows install (`windows-cost`) need the operator. The hosted Windows MSI build is within the approved flight plan (DD7, one Windows job) and proceeds autonomously if the minutes allow.
+- **The operator delegated decisions overnight** ("feel free to make decisions, we can align if needed tomorrow"). The Flight Director makes the calls, logs each one here, and raises them at the morning alignment. Limits kept regardless:
+  - at most 2 macOS jobs and 1 Windows job;
+  - nothing installed on the operator's PC;
+  - no release;
+  - no further change to `main`.
+- **`windows-cost` designed; risk tier high** (it produces an installer the operator will run on their real machine, and spends hosted minutes), so it gets a Developer design review. Its autonomous part stops at `[HANDOFF:review-needed]` for review, commit, push and dispatch. The operator's real-machine install is a morning step, outside its acceptance.
 
   The Flight Director checked the triggers and caps, then committed. The operator approved (2026-10-23) the push, the `.github/`-only PR to `main`, its merge after `pr-lint`, and one macOS dispatch building both candidates, and confirmed the minutes budget. A second dispatch needs the operator's go.
 
@@ -434,6 +447,66 @@ Estimated job: setup 2-3 min; A about 9-13 min (closure install, PyInstaller on 
 - `macos-checks.sh`: `log show` and `screencapture` wrapped in `tl 60`.
 - Lint: actionlint 1.7.7 (with shellcheck 0.10.0) clean on the workflow; shellcheck clean on `macos-checks.sh`; `ruff check packaging/` and `ruff format --check packaging/` pass.
 
+### macos-probe-run
+**Status**: landed
+**Started**: 2026-10-23
+**Landed**: 2026-10-24
+
+#### Run (AC1)
+- Run 40058032297, https://github.com/msieurthenardier/the-one/actions/runs/40058032297, `candidates="A B"`, on macos-15 (15.7.9, arm64, Xcode 16.4, 3 cores billed as 5 CPUs reported, setup-python 3.11.9). Conclusion `failure`; job 03:22:28 to 03:25:45 UTC, **3 min 17 s**. Every step succeeded except the last ("Fail on a failed or missing candidate": `candidate A: SUMMARY missing`). Job 1 of 2 used.
+- Evidence: `$HOME/the-one-m32-evidence/macos/run-1/` (`job.log`, `run.json`, `packaging-probe-macos-logs/{A,B,A-step.log,B-step.log,runner.txt}`).
+
+#### Candidate A: not reached (AC4 (a), a recipe defect)
+Died at its 4th step, 20 s in, before PyInstaller ran. The closure install (`--require-hashes --no-deps`, incl. the five pyobjc-* wheels and `usearch`/`numkong`) and the pinned PyInstaller 6.22.3 + hooks-contrib 2026.8 installs both succeeded (`A/pip-closure.log`, `A/pip-tools.log`).
+```
+== A: icon
+  File ".../packaging/macos/make-icns.py", line 30, in main
+    src.save(out, format="ICNS", sizes=[(s, s) for s in SIZES])
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/_temp/m32-build/macos-0.11.8/icon.icns'
+build.sh: icns failed
+```
+Root cause: `build.sh` wrote `$WORK/icon.icns` before `$WORK` existed (`mkdir -p "$WORK"` came later, at the freeze step, and `$LOG`/`$STAGE` creation never made it). The Linux rehearsal missed it because the scratch `$WORK` already existed there. Reproduced on Linux against an absent directory (same `FileNotFoundError`), and the fix gives `wrote ... icon.icns (1224031 bytes)`. Every A check (G1, G2, serve, G4, sign, size, dmg) is **not reached**.
+
+#### Candidate B: all checks reached, all hard checks PASS (AC2)
+`SUMMARY.txt`: `== B done: 0 hard check(s) failed`. Briefcase create/build/package took about 2 min 20 s (03:23:06 to 03:25:25) including the template and support-package download; checks 13 s.
+
+| check | result | excerpt |
+|---|---|---|
+| codesign verify (`--deep --strict`) | PASS | `rc=0`; `Signature=adhoc`, `Identifier=ai.gleepglorp.the-one`, `Format=app bundle with Mach-O thin (arm64)`, sealed resources 7996 files, `valid on disk`, `satisfies its Designated Requirement` |
+| G1 doctor, strict | PASS | `{"pass": true, "rc": 0, "gates": 12, "bad": []}`; window chrome `OK — skipped (not Windows)` is the only skip; `usearch: OK ... simd=neon`; `embedding model: OK — 512-dim ...`; `file watcher: OK — native change notification round-trip OK`; `desktop shell: OK — pystray + PIL importable`; `mcp sdk: OK — mcp 2.3.0 ...`; `time zones: OK — 345 zones` |
+| G2 interpreter outside bundle | PASS | resolved `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11` (prefix `/Library/Frameworks/Python.framework/Versions/3.11`), runs, 3.11.9, no `.app/` or `Contents` |
+| serve `/api/live` | PASS | `{"status":"ok"}` |
+| G4 data dir | PASS | `Local API credential created at /Users/runner/Library/Application Support/the-one/api-credential (mode 0600)`; `ls` shows only `api-credential` after `rotate-api-credential` |
+| version | PASS | `GleepGlorp AI v0.11.8`, rc 0 |
+| size | `.app` 353 MB (361,780 KB), `.dmg` 138.6 MB (ad-hoc signed by `briefcase package --adhoc-sign --no-notarize`) | `artifacts.txt` |
+| build time | about 2 min 20 s for create+build+package, cold runner | job log |
+| finder-style `open -n` (best effort, unscored) | `open rc=0`, `/api/live` answered `{"status":"ok"}` with a bare launch, so the stub reached `app`/`serve`; `POST /api/window/focus` returned an empty body (no window registered, or unreadable); `screencapture` is an empty black desktop with Finder and Dock only, so no window is visible | `open*.txt`, `open-screen.png` |
+| window, Dock, single-instance | N/A (contributor, Flight 3) | DD6 |
+
+#### Residual risks (AC3)
+- **B stub `sys.executable`, `sys.frozen`, argv, stdout: confirmed as assumed.** `sys.executable` is the stub `.../Contents/MacOS/GleepGlorp AI` (exists), `sys.frozen` absent and no `_MEIPASS`, `argv=[stub, 'a', 'b']` (forwarded), and stdout reaches the terminal (`GleepGlorp AI v0.11.8`). Python is the embedded 3.11.9 `Python.framework` in `Contents/Frameworks`. Patch 02's macOS clause works: `is_frozen=True bundle_dir=None resolve_python='/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11'`. Every launch prints two `NSLog` lines first (`No Python NSLog handler found ... add 'std-nslog' to your app dependencies`), so stdout is not clean (cosmetic, a Flight 2 upkeep note: add `std-nslog` or accept).
+- **`BRIEFCASE_MAIN_MODULE`: confirmed working** (`stub-probe.txt`, `m32probe` ran with the env var; rc 0).
+- **A's pyobjc hidden imports: unobservable** (A never built).
+- **FSEvents file watcher, embedding, window-chrome gates: confirmed OK on macOS** (B, above; the embedding gate peaked at 290.6 MiB RSS).
+- **`codesign --verify --deep --strict` on A: unobservable.** B's strict verify passes.
+- **Job cap: refuted as a worry for B** (a cold B build is 2.5 min, not 10-14). A's duration is still unknown.
+- **Template/support download from GitHub: did not fail** (the build ran).
+
+#### Classification (AC4)
+- A: **(a)** recipe defect, contained fix written (below).
+- B: no FAIL; nothing to fix. Its only gaps are the DD6 paper items.
+
+#### Fixes (uncommitted)
+1. `packaging/macos/build.sh`: `mkdir -p "$WORK"` before the icon step (the defect).
+2. `packaging/spike/macos-checks.sh` (cosmetic, from reading B's SUMMARY): the `version:` and `gate 4:` summary lines skipped the `NSLog` noise lines, so the first printed line was noise instead of the version. Scoring is unchanged (gate 4 greps the whole file).
+Lint: `shellcheck` 0.10.0 on both scripts, `bash -n`, `ruff check` and `ruff format --check packaging/`, `actionlint` 1.7.7 on the workflow (unchanged; trigger and inputs identical to main's copy): all clean. Linux rehearsal: icon step reproduced and fixed against a missing `$WORK`. Scan for latent defects after the icon step: re-read `build.sh` from the freeze to the checks, the spec (PyInstaller Analysis/COLLECT already rehearsed on Linux in leg 4) and `macos-checks.sh` (all of its code paths except the B-only stub probe ran for B in this run and produced scores, so the shared checks are now proven on a real Mac); no other defect found. What cannot be rehearsed off a Mac, and is the residual risk for run 2: pyobjc submodule collection at Analysis time, `codesign --force --deep` over PyInstaller output, `hdiutil` (retried, never fatal), and A's runtime behaviour. A freeze failure or a missing hidden import would be scored as evidence (G1's `desktop shell` gate names a missing module), not a script defect. If PyInstaller itself fails, A's SUMMARY is again not written, but `A-step.log` and `pyinstaller.log` are uploaded and the failure is evidence.
+
+#### Second-run case (the last macOS job; operator go needed, and the budget check before dispatch)
+- What failed and why the fix is contained: one missing `mkdir -p` in A's build script, no app change, no design call, no trigger/input change, so no new `.github` PR to `main`; `--ref` runs the flight branch's copy, so the flight branch must be committed and pushed first.
+- What run 2 adds to the decision: A's whole macOS row (G1/G2/serve/G4, signature, size, freeze time), the one comparison the decision needs (PyInstaller `.app` vs Briefcase `.app` on size, signing, and `doctor`); without it macOS has one candidate scored, and the table could not support a toolchain pick. Run `A` only (B is complete and passing; a rerun of B would add nothing).
+- Expected cost: A alone is estimated at 8-12 min wall (closure install about 20 s, PyInstaller on a big closure 3-6 min, ad-hoc sign, 2 hdiutil attempts at most, checks about 1-2 min); billed at the 10x macOS rate about 80-120 billed minutes. Single dispatch, budget total 2 jobs.
+- Exact command: `gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A"`
+
 ---
 
 ## Evidence Table
@@ -490,6 +563,15 @@ Estimated job: setup 2-3 min; A about 9-13 min (closure install, PyInstaller on 
 - Hosted CI: a hosted Linux build of B needs Docker on the runner (GitHub's `ubuntu-latest` has it), a template clone from GitHub, about 2.5 minutes warm (about 5.5 minutes cold) for the two `.deb`s, and `uv export` plus `git`; each additional distro adds a Docker build. A needs a Python 3.11 venv, `appimagetool` and about 70 s.
 - Sandbox: same as A (inside Docker `bwrap` is denied; not representative).
 - Closure pinned with hashes (`-r closure.txt` + `--require-hashes`, `--no-deps`): no deviation.
+
+**macOS (hosted macos-15, arm64), run 1 (40058032297, 2026-10-24, 3 min 17 s), DD6.** Evidence root `$HOME/the-one-m32-evidence/macos/run-1/packaging-probe-macos-logs/<A|B>/`. Window, Dock and single-instance columns are N/A (contributor, Flight 3).
+
+| candidate | G1 strict | G2 | serve/live | data dir | signature | size | build time | notes |
+|---|---|---|---|---|---|---|---|---|
+| A / .app + .dmg | not reached | not reached | not reached | not reached | not reached | not reached | not reached | `make-icns` ran before `$WORK` existed (recipe defect, fixed, run 2 pending); closure and PyInstaller 6.22.3 installed fine |
+| B / .app + .dmg (patched) | PASS (12 gates, only window chrome skipped) | PASS `/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11` | PASS | PASS `~/Library/Application Support/the-one/` | PASS ad hoc, `--deep --strict` rc 0 | .app 353 MB, .dmg 138.6 MB | about 2 min 20 s cold (create+build+package) | stub `sys.executable` is the stub, argv forwarded, stdout reaches the terminal, `BRIEFCASE_MAIN_MODULE` works; each launch prints two `NSLog` lines; best-effort bare `open` started the server, no window visible in the screenshot |
+
+macOS upkeep notes for B: patch 02's macOS clause held with no change; `universal_build = false` and `min_os_version = 11.0` as configured; the app embeds Python 3.11.9 (`Python.framework`), and the interpreter it resolves is the system/toolcache one (a real macOS install would need a Python installed: paper item 1 stands). Nothing macOS added to A yet.
 
 ---
 

@@ -70,7 +70,7 @@ fi
 # ---- version -----------------------------------------------------------------
 (cd "$SCRATCH/cwd" && tl 60 env THE_ONE_DATA_DIR="$SCRATCH/data" "$EXE" version) > "$OUT/version.txt" 2>&1
 echo "rc=$?" >> "$OUT/version.txt"
-note "version: $(head -1 "$OUT/version.txt") ($(tail -1 "$OUT/version.txt"))"
+note "version: $(grep -v -e NSLog -e std-nslog "$OUT/version.txt" | head -1) ($(tail -1 "$OUT/version.txt"))"
 if [ ! -s "$OUT/version.txt" ] || [ "$(wc -l < "$OUT/version.txt")" -le 1 ]; then
   # a GUI stub may swallow stdout: leave the unified log's view of the process for the reader
   tl 60 log show --last 3m --style compact --predicate "process == \"$(basename "$EXE")\"" 2>&1 | tail -60 > "$OUT/unified-log.txt"
@@ -131,7 +131,7 @@ hard "serve answers /api/live" "$LIVE"
 (cd "$SCRATCH/cwd" && unset THE_ONE_DATA_DIR && tl 60 "$EXE" rotate-api-credential) > "$OUT/gate4-rotate.txt" 2>&1
 echo "rc=$?" >> "$OUT/gate4-rotate.txt"
 ls -laR "$HOME/Library/Application Support/the-one" > "$OUT/gate4-ls.txt" 2>&1
-note "gate 4: $(head -2 "$OUT/gate4-rotate.txt" | tr '\n' '|')"
+note "gate 4: $(grep -v -e NSLog -e std-nslog "$OUT/gate4-rotate.txt" | head -2 | tr '\n' '|')"
 grep -q "Library/Application Support/the-one/" "$OUT/gate4-rotate.txt"; hard "gate 4 data dir under Application Support" $?
 
 # ---- best effort: a Finder-style launch (no arguments), the path a double-click takes ------
