@@ -235,8 +235,9 @@ def test_mismatch_hint_and_its_one_step_fix(tmp_path: Path, browser: Browser) ->
         expect(text).not_to_contain_text(KIRITIMATI)
         title = hint.get_attribute("title") or ""
         assert KIRITIMATI in title and CHICAGO in title, title
+        # HAT (ledger 53): the button names the same place as the banner text.
         button = tid(page, "date-time-use-browser")
-        expect(button).to_have_text(f"Use {KIRITIMATI}")
+        expect(button).to_have_text("Use Kiritimati")
         button.click()
         expect_saved(page)
         expect(hint).to_be_hidden()
@@ -571,6 +572,7 @@ def test_the_hint_names_an_alias_by_its_canonical_city(tmp_path: Path, browser: 
         text = hint.locator(".date-time-mismatch-text")
         expect(text).to_contain_text("Your browser is in Kolkata")
         expect(text).not_to_contain_text("Calcutta")
+        expect(tid(page, "date-time-use-browser")).to_have_text("Use Kolkata")
 
 
 def test_a_zone_with_no_city_falls_back_to_its_id(tmp_path: Path, browser: Browser) -> None:
@@ -578,6 +580,28 @@ def test_a_zone_with_no_city_falls_back_to_its_id(tmp_path: Path, browser: Brows
         open_page(page, base)
         text = tid(page, "date-time-mismatch").locator(".date-time-mismatch-text")
         expect(text).to_contain_text("Your browser is in UTC")
+        expect(tid(page, "date-time-use-browser")).to_have_text("Use UTC")
+
+
+def test_a_zone_whose_label_is_its_id_is_named_once(tmp_path: Path, browser: Browser) -> None:
+    """HAT (ledger 54): 'Selected: UTC UTC' repeated itself. A zone whose label equals
+    its id (UTC, Japan) shows it once, on the Selected line and on an alias row; a zone
+    whose label differs keeps the label, the id and the offset."""
+    with session(tmp_path, browser, server_tz=CHICAGO) as (base, page):
+        put_settings(base, {"mode": "zone", "zone": "UTC"})
+        open_page(page, base)
+        chosen = tid(page, "date-time-chosen")
+        expect(chosen).to_have_text("Selected: UTC · UTC+00:00")
+        tid(page, "date-time-search").fill("Japan")
+        item = page.locator('[data-testid="date-time-zone-row"][data-zone="Japan"]')
+        expect(item).to_have_count(1)
+        expect(item.locator(".ui-search-list-description")).to_have_text("Same clock as Asia/Tokyo")
+        item.click()
+        expect_saved(page)
+        expect(chosen).to_have_text("Selected: Japan · UTC+09:00")
+        pick(page, "Europe/Paris", "Paris")
+        expect_saved(page)
+        expect(chosen).to_contain_text("Selected: Paris Europe/Paris · UTC+")
 
 
 def test_the_stored_zone_is_centred_and_ids_share_one_font(

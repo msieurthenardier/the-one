@@ -166,10 +166,12 @@
           if (!atier) continue;
           var first = alias.split('/')[0];
           var region = regions[first] ? first : trow.region;
+          // An alias whose label is its id (UTC, Japan) is named once (HAT ledger 54).
           add(region, atier, {
             id: 'alias:' + alias,
             label: city,
-            description: alias + ' · same clock as ' + target,
+            description: city === alias ? 'Same clock as ' + target
+              : alias + ' · same clock as ' + target,
             meta: trow.offset,
             metaMono: true,
             selected: alias === storedZone(),
@@ -202,12 +204,13 @@
       }
       nodes.chosen.appendChild(document.createTextNode('Selected: '));
       nodes.chosen.appendChild(el('strong', { text: cityOf(z) }));
-      // B8: the id and offset use the list's mono font, as in the rows.
-      nodes.chosen.appendChild(document.createTextNode(' '));
-      nodes.chosen.appendChild(el('span', {
-        className: 'date-time-chosen-id',
-        text: z + (off ? ' · ' + off : '')
-      }));
+      // B8: the id and offset use the list's mono font, as in the rows. A zone whose label
+      // is its id (UTC) is named once: "Selected: UTC · UTC+00:00" (HAT ledger 54).
+      var id = cityOf(z) === z ? '' : z;
+      var tail = id ? id + (off ? ' · ' + off : '') : off;
+      if (!tail) return;
+      nodes.chosen.appendChild(document.createTextNode(id ? ' ' : ' · '));
+      nodes.chosen.appendChild(el('span', { className: 'date-time-chosen-id', text: tail }));
     }
 
     function patchPreview() {
@@ -261,7 +264,8 @@
       nodes.hint.el.setAttribute('title', 'Your browser: ' + b + '. Agents: ' + (eff || ePlace) + '.');
       var known = !!(byZone[b] || state.links[b]);
       nodes.useBrowser.hidden = !known;
-      nodes.useBrowser.textContent = 'Use ' + b;
+      // The button names the same place as the text; the raw id stays in the title (ledger 53).
+      nodes.useBrowser.textContent = 'Use ' + placeOf(b);
       nodes.hint.show();
     }
 
