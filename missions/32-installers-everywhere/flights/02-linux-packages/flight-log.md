@@ -543,6 +543,22 @@ Planning (2026-10-24). Not yet in flight.
 - **Residual risk (leg 9):** only 2 of the 4 matrix cells were rehearsed locally (`deb/debian-13` and `appimage/ubuntu-26.04`); `deb/ubuntu-26.04` and `appimage/debian-13` never ran. The runner's disk and Docker facts (~14 GB free, Docker version) are unmeasured until the first dispatch's Runner evidence step.
 - **Gates:** `make test-unit` 7055 passed, 12 skipped; ruff check and format clean over `the_one/ tests/ scripts/ evals/ packaging/`; actionlint 1.7.7 clean (workflow and stub); shellcheck 0.10.0 clean on `packaging/linux/checks/*.sh`, `build.sh`. Root-owned container output chowned back with `m32-leg9-chown`; only `m32-vm-ubuntu` (leg 6) is running; 8484/8485 and the operator data dir untouched.
 
+### hosted-build-run
+
+**Status**: landed (leg 10, uncommitted). Evidence: `$HOME/the-one-m32-evidence/f2/leg10/hosted/` (gates), `$HOME/the-one-m32-build/f2/leg10/{hosted,local,x}` (artifacts, local build, extractions and file lists).
+
+- **AC1/AC2 (Flight Director, as given):** run `40127933969` green on `2fdfaa3`; four score lines PASS, deb cells G3 and single PASS; 471 s wall. Runner Ubuntu 24.04.5, Docker 28.0.4, 13 GB free disk (of 72 GB), 2 CPUs, 7 GB RAM, uv 0.10.0.
+- **AC3 (hosted vs local, same commit 2fdfaa3, version 0.11.8, same build image `m32/linux-build:f2` sha256 `d1c7b822...`):** `git status --porcelain -- the_one packaging` empty. Local build in a separate root (`M32_BUILD=.../leg10/local`), 8 min.
+  - File lists: hosted and local `.deb` (1231 entries) and AppImage (1243 entries) are identical, no added or missing path.
+  - Content: sha256 of every file (1028 regular files in the deb tree) is identical except one per package: `base_library.zip` (`/opt/gleepglorp-ai/_internal/` and `/usr/lib/gleepglorp-ai/_internal/`). Same size (1444808), same 155 members and member sizes; the difference is zip entry timestamps/compile mtimes from the build time (15:03 vs 15:11).
+  - Package files differ in sha256 and size by a few hundred bytes (deb 141378894 vs 141379242; AppImage 144308728 vs 144304632), consequence of the above plus archive timestamps and ownership (hosted 1001, local `ubuntu`). Control files identical (`dpkg-deb -I` differs only in the size line).
+  - Audit line identical: `audit: 1025 files, max GLIBC_2.34 (limit 2.39), 0 problem(s): PASS`.
+  - Build logs diff (minus hosted-only stage/render lines and the output path) is empty: same Python 3.11.14, PyInstaller 6.22.3, same fallback library versions (libgirepository-2.0-0 and libglib2.0-0t64 2.80.0-6ubuntu3.10, ayatana-appindicator 0.5.93-1build3, ayatana-ido 0.10.1-1build2, ayatana-indicator 0.9.4-1build1, dbusmenu 18.10.20180917~bzr492+repack1-3.1ubuntu5), same NEEDED walks, same sha256 for all six fallback `.so` files and the typelib. Not bit-reproducible only by zip timestamps; library set unchanged. No divert criterion.
+- **AC4 (baseline images, `--display wslg`, single-version, `--pkgdir` the hosted download, one container at a time, 41 s for the first):**
+  - `deb/ubuntu-26.04-baseline`: `G1p=PASS G1u=PASS G2=PASS G3=PASS G4=PASS upgrade=N/A single=PASS`
+  - `appimage/debian-13-baseline`: `G1p=PASS G1u=PASS G2=PASS G3=PASS G4=PASS upgrade=N/A single=PASS`
+- Housekeeping: root-owned container output chowned back (`m32-leg10-chown`); no `m32-` container left; leg 6's VMs untouched; 8484/8485 and operator data dir untouched; no commit, push or dispatch.
+
 ### Flight review fixes
 
 - Pid answers (takeover and `the-one quit --wait`) must be a positive int (bool and non-positive rejected as an invalid answer).
