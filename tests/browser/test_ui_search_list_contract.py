@@ -634,6 +634,23 @@ def test_selected_row_has_check_lead_and_name_says_selected(engine_page: Page) -
     assert out["sizes"] == ["16x16"] and len(out["labelLefts"]) == 1
 
 
+def test_the_selected_marks_hidden_text_is_contained_by_the_listbox(engine_page: Page) -> None:
+    """M31 F4 L09: the selected row's visually hidden " (selected)" is absolutely
+    positioned; with a far-down selection it must not escape the listbox's clip and
+    stretch the page's scroll height (found on the Date and time page, 18,000 px)."""
+    _inline(engine_page)
+    out = engine_page.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          window.__il.setActive('z30', {scroll: 'center'});
+          const hidden = lb.querySelector('.visually-hidden');
+          return {parentIsListbox: hidden.offsetParent === lb, pos: getComputedStyle(lb).position,
+                  docH: document.documentElement.scrollHeight, lbSH: lb.scrollHeight,
+                  winH: window.innerHeight}; }"""
+    )
+    assert out["parentIsListbox"] and out["pos"] == "relative", out
+    assert out["docH"] < out["lbSH"], out
+
+
 def test_a_filtered_out_selection_shows_no_check(engine_page: Page) -> None:
     _inline(engine_page)
     engine_page.fill('[data-testid="il-input"]', "Zone 4")

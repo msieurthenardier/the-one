@@ -1044,7 +1044,10 @@
      empty spacer of the same size) and no active-row paint while the list is
      unfocused (the first option is always active after a refresh and would
      otherwise read as the chosen item). */
-  .ui-search-list--inline .ui-search-list-listbox { flex: none; max-height: 252px; }
+  /* position: relative makes the listbox the containing block of the selected row's
+     absolutely positioned visually-hidden "(selected)" text; without it that text, far down
+     a long list, escapes the listbox's clip and stretches the page's scroll height. */
+  .ui-search-list--inline .ui-search-list-listbox { flex: none; max-height: 252px; position: relative; }
   .ui-search-list--inline .ui-search-list-description { font-family: var(--font-family-mono); }
   .ui-search-list--inline .ui-search-list-lead {
     align-items: center;

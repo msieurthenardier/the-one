@@ -634,7 +634,7 @@ def _encryption_staged(ctx: Ctx) -> None:
     btn.click()
     page.locator('[data-testid="rotate-key-btn"].confirm-delete').wait_for(timeout=5000)
     btn.click()
-    page.locator(".admin-system-flash.warning").wait_for(timeout=10000)
+    page.locator('[data-testid="rotate-result"][data-state="warning"]').wait_for(timeout=10000)
 
 
 def _tools_tab(tab: str):
@@ -937,7 +937,7 @@ SURFACES += [
     _settings(
         "settings-appearance",
         "#settings/appearance",
-        "#admin-theme-toggle-mount",
+        '[data-testid="theme-picker"]',
         "Settings > Appearance",
     ),
     _settings(

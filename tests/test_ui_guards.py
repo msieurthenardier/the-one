@@ -138,7 +138,6 @@ HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/admin/knowledge-settings-page.js": 1,
     "areas/chat.js": 5,
     "areas/studio/mcp-server-editor.js": 18,
-    "theme.js": 1,
 }
 
 

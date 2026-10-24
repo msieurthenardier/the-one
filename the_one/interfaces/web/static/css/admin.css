@@ -31,15 +31,11 @@
   .area-admin .admin-system-section { padding: 16px 0; border-top: 1px solid var(--border); }
   .area-admin .admin-system-section:first-of-type { border-top: none; padding-top: 0; }
   .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
-  /* Encryption warning callout — `<div class="banner banner-warning">`
-     (canonical primitive in components.css). Bottom margin separates it
-     from the rotate button. */
-  .area-admin .admin-system-section .banner-warning { margin-bottom: 16px; }
+  /* Knowledge indexing's flash line (its page moves to the library in leg 10, which
+     deletes these rules; the Encryption page's result is an App.ui.status since L08b). */
   .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
   .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-system-flash.error { color: var(--status-danger); }
-  /* Staged (not promoted) rotation result — degraded-but-succeeded, distinct
-     from both the ordinary success flash and a hard failure. */
   .area-admin .admin-system-flash.warning { color: var(--status-warning); font-weight: var(--font-weight-semibold); }
   /* Read-only key/value rows — Knowledge panel's Embedding/Vector Store
      sections (M24 F06 L04, DD-7/L4-D1). A plain flex row, not a table:
@@ -47,61 +43,29 @@
   .area-admin .admin-kv-row { display: flex; gap: var(--space-2); padding: 4px 0; font-size: var(--font-size-body-sm); }
   .area-admin .admin-kv-key { color: var(--fg-muted); min-width: 8rem; }
   .area-admin .admin-kv-value { color: var(--fg-secondary); font-weight: var(--font-weight-medium); }
-  /* Base prompt block — composes the canonical .code-block primitive
-     defined in components.css. Adds admin-specific max-height bound. */
-  .area-admin .admin-base-prompt {
-    max-height: 24rem;
-    overflow-y: auto;
+  /* Prompts page (M31 F4 L08b): the layers are App.ui.section stacks and every text an
+     App.ui.codeBlock, so the rhythm and the block look are the library's. Only the
+     page's own parts are styled here: the variant sub-heading (a plain semibold line,
+     not a second eyebrow), and a platform block (an h3 title, its "Applies when" line
+     and its text, one column). */
+  .area-admin .platform-sections { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-admin .prompt-variant {
     margin: 0;
-  }
-  /* Prompts page layers: one rhythm — eyebrow, one explanatory line, the
-     block; layers separated by one gap. */
-  .area-admin .admin-prompt-layer { margin-top: 24px; }
-  .area-admin .admin-prompt-layer .section-title { margin: 0 0 8px; }
-  .area-admin .admin-prompt-layer .admin-system-text { margin: 0 0 8px; }
-  /* Platform prompt blocks (Flight 2 leg 1c): title, "Applies when" line, text. */
-  .area-admin .platform-section { margin: 0 0 16px; }
-  .area-admin .platform-section-title {
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg);
-    margin: 0 0 4px;
-  }
-  .area-admin .platform-section .admin-system-text { margin: 0 0 8px; }
-  /* Theme toggle — quiet segmented control: accent-translucent base +
-     hairline border; active option takes the solid accent fill. */
-  .area-admin .admin-theme-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: var(--space-1);
-    padding: 2px;
-    background-color: var(--accent-translucent);
-  }
-  .area-admin .admin-theme-option {
-    background: transparent;
-    border: 1px solid transparent;
-    padding: 4px 14px;
-    color: var(--accent);
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
-    font-family: inherit;
-    cursor: pointer;
-    border-radius: var(--space-1);
-    transition: background-color var(--motion-base) var(--ease-tactile), color var(--motion-base) var(--ease-tactile);
+    color: var(--fg-secondary);
   }
-  .area-admin .admin-theme-option:hover {
-    background-color: var(--accent-translucent-hover);
-    transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
+  .area-admin .platform-sections .prompt-variant:not(:first-child) { margin-top: var(--space-2); }
+  .area-admin .prompt-block { display: flex; flex-direction: column; gap: 8px; }
+  .area-admin .prompt-block-title {
+    margin: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
   }
-  /* Active option = solid deep-violet fill, same family as .btn-filled-primary. */
-  .area-admin .admin-theme-option.active {
-    background-color: var(--accent-fill);
-    color: var(--fg-on-accent-fill);
-    border-color: var(--accent-fill);
-  }
-  .area-admin .admin-theme-option:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+  .area-admin .prompt-block .admin-system-text { margin: 0; }
+  /* A paragraph inside a section stack: the stack's gap is the spacing. */
+  .area-admin .admin-system-text.admin-system-intro { margin-bottom: 0; }
 
   /* === Settings item pages (M25 F3 L5b; flight DD7, reference spec 4 and 8.2) ===
      Built-in tools: the page header, then .settings-list (the tool list),
@@ -305,81 +269,27 @@
   .area-admin .tools-test-result:not(:empty) { margin-top: var(--space-3); }
   .area-admin .tools-test-details { margin-top: var(--space-2); }
 
-  /* ── Date and time page (M28 F2 L3, flight DD4) ─────────────────────
-     Tokens only. The chooser lives in the zone option's slot. */
-  .area-admin .date-time-page .section-title:first-of-type { margin-top: 20px; }
+  /* ── Date and time page (M28 F2 L3, flight DD4; library controls since M31 F4 L09) ──
+     The sections, banner, statuses, facts and the inline zone list are the library's;
+     only the page's own parts are styled here. */
   .area-admin .date-time-page .date-time-mismatch {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    margin-bottom: var(--space-3);
   }
   .area-admin .date-time-page .date-time-mismatch-text { flex: 1; min-width: 0; }
-  .area-admin .date-time-page .ui-radio-slot { margin-top: var(--space-3); }
   .area-admin .date-time-page .date-time-chosen {
     margin: 0 0 var(--space-2);
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
   .area-admin .date-time-page .date-time-chosen strong { color: var(--fg); }
-  .area-admin .date-time-page .ui-search-list-listbox {
-    max-height: 252px;
-    overflow-y: auto;
-  }
-  .area-admin .date-time-page .ui-search-list-description {
-    font-family: var(--font-family-mono);
-  }
-  .area-admin .date-time-page .ui-search-list-lead,
-  .area-admin .date-time-page .date-time-lead-spacer {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 16px;
-    height: 16px;
-    color: var(--accent);
-  }
-  .area-admin .date-time-page .ui-search-list-lead svg { width: 16px; height: 16px; }
-  /* An unfocused list shows no active row: the first option is always active
-     after a refresh, and would otherwise read as the chosen zone. */
-  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
-    background: transparent;
-    border-color: transparent;
-  }
-  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] .ui-search-list-meta {
-    color: var(--fg-muted);
-  }
-  @media (forced-colors: active) {
-    .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
-      border-color: Canvas;
-    }
-  }
-  .area-admin .date-time-page .date-time-status {
-    min-height: 20px;
-    margin: var(--space-3) 0 0;
-    font-size: var(--font-size-body-sm);
-    color: var(--status-success);
-  }
-  .area-admin .date-time-page .date-time-error { margin: var(--space-3) 0 0; font-size: var(--font-size-body-sm); }
-  .area-admin .date-time-page .date-time-preview { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-  .area-admin .date-time-page .date-time-preview-row { display: flex; flex-direction: column; gap: var(--space-1); }
-  .area-admin .date-time-page .date-time-preview dt {
-    font-size: var(--font-size-caption);
-    color: var(--fg-secondary);
-  }
-  .area-admin .date-time-page .date-time-preview dd {
-    margin: 0;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg);
-  }
-  .area-admin .date-time-page .date-time-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-caption);
+  /* B8: the id and offset in the list's mono font. */
+  .area-admin .date-time-page .date-time-chosen-id { font-family: var(--font-family-mono); }
+  /* DD8-13: "Use {zone}" hands focus here; a scripted focus must show a ring. */
+  .area-admin .date-time-page .date-time-chosen:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .area-admin .date-time-page .date-time-muted {
     display: block;
@@ -387,6 +297,6 @@
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
-  .area-admin .date-time-page .date-time-note { margin: var(--space-4) 0 0; }
+  .area-admin .date-time-page .date-time-note { margin: 0; }
   /* Last, so no display rule above can show a hidden node. */
 }

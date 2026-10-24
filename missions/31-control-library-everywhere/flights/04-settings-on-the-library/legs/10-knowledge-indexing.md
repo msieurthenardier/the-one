@@ -131,7 +131,7 @@ These override the body where they conflict.
 - **The "Saved." timer:** one handle, cleared on each attempt and on discard.
 - **`components.css:1245`** is checked and deleted in leg 11, not here.
 
----
+## Amendment from batch B4 (2026-10-24, FD call; a proactive presentation fix)
+- **`App.ui.facts` aligns its values.** Today each label sizes to its own text, so values in one list don't share a left edge (seen on Encryption after 08b). This leg uses `facts` for the read-only rows, so fix it here: the `dl` is a two-column grid (`grid-template-columns: max-content 1fr`, rows `display: contents`, or an equivalent that keeps the `div.ui-facts-row` wrappers and their testids). This is a library change in a surface leg, re-tiered high under DD11. It gets a contract test in both engines (all values share one left edge, long labels wrap without overlap at 1024) and a catalogue note. Re-capture Encryption, Date and time's preview and this page. A ledger row records the alignment.
 
-## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.

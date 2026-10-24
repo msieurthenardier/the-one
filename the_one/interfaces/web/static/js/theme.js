@@ -162,17 +162,6 @@
     document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: { pref: normalized } }));
   });
 
-  // Module-scoped cleanup ref — replaces the prior per-container expando
-  // (M08 F7 L03 H1 fix: container expando dies with the container's
-  // innerHTML rewrite, leaving the document listener orphaned and
-  // accumulating O(N) listeners across SPA re-renders).
-  //
-  // Constraint: this assumes a single active theme-toggle instance at any
-  // time. Current architecture (admin-only, single mount) satisfies this.
-  // A future maintainer who adds a second concurrent theme-toggle must
-  // revisit this design (e.g. switch to a Set of cleanups).
-  var _activeThemeListenerCleanup = null;
-
   // Public API (App.theme).
   window.App = window.App || {};
   window.App.theme = {
@@ -190,99 +179,9 @@
         safeSet(pref);
       }
       reapply();
-      // Notify all renderToggle instances so they sync without polling.
+      // Notify mounted theme pickers (the Appearance page's radio group) so they sync
+      // without polling.
       document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: { pref: pref } }));
-    },
-
-    // renderToggle(container, options?) — mounts a Light/Dark/Auto radiogroup
-    // into `container`. options.labelledBy is the id of the heading element
-    // used as aria-labelledby on the radiogroup.
-    //
-    // Cleanup contract: a module-scoped `_activeThemeListenerCleanup`
-    // captures the prior listener-removal closure. At the start of each
-    // renderToggle call we invoke it (if set) and clear it before wiring a
-    // new listener. This survives SPA re-renders that destroy the prior
-    // container via innerHTML — the closure lives in module scope, not on
-    // the (now-detached) container, so cleanup always fires regardless of
-    // container identity.
-    renderToggle: function (container, options) {
-      if (!container) return;
-      options = options || {};
-
-      if (typeof _activeThemeListenerCleanup === 'function') {
-        _activeThemeListenerCleanup();
-        _activeThemeListenerCleanup = null;
-      }
-
-      var currentPref = getPreference();
-      var labelledBy = options.labelledBy || '';
-      var OPTS = [
-        { value: 'light', label: 'Light' },
-        { value: 'dark',  label: 'Dark'  },
-        { value: 'auto',  label: 'Auto'  }
-      ];
-
-      container.setAttribute('role', 'radiogroup');
-      if (labelledBy) {
-        container.setAttribute('aria-labelledby', labelledBy);
-      }
-
-      container.innerHTML = '';
-      for (var i = 0; i < OPTS.length; i++) {
-        var o = OPTS[i];
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'admin-theme-option' + (currentPref === o.value ? ' active' : '');
-        btn.setAttribute('role', 'radio');
-        btn.setAttribute('aria-checked', String(currentPref === o.value));
-        btn.setAttribute('tabindex', currentPref === o.value ? '0' : '-1');
-        btn.setAttribute('data-theme-pref', o.value);
-        btn.textContent = o.label;
-        container.appendChild(btn);
-      }
-
-      // DOM-only; never calls App.theme.set (avoids event loop:
-      // set → dispatch → subscriber → set → …).
-      function updateActiveOption(pref) {
-        var btns = container.querySelectorAll('.admin-theme-option');
-        for (var j = 0; j < btns.length; j++) {
-          var isActive = btns[j].getAttribute('data-theme-pref') === pref;
-          btns[j].classList.toggle('active', isActive);
-          btns[j].setAttribute('aria-checked', String(isActive));
-          btns[j].setAttribute('tabindex', isActive ? '0' : '-1');
-        }
-      }
-
-      function selectThemeOption(btn) {
-        if (!btn) return;
-        var pref = btn.getAttribute('data-theme-pref');
-        window.App.theme.set(pref);
-        btn.focus();
-      }
-
-      container.addEventListener('click', function (e) {
-        selectThemeOption(e.target.closest('.admin-theme-option'));
-      });
-
-      container.addEventListener('keydown', function (e) {
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
-            e.key !== 'ArrowUp'  && e.key !== 'ArrowDown') return;
-        var btns = Array.prototype.slice.call(
-          container.querySelectorAll('.admin-theme-option')
-        );
-        var idx = btns.indexOf(document.activeElement);
-        if (idx === -1) return;
-        e.preventDefault();
-        var dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
-        var next = btns[(idx + dir + btns.length) % btns.length];
-        selectThemeOption(next);
-      });
-
-      var listener = function (e) { updateActiveOption(e.detail.pref); };
-      document.addEventListener(THEME_EVENT, listener);
-      _activeThemeListenerCleanup = function () {
-        document.removeEventListener(THEME_EVENT, listener);
-      };
     }
   };
 })();

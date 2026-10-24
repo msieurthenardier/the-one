@@ -45,7 +45,6 @@ EMITTED_EXEMPT: dict[str, str] = {
     "page-title": "legacy name of the page title; joins the owned list at its handover leg",
     "banner": "legacy name of banner; joins the owned list at the banner handover leg",
     "banner-": "legacy banner-{tone} family; joins the owned list at the handover leg",
-    "code-block": "legacy name of codeBlock; joins the owned list at the handover leg",
     # The toolTile's legacy names are owned since leg 06's handover (M31 F4 L06); only the
     # state class stays exempt (an everyday word, not safe to own):
     "active": "legacy selected state of the toolTile; an everyday word, deliberately not owned",

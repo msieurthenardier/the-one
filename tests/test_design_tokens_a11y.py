@@ -604,12 +604,6 @@ _FILL_SITES = [
     ),
     (
         "admin.css",
-        ".area-admin .admin-theme-option.active",
-        ("--accent-fill", "--fg-on-accent-fill"),
-        ("var(--accent)", "var(--fg-on-accent)"),
-    ),
-    (
-        "admin.css",
         _ON_TRACK.format("admin"),
         ("--accent-fill",),
         ("var(--accent)",),
@@ -791,6 +785,24 @@ def test_selected_row_meta_passes_body_aa(theme: str, bg_key: str) -> None:
         f"{theme} selected-row meta fails body AA: fg_secondary on accent-translucent "
         f"over {bg_key} = {ratio:.2f}:1 (need >= 4.5:1)"
     )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_checked_radio_option_pairs_pass_aa(theme: str) -> None:
+    """M31 F4 L08a: the library radio card's checked state (the Appearance theme picker
+    since the segmented toggle and its `.active` pin went): its label --fg >= 4.5:1 on the
+    composited --accent-translucent wash over --surface, and the --accent border >= 3:1
+    (non-text) against --surface, both themes. The rule must paint exactly those tokens."""
+    palette = _palette(theme)
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette["surface"])
+    text = contrast_ratio(palette["fg"], wash)
+    assert text >= 4.5, f"{theme} checked radio label = {text:.2f}:1 (need >= 4.5:1)"
+    border = contrast_ratio(palette["accent"], palette["surface"])
+    assert border >= 3.0, f"{theme} checked radio border = {border:.2f}:1 (need >= 3.0:1)"
+    rule = " ".join(_rule_bodies("components.css", ".ui-radio-option.is-checked"))
+    assert "border-color: var(--accent)" in rule, rule
+    assert "background: var(--accent-translucent)" in rule, rule
+    assert "color: var(--fg)" in " ".join(_rule_bodies("components.css", ".ui-radio-label")), rule
 
 
 @pytest.mark.parametrize("theme", THEMES)

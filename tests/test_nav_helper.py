@@ -460,6 +460,9 @@ RETIRED_SELECTORS = (
     # M31 F3 HAT: "Other items" is renamed "Individual files"
     # (``kb-individual-files-panel``).
     "kb-other-items-panel",
+    # M31 F4 L08a: the Appearance page's segmented toggle host is replaced by the
+    # ``theme-picker`` radio group.
+    "admin-theme-toggle-mount",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix

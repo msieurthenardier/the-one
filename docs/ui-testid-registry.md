@@ -86,7 +86,8 @@ caught — but it cannot see where the attribute is emitted.
 | `date-time-preview-prompt` | admin | What agents see: the new-chat date line (M28 F2 L3) |
 | `date-time-preview-tool` | admin | What agents see: the time tool's first line (M28 F2 L3) |
 | `date-time-search` | admin | The zone chooser's search input (M28 F2 L3) |
-| `date-time-status` | admin | The "Saved." status line on the Date and time page (M28 F2 L3) |
+| `date-time-status` | admin | The "Saved." status on the Date and time page: a persistent `role=status` region that holds one status only while there is something to say, so it takes no height when empty (M28 F2 L3; M31 F4 L09) |
+| `date-time-prompt-muted` | admin | The "time tool is turned off" line under "A new chat starts with" on the Date and time page (M31 F4 L09; was the `.date-time-muted` class) |
 | `date-time-use-browser` | admin | The "Use {browser zone}" button in the mismatch hint (M28 F2 L3) |
 | `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
 | `save-connector-btn` | studio | Connector-editor header Save / Create, from `App.ui.editorShell` (`actions.save`); busy (disabled) while its request is in flight (M31 F3 L07a) |
@@ -353,6 +354,16 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-restore-node` | studio | Self-configuration revision-history distinct value-node row (M21 F02 L03) |
 | `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
 | `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
+| `theme-picker` | admin | The Appearance page's theme radio group (the fieldset; M31 F4 L08a) |
+| `theme-option-light` | admin | The Appearance page's Light radio (M31 F4 L08a) |
+| `theme-option-dark` | admin | The Appearance page's Dark radio (M31 F4 L08a) |
+| `theme-option-auto` | admin | The Appearance page's Auto radio (M31 F4 L08a) |
+| `rotate-result` | admin | The Encryption page's rotation result: a polite live region holding one status, with `data-state` `success` (clears after 3 s), `warning` (a staged rotation; stays until the next attempt) or `danger` (stays until the next attempt) (M31 F4 L08b) |
+| `encryption-facts` | admin | The Encryption page's key facts list (M31 F4 L08b) |
+| `encryption-last-rotated` | admin | The facts value for when the key was last rotated: "Never", or the date and time with the ISO value in `title` and `data-rotated-at` (M31 F4 L08b) |
+| `encryption-credential-count` | admin | The facts value for how many stored items hold a secret (M31 F4 L08b) |
+| `encryption-facts-error` | admin | The status shown instead of the facts when `GET /api/encryption/status` fails (M31 F4 L08b) |
+| `prompts-load-error` | admin | The Prompts page's load-error host (an error status when `GET /api/info` fails) (M31 F4 L08b) |
 | `rotate-key-btn` | admin | The Encryption page's rotate control (`#settings/encryption`; on the single General page until M25 F3 L5a) |
 | `route-announcer` | shell | Visually-hidden polite live region (`role=status`) written by `js/router.js` on a commit that changes destination/section/item (flight 02 review, WCAG 4.1.3) |
 | `save-agent-btn` | studio | |
@@ -423,6 +434,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
+| `platform-variant-` | admin | The Prompts page's variant sub-heading under the Platform prompt layer: `platform-variant-{variant}` (`tools` or `tool_free`) (M31 F4 L08b) |
 | `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
@@ -469,6 +481,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `kb-other-items-panel` | studio | M31 F3 HAT — the "Other items" panel is renamed "Individual files" (`kb-individual-files-panel`), with a description and a per-row remove |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |

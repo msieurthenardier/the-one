@@ -9,13 +9,17 @@
   // Built with DOM APIs only; server text is placed with textContent.
   //
   // Saving happens on choice (no Save button, no dirty source). Every PUT and
-  // every page load takes a generation from GEN, which is module-level and so
-  // shared across mounts (admin._refresh re-runs renderContent and builds a new
+  // every page load takes a token from `gen`, one module-level latest() shared
+  // across mounts (admin._refresh re-runs renderContent and builds a new
   // instance): only the latest response is applied, and a response for a
   // page that is no longer in the document touches App.time alone. The page's
-  // nodes are built once and patched in place, so focus never moves.
+  // nodes are built once and patched in place, so focus never moves (the one
+  // exception is "Use {zone}", which hides the hint that holds its own button:
+  // focus is moved to the chosen-zone line first, DD8-13). Since M31 F4 L09 the
+  // page is built from the library: pageHeader (through renderPage), section,
+  // banner, status, facts and the inline searchList.
 
-  var GEN = 0;
+  var gen = window.App.ui.util.latest();
 
   var INTRO = 'Agents use this time zone when they tell the time, and the app shows times in it.';
   var NOTE = 'The time tool uses a new zone at once. A chat that is already open keeps the date ' +
@@ -53,16 +57,16 @@
     var built = false;
     var radio = null;
     var list = null;
-    var listbox = null;
     var slot = null;
     var nodes = {};
+    var centrePending = true;
 
     var root = el('div', { className: 'date-time-page' });
     var loading = el('p', { className: 'admin-system-text', text: 'Loading…' });
-    var loadError = el('p', { className: 'field-error date-time-load-error', role: 'alert' });
-    loadError.hidden = true;
+    var loadError = window.App.ui.status({ state: 'danger', role: 'alert', textTone: true });
+    loadError.el.hidden = true;
     root.appendChild(loading);
-    root.appendChild(loadError);
+    root.appendChild(loadError.el);
     window.App.admin.renderPage(container, 'Date and time', null, [root]);
 
     // ── Pure helpers over state ───────────────────────────────────────
@@ -114,11 +118,6 @@
       return 0;
     }
 
-    function checkLead(on) {
-      if (on) return window.App.ui.util.icon('check');
-      return el('span', { className: 'date-time-lead-spacer' });
-    }
-
     // The search list's source: groups by region in the server's order, a row
     // per canonical zone, plus (for a non-blank query) an item per alias
     // whose own text matches while its canonical row does not.
@@ -151,7 +150,7 @@
           description: row.zone,
           meta: metaFor(row),
           metaMono: true,
-          lead: checkLead(row.zone === chosen),
+          selected: row.zone === chosen,
           dataset: { zone: row.zone }
         });
       }
@@ -173,7 +172,7 @@
             description: alias + ' · same clock as ' + target,
             meta: trow.offset,
             metaMono: true,
-            lead: checkLead(alias === storedZone()),
+            selected: alias === storedZone(),
             dataset: { zone: alias }
           });
         }
@@ -203,7 +202,12 @@
       }
       nodes.chosen.appendChild(document.createTextNode('Selected: '));
       nodes.chosen.appendChild(el('strong', { text: cityOf(z) }));
-      nodes.chosen.appendChild(document.createTextNode(' ' + z + (off ? ' · ' + off : '')));
+      // B8: the id and offset use the list's mono font, as in the rows.
+      nodes.chosen.appendChild(document.createTextNode(' '));
+      nodes.chosen.appendChild(el('span', {
+        className: 'date-time-chosen-id',
+        text: z + (off ? ' · ' + off : '')
+      }));
     }
 
     function patchPreview() {
@@ -223,51 +227,64 @@
       nodes.previewClock.textContent = clock + ' in the Chats list and on messages';
     }
 
+    // B9: a place as a person says it. The zone is canonicalised first, so an alias such as
+    // Asia/Calcutta reads "Kolkata"; a zone with no city (UTC, Etc/GMT+5) keeps its id. Two
+    // cities of the same name are not told apart (the raw ids are in the banner's title).
+    function placeOf(name) {
+      var c = canon(name);
+      if (!c) return null;
+      if (c.indexOf('/') === -1 || c.indexOf('Etc/') === 0) return name;
+      return cityOf(c);
+    }
+
     function patchHint() {
       var s = state.settings;
       var b = browserZone();
       var ec = s.effective ? s.effective.canonical : null;
       var bc = b ? canon(b) : null;
       var show = !!b && (ec ? bc !== ec : true);
-      nodes.hint.hidden = !show;
-      if (!show) return;
-      var inner = [];
-      if (bc !== b) inner.push('same clock as ' + bc);
-      var off = offsetFor(b);
-      if (off) inner.push(off);
-      var label = (s.effective && (s.effective.label || s.effective.zone)) || 'a different zone';
-      nodes.hintText.textContent = '';
-      nodes.hintText.appendChild(document.createTextNode('Your browser is in '));
-      nodes.hintText.appendChild(el('strong', { text: b }));
-      if (inner.length) nodes.hintText.appendChild(document.createTextNode(' (' + inner.join(', ') + ')'));
-      if (s.mode === 'zone') {
-        nodes.hintText.appendChild(document.createTextNode(', but agents are set to '));
-        nodes.hintText.appendChild(el('strong', { text: label }));
-        nodes.hintText.appendChild(document.createTextNode('.'));
-      } else {
-        nodes.hintText.appendChild(document.createTextNode(', but the machine running the-one reports '));
-        nodes.hintText.appendChild(el('strong', { text: label }));
-        nodes.hintText.appendChild(document.createTextNode(
-          '. That happens under WSL, in a container or on another machine.'));
+      if (!show) {
+        nodes.hint.hide();
+        return;
       }
+      var eff = (s.effective && (s.effective.zone || s.effective.label)) || '';
+      var ePlace = placeOf(eff) || (s.effective && s.effective.label) || 'a different zone';
+      var off = offsetFor(b);
+      var text = 'Your browser is in ' + placeOf(b) + (off ? ' (' + off + ')' : '');
+      if (s.mode === 'zone') {
+        text += '; agents use ' + ePlace + '.';
+      } else {
+        text += '; the machine running the-one reports ' + ePlace +
+          '. That happens under WSL, in a container or on another machine.';
+      }
+      nodes.hintText.textContent = text;
+      nodes.hint.el.setAttribute('title', 'Your browser: ' + b + '. Agents: ' + (eff || ePlace) + '.');
       var known = !!(byZone[b] || state.links[b]);
       nodes.useBrowser.hidden = !known;
-      nodes.useBrowserLabel(b);
+      nodes.useBrowser.textContent = 'Use ' + b;
+      nodes.hint.show();
     }
 
+    // The stored zone's row is the list's active row (it carries aria-selected; an unfocused
+    // list paints no active row). Page code, because the variant does not know the stored
+    // zone. It centres the row once - the first time the list is shown, or when the stored
+    // zone changed from outside the list (another tab, a reload) - and never after a pick:
+    // the row the user just clicked is already where they want it, and typing never calls it.
     function syncActive() {
+      var visible = !slot.hidden;
+      var mode = centrePending && visible ? 'center' : 'none';
       // An alias item exists only while its canonical row is out of the results, so at
       // most one of the two targets is present; setActive ignores an absent id.
       var z = storedZone();
-      if (z && state.links[z]) list.setActive('alias:' + z);
+      if (z && state.links[z]) list.setActive('alias:' + z, { scroll: mode });
       var id = storedCanonical();
-      if (id) list.setActive(id);
+      if (id) list.setActive(id, { scroll: mode });
+      if (centrePending && visible && (id || z)) centrePending = false;
     }
 
     function refreshList() {
-      var top = listbox.scrollTop;
+      // keepScroll restores scrollTop and the active row for an unchanged query.
       list.refresh();
-      listbox.scrollTop = top;
       syncActive();
     }
 
@@ -277,7 +294,7 @@
       if (on) syncActive();
     }
 
-    function patch() {
+    function patch(opts) {
       var s = state.settings;
       radio.setValue(viewMode);
       var sys = s.system || {};
@@ -285,60 +302,87 @@
         'Detected on the machine running the-one: ' + (sys.zone || 'no zone name detected') +
         ' · ' + (sys.offset || ''));
       patchChosen();
-      nodes.zonesError.hidden = !state.zonesFailed;
+      nodes.zonesError.el.hidden = !state.zonesFailed;
       list.el.hidden = state.zonesFailed;
       refreshList();
       showSlot();
       patchPreview();
+      // DD8-13: "Use {zone}" hides the hint that holds its own focused button. Move focus
+      // to the chosen-zone line (now shown, in the slot) BEFORE the hint hides.
+      if (opts && opts.focusChosen && !slot.hidden) nodes.chosen.focus();
       patchHint();
     }
 
-    function applySettings(r) {
+    function applySettings(r, opts) {
+      var prior = state.settings ? storedZone() : undefined;
       state.settings = r;
       viewMode = r.mode === 'zone' ? 'zone' : 'system';
-      patch();
+      // A stored zone that changed from outside this page's own picks is centred again.
+      if (opts && opts.external && prior !== undefined && prior !== storedZone()) {
+        centrePending = true;
+      }
+      patch(opts);
     }
 
     // ── Requests ──────────────────────────────────────────────────────
 
-    function finish(g, r) {
-      if (g !== GEN) return false;
-      if (root.isConnected && built) applySettings(r);
+    function finish(token, r) {
+      if (!gen.isCurrent(token)) return false;
+      if (root.isConnected && built) applySettings(r, { external: true });
       window.App.time.applySettings(r);
       return true;
     }
 
     function reload() {
-      var g = ++GEN;
+      var token = gen.next();
       window.App.api.fetchJson('/api/time-settings').then(function (r) {
-        finish(g, r);
+        finish(token, r);
       }, function (err) {
-        if (g !== GEN) return;
+        if (!gen.isCurrent(token)) return;
         if (root.isConnected && built) showError(err.message);
       });
     }
 
     function showError(msg) {
-      nodes.status.textContent = '';
-      nodes.error.textContent = msg;
+      clearStatus();
+      nodes.errorStatus.set('danger', msg);
       nodes.error.hidden = false;
     }
 
-    function save(body) {
-      var g = ++GEN;
+    function clearError() {
       nodes.error.hidden = true;
-      nodes.error.textContent = '';
+      nodes.errorStatus.set('danger', '');
+    }
+
+    // The status is a persistent role=status region (a hidden-toggled live region announces
+    // unreliably) that holds one App.ui.status only while there is something to say, so it
+    // takes no height when empty (B10).
+    function clearStatus() {
       nodes.status.textContent = '';
+    }
+
+    function showSaved(text) {
+      clearStatus();
+      nodes.status.appendChild(
+        window.App.ui.status({ state: 'success', text: text, live: 'off' }).el);
+    }
+
+    function save(body, opts) {
+      var token = gen.next();
+      clearError();
+      clearStatus();
       window.App.api.fetchJson('/api/time-settings', jsonOpts('PUT', body)).then(function (r) {
-        if (g !== GEN) return;
+        if (!gen.isCurrent(token)) return;
         if (root.isConnected && built) {
-          applySettings(r);
-          nodes.status.textContent = 'Saved. Agents now use ' +
-            (r.mode === 'zone' && r.zone ? r.zone : 'the system time zone') + '.';
+          // The user's own pick: the row they chose is where they want it, never re-centre.
+          centrePending = false;
+          applySettings(r, { focusChosen: !!(opts && opts.focusChosen) });
+          showSaved('Saved. Agents now use ' +
+            (r.mode === 'zone' && r.zone ? r.zone : 'the system time zone') + '.');
         }
         window.App.time.applySettings(r);
       }, function (err) {
-        if (g !== GEN) return;
+        if (!gen.isCurrent(token)) return;
         if (root.isConnected && built) showError(err.message);
         reload();
       });
@@ -349,7 +393,7 @@
     function onMode(value) {
       viewMode = value;
       showSlot();
-      nodes.error.hidden = true;
+      clearError();
       if (value === 'system') {
         save({ mode: 'system', zone: storedZone() });
       } else if (storedZone()) {
@@ -366,6 +410,7 @@
       nodes.chosen = el('p', {
         className: 'date-time-chosen',
         id: window.App.ui.util.uid('dt-chosen'),
+        tabindex: '-1',
         'data-testid': 'date-time-chosen'
       });
       list = window.App.ui.searchList({
@@ -375,15 +420,19 @@
         emptyText: function (q) { return 'No time zones match “' + q + '”.'; },
         onPick: onPick,
         inputTestid: 'date-time-search',
-        rowTestid: 'date-time-zone-row'
+        rowTestid: 'date-time-zone-row',
+        inline: true,
+        keepScroll: true,
+        describedBy: nodes.chosen,
+        scrollActive: 'center'
       });
-      listbox = list.el.querySelector('.ui-search-list-listbox');
-      list.input.setAttribute('aria-describedby', nodes.chosen.id);
-      nodes.zonesError = el('p', {
-        className: 'field-error',
-        text: 'The list of time zones could not be loaded.'
+      nodes.zonesError = window.App.ui.status({
+        state: 'danger',
+        text: 'The list of time zones could not be loaded.',
+        textTone: true,
+        live: 'off'
       });
-      nodes.zonesError.hidden = true;
+      nodes.zonesError.el.hidden = true;
 
       radio = window.App.ui.radioGroup({
         legend: 'Time zone',
@@ -392,6 +441,7 @@
         testid: 'date-time-mode',
         value: 'system',
         onChange: onMode,
+        slotIndent: 'label',
         options: [
           { value: 'system', label: 'Use the system time zone', testid: 'date-time-mode-system' },
           {
@@ -405,10 +455,10 @@
       slot = radio.optionEl('zone');
       slot.appendChild(nodes.chosen);
       slot.appendChild(list.el);
-      slot.appendChild(nodes.zonesError);
+      slot.appendChild(nodes.zonesError.el);
       slot.hidden = true;
 
-      // The mismatch hint.
+      // The mismatch hint: a banner, the text then the "Use {zone}" button (last child).
       nodes.hintText = el('span', { className: 'date-time-mismatch-text' });
       nodes.useBrowser = window.App.ui.button({
         label: 'Use browser zone',
@@ -417,60 +467,67 @@
         testid: 'date-time-use-browser',
         onClick: function () {
           var b = browserZone();
-          if (b) save({ mode: 'zone', zone: b });
+          if (b) save({ mode: 'zone', zone: b }, { focusChosen: true });
         }
       });
-      nodes.useBrowserLabel = function (b) { nodes.useBrowser.textContent = 'Use ' + b; };
-      nodes.hint = el('div', {
-        className: 'banner banner-info date-time-mismatch',
+      nodes.hint = window.App.ui.banner({
+        tone: 'info',
         role: 'note',
-        'data-testid': 'date-time-mismatch'
-      }, [nodes.hintText, nodes.useBrowser]);
-      nodes.hint.hidden = true;
+        className: 'date-time-mismatch',
+        testid: 'date-time-mismatch',
+        children: [nodes.hintText, nodes.useBrowser],
+        hidden: true
+      });
 
-      nodes.status = el('p', {
-        className: 'date-time-status',
-        role: 'status',
-        'aria-live': 'polite',
-        'data-testid': 'date-time-status'
-      });
-      nodes.error = el('p', {
-        className: 'field-error date-time-error',
+      nodes.status = el('div', { role: 'status', 'data-testid': 'date-time-status' });
+      nodes.errorStatus = window.App.ui.status({
+        state: 'danger',
         role: 'alert',
-        'data-testid': 'date-time-error'
+        textTone: true,
+        testid: 'date-time-error'
       });
+      nodes.error = nodes.errorStatus.el;
       nodes.error.hidden = true;
 
-      // What agents see.
-      nodes.previewTool = el('code', { className: 'date-time-chip', 'data-testid': 'date-time-preview-tool' });
-      nodes.previewPrompt = el('span', { className: 'date-time-preview-prompt', 'data-testid': 'date-time-preview-prompt' });
+      // What agents see: the library's facts list, values placed in place by patchPreview.
+      nodes.previewTool = el('span', {});
+      nodes.previewPrompt = el('span', { 'data-testid': 'date-time-preview-prompt' });
       nodes.promptMuted = el('span', {
         className: 'date-time-muted',
-        text: 'The time tool is turned off in Built-in tools.'
+        text: 'The time tool is turned off in Built-in tools.',
+        'data-testid': 'date-time-prompt-muted'
       });
       nodes.promptMuted.hidden = true;
-      nodes.previewClock = el('span', { className: 'date-time-preview-clock', 'data-testid': 'date-time-preview-clock' });
-      function row(term, def) {
-        return el('div', { className: 'date-time-preview-row' }, [
-          el('dt', { text: term }),
-          el('dd', null, def)
-        ]);
-      }
+      nodes.previewClock = el('span', {});
+      var facts = window.App.ui.facts({
+        rows: [
+          { label: 'The time tool returns', value: nodes.previewTool, mono: true,
+            valueTestid: 'date-time-preview-tool' },
+          { label: 'A new chat starts with', value: [nodes.previewPrompt, nodes.promptMuted] },
+          { label: 'Times in the app', value: nodes.previewClock,
+            valueTestid: 'date-time-preview-clock' }
+        ]
+      });
 
       loading.hidden = true;
+      var App = window.App;
       root.appendChild(el('p', { className: 'admin-system-text', text: INTRO }));
-      root.appendChild(el('div', { className: 'section-title', text: 'Time zone' }));
-      root.appendChild(nodes.hint);
-      root.appendChild(radio.el);
-      root.appendChild(nodes.status);
-      root.appendChild(nodes.error);
-      root.appendChild(el('div', { className: 'section-title', text: 'What agents see' }));
-      root.appendChild(el('dl', { className: 'date-time-preview' }, [
-        row('The time tool returns', [nodes.previewTool]),
-        row('A new chat starts with', [nodes.previewPrompt, nodes.promptMuted]),
-        row('Times in the app', [nodes.previewClock])
-      ]));
-      root.appendChild(el('p', { className: 'admin-system-text date-time-note', text: NOTE }));
+      root.appendChild(App.ui.section({
+        title: 'Time zone',
+        layout: 'stack',
+        inset: 'none',
+        children: [nodes.hint.el, radio.el, nodes.status, nodes.error]
+      }).el);
+      root.appendChild(App.ui.section({
+        title: 'What agents see',
+        layout: 'stack',
+        inset: 'none',
+        children: [
+          facts.el,
+          el('p', { className: 'admin-system-text date-time-note', text: NOTE })
+        ]
+      }).el);
+      root.setAttribute('data-built', '');
       built = true;
     }
 
@@ -484,12 +541,12 @@
 
     // ── First load ────────────────────────────────────────────────────
 
-    var g0 = ++GEN;
+    var token0 = gen.next();
     Promise.all([
       window.App.api.fetchJson('/api/time-settings'),
       window.App.api.fetchJson('/api/time-zones').then(function (z) { return z; }, function () { return null; })
     ]).then(function (res) {
-      if (g0 !== GEN) return;
+      if (!gen.isCurrent(token0)) return;
       var r = res[0];
       index(res[1]);
       if (root.isConnected) {
@@ -498,10 +555,10 @@
       }
       window.App.time.applySettings(r);
     }, function (err) {
-      if (g0 !== GEN || !root.isConnected) return;
+      if (!gen.isCurrent(token0) || !root.isConnected) return;
       loading.hidden = true;
-      loadError.textContent = 'The time settings could not be loaded: ' + err.message;
-      loadError.hidden = false;
+      loadError.set('danger', 'The time settings could not be loaded: ' + err.message);
+      loadError.el.hidden = false;
     });
   }
 

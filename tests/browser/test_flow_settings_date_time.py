@@ -228,8 +228,13 @@ def test_mismatch_hint_and_its_one_step_fix(tmp_path: Path, browser: Browser) ->
         open_page(page, base)
         hint = tid(page, "date-time-mismatch")
         expect(hint).to_be_visible()
-        expect(hint).to_contain_text(KIRITIMATI)
-        expect(hint).to_contain_text("the machine running the-one reports")
+        # B9: the hint leads with city names; the raw zone ids stay in its title.
+        text = hint.locator(".date-time-mismatch-text")
+        expect(text).to_contain_text("Your browser is in Kiritimati")
+        expect(text).to_contain_text("the machine running the-one reports Chicago")
+        expect(text).not_to_contain_text(KIRITIMATI)
+        title = hint.get_attribute("title") or ""
+        assert KIRITIMATI in title and CHICAGO in title, title
         button = tid(page, "date-time-use-browser")
         expect(button).to_have_text(f"Use {KIRITIMATI}")
         button.click()
@@ -295,8 +300,8 @@ def test_tool_turned_off_changes_the_preview(tmp_path: Path, browser: Browser) -
         expect(tid(page, "date-time-preview-prompt")).to_have_text(
             s["preview"]["prompt_without_tool"]
         )
-        expect(page.locator(".date-time-muted")).to_be_visible()
-        expect(page.locator(".date-time-muted")).to_have_text(
+        expect(tid(page, "date-time-prompt-muted")).to_be_visible()
+        expect(tid(page, "date-time-prompt-muted")).to_have_text(
             "The time tool is turned off in Built-in tools."
         )
 
@@ -512,7 +517,137 @@ def test_zone_mode_hint_names_the_chosen_zone(tmp_path: Path, browser: Browser) 
         open_page(page, base)
         hint = tid(page, "date-time-mismatch")
         expect(hint).to_be_visible()
-        expect(hint).to_contain_text("agents are set to Asia/Kolkata")
-        expect(hint).to_contain_text("Asia/Tokyo")
+        expect(hint).to_contain_text("Your browser is in Tokyo")
+        expect(hint).to_contain_text("agents use Kolkata")
+        title = hint.get_attribute("title") or ""
+        assert "Asia/Kolkata" in title and "Asia/Tokyo" in title, title
         expect(tid(page, "date-time-mode-zone")).to_be_checked()
         expect(tid(page, "date-time-chosen")).to_contain_text("Selected: Kolkata Asia/Kolkata")
+
+
+# ── M31 F4 L09: DD8-13 and B8-B10 ─────────────────────────────────────────
+
+
+def test_use_browser_zone_moves_focus_to_the_chosen_line(tmp_path: Path, browser: Browser) -> None:
+    """DD8-13: 'Use {zone}' hides the hint that holds the focused button; focus must
+    land on the chosen-zone line instead of dropping to the body."""
+    with session(tmp_path, browser, server_tz=CHICAGO, browser_tz=KIRITIMATI) as (base, page):
+        open_page(page, base)
+        button = tid(page, "date-time-use-browser")
+        expect(button).to_be_visible()
+        button.focus()
+        page.keyboard.press("Enter")
+        expect_saved(page)
+        expect(tid(page, "date-time-mismatch")).to_be_hidden()
+        expect(tid(page, "date-time-chosen")).to_be_focused()
+        assert tid(page, "date-time-chosen").get_attribute("tabindex") == "-1"
+
+
+def test_a_failed_use_keeps_the_button_and_its_focus(tmp_path: Path, browser: Browser) -> None:
+    with session(tmp_path, browser, server_tz=CHICAGO, browser_tz=KIRITIMATI) as (base, page):
+        open_page(page, base)
+
+        def refuse(route: Any) -> None:
+            if route.request.method == "PUT":
+                route.fulfill(status=500, json={"detail": "disk is read-only"})
+            else:
+                route.fallback()
+
+        page.route(TIME_SETTINGS, refuse)
+        button = tid(page, "date-time-use-browser")
+        button.focus()
+        page.keyboard.press("Enter")
+        expect(tid(page, "date-time-error")).to_contain_text("disk is read-only", timeout=8000)
+        expect(tid(page, "date-time-mismatch")).to_be_visible()
+        expect(button).to_be_visible()
+        expect(button).to_be_focused()
+
+
+def test_the_hint_names_an_alias_by_its_canonical_city(tmp_path: Path, browser: Browser) -> None:
+    """B9: Chromium reports Asia/Calcutta for Kolkata; the hint reads 'Kolkata'."""
+    with session(tmp_path, browser, server_tz=CHICAGO, browser_tz="Asia/Calcutta") as (base, page):
+        open_page(page, base)
+        hint = tid(page, "date-time-mismatch")
+        text = hint.locator(".date-time-mismatch-text")
+        expect(text).to_contain_text("Your browser is in Kolkata")
+        expect(text).not_to_contain_text("Calcutta")
+
+
+def test_a_zone_with_no_city_falls_back_to_its_id(tmp_path: Path, browser: Browser) -> None:
+    with session(tmp_path, browser, server_tz=CHICAGO, browser_tz="UTC") as (base, page):
+        open_page(page, base)
+        text = tid(page, "date-time-mismatch").locator(".date-time-mismatch-text")
+        expect(text).to_contain_text("Your browser is in UTC")
+
+
+def test_the_stored_zone_is_centred_and_ids_share_one_font(
+    tmp_path: Path, browser: Browser
+) -> None:
+    """B8: the selected zone is centred in the list; zone ids and offsets use one font in
+    the list and in the 'Selected:' line."""
+    with session(tmp_path, browser, server_tz=CHICAGO) as (base, page):
+        put_settings(base, {"mode": "zone", "zone": KOLKATA})
+        open_page(page, base)
+        expect(tid(page, "date-time-chosen")).to_contain_text("Kolkata")
+        box = page.evaluate(
+            """() => {
+              const lb = document.querySelector('.ui-search-list-listbox');
+              const row = lb.querySelector('[data-zone="Asia/Kolkata"]');
+              const a = lb.getBoundingClientRect();
+              const b = row.getBoundingClientRect();
+              return { mid: a.top + a.height / 2, rowMid: b.top + b.height / 2,
+                       rowH: b.height, top: lb.scrollTop };
+            }"""
+        )
+        assert box["top"] > 0, box
+        assert abs(box["rowMid"] - box["mid"]) <= box["rowH"], box
+        fonts = page.evaluate(
+            """() => {
+              const f = (el) => getComputedStyle(el).fontFamily;
+              const lb = document.querySelector('.ui-search-list-listbox');
+              const desc = lb.querySelector('.ui-search-list-description');
+              const chosen = document.querySelector('[data-testid="date-time-chosen"]');
+              const id = chosen.querySelector('.date-time-chosen-id');
+              return { list: f(desc), chosen: id ? f(id) : null };
+            }"""
+        )
+        assert fonts["chosen"] == fonts["list"], fonts
+
+
+def test_a_pick_does_not_scroll_the_list(tmp_path: Path, browser: Browser) -> None:
+    with session(tmp_path, browser, server_tz=CHICAGO) as (base, page):
+        open_page(page, base)
+        choose_zone_mode(page)
+        listbox = page.locator(".ui-search-list-listbox").first
+        listbox.evaluate("el => { el.scrollTop = 1200; }")
+        before = listbox.evaluate("el => el.scrollTop")
+        assert before > 500
+        # A row fully inside the listbox's viewport (Playwright scrolls a row that is not).
+        zone = listbox.evaluate(
+            """lb => {
+              const box = lb.getBoundingClientRect();
+              for (const r of lb.querySelectorAll('[data-zone]')) {
+                const b = r.getBoundingClientRect();
+                if (b.top >= box.top + 4 && b.bottom <= box.bottom - 4) return r.dataset.zone;
+              }
+              return null;
+            }"""
+        )
+        assert zone
+        page.locator(f'[data-testid="date-time-zone-row"][data-zone="{zone}"]').click()
+        expect_saved(page)
+        after = listbox.evaluate("el => el.scrollTop")
+        assert abs(after - before) <= 1, (before, after)
+
+
+def test_an_empty_status_takes_no_height(tmp_path: Path, browser: Browser) -> None:
+    """B10: no reserved gap below the zone card while there is no status."""
+    with session(tmp_path, browser, server_tz=CHICAGO) as (base, page):
+        open_page(page, base)
+        region = tid(page, "date-time-status")
+        assert region.get_attribute("role") == "status"
+        assert region.bounding_box()["height"] == 0
+        choose_zone_mode(page)
+        pick(page, KOLKATA)
+        expect_saved(page)
+        assert region.bounding_box()["height"] > 0
