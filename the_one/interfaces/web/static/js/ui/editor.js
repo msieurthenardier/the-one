@@ -46,8 +46,9 @@
   //   the header's horizontal padding (editor-header--flush).
   // App.ui.editorShell(opts) -> controller {el, titleEl, focusTitle(),
   // setTitle(text), setSubtitle(text|null), setDirty(bool), setBusy(bool),
-  // setError(text|null), setSaveLabel(text), cancelButton, saveButton,
-  // testButton}.
+  // setError(text|null), setSaveLabel(text), errorEl (the span.editor-error, for a
+  // testid; M31 F4 L10), cancelButton, saveButton, testButton}. subtitleTestid puts a
+  // testid on the subtitle (or page intro) paragraph.
   //   breadcrumb: {label, href, trail} ("Library" + " / Model providers") or
   //     {lead, label, href} ("Settings / " + the link); lead/trail are text.
   //   title (required), titleLevel (1 default, or 2): hN.editor-title with
@@ -121,6 +122,7 @@
         subtitleEl.textContent = text;
       } else {
         subtitleEl = util.el('p', { className: 'editor-subtitle', text: text });
+        if (opts.subtitleTestid) subtitleEl.setAttribute('data-testid', opts.subtitleTestid);
         textCol.appendChild(subtitleEl);
       }
     }
@@ -169,6 +171,7 @@
       pageHdr = App.ui.pageHeader({
         title: opts.title,
         intro: opts.subtitle,
+        introTestid: opts.subtitleTestid,
         testid: opts.testid,
         titleClassName: 'editor-title',
         actions: cluster
@@ -199,6 +202,7 @@
     return {
       el: header,
       titleEl: titleEl,
+      errorEl: errorEl,
       cancelButton: cancelButton,
       saveButton: saveButton,
       testButton: testButton,

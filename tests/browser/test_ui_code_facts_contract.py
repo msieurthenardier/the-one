@@ -143,6 +143,44 @@ def test_facts_set_replaces_rows_and_escapes_text(engine_page: Page) -> None:
     assert out == [2, "&lt;b&gt;no&lt;/b&gt;", True]
 
 
+def test_facts_values_share_one_left_edge_and_long_labels_wrap(engine_page: Page) -> None:
+    """M31 F4 L10 (B4 amendment): every value in one list starts at the same left edge,
+    with short and long labels mixed, and a long label wraps without overlapping its
+    value at a 1024px viewport (Chromium and WebKit)."""
+    engine_page.set_viewport_size({"width": 1024, "height": 768})
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const long = 'A very long label that goes on and on and on and on and on and on and on';
+          const f = App.ui.facts({testid: 'fx', rows: [
+            {label: 'Backend', value: 'USearch', testid: 'r1'},
+            {label: 'Items with stored secrets', value: '12', testid: 'r2'},
+            {label: long, value: 'A value after the long label', testid: 'r3'},
+            {label: 'Model', value: 'potion-retrieval-32M', mono: true, testid: 'r4'}]});
+          const host = document.getElementById('harness-root');
+          host.style.width = '700px';
+          host.appendChild(f.el);
+          const rows = Array.from(f.el.children);
+          const dd = rows.map((r) => r.querySelector('dd').getBoundingClientRect());
+          const dt = rows.map((r) => r.querySelector('dt').getBoundingClientRect());
+          return {
+            lefts: dd.map((r) => Math.round(r.left)),
+            rowBoxes: rows.map((r) => r.getBoundingClientRect().height > 0),
+            noOverlap: dt.every((r, i) => r.right <= dd[i].left + 0.5),
+            longWrapped: dt[2].height > dt[0].height * 1.5,
+            listWidth: f.el.getBoundingClientRect().width,
+            maxRight: Math.max.apply(null, dd.map((r) => r.right)),
+            listRight: f.el.getBoundingClientRect().right
+          };
+        }"""
+    )
+    assert len(set(out["lefts"])) == 1, out
+    assert all(out["rowBoxes"]), out
+    assert out["noOverlap"] is True, out
+    assert out["longWrapped"] is True, out
+    assert out["maxRight"] <= out["listRight"] + 0.5, out
+
+
 def test_section_info_button_order_name_tab_and_rule(engine_page: Page) -> None:
     load_harness(engine_page)
     out = engine_page.evaluate(

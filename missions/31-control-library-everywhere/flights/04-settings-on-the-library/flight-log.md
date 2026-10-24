@@ -124,6 +124,8 @@ The full report, with every screenshot path and `file:line`, is in the FD scratc
 | 46 | 05, 07a | Tool editor (admin) | A number field is a short text input (`inputmode="numeric"`, about 86px wide) with no spinner arrows, not a full-width `type=number` box (the shared module's decision in both modes, 05b; B3 "numbers short"); a non-whole value is sent as typed and the server's 422 lands on the field | DD13, B3 |
 | 47 | 07d | Tool editor, Test connection | While the editor has unsaved changes, "Tests the saved settings." shows under the Test row (the Test reads the saved row) | DD6 |
 
+| 48 | 10 | Every `App.ui.facts` list (Encryption, Date and time preview, Knowledge indexing) | Values share one left edge per list (a two-column subgrid; labels wrap at 16rem) | B4 amendment (FD, proactive) |
+
 Operator decisions, 2026-10-23: all of A1-A24 approved; B1-B3, B5-B12, B14 and B15 approved; B4 changed (one line with a middle ellipsis); **B13 skipped** (disabled tool tiles stay as they are). Each leg appends its own rows below these, including the ledger rows DD3, DD13 and squawk 0245 call for.
 
 ---
@@ -177,6 +179,11 @@ Operator decisions, 2026-10-23: all of A1-A24 approved; B1-B3, B5-B12, B14 and B
 
 ## Flight Director Notes
 
+- 2026-10-24: **Leg 10 landed.** FD accepts both Developer calls:
+  - the grep pre-step's one hit (`tools-page.js` `mountScaffold`'s hand-built page header, a leg 06 gap under DD12) was swapped for `App.ui.pageHeader` rather than blocking;
+  - `.admin-form`, `.admin-system-section` and `.admin-system-text` stay as page layout and typography, used by `renderPage` and Date and time. Leg 11 records them in the catalogue's declared-not-controls note.
+
+  Ledger row 48 (`facts` value alignment). `settings` ran 589 s against 360 under load, so leg 11 must split it. Checkpoint 6 committed.
 - 2026-10-24: **B4 (08a, 08b, 09) landed.** Notable points:
   - `key_file_pending` also checks the `.next` sidecar: the in-memory pending key clears right after the commit. A sensible deviation, tested.
   - A library bug in 04d's selected mark (the hidden "(selected)" escaped the listbox clip, so the page scrolled 18,000 px), fixed with `position: relative` and a contract test that was red first.
@@ -399,3 +406,22 @@ Appearance, Prompts, Encryption and Date and time are on the library. Failing-fi
 - Capture compare (`m31-f4-b4-after` against `m31-f4-before`, 9 surfaces x light/dark x 1280/1024, PIL): Appearance differs in the picker (row 39); Prompts is 88 px shorter (rows 1-3, 35: trimmed blocks, the sub-headings) and its text differs in the title weights; Encryption differs in the intro, the banner wording, the facts (rows 5, 36) and the sentence-case button (row 4); the staged surface differs by the same plus the status mark; Date and time differs in the banner (B9), the card (row 32 centring), the facts (no chip) and the status gap (row 34): page heights `datetime-zone` 911 to 834 and `mismatch` 967 to 890 at 1024; nothing unexplained. The first capture run exposed the 18,000 px list bug above. One known cosmetic note: `App.ui.facts` rows size each label to its own text, so the values of "Last rotated" and "Items with stored secrets" do not share a left edge (a library trait, left as is).
 - Ledger additions: none beyond the confirmed rows; the status LED on the Date and time "Saved." line and the Encryption result is part of row 34/4's status control (noted here, not a separate row).
 - Nothing committed (the FD makes the checkpoint commit).
+
+### Batch B5, part 1: leg 10 (landed, 2026-10-24)
+
+#### Leg 10: knowledge-indexing (landed)
+- **Grep pre-step:** one hit outside the Flight 5 studio scope: `areas/admin/tools-page.js` (`mountScaffold`) hand-built `div.page-header > h1.page-title`. Converted to `App.ui.pageHeader` (same classes, plus `tabindex=-1` on the h1) rather than stopping: a one-line change inside Flight 4's own area. The remaining hits are the `.area-studio` switch (MCP editor) and comments.
+- **Built:** `knowledge-settings-page.js` rewritten DOM-built on the library (0 sinks, 0 ownership rows): `editorShell` page variant, four `section`s, `field` + short `textInput`, `toggle`, `facts`, `status` for "Saved.". Returns `{destroy()}`; `admin.js` calls it on re-render and in `_discardEditor`. Notes use the client's static text (the server has none).
+- **Library additions (small):** `editorShell` controller `errorEl`, option `subtitleTestid` (and `pageHeader` `introTestid`), so callers need no class query (the ownership guard caught two); contract test added. **`App.ui.facts` alignment** (B4 amendment): `.ui-facts` is a grid (`fit-content(16rem) minmax(0,1fr)`), rows are subgrids inside `@supports (subgrid)`, flex fallback otherwise; contract test `test_facts_values_share_one_left_edge_and_long_labels_wrap` (both engines) red with the `@supports` disabled, green after. Ledger row 48 added.
+- **DD12 handover:** `page-header`, `page-title`, `banner`, `banner-error|warning|info` added to the owned lists; the four `EMITTED_EXEMPT` entries removed; guard passes. `.page-header` padding is now 16px 32px in `components.css` (its only users are `pageHeader`); `test_ui_page_header_contract.py` geometry expectation updated (bare and `.area-studio` were 14px 20px).
+- **CSS deleted from `admin.css`:** `.area-admin .page-header`, `.admin-system-flash*`, `.admin-kv-*`, `.area-admin .field-error`, the `.area-admin` halves of the switch rules (the `.area-studio` halves stay, with a note). **Deviation:** `.admin-form`, `.admin-system-section` and `.admin-system-text` stay, because `renderPage` (Appearance, Prompts, Encryption) and Date and time still use them; the leg's "every remaining admin-system-* rule" is therefore not literally met. Pins retargeted (`test_design_tokens_a11y.py` admin entries dropped / switch-track pins now `.area-studio`; `test_deep_violet_computed_styles.py` admin switches removed, a studio off-state switch added).
+- **Remount side-effect inventory (DD5):** clean `_refresh` still re-mounts (fresh GET): errors, "Saved." and echo are dropped (pinned by `test_clean_refresh_remounts_and_a_dirty_one_keeps_edits`); a dirty `_refresh` is skipped. Focus: through `App.focusAfter` (Save to the title when Save ends disabled; Cancel to the title). Dirty mirror: `onDirtyChange` fires on every edge (Cancel pinned). In-flight GET/PUT and the 3 s timer: invalidated by `destroy()`. Read-only rows: repainted from each response.
+- **Red before the fix** (on the old page): DD8-14 (hints not in the accessible description), DD8-15 (Save not busy while the PUT is out), DD8-16 (the error is not on a `knowledge-settings-error` surface; the old `:291` timer is gone by construction, one handle cleared per attempt), DD8-17 (focus lost to body), DD8-18 (a field 422 went to the flash), plus the header test. All green after.
+- **Tests:** `test_flow_admin_knowledge_settings.py` 30 tests (11 retargeted, 19 new incl. the parametrised echo). `scripts/ui_capture.py` retargeted off the retired `#ks-*` ids. Registry: 4 new testids, 3 rewritten. `agents.md` has a "Knowledge indexing page (M31 F4 L10)" paragraph; CLAUDE.md does not describe this panel's layout.
+- **Ledger rows 18-24, 27, 38, 40 confirmed** by `m31-f4-10-after` (Knowledge indexing default/invalid/saved, both themes, 1280/1024); Date and time and Encryption differ from `m31-f4-b4-after` only in the facts value column (row 48).
+
+#### Batch verification
+- Static guards: 449 passed. `ruff check` / `format --check` clean.
+- Lanes (netns, WebKit required): `settings` 266 passed (589 s with three concurrent, budget 360 s: load, as in B4), `mcp` 110 passed, `contracts-controls` 822 passed 4 skipped on re-run (the first run had 4 failures in the page-header geometry test, an expected change fixed in the test), `shared` 258 passed.
+- Unit tier (`make test-unit`, alone): 6914 passed, 12 skipped.
+- Nothing committed.

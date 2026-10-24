@@ -44,11 +44,8 @@ MOUNT_JS = """() => {
       <input type="checkbox" id="cb-off" class="checkbox-primary">
       <input type="checkbox" id="cb-on" class="checkbox-primary" checked>
     </div>
-    <div class="area-admin">
-      <label class="tool-enable-switch"><input type="checkbox" id="sw-admin-off"><span class="tool-enable-switch-track" id="tr-admin-off"></span></label>
-      <label class="tool-enable-switch"><input type="checkbox" id="sw-admin-on" checked><span class="tool-enable-switch-track" id="tr-admin-on"></span></label>
-    </div>
     <div class="area-studio">
+      <label class="tool-enable-switch"><input type="checkbox" id="sw-studio-off"><span class="tool-enable-switch-track" id="tr-studio-off"></span></label>
       <label class="tool-enable-switch"><input type="checkbox" id="sw-studio-on" checked><span class="tool-enable-switch-track" id="tr-studio-on"></span></label>
       <label class="ui-toggle-label"><input type="checkbox" role="switch" class="ui-toggle-input" id="ts-off"><span class="ui-toggle-track" id="tsw-off"></span></label>
       <label class="ui-toggle-label"><input type="checkbox" role="switch" class="ui-toggle-input" id="ts-on" checked><span class="ui-toggle-track" id="tsw-on"></span></label>
@@ -197,8 +194,7 @@ def test_checkbox_and_toggles(engine_page: Page, theme: str) -> None:
     assert tick["borderR"] == _rgb(t["fg_on_accent_fill"]), tick
 
     for track, thumb_bg, track_bg in (
-        ("#tr-admin-off", t["control_thumb"], t["control_border"]),
-        ("#tr-admin-on", t["control_thumb"], t["accent_fill"]),
+        ("#tr-studio-off", t["control_thumb"], t["control_border"]),
         ("#tr-studio-on", t["control_thumb"], t["accent_fill"]),
         ("#tsw-off", t["control_thumb"], t["control_border"]),
         ("#tsw-on", t["control_thumb"], t["accent_fill"]),

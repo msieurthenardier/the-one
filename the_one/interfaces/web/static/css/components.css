@@ -1134,7 +1134,7 @@
      new-chat button M25 F4 L4b retired; the chat header is chat.css's
      .chat-header now). */
   .page-header {
-    padding: 14px 20px;
+    padding: 16px 32px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1158,10 +1158,9 @@
   .page-header > .btn-outlined-primary { margin-left: auto; flex-shrink: 0; }
 
   /* === App.ui.pageHeader (M31 F4 L04a) ===
-     The control's own marker class. The geometry stays the legacy .page-header
-     rules above (and .area-admin .page-header's 16px 32px, an area rule, until
-     the handover leg); this adds only the text column, the intro and the actions
-     slot. The editorShell page variant composes it. */
+     The control's own marker class. The geometry is the .page-header rules above
+     (16px 32px, the Settings page geometry; the area-scoped copy went in M31 F4 L10);
+     this adds only the text column, the intro and the actions slot. The editorShell page variant composes it. */
   .ui-page-header-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ui-page-header-intro {
     font-size: var(--font-size-body-sm);
@@ -1170,7 +1169,7 @@
   }
   .ui-page-header-actions { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; }
   /* inset: 'none' (editorShell, M31 F4 L04a): no horizontal padding. !important so
-     it holds against an area rule (.area-admin .page-header, a later layer) too. */
+     it holds against any later-layer rule too. */
   .editor-header--flush { padding-left: 0 !important; padding-right: 0 !important; }
 
   /* === App.ui.tabs (M31 F2 L4): the tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
@@ -1578,6 +1577,21 @@
     min-width: 12ch;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
+  }
+  /* Value alignment (M31 F4 L10): in one list every value starts at the same left edge.
+     The list is a two-column grid (the label column as wide as its longest label, capped at
+     16rem so a long label wraps instead of crowding the value) and each row wrapper is a
+     subgrid over it, so the wrappers keep their boxes and testids. Engines without subgrid
+     keep the flex rows above, with a label minimum of 12ch. */
+  @supports (grid-template-columns: subgrid) {
+    .ui-facts {
+      display: grid;
+      grid-template-columns: fit-content(16rem) minmax(0, 1fr);
+      column-gap: var(--space-3);
+      row-gap: var(--space-2);
+    }
+    .ui-facts-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+    .ui-facts-label { min-width: 0; overflow-wrap: anywhere; }
   }
   .ui-facts-value { margin: 0; min-width: 0; font-size: var(--font-size-body); color: var(--fg); overflow-wrap: anywhere; }
   .ui-facts-value--mono { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); }

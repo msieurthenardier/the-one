@@ -604,12 +604,6 @@ _FILL_SITES = [
     ),
     (
         "admin.css",
-        _ON_TRACK.format("admin"),
-        ("--accent-fill",),
-        ("var(--accent)",),
-    ),
-    (
-        "admin.css",
         _ON_TRACK.format("studio"),
         ("--accent-fill",),
         ("var(--accent)",),
@@ -638,13 +632,13 @@ _FILL_SITES = [
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
     (
         "admin.css",
-        ".area-admin .tool-enable-switch-track",
+        ".area-studio .tool-enable-switch-track",
         ("--control-border",),
         ("--border-strong",),
     ),
     (
         "admin.css",
-        ".area-admin .tool-enable-switch-track::after",
+        ".area-studio .tool-enable-switch-track::after",
         ("--control-thumb",),
         ("--fg-on-accent",),
     ),

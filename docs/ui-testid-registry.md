@@ -232,12 +232,16 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-overlap-hint` | admin | Knowledge settings panel — static hint under the overlap field (M24 F06 L04) |
 | `knowledge-reconcile-interval-error` | admin | Knowledge settings panel — `reconcile_interval_seconds` inline validation message (L4-D3, M24 F06 L04) |
 | `knowledge-reconcile-interval-input` | admin | Knowledge settings panel — `monitoring.reconcile_interval_seconds` field (M24 F06 L04) |
+| `knowledge-settings-cancel-btn` | admin | Knowledge settings panel — Cancel in the page header; patches the fields back to the baseline (M31 F4 L10) |
+| `knowledge-settings-intro` | admin | Knowledge settings panel — the intro line under the page title (B15, M31 F4 L10) |
+| `knowledge-settings-error` | admin | Knowledge settings panel — the shell's error span after a save failure with no field of its own (M31 F4 L10) |
+| `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
-| `knowledge-settings-flash` | admin | Knowledge settings panel — save success/error flash, mirrors `.admin-system-flash` (M24 F06 L04) |
-| `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure banner; no defaults are rendered over it (M24 F06 L04) |
+| `knowledge-settings-flash` | admin | Knowledge settings panel — region holding the "Saved." `App.ui.status` (inserted on success, cleared by the next attempt or after 3 s; M31 F4 L10) |
+| `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure text, set on the shell's error span (`errorRole: 'alert'`); the fields are disabled and Save never enables (M24 F06 L04, M31 F4 L10) |
 | `knowledge-settings-monitoring-section` | admin | Knowledge settings panel — Monitoring section container (M24 F06 L04) |
-| `knowledge-settings-panel` | admin | Knowledge settings panel — root `.admin-form` container (M24 F06 L04) |
+| `knowledge-settings-panel` | admin | Knowledge settings panel — the `.admin-form` body under the page header, holding the sections (M24 F06 L04) |
 | `knowledge-settings-save-btn` | admin | Knowledge settings panel — the one explicit Save for chunking + monitoring together (L4-D4, M24 F06 L04) |
 | `knowledge-settings-vector-store-section` | admin | Knowledge settings panel — Vector Store (read-only) section container (M24 F06 L04) |
 | `knowledge-size-chars-error` | admin | Knowledge settings panel — `size_chars` inline validation message (L4-D3, M24 F06 L04) |

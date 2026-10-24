@@ -40,11 +40,6 @@ _TABLE = re.compile(r"\b\w*CLASS\w*\s*=\s*\{")
 
 # name (or prefix ending in "-") -> why it is emitted without a catalogue row of its own.
 EMITTED_EXEMPT: dict[str, str] = {
-    # Legacy names the new page controls emit before their DD12 handover legs (04a, 04b):
-    "page-header": "legacy name of pageHeader; joins the owned list at its handover leg",
-    "page-title": "legacy name of the page title; joins the owned list at its handover leg",
-    "banner": "legacy name of banner; joins the owned list at the banner handover leg",
-    "banner-": "legacy banner-{tone} family; joins the owned list at the handover leg",
     # The toolTile's legacy names are owned since leg 06's handover (M31 F4 L06); only the
     # state class stays exempt (an everyday word, not safe to own):
     "active": "legacy selected state of the toolTile; an everyday word, deliberately not owned",

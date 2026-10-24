@@ -76,7 +76,7 @@ def test_no_actions_no_slot_and_requires_title(engine_page: Page) -> None:
 
 @pytest.mark.parametrize(
     ("ancestor", "want"),
-    [(None, "14px 20px"), ("area-studio", "14px 20px"), ("area-admin", "16px 32px")],
+    [(None, "16px 32px"), ("area-studio", "16px 32px"), ("area-admin", "16px 32px")],
 )
 def test_geometry_bare_and_under_areas(engine_page: Page, ancestor: str | None, want: str) -> None:
     _mount(engine_page, ancestor)
@@ -257,3 +257,26 @@ def test_section_inset_none_under_areas(engine_page: Page, ancestor: str) -> Non
     assert out["plain"] != ["0px", "0px"] or ancestor == "area-admin"
     assert "editor-section--flush" in out["cls"]
     assert "inset" in out["thrown"]
+
+
+def test_shell_exposes_error_el_and_subtitle_testid(engine_page: Page) -> None:
+    """M31 F4 L10: errorEl is the shell's error span (so a caller can give it a testid
+    without a class query) and subtitleTestid lands on the intro / subtitle paragraph, in
+    both variants."""
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const mk = (variant) => App.ui.editorShell({
+            variant, title: 'T', subtitle: 'Sub', subtitleTestid: 'sub-id',
+            errorRole: 'alert', actions: {save: {onClick() {}}}});
+          const a = mk('page'), b = mk('default');
+          a.setError('boom');
+          return {
+            page: [a.errorEl.className, a.errorEl.textContent, a.errorEl.getAttribute('role'),
+                   a.el.querySelector('[data-testid="sub-id"]').textContent],
+            plain: b.el.querySelector('[data-testid="sub-id"]').className
+          };
+        }"""
+    )
+    assert out["page"] == ["editor-error", "boom", "alert", "Sub"]
+    assert out["plain"] == "editor-subtitle"

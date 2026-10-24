@@ -65,9 +65,7 @@ App.admin.toolsPage = {
       var el = App.ui.util.el;
       var root = ctx.contentEl();
       root.textContent = '';
-      var header = el('div', { className: 'page-header' }, [
-        el('h1', { className: 'page-title', text: ctx.pageLabel(category) })
-      ]);
+      var header = App.ui.pageHeader({ title: ctx.pageLabel(category) }).el;
       var listEl = el('div', { className: 'settings-list settings-list--' + category });
       var itemEl = el('div', { className: 'settings-item' });
       root.appendChild(header);

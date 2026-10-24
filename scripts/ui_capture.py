@@ -690,9 +690,15 @@ def _tool_web_search_searxng(ctx: Ctx) -> None:
     page.locator('[data-field="searxng_base_url"]').wait_for(state="visible", timeout=5000)
 
 
+KS_SIZE = '[data-testid="knowledge-size-chars-input"]'
+KS_OVERLAP = '[data-testid="knowledge-overlap-chars-input"]'
+KS_INTERVAL = '[data-testid="knowledge-reconcile-interval-input"]'
+
+
 def _knowledge_ready(ctx: Ctx) -> None:
     ctx.page.wait_for_function(
-        "() => { const i = document.querySelector('#ks-size-chars'); return i && i.value !== ''; }",
+        "() => { const i = document.querySelector('[data-testid=knowledge-size-chars-input]');"
+        " return i && i.value !== ''; }",
         timeout=15000,
     )
 
@@ -700,21 +706,21 @@ def _knowledge_ready(ctx: Ctx) -> None:
 def _knowledge_invalid(ctx: Ctx) -> None:
     page = ctx.page
     _knowledge_ready(ctx)
-    page.locator("#ks-size-chars").fill("50")
-    page.locator("#ks-overlap-chars").fill("5000")
-    page.locator("#ks-reconcile-interval").fill("2")
-    page.locator("#ks-reconcile-interval").press("Tab")
-    page.locator('[data-testid="knowledge-size-chars-error"]:not([hidden])').wait_for(timeout=5000)
+    page.locator(KS_SIZE).fill("50")
+    page.locator(KS_OVERLAP).fill("5000")
+    page.locator(KS_INTERVAL).fill("2")
+    page.locator(KS_INTERVAL).press("Tab")
+    page.locator('[data-testid="knowledge-size-chars-error"]').wait_for(timeout=5000)
 
 
 def _knowledge_saved(ctx: Ctx) -> None:
     page = ctx.page
     _knowledge_ready(ctx)
-    page.locator("#ks-size-chars").fill("2000")
-    page.locator("#ks-overlap-chars").fill("200")
-    page.locator("#ks-reconcile-interval").fill("600")
+    page.locator(KS_SIZE).fill("2000")
+    page.locator(KS_OVERLAP).fill("200")
+    page.locator(KS_INTERVAL).fill("600")
     page.locator('[data-testid="knowledge-settings-save-btn"]').click()
-    page.locator('[data-testid="knowledge-settings-flash"]:not(:empty)').wait_for(timeout=10000)
+    page.locator('[data-testid="knowledge-settings-flash"] .ui-status').wait_for(timeout=10000)
 
 
 SURFACES: list[Surface] = []
@@ -1070,21 +1076,21 @@ SURFACES += [
     _settings(
         "settings-knowledge-default",
         "#settings/knowledge-indexing",
-        "#ks-size-chars",
+        KS_SIZE,
         "Knowledge indexing, seeded non-default values",
         prepare=_knowledge_ready,
     ),
     _settings(
         "settings-knowledge-invalid",
         "#settings/knowledge-indexing",
-        "#ks-size-chars",
+        KS_SIZE,
         "Knowledge indexing, field errors showing",
         prepare=_knowledge_invalid,
     ),
     _settings(
         "settings-knowledge-saved",
         "#settings/knowledge-indexing",
-        "#ks-size-chars",
+        KS_SIZE,
         "Knowledge indexing, after a Save",
         prepare=_knowledge_saved,
         restore=_restore_knowledge_settings,

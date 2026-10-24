@@ -213,6 +213,7 @@ App.registerArea({
     function renderContent() {
       // Every page render replaces the content; Built-in tools mounts a fresh
       // scaffold.
+      destroyKnowledgePage();
       tools.reset();
       if (GENERAL_RENDERERS[currentCategory]) {
         App.admin[GENERAL_RENDERERS[currentCategory]](contentEl);
@@ -227,10 +228,21 @@ App.registerArea({
     // No grid/editor split — the whole category is one form, so it delegates
     // straight to the sub-module and bridges its dirty state onto the shared
     // `dirty` mirror exactly as the tools editor does.
+    // The page returns {destroy()}: a re-render or a discard invalidates its in-flight
+    // GET and PUT and its "Saved." timer, so a late response cannot repaint a torn-down
+    // page.
+    var knowledgePage = null;
+    function destroyKnowledgePage() {
+      if (knowledgePage) {
+        knowledgePage.destroy();
+        knowledgePage = null;
+      }
+    }
     function renderKnowledgePanel() {
+      destroyKnowledgePage();
       editorDomStale = false;
       dirty = false;
-      App.admin.renderKnowledgeSettingsPage(contentEl, {
+      knowledgePage = App.admin.renderKnowledgeSettingsPage(contentEl, {
         onDirtyChange: function (d) { dirty = d; }
       });
     }
@@ -260,12 +272,15 @@ App.registerArea({
       editorGen += 1;
       App.focusAfter.cancel();
       try {
-        // Knowledge settings is one form: discard is just dirty=false (re-entry
-        // re-renders from the saved settings). Otherwise tear the item down:
+        // Knowledge settings is one form: discard invalidates the page's in-flight
+        // requests and sets dirty=false (re-entry re-renders from the saved settings).
+        // Otherwise tear the item down:
         // on an item page (Built-in tools) that empties the item
         // section below the list (M25 F3 L5b), so no discarded editor lingers
         // under the tiles; anywhere else the next _setCategory re-renders.
-        if (currentCategory !== 'knowledge') {
+        if (currentCategory === 'knowledge') {
+          destroyKnowledgePage();
+        } else {
           self._closeOpenItem();
           if (!tools.scaffoldFor(currentCategory)) editorDomStale = true;
         }

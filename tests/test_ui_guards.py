@@ -96,9 +96,6 @@ KNOWN_DEAD_SELECTORS: set[str] = set()
 #    sites are exempt and not recorded.
 #    ─────────────────────────────────────────────────────────────────────────
 DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
-    "areas/admin/knowledge-settings-page.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
-    ],
     # M25 F4 L4a removed the chat sidebar sink (the Chats list is DOM-built)
     # and history-buckets.js with its delete-button sink; leg 4b removed the
     # content sink (the pane is areas/chat/chat-pane.js, the composer
@@ -135,7 +132,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    file. Lower a count in the same change that removes a sink; never raise one
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
-    "areas/admin/knowledge-settings-page.js": 1,
     "areas/chat.js": 5,
     "areas/studio/mcp-server-editor.js": 18,
 }

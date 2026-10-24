@@ -8,7 +8,8 @@
   // legacy classes (page-header/page-title, banner/banner-*); the legacy names
   // join the owned list at the handover leg.
 
-  // App.ui.pageHeader({title, headingId, intro, actions, testid, titleClassName})
+  // App.ui.pageHeader({title, headingId, intro, introTestid (on the intro paragraph,
+  //   M31 F4 L10), actions, testid, titleClassName})
   //   -> {el, titleEl, setTitle(text), setIntro(text|null), actionsEl}.
   //   div.page-header.ui-page-header holds div.ui-page-header-text (the
   //   h1.page-title, tabindex -1, plus an optional p.ui-page-header-intro) and,
@@ -36,6 +37,7 @@
         introEl.textContent = text;
       } else {
         introEl = util.el('p', { className: 'ui-page-header-intro', text: text });
+        if (opts.introTestid) introEl.setAttribute('data-testid', opts.introTestid);
         textCol.appendChild(introEl);
       }
     }
