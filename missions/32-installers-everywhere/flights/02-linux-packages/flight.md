@@ -1,6 +1,6 @@
 # Flight: Linux packages
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
@@ -431,17 +431,17 @@ Legs 1-9 are reviewed, committed and pushed before the first dispatch (Flight 1'
 - [x] `hosted-build-run` - Dispatch on the flight branch, the gate summary, and a listing comparison with the leg 9 rehearsal build.
 - [x] `notice-and-metainfo-polish` - Shorter no-tray notice text that fits GNOME's banner; AppStream icon and developer/publisher fields; more icon sizes (operator, 2026-10-24, after leg 6).
 - [x] `fresh-vm-checks` - `linux-package-install` on all four variants. `docs/linux-install.md`, README "Install", and the packaging sections in `CLAUDE.md` and `the_one/agents.md`.
-- [ ] `linux-hat` - The operator's guided walk on both VM desktops.
+- [x] `linux-hat` - The operator's guided walk on both VM desktops.
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (unit, browser lanes, lint)
-- [ ] Documentation updated (Linux guide, README, CLAUDE.md, agents.md, SECURITY-MODEL.md)
-- [ ] `packaging/spike/` gone; the `dynamic` version hand-off recorded for Flight 4
+- [x] Tests passing (unit, browser lanes, lint)
+- [x] Documentation updated (Linux guide, README, CLAUDE.md, agents.md, SECURITY-MODEL.md)
+- [x] `packaging/spike/` gone; the `dynamic` version hand-off recorded for Flight 4
 
 ### Verification
 - **The hosted run:** `linux-packages.yml`, dispatched on the flight branch, is green, and its summary shows PASS for both formats on both distros' bare images.

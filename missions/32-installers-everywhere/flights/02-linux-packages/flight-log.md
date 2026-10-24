@@ -3,7 +3,25 @@
 **Flight**: [Linux packages](flight.md)
 
 ## Summary
-Planning (2026-10-24). Not yet in flight.
+**Landed 2026-10-24.** Thirteen legs completed (twelve planned; leg 11 was added after leg 6).
+
+**Delivered:** both Linux packages, built from one pinned container and one metadata source.
+- The AppImage carries a host-first fallback for `libgirepository-2.0` and the Ayatana stack; its compatibility was proven against GLib 2.84 and 2.88.
+- The desktop works on GNOME with or without a tray:
+  - closing and showing the window work under GTK;
+  - no-tray hide, with a notice;
+  - "Quit GleepGlorp AI" and `the-one quit`;
+  - Wayland focus;
+  - a newer launch replaces an older running one.
+- `doctor` reports the sandbox and tray.
+- Self-integration into the menu, AppStream metainfo, and a post-freeze audit.
+- A dispatch-only hosted workflow, green on its first run and matching the local build.
+- A fresh-VM apparatus. The `linux-package-install` behavior test passed 44/44 on Ubuntu 26.04 and Debian 13 for both packages.
+- The Linux install guide.
+
+**Gates:** `make test-unit` 7059 passed, 12 skipped; all 12 browser lanes passed (`--parallel 3`, 1450 s; `knowledge` 326 s against a 300 s budget, flagged); ruff clean.
+
+**Operator decisions:** MIT license; homepage; on Ubuntu, `.deb` upgrade and removal are documented with `apt`, and the AppImage is recommended first; the cosmetic polish; the HAT dispositions. Squawk 0253 is open (the Ubuntu AppImage's slow first paint).
 
 ---
 
@@ -342,6 +360,10 @@ Planning (2026-10-24). Not yet in flight.
   - runner: Ubuntu 24.04.5, 13 GB free, 7 GB RAM.
 
   Leg 10's comparison and baseline gates are running.
+- **Flight landed (2026-10-24).**
+  - All 13 legs completed. The full browser gate passed (`PARALLEL_RESULT rc=0 total=1450s lanes=12`; `knowledge` was over its budget, 326 s against 300 s, a warning that this flight touched no knowledge code).
+  - Status `landed`, and Flight 2 is checked off in the mission.
+  - The flight PR is opened ready for review. The debrief (`/mission-control:flight-debrief`) is next.
 
 ---
 

@@ -1,6 +1,6 @@
 # Leg: linux-hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Linux packages](../flight.md)
 
 ## Objective
@@ -35,10 +35,10 @@ The operator sees both Linux packages working on real desktops and aligns on the
 6. **Decisions.** The operator decides, for each finding 1-5, whether to fix it now (a look-and-feel FIX rides the inline protocol; anything that adds behaviour goes through the fix-vs-feature gate), log it as a squawk, or accept it. The decisions are logged in their words.
 
 ## Acceptance Criteria
-- [ ] The operator has walked steps 1-5, or chosen to skip some, and their remarks are logged.
-- [ ] Each finding has a recorded disposition (fixed, squawk id, or accepted).
-- [ ] Any inline fix is committed, with its unit tests passing, and re-shown to the operator if visual.
-- [ ] No `m32-vm-*` container is left running, and the base hashes are verified.
+- [x] The operator has walked steps 1-5, or chosen to skip some, and their remarks are logged.
+- [x] Each finding has a recorded disposition (fixed, squawk id, or accepted).
+- [x] Any inline fix is committed, with its unit tests passing, and re-shown to the operator if visual.
+- [x] No `m32-vm-*` container is left running, and the base hashes are verified.
 
 ---
 
