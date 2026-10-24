@@ -1755,3 +1755,23 @@ def test_aria_disabled_button_looks_disabled_and_stays_focusable(
     assert out["a"] == out["d"], out
     assert out["a"] != out["live"], out
     assert out["a"][1] == "not-allowed" and out["focused"] is True
+
+
+@pytest.mark.parametrize("ancestor", ["area-studio", "area-admin"])
+def test_field_flush_drops_the_trailing_margin(engine_page: Page, ancestor: str) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """(ancestor) => {
+          const host = document.createElement('div'); host.className = ancestor;
+          document.getElementById('harness-root').appendChild(host);
+          const mk = (flush) => {
+            const f = App.ui.field({label: 'L' + flush, control: App.ui.textInput({}), flush: flush});
+            host.appendChild(f.el);
+            return [f.el.className, getComputedStyle(f.el).marginBottom];
+          };
+          return {plain: mk(false), flush: mk(true)};
+        }""",
+        ancestor,
+    )
+    assert out["plain"][0] == "field-group" and out["plain"][1] != "0px"
+    assert out["flush"][0] == "field-group field-group--flush" and out["flush"][1] == "0px"

@@ -72,8 +72,49 @@ App.admin.toolsPage = {
       root.appendChild(listEl);
       root.appendChild(itemEl);
       scaffold = { category: category, listEl: listEl, itemEl: itemEl };
-      grid = category === 'tools' ? App.admin.toolsGrid.create(listEl, { onToggle: handleToolToggle }) : null;
+      grid = category === 'tools' ? App.admin.toolsGrid.create(listEl, {
+        onToggle: handleToolToggle,
+        onBeforeCategoryChange: handleBeforeCategoryChange
+      }) : null;
       return scaffold;
+    }
+
+    // A category tab switch with a tool editor open closes the editor first
+    // (HAT step 3): an intent go() to the tools root, so the router's guard asks
+    // once about a dirty editor. Stay vetoes the switch (the tab stays on the
+    // tool's category, editor and edits intact); a navigated go() closes the
+    // item and then the tab changes. With nothing open the tab just changes.
+    function handleBeforeCategoryChange(id, commit) {
+      if (!(toolFormMode || pendingToolFormMode || pendingToolName)) {
+        commit();
+        return;
+      }
+      var opener = scaffold && scaffold.listEl
+        ? scaffold.listEl.querySelector('[data-tab-id="' + id + '"][role="tab"]') : null;
+      var root = App.router.href({ destination: 'settings', section: 'tools' });
+      App.router.go(root, { opener: opener }).then(function (navigated) {
+        if (!navigated) return;
+        commit();
+        returnFocusToTab(id);
+      });
+    }
+
+    // The router's navigation (a Continue or a clean close) moves focus to <main>
+    // from a setTimeout (nav.js focusMain), which takes it off the tab the user
+    // activated (WCAG 2.4.3). Two tasks later, give it back to that tab, unless
+    // the user has put focus somewhere real meanwhile.
+    function returnFocusToTab(id) {
+      setTimeout(function () {
+        setTimeout(function () {
+          var tab = scaffold && scaffold.listEl
+            ? scaffold.listEl.querySelector('[data-tab-id="' + id + '"][role="tab"]') : null;
+          if (!tab || !tab.isConnected) return;
+          var active = document.activeElement;
+          var main = document.getElementById('main-content');
+          if (active && active !== document.body && active !== main) return;
+          focusNoScroll(tab);
+        }, 0);
+      }, 0);
     }
 
     // The mounted scaffold when `category` is the page showing, else null.

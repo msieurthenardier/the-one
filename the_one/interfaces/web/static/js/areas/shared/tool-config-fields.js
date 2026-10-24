@@ -29,8 +29,9 @@
 //     as absent: the row stays shown. A hidden row keeps its value (it is still read).
 //
 //   App.toolConfigFields.readValue(el) -> the value of a control rendered by render()
-//   App.toolConfigFields.invalidMessage(el) -> "Enter a whole number." for a number control
-//     whose text is not a whole number, else null
+//   App.toolConfigFields.invalidMessage(el) -> "Enter a whole number." / "Must be N or more" /
+//     "Must be at most N" (agent override range) for a number control
+//     whose text is not a whole number or out of range, else null
 //   App.toolConfigFields.seedValue / allowed   (agent mode helpers, see below)
 //
 // DOM hooks (tests and the save paths depend on them; do not move them):
@@ -204,7 +205,17 @@
   function invalidMessage(el) {
     if (!el.dataset || el.dataset.fieldType !== 'integer' || el.tagName !== 'INPUT') return null;
     var raw = el.value.trim();
-    return (raw === '' || INT_RE.test(raw)) ? null : WHOLE_NUMBER_MESSAGE;
+    if (raw === '') return null;
+    if (!INT_RE.test(raw)) return WHOLE_NUMBER_MESSAGE;
+    // An agent override is also held to the schema's range (the operator's value for a
+    // Narrow field); the controls carry it as min/max, set in agent mode only.
+    if (el.dataset.toolOverrideTool === undefined) return null;
+    var n = Number(raw);
+    var lo = el.getAttribute('min');
+    var hi = el.getAttribute('max');
+    if (lo !== null && lo !== '' && n < Number(lo)) return 'Must be ' + lo + ' or more';
+    if (hi !== null && hi !== '' && n > Number(hi)) return 'Must be at most ' + hi;
+    return null;
   }
 
   function render(name, prop, value, opts) {
@@ -367,11 +378,19 @@
 
     if (ftype === 'integer') {
       var min = (prop.minimum !== undefined && prop.minimum !== null) ? prop.minimum : null;
+      if (typeof prop.exclusiveMinimum === 'number' &&
+          (min === null || prop.exclusiveMinimum + 1 > min)) {
+        min = prop.exclusiveMinimum + 1;
+      }
       var max;
       if (!admin && marker === 'Narrow' && typeof operatorValue === 'number') {
         max = operatorValue;
       } else {
         max = (prop.maximum !== undefined && prop.maximum !== null) ? prop.maximum : null;
+        if (typeof prop.exclusiveMaximum === 'number' &&
+            (max === null || prop.exclusiveMaximum - 1 < max)) {
+          max = prop.exclusiveMaximum - 1;
+        }
       }
       var numOpts = {
         id: controlId,

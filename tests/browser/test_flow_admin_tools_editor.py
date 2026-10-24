@@ -879,3 +879,26 @@ def test_unsaved_execution_tool_shows_and_keeps_default_command_denylist(
         list(DEFAULT_COMMAND_DENYLIST),
         "sandbox_network_allowed",
     )
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("width", [1280, 1024])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_test_button_is_vertically_centred_on_its_input(
+    app_clean: str, page: Page, width: int, theme: str
+) -> None:
+    """HAT step 5 (ledger 50): the Test connection button sat ~15px below its
+    input. Their vertical centres agree within 1px at both widths and themes."""
+    page.set_viewport_size({"width": width, "height": 900})
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    page.evaluate(f"document.documentElement.setAttribute('data-theme', '{theme}')")
+    inp = page.locator("input[data-test-param]")
+    btn = page.locator(TEST_BTN)
+    expect(btn).to_be_visible()
+    inp.scroll_into_view_if_needed()
+    ib, bb = inp.bounding_box(), btn.bounding_box()
+    assert ib is not None and bb is not None
+    ic = ib["y"] + ib["height"] / 2
+    bc = bb["y"] + bb["height"] / 2
+    assert abs(ic - bc) <= 1, (ib, bb)

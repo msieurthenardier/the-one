@@ -256,6 +256,8 @@
   //   aria-describedby leads with the description id). The test id option goes
   //   on the .field-group wrapper.
   //   Throws for a control marked data-ui-own-label (checkbox, toggle).
+  // flush: true drops the group's trailing margin (field-group--flush), so the
+  //   control's bottom edge is the group's, for a control that shares a row.
   // setLabel(text) replaces the visible label text.
   // The label is a direct child of the wrapper (the CSS keys off
   // .field-group > label). Hint and error elements each carry an id and are
@@ -278,7 +280,9 @@
     label.htmlFor = control.id;
     var info = opts.info ? App.ui.infoButton({ description: opts.info, label: opts.label }) : null;
     var head = info ? App.ui.util.el('div', { className: 'field-group-label' }, [label, info.el]) : label;
-    var wrapper = App.ui.util.el('div', { className: 'field-group' }, [head, opts.host || control]);
+    var wrapper = App.ui.util.el('div', {
+      className: opts.flush ? 'field-group field-group--flush' : 'field-group'
+    }, [head, opts.host || control]);
     if (opts.testid) wrapper.setAttribute('data-testid', opts.testid);
 
     var hintEl = null;

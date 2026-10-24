@@ -439,8 +439,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
-| `platform-variant-` | admin | The Prompts page's variant sub-heading under the Platform prompt layer: `platform-variant-{variant}` (`tools` or `tool_free`) (M31 F4 L08b) |
-| `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
+| `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`; one list, in assembly order, the tool-free Identity beside the tools Identity; the tool-free Formatting block is absent while its text equals the tools Formatting text, so only the tools block shows; a retired id cannot sit under a live family prefix, so it is not in the retired table, and `platform-variant-` is the retired entry) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
@@ -487,6 +486,7 @@ again. A retired id cannot come back.
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
+| `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
 | `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `kb-other-items-panel` | studio | M31 F3 HAT — the "Other items" panel is renamed "Individual files" (`kb-individual-files-panel`), with a description and a per-row remove |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |

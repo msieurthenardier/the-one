@@ -230,6 +230,8 @@
     gap: var(--space-1);
     margin-bottom: var(--space-3);
   }
+  /* App.ui.field flush: true: no trailing margin (a field sharing a row). */
+  .field-group.field-group--flush { margin-bottom: 0; }
   .field-group > label,
   .field-group-label > label {
     font-size: var(--font-size-body-sm);

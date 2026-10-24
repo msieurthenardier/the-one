@@ -247,13 +247,108 @@ def test_tabs_keyboard_and_persisted_category(app_clean: str, page: Page) -> Non
 def test_opening_a_tool_reveals_its_category_once(app_clean: str, page: Page) -> None:
     _open(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
-    page.locator('[data-testid="tab-time"]').click()
-    # A toggle in the open tool's list keeps the chosen tab.
-    page.locator("#tools-panel-time").wait_for(state="visible")
-    toggle = _lists.tool_toggle(page, "current_time")
+    # A toggle in the open tool's list keeps the revealed tab and the editor.
+    toggle = _lists.tool_toggle(page, "fetch_url")
     toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
-    expect(page.locator('[data-testid="tab-time"]')).to_have_attribute("aria-selected", "true")
+    expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url")
+
+
+# ── Switching category closes an open editor (HAT step 3, ledger 49) ─────────
+
+OVERLAY = '[data-testid="confirm-dialog-overlay"]'
+
+
+def _tab(page: Page, cat: str):
+    return page.locator(f'[data-testid="tab-{cat}"]')
+
+
+def _expect_closed_on_web(page: Page) -> None:
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    expect(page.locator("#tools-panel-web")).to_be_visible()
+    expect(_tab(page, "web")).to_have_attribute("aria-selected", "true")
+    expect(page.locator('[data-testid="tool-card"] a[aria-current="page"]')).to_have_count(0)
+
+
+def _dirty_web_search(page: Page, base: str) -> None:
+    _open(page, base, "settings/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+
+
+@pytest.mark.browser
+def test_switching_tab_with_a_clean_editor_closes_it(app_clean: str, page: Page) -> None:
+    _open(page, app_clean, "settings/tools/read_file")
+    expect(page.locator(".editor-title")).to_have_text("read_file", timeout=8000)
+    _tab(page, "web").click()
+    expect(page.locator(OVERLAY)).to_have_count(0)
+    _expect_closed_on_web(page)
+    expect(_tab(page, "web")).to_be_focused()  # not main: the tab the user activated
+
+
+@pytest.mark.browser
+def test_switching_tab_with_a_dirty_editor_stay_keeps_everything(
+    app_clean: str, page: Page
+) -> None:
+    _dirty_web_search(page, app_clean)
+    _tab(page, "time").click()
+    expect(page.locator(OVERLAY)).to_be_visible(timeout=5000)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(page.locator(OVERLAY)).to_have_count(0)
+    # Stay: the dialog returns focus to its opener (the tab clicked)
+    expect(_tab(page, "time")).to_be_focused()
+    expect(page.locator(".editor-title")).to_have_text("web_search")
+    expect(page.locator('[data-field="search_backend"]')).to_have_value("searxng")
+    expect(_tab(page, "web")).to_have_attribute("aria-selected", "true")
+    expect(_tab(page, "time")).to_have_attribute("aria-selected", "false")
+    expect(page.locator("#tools-panel-web")).to_be_visible()
+    _nav.expect_route(page, "settings/tools/web_search")
+
+
+@pytest.mark.browser
+def test_switching_tab_with_a_dirty_editor_continue_closes_it(app_clean: str, page: Page) -> None:
+    _dirty_web_search(page, app_clean)
+    _tab(page, "time").click()
+    expect(page.locator(OVERLAY)).to_be_visible(timeout=5000)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    expect(page.locator("#tools-panel-time")).to_be_visible()
+    expect(_tab(page, "time")).to_have_attribute("aria-selected", "true")
+    expect(page.locator('[data-testid="tool-card"] a[aria-current="page"]')).to_have_count(0)
+    expect(_tab(page, "time")).to_be_focused()
+
+
+@pytest.mark.browser
+def test_switching_tab_with_no_editor_open_changes_no_route(app_clean: str, page: Page) -> None:
+    _open(page, app_clean)
+    _tab(page, "web").click()
+    expect(page.locator("#tools-panel-web")).to_be_visible()
+    _nav.expect_route(page, "settings/tools")
+    expect(page.locator(OVERLAY)).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_keyboard_tab_switch_closes_the_editor_like_a_click(app_clean: str, page: Page) -> None:
+    _dirty_web_search(page, app_clean)
+    _tab(page, "web").focus()
+    page.keyboard.press("ArrowRight")  # focus only: nothing is asked yet
+    expect(page.locator(OVERLAY)).to_have_count(0)
+    expect(page.locator(".editor-title")).to_have_text("web_search")
+    page.keyboard.press("Enter")
+    expect(page.locator(OVERLAY)).to_be_visible(timeout=5000)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(page.locator(".editor-title")).to_have_text("web_search")
+    expect(_tab(page, "web")).to_have_attribute("aria-selected", "true")
+    page.keyboard.press("Enter")
+    expect(page.locator(OVERLAY)).to_be_visible(timeout=5000)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    activated = page.locator('[role="tab"][aria-selected="true"]')
+    expect(activated).to_be_focused()
 
 
 # ── Empty category and a vanishing tool ──────────────────────────────────────

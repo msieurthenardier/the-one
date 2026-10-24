@@ -96,10 +96,8 @@
 
   // A sub-heading under a layer (A3): the variant a block below belongs to. A plain
   // semibold line, not a second eyebrow, so it never competes with the layer title.
-  function variantHeading(copy, variant) {
-    var p = el('p', { className: 'prompt-variant', text: copy });
-    if (variant) { p.setAttribute('data-testid', 'platform-variant-' + variant); }
-    return p;
+  function variantHeading(copy) {
+    return el('p', { className: 'prompt-variant', text: copy });
   }
 
   // One layer of the assembled prompt (B11): the layer title is the section's h2,
@@ -137,19 +135,37 @@
     return block;
   }
 
-  var PLATFORM_GROUPS = [
-    { variant: 'tools', caption: 'With tools' },
-    { variant: 'tool_free', caption: 'Without tools (models that can’t call tools)' }
-  ];
+  // One list in assembly order (HAT step 9): the tools rows as served, with the
+  // tool-free Identity placed right after the Identity block. A tool-free row whose
+  // id and text repeat a tools row (Formatting) is shown once; one that differs
+  // stays, adjacent to its tools twin. Each block's "Applies when" line says which
+  // agents it reaches, so there are no variant sub-headings.
+  function platformOrder(rows) {
+    var tools = rows.filter(function (r) { return r.variant === 'tools'; });
+    var free = rows.filter(function (r) { return r.variant !== 'tools'; });
+    var out = tools.slice();
+    free.forEach(function (f) {
+      var twin = -1;
+      var i;
+      for (i = 0; i < out.length; i++) {
+        if (out[i].variant === 'tools' && out[i].id === f.id) { twin = i; }
+      }
+      if (twin !== -1) {
+        if (out[twin].text !== f.text) { out.splice(twin + 1, 0, f); }
+        return;
+      }
+      var at = f.id.indexOf('identity') === 0 ? 0 : out.length - 1;
+      for (i = 0; i < out.length; i++) {
+        if (out[i].id === 'identity') { at = i; }
+      }
+      out.splice(f.id.indexOf('identity') === 0 ? at + 1 : out.length, 0, f);
+    });
+    return out;
+  }
 
   function fillPlatformSections(mount, rows) {
     mount.textContent = '';
-    PLATFORM_GROUPS.forEach(function (group) {
-      var members = rows.filter(function (r) { return r.variant === group.variant; });
-      if (!members.length) { return; }
-      mount.appendChild(variantHeading(group.caption, group.variant));
-      members.forEach(function (r) { mount.appendChild(platformSectionBlock(r)); });
-    });
+    platformOrder(rows).forEach(function (r) { mount.appendChild(platformSectionBlock(r)); });
   }
 
   function renderPromptsPage(container) {

@@ -75,8 +75,11 @@
      under the hairline (no rule on the library header's class). */
   .area-admin .settings-item:not(:empty) { margin: 24px 32px 0; max-width: 816px; border-top: 1px solid var(--border); padding-top: 4px; padding-bottom: 40px; }
   /* === Tools editor: Test connection (M31 F4 L07d) ===
-     The input is a standard App.ui.field and the button sits on the input's line,
-     bottom-aligned; the "saved settings" hint and the result go below the row. */
+     The input is a standard App.ui.field and the button sits on the input's line
+     (the field is flush, so the input's bottom edge is the row's bottom, and the button
+     is centred on the input's height); the wrapper's fixed `height: 35px` mirrors the text
+     input's computed height and is guarded by test_test_button_is_vertically_centred_on_its_input.
+     The "saved settings" hint and the result go below the row. */
   .area-admin .tools-test-row {
     display: flex;
     align-items: flex-end;
@@ -84,6 +87,10 @@
     flex-wrap: wrap;
   }
   .area-admin .tools-test-field { flex: 1 1 240px; max-width: 360px; min-width: 0; }
+  /* The field is built flush (App.ui.field flush: true), so its bottom edge is the
+     input's. A text input is 35px tall, the secondary button 32px: the action cell
+     is the input's height and centres the button in it (the area's own element only). */
+  .area-admin .tools-test-action { display: flex; align-self: flex-end; align-items: center; height: 35px; }
   .area-admin .tools-test-hint {
     margin: var(--space-2) 0 0;
     font-size: var(--font-size-body-sm);

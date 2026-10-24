@@ -404,6 +404,7 @@ def test_settings_providers_guard_self_test():
 # "Retired testids" table.
 RETIRED_SELECTORS = (
     "base-prompt-content",
+    "platform-variant-",
     "ui-demo-chooser",
     "ui-demo-chooser-close",
     "ui-demo-chooser-row",

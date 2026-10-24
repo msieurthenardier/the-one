@@ -273,8 +273,19 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         "formatting",
     ):
         expect(page.locator(f'[data-testid="platform-section-tools-{sid}"]')).to_be_visible()
-    for sid in ("identity_tool_free", "formatting"):
-        expect(page.locator(f'[data-testid="platform-section-tool_free-{sid}"]')).to_be_visible()
+    expect(
+        page.locator('[data-testid="platform-section-tool_free-identity_tool_free"]')
+    ).to_be_visible()
+    # One list, the two Identity blocks together at the top; identical Formatting once.
+    ids = page.locator('[data-testid^="platform-section-"][data-testid$="-applies-when"]')
+    order = [
+        t.replace("platform-section-", "").replace("-applies-when", "")
+        for t in ids.evaluate_all("els => els.map(e => e.getAttribute('data-testid'))")
+    ]
+    assert order[:2] == ["tools-identity", "tool_free-identity_tool_free"], order
+    assert order[2] == "tools-tool_discovery", order
+    assert order[-1] == "tools-formatting", order
+    assert "tool_free-formatting" not in order, order
     # The tool-free blocks never name a tool.
     free_text = page.locator('[data-testid^="platform-section-tool_free-"][data-testid$="-text"]')
     for t in free_text.all_inner_texts():
@@ -306,10 +317,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         "notes",
         "date",
     ]
-    expect(page.locator('[data-testid="platform-variant-tools"]')).to_have_text("With tools")
-    expect(page.locator('[data-testid="platform-variant-tool_free"]')).to_have_text(
-        "Without tools (models that can\u2019t call tools)"
-    )
+    expect(page.locator(".platform-sections .prompt-variant")).to_have_count(0)
     expect(theme).to_have_count(0)
     expect(rotate).to_have_count(0)
 

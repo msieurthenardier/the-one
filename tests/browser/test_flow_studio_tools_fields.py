@@ -170,6 +170,34 @@ def test_a_bad_number_shows_a_field_error_and_refuses_the_save(
     assert _stored(base, url) in (None, {})
 
 
+@pytest.mark.parametrize(
+    ("typed", "message"),
+    [("-5", "Must be 1 or more"), ("0", "Must be 1 or more"), ("99999", "Must be at most")],
+)
+def test_an_out_of_range_number_is_refused_with_no_put(
+    app_with_agent: SeededApp, page: Page, typed: str, message: str
+) -> None:
+    name = app_with_agent.agent_name
+    assert name is not None
+    base = app_with_agent.base_url
+    url = _put_overrides(base, name, None)
+    _open_tools(page, base, name)
+    panel = _open_panel(page, "Web", "http_request")
+    field = panel.locator('input[data-tool-override-field="timeout_seconds_max"]')
+    puts = _count_agent_puts(page)
+    field.fill(typed)
+    error = panel.locator("[data-field-name='timeout_seconds_max'] .field-error")
+    expect(error).to_contain_text(message)
+    panel.locator(".ui-tool-row-affordance").click()
+    expect(panel.locator(".ui-tool-row-body")).not_to_be_visible()
+    page.locator('[data-testid="save-agent-btn"]').click()
+    expect(page.locator(".editor-error")).to_contain_text(message)
+    expect(field).to_be_focused()
+    page.wait_for_timeout(300)
+    assert puts == [], "no PUT may be sent while an override is out of range"
+    assert _stored(base, url) in (None, {})
+
+
 def test_a_valid_number_blank_and_a_fixed_value_save(app_with_agent: SeededApp, page: Page) -> None:
     name = app_with_agent.agent_name
     assert name is not None

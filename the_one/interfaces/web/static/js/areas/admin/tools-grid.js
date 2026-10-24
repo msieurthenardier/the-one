@@ -9,7 +9,8 @@
   // patches the tiles it concerns; the list is never rebuilt, so a focused
   // toggle, link or tab keeps focus with no hand-made restore.
   //
-  //   App.admin.toolsGrid.create(listEl, {onToggle(name, enabled)}) ->
+  //   App.admin.toolsGrid.create(listEl, {onToggle(name, enabled),
+  //     onBeforeCategoryChange(id, commit)}) ->
   //     { render(toolConfigs, {selectedName, inFlight}), setSelection(name),
   //       setLoading(), setError(text, onRetry), destroy() }
   //
@@ -19,6 +20,12 @@
   //   tool name -> true: those tiles' switches are disabled. setError(text,
   //   onRetry) shows the load failure and a Retry button (the list never
   //   loaded); render() clears it.
+  //
+  // onBeforeCategoryChange(id, commit), when given, wraps a USER tab switch
+  // (click, Enter, Space): the tab changes only if the callback calls
+  // commit(), now or later (the veto is the tab staying put). The page uses it
+  // to close an open tool editor, through the router's leave guard, first
+  // (HAT step 3). A programmatic reveal of a tool's category does not use it.
   //
   // The tool's Config class determines its category, but the API surfaces only
   // name/summary/description/enabled/config, so the table is client-side: the
@@ -53,6 +60,9 @@
       var util = App.ui.util;
       var onToggle = typeof opts.onToggle === 'function' ? opts.onToggle : function () {};
 
+      var onBefore = typeof opts.onBeforeCategoryChange === 'function'
+        ? opts.onBeforeCategoryChange : null;
+
       var stateEl = util.el('div', { className: 'tools-grid-state', hidden: true });
       listEl.appendChild(stateEl);
 
@@ -72,6 +82,11 @@
         items: items,
         initial: initial,
         panelPadding: 'none',
+        onBeforeChange: onBefore ? function (id, commit) {
+          // Re-pressing the active tab is intentionally a no-op.
+          if (id === activeCategory) return;
+          onBefore(id, commit);
+        } : null,
         onChange: function (id) { activeCategory = id; }
       });
       tabs.el.hidden = true;

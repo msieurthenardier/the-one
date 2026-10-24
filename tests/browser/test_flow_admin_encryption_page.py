@@ -293,12 +293,11 @@ def test_prompt_headings_layers_are_h2_and_platform_blocks_h3(app_clean: str, pa
 
 @pytest.mark.browser
 def test_prompt_variants_are_subheadings_not_eyebrows(app_clean: str, page: Page) -> None:
-    """A3: 'With tools' / 'Without tools' under Platform prompt are plain sub-headings."""
+    """A3 (HAT step 9): Platform prompt has no variant sub-headings; the Notes and
+    Date variants stay plain sub-headings, never eyebrows."""
     _open_prompts(page, app_clean)
-    for variant, text in (("tools", "With tools"), ("tool_free", "Without tools")):
-        node = page.locator(f'[data-testid="platform-variant-{variant}"]')
-        expect(node).to_contain_text(text)
-        assert "section-title" not in (node.get_attribute("class") or "")
+    assert page.locator(".platform-sections .prompt-variant").count() == 0
+    assert page.locator(".content-panel.active .prompt-variant").count() == 4
     # The eyebrow family is only the four layer titles.
     assert page.locator(".content-panel.active .section-title").count() == 4
 

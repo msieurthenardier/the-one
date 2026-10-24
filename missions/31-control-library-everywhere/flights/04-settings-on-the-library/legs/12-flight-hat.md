@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: planning
+**Status**: in-flight
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective
@@ -94,7 +94,21 @@ Each step is presented one at a time, after the FD has dry-run it.
 - **The encryption rotation** runs only on the scratch instance (never 8484 or the operator's data dir).
 - **Steps that depend on seeded data:** if the seed doesn't produce a state, the FD fixes the seed before presenting the step, never by improvising in the step text.
 
----
+## Dry run (FD, 2026-10-24)
+- **The instance:** `scripts/ui_capture.py --keep-running`, port 58004, PID 2940681, data dir `$HOME/.cache/the-one-ui-capture/20261024-135259-2940671/data`. Stop it with `kill 2940681`.
+- **Seed adjustment:** `read_file` `read_size_cap_bytes` set to 4194304 (a non-preset value), so step 2 shows A8's "(custom)" label.
+- **Checked by Playwright on the seeded instance:**
+  - the grid: 23 tiles, summaries, no category badges, the switch named "Enable delete_file for all agents";
+  - `read_file`: breadcrumb, Filesystem subtitle, the prompt section, written labels, default denylists, the long chip truncated with the full value;
+  - `fetch_url`: plain preset labels with "(default)";
+  - `delete_file`: no read size or binary fields;
+  - Appearance: the radio cards;
+  - Prompts: the variant sub-headings;
+  - Encryption: the facts ("Never", 7 items), sentence case;
+  - Date and time: the mismatch banner (browser Paris, agents UTC);
+  - Knowledge indexing: Cancel and Save in the header, the "15 minutes" echo.
+- **Noted for step 11, raised with the operator:**
+  - the banner text names "Paris", but its button reads "Use Europe/Paris" (a raw id);
+  - "Selected: UTC UTC" repeats itself when the zone is UTC.
 
-## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.

@@ -241,7 +241,7 @@
           value: fixture.default,
           dataset: { testParam: fixture.param }
         });
-        var testField = App.ui.field({ label: fixture.label, control: testInput });
+        var testField = App.ui.field({ label: fixture.label, control: testInput, flush: true });
         row.appendChild(util.el('div', { className: 'tools-test-field' }, [testField.el]));
       }
       testBtn = App.ui.button({
@@ -251,7 +251,7 @@
         testid: 'test-tool-btn',
         onClick: runTest
       });
-      row.appendChild(testBtn);
+      row.appendChild(util.el('div', { className: 'tools-test-action' }, [testBtn]));
       testSection.body.appendChild(row);
       testHint = util.el('p', {
         className: 'tools-test-hint',
