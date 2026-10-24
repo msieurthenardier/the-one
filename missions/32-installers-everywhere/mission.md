@@ -115,5 +115,6 @@ _(none yet)_
   - The macOS install guide with the Gatekeeper approval steps, and the written contributor checklist.
 - [ ] **Flight 4: Windows on the chosen recipe, and one release path.**
   - Windows moves to the chosen recipe, or keeps PyInstaller and Inno with shared metadata if Flight 1 chose a hybrid. Prove in-place upgrade from the current install and the existing Windows checks, without breaking the per-push Concourse build.
+  - Make `pyproject.toml`'s version dynamic (`the_one.__version__`), after Mission 31 merges: Flight 2 pins the two equal with a test and leaves the `uv.lock` change here (Flight 2 DD6).
   - Wire the tag-triggered release to publish all four packages behind the dependency audit, dry-run it through a manual run while Mission 31 is active, and update README and CLAUDE.md.
   - Mission close: the contributors' end-to-end check on real Macs.
