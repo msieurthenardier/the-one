@@ -197,7 +197,7 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
     _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Disabled Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
 
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
@@ -218,10 +218,20 @@ def test_studio_connector_pairing_code_generation(app_with_agent: SeededApp, pag
 
     pairing_btn = page.locator('[data-testid="connector-pairing-btn"]')
     expect(pairing_btn).to_be_visible(timeout=8000)
+    # M31 F4 L03b: the empty result wrapper is hidden (it takes no gap in the stack).
+    expect(page.locator('[data-testid="connector-pairing-result"]')).to_be_hidden()
     pairing_btn.click()
 
     result = page.locator('[data-testid="connector-pairing-result"]')
     expect(result).to_contain_text("Expires", timeout=8000)
+
+    # Squawk 0245 (DD14): "Expires Mon D, YYYY, h:mm AM/PM" in the operator zone, the ISO
+    # value in the title (the text format is asserted, never the time itself).
+    expiry = page.locator(".connector-pairing-expiry")
+    expect(expiry).to_have_text(
+        re.compile(r"^Expires [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} (AM|PM)$")
+    )
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T[\d:.]+\+00:00$", expiry.get_attribute("title") or "")
 
     # HAT fix (M31 F3 L10): the code field does not touch the button, and the expiry
     # line does not touch the code field (a gap of at least the 8px spacing token).
@@ -414,7 +424,7 @@ def test_a_double_click_on_create_makes_one_connector(
     _open_create_form(page, base)
     page.locator('[data-field="name"]').fill("Double click")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
 
     posts: list[str] = []
     page.on(
@@ -906,7 +916,7 @@ def test_an_edit_save_re_probes_the_header_for_the_saved_config(app_clean: str, 
     _open_connector(page, app_clean, "Re-probe")
     _mark_header(page)
     header = page.locator('[data-testid="connector-status-label"]')
-    toggle = page.locator('label.ui-toggle-label:has([data-field="enabled"])')
+    toggle = page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label")
     save = page.locator('[data-testid="save-connector-btn"]')
     expect(header).to_have_text("Disabled", timeout=8000)
 

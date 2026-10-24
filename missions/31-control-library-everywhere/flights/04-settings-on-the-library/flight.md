@@ -54,7 +54,7 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
 - [x] Patch in place or remount on Save/Cancel? → DD5 (patch, as in Flights 2 and 3, now with a side-effect inventory)
 - [x] Where do errors go? → DD3 (validation errors on the field; request errors at editor or page level; one reader)
 - [x] Knowledge indexing: a page with a mid-page Save, or an editor? → DD6 (editor actions in the page header: Cancel and Save, top right)
-- [x] Where does the shared tool-field renderer live? → DD4 (`js/areas/tool-config-fields.js`, grown from `tool-override-fields.js`)
+- [x] Where does the shared tool-field renderer live? → DD4 (`js/areas/shared/tool-config-fields.js`, grown from `tool-override-fields.js`)
 
 ### Design Decisions
 
@@ -68,11 +68,11 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
 - **Out of scope:**
   - the MCP server editor (Flight 5), including the chip-list string path in `tools-form-helpers.js` (`renderChipListEditor`, `wireChipListEditor`, `readChipListValue`, `chipExists`) and the `.area-studio` halves of the switch and chip rules;
   - Chats (Flight 6);
-  - the provider editor beyond its banner and squawk 0236's busy Save (leg 04c);
+  - the provider editor beyond its banner and squawk 0236's busy Save (leg 04f);
   - the knowledge backend squawks 0243 and 0244, and Known Issues "search score floor" and "Add file".
 
 **DD2: Groundwork first (leg 01).** No product behaviour change. The deleted CSS has no live consumer, which the capture compare proves.
-- **The 800-line guard** (Flight 3 debrief recommendation 3). A unit test over `static/js/areas/**/*.js` fails on any file over 800 lines, with a shrink-only allowance of today's offenders: `chat.js` 2399, `mcp-server-editor.js` 2153, `provider-models.js` 1014, `knowledge-folders.js` 897 (until leg 02b) and `provider-editor.js` 896. Like the other ratchets, it fails on any count change, up or down. The `studio.js` pin in `tests/test_store_static.py:450` stays.
+- **The 800-line guard** (Flight 3 debrief recommendation 3). A unit test over `static/js/areas/**/*.js` fails on any file over 800 lines, with a shrink-only allowance of today's offenders: `chat.js` 2399, `mcp-server-editor.js` 2153, `provider-models.js` 1014, `knowledge-folders.js` 897 (until leg 02b) and `provider-editor.js` 896. Each allowance entry is a ceiling, not an exact count, so ordinary edits to `chat.js` don't break it: a listed file fails when it grows past its recorded count, and a listed file that drops to 800 lines or fewer fails until its entry is removed (shrink-only). *(Amended at leg 01 design, 2026-10-23: the spec first said "fails on any count change", which would break on every edit of those files.)* The `studio.js` pin in `tests/test_store_static.py:450` stays.
 - **Capture surfaces for every Settings page** (`scripts/ui_capture.py`), on **one realistic seed** reused by the HAT (Flight 3 debrief recommendation 1). The seed includes:
   - a 97-character allowlist path and long hosts;
   - a custom byte size;
@@ -88,7 +88,7 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
   - **Widths:** 1280 and 1024.
   - **Surfaces outside Settings** that this flight changes visibly are captured too (Architect M8):
     - the connector editor and the `kb-*` surfaces (section rhythm, leg 03b);
-    - the provider editor's plan sign-in and the self-configuration tab (banner and code block, leg 04c);
+    - the provider editor's plan sign-in and the self-configuration tab (banner and code block, leg 04f);
     - the agent Tools tab with a Filesystem tool's overrides open (labels, descriptions and default denylists, legs 05 and 0248).
   - **The before set is taken after squawk 0248 merges.** The agent Tools tab and the tool editor then already show the default denylists, so that change does not read as this flight's.
 - **Squawk 0230:** `test_filter_keystroke_cost_ratio_60_vs_10_throttled` gets an absolute floor (`m60 <= max(3*m10, 0.25)`) and more work per sample.
@@ -138,17 +138,17 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
   - 0237: `confirm` `lapse()` skips the announcement for a detached node;
   - 0238: `keyValueTable` errors get `role="alert"`.
 
-**DD4: New library controls and options, each built and contract-tested (Chromium and WebKit) before its consumer migrates (legs 04a, 04b).**
+**DD4: New library controls and options, each built and contract-tested (Chromium and WebKit) before its consumer migrates (legs 04a-04e; split at their design reviews).**
 - **`App.ui.pageHeader({title, headingId, intro, testid})`.** It carries `page-header` and `page-title`, with the Settings geometry from `admin.css:24-33`. It replaces two copies: `system-page.js:21` (`App.admin.renderPage`, which delegates to it from leg 08a and serves 08a, 08b and 09) and `admin.js:253` (the tools page's scaffold, leg 06). Knowledge indexing (`knowledge-settings-page.js:32`) uses the `editorShell` page variant, which composes `pageHeader`, so `page-header` and `page-title` have one owner. It keeps the `.page-title` class that about 15 test lines select, and adds a testid.
-- **`editorShell` page variant** (`variant: 'page'`), for Knowledge indexing (Architect M7). It renders an `h1.page-title` with page geometry and no breadcrumb, and keeps the shell's actions, unsaved caption, `setDirty`, `setBusy` and `setError`. A `pageHeader` actions slot would have re-implemented the shell's dirty and busy logic. `components.css:1245`'s header-action rule is reused.
+- **`editorShell` page variant** (`variant: 'page'`), for Knowledge indexing (Architect M7). It composes a `pageHeader` and passes the shell's own actions cluster into `pageHeader`'s actions slot. The dirty and busy logic stays in the shell; the slot only places the cluster. The `h1` is `h1.editor-title.page-title[tabindex=-1]`, so `focusAfter` and both sets of test selectors keep working. It has no breadcrumb. *(Refined at leg 04a's design review, 2026-10-23.)*
 - **`App.ui.banner({tone: 'info'|'warning'|'error', text|children, role, actions, hidden, testid})`.** It returns `{el, set(text), show(), hide()}` and carries `banner*`.
   - A **persistent live mode** (`live: 'alert'|'status'`, kept rendered while empty) so it can carry `dangerZone`'s notice, which is a `role=alert` region kept in the DOM while empty (`.action-blocked-message:empty`), not hidden.
-  - Its Library consumers move in leg 04c: `provider-editor.js:220`, `self-config-revisions.js:218`, `self-config-external.js:120`, and `dangerZone`'s notice (`editor.js:283`).
-  - The tools editor's error banner (`.editor-error-banner`) retires in leg 07a: request errors go to `editorShell.setError` (DD3), so the tool editor has no banner.
+  - Its Library consumers move in leg 04f: `provider-editor.js:220`, `self-config-revisions.js:218`, `self-config-external.js:120`, and `dangerZone`'s notice (`editor.js:283`).
+  - The tools editor's error banner (`.editor-error-banner`) retires in leg 07b: request errors go to `editorShell.setError` (DD3), so the tool editor has no banner.
   - The Settings uses move with their pages (legs 08b, 09, 10).
 - **`App.ui.codeBlock({text, trim, testid})`.** A read-only `pre` with the existing `code-block` look. `trim` strips leading and trailing blank lines for display (A1).
   - A `maxHeight` option (`'tall'` 24rem, `'short'` 18rem) replaces the area max-height rules.
-  - Consumers: the self-configuration tab (7 uses, leg 04c), the tool prompt block (leg 07a) and the Prompts page (3 uses, leg 08b).
+  - Consumers: the self-configuration tab (7 uses, leg 04f), the tool prompt block (leg 07a) and the Prompts page (3 uses, leg 08b).
   - Flight 3 left `pre.code-block` with no catalogue row; this gives it one.
 - **`App.ui.facts({rows: [{label, value, mono, testid}], testid})`.** A read-only `dl` of label and value pairs. Three hand-built copies exist today: `admin-kv-*` (Knowledge indexing), `dl.date-time-preview` (Date and time) and `dl.chat-drawer-facts` (the chat drawer).
   - Settings uses it in legs 09 and 10. The chat drawer moves in Flight 6 (recorded, not done here).
@@ -170,17 +170,17 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
 - **The Built-in tools tile:** `App.ui.toolTile({name, href, selected, badge, description, toggle:{label, checked, disabled, onChange, testid, dataset}, testid, dataset})`. It returns `{el, link, toggle, setSelected, setChecked, setDisabled, setDescription}` and carries `entity-tile*`, `tool-tile*` and `tile-title-row`. The legacy tile and switch CSS is frozen as a test fixture so the contract can compare the look (Flight 2 precedent `_legacy_tool_css.py`). Flight 2's `groupTile` and `toolRow` do not fit: this is a card with a linked name, a badge, a description and a selected state.
 - **Layout options, so `admin.css` reaches zero allowance rows** (Architect cycle 2, M2). Each one is built in a control leg, never discovered in a surface leg:
   - `editorShell` and `section` `inset: 'none'`, replacing `.settings-item .editor-header`/`.editor-section` (`admin.css:132-133`) (04a);
-  - `tabs` `panelPadding: 'none'`, replacing `.settings-list .tablist`/`.tabpanel` (`:136-137`) (04b);
+  - `tabs` `panelPadding: 'none'`, replacing `.settings-list .tablist`/`.tabpanel` (`:136-137`) (04d);
   - `emptyState` `variant: 'flush'` (it exists) for `.settings-list .empty-state` (`:139`);
-  - a `radioGroup` slot option for the date-time slot indent (`.date-time-page .ui-radio-slot`, `:643`) (04b);
-  - `codeBlock` `maxHeight` (04a);
+  - a `radioGroup` slot option for the date-time slot indent (`.date-time-page .ui-radio-slot`, `:643`) (04d);
+  - `codeBlock` `maxHeight` (04b);
   - the category badges use `App.ui.badge` kinds, which already include every tool category, so `.admin-tool-badge--*` is deleted (06).
 
   A surface leg that finds another need re-tiers high (DD11).
 - **`chipList.valuesOf(el)`** (static), so area code reads a chip list's values without naming an owned class.
-- **The shared schema-field module** (`js/areas/tool-config-fields.js`, leg 05) is area code, not a library control. It composes `field`, `checkbox`, `select`, `textInput`, `chipList` and `secretInput`, so it needs no catalogue row. Its contract is in DD13.
+- **The shared schema-field module** (`js/areas/shared/tool-config-fields.js`, leg 05b) is area code, not a library control. It composes `field`, `checkbox`, `select`, `textInput`, `chipList` and `secretInput`, so it needs no catalogue row. Its contract is in DD13.
 - **The theme picker** uses the existing `App.ui.radioGroup` card look (operator). No new variant.
-- **No consumer CSS on library internals.** A needed look becomes an option in leg 04a or 04b. A surface leg that finds it needs one is re-tiered high (DD11).
+- **No consumer CSS on library internals.** A needed look becomes an option in legs 04a-04e. A surface leg that finds it needs one is re-tiered high (DD11).
 
 **DD5: The mount, save and dirty model.** (Flights 2 and 3 DD5, plus the Flight 3 debrief recommendation 2.)
 - **Mount once, patch in place, a value model from control handles.**
@@ -251,26 +251,26 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
   - **B13 skipped:** disabled tool tiles are not dimmed.
 
   The ledger (flight log, rows 1-41) names each item's leg. The B items add work beyond the page rebuilds:
-  - **B1:** a short human `summary` per tool, a new class attribute served by `GET /api/tools/configs` and the detail route. It is not model-facing; leg 05 writes them and leg 06 shows them.
+  - **B1:** a short human `summary` per tool, a new class attribute served by `GET /api/tools/configs` and the detail route. It is not model-facing; leg 05a writes them and leg 06 shows them.
   - **B3:** one field width, matching the Library editors (the full form column), plus a `textInput` `width: 'short'` option for numbers (leg 04a).
-  - **B4:** the middle ellipsis is a `chipList` change (leg 04b). The agent Tools tab gets it too; the MCP editor's string-built chips are Flight 5's.
+  - **B4:** the middle ellipsis is a `chipList` change (leg 04e). The agent Tools tab gets it too; the MCP editor's string-built chips are Flight 5's.
   - **B5:** plain `ui_choices` labels.
-  - **B6:** a per-tool field list, so a tool's schema omits settings that don't apply to it (for example the read size cap on `delete_file`). It is served per tool, and the agent Tools tab reads the same schema (leg 05).
+  - **B6:** a per-tool field list, so a tool's schema omits settings that don't apply to it (for example the read size cap on `delete_file`). It is served per tool, and the agent Tools tab reads the same schema (leg 05a).
   - **B7:** squawk 0231.
-  - **B8:** a `searchList` inline option that centres the active row (leg 04b); one font for zone ids and offsets (leg 09).
+  - **B8:** a `searchList` inline option that centres the active row (leg 04d); one font for zone ids and offsets (leg 09).
   - **B12:** a new read-only `GET /api/encryption/status` route returning `{last_rotated_at, credential_count}`. The rotate route records the time in `app_metadata`, and it is `null` before the first rotation (leg 08b, which becomes tier high).
-  - **B14:** the button's disabled tokens in the dark theme, a library token change pinned by the contrast test (leg 04a; every editor).
+  - **B14:** the button's disabled tokens in the dark theme, a library token change pinned by the contrast test (leg 04c; every editor).
 - **Other approved changes:**
   - the theme picker's card look (operator);
   - the library switch for every Settings switch (operator, 2026-10-22);
   - the toggletip info button replaces the hover `title` tooltip on tool fields (a library behaviour);
   - DD3's section rhythm, if it moves anything.
-- **A17** (the stale "F6 admin will surface the picker." sentence in `web_search`'s description) is prompt text the model reads. If approved, it lands with a `make eval` run compared against `evals/baselines/m30-platform.json` (the CLAUDE.md convention), in leg 05.
-  - **Re-verify at the start of leg 05** (Architect E3): the plan token at `~/.config/the-one-evals/plan-token`, a local Ollama serving `gpt-oss:20b`, and the `[evals]` extra with its tiktoken cache. All four were present at planning.
+- **A17** (the stale "F6 admin will surface the picker." sentence in `web_search`'s description) is prompt text the model reads. If approved, it lands with a `make eval` run compared against `evals/baselines/m30-platform.json` (the CLAUDE.md convention), in leg 05a.
+  - **Re-verify at the start of leg 05a** (Architect E3): the plan token at `~/.config/the-one-evals/plan-token`, a local Ollama serving `gpt-oss:20b`, and the `[evals]` extra with its tiktoken cache. All four were present at planning.
   - The run burns plan quota, so the FD confirms with the operator before starting it.
   - It runs outside any concurrent browser lanes.
 - **Squawk 0245** (the pairing expiry) is a visible change, landed in leg 02b, which is otherwise behaviour-free. It is a ledger row.
-- **A7** (written field titles) and **squawk 0231** (field descriptions) change `Field(title=…, description=…)` on the tool Config classes. Neither reaches the model: only `GET /api/tools/configs/{name}` reads `model_json_schema()`. Leg 05 re-verifies this with a grep and a unit test that no model-facing text changed.
+- **A7** (written field titles) and **squawk 0231** (field descriptions) change `Field(title=…, description=…)` on the tool Config classes. Neither reaches the model: only `GET /api/tools/configs/{name}` reads `model_json_schema()`. Leg 05a re-verifies this with a grep and a unit test that no model-facing text changed.
 - Every leg appends its visible differences to the ledger. The HAT walks the ledger.
 
 **DD8: The defects found in planning are fixed, test first.** Each gets a test that fails on today's code, then the fix.
@@ -278,13 +278,13 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
   1. The tile switch's name hides "for all agents", and it has no `role=switch` (defect a).
   2. A non-ok `GET /api/tools/configs` leaves "Loading tools…" for good (`admin.js:448-461`).
   3. A non-404 detail failure leaves `pendingToolName` set, with the URL on `tools/{name}` and no editor (`admin.js:443`).
-- **Tools editor (legs 07a and 07b):**
+- **Tools editor (legs 07a-07c):**
   4. The Enabled row reads "Disabled for all agents, not checked" (defect b). (07a)
-  5. Cancel during an in-flight Save shows values the server no longer holds. (07b)
-  6. An edit typed during a Save is marked saved but was never sent (`tools-editor.js:516`). (07b)
-  7. A Save response for tool A writes into tool B's editor and clears B's leave guard (`admin.js:387` `onDirtyChange` unguarded). (07b)
-  8. The secret is not re-masked after Save. (07b)
-  9. Errors are announced twice (`.editor-error` `role=alert`, then the banner). (07a)
+  5. Cancel during an in-flight Save shows values the server no longer holds. (07c)
+  6. An edit typed during a Save is marked saved but was never sent (`tools-editor.js:516`). (07c)
+  7. A Save response for tool A writes into tool B's editor and clears B's leave guard (`admin.js:387` `onDirtyChange` unguarded). (07c)
+  8. The secret is not re-masked after Save. (07c)
+  9. Errors are announced twice (`.editor-error` `role=alert`, then the banner). (07b)
 - **Encryption (leg 08b):**
   10. A second rotation within 3 or 4 s has its staged warning wiped by the first timer (`system-page.js:236`, `:244`).
   11. A non-JSON error body shows "Error: Unexpected token…".
@@ -304,15 +304,15 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
 - **Absorbed:**
   - 0230, 0240, 0246 and 0247 (leg 01);
   - 0237 and 0238 (leg 03b);
-  - 0231 (leg 05);
+  - 0231 (leg 05a);
   - 0245 (leg 02b: the pairing expiry through the knowledge stamp formatter, promoted to `App.time.formatStamp` if two consumers need it);
-  - 0236 (leg 04c: the provider editor's Save calls `setBusy`. That leg already touches the provider editor for its banner, and the fix is the DD5 busy rule).
+  - 0236 (leg 04f: the provider editor's Save calls `setBusy`. That leg already touches the provider editor for its banner, and the fix is the DD5 busy rule).
 - **Not absorbed, stay open:**
   - 0228, 0229, 0232 (agent editor);
   - 0239 (knowledge inspect announcement);
   - 0243, 0244 (knowledge backend);
   - 0222 and 0234 (unit-tier profiling).
-- **Hotfixed before this flight:** 0248 (on `main`). Leg 05's shared field module builds on its schema contract.
+- **Hotfixed before this flight:** 0248 (on `main`). Leg 05b's shared field module builds on its schema contract.
 
 **DD10: Tests, lanes and specs.**
 - **Lanes:**
@@ -324,16 +324,16 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
   - `test_makefile_verify_serving.py` (served page names);
   - `test_design_tokens_a11y.py`. Its pins read `admin.css` by file name, so each moves in the leg that moves its rule:
     - `.admin-theme-option.active`: leg 08a;
-    - `.editor-error-banner`: leg 07a;
+    - `.editor-error-banner`: leg 07b;
     - `.settings-intro` (dead): leg 06;
-    - the switch tracks: the `.area-admin` pins go in leg 10 (the switch's last Settings user, after the grid in 06 and the editor in 07a), and the `.area-studio` pins become `studio.css` pins in leg 11;
+    - the switch tracks: the `.area-admin` pins go in leg 10 (the switch's last Settings user, after the grid in 06 and the editor in 07a-07b), and the `.area-studio` pins become `studio.css` pins in leg 11;
     - the library toggle is already pinned;
   - `test_ui_tabs_contract.py`'s legacy parity test, which loads `js/tabs.js`. Freeze it as a fixture in leg 06 or drop the parity test with a reason;
   - `test_flow_admin_rotate_flash.py` (`.admin-system-flash` classes, moved to a testid or `data-state`).
 - **The library field removes a cleared error node** where today's pages keep it `[hidden]`. Tests asserting a count of 1 move to `to_be_hidden`.
 - **Behavior specs:**
   - `windows-window-chrome.md` step 4 and `windows-native-frame-splash.md` steps 11-14 and 19 (both drive Appearance) are amended in leg 08a;
-  - `agent-governance-and-search.md` steps 1-5 (the `web_search` editor: dropdown, `show_if`, the password eye, the masked round-trip) are re-read in leg 07a and amended if needed;
+  - `agent-governance-and-search.md` steps 1-5 (the `web_search` editor: dropdown, `show_if`, the password eye, the masked round-trip) are re-read in leg 07b and amended if needed;
   - the route-only specs (`jump-to-palette`, `list-and-detail`, `workbench-navigation`, `shell-navigation-smoke`, `start-a-chat`) are checked in leg 11.
 - **Fixed waits.** No new test uses a fixed `wait_for_timeout` to prove "nothing changed after a late response". It waits for the released request to finish, then asserts. The 27 existing ones in the knowledge and connector tests are not this flight's.
 
@@ -358,16 +358,16 @@ When it lands, every Settings file is at zero sinks and zero allowance rows (apa
     - `system-page.js:196` and its `admin.css:49` rule (Encryption, 08b);
     - `date-time-page.js:425` (09);
     - `knowledge-settings-page.js:36` (10);
-    - the Library users move in 04c.
+    - the Library users move in 04f.
   - **`pageHeader`** (`page-header`, `page-title`): leg 10. `App.admin.renderPage` delegates to it from 08a. The tools scaffold header moves in 06. The Knowledge indexing header moves through the `editorShell` page variant, which composes `pageHeader`, in 10, along with the `admin.css:24-33` rules.
   - **`toolTile`** (`entity-tile*`, `tool-tile*`, `tile-title-row`, and `entity-tile-grid` through a `toolTile.grid()` container): leg 06. That covers the `tools-grid.js` strings, `admin.js:552` `a.tool-tile-link` (in the tools-page module after 02a) and the tile rules in `admin.css`.
-  - **`codeBlock`** (`code-block`): leg 08b. The self-configuration users move in 04c, the tool prompt in 07a, and Prompts last in 08b.
-  - **The `searchList` inline variant:** built in 04b, with its CSS under the variant class. Until leg 09 that CSS duplicates `admin.css:650-681` (a recorded DD11 exception). Leg 09 deletes the overrides and switches the page to `inline: true`.
+  - **`codeBlock`** (`code-block`): leg 08b. The self-configuration users move in 04f, the tool prompt in 07a, and Prompts last in 08b.
+  - **The `searchList` inline variant:** built in 04d, with its CSS under the variant class. Until leg 09 that CSS duplicates `admin.css:650-681` (a recorded DD11 exception). Leg 09 deletes the overrides and switches the page to `inline: true`.
   - **`facts`:** new classes only.
-- **An emitted-class guard (leg 04a):** a static test that every class a `js/ui` factory emits is owned by some catalogue row or listed as an exemption. Leg 11's owned-list check becomes mechanical, and the DD12 handovers cannot be forgotten.
+- **An emitted-class guard (leg 04c):** a static test that every class a `js/ui` factory emits is owned by some catalogue row or listed as an exemption. Leg 11's owned-list check becomes mechanical, and the DD12 handovers cannot be forgotten.
 
-**DD13: The shared field module's contract** (`js/areas/tool-config-fields.js`, leg 05; Architect M9).
-- **Grown from `tool-override-fields.js`**, with `mode: 'admin' | 'agent'`. `App.studio.toolOverrideFields` stays as an alias for `tools-tab.js:155` until that caller moves, inside leg 05.
+**DD13: The shared field module's contract** (`js/areas/shared/tool-config-fields.js`, leg 05b; Architect M9).
+- **Grown from `tool-override-fields.js`**, with `mode: 'admin' | 'agent'`. `App.studio.toolOverrideFields` stays as an alias for `tools-tab.js:155` until that caller moves, inside leg 05c.
 - **`render(name, prop, value, opts)`** returns `{el, control, field, value(), setValue(v), setError(msg|null), setVisible(bool)}`, plus `showIf(properties, handles)`.
 - **The DOM contract tests depend on is kept:**
   - admin mode: `data-field="{name}"` on the control, `data-field-name` and `.tools-editor-field` on the row, ids `tef-{name}` (used by the shared-lane chip-list label test and about 60 Settings selectors);
@@ -435,10 +435,10 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 - **Legs 03a and 03b:** settle the patterns in the library:
   - 03a: the error reader, `fieldErrors` and `latest()`, with the knowledge callers moved off `_errorMessageFromResponse`;
   - 03b: `syncChildren` with `provider-models.js`, the opt-in section stack with the connector and knowledge opt-ins, and the two library a11y squawks.
-- **Legs 04a and 04b:** build the controls and options in the library only, each owning a marker class (DD12).
-- **Leg 04c:** moves the Agents and Library consumers of `banner` and `codeBlock`, and lands squawk 0236.
-- **Leg 05:** builds the shared field module (DD13), moves the agent Tools tab onto it, and lands the backend titles and descriptions.
-- **Legs 06 and 07a-07c:** rebuild the tools grid, then the editor frame, fields and errors, then its Save/Cancel value model, then its Test section.
+- **Legs 04a-04e:** build the controls and options in the library only, each owning a marker class (DD12): the page header, shell page variant and banner (04a); the code block, facts list and input options (04b); readable disabled buttons and the emitted-class guard (04c); the list controls (04d); the tool tile and chips (04e). Split at leg design reviews.
+- **Leg 04f:** moves the Agents and Library consumers of `banner` and `codeBlock`, and lands squawk 0236.
+- **Legs 05a-05c:** the backend tool-settings text and per-tool schema shaping, including a PUT that never resets a hidden field (05a); the shared field module (05b); the agent Tools tab moved onto it (05c). Split at planning and at 05b's design review.
+- **Legs 06 and 07a-07d:** rebuild the tools grid; then the editor frame and fields (07a), its errors and purges (07b), its Save/Cancel model (07c) and its Test section (07d). 07a was split at its design review.
 - **Legs 08a-10:** rebuild Appearance, then Prompts with Encryption, then Date and time, then Knowledge indexing.
 - **Leg 11:** closes `admin.css`, the counts, the captures, the lanes and the docs.
 - **Leg 12:** the HAT.
@@ -460,7 +460,7 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 **Divert if**:
 - A split cannot stay behaviour-free (a test changes behaviour, not just a path pin): stop and re-plan the boundary.
 - The shared field module cannot serve the agent Tools tab without a behaviour change there: keep the two renderers and raise it.
-- A server change beyond the approved ones turns out to be needed: raise it as its own question. The approved server changes are the Config titles, descriptions, `ui_choices` labels, per-tool summaries and per-tool field lists (leg 05), and the encryption status route (leg 08b).
+- A server change beyond the approved ones turns out to be needed: raise it as its own question. The approved server changes are the Config titles, descriptions, `ui_choices` labels, per-tool summaries and per-tool field lists, with a PUT that keeps hidden fields (leg 05a); the encryption status route (leg 08b); and the Test route's additive `outcome` field (leg 07d, an FD call at its design review, needed so A15's headlines never parse model-facing text).
 - A17's eval run fails its gate: drop A17, and leave the description unchanged.
 
 **Acceptable variations**:
@@ -492,36 +492,20 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 - [ ] `knowledge-rows-split` (02b): `knowledge-folders.js` → `knowledge-rows.js` (rows and Individual files), behaviour-free; the stale invariant comments fixed; the duplicate `baseName` unified; squawk 0245 (one ledger row). Lanes: `knowledge` and `library`.
 - [ ] `error-reader-and-latest` (03a), **tier high, a shared interface**: the `fetchJson` error with `status` and `detail`; `App.api.fieldErrors` with the `loc` rule and the one humaniser; `App.ui.util.latest()`; `_errorMessageFromResponse` gone (404 tolerance kept, fallback texts as ledger rows); the error-placement rule written down (DD3). Lanes: `knowledge` and `contracts-controls`, plus every lane whose tests read `fetchJson` messages (grep at leg design).
 - [ ] `reconcile-and-rhythm` (03b), **tier high, a shared interface**: `App.ui.util.syncChildren(parent, nodes, {after})` with the `placeNodes` blur test; the opt-in `section` stack with child margins neutralised; the connector doctor, pairing and knowledge folders opt-ins, with their area rules retired; squawks 0237 and 0238. Lanes: `providers`, `library`, `knowledge`, both contracts lanes.
-- [ ] `page-controls` (04a), library only:
-  - `pageHeader`;
-  - `editorShell` `variant: 'page'` (composing `pageHeader`) and `inset: 'none'`;
-  - `banner` with its persistent live mode;
-  - `codeBlock` with `maxHeight`;
-  - `facts`;
-  - `section` `info` and `inset`;
-  - the `textInput` number options and `width: 'short'` (B3);
-  - the button's disabled tokens in the dark theme (B14; contrast pin);
-  - the emitted-class guard.
-
-  Each control gets a marker class (DD12), a catalogue row and contract tests. No consumer moves. Lanes: both contracts lanes.
-- [ ] `list-controls` (04b), library only: the `searchList` inline variant (scroll keep, `describedBy`, the selected mark, a centred active row for B8); the `chipList` one-line middle ellipsis (B4); `toolTile` and `toolTile.grid()`, with the frozen legacy CSS fixture; `tabs` `panelPadding`; the `radioGroup` slot option; `chipList.valuesOf`. Catalogue rows and contract tests (DD4). Lanes: both contracts lanes.
-- [ ] `library-consumers` (04c): `banner` for the provider editor (`provider-editor.js:220`) and the self-configuration tab (`self-config-revisions.js:218`, `self-config-external.js:120`); `dangerZone`'s notice through the banner's persistent live mode; `codeBlock` for the self-configuration tab's 7 uses; squawk 0236 (provider Save `setBusy`). Lanes: `providers`, `agent-tabs`, plus every lane with a `dangerZone` host (`agents`, `library`, `knowledge`, `mcp`).
-- [ ] `tool-config-fields` (05), **tier high, shared with the agent Tools tab**: `js/areas/tool-config-fields.js` per DD13; `agent-form-data.js` on `readValue`; the backend `Field(title=, description=)` for every tool Config (A7, squawk 0231), plain `ui_choices` labels (B5), a per-tool `summary` (B1) and a per-tool field list (B6), with a grep and a unit test proving no model-facing text changed (apart from A17); A8 and A10; A17 with its eval run, if approved and the operator confirms the quota (E3 re-verify first). Lanes: `agent-tabs` and `settings`.
+- [ ] `header-and-banner` (04a), library only: `pageHeader` (with an actions slot); the `editorShell` page variant composing it (`h1.editor-title.page-title`); `inset: 'none'`; `banner` with a collapsing persistent live mode. Marker classes (DD12), catalogue rows, contract tests.
+- [ ] `code-facts-inputs` (04b), library only: `codeBlock` (trim, `maxHeight`, a keyboard-scrollable region when it overflows); `facts`; the `section` `info` option; the `textInput` number options and `width: 'short'` (B3).
+- [ ] `disabled-buttons-and-guard` (04c): every disabled button moved from opacity to opaque disabled tokens, at least 3:1 in both themes (B14), with mirror and consumption pins; the emitted-class guard (a `scan_js`-based ratchet, exact in both directions).
+- [ ] `list-controls` (04d), library only: the `searchList` inline variant (`keepScroll`, `describedBy`, the selected mark, a centred programmatic activation for B8); `tabs` `panelPadding`; the `radioGroup` slot option.
+- [ ] `tile-and-chips` (04e), library only: `toolTile` and `toolTile.grid` against a frozen `LEGACY_ADMIN_TILE_CSS`; `chipList` `data-value`, `valuesOf` and the middle ellipsis (B4, a 40-character budget through `App.ui.util.middleEllipsis`).
+- [ ] `library-consumers` (04f): `banner` for the provider editor and the self-configuration tab; `dangerZone`'s notice through the banner's persistent live mode; `codeBlock` for the self-configuration tab's 7 uses; squawk 0236 (provider Save `setBusy`). Lanes: `providers`, `agent-tabs`, plus every lane with a `dangerZone` host.
+- [ ] `tool-config-text` (05a), **tier high (served schema shape, plus one model-facing sentence)**: written Config titles and descriptions (A7, squawk 0231), plain `ui_choices` labels (B5), a per-tool `summary` (B1) and `config_fields` (B6), with a unit test that the model-facing tool schemas are byte-identical apart from A17; A17 with its eval run, after re-verifying its prerequisites and getting the operator's consent for the quota.
+- [ ] `tool-config-fields` (05b): `js/areas/shared/tool-config-fields.js` per DD13 (admin and agent modes, `showIf`, `setError`, `readValue`, a text input with `inputmode=numeric` for agent numbers, A8 units by field-name suffix), tested on a harness page; nothing switches yet.
+- [ ] `agent-tools-on-fields` (05c), **tier high, shared with the agent Tools tab**: the Tools tab and `agent-form-data.js` moved onto the module; the hidden-override carry-over (a stored override on a field 05a hid is never dropped); agent number validation that blocks the Save through `formData.blockingError()`; A8 and A10 on the tab; squawk 0223's rule kept; `tool-override-fields.js` deleted.
 - [ ] `tools-grid` (06): `App.ui.tabs` and `toolTile`, mounted once and reconciled, with the per-tool summary on each tile (B1); DD8 1-3; `App.tabs`, `js/tabs.js` and its `index.html` tag retired (the `test_ui_tabs_contract.py` parity test frozen as a fixture or dropped with a reason); `toolTile` takes ownership (DD12); A6.
-- [ ] `tools-editor-frame` (07a), **tier high, a security-adjacent surface (tool safety settings and secrets)**:
-  - `editorShell` and sections, with `codeBlock` for the prompt (A14);
-  - fields from the shared module, with errors through `fieldErrors` (DD3);
-  - the `.editor-error-banner` retired;
-  - DD8 4 and 9; A9, A10, A12 and A13; B2 (the title size) and B3 (field width);
-  - `tools-form-helpers.js` reduced to the Flight 5 chip-list path;
-  - all 8 `App.icon` calls gone (6 in the editor, 2 in `renderField`);
-  - `agent-governance-and-search.md` steps 1-5 re-read.
-- [ ] `tools-editor-save-model` (07b), **tier high**:
-  - patch-in-place Save and Cancel with the side-effect inventory;
-  - `setBusy`, `latest()` guards and re-masking;
-  - DD8 5-8;
-  - `App.showFlash` (`admin.js:443`, `:594`, in the tools-page module after 02a) and `rescueFlashes` replaced by `App.ui.flash`.
-- [ ] `tools-editor-test` (07c): the Test section on `field`, `button`, `status` and `disclosure`; fixed outcome headlines; head-of-output; A15 and A16; the Test result stubbed in tests.
+- [ ] `tools-editor-frame` (07a), **tier high, a security-adjacent surface (tool safety settings and secrets)**: `editorShell` (`titleLevel: 2`, Library title size, B2), the prompt as a `codeBlock` (A14), the Enabled switch (DD8-4, A9), fields from the module's admin mode (A10, A12, A13, B3), the handle-based snapshot with interim Save/Cancel, `showIf`, `setEnabled` kept, and the Test section moved to DOM unchanged; no sinks and no `App.icon` left.
+- [ ] `tools-editor-errors-and-purge` (07b): the DD3 error path through `fieldErrors` (DD8-9; the banner retired); `tools-form-helpers.js` reduced to the Flight 5 chip path; the `admin.css` editor rules removed; the a11y pin moved; the bulk test retargeting; the behavior spec checked.
+- [ ] `tools-editor-save-model` (07c), **tier high**: patch-in-place Save and Cancel; the baseline from the response; per-field re-masking; busy covering Test; `latest()` and identity guards with a split `onSaveSuccess`; the Enabled race rule; the side-effect inventory; DD8 5-8; `App.ui.flash` replacing `App.showFlash`.
+- [ ] `tools-editor-test` (07d): the route's additive `outcome` field (server-side); the Test result on `status` and `disclosure` with fixed headlines; the head of the output; the "Tests the saved settings." hint when dirty; A15 and A16.
 - [ ] `appearance` (08a): the theme radio group (card look) built in `system-page.js`; `renderToggle`, its sink and its listener retired (DD8-19); testids `theme-option-*`; the a11y pin moved; `windows-window-chrome.md` and `windows-native-frame-splash.md` amended.
 - [ ] `prompts-and-encryption` (08b), **tier high (a new backend route on the encryption surface)**: Prompts on `section` and `codeBlock` (A1-A3, B11) with `fetchJson`; Encryption on `banner`, `confirm` and `status`, with A4 and A5; the read-only `GET /api/encryption/status` (last rotation time, recorded by the rotate route, and the credential count; B12), with unit tests and a SECURITY-MODEL.md check; DD8 10-12; `codeBlock` takes ownership.
 - [ ] `date-and-time` (09): `banner`, `status`, `section`, `facts`, the inline `searchList` with the `admin.css` overrides deleted; DD8 13; `GEN` → `latest()`; B8-B10.

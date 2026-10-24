@@ -317,3 +317,24 @@ def test_panel_id_prefix_option(engine_page: Page) -> None:
     _mount(engine_page)
     default = engine_page.evaluate("() => window.__tabs.panel('b').id")
     assert default == "tt-panel-b"
+
+
+def test_panel_padding_none_is_flush_under_area_admin(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const host = document.createElement('div'); host.className = 'area-admin';
+          const inner = document.createElement('div'); inner.className = 'settings-list'; host.appendChild(inner);
+          document.getElementById('harness-root').appendChild(host);
+          const mk = (extra) => { const t = App.ui.tabs(Object.assign({label: 'T', idPrefix: 'p' + Math.random().toString(36).slice(2, 6), initial: 'a',
+            items: [{id: 'a', label: 'A'}, {id: 'b', label: 'B'}]}, extra)); inner.appendChild(t.el); t.panel('a').hidden = false; return t; };
+          const flush = mk({panelPadding: 'none'}), plain = mk({});
+          const pad = (el) => { const s = getComputedStyle(el); return [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft, s.overflowY].join(' '); };
+          return {flush: pad(flush.panel('a')), tl: getComputedStyle(flush.tablist).paddingLeft,
+                  cls: flush.panel('a').className, tlcls: flush.tablist.className,
+                  plainCls: plain.panel('a').className, plainTl: getComputedStyle(plain.tablist).paddingLeft};
+        }"""
+    )
+    assert out["flush"] == "0px 0px 0px 0px visible" and out["tl"] == "0px"
+    assert "ui-tabs--flush" in out["cls"] and "ui-tabs--flush" in out["tlcls"]
+    assert "ui-tabs--flush" not in out["plainCls"]

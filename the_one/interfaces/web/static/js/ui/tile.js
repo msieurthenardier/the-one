@@ -300,4 +300,122 @@
       }
     };
   };
+
+  // App.ui.toolTile(opts) -> {el, key, link, toggle, setSelected(bool),
+  // setChecked(bool), setDisabled(bool), setDescription(text)} (M31 F4 L04e, flight
+  // DD4/DD12). The Built-in tools card: a linked name, an optional badge, a
+  // description and an enable switch.
+  //   key (the tool name; defaults to name), name (required), href (the item
+  //   link), selected, badge {text, kind, title} (an App.ui.badge), description,
+  //   toggle {label (required: the switch's accessible name, supplied by the
+  //   caller), checked, disabled, onChange(checked), testid (on the native
+  //   input), dataset (on the toggle's native input)}, testid, dataset (on the
+  //   root).
+  //   el is div.ui-tool-tile[role=listitem] (plus the legacy entity-tile tool-tile
+  //   until leg 06's handover): div.ui-tool-tile-row (a.ui-tool-tile-link, the
+  //   name, aria-current="page" when selected, then the badge), then
+  //   span.ui-tool-tile-desc (clamped to two lines) and the App.ui.toggle in the
+  //   flow below, end-aligned. A selected tile also carries ui-tool-tile--selected
+  //   (and the legacy active).
+  App.ui.toolTile = function (opts) {
+    opts = opts || {};
+    if (!opts.name) throw new Error('App.ui.toolTile: name is required');
+    var tg = opts.toggle || {};
+    if (!tg.label) throw new Error('App.ui.toolTile: toggle.label is required');
+    var util = App.ui.util;
+    var selected = !!opts.selected;
+
+    var root = util.el('div', { className: 'ui-tool-tile entity-tile tool-tile', role: 'listitem' });
+    util.applyDataset(root, opts.dataset);
+    if (opts.testid) root.setAttribute('data-testid', opts.testid);
+
+    var row = util.el('div', { className: 'ui-tool-tile-row tile-title-row' });
+    var link = util.el('a', {
+      className: 'ui-tool-tile-link entity-tile-name tool-tile-link',
+      text: opts.name
+    });
+    if (opts.href) link.setAttribute('href', opts.href);
+    row.appendChild(link);
+    if (opts.badge) {
+      var badge = App.ui.badge(opts.badge);
+      badge.classList.add('ui-tool-tile-badge');
+      row.appendChild(badge);
+    }
+    root.appendChild(row);
+
+    var desc = util.el('span', {
+      className: 'ui-tool-tile-desc entity-tile-description',
+      text: opts.description || ''
+    });
+    root.appendChild(desc);
+
+    var toggle = App.ui.toggle({
+      label: tg.label,
+      labelHidden: true,
+      checked: !!tg.checked,
+      disabled: !!tg.disabled,
+      dataset: tg.dataset,
+      testid: tg.testid,
+      onChange: tg.onChange
+    });
+    toggle.el.classList.add('ui-tool-tile-toggle');
+    root.appendChild(toggle.el);
+
+    function setSelected(value) {
+      selected = !!value;
+      root.classList.toggle('ui-tool-tile--selected', selected);
+      root.classList.toggle('active', selected);
+      if (selected) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    }
+    setSelected(selected);
+
+    return {
+      el: root,
+      key: opts.key !== undefined ? opts.key : opts.name,
+      link: link,
+      toggle: toggle,
+      setSelected: setSelected,
+      setChecked: function (value) { toggle.setChecked(!!value); },
+      setDisabled: function (value) { toggle.setDisabled(!!value); },
+      setDescription: function (text) { desc.textContent = text || ''; }
+    };
+  };
+
+  // App.ui.toolTile.grid({label, testid}) -> {el, sync(tiles)}. The tile grid: a
+  // div.ui-tool-tile-grid[role=list] (plus the legacy entity-tile-grid). sync(tiles)
+  // makes the grid's children exactly the given toolTile controllers, in order,
+  // through App.ui.util.syncChildren (a kept tile is never re-inserted, so
+  // its state survives); duplicate keys throw. A focused element inside the grid
+  // is given focus back if a move blurred it.
+  App.ui.toolTile.grid = function (opts) {
+    opts = opts || {};
+    var util = App.ui.util;
+    var el = util.el('div', {
+      className: 'ui-tool-tile-grid entity-tile-grid',
+      role: 'list',
+      'aria-label': opts.label || null
+    });
+    if (opts.testid) el.setAttribute('data-testid', opts.testid);
+    return {
+      el: el,
+      sync: function (tiles) {
+        tiles = tiles || [];
+        var seen = Object.create(null);
+        var nodes = [];
+        for (var i = 0; i < tiles.length; i++) {
+          if (seen[tiles[i].key]) throw new Error('App.ui.toolTile.grid: duplicate key "' + tiles[i].key + '"');
+          seen[tiles[i].key] = true;
+          nodes.push(tiles[i].el);
+        }
+        var focused = document.activeElement;
+        if (!focused || !el.contains(focused)) focused = null;
+        util.syncChildren(el, nodes);
+        if (focused && document.activeElement !== focused && focused.isConnected) focused.focus();
+      }
+    };
+  };
 })();

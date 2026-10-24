@@ -78,7 +78,11 @@ def test_router_settings_routes_equal_the_table_sections() -> None:
 
 def test_admin_and_router_hold_no_copy_of_the_labels() -> None:
     names = {label for _, label, _ in table()} | {group for _, _, group in table()}
-    for path in (JS / "areas" / "admin.js", JS / "router.js"):
+    for path in (
+        JS / "areas" / "admin.js",
+        JS / "areas" / "admin" / "tools-page.js",
+        JS / "router.js",
+    ):
         code = _code(path)
         dupes = sorted(n for n in names if f"'{n}'" in code or f'"{n}"' in code)
         assert not dupes, f"{path.name} repeats Settings labels from settings-pages.js: {dupes}"
@@ -94,3 +98,14 @@ def test_admin_nav_and_router_labels_read_the_table() -> None:
     palette = _code(JS / "jump-to.js")
     assert "App.settingsPages" in palette
     assert "#settings/" not in palette  # links are built with App.router.href
+
+
+def test_tools_page_reaches_the_area_only_through_ctx() -> None:
+    """M31 F4 L02a AC5: the tools page uses no admin.js closure name."""
+    code = _code(JS / "areas" / "admin" / "tools-page.js")
+    banned = re.compile(
+        r"(?<!ctx\.)\b(currentCategory|contentEl|editorGen|editorDomStale|settingsNav)\b"
+    )
+    bare_self = re.compile(r"(?<!ctx\.)\bself\b")
+    assert not banned.findall(code), banned.findall(code)
+    assert not bare_self.findall(code)

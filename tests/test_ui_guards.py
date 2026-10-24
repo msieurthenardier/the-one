@@ -146,7 +146,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    file. Lower a count in the same change that removes a sink; never raise one
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
-    "areas/admin.js": 1,
     "areas/admin/knowledge-settings-page.js": 1,
     "areas/admin/tools-editor.js": 8,
     "areas/admin/tools-grid.js": 3,

@@ -111,6 +111,31 @@ def test_capture_discipline_only_first_click_captures_original_title(engine_page
     )
 
 
+def test_lapse_on_a_detached_element_announces_nothing(engine_page: Page) -> None:
+    """Squawk 0237: an armed element removed from the page before its timer fires only
+    reverts - no `.confirm-lapsed` cue and no announcement."""
+    page = engine_page
+    load_harness(page)
+    _mount_fixture(page)
+    out = page.evaluate(
+        """async () => {
+          const el = document.getElementById('probe');
+          window.App.confirmDelete(el, function () {}, { revertMs: 300 });
+          await new Promise((r) => setTimeout(r, 50));
+          const live = document.querySelector('[data-testid=ui-confirm-live]');
+          const armedText = live.textContent;
+          el.remove();
+          await new Promise((r) => setTimeout(r, 700));
+          return {armedText, liveAfter: live.textContent, lapsed: el.classList.contains('confirm-lapsed'),
+                  armed: el.classList.contains('confirm-delete'), timer: el._confirmRevertTimer};
+        }"""
+    )
+    assert out["armedText"].startswith("Press ")
+    assert out["liveAfter"] == out["armedText"]  # no lapse sentence replaced the arm text
+    assert out["lapsed"] is False
+    assert out["armed"] is False  # the revert still ran
+
+
 def test_lapse_is_visually_distinct_and_clears_on_next_interaction(engine_page: Page) -> None:
     """AC-4/AC-7: a lapsed control carries `.confirm-lapsed`, distinct from
     both never-armed and committed, restores the ORIGINAL title (not the

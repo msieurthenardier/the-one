@@ -387,3 +387,87 @@ def test_string_built_chip_list_keeps_the_area_look(
     out = engine_page.evaluate(CASCADE_JS, [area, True])
     assert out["lockedBg"] == out["accentTranslucent"], out
     assert out["removeColor"] == out["accent"], out
+
+
+# ── long values: data-value, the middle ellipsis (M31 F4 L04e) ───────────────
+
+LONG = "".join(chr(97 + i % 26) for i in range(97))
+LONG_SHOWN = "abcdefghijklmnopqrstuvw\u2026defghijklmnopqrs"
+
+
+def test_long_chip_keeps_full_value_and_shows_a_one_line_ellipsis(engine_page: Page) -> None:
+    _mount(
+        engine_page, f"{{values: ['{LONG}', 'short'], locked: ['{LONG}z'], className: 'narrow'}}"
+    )
+    engine_page.add_style_tag(content=".narrow { width: 320px; }")
+    out = engine_page.evaluate(
+        """() => {
+          const el = window.__cl.el, chips = Array.from(el.querySelectorAll('.chip'));
+          const long = chips.find((c) => c.dataset.value.length === 97), locked = chips[0];
+          const vis = long.querySelector('.ui-chip-text');
+          const r = (n) => n.getBoundingClientRect(), lr = r(el);
+          return {values: window.__cl.values(), viaStatic: App.ui.chipList.valuesOf(el),
+            shown: vis.textContent, hidden: vis.getAttribute('aria-hidden'), twin: long.querySelector('.visually-hidden').textContent,
+            title: long.getAttribute('title'), remove: long.querySelector('button').getAttribute('aria-label'),
+            lockedAria: locked.getAttribute('aria-label'), lockedShown: locked.querySelector('.ui-chip-text').textContent.length,
+            lockedValue: locked.dataset.value.length, lockedHasButton: !!locked.querySelector('button'),
+            oneLine: r(long).height < 36 && r(long).right <= lr.right + 1 && r(long).left >= lr.left,
+            shortTwin: !chips.find((c) => c.dataset.value === 'short').querySelector('.visually-hidden'),
+            allText: long.textContent.replace('\u00d7', '')};
+        }"""
+    )
+    assert out["values"] == [LONG + "z", LONG, "short"] == out["viaStatic"]
+    assert out["shown"] == LONG_SHOWN and out["hidden"] == "true" and out["twin"] == LONG
+    assert out["title"] == LONG and out["remove"] == f"Remove {LONG}"
+    assert out["lockedAria"] == f"{LONG}z (locked by operator)" and out["lockedShown"] == 40
+    assert out["lockedValue"] == 98 and out["lockedHasButton"] is False
+    assert out["oneLine"] is True and out["shortTwin"] is True
+
+
+def test_truncated_chip_accessible_name_has_no_ellipsis(engine_page: Page) -> None:
+    _mount(engine_page, f"{{values: ['{LONG}']}}")
+    tree = engine_page.evaluate(
+        "() => window.__cl.el.querySelector('.chip').querySelector('.visually-hidden').textContent"
+    )
+    assert tree == LONG and "\u2026" not in tree
+    expect(engine_page.get_by_role("button", name=f"Remove {LONG}")).to_have_count(1)
+
+
+def test_duplicates_backspace_and_click_work_on_truncated_chips(engine_page: Page) -> None:
+    _mount(engine_page, f"{{values: ['{LONG}', 'tail']}}")
+    engine_page.locator(".chip-list-input").fill(LONG)
+    engine_page.keyboard.press("Enter")  # a duplicate of the FULL value: ignored
+    assert (
+        _values(engine_page) == [LONG, "tail"] and engine_page.evaluate("() => window.__ch") == []
+    )
+    engine_page.locator(".chip-list-input").fill(
+        LONG + "x"
+    )  # not a duplicate: a new chip with its own full value
+    engine_page.keyboard.press("Enter")
+    assert _values(engine_page) == [LONG, "tail", LONG + "x"]
+    engine_page.locator(
+        ".chip[data-value='tail'] .ui-chip-text"
+    ).click()  # click on the text repositions the input
+    engine_page.locator(".chip-list-input").focus()
+    engine_page.keyboard.press("Backspace")  # removes the chip before the input
+    assert _values(engine_page) == ["tail", LONG + "x"]
+    assert engine_page.evaluate("() => window.__ch.at(-1)") == ["tail", LONG + "x"]
+
+
+def test_paste_of_long_values_gives_each_its_own_data_value(engine_page: Page) -> None:
+    _mount(engine_page, "{values: []}")
+    _paste(engine_page, f"{LONG}, other")
+    assert _values(engine_page) == [LONG, "other"]
+    assert engine_page.evaluate(
+        "() => Array.from(window.__cl.el.querySelectorAll('.chip')).map((c) => c.dataset.value)"
+    ) == [LONG, "other"]
+
+
+def test_set_values_rebuilds_with_data_value(engine_page: Page) -> None:
+    _mount(engine_page)
+    engine_page.evaluate(f"() => window.__cl.setValues(['{LONG}'], [])")
+    assert _values(engine_page) == [LONG]
+    assert (
+        engine_page.evaluate("() => window.__cl.el.querySelector('.ui-chip-text').textContent")
+        == LONG_SHOWN
+    )

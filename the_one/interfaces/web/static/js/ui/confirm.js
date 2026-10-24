@@ -152,6 +152,12 @@
     // from `revert` itself so the revertFn handed to callers (transport
     // failure, and system-page.js's success path) never marks lapse.
     function lapse() {
+      // Squawk 0237 (M31 F4 L03b): an element removed from the page while armed only
+      // reverts - no cue and no announcement for a control the user can no longer reach.
+      if (!itemEl.isConnected) {
+        revert();
+        return;
+      }
       itemEl.classList.add('confirm-lapsed');
       var subject = itemEl._confirmSubject;
       revert();

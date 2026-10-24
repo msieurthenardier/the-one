@@ -284,3 +284,19 @@ def test_owner_listener_fires_while_connected_and_prunes_on_fire(tpage: Page) ->
     )
     assert got["calls"] == ["Asia/Kolkata"]
     assert got["count"] == 0
+
+
+def test_format_date_time_reads_a_server_iso_string_in_both_engines(tpage: Page) -> None:
+    """Squawk 0245: the server's 6-digit-fraction ISO string (`+00:00`) must parse in
+    WebKit too; falling back to the raw string is the failure to catch. An unparseable
+    value is returned as it came."""
+    got = tpage.evaluate(
+        """() => {
+          App.time.setZone('Pacific/Honolulu');
+          return [
+            App.time.formatDateTime('2026-10-12T23:30:15.123456+00:00'),
+            App.time.formatDateTime('not a date'),
+          ];
+        }"""
+    )
+    assert got == ["Oct 12, 2026, 1:30 PM", "not a date"]

@@ -90,6 +90,7 @@ def check_static_refs(body: str) -> None:
     for shell, prefix in (
         ("js/areas/studio.js", "js/areas/studio/"),
         ("js/areas/chat.js", "js/areas/chat/"),
+        ("js/areas/admin.js", "js/areas/admin/"),
     ):
         assert shell in js, shell
         for i, p in enumerate(js):

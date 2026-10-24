@@ -138,10 +138,11 @@
      `css/studio.css` (this file, the definitions), `areas/studio.js`,
      `studio/tools-tab.js`, `studio/mcps-tab.js`,
      `studio/mcp-server-editor.js` — its original consumers, styling the
-     MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js`,
-     a LATER, cross-page borrow: `buildFolderPanel` (folder panels) and
-     `buildOtherItemsPanel` ("Other items", since the M31 F3 HAT
-     `buildIndividualFilesPanel`, "Individual files") each independently set
+     MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js` and
+     `studio/knowledge-rows.js`, a LATER, cross-page borrow:
+     `buildFolderPanel` (folder panels, in folders) and
+     `buildIndividualFilesPanel` (in rows) ("Individual files", "Other items" before the
+     M31 F3 HAT) each independently set
      `details.className = 'mcp-tool-item'` to get this tile's look for the
      Knowledge section, a surface the MCP editor knows nothing about. Four
      browser test files assert against this vocabulary across the `studio`
@@ -763,28 +764,17 @@
      moved to App.ui.toggle and App.ui.status, M31 F3 L07a) === */
   /* The generated code is an App.ui.copyField; only the result's stacking and the
      expiry line are area layout. The result region stacks its lines (the status,
-     or the code field then the expiry) with the standard field gap, and takes the
-     button-to-content gap above it only while something in it is shown, so an
-     empty region adds no space under the button. */
+     or the code field then the expiry) with the standard field gap, and sits in the
+     Pairing section's stack; it is hidden while empty, so it adds no gap. */
   .area-studio .connector-pairing-result {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
   }
-  .area-studio .connector-pairing-result:has(> :not([hidden])) {
-    margin-top: var(--space-3);
-  }
   .area-studio .connector-pairing-expiry {
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
-  /* Diagnostics: the Run doctor result line (an App.ui.status, the button's next
-     sibling) takes the same button-to-content gap, only while it is shown. Reached
-     through the area's own button class, not the library-owned status class. */
-  .area-studio .doctor-btn + :not([hidden]) {
-    margin-top: var(--space-3);
-  }
-
   /* Inline setup steps (Squawk 0046) — a short per-type bullet list plus a
      plain-text doc-path reference. Defensive [hidden] rule follows this
      file's established pattern (see the mcp-*[hidden] rules above) since a later, more specific `display`
@@ -799,17 +789,14 @@
   .area-studio .connector-setup-steps-doc-ref {
     font-size: var(--font-size-caption);
     color: var(--fg-muted);
+    display: block;
   }
   .area-studio .connector-setup-steps-list li { margin-bottom: 6px; }
   .area-studio .connector-setup-steps-list li:last-child { margin-bottom: 0; }
   /* Review fix (dead link, squawk 0046): the doc reference is plain text,
      not a link — no route serves `docs/` over HTTP (see the JS comment at
-     its render site). The rule above carries the muted caption styling
-     (`--font-size-caption`, `--fg-muted`); this just sets it on its own line
-     under the list. */
-  .area-studio .connector-setup-steps-doc-ref {
-    display: block;
-  }
+     its render site). The rule above carries the muted caption styling and
+     sets it on its own line under the list. */
 
   /* === Studio Knowledge section (Mission 24 Flight 6 Leg 1) ===========
      The create form + detail view reuse the existing `.editor-header` /
@@ -1011,11 +998,6 @@
      The old per-row two-step Remove control (L5-D1) and its
      `flex-basis: 100%` caption rule are retired — the cascade warning is
      now persistent section-level text (`.field-hint`, no new rule). */
-  /* HAT polish pass: the folders list needs breathing room under the
-     "Add folder" button, which it had none of. Uses the existing
-     `--space-*` scale (the same vocabulary as the other Library rows). */
-  .area-studio .kb-folders-list { margin-top: var(--space-3); }
-
   /* L06b: the per-row overflow menu is the library menu; this area-owned slot
      places it at the row's end, after an individual row's remove button. */
   .area-studio .kb-item-menu-slot {

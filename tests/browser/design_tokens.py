@@ -88,6 +88,9 @@ DARK: dict[str, str] = {
     "accent_fill_hover": "#6d28d9",
     "fg_on_accent_fill": "#ffffff",
     "control_border": "#6e717a",
+    "btn_disabled_fg": "#7d7f88",
+    "btn_disabled_bg": "#2a2b31",
+    "btn_disabled_border": "#3a3b43",
     "control_thumb": "#ffffff",
     "accent_api": "#22d3ee",
     # status — Tailwind-400 family; all >= 4.5:1 on bg/surface.
@@ -171,6 +174,9 @@ LIGHT: dict[str, str] = {
     "accent_fill_hover": "#5b21b6",
     "fg_on_accent_fill": "#ffffff",
     "control_border": "#868690",
+    "btn_disabled_fg": "#767680",
+    "btn_disabled_bg": "#e4e4e7",
+    "btn_disabled_border": "#d4d4d8",
     "control_thumb": "#ffffff",
     "accent_api": "#0e7490",
     # status — deep 600/700 family; all >= 4.5:1 on bg/surface.

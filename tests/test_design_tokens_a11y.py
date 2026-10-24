@@ -1622,3 +1622,70 @@ def test_status_text_tone_consumes_the_gated_status_text_tokens() -> None:
     assert dict(rules).keys() == {"danger", "warning"}, rules
     for state, body in rules:
         assert body.strip() == f"color: var(--status-{state});", (state, body)
+
+
+# ---------------------------------------------------------------------------
+# Disabled buttons (M31 F4 L04c, B14, ledger row 37)
+# ---------------------------------------------------------------------------
+#
+# A disabled button's label used to be the enabled colour at opacity 0.4, which fell below
+# 3:1 on the dark surfaces. WCAG exempts disabled controls; 3:1 is the operator's approved
+# readability target. The label token is opaque, so the flat formula applies. The checkbox
+# and the toggle track keep their opacity (a control state, not a label; out of B14's scope).
+
+_DISABLED_BUTTON_SELECTORS = (
+    ".btn-outlined-primary:disabled",
+    ".btn-filled-primary:disabled",
+    ".btn-ghost:disabled",
+    ".btn-muted-destructive:disabled",
+    ".refresh-btn:disabled",
+    ".ui-progress-cancel:disabled",
+)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("bg_key", ["bg", "surface", "surface_elevated", "btn_disabled_bg"])
+def test_disabled_button_label_reaches_3_to_1(theme: str, bg_key: str) -> None:
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["btn_disabled_fg"], palette[bg_key])
+    assert ratio >= 3.0, f"{theme} disabled label on {bg_key} = {ratio:.2f}:1 (need >= 3.0)"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_disabled_button_differs_from_the_enabled_look(theme: str) -> None:
+    palette = _palette(theme)
+    assert palette["btn_disabled_fg"] != palette["fg"]
+    assert palette["btn_disabled_bg"] != palette["accent_fill"]
+
+
+@pytest.mark.parametrize("selector", _DISABLED_BUTTON_SELECTORS)
+def test_disabled_button_sites_use_tokens_not_opacity(selector: str) -> None:
+    body = " ".join(_rule_bodies("components.css", selector))
+    assert body, selector
+    assert "var(--btn-disabled-fg)" in body, body
+    assert "opacity" not in body, body
+    assert "cursor: not-allowed" in body, body
+
+
+def test_filled_disabled_button_consumes_the_fill_tokens() -> None:
+    body = " ".join(_rule_bodies("components.css", ".btn-filled-primary:disabled"))
+    assert "var(--btn-disabled-bg)" in body and "var(--btn-disabled-border)" in body, body
+
+
+def test_save_button_disabled_state_has_no_opacity() -> None:
+    body = " ".join(_rule_bodies("components.css", ".save-btn[disabled]"))
+    assert "opacity" not in body and "cursor: not-allowed" in body, body
+    assert not _rule_bodies("components.css", ".save-btn:not([disabled])")
+
+
+def test_non_button_disabled_sites_keep_opacity() -> None:
+    for sel in (".checkbox-primary:disabled", ".ui-toggle-input:disabled + .ui-toggle-track"):
+        assert "opacity: 0.4" in " ".join(_rule_bodies("components.css", sel)), sel
+
+
+def test_disabled_buttons_use_graytext_in_forced_colors() -> None:
+    css = (_CSS_DIR / "components.css").read_text(encoding="utf-8")
+    block = css[css.index("@media (forced-colors: active)") :]
+    for sel in _DISABLED_BUTTON_SELECTORS:
+        assert sel in block, sel
+    assert "color: GrayText; border-color: GrayText;" in block

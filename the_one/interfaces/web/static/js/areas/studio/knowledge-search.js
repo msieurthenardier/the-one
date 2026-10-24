@@ -6,6 +6,8 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
+  var K = window.App.studio.knowledgeShared;
+
   function create(ctx) {
     var root = ctx.root;
     var kb = ctx.kb;
@@ -63,22 +65,6 @@
     });
     root.appendChild(section.el);
 
-    function el(tag, cls, text) {
-      var n = document.createElement(tag);
-      n.className = cls;
-      if (text !== undefined) n.textContent = text;
-      return n;
-    }
-
-    // The last path segment (either separator); the whole path when it ends
-    // in one.
-    function baseName(path) {
-      var p = String(path || '');
-      var cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-      var tail = p.slice(cut + 1);
-      return tail || p;
-    }
-
     // The snippet as plain text: line endings normalised, whitespace-only
     // lines emptied, every run of blank lines collapsed to one, and the ends
     // trimmed. Shown with textContent only (pre-line, clamped to three lines
@@ -94,16 +80,16 @@
     // One hit: the file name, a meta line (the full path, ellipsised, with
     // the path also as its title, then the score), and the snippet.
     function buildHit(hit) {
-      var row = el('li', 'kb-search-hit');
+      var row = K.el('li', { className: 'kb-search-hit' });
       row.setAttribute('data-testid', 'kb-search-hit');
-      row.appendChild(el('div', 'kb-search-hit-title', baseName(hit.path)));
-      var meta = el('div', 'kb-search-hit-meta');
-      var path = el('span', 'kb-search-hit-path', hit.path);
+      row.appendChild(K.el('div', { className: 'kb-search-hit-title', text: K.baseName(hit.path) }));
+      var meta = K.el('div', { className: 'kb-search-hit-meta' });
+      var path = K.el('span', { className: 'kb-search-hit-path', text: hit.path });
       path.title = hit.path;
       meta.appendChild(path);
-      meta.appendChild(el('span', 'kb-search-hit-score', 'score ' + hit.score.toFixed(3)));
+      meta.appendChild(K.el('span', { className: 'kb-search-hit-score', text: 'score ' + hit.score.toFixed(3) }));
       row.appendChild(meta);
-      row.appendChild(el('div', 'kb-search-hit-text', snippetText(hit.text)));
+      row.appendChild(K.el('div', { className: 'kb-search-hit-text', text: snippetText(hit.text) }));
       return row;
     }
 
@@ -118,14 +104,10 @@
       var searching = App.ui.status({ state: 'pending', led: false, live: 'off' });
       searching.set('pending', 'Searching…');
       resultsEl.appendChild(searching.el);
-      fetch(
+      App.api.fetchJson(
         '/api/knowledge-bases/' + encodeURIComponent(kb.id) +
         '/search?q=' + encodeURIComponent(q) + '&limit=10'
       )
-        .then(function (r) {
-          if (!r.ok) throw new Error('Search failed: HTTP ' + r.status);
-          return r.json();
-        })
         .then(function (result) {
           if (!isLive() || mine !== generation) return;
           resultsEl.textContent = '';
@@ -141,7 +123,7 @@
             resultsEl.appendChild(App.ui.emptyState({ title: 'No results.', titleTag: 'p' }));
             return;
           }
-          var list = el('ul', 'kb-search-hit-list');
+          var list = K.el('ul', { className: 'kb-search-hit-list' });
           result.hits.forEach(function (hit) { list.appendChild(buildHit(hit)); });
           resultsEl.appendChild(list);
         })

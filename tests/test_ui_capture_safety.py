@@ -108,3 +108,35 @@ def test_surface_table_lists_every_skipped_surface_with_a_reason() -> None:
     assert {"provider-create", "ollama-models-panel", "flash-after-save"} <= set(names)
     for ptype in cap.PROVIDERS:
         assert f"provider-edit-{ptype}" in names
+
+
+# --keep-running (M31 F4 L01) goes through the same refusals before anything starts.
+
+
+def _no_start(*_a, **_k):
+    raise AssertionError("the instance must not start when a refusal applies")
+
+
+def test_keep_running_refuses_a_protected_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cap, "pick_port", lambda: 8484)
+    monkeypatch.setattr(cap, "start_instance", _no_start)
+    with pytest.raises(cap.CaptureError, match="8484"):
+        cap.run(["--keep-running"])
+
+
+def test_keep_running_refuses_a_scratch_dir_inside_the_default_data_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The scratch tree lives under ~/.cache/the-one-ui-capture: a "default" that
+    # contains it must be refused.
+    monkeypatch.setattr(cap, "default_data_dir", lambda: Path.home() / ".cache")
+    monkeypatch.setattr(cap, "start_instance", _no_start)
+    with pytest.raises(cap.CaptureError, match="default data directory"):
+        cap.run(["--keep-running"])
+
+
+def test_keep_running_takes_no_out_and_out_still_needs_a_dir() -> None:
+    with pytest.raises(cap.CaptureError, match="takes no --out"):
+        cap.run(["--keep-running", "--out", "/tmp/x"])
+    with pytest.raises(cap.CaptureError, match="--out DIR is required"):
+        cap.run([])

@@ -210,6 +210,27 @@ def test_set_error_follows_the_row_and_clears(engine_page: Page) -> None:
     assert state() == [[None, None, None]]
 
 
+def test_set_error_is_announced_and_linked(engine_page: Page) -> None:
+    """Squawk 0238: the error line carries role=alert while shown (removed on clear) and
+    stays linked to its input through aria-describedby."""
+    _mount(engine_page)
+    p = engine_page
+    shown = p.evaluate(
+        """() => { window.__kv.setError(0, 'agent', 'Required');
+          const i = window.__kv.el.querySelectorAll('tbody tr')[0].querySelectorAll('input')[1];
+          const e = document.getElementById(i.getAttribute('aria-describedby'));
+          return [e.getAttribute('role'), e.hidden, e.textContent, e.classList.contains('ui-kv-error')]; }"""
+    )
+    assert shown == ["alert", False, "Required", True]
+    cleared = p.evaluate(
+        """() => { const e = window.__kv.el.querySelector('.ui-kv-error[role], .ui-kv-error');
+          window.__kv.setError(0, 'agent', null);
+          const errs = Array.from(window.__kv.el.querySelectorAll('.ui-kv-error'));
+          return errs.map((x) => [x.getAttribute('role'), x.hidden]); }"""
+    )
+    assert all(role is None and hidden for role, hidden in cleared)
+
+
 def test_destroy_removes_listeners(engine_page: Page) -> None:
     _mount(engine_page)
     p = engine_page

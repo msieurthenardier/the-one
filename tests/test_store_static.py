@@ -386,9 +386,11 @@ def test_save_syncs_pass_the_item_name_hint() -> None:
     # The Settings admin area has no create-then-sync editor any more (providers
     # moved to Library, sortie 02); the provider save-create sync lives in the
     # section module, beside the connector one in studio.js.
-    assert "App.router.sync('admin', self.serializeState(), { name: updated.name })" not in _src(
-        "areas/admin.js"
-    )
+    for rel in ("areas/admin.js", "areas/admin/tools-page.js"):
+        src = _src(rel)
+        assert "App.router.sync('admin', self.serializeState(), { name: updated.name })" not in src
+        assert "App.router.sync('admin', ctx.serializeState(), { name: updated.name })" not in src
+    assert "App.router.sync('admin', ctx.serializeState())" in _src("areas/admin/tools-page.js")
     # M31 F2 L02b: the MCP save-create sync moved to mcp-glue.js.
     assert "App.router.sync('studio', self.serializeState(), { name: updated.name })" in _src(
         "areas/studio/mcp-glue.js"

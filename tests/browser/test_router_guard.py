@@ -443,7 +443,7 @@ def test_connector_save_resolving_after_breadcrumb_go_keeps_the_root(
     _lists.library_add(page, "connectors")
     page.locator('[data-field="name"]').fill("Held connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
 
     held: list = []
 

@@ -119,7 +119,7 @@ def test_category_master_unticks_time(app_with_agent: SeededApp, page: Page) -> 
     _open_tools(page, app_with_agent)
     master = page.locator('[data-category-master="Time"]')
     expect(master).to_have_accessible_name("Enable all Time tools")
-    page.locator('.ui-group-tile[data-category="Time"] .ui-group-tile-row .ui-toggle-label').click()
+    page.locator('[data-category-master="Time"]').locator("xpath=ancestor::label").click()
     expect(page.locator(TOOL)).not_to_be_checked()
     _save(page)
     assert "current_time" in _get(base, name)["disabled_tools"]

@@ -288,6 +288,13 @@ def test_folder_registration_data_dir_refusal_renders_message(
     _create_knowledge_base(page, "Refusal KB")
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
+    # M31 F4 L03b: the Folders section's stack supplies the gap between the Add folder
+    # button and the folders list (the retired `.kb-folders-list` margin rule).
+    add_box = page.locator('[data-testid="kb-add-folder-btn"]').bounding_box()
+    list_box = page.locator('[data-testid="kb-folders-list"]').bounding_box()
+    assert add_box and list_box
+    assert list_box["y"] - (add_box["y"] + add_box["height"]) == 12
+
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(data_dir))
     page.locator('[data-testid="kb-add-folder-btn"]').click()
 
@@ -1285,8 +1292,8 @@ def test_armed_folder_confirm_survives_items_signature_tick(
        rather than recreating them (tested).
     2. `updateFolderMeta` never rewrites the path span (tested).
     3. `renderAllItems` must not rebuild the `<summary>` either — it
-       reaches a panel only through `renderFolderFiles`
-       (`knowledge-folders.js` `renderFolderFiles`), which writes `panel.filesEl` (the
+       reaches a panel only through `renderRows` (`knowledge-rows.js`,
+       reached from `knowledge-folders.js`), which writes `panel.filesEl` (the
        panel BODY), never the summary. **This test.**
 
     AC-10a: a naive version of this test — arm, then wait on the real
@@ -2287,7 +2294,7 @@ def test_a_successful_folder_delete_moves_focus_to_the_add_folder_input(
 
     def delete(route) -> None:  # noqa: ANN001
         stub.folders = []
-        route.fulfill(status=204, body="")
+        route.fulfill(status=200, json={"status": "deleted"})
 
     page.route(_re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items/f1$"), delete)
     _open_stubbed(page, app_clean, kb_id)
@@ -2970,3 +2977,110 @@ def test_removing_a_real_individual_file_drops_it_from_the_status_counts(
         f"{base_url}/api/knowledge-bases/{kb_id}/items", headers=auth_headers_for(base_url)
     ).json()
     assert [it["id"] for it in remaining] == [ids[1]]
+
+
+@pytest.mark.browser
+def test_knowledge_shared_base_name_pins_separator_handling(app_clean: str, page: Page) -> None:
+    """M31 F4 L02b: one `baseName` for every knowledge module (the single-separator
+    rule, trailing separators stripped). Pinned here so the search hit titles and the
+    Individual files rows cannot drift apart again."""
+    _goto_knowledge_grid(app_clean, page)
+    got = page.evaluate(
+        "(paths) => paths.map((p) => App.studio.knowledgeShared.baseName(p))",
+        ["C:\\a\\b.txt", "/data/dir/", "/data/x/run.md", "plain.txt", "", "/"],
+    )
+    assert got == ["b.txt", "dir", "run.md", "plain.txt", "", "/"]
+
+
+# ── M31 F4 L03a: one error reader (App.api.fetchJson) ─────────────────────
+# A 500 with an empty body now reads "Server error 500 …" (fetchJson's text),
+# not the old per-caller "HTTP 500" / "Remove failed" / "Folder registration
+# failed" / "Search failed: HTTP 500" (ledger row 43).
+
+_SERVER_ERROR_500 = _re.compile(r"Server error 500")
+
+
+@pytest.mark.browser
+def test_remove_file_500_with_empty_body_reads_the_shared_error_text(
+    app_clean: str, page: Page
+) -> None:
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Err Remove File KB")
+    stub.items = [stub.item("a", "/y/a.txt")]
+    _route_item_deletes(page, kb_id, lambda route, _id: route.fulfill(status=500, body=""))
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    btn = _remove_btn(page, "a")
+    btn.click()
+    btn.click()
+    expect(page.locator(_HEADER + " .editor-error")).to_contain_text(
+        "Couldn’t remove the file: Server error 500", timeout=8000
+    )
+    expect(_row(page, "a")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_delete_folder_500_with_empty_body_reads_the_shared_error_text(
+    app_clean: str, page: Page
+) -> None:
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Err Delete Folder KB")
+    stub.folders = [stub.folder("f1", "/y/folder")]
+    _route_item_deletes(page, kb_id, lambda route, _id: route.fulfill(status=500, body=""))
+    _open_stubbed(page, app_clean, kb_id)
+    btn = page.locator('[data-testid="kb-folder-delete-btn"]')
+    btn.click()
+    btn.click()
+    expect(page.locator(_HEADER + " .editor-error")).to_contain_text(
+        "Couldn’t remove the folder: Server error 500", timeout=8000
+    )
+
+
+@pytest.mark.browser
+def test_add_folder_500_with_empty_body_shows_the_shared_error_text_on_the_field(
+    app_clean: str, page: Page
+) -> None:
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Err Add Folder KB")
+
+    def post(route) -> None:  # noqa: ANN001
+        if route.request.method == "POST":
+            route.fulfill(status=500, body="")
+        else:
+            route.fallback()
+
+    page.route(_re.compile(rf".*/api/knowledge-bases/{_re.escape(kb_id)}/items$"), post)
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-folder-path-input"]').fill("/y/new")
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+    expect(page.locator('[data-testid="kb-folder-add-error"]')).to_contain_text(
+        _SERVER_ERROR_500, timeout=8000
+    )
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("")
+
+
+@pytest.mark.browser
+def test_chunks_load_500_with_empty_body_shows_the_shared_error_text(
+    app_clean: str, page: Page
+) -> None:
+    kb_id, stub = _stubbed_kb_page(app_clean, page, "Err Chunks KB")
+    stub.items = [stub.item("a", "/y/a.txt")]
+    page.route("**/items/a/chunks", lambda route: route.fulfill(status=500, body=""))
+    _open_stubbed(page, app_clean, kb_id)
+    _individual_panel(page).locator("summary").click()
+    _open_menu_item(page, "a", "kb-item-chunks-btn")
+    expect(page.locator('[data-testid="kb-chunks-panel"]')).to_contain_text(
+        _SERVER_ERROR_500, timeout=8000
+    )
+
+
+@pytest.mark.browser
+def test_search_500_with_empty_body_shows_the_shared_error_text(app_clean: str, page: Page) -> None:
+    kb_id, _stub = _stubbed_kb_page(app_clean, page, "Err Search KB")
+    page.route(
+        _re.compile(r".*/api/knowledge-bases/[^/]+/search\?.*"),
+        lambda route: route.fulfill(status=500, body=""),
+    )
+    _open_stubbed(page, app_clean, kb_id)
+    page.locator('[data-testid="kb-search-input"]').fill("alpha")
+    page.locator('[data-testid="kb-search-btn"]').click()
+    expect(page.locator('[data-testid="kb-search-results"]')).to_contain_text(
+        _SERVER_ERROR_500, timeout=8000
+    )

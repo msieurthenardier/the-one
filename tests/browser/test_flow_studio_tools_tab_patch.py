@@ -93,7 +93,7 @@ def test_clicking_a_category_master_marks_the_editor_dirty(
 ) -> None:
     _open_tools(page, app_with_agent)
     expect(page.locator(SAVE)).to_be_disabled()
-    page.locator('.ui-group-tile[data-category="Web"] .ui-group-tile-row .ui-toggle-label').click()
+    page.locator('[data-category-master="Web"]').locator("xpath=ancestor::label").click()
     expect(page.locator(SAVE)).to_be_enabled(timeout=3000)
     expect(page.locator(UNSAVED)).not_to_have_text("")
     expect(page.locator('.ui-group-tile[data-category="Web"] .ui-group-tile-chip')).to_have_text(

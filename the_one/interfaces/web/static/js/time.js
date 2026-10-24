@@ -144,6 +144,16 @@
 
   var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+  // "Oct 23, 2026, 8:57 AM" from a server ISO string (or a Date), in the
+  // operator zone. An unparseable value is returned as it came, so a stamp is
+  // never hidden. One-shot: a caller that must follow a zone change re-renders
+  // through onChange.
+  function formatDateTime(iso) {
+    var d = iso instanceof Date ? iso : new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return formatDate(d) + ', ' + formatClock(d);
+  }
+
   // "Oct 12, 2026": the calendar date in the operator zone (sortie 03, the provider token
   // expiry line). Locale-neutral, like formatClock.
   function formatDate(d) {
@@ -214,6 +224,7 @@
     parts: parts,
     formatClock: formatClock,
     formatDate: formatDate,
+    formatDateTime: formatDateTime,
     dayNumber: dayNumber,
     onChange: onChange,
     _listenerCount: listenerCount,

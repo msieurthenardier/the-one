@@ -1,8 +1,8 @@
 // App.studio.renderKnowledgeDetail — the Knowledge detail pane (Mission 24
 // Flight 6 Leg 1, DD-2, L1-D1; split into modules in Mission 31 Flight 3 Leg
 // 02). The create form is knowledge-create.js; the Folders, Status, Search and
-// chunks/source sections are knowledge-folders/-status/-search/-inspect.js,
-// each created here with a ctx. This module keeps the frame, the Name and
+// chunks/source sections are knowledge-folders (its file rows are
+// knowledge-rows)/-status/-search/-inspect.js, each created here with a ctx. This module keeps the frame, the Name and
 // Description fields with their dirty tracking, the danger zone and the
 // composition. Built with DOM APIs only (see knowledge-shared.js).
 //

@@ -551,3 +551,193 @@ def test_status_region_announces_the_result_count_while_filtering(engine_page: P
     expect(status).to_have_text('No agents match "zzz".')
     inp.fill("")
     expect(status).to_have_text("")
+
+
+# ── M31 F4 L04d: the inline variant ─────────────────────────────────────────
+
+INLINE_JS = """(opts) => {
+  window.__q = '';
+  const zones = [];
+  for (let i = 0; i < 60; i++) zones.push({id: 'z' + i, label: 'Zone ' + i, description: 'Region/Zone_' + i,
+    meta: 'UTC+' + (i % 12), metaMono: true, selected: i === 30});
+  window.__sel = 'z30';
+  window.__src = (q) => {
+    const t = q.trim().toLowerCase();
+    const hits = zones.filter((z) => !t || z.label.toLowerCase().indexOf(t) !== -1)
+      .map((z) => Object.assign({}, z, {selected: z.id === window.__sel}));
+    return [{id: 'g', label: 'Region', items: hits}];
+  };
+  const note = document.createElement('p'); note.id = 'sl-note'; note.textContent = 'Chosen: Zone 30';
+  document.getElementById('harness-root').appendChild(note);
+  const c = App.ui.searchList(Object.assign({label: 'Search zones', source: (q) => window.__src(q),
+    inline: true, keepScroll: true, describedBy: note, testid: 'il-root', inputTestid: 'il-input'}, opts || {}));
+  document.getElementById('harness-root').appendChild(c.el);
+  window.__il = c;
+  return true;
+}"""
+
+
+def _inline(page: Page, opts: str = "{}") -> None:
+    load_harness(page, "dark")
+    page.evaluate(f"({INLINE_JS})({opts})")
+
+
+def test_inline_caps_the_listbox_and_marks_the_root(engine_page: Page) -> None:
+    _inline(engine_page)
+    out = engine_page.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox'); const s = getComputedStyle(lb);
+          return {cls: window.__il.el.className, max: s.maxHeight, oy: s.overflowY, h: lb.getBoundingClientRect().height,
+                  desc: getComputedStyle(document.querySelector('.ui-search-list-description')).fontFamily}; }"""
+    )
+    assert out["cls"] == "ui-search-list ui-search-list--inline"
+    assert out["max"] == "252px" and out["oy"] == "auto" and out["h"] <= 252
+    assert "mono" in out["desc"].lower() or "monospace" in out["desc"].lower()
+
+
+def test_modal_default_is_not_inline(engine_page: Page) -> None:
+    _mount(engine_page)
+    out = engine_page.evaluate(
+        "() => [window.__sl.el.className, getComputedStyle(document.querySelector('.ui-search-list-listbox')).maxHeight]"
+    )
+    assert out == ["ui-search-list", "none"]
+
+
+def test_described_by_accepts_a_node_or_an_id(engine_page: Page) -> None:
+    _inline(engine_page)
+    assert (
+        engine_page.evaluate("() => window.__il.input.getAttribute('aria-describedby')")
+        == "sl-note"
+    )
+    load_harness(engine_page, "dark")
+    engine_page.evaluate(f"({INLINE_JS})({{describedBy: 'sl-note'}})")
+    assert (
+        engine_page.evaluate("() => window.__il.input.getAttribute('aria-describedby')")
+        == "sl-note"
+    )
+
+
+def test_selected_row_has_check_lead_and_name_says_selected(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    expect(p.get_by_role("option", name="Zone 30 (selected)")).to_have_count(1)
+    expect(p.get_by_role("option", name="(selected)")).to_have_count(1)
+    out = p.evaluate(
+        """() => { const rows = Array.from(document.querySelectorAll('[role=option]'));
+          const lead = (r) => r.querySelector('.ui-search-list-lead');
+          return {leads: rows.every((r) => lead(r) && lead(r).getAttribute('aria-hidden') === 'true'),
+                  checks: rows.filter((r) => lead(r).querySelector('svg')).length,
+                  checkIdx: rows.findIndex((r) => lead(r).querySelector('svg')),
+                  sizes: Array.from(new Set(rows.map((r) => { const b = lead(r).getBoundingClientRect(); return b.width + 'x' + b.height; }))),
+                  labelLefts: Array.from(new Set(rows.map((r) => Math.round(r.querySelector('.ui-search-list-label').getBoundingClientRect().left))))}; }"""
+    )
+    assert out["leads"] and out["checks"] == 1 and out["checkIdx"] == 30
+    assert out["sizes"] == ["16x16"] and len(out["labelLefts"]) == 1
+
+
+def test_a_filtered_out_selection_shows_no_check(engine_page: Page) -> None:
+    _inline(engine_page)
+    engine_page.fill('[data-testid="il-input"]', "Zone 4")
+    assert (
+        engine_page.evaluate("() => document.querySelectorAll('.ui-search-list-lead svg').length")
+        == 0
+    )
+    expect(engine_page.get_by_role("option", name="(selected)")).to_have_count(0)
+
+
+def test_keep_scroll_restores_on_an_unchanged_query(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          window.__il.setActive('z40', {scroll: 'none'});
+          lb.scrollTop = 321;
+          window.__il.refresh();
+          return [lb.scrollTop, window.__il.getActive().id]; }"""
+    )
+    assert out == [321, "z40"]
+
+
+def test_keep_scroll_resets_on_a_changed_query_or_a_vanished_id(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          lb.scrollTop = 300;
+          window.__il.input.value = 'Zone 1';
+          window.__il.input.dispatchEvent(new Event('input'));
+          const a = [lb.scrollTop, window.__il.getActive().id];
+          window.__il.setActive('z19', {scroll: 'none'});
+          lb.scrollTop = 40;
+          window.__src = (q) => [{id: 'g', label: 'Region', items: [{id: 'only', label: 'Only'}]}];
+          window.__il.refresh();
+          return [a, [lb.scrollTop, window.__il.getActive().id]]; }"""
+    )
+    assert out[0][0] == 0 and out[0][1] == "z1"
+    assert out[1] == [0, "only"]
+
+
+def test_without_keep_scroll_a_refresh_resets(engine_page: Page) -> None:
+    _inline(engine_page, "{keepScroll: false}")
+    out = engine_page.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          lb.scrollTop = 200; window.__il.refresh(); return [lb.scrollTop, window.__il.getActive().id]; }"""
+    )
+    assert out == [0, "z0"]
+
+
+def test_scroll_active_center_nearest_and_none(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          const mid = () => { const r = document.querySelector('[role=option][aria-selected=true]').getBoundingClientRect();
+            const b = lb.getBoundingClientRect(); return Math.abs((r.top + r.height / 2) - (b.top + lb.clientHeight / 2 + lb.clientTop)); };
+          window.__il.setActive('z30');
+          const centered = mid();
+          lb.scrollTop = 0;
+          window.__il.setActive('z30', {scroll: 'none'});
+          const none = lb.scrollTop;
+          window.__il.setActive('z30', {scroll: 'nearest'});
+          const nearestTop = lb.scrollTop;
+          return {centered, none, nearestTop}; }"""
+    )
+    assert out["centered"] <= 1.5
+    assert out["none"] == 0 and out["nearestTop"] > 0
+
+
+def test_arrow_keys_stay_nearest_even_with_center(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    p.evaluate("() => { window.__il.setActive('z5', {scroll: 'none'}); }")
+    p.focus('[data-testid="il-input"]')
+    for _ in range(12):
+        p.keyboard.press("ArrowDown")
+    out = p.evaluate(
+        """() => { const lb = document.querySelector('.ui-search-list-listbox');
+          const r = document.querySelector('[role=option][aria-selected=true]').getBoundingClientRect(); const b = lb.getBoundingClientRect();
+          return [window.__il.getActive().id, Math.round(b.bottom - r.bottom)]; }"""
+    )
+    assert out[0] == "z17" and 0 <= out[1] <= 2
+
+
+def test_unfocused_list_paints_no_active_row_focused_does(engine_page: Page) -> None:
+    _inline(engine_page)
+    p = engine_page
+    read = """() => { const r = document.querySelector('[role=option][aria-selected=true]'); const s = getComputedStyle(r);
+      return [s.backgroundColor, s.borderTopColor]; }"""
+    unfocused = p.evaluate(read)
+    assert unfocused[0] == "rgba(0, 0, 0, 0)" and unfocused[1] == "rgba(0, 0, 0, 0)"
+    p.focus('[data-testid="il-input"]')
+    focused = p.evaluate(read)
+    assert focused[0] != "rgba(0, 0, 0, 0)" and focused[1] != "rgba(0, 0, 0, 0)"
+
+
+def test_inline_forced_colours_twin_exists_in_the_css_text() -> None:
+    from browser._ui_engines import STATIC_DIR
+
+    css = (STATIC_DIR / "css" / "components.css").read_text()
+    anchor = css.index(
+        "@media (forced-colors: active)", css.index(".ui-search-list--inline:not(:focus-within)")
+    )
+    twin = '.ui-search-list--inline:not(:focus-within) .ui-search-list-row[aria-selected="true"] { border-color: Canvas; }'
+    assert twin in css[anchor:]
