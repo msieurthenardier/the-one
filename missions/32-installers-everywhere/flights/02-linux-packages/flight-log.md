@@ -567,7 +567,25 @@ Planning (2026-10-24). Not yet in flight.
 - **Edited, additively:** `README.md` (Linux paragraph in "Install"; source-install steps kept, marked source-only), `CLAUDE.md` (a "Linux packaging (M32 F2)" paragraph after "Windows packaging (M15 F5)", which also carries the window routes and `the-one quit` sentence, since the Desktop launcher paragraph did not name them), `the_one/agents.md` (a "Linux packaging (M32 F2)" section before "Time zones (M28)").
 - **Checks:** `ruff check the_one/ tests/ scripts/ evals/ packaging/` clean. `make test-unit`: 7058 passed, 12 skipped. No source, template or packaging file touched.
 
-### Flight review fixes
+
+### fresh-vm-checks (part B: behavior test)
+**Status**: completed. 2026-10-24, the Flight Director running `/mission-control:behavior-test linux-package-install`.
+
+- **Run log:** `tests/behavior/linux-package-install/runs/2026-10-24-20-34-28.md`. **44 of 44 checkpoints PASS** across ubuntu-deb, ubuntu-appimage, debian-deb and debian-appimage, in live mode with grouped checkpoints. Packages `0.11.9.dev20`/`dev21` were built from `3186f4a`. The base hashes were unchanged, and no `m32-*` container was left.
+- **AC3 (leg 11's App Center outcome):** Ubuntu's App Center still shows a generic icon and "Unknown publisher" for a local `.deb`. This is an App Center limit, recorded and not chased. Debian's GNOME Software shows the brand icon after install.
+- **AC4, guide cross-check:** the run used exactly the guide's commands and paths:
+  - `sudo apt install ./…deb` and `sudo apt remove gleepglorp-ai` (`docs/linux-install.md:108,130`);
+  - the AppImage clean-up files `gleepglorp-ai-appimage.desktop` and `…/512x512/apps/gleepglorp-ai-appimage.png` (`:119-120`), which remained after deletion and were hidden by `TryExec`, as documented.
+
+  `the-one quit` is not in the behavior test; leg 5's smoke test covers it.
+- **Findings for alignment and follow-up (not failures):**
+  1. **Ubuntu's tray-mode notice is truncated** in GNOME's banner ("…Quit from the tray m…"). Leg 11 shortened only the no-tray notice; the tray notice wants the same treatment.
+  2. AppImage tile labels are truncated by GNOME's grid ("GleepGlor…" on Ubuntu, "GleepGlorp AI (A…" on Debian).
+  3. On the first launch of the Ubuntu AppImage, the window body was empty for about 20 s (first mount); Debian rendered by +5 s.
+  4. A green "1" badge appeared on the Ubuntu `.deb` tile while the old instance was hidden.
+  5. Debian's window has a close-only title bar.
+  6. Spec improvements the Validator suggested: a window-geometry observable, timed notification captures, the apparatus facts (passwordless sudo, no GDM autologin after logout), the AppImage runtime-parent rule, and "hidden from the menu" wording.
+\n\n### Flight review fixes
 
 - Pid answers (takeover and `the-one quit --wait`) must be a positive int (bool and non-positive rejected as an invalid answer).
 - A repeat `POST /api/window/quit` while a quit is under way reports `window` without destroying again.

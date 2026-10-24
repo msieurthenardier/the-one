@@ -1,6 +1,6 @@
 # Leg: fresh-vm-checks
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Linux packages](../flight.md)
 
 ## Objective
@@ -81,10 +81,10 @@ Close the flight's verification and documentation:
 - **A failing step** is an unmet criterion: the leg does not land while it fails, unless the operator accepts it as a known issue, with that disposition recorded.
 
 ## Acceptance Criteria
-- [ ] **AC1** — Part A's documents exist as specified; the Linux guide covers every bullet. `make test-unit` passes and `ruff` is clean.
-- [ ] **AC2** — `/mission-control:behavior-test linux-package-install` passes on all four variants, or each failure has an operator disposition. The run log is committed.
-- [ ] **AC3** — leg 11's App Center icon and publisher outcome is recorded.
-- [ ] **AC4** — the guide's commands and paths are the ones the behavior test exercised (the `apt` lines, the AppImage clean-up paths, `the-one quit`). A cross-check of the run log against the guide is noted in the flight log.
+- [x] **AC1** — Part A's documents exist as specified; the Linux guide covers every bullet. `make test-unit` passes and `ruff` is clean.
+- [x] **AC2** — `/mission-control:behavior-test linux-package-install` passes on all four variants, or each failure has an operator disposition. The run log is committed.
+- [x] **AC3** — leg 11's App Center icon and publisher outcome is recorded.
+- [x] **AC4** — the guide's commands and paths are the ones the behavior test exercised (the `apt` lines, the AppImage clean-up paths, `the-one quit`). A cross-check of the run log against the guide is noted in the flight log.
 
 ---
 

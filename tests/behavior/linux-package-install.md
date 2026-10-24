@@ -3,7 +3,7 @@
 **Slug**: `linux-package-install`
 **Status**: active
 **Created**: 2026-10-24
-**Last Run**: never
+**Last Run**: 2026-10-24-20-34-28 (44/44 PASS — see `runs/2026-10-24-20-34-28.md`)
 
 ## Intent
 Verifies Mission 32's Linux criteria on real, fresh GNOME desktops: install without a terminal, a menu entry with the brand icon, a window, tray or no-tray close behaviour, relaunch, quit, an N to N+1 upgrade that keeps the user's data (taken over from a still-running N), and an uninstall that leaves the data. Each step runs for both packages (the `.deb` and the AppImage) on both distros (Ubuntu 26.04 and Debian 13).
