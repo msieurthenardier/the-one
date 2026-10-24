@@ -516,8 +516,26 @@
     // button are re-resolved from the current mount when the focus timer fires
     // (editorTitleEl_ / saveBtnEl_, above).
 
+    // M31 F4 L05c: a Save is refused, before any request, while an override field
+    // holds a value that cannot be saved (a number that is not whole). The editor
+    // error names the tool and the field; the tool's Overrides panel is opened and
+    // the field focused. The field's own error is already live (App.toolConfigFields).
+    function refuseBlockingOverride_(blocking) {
+      setEditorError_(
+        'Can’t save: ' + blocking.tool + ', ' + blocking.label + '. ' + blocking.message
+      );
+      var panel = blocking.control.closest('details');
+      if (panel) panel.open = true;
+      blocking.control.focus();
+    }
+
     function save(isCreate) {
       var data = collectFormData();
+      var blocking = ctx.formData.blockingError();
+      if (blocking) {
+        refuseBlockingOverride_(blocking);
+        return;
+      }
       var focusTok = App.focusAfter.begin(saveBtnEl_());
       // The mount this Save was started from: a response that lands after it was
       // torn down (a discard, another agent) must not render into the new one.

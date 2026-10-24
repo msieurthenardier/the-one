@@ -1,9 +1,10 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
-"""Contract tests for ``App.studio.toolOverrideFields`` (M31 F2 L08b, flight DD3/DD8).
+"""Contract tests for the agent-mode fields of ``App.toolConfigFields`` (M31 F2 L08b, flight
+DD3/DD8; retargeted from ``App.studio.toolOverrideFields`` in M31 F4 L05c).
 
 The renderer builds one per-agent tool-override field as library DOM. Every test
 runs in Chromium and WebKit through ``engine_page`` and reads the control back with
-the admin ``readFieldValue`` (the function ``collectFormData`` uses), so the
+``readValue`` (the function ``collectFormData`` uses), so the
 attributes and value shapes the Save path depends on are what is asserted.
 """
 
@@ -17,8 +18,8 @@ pytestmark = pytest.mark.browser
 
 _RENDER = """([name, prop, value, ctx]) => {
   window.__fired = 0;
-  ctx = Object.assign({toolName: 'http_request', onChange: () => { window.__fired++; }}, ctx || {});
-  const r = App.studio.toolOverrideFields.render(name, prop, value, ctx);
+  ctx = Object.assign({mode: 'agent', toolName: 'http_request', onChange: () => { window.__fired++; }}, ctx || {});
+  const r = App.toolConfigFields.render(name, prop, value, ctx);
   if (!r) return null;
   document.getElementById('harness-root').appendChild(r.el);
   window.__r = r;
@@ -28,7 +29,7 @@ _RENDER = """([name, prop, value, ctx]) => {
 _READ = """() => {
   const c = window.__r.control;
   return {
-    value: App.adminFormHelpers.readFieldValue(c),
+    value: App.toolConfigFields.readValue(c),
     tool: c.dataset.toolOverrideTool, field: c.dataset.toolOverrideField,
     type: c.dataset.fieldType || null, marker: c.dataset.marker || null,
     tag: c.tagName, inputType: c.type || null, max: c.getAttribute('max'), min: c.getAttribute('min'),
@@ -39,10 +40,7 @@ _READ = """() => {
 
 def _setup(page: Page) -> None:
     load_harness(page)
-    page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "admin" / "tools-form-helpers.js"))
-    page.add_script_tag(
-        path=str(STATIC_DIR / "js" / "areas" / "studio" / "tool-override-fields.js")
-    )
+    page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "shared" / "tool-config-fields.js"))
 
 
 def _render(page: Page, name: str, prop: dict, value, ctx: dict | None = None):
@@ -66,8 +64,9 @@ def test_narrow_integer_uses_the_operator_value_as_max(engine_page: Page) -> Non
     prop = {"type": "integer", "x_marker": "Narrow", "minimum": 1, "maximum": 3600}
     assert _render(engine_page, "timeout", prop, 60, {"operatorValue": 60})
     out = engine_page.evaluate(_READ)
+    # A text input with inputmode numeric (a type=number input reads "12abc" as '').
     assert (out["inputType"], out["min"], out["max"], out["value"], out["type"]) == (
-        "number",
+        "text",
         "1",
         "60",
         60,
@@ -157,10 +156,7 @@ def test_unmarked_non_boolean_fields_are_hidden(engine_page: Page) -> None:
     _setup(engine_page)
     assert _render(engine_page, "redirect_cap", {"type": "integer"}, 5) is None
     assert _render(engine_page, "x", {"type": "array", "items": {"type": "string"}}, []) is None
-    assert (
-        engine_page.evaluate("() => App.studio.toolOverrideFields.allowed({type: 'boolean'})")
-        is True
-    )
+    assert engine_page.evaluate("() => App.toolConfigFields.allowed({type: 'boolean'})") is True
 
 
 def test_narrow_superset_locks_operator_chips_and_sends_the_union(engine_page: Page) -> None:

@@ -348,7 +348,9 @@ MASK_JS = r"""
     [new RegExp('\\b(' + MON + ') \\d{1,2}(, \\d{4})?', 'g'),
       (m, mon, yr) => 'Mar 1' + (yr ? ', 2026' : '')],
     [/(?<![\dT+:-])\b\d{1,2}:\d{2}(:\d{2})?( ?[AP]M)?/g,
-      (m, sec, ap) => '12:00' + (sec ? ':00' : '') + (ap || '')],
+      // The meridiem is pinned too ("PM", the spacing kept): the real one flips with the
+      // time of day the capture runs, which read as a difference between two runs.
+      (m, sec, ap) => '12:00' + (sec ? ':00' : '') + (ap ? (/^ /.test(ap) ? ' ' : '') + 'PM' : '')],
     [/\b\d+(\.\d+)?( ?ms)\b/g,
       (m, frac, unit) => (frac ? '120.5' : '120') + unit],
   ];

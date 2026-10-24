@@ -1,6 +1,6 @@
 # Leg: tool-config-fields
 
-**Status**: ready
+**Status**: landed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

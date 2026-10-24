@@ -152,7 +152,7 @@
 
       function renderFields(detail) {
         var schema = (detail && detail.schema) || {};
-        var fields = window.App.studio.toolOverrideFields;
+        var fields = window.App.toolConfigFields;
         var operatorRow = operatorConfigs[name] || {};
         var operatorConfig = operatorRow.config || {};
         var agentOverride = ((currentAgent && currentAgent.tool_overrides) || {})[name] || {};
@@ -160,6 +160,7 @@
         clearNode(body);
         destroyFields();
         var rendered = 0;
+        var dead = [];
         for (var i = 0; i < fieldNames.length; i++) {
           var fname = fieldNames[i];
           var prop = schema.properties[fname];
@@ -167,6 +168,8 @@
             // A stale override on a field the schema no longer marks overridable
             // is surfaced to the console (the resolver will reject it).
             if (fname in agentOverride) {
+              // A Save drops it (agent-form-data.js reads the flag below).
+              dead.push(fname);
               // eslint-disable-next-line no-console
               console.warn('Agent "%s" has an override on tool "%s" field "%s" but the schema no longer marks that field as overridable; the resolver will reject this.', (currentAgent && currentAgent.name) || '?', name, fname);
             }
@@ -174,6 +177,7 @@
           }
           var operatorVal = (fname in operatorConfig) ? operatorConfig[fname] : prop['default'];
           var built = fields.render(fname, prop, fields.seedValue(prop, agentOverride, fname, operatorVal), {
+            mode: 'agent',
             toolName: name,
             operatorValue: operatorVal,
             onChange: onChange
@@ -183,6 +187,11 @@
           st.fields.push(built);
           rendered++;
         }
+        // The panel names itself and any stored override the schema no longer marks
+        // overridable, for agent-form-data.js (see its tool_overrides walk).
+        body.setAttribute('data-tool-override-panel', name);
+        if (dead.length) body.setAttribute('data-tool-override-dead', dead.join(' '));
+        else body.removeAttribute('data-tool-override-dead');
         if (rendered === 0) {
           body.appendChild(ui.emptyState({ title: 'No constraints to narrow.', titleTag: 'p' }));
         }

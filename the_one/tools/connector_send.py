@@ -49,6 +49,7 @@ class SendToPlatformChannelTool(Tool):
     """Send a message to the external platform conversation this agent is bound to."""
 
     name = SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+    summary = "Sends a message to a chat platform channel."
     description = (
         "Send a message to an external platform (Discord, etc. via a "
         "configured connector). Your plain-text replies in this session "

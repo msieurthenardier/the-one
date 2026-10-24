@@ -109,6 +109,7 @@ def _safe_unlink(target: Any) -> None:
 
 class HttpRequestTool(Tool):
     name = "http_request"
+    summary = "Sends a web request and returns the response."
     description = (
         "Make an HTTP/HTTPS request and return the status + body. "
         "Default block of internal-network/loopback/cloud-metadata addresses "
@@ -238,6 +239,7 @@ class HttpRequestTool(Tool):
 
 class FetchUrlTool(Tool):
     name = "fetch_url"
+    summary = "Fetches a web page and returns its text."
     description = (
         "Fetch a URL and return its main content as markdown. For HTML "
         "pages, runs a readability extractor to strip navigation/ads/"
@@ -355,6 +357,7 @@ class FetchUrlTool(Tool):
 
 class DownloadFileTool(Tool):
     name = "download_file"
+    summary = "Downloads a web address to a file."
     description = (
         "Download a URL's content to a file. Path may be absolute or "
         "relative; relative paths resolve against the agent server's CWD. "
@@ -463,11 +466,11 @@ class DownloadFileTool(Tool):
 
 class WebSearchTool(Tool):
     name = "web_search"
+    summary = "Searches the web and returns titles, links and snippets."
     description = (
         "Search the web and return results (title, URL, snippet). The "
-        "backend is operator-configurable (default DuckDuckGo); F6 admin "
-        "will surface the picker. Useful for finding URLs to feed into "
-        "fetch_url or read."
+        "backend is operator-configurable (default DuckDuckGo). Useful for "
+        "finding URLs to feed into fetch_url or read."
     )
     parameters = {
         "type": "object",

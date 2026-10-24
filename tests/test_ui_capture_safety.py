@@ -140,3 +140,35 @@ def test_keep_running_takes_no_out_and_out_still_needs_a_dir() -> None:
         cap.run(["--keep-running", "--out", "/tmp/x"])
     with pytest.raises(cap.CaptureError, match="--out DIR is required"):
         cap.run([])
+
+
+def test_time_mask_pins_the_meridiem(tmp_path: Path) -> None:
+    """The shape-preserving time mask must not keep the real AM/PM: it flips with the
+    time of day a capture runs ("12:00 AM" vs "12:00 PM" read as a run-to-run difference)."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js = cap.MASK_JS
+    start = js.index("const MON")
+    end = js.index("\n  ];", start) + len("\n  ];")
+    script = (
+        js[start:end]
+        + "\nconst run = (s) => TIME_RULES.reduce((o, [re, fn]) => o.replace(re, fn), s);"
+        + "\nconsole.log(JSON.stringify(process.argv.slice(2).map(run)));"
+    )
+    path = tmp_path / "mask.js"
+    path.write_text(script)
+    inputs = ["Indexed 3:04 AM", "Indexed 11:59 PM", "at 9:30PM", "14:05", "Mar 4, 3:04 AM"]
+    out = subprocess.run(
+        [node, str(path), *inputs], capture_output=True, text=True, check=True
+    ).stdout
+    masked = json.loads(out)
+    assert masked[0] == "Indexed 12:00 PM"
+    assert masked[1].endswith("12:00 PM")
+    assert masked[2] == "at 12:00PM"
+    assert masked[3] == "12:00"
+    assert masked[4] == "Mar 1, 12:00 PM"

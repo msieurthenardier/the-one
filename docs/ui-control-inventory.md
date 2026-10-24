@@ -141,6 +141,14 @@ Each row moves into a control's Owned classes column when that control lands.
 |---|---|---|
 | `test-result` | `status` | 1 (leg 07) and 2 |
 
+## Area composites built from the library
+
+Not a factory and not a row: `js/areas/shared/tool-config-fields.js` (`App.toolConfigFields`, M31 F4 L05b)
+is an area-level composite. It renders one tool-settings field for the Settings tool editor and the agent
+Tools tab out of `field`, `checkbox`, `select`, `textInput`, `secretInput`, `chipList`, `infoButton` and
+`status`, and owns no class. Shared area code of this kind lives in `js/areas/shared/` and carries no
+inventory row; the factories it uses do.
+
 ## Tokens and type
 
 Names and roles only. The values live in `css/tokens.css` (colour, spacing, radius,

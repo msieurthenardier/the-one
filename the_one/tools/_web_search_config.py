@@ -40,11 +40,11 @@ from pydantic import BaseModel, ConfigDict, Field
 # The five selectable engines. Order pins the dropdown order; ``duckduckgo`` is
 # the keyless default.
 _SEARCH_BACKEND_UI_CHOICES: list[dict[str, object]] = [
-    {"value": "duckduckgo", "label": "DuckDuckGo — keyless default"},
-    {"value": "searxng", "label": "SearXNG — self-hosted meta-search"},
-    {"value": "google_pse", "label": "Google Programmable Search (key + CSE)"},
-    {"value": "brave", "label": "Brave Search (key)"},
-    {"value": "tavily", "label": "Tavily (key)"},
+    {"value": "duckduckgo", "label": "DuckDuckGo (default, no key needed)"},
+    {"value": "searxng", "label": "SearXNG (your own server)"},
+    {"value": "google_pse", "label": "Google Programmable Search (needs a key and an engine ID)"},
+    {"value": "brave", "label": "Brave Search (needs a key)"},
+    {"value": "tavily", "label": "Tavily (needs a key)"},
 ]
 
 
@@ -77,7 +77,11 @@ class WebSearchConfig(BaseModel):
 
     search_backend: Literal["duckduckgo", "searxng", "google_pse", "brave", "tavily"] = Field(
         default="duckduckgo",
-        description="Active web-search engine. DuckDuckGo is the keyless default.",
+        title="Search engine",
+        description=(
+            "Which search engine the tool uses. DuckDuckGo needs no account or "
+            "key; the others need the details that appear below when you pick one."
+        ),
         json_schema_extra={
             "ui_hint": "dropdown",
             "ui_choices": _SEARCH_BACKEND_UI_CHOICES,
@@ -86,19 +90,21 @@ class WebSearchConfig(BaseModel):
 
     searxng_base_url: str = Field(
         default="",
+        title="SearXNG URL",
         description=(
-            "Base URL of a self-hosted SearXNG instance (e.g. "
-            "'https://searx.example.org'). Required when search_backend is "
-            "'searxng'. The instance must have the JSON result format enabled."
+            "The address of your SearXNG server, for example "
+            "https://searx.example.org. Needed when SearXNG is the search "
+            "engine. The server must have the JSON result format turned on."
         ),
         json_schema_extra={"show_if": {"search_backend": "searxng"}},
     )
 
     google_pse_api_key: str = Field(
         default="",
+        title="Google PSE API key",
         description=(
-            "Google Programmable Search Engine (Custom Search JSON API) key. "
-            "Required when search_backend is 'google_pse'."
+            "Your Google Programmable Search Engine API key. Needed when "
+            "Google Programmable Search is the search engine. It is stored encrypted."
         ),
         json_schema_extra={
             "ui_hint": "password",
@@ -109,17 +115,20 @@ class WebSearchConfig(BaseModel):
 
     google_pse_cse_id: str = Field(
         default="",
+        title="Google PSE engine ID",
         description=(
-            "Google Programmable Search Engine id (the 'cx' parameter). "
-            "Required when search_backend is 'google_pse'."
+            "The ID of your Google Programmable Search Engine (the 'cx' value "
+            "in its settings). Needed when Google Programmable Search is the search engine."
         ),
         json_schema_extra={"show_if": {"search_backend": "google_pse"}},
     )
 
     brave_api_key: str = Field(
         default="",
+        title="Brave API key",
         description=(
-            "Brave Search API subscription token. Required when search_backend is 'brave'."
+            "Your Brave Search API token. Needed when Brave Search is the "
+            "search engine. It is stored encrypted."
         ),
         json_schema_extra={
             "ui_hint": "password",
@@ -130,7 +139,10 @@ class WebSearchConfig(BaseModel):
 
     tavily_api_key: str = Field(
         default="",
-        description="Tavily Search API key. Required when search_backend is 'tavily'.",
+        title="Tavily API key",
+        description=(
+            "Your Tavily API key. Needed when Tavily is the search engine. It is stored encrypted."
+        ),
         json_schema_extra={
             "ui_hint": "password",
             "secret": True,

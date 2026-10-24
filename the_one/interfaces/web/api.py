@@ -518,6 +518,59 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
     return schema
 
 
+def _hidden_field_names(tool_cls: type, config_cls: type) -> set[str]:
+    """Config fields the tool's ``config_fields`` leaves out of its editor
+    (M31 F4 L05a, B6). Empty when ``config_fields`` is ``None`` (all shown)."""
+    shown = getattr(tool_cls, "config_fields", None)
+    if shown is None:
+        return set()
+    return set(config_cls.model_fields) - set(shown)
+
+
+def _filter_schema_to_config_fields(schema: dict[str, Any], tool_cls: type) -> dict[str, Any]:
+    """Drop the properties a tool does not read from the served schema (and
+    from ``required``). Display-only: storage and validation still accept
+    every field. Mutates ``schema`` and returns it."""
+    hidden = _hidden_field_names(tool_cls, tool_cls.Config)
+    if not hidden:
+        return schema
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        schema["properties"] = {k: v for k, v in props.items() if k not in hidden}
+    if "required" in schema:
+        kept = [k for k in schema["required"] if k not in hidden]
+        if kept:
+            schema["required"] = kept
+        else:
+            del schema["required"]
+    return schema
+
+
+def _merge_hidden_fields(
+    config_cls: type,
+    tool_cls: type,
+    incoming: Any,
+    stored: dict[str, Any],
+) -> Any:
+    """The body a tools PUT validates: ``incoming`` with every hidden field
+    (see ``Tool.config_fields``) replaced by its stored value.
+
+    A hidden field is not shown, so the form cannot have meant to change it and
+    the stored value always wins over an incoming one. A hidden field with no
+    stored value is left out (the Config default applies). ``stored`` is the
+    saved config merged with the decrypted secrets. A non-dict ``incoming`` is
+    returned unchanged (validation rejects it).
+    """
+    hidden = _hidden_field_names(tool_cls, config_cls)
+    if not hidden or not isinstance(incoming, dict):
+        return incoming
+    merged = {k: v for k, v in incoming.items() if k not in hidden}
+    for field in hidden:
+        if field in stored:
+            merged[field] = stored[field]
+    return merged
+
+
 # ── Client config ─────────────────────────────────────────────────────────
 
 
@@ -572,6 +625,7 @@ async def list_tool_configs() -> list[dict[str, Any]]:
             {
                 "name": name,
                 "description": cls.description,
+                "summary": cls.summary,
                 "enabled": row.enabled if row else True,
                 "config": row.config if row else {},
             }
@@ -604,9 +658,11 @@ async def get_tool_config(name: str) -> dict[str, Any]:
         if field in config:
             config[field] = _mask_secret_value(config[field])
     schema = _enrich_schema_with_markers(cls.Config.model_json_schema(), cls.Config)
+    schema = _filter_schema_to_config_fields(schema, cls)
     return {
         "name": name,
         "description": cls.description,
+        "summary": cls.summary,
         "enabled": enabled,
         "config": config,
         "schema": schema,
@@ -623,6 +679,11 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     REPLACES the saved config wholesale (REST PUT convention). The
     L3 form always submits the full Config state, so REPLACE matches
     its actual behaviour. To wipe to defaults, send `{"config": {}}`.
+
+    The replace covers the fields the tool SHOWS. A field the tool's
+    `config_fields` hides (M31 F4 L05a) keeps its stored value: a PUT, or a
+    `{"config": {}}` reset, never changes it, and an incoming value for it is
+    ignored (`_merge_hidden_fields`).
 
     Top-level keys are preserved when omitted: PUT `{"enabled": true}`
     (no `config` key) updates only `enabled` and leaves `config`
@@ -656,8 +717,25 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
 
     # `config` — REPLACE when present (validate body), preserve when omitted.
     if "config" in data:
+        stored = {**current_config, **current_secrets}
+        merged = _merge_hidden_fields(cls.Config, cls, data["config"], stored)
         try:
-            validated = cls.Config.model_validate(data["config"])
+            try:
+                validated = cls.Config.model_validate(merged)
+            except ValidationError:
+                # A stored value for a hidden field may no longer validate (a
+                # constraint tightened since it was saved). Retry without the
+                # stored hidden values so the Config defaults apply; if that
+                # also fails the operator's visible edit is at fault.
+                fallback = _merge_hidden_fields(cls.Config, cls, data["config"], {})
+                if fallback == merged:
+                    raise
+                validated = cls.Config.model_validate(fallback)
+                logger.warning(
+                    "tool %r: a stored value for a hidden setting no longer validated; "
+                    "using the default",
+                    name,
+                )
         except ValidationError as e:
             # `e.errors()` may carry a raw exception in `ctx['error']` (Pydantic
             # v2 model-validator path) which is NOT JSON-serializable. Pass

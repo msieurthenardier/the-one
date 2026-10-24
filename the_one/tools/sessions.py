@@ -81,6 +81,12 @@ def _require_agent_name(tool: Tool) -> str:
 
 class ShellSessionStartTool(Tool):
     name = "shell_session_start"
+    summary = "Opens an interactive shell session."
+    config_fields = (
+        "pty_session_idle_ttl_seconds",
+        "max_concurrent_sessions",
+        "sandbox_network_allowed",
+    )
     description = (
         "Start a new interactive shell session and return a session_id token. "
         "Use shell_session_send to run commands; shell_session_close to "
@@ -210,6 +216,13 @@ class ShellSessionStartTool(Tool):
 
 class ShellSessionSendTool(Tool):
     name = "shell_session_send"
+    summary = "Sends input to an open shell session and returns the output."
+    config_fields = (
+        "timeout_seconds_default",
+        "timeout_seconds_max",
+        "output_cap_bytes",
+        "command_denylist",
+    )
     # M16 F08 L01 (HIGH-2): tail-preserve under the context-budget governor —
     # interactive shell output keeps its most-recent (diagnostic) tail.
     truncation_direction = "tail"
@@ -303,6 +316,8 @@ class ShellSessionSendTool(Tool):
 
 class ShellSessionCloseTool(Tool):
     name = "shell_session_close"
+    summary = "Closes an interactive shell session."
+    config_fields = ()
     description = "Terminate an interactive shell session. session_id from shell_session_start."
     parameters = {
         "type": "object",
@@ -335,6 +350,8 @@ class ShellSessionCloseTool(Tool):
 
 class ShellSessionListTool(Tool):
     name = "shell_session_list"
+    summary = "Lists the open shell sessions."
+    config_fields = ()
     description = (
         "List session_ids of all open interactive shell sessions for this "
         "agent. Useful after long context windows when the agent has "

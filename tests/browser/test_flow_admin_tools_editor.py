@@ -627,12 +627,13 @@ def _denylist_save_round_trip(
 def test_unsaved_filesystem_tool_shows_and_keeps_default_path_denylist(
     app_clean: str, page: Page
 ) -> None:
+    # read_file, not move_file: move_file no longer shows allow_binary_files (05a, B6).
     from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST
 
     _denylist_save_round_trip(
         page,
         app_clean,
-        "move_file",
+        "read_file",
         "path_denylist",
         list(DEFAULT_PATH_DENYLIST),
         "allow_binary_files",
