@@ -111,6 +111,8 @@ the whole confused-deputy class is closed.
 
 ## Packaging consolidation: evaluate Briefcase + close the cross-platform installer gap
 
+> **Picked up by Mission 32** (`missions/32-installers-everywhere/`). Flight 1 evaluated Briefcase against PyInstaller on all three platforms. **Decision (2026-10-24): PyInstaller everywhere, with Inno Setup kept on Windows; Briefcase is not adopted.** See the Flight 1 flight log's Decision section.
+
 **Status:** idea / future mission seed — **NOT** scoped to any current mission. Starts as a
 **spike/evaluation**, not a committed migration.
 **Captured:** 2026-06-20, during a packaging review comparing GleepGlorp to the sibling `goldfinch`

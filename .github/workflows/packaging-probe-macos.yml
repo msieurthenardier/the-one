@@ -1,0 +1,139 @@
+name: packaging-probe-macos
+
+# Mission 32 Flight 1 (choose the packaging toolchain), DD6: ONE dispatched macOS job that builds
+# the .app on a hosted Apple Silicon runner and runs `doctor`, `serve` and the data-dir probe
+# against it. The Flight 1 decision picked candidate A (PyInstaller); candidate B (Briefcase) was
+# removed, so a `B` selection logs that and skips. This is Flight 3's starting point. A spike probe, not a release: it signs ad hoc, publishes
+# nothing and uses no secrets. Dispatch-only, so it never runs on a push, PR or tag:
+#
+#   gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A"
+#
+# (GitHub offers a manual run only for a workflow file that exists on the default branch; this
+# file lands on main in a `.github/`-only PR, and --ref then runs the flight branch's copy.)
+#
+# Cost: macOS minutes bill at 10x on a private repo, so the run caps itself in layers: the
+# job timeout (40 min, above the ~36 min worst case so the 15-minute step caps fire first), a timeout on each candidate step, a concurrency group that never cancels a
+# running probe and never lets two run at once, a `candidates` choice, and time
+# limits inside the scripts around `doctor`, `serve` and `hdiutil`. At most two such jobs
+# are budgeted for the whole flight (one run plus one retry).
+on:
+  workflow_dispatch:
+    inputs:
+      candidates:
+        description: "Which candidates to build: A (PyInstaller), B (Briefcase), or both"
+        type: choice
+        options:
+          - "A B"
+          - "A"
+          - "B"
+        default: "A B"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-probe-macos
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    # pinned, not macos-latest: Apple Silicon (arm64) on macOS 15
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      # the runner context is not available in a job-level env, so the paths are set here
+      - name: Paths
+        run: |
+          {
+            echo "M32_BUILD=$RUNNER_TEMP/m32-build"
+            echo "M32_LOGS=$RUNNER_TEMP/m32-build/logs"
+            echo "M32_REQUIREMENTS=$RUNNER_TEMP/m32-build/requirements-closure.txt"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/m32-build/logs"
+
+      - name: Runner evidence
+        run: |
+          {
+            echo "== sw_vers"; sw_vers
+            echo "== uname -m"; uname -m
+            echo "== /usr/bin/python3 (the Xcode command-line-tools python on this image)"
+            /usr/bin/python3 --version 2>&1 || true
+            echo "== xcodebuild"; xcodebuild -version 2>&1 || true
+            echo "== disk"; df -h /System/Volumes/Data 2>&1 | tail -2
+            echo "== cpu/mem"; sysctl -n hw.ncpu hw.memsize
+          } 2>&1 | tee "$M32_LOGS/runner.txt"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Python and tool versions
+        run: |
+          {
+            python3 --version; python3 -m pip --version
+            echo "which python3: $(command -v python3)"
+          } 2>&1 | tee -a "$M32_LOGS/runner.txt"
+
+      # The same hash-pinned closure the Windows CI and the release pip-audit use (DD3), exported
+      # once; the build installs it with --no-deps --require-hashes.
+      - name: Export the pinned dependency closure
+        run: |
+          python3 -m pip install --disable-pip-version-check uv==0.10.0
+          uv --version | tee -a "$M32_LOGS/runner.txt"
+          uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms \
+            --format requirements-txt > "$M32_REQUIREMENTS"
+          wc -l "$M32_REQUIREMENTS"
+          VERSION="$(python3 -c 'import re,pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("the_one/__init__.py").read_text(), re.M).group(1))')"
+          echo "M32_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "building version $VERSION"
+
+      - name: Candidate A (PyInstaller)
+        if: ${{ inputs.candidates == 'A B' || inputs.candidates == 'A' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
+
+      - name: Candidate B (removed)
+        if: ${{ inputs.candidates == 'B' }}
+        run: echo "candidate B (Briefcase) was removed by the Flight 1 decision (PyInstaller everywhere); nothing to build"
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          for f in "$M32_LOGS"/A/SUMMARY.txt; do
+            [ -f "$f" ] || continue
+            echo "### $(basename "$(dirname "$f")")" >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            cat "$f"
+          done
+          du -sh "$M32_LOGS" || true
+
+      # Logs, listings and `doctor` outputs only. Never a bundle, .app or .dmg.
+      - name: Upload logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-probe-macos-logs
+          path: ${{ runner.temp }}/m32-build/logs
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed probe reads as a red job without ever blocking the log upload.
+      - name: Fail on a failed or missing candidate
+        if: ${{ always() }}
+        run: |
+          rc=0
+          want=""
+          # B was removed by the Flight 1 decision: a B-only selection builds nothing and passes
+          case "${{ inputs.candidates }}" in
+            "A B") want="A" ;;
+            A) want="A" ;;
+          esac
+          for c in $want; do
+            f="$M32_LOGS/$c/SUMMARY.txt"
+            if [ ! -f "$f" ]; then echo "candidate $c: SUMMARY missing"; rc=1
+            elif grep -q 'FAIL' "$f"; then echo "candidate $c: FAIL in SUMMARY"; rc=1; fi
+          done
+          exit "$rc"
