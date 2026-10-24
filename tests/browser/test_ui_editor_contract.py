@@ -357,7 +357,7 @@ def test_danger_zone_dom(engine_page: Page) -> None:
     assert out["iconSize"] == 16
     assert out["label"] == "Delete Provider"
     assert out["notice"] == [
-        "action-blocked-message banner banner-error",
+        "banner banner-error ui-banner action-blocked-message",
         "alert",
         None,
         False,
@@ -405,6 +405,7 @@ def test_danger_zone_custom_label_notice_and_disable(engine_page: Page) -> None:
         == 0
     )
     assert notice.get_attribute("hidden") is None and notice.get_attribute("aria-live") is None
+    assert "ui-banner" in (notice.get_attribute("class") or "").split()
     page.evaluate("window.__zone.setNotice('Used by agent a, b')")
     expect(notice).to_be_visible()
     expect(notice).to_have_text("Used by agent a, b")
@@ -463,7 +464,7 @@ def test_danger_zone_actions_render_in_order_with_icons_and_notice_last(engine_p
     )
     assert out["kids"] == [
         "DIV.section-title danger-zone-title", "BUTTON.btn-muted-destructive delete-btn",
-        "BUTTON.btn-muted-destructive delete-btn", "DIV.action-blocked-message banner banner-error",
+        "BUTTON.btn-muted-destructive delete-btn", "DIV.banner banner-error ui-banner action-blocked-message",
     ]  # fmt: skip
     assert out["tids"] == ["del-agent", "clear-hist"] and out["first"] is True
     assert out["labels"] == ["Delete agent", "Clear history"] and out["icons"] == [16, 16]

@@ -728,3 +728,23 @@ def test_ui_dir_document_listeners_are_paired(tmp_path) -> None:
     _write(ui, "bad.js", "document.addEventListener('keydown', onKey, true);\n")
     seen, bad = find_unpaired_document_listeners(ui)
     assert seen == 2 and bad == [("bad.js", "keydown", "onKey")]
+
+
+def test_studio_builds_no_hand_made_banner_or_code_block_classes() -> None:
+    """M31 F4 L04f: under areas/studio a banner is App.ui.banner and a read-only value
+    block is App.ui.codeBlock, so no hand-built class string names either."""
+    import re
+    from pathlib import Path
+
+    studio = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/js/areas/studio"
+    )
+    pattern = re.compile(r"banner banner-|banner-(?:info|warning|error)|[' ]code-block['\" ]")
+    hits = []
+    for path in sorted(studio.glob("*.js")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("//"):
+                continue
+            if pattern.search(line):
+                hits.append(f"{path.name}:{n}: {line.strip()}")
+    assert hits == []

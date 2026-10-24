@@ -307,8 +307,9 @@
   //   div.editor-section.danger-zone holds div.section-title.danger-zone-title,
   //   then one button.btn-muted-destructive.delete-btn per action (a 16px icon,
   //   trash by default, then span[data-confirm-title] with the label, so the
-  //   confirm title swap leaves the icon alone). With notice, a hidden banner
-  //   follows the last button as its sibling. A click runs App.ui.confirm on
+  //   confirm title swap leaves the icon alone). With notice, an App.ui.banner
+  //   (tone error, live 'alert': role=alert, rendered while empty) follows the
+  //   last button as its sibling. A click runs App.ui.confirm on
   //   the button. button is the first button; setDisabled(value) applies to
   //   every button, setDisabled(value, index) to the one at index.
   App.ui.dangerZone = function (opts) {
@@ -354,12 +355,13 @@
       root.appendChild(b);
     }
     var notice = null;
+    var noticeBanner = null;
     if (opts.notice) {
-      notice = util.el('div', {
-        className: 'action-blocked-message banner banner-error',
-        'data-testid': opts.notice.testid,
-        role: 'alert'
+      noticeBanner = App.ui.banner({
+        tone: 'error', live: 'alert', className: 'action-blocked-message',
+        testid: opts.notice.testid
       });
+      notice = noticeBanner.el;
       root.appendChild(notice);
     }
     return {
@@ -368,11 +370,7 @@
       buttons: buttons,
       setNotice: function (text) {
         if (!notice) return;
-        if (text === null || text === undefined || text === '') {
-          notice.textContent = '';
-        } else {
-          notice.textContent = text;
-        }
+        noticeBanner.set(text === null || text === undefined ? '' : text);
       },
       setDisabled: function (value, index) {
         if (index === undefined || index === null) {
