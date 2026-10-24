@@ -424,11 +424,12 @@ Legs 1-9 are reviewed, committed and pushed before the first dispatch (Flight 1'
 - [x] `gtk-window-fixes` - DD12: the close path on the GTK thread, and show that maps; DD7 geometry on Wayland; `GET /api/window/state` from GTK; a minimal `POST /api/window/quit` (window registered or not); the real-GTK smoke harness (`WM_DELETE_WINDOW` close, quit exits, size round-trip) on a staged build from leg 1's container. Sonnet Reviewer.
 - [x] `vm-apparatus` - QEMU-in-container guests: the Ubuntu 26.04 desktop ISO autoinstall, and Debian 13 generic plus GNOME. Snapshots, overlays, QMP and SSH helpers. The install, upgrade and remove premise probes with Flight 1's packages. Can start beside leg 2 (disjoint files).
 - [x] `no-tray-lifecycle` - DD4 in full: the three close states, hide and async notice, `the-one quit`, the quit route's boot, browser and serve states with `pid`, the focus route as a plain `def` with activation-token forwarding, and DD13's version takeover (pid wait, old-server fallback, the version-order test). `SECURITY-MODEL.md` and the CLAUDE.md correction. Sonnet Reviewer.
-- [ ] `vm-relaunch-probe` - A short VM run of a local container build of legs 1-5 on both guests: no-tray hide and relaunch, focus with the activation token, the tray on Ubuntu, quit. Answers the relaunch divert risk before any hosted spend.
+- [x] `vm-relaunch-probe` - A short VM run of a local container build of legs 1-5 on both guests: no-tray hide and relaunch, focus with the activation token, the tray on Ubuntu, quit. Answers the relaunch divert risk before any hosted spend.
 - [x] `linux-recipe` - `packaging/product.toml` and the renderer, the version pin test, the `.desktop` templates with "Quit GleepGlorp AI", AppStream metainfo, and `AppRun` self-integration (DD5).
 - [x] `packaging-checks-and-audit` - The spike fold into `packaging/stage.py` and `packaging/linux/checks/`, `macos-checks.sh` moved, the post-freeze bundle audit, and the packaging unit tier (DD8).
 - [x] `hosted-build-prepare` - `linux-packages.yml` and the bare-image hosted matrix (DD10), rehearsal by execution, review, commit and push, then the `.github/`-only PR to `main`.
 - [ ] `hosted-build-run` - Dispatch on the flight branch, the gate summary, and a listing comparison with the leg 9 rehearsal build.
+- [ ] `notice-and-metainfo-polish` - Shorter no-tray notice text that fits GNOME's banner; AppStream icon and developer/publisher fields; more icon sizes (operator, 2026-10-24, after leg 6).
 - [ ] `fresh-vm-checks` - `linux-package-install` on all four variants. `docs/linux-install.md`, README "Install", and the packaging sections in `CLAUDE.md` and `the_one/agents.md`.
 - [ ] `linux-hat` - The operator's guided walk on both VM desktops.
 ---

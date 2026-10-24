@@ -1,6 +1,6 @@
 # Leg: vm-relaunch-probe
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Linux packages](../flight.md)
 
 ## Objective
