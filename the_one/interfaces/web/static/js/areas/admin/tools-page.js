@@ -295,7 +295,9 @@ App.admin.toolsPage = {
           if (toolEditorApi) toolEditorApi.setEnabled(newEnabled);
         }
       }).catch(function (err) {
-        toolConfigs[idx].enabled = prev;
+        for (var k = 0; k < toolConfigs.length; k++) {
+          if (toolConfigs[k].name === name) toolConfigs[k].enabled = prev;
+        }
         showAdminFlash((err && err.message) || ('Failed to update ' + name + '.'), true);
       }).then(function () {
         // Always clear in-flight and patch the tile back (a failed toggle

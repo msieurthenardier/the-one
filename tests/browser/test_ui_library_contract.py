@@ -86,7 +86,7 @@ def test_middle_ellipsis_exact_strings(engine_page: Page) -> None:
     long97 = "".join(chr(97 + i % 26) for i in range(97))
     out = engine_page.evaluate(
         """(long97) => { const m = App.ui.util.middleEllipsis;
-          return [m('short', 40), m('x'.repeat(40), 40) === 'x'.repeat(40), m(long97, 40), m(long97, 40).length, m(long97, 10), m('', 40), m(null, 5)]; }""",
+          return [m('short', 40), m('x'.repeat(40), 40) === 'x'.repeat(40), m(long97, 40), m(long97, 40).length, m(long97, 10), m('', 40), m(null, 5), m('abc', 0), m('', 0), m('abc', -3)]; }""",
         long97,
     )
     assert out[0] == "short" and out[1] is True
@@ -94,6 +94,8 @@ def test_middle_ellipsis_exact_strings(engine_page: Page) -> None:
     assert out[2] == "abcdefghijklmnopqrstuvw\u2026defghijklmnopqrs" and out[3] == 40
     assert out[4] == "abcde\u2026" + long97[-4:]
     assert out[5] == "" and out[6] == ""
+    # A budget below 1 is a budget of 1: the lone ellipsis, never a wrong slice.
+    assert out[7] == "\u2026" and out[8] == "" and out[9] == "\u2026"
 
 
 def test_core_el_builds_without_html(engine_page: Page) -> None:
@@ -1726,3 +1728,30 @@ def test_latest_invalidate_makes_every_token_stale_and_helpers_are_independent(
         "again": True,
         "old": False,
     }
+
+
+@pytest.mark.parametrize(
+    "cls", ["btn-outlined-primary", "btn-filled-primary", "btn-ghost", "btn-muted-destructive"]
+)
+def test_aria_disabled_button_looks_disabled_and_stays_focusable(
+    engine_page: Page, cls: str
+) -> None:
+    """A button kept focusable with aria-disabled="true" uses the --btn-disabled-* tokens
+    (the same colour as its `:disabled` twin)."""
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """(cls) => {
+          const mk = () => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = 'Go';
+            document.getElementById('harness-root').appendChild(b); return b; };
+          const a = mk(); a.setAttribute('aria-disabled', 'true');
+          const d = mk(); d.disabled = true;
+          const live = mk();
+          a.focus();
+          const cs = (el) => { const c = getComputedStyle(el); return [c.color, c.cursor]; };
+          return {a: cs(a), d: cs(d), live: cs(live), focused: document.activeElement === a};
+        }""",
+        cls,
+    )
+    assert out["a"] == out["d"], out
+    assert out["a"] != out["live"], out
+    assert out["a"][1] == "not-allowed" and out["focused"] is True

@@ -86,3 +86,22 @@ def test_remounting_appearance_does_not_stack_listeners(app_clean: str, page: Pa
     expect(page.locator('[data-testid="theme-option-dark"]')).to_be_checked()
     counts = page.evaluate("window.__themeListeners")
     assert counts["adds"] - counts["removes"] <= 1, counts
+
+
+@pytest.mark.browser
+def test_leaving_appearance_removes_listener_without_any_theme_event(
+    app_clean: str, page: Page
+) -> None:
+    """The listener is removed on teardown, not only on the next event."""
+    page.add_init_script(_SPY)
+    _nav.goto(page, app_clean, "settings/appearance")
+    expect(page.locator('[data-testid="theme-picker"]')).to_be_visible(timeout=8000)
+    for _ in range(3):
+        _nav.goto(page, app_clean, "settings/prompts")
+        _nav.goto(page, app_clean, "settings/appearance")
+        expect(page.locator('[data-testid="theme-picker"]')).to_be_visible(timeout=8000)
+    _nav.goto(page, app_clean, "settings/prompts")
+    expect(page.locator('[data-testid="theme-picker"]')).to_have_count(0)
+    counts = page.evaluate("window.__themeListeners")
+    assert counts["adds"] >= 1
+    assert counts["adds"] == counts["removes"], counts

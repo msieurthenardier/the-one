@@ -122,10 +122,12 @@
   //   characters comes back unchanged; a longer one keeps its first
   //   round((budget - 1) * 0.6) and last (budget - 1 - head) characters around one
   //   "…", so the result is exactly `budget` characters long (40 gives 23 + "…" + 16).
+  //   A budget below 1 is treated as 1 (the lone "…").
   //   Counts UTF-16 units (no surrogate-pair handling: the values are host names,
   //   paths and tool names). A pure helper, not a control.
   App.ui.util.middleEllipsis = function (value, budget) {
     var s = String(value === null || value === undefined ? '' : value);
+    if (!(budget >= 1)) budget = 1;
     if (s.length <= budget) return s;
     var head = Math.round((budget - 1) * 0.6);
     var tail = budget - 1 - head;

@@ -347,6 +347,11 @@
       className: 'ui-tool-tile-desc entity-tile-description',
       text: opts.description || ''
     });
+    // The two-line clamp hides the rest: the full text is the tooltip.
+    function setDescriptionTitle(text) {
+      if (text) desc.title = text; else desc.removeAttribute('title');
+    }
+    setDescriptionTitle(opts.description);
     root.appendChild(desc);
 
     var toggle = App.ui.toggle({
@@ -381,7 +386,10 @@
       setSelected: setSelected,
       setChecked: function (value) { toggle.setChecked(!!value); },
       setDisabled: function (value) { toggle.setDisabled(!!value); },
-      setDescription: function (text) { desc.textContent = text || ''; }
+      setDescription: function (text) {
+        desc.textContent = text || '';
+        setDescriptionTitle(text);
+      }
     };
   };
 

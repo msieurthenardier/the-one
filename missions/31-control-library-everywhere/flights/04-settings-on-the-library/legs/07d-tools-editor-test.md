@@ -1,6 +1,6 @@
 # Leg: tools-editor-test
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

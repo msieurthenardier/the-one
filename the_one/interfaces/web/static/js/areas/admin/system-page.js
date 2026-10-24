@@ -62,10 +62,10 @@
       group.el
     ]);
     // Another tab or the desktop shell changing the theme updates the picker.
-    // The listener prunes itself: once the group has left the document (the
-    // user navigated away, or the page re-rendered) the next event removes it,
-    // so nothing outlives the page (DD8-19). setValue is silent, so this never
-    // loops back into App.theme.set.
+    // The page returns {destroy()}, which admin.js calls on every re-render and
+    // teardown, so the listener is removed when the page goes (DD8-19). It also
+    // prunes itself on an event once the group has left the document, as a
+    // backstop. setValue is silent, so this never loops back into App.theme.set.
     function onTheme(e) {
       if (!group.el.isConnected) {
         document.removeEventListener(THEME_EVENT, onTheme);
@@ -74,6 +74,9 @@
       group.setValue(e.detail.pref);
     }
     document.addEventListener(THEME_EVENT, onTheme);
+    return {
+      destroy: function () { document.removeEventListener(THEME_EVENT, onTheme); }
+    };
   }
 
   // ── Prompts ───────────────────────────────────────────────────────────

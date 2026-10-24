@@ -1,6 +1,6 @@
 # Leg: reconcile-and-rhythm
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

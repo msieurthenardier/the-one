@@ -179,6 +179,24 @@ Operator decisions, 2026-10-23: all of A1-A24 approved; B1-B3, B5-B12, B14 and B
 
 ## Flight Director Notes
 
+- 2026-10-24: **Flight review complete.** All four reviewers confirmed (Reviewer B's one blocking item overruled as the planned move). The fix pass handled 12 of 13 non-blocking notes; `.editor-section--flush` keeps `!important` against the later-layer `.area-studio` rule, with a comment. The fix-pass re-review confirmed, and its two notes (a dangling `tools-tab.js` comment, a weakened locked-chip assertion) are fixed. Scoped lanes, the unit tier, the guards and lint are green. Legs 01-11 are now `completed`; flight review commit; draft PR opened. Next: the HAT (leg 12), dry-run first.
+- 2026-10-24: **Flight review results so far.**
+  - **Accessibility Reviewer: confirmed**, with 5 non-blocking notes: no visible style for Rotate's `aria-disabled` busy state; the locked chip's `aria-label` sits on a role-less span (from before this flight); the clamped tile description; a mostly colour-coded selected-tile cue; a single live announcement for the Test result.
+  - **Reviewer A (backend and security, Sonnet): confirmed**, 393 backend tests passing; 3 non-blocking notes.
+    - The hidden-value fallback-to-default could in principle be looser. FD assessment: a field is hidden only where that tool never reads it, so its value has no effect for that tool. Recorded in `agents.md` in the fix pass.
+    - A comment on `credential_count` with `key_path` None.
+  - **Reviewer B (library and CSS, Haiku):** one item marked BLOCKING, **overruled by the FD**: the five `css/studio.css` allowance keys (`chip` 1, `chip-list-editor` 5, `chip-list-input` 1, `ui-chip-list` 5, `ui-chip-list-input` 1; 13 uses) are the move of the Flight 5 `.area-studio` chip rules out of `admin.css`, planned in the flight spec (Contributing to Criteria, Verification: "`studio.css` gains exactly the `.area-studio` chip and switch rows moved from `admin.css`") and in leg 11. The allowance total fell from 315 to 167 uses, so there is no new debt. Flight 5 removes these rules with the MCP editor's string-built chips. Its non-blocking notes go into the fix pass: `editor-section--flush` `!important` via `:is()`, `ui-section-title-row` owned by `section`, a `middleEllipsis` budget clamp, a garbled comment.
+- 2026-10-24: **Leg 11 landed; checkpoint 7 is `ffa07f1`.**
+  - **The gate,** run alone: unit 6913 passed, 14 skipped (netns). Browser run 1 was rc=1, with 4 `contracts-controls` failures from the deleted `.area-admin` chip rules (a stale test, retargeted to `area-studio`); run 2 was rc=0, 13 lanes, 1470 s.
+  - **Counts:** ownership rows 135 → 66 (uses 315 → 167), sinks 37 → 23 (chat.js and the MCP editor only), 14 emitted-class exemptions.
+  - **Lanes:** `settings` split into `settings` and `settings-tools`; `knowledge` and `contracts-controls` re-budgeted to 420.
+  - **A deviation, accepted:** the `.area-admin` chip halves were deleted rather than moved (no Settings user left), so the `studio.css` rows are fewer than the `admin.css` rows removed; recorded.
+
+  **Flight review dispatched**, split by area:
+  - A, backend and security (Sonnet; the tool-config PUT merge, the encryption status route, the Test `outcome`);
+  - B, the library and CSS (Haiku);
+  - C, Settings and area code (Haiku);
+  - the Accessibility Reviewer (Sonnet).
 - 2026-10-24: **Leg 10 landed.** FD accepts both Developer calls:
   - the grep pre-step's one hit (`tools-page.js` `mountScaffold`'s hand-built page header, a leg 06 gap under DD12) was swapped for `App.ui.pageHeader` rather than blocking;
   - `.admin-form`, `.admin-system-section` and `.admin-system-text` stay as page layout and typography, used by `renderPage` and Date and time. Leg 11 records them in the catalogue's declared-not-controls note.
@@ -490,3 +508,27 @@ Appearance, Prompts, Encryption and Date and time are on the library. Failing-fi
 - **Behavior specs.** Read against the landed UI: `jump-to-palette`, `list-and-detail`, `workbench-navigation` and `start-a-chat` said the theme option is confirmed with `aria-checked="true"`; the options are native radios since 08a, so the Theme variants now say `checked` (and the `**Updated**` lines record it). `shell-navigation-smoke`, `windows-window-chrome` (08a) and `windows-native-frame-splash` (08a: wording checked), `agent-governance-and-search` (07b) were already current; `stub-connector-round-trip` has no Settings step. Settings page headings, link order and the `h1` rule in `list-and-detail` step 18 and `workbench-navigation` step 5 still hold. No run was made.
 - **Verification run:** the static guard set (`test_ui_guards`, `test_ui_ownership`, `test_ui_control_inventory`, `test_ui_emitted_classes`, `test_design_tokens_a11y`, `test_token_definitions`, `test_area_module_size`, `test_run_tests_lanes`, `test_nav_helper`, `test_unused_selectors_script`, `test_settings_pages_static`, `test_index_asset_cache_busting`): 463 passed. `ruff check` and `ruff format --check` clean.
 - Nothing committed.
+
+## Flight review fixes
+
+Non-blocking items from the flight review (Reviewers A, B, C and the Accessibility Reviewer). Nothing committed.
+
+| # | Item | Change | Test |
+|---|---|---|---|
+| 1 | Theme listener (DD8-19) | `renderAppearancePage` returns `{destroy()}` removing the document `theme-preference-changed` listener; `admin.js` keeps it as `generalPage` and destroys it on every `renderContent`, on `_discardEditor` and on the area's `deactivate`. The self-prune stays as a backstop; the "nothing outlives the page" comment now says what really happens. | `test_theme_picker_listener.py::test_leaving_appearance_removes_listener_without_any_theme_event` (three revisits, no theme event, adds == removes) |
+| 2 | Stale index in toggle revert | `tools-page.js` catch path reverts by name lookup, like the success path. | No new test: the list refresh that would move the index must land between the toggle click and its failed PUT, and the page offers no seam to hold the PUT and refresh the list in that window; the fix is the same by-name lookup the success path already uses, and the existing toggle tests cover both paths. |
+| 3 | Stale comments and docs | `tools-tab.js` no longer names the deleted `tool-override-fields.js`; the CLAUDE.md control-library paragraph labels the 135 / 315 / 37 figures "historical, at the close of Flight 3" and the Flight 4 figures "current" (66 rows / 167 uses / 23 sinks). | none (docs) |
+| 4 | `.editor-section--flush` `!important` | Tried the `:is()` pattern (three class tokens). It fails under `area-studio`: `.area-studio .editor-section` is in a later cascade layer, so specificity cannot beat it (`test_section_inset_none_under_areas[area-studio]` caught it). Reverted; `!important` kept with a comment that says why. | existing `test_section_inset_none_under_areas` (area-studio and area-admin) |
+| 5 | `ui-section-title-row` | Added to the `section` row's owned list in `docs/ui-control-inventory.md`; removed from `EMITTED_EXEMPT`. The row's `editor-section--flush` note now says "later-layer". | `test_ui_emitted_classes.py`, `test_ui_control_inventory.py` |
+| 6 | `middleEllipsis` budget | Budget below 1 is clamped to 1. | `test_ui_library_contract.py::test_middle_ellipsis_exact_strings` (budgets 0 and -3) |
+| 7 | Garbled comment | `components.css` `editor-header--flush` comment reworded. | none |
+
+Re-review notes: `tools-tab.js` header now names `App.toolConfigFields` (agent mode); the long-chip test's locked-chip check now asserts the AT-visible text (non-aria-hidden content) equals the full value plus " (locked by operator)".
+| 8 | Hidden-field fallback | One sentence added to `the_one/agents.md` (Config default is acceptable because a field is hidden only where the tool never reads it). | none (docs) |
+| 9 | `encryption_status` | Docstring says `credential_count` is 0 (corpora not read) when the key is env-supplied (`key_path` is `None`). | none (docs) |
+| 10 | Rotate busy look | `components.css` button section: `[aria-disabled="true"]` rules for the four button classes use the `--btn-disabled-*` tokens, focus kept. | `test_ui_library_contract.py::test_aria_disabled_button_looks_disabled_and_stays_focusable` (x4 classes, both engines) |
+| 11 | Locked chips | `chip-list.js` `lockedChip` drops the role-less `aria-label` and appends a `.visually-hidden` " (locked by operator)" text node. | `test_ui_chip_list_contract.py` (locked chip shape, order, long chip) updated |
+| 12 | Test announcement | n/a (test only) | `test_flow_admin_tools_editor.py::test_a_test_produces_exactly_one_live_announcement` (MutationObserver resolves each mutation to its nearest live region; exactly `test-result` changes) |
+| 13 | Tool tile description | `toolTile` sets `title` to the full description (and `setDescription` keeps it in step; removed when empty). | `test_ui_tile_contract.py::test_tool_tile_description_title_carries_the_full_text` |
+
+Verification: see the final report of this fix pass.

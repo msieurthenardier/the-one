@@ -19,7 +19,7 @@
   //   toolOverrideField, toolOverrideTool), className.
   //   el is div.chip-list-editor.ui-chip-list (the marker the area CSS is narrowed
   //   against, M31 F3 L03c) holding span.chip per value (locked:
-  //   [data-locked="true"] and aria-label "<v> (locked by operator)"; editable:
+  //   [data-locked="true"] and a .visually-hidden " (locked by operator)" text; editable:
   //   the text node then button.ui-chip-remove "×" named "Remove <v>") and
   //   input.chip-list-input.ui-chip-list-input (aria-label "Add entry"). A chip carries its FULL value in
   //   data-value and a title; its visible text is span.ui-chip-text, middle-ellipsized
@@ -90,10 +90,11 @@
     function lockedChip(v) {
       var chip = util.el('span', {
         className: 'chip',
-        'data-locked': 'true',
-        'aria-label': v + ' (locked by operator)'
+        'data-locked': 'true'
       });
       chipBody(chip, v);
+      // A role-less span's aria-label is not announced: say the state in text.
+      chip.appendChild(util.el('span', { className: 'visually-hidden', text: ' (locked by operator)' }));
       return chip;
     }
     function editableChip(v) {

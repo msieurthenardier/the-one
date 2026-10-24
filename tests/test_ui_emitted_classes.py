@@ -46,7 +46,6 @@ EMITTED_EXEMPT: dict[str, str] = {
     # Internal parts and shared state classes with no row of their own:
     "badge-dot": "the status dot of the badge helper in feedback.js; the badge row covers it",
     "ui-info-bubble": "the field info bubble, a part of the field row",
-    "ui-section-title-row": "the section title row, a part of the section row",
     "ui-status-text": "the status label, a part of the status row",
     "is-invalid": "shared invalid state of field, chipList and keyValueTable",
     "is-checked": "shared checked state of the choice controls",

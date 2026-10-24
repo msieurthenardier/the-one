@@ -782,3 +782,20 @@ def test_tool_tile_grid_sync_keeps_focus_and_reconciles_by_key(engine_page: Page
         "() => { try { window.__grid.sync([window.__tiles[1], window.__tiles[1]]); return 'ok'; } catch (e) { return e.message; } }"
     )
     assert "duplicate" in dup
+
+
+def test_tool_tile_description_title_carries_the_full_text(engine_page: Page) -> None:
+    """The two-line clamp hides the rest: the full description is the tooltip."""
+    _tool_tile(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const d = window.__tt.el.querySelector('.ui-tool-tile-desc');
+          const first = [d.title, d.textContent];
+          window.__tt.setDescription('New text');
+          const second = d.title;
+          window.__tt.setDescription('');
+          return {first, second, cleared: d.hasAttribute('title')};
+        }"""
+    )
+    assert out["first"][0] == out["first"][1] and len(out["first"][0]) > 20
+    assert out["second"] == "New text" and out["cleared"] is False

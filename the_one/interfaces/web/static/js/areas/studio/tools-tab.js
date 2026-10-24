@@ -10,7 +10,7 @@
 // "N / M enabled") holding one App.ui.toolRow per tool (inputDataset tool: the
 // checkbox collectFormData reads; a "Overrides" disclosure on every operator-enabled
 // tool). The disclosure body is filled lazily on the first open from the tool's
-// schema by App.studio.toolOverrideFields (tool-override-fields.js).
+// schema by App.toolConfigFields (js/areas/shared/tool-config-fields.js, agent mode).
 //
 // Save flows through agent-form-data.js::collectFormData: the checkboxes
 // `input[type=checkbox][data-tool]` give enabled_tools/disabled_tools and the

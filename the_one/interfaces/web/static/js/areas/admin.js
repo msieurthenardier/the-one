@@ -210,13 +210,23 @@ App.registerArea({
       encryption: 'renderEncryptionPage'
     };
 
+    // A General page may return {destroy()} (Appearance: its theme listener).
+    var generalPage = null;
+    function destroyGeneralPage() {
+      if (generalPage) {
+        generalPage.destroy();
+        generalPage = null;
+      }
+    }
+
     function renderContent() {
       // Every page render replaces the content; Built-in tools mounts a fresh
       // scaffold.
       destroyKnowledgePage();
+      destroyGeneralPage();
       tools.reset();
       if (GENERAL_RENDERERS[currentCategory]) {
-        App.admin[GENERAL_RENDERERS[currentCategory]](contentEl);
+        generalPage = App.admin[GENERAL_RENDERERS[currentCategory]](contentEl) || null;
       } else if (currentCategory === 'tools') {
         tools.render();
       } else if (currentCategory === 'knowledge') {
@@ -278,6 +288,7 @@ App.registerArea({
         // on an item page (Built-in tools) that empties the item
         // section below the list (M25 F3 L5b), so no discarded editor lingers
         // under the tiles; anywhere else the next _setCategory re-renders.
+        destroyGeneralPage();
         if (currentCategory === 'knowledge') {
           destroyKnowledgePage();
         } else {
@@ -355,6 +366,8 @@ App.registerArea({
 
     // ── Init ──────────────────────────────────────────────────────────
 
+    self._destroyGeneralPage = destroyGeneralPage;
+
     renderContent();
   },
 
@@ -364,5 +377,9 @@ App.registerArea({
     }
   },
 
-  deactivate: function () {}
+  // Leaving Settings drops the Appearance page's theme listener; activate
+  // re-renders a General page from scratch.
+  deactivate: function () {
+    if (this._destroyGeneralPage) this._destroyGeneralPage();
+  }
 });

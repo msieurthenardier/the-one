@@ -1,6 +1,6 @@
 # Leg: disabled-buttons-and-guard
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

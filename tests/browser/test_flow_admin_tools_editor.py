@@ -495,6 +495,40 @@ def test_each_outcome_has_a_fixed_headline_and_one_status_mark(app_clean: str, p
 
 
 @pytest.mark.browser
+def test_a_test_produces_exactly_one_live_announcement(app_clean: str, page: Page) -> None:
+    """Flight review (a11y): the result's inner statuses are `live: off`, so one Test changes
+    exactly one live region (the polite result container), never several."""
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    _stub_test(page, "fetch_url", **_payload("page body", 12.4, "ok"))
+    page.evaluate(
+        """() => {
+          window.__liveHits = new Set();
+          const effective = (node) => {
+            for (let n = node.nodeType === 1 ? node : node.parentElement; n; n = n.parentElement) {
+              const v = n.getAttribute('aria-live');
+              if (v !== null) return v === 'off' ? null : n;
+              const r = n.getAttribute('role');
+              if (r === 'status' || r === 'alert') return n;
+            }
+            return null;
+          };
+          new MutationObserver((muts) => {
+            for (const m of muts) {
+              const r = effective(m.target);
+              if (r) window.__liveHits.add(r.getAttribute('data-testid') || r.className);
+            }
+          }).observe(document.body, {subtree: true, childList: true, characterData: true});
+        }"""
+    )
+    _run_test(page)
+    expect(page.locator(TEST_RESULT)).to_have_attribute("data-state", "success")
+    page.wait_for_timeout(300)
+    hits = page.evaluate("Array.from(window.__liveHits)")
+    assert hits == ["test-result"], hits
+
+
+@pytest.mark.browser
 def test_output_is_collapsed_opens_by_keyboard_and_shows_the_head(
     app_clean: str, page: Page
 ) -> None:

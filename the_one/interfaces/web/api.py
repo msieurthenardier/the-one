@@ -6191,7 +6191,10 @@ async def encryption_status() -> dict[str, Any]:
     (``the_one.db.encryption_corpora``); nothing decrypted leaves it.
     ``key_file_pending`` is true while a rotated key is staged but not yet
     promoted to the key file (the ``.next`` sidecar exists), so a staged
-    rotation keeps its warning across a reload. No secret material is returned.
+    rotation keeps its warning across a reload. When the key is supplied by the
+    environment (``encryptor.key_path`` is ``None``) the corpora are not read and
+    ``credential_count`` is reported as 0, not as a real count. No secret material
+    is returned.
     """
     encryptor = get_encryptor(settings.data_dir)
     conn = await get_connection()
