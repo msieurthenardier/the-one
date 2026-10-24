@@ -1,0 +1,100 @@
+# Libraries the frozen bundle must NOT carry: the host desktop provides them, and a
+# second copy next to the host's WebKit would put two GLibs in one process
+# (flight DD2 gate 3). One fnmatch pattern per line, matched against the file's base
+# name inside the bundle. Patterns are anchored on the family's real soname, so
+# wheel-vendored copies with hashed names (pillow.libs/libharfbuzz-<hash>.so, which
+# Pillow needs and links by its hashed name) do NOT match.
+# Reference: the AppImage project's excludelist, matched by family.
+
+# GLib / GObject / GIO / introspection (PyGObject's _gi links these)
+libglib-2.0.so*
+libgobject-2.0.so*
+libgio-2.0.so*
+libgmodule-2.0.so*
+libgthread-2.0.so*
+libgirepository-*.so*
+libgirepository.so*
+
+# GLib's own dependencies, always present wherever GLib is
+libmount.so*
+libblkid.so*
+libselinux.so*
+libpcre2-8.so*
+
+# GTK 3 / GDK / accessibility
+libgtk-3.so*
+libgdk-3.so*
+libgdk_pixbuf-2.0.so*
+libatk-1.0.so*
+libatk-bridge-2.0.so*
+libatspi.so*
+
+# WebKitGTK and JavaScriptCore
+libwebkit2gtk-4*.so*
+libjavascriptcoregtk-4*.so*
+libsoup-*.so*
+
+# 2D text and drawing stack (soname-anchored; hashed wheel copies are kept)
+libcairo.so*
+libcairo-gobject.so*
+libpango-1.0.so*
+libpangocairo-1.0.so*
+libpangoft2-1.0.so*
+libharfbuzz.so*
+libharfbuzz-gobject.so*
+libfontconfig.so*
+libfreetype.so*
+libpixman-1.so*
+
+# X11 / Wayland / GL
+libX11.so*
+libX11-xcb.so*
+libXext.so*
+libXrender.so*
+libXi.so*
+libXcursor.so*
+libXrandr.so*
+libXfixes.so*
+libXcomposite.so*
+libXdamage.so*
+libXinerama.so*
+libXss.so*
+libXtst.so*
+libXau.so*
+libXdmcp.so*
+libxcb.so*
+libxcb-shm.so*
+libxcb-render.so*
+libxcb-shape.so*
+libxcb-xfixes.so*
+libxcb-randr.so*
+libxcb-xkb.so*
+libxcb-sync.so*
+libxcb-present.so*
+libxcb-dri3.so*
+libxcb-glx.so*
+libxcb-xinput.so*
+libxcb-util.so*
+libxcb-image.so*
+libxcb-keysyms.so*
+libxcb-icccm.so*
+libwayland-*.so*
+libEGL.so*
+libGL.so*
+libGLX.so*
+libGLdispatch.so*
+libgbm.so*
+libdrm.so*
+libepoxy.so*
+libxkbcommon.so*
+
+# Tray indicator
+libayatana-*.so*
+libappindicator*.so*
+libdbusmenu-*.so*
+
+# C++ and glibc runtime pieces: WebKit (host) needs the host's own; a bundled
+# older copy first on the search path breaks it.
+libstdc++.so*
+libgcc_s.so*
+libmvec.so*

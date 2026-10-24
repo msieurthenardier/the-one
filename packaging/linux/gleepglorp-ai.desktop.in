@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GleepGlorp AI
+Comment=Your personal AI agent
+Exec=@EXEC@
+Icon=gleepglorp-ai
+Terminal=false
+Categories=Utility;
+StartupWMClass=the-one

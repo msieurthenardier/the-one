@@ -1,6 +1,6 @@
 # Flight: Choose the packaging toolchain
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
@@ -191,6 +191,8 @@ Verified against the worktree at `b060d84` (`origin/main` `8a52a39` plus the mis
 ## In-Flight
 
 ### Technical Approach
+> **Leg split (in flight, 2026-10-23; see the flight log's Flight Director Notes).** The five steps below were planned as five legs. Execution split step 1 into `linux-pyinstaller-build` and `linux-pyinstaller-gates`, and step 3 into `macos-probe-prepare` and `macos-probe-run`. The step text is kept as written; the Legs list below is the live plan.
+
 1. **Leg 1, `linux-pyinstaller`:**
    - Write the shared staging step (DD3) and the stock-desktop container baseline (DD5).
    - Then candidate A: the Linux spec, the AppImage and `.deb` wrappers, and an exclude list for the host GTK/WebKit stack. First take a bundle listing with no excludes, to confirm what PyInstaller's gi hooks pull in.
@@ -235,10 +237,12 @@ Verified against the worktree at `b060d84` (`origin/main` `8a52a39` plus the mis
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `linux-pyinstaller` — The shared staging step and container baseline, then candidate A on Linux at two versions. Covers the DD2 hard gates and soft criteria per DD5, and A's GTK/WebKit exclude list. Output: A's rows of the evidence table.
-- [ ] `linux-briefcase` — Candidate B on Linux (a `.deb` per distro, plus its AppImage) from the same staging step and baseline. Output: B's rows and any patch diffs (DD4).
-- [ ] `macos-probe` — The `.github/`-only PR to `main`, then the dispatch-only macOS probe (≤ 2 jobs) for the surviving candidates. Output: `doctor`/`serve` results, sizes and the macOS paper items.
-- [ ] `windows-cost` — The paper pricing for each candidate. If Briefcase survived, also the hosted MSI build and the operator's install over the current Inno install, with backup and rollback.
+- [x] `linux-pyinstaller-build` — The candidate-neutral harness (staging, container images), then candidate A frozen with the host GTK/WebKit stack excluded. Output: an AppImage and a `.deb` at two versions. *(Split from `linux-pyinstaller` after its leg design review.)*
+- [x] `linux-pyinstaller-gates` — The gate runner and scorer, and A's four packages measured against every DD2 hard gate and soft criterion. Output: the Evidence Table with A's rows.
+- [x] `linux-briefcase` — Candidate B on Linux (a `.deb` per distro, plus its AppImage) from the same staging step and harness. Output: B's rows (unpatched and patched) and patch diffs (DD4).
+- [ ] `macos-probe-prepare` — A's and B's macOS recipes, the dispatch-only macOS workflow and a Windows stub workflow, all rehearsed on Linux. No push, PR or dispatch. *(Split from `macos-probe`.)*
+- [ ] `macos-probe-run` — After the Flight Director's operator-approved PR to `main` and dispatch: read the run (≤ 2 macOS jobs), score it, and record the macOS rows.
+- [ ] `windows-cost` — The paper pricing for each candidate. Since Briefcase survived Linux, also the hosted MSI build and the operator's install over the current Inno install, with backup and rollback.
 - [ ] `decision-hat` — The guided session: the operator tries the Linux builds and reads the evidence, then decides. Record the decision and keep the winner's recipe (DD8).
 
 ---
