@@ -116,11 +116,17 @@ function Use-EnvVars {
     param([hashtable]$Set = @{}, [string[]]$Clear = @(), [Parameter(Mandatory)][scriptblock]$Body)
     $saved = @{}
     foreach ($k in (@($Set.Keys) + $Clear)) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+    # Remove a variable with Remove-Item; [Environment]::SetEnvironmentVariable($k, $null) left an
+    # EMPTY variable on the hosted runner (hosted run 2: THE_ONE_PORT='' and BRIEFCASE_MAIN_MODULE='').
+    function Set-Or-Remove([string]$k, $v) {
+        if ($null -eq $v -or $v -eq '') { Remove-Item -LiteralPath "Env:$k" -ErrorAction SilentlyContinue }
+        else { Set-Item -LiteralPath "Env:$k" -Value ([string]$v) }
+    }
     try {
-        foreach ($k in $Set.Keys) { [Environment]::SetEnvironmentVariable($k, [string]$Set[$k]) }
-        foreach ($k in $Clear) { [Environment]::SetEnvironmentVariable($k, $null) }
+        foreach ($k in $Set.Keys) { Set-Or-Remove $k $Set[$k] }
+        foreach ($k in $Clear) { Set-Or-Remove $k $null }
         & $Body
     } finally {
-        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+        foreach ($k in $saved.Keys) { Set-Or-Remove $k $saved[$k] }
     }
 }

@@ -1,6 +1,6 @@
 # Leg: windows-cost
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Choose the packaging toolchain](../flight.md)
 
 ## Objective

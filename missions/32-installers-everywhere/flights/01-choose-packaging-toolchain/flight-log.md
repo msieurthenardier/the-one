@@ -155,6 +155,11 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
   - Note 2 (patch 02's Windows marker could be stricter) is carried to Flight 2.
   - Commit, push, then dispatch the single Windows job (`candidates="B"`).
 - **Windows run 1 (`40060053657`) built no MSI.** A recipe defect: PowerShell's case-insensitive `$log` overwrote `$LOG` in `build-windows.ps1`, after `briefcase create` had succeeded. Flight Director call, under the overnight delegation: **one retry Windows job**, beyond DD7's single job. Category (a), the fix is contained, and the job is cheap at the 2× rate (run 1 cost about 5 billed minutes). The fix (a renamed loop variable; `Invoke-Capped` creates a missing output dir) was checked by the Flight Director and committed without a separate Reviewer pass, as one-line corrections covered by the flight-end review.
+- **Windows retry (`40060408672`) recorded** by a Developer follow-up pass (`[HANDOFF:review-needed]`).
+  - B's per-user MSI builds, installs, passes strict `doctor`, serves and uninstalls cleanly, and coexists with the Inno install rather than replacing it.
+  - Three checks (gate 4, and both seeded-data checks) were not measured, because of a harness defect: `Use-EnvVars` left variables set to empty strings. The fix is in `windows-lib.ps1`, unverified, since no further Windows run is planned (Flight Director call: the decision does not need it).
+  - Hosted minutes used in the whole flight: macOS about 5 job-minutes (about 50 billed), Windows about 11 job-minutes (about 22 billed).
+- **Flight Director's decision brief** is written in the Decision section (recommendation: A, PyInstaller everywhere with Inno kept). `macos-probe-run` and `windows-cost` are set to `completed`. The operator's MSI try moves into `decision-hat` as an optional step. `decision-hat` is `ready` and needs the operator.
 ### linux-pyinstaller-build
 **Status**: landed
 **Started**: 2026-10-23
@@ -558,7 +563,7 @@ Run 2 recorded; macOS evidence is complete for the toolchain decision (both cand
 
 
 ### windows-cost
-**Status**: in-flight (autonomous half done; handed back for review, commit, push and the Flight Director's dispatch; AC6 is the follow-up pass)
+**Status**: in-flight (autonomous half done; hosted run 2 recorded; no further Windows run; awaiting review, commit and the operator's real-machine try)
 **Started**: 2026-10-24
 
 #### Changes Made
@@ -699,6 +704,47 @@ No change to the workflow (its `on:` block and every step are untouched; `git di
 
 **MSI for the operator:** none yet (nothing was built). Its artifact will be `m32-probe-msi-<sha>` on the retry run, with a `.msi.sha256` beside it; the operator's guide (step 3) stands.
 
+#### Hosted run 2 (40060408672, 2026-10-24 03:57:26 to 04:06:02, about 8.5 min; `candidates="B"`, windows-2022, flight-branch HEAD 1dd1823)
+Evidence: `$HOME/the-one-m32-evidence/windows/run-2/` (`job.log`, `B/`, `runner.txt`, `msi/`). Conclusion `failure` only because the final gate step saw FAIL lines (every other step succeeded). **The MSI built, installed, passed `doctor`, served, uninstalled cleanly, and installed over the Inno install.** Four things went wrong, all traced below to one script defect (the environment-variable restore) plus one lazily created credential, none to the candidate. Windows minutes about 17 billed at 2x.
+
+**Build (`B/BUILD-SUMMARY.txt`, `briefcase-*.log`).** `briefcase create` rc=0 in 58 s, `build` rc=0 in 2 s (rcedit download, stub renamed, details set), `package` rc=0 in 73 s (WiX CLI downloaded and installed by Briefcase); **132 s for create+build+package, about 2 min 55 s for the whole build step** (venv 39 s extra). Output `GleepGlorp AI-0.11.9.dev1.msi`, **121,108,264 bytes (115.5 MiB)**, sha256 `181ede8e5587625442449eb1d2a44fbc683a4bf6ffa1485747278e3da663347a` (re-verified locally against the bundled `.sha256`: OK). Bundle source 261.9 MB (installed 261.9 MB). Embeddable Python 3.11.9, `python311._pth` (isolated, no site), `app_packages` carrying pywin32, pywinpty, pywebview, clr_loader, pystray.
+
+**`.wxs` scope (`B/the-one.wxs`).** `Package Scope="perUserOrMachine"`, `WixUISupportPerUser=1`, `WixAppFolder=WixPerUserFolder` (per-user is the default), `StandardDirectory ProgramFiles64Folder` (which MSI maps to `%LOCALAPPDATA%\Programs` when per-user), `MajorUpgrade` (so the MSI upgrades itself, never the Inno install), Start-menu `ProgramMenuFolder\GleepGlorp AI`, `ARPNOMODIFY`/`ARPNOREPAIR`. The permissions component applies only when `ALLUSERS = 1`. A full WixUI dialog set is compiled in (an "Install Scope" dialog: Just me / All users). The hosted run used `msiexec /qn`-style flags, so the wizard itself was not exercised.
+
+**Fresh install (`B/fresh/SUMMARY.txt`).**
+- Install rc=0 in 31 s; **per-user confirmed**: `C:\Users\runneradmin\AppData\Local\Programs\GleepGlorp AI\GleepGlorp AI\GleepGlorp AI.exe` (note the doubled folder name). No `Program Files` directory created.
+- Start menu: one link, user scope, `\GleepGlorp AI\GleepGlorp AI.lnk` -> that exe, no arguments. Add/Remove: one entry, "GleepGlorp AI 0.11.9", publisher "GleepGlorp AI", `MsiExec.exe /X{39E34BE4-60A3-4731-AE4B-12074C0F94C2}` (the registry listing says HKLM:\SOFTWARE\...\Uninstall, but the files are per-user; the harness's hive label is not authoritative).
+- Stub is a GUI-subsystem exe (PE subsystem 2); no `python*.exe` in the install dir.
+- **Stub stdout: `version` printed `GleepGlorp AI v0.11.9.dev1` directly (rc=0) and `doctor` output arrived directly (the `m32run.py` fallback was NOT needed); `serve` also came up directly.** So the GUI stub's CLI cost is smaller than feared on Windows when output is redirected to a file; interactive console behaviour (a GUI-subsystem exe launched from a console does not attach to it, so a person typing `doctor` in PowerShell sees nothing unless output is piped) was not observed and remains a CLI cost for B regardless.
+- **Gate 1: `doctor` rc=0 in 7 s, strictly scored `{"pass": true, "rc": 0, "gates": 12, "bad": [], "encoding": "utf-8"}`**: all 12 gates OK, including usearch, embedding model (peak RSS 240 MiB), file watcher (native round-trip), window chrome (build 20348, dark mode only), time zones (345, tzdata 2026d), mcp sdk (mcp 2.3.0, handshake 2025-11-25 and 2026-07-28). `frozen: True` (patch 02 held; `sys.frozen` itself is absent, as expected).
+- **Gate 2: PASS**, interpreter resolved to the setup-python `C:\hostedtoolcache\windows\Python\3.11.9\x64\python.exe`, outside the install dir (the same external-Python dependency as on macOS: a real machine needs a Python on PATH; paper item 1).
+- **serve `/api/live`: PASS** `{"status":"ok"}` (scratch data dir, port 8490).
+- **pywin32 under the embeddable Python: PASS.** Probe copy: `win32api`, `win32job`, `win32con`, `pywintypes` (`pywintypes311.dll`), `winpty`, `webview`, `pystray`, `clr_loader` import from `app_packages`; `mcp.os.win32.utilities` imports with `win32api`/`win32job` bound. `sys.executable` is the stub (an `.exe` in the install dir), argv forwarded (`a b`), stdin/stdout/stderr are real text wrappers, `BRIEFCASE_MAIN_MODULE` works.
+- Uninstall rc=0 in 41 s: **clean**, install dir gone, 0 Add/Remove entries, 0 Start-menu links.
+- **Gate 4: FAIL (not measured), see classification.** Bare launch (Start-menu path), unscored: no server (output: `...GleepGlorp AI.exe: No module named `), see classification.
+
+**Upgrade over the released Inno installer (`B/upgrade/SUMMARY.txt`).** Inno v0.11.8 (`the-one-setup-0.11.8.exe`, 137,978,952 bytes) installed silently in 12 s to `C:\Program Files\GleepGlorp AI` (all-users Start-menu links `GleepGlorp AI.lnk` and `Uninstall GleepGlorp AI.lnk`, one Add/Remove entry "GleepGlorp AI 0.11.8"). Inno `serve` answered `/api/live`. MSI installed over it rc=0 in 29 s. **Result: side by side, never replaced.** Add/Remove shows **two** "GleepGlorp AI" entries (0.11.8 and 0.11.9); install dirs `C:\Program Files\GleepGlorp AI` (Inno, `the-one-app.exe`) and `...\AppData\Local\Programs\GleepGlorp AI\GleepGlorp AI` (MSI); the Start menu has **two** items named "GleepGlorp AI" in the "GleepGlorp AI" folder (one user-scope -> the MSI exe, one all-users -> `the-one-app.exe`; Windows lists both) plus the Inno "Uninstall GleepGlorp AI". Their data dir is the same default (`%LOCALAPPDATA%\the-one` by `platformdirs`), so the two would share data, which is why the morning guide has a backup. MSI uninstall rc=0 in 41 s: removed only its own entry, folder and shortcut; the Inno install, entry and shortcuts all remained (`inno still runs after the MSI uninstall: rc=1`: see classification). Data dir: not created in this run (the seeded-agent check never reached it).
+
+**Classification of the FAIL lines (the job logged three hard FAILs: gate 4, `agent seeded under the Inno install`, `seeded agent reads back through the MSI install`; the bare launch and the `inno still runs` line are unscored).**
+1. **Gate 4 (`rotate-api-credential` under the stub, rc=124 after 60 s, no output): (a) script defect, cause inferred, not proven.** The harness's `Use-EnvVars` restore leaves the variable set to an empty string instead of removing it. Proof from the same run: after the Inno-phase `serve` step, the Inno `the-one.exe version` fails with `Settings port: Input should be a valid integer, unable to parse string as an integer [input_value='']` (`B/upgrade/inno-version-after.txt`), i.e. `THE_ONE_PORT` was `''`. Gate 4 ran right after the fresh-phase `serve` step (`THE_ONE_PORT` restored to `''`) and with `THE_ONE_DATA_DIR` cleared the same way, so the app would hit the same pydantic error; a GUI-subsystem stub has no console, so the failure most likely sits behind an error dialog until the 60 s cap. (A hang instead of an error exit is the inferred part.) **Not measured because of script defect X (env restore).** Whether the app's default data dir resolves to `%LOCALAPPDATA%\the-one` under the stub is therefore unproven for B (the platformdirs path is the same code path as A and macOS B: low risk, but not a result).
+2. **Bare launch, `No module named ` (blank): (a) same defect.** The stub-probe step ran just before it with `BRIEFCASE_MAIN_MODULE=m32probe_win`; the restore left `BRIEFCASE_MAIN_MODULE=''`, and an empty module name is exactly what the message shows. So the Start-menu shortcut's behaviour (patch 01's bare start opening the window) is **not measured**; do not read this as "the MSI shortcut cannot start".
+3. **`agent seeded under the Inno install` and `seeded agent reads back through the MSI install`: (a) script defects, two stacked.** The same restore defect left `THE_ONE_DATA_DIR=''` after `-Clear`, so the app's data dir was not `%LOCALAPPDATA%\the-one` (that folder never appeared; the live server wrote to an empty-path location relative to the scratch cwd); and the credential is created lazily on the first authenticated call (`GET /api/agents` returned 401 against the MSI serve), while the harness read `api-credential` from the file before any call. Result: **whether the seeded agent reads back across the Inno -> MSI step is NOT measured.** What is established: both installs coexist and both servers answer `/api/live`.
+4. The `inno still runs after the MSI uninstall: rc=1` line is the env defect too (the `port=''` error above), not an MSI side effect: the Inno files, entry and shortcuts were present after the MSI uninstall.
+
+No candidate limitation (b) was observed in the hard checks. Open B-specific costs that stay: the doubled install folder name, the Python-on-PATH dependency (gate 2, as macOS), the GUI stub's console behaviour for interactive `doctor`, an unsigned MSI (SmartScreen), and two same-named Start-menu entries and two Add/Remove entries when Inno is also installed.
+
+**Fix (uncommitted, for the record; no further Windows run is planned, so it is unverified on Windows):** `packaging/spike/windows-lib.ps1` `Use-EnvVars` now sets or removes variables through `Env:` (`Remove-Item`/`Set-Item`) instead of `[Environment]::SetEnvironmentVariable(..., $null)`. Not changed: the lazy-credential read in `windows-checks.ps1` (a one-line fix would run `rotate-api-credential` before seeding; left because no run will use it, and the leg's results do not claim it).
+
+#### The operator's morning guide, finalised (supersedes the draft above where they differ)
+- **Where:** the run page https://github.com/msieurthenardier/the-one/actions/runs/40060408672 > Artifacts > `m32-probe-msi-1dd18235dc6b2c0138ed085067ecef19ee5ac5fe` (120 MB zip; contains the `.msi` and the `.sha256`). Retention is the Actions default (90 days). A copy is at `$HOME/the-one-m32-evidence/windows/run-2/msi/` (WSL; reach it from Windows as `\\wsl$\<distro>\home\cprch\the-one-m32-evidence\windows\run-2\msi\`).
+- **File:** `GleepGlorp AI-0.11.9.dev1.msi`, 121,108,264 bytes. **SHA-256 `181ede8e5587625442449eb1d2a44fbc683a4bf6ffa1485747278e3da663347a`** (compare with `(Get-FileHash -Algorithm SHA256 '<path>').Hash`).
+- **What you will see:** double-clicking runs a WiX wizard (the compiled-in dialogs include an Install Scope page: choose "Just me"; "All users" asks for elevation and should not be used for this try). Silent per-user form, no wizard: `msiexec /i "<path>" MSIINSTALLPERUSER=1 ALLUSERS=2`. Install location `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI`; Start-menu folder "GleepGlorp AI" with a second item "GleepGlorp AI" beside your Inno one (same names; right-click > Open file location tells them apart); Add/Remove Programs gets a second "GleepGlorp AI" entry, version 0.11.9. **It does not replace or touch your Inno install** (the hosted run showed them side by side, and the MSI uninstall left Inno intact). Both use the same data folder `%LOCALAPPDATA%\the-one`, so keep the backup step and do not run both at once.
+- **Is it safe to try?** On the hosted machine the MSI installed, `doctor` passed all 12 gates, `serve` answered, and a clean uninstall removed everything. What the hosted run did NOT show: a window opening (no desktop), the Start-menu shortcut starting the app (bare launch was killed by the harness defect), close-to-tray/single-instance, the title-bar tint, and the shared-data upgrade. The first launch may also migrate your real database to a schema newer than Inno v0.11.8 (the build is from the flight branch). **Recommendation: the try is worthwhile (it is the only way to see the window, tray and shortcut behaviours), but only with the step 2 backup taken and step 6's restore ready; if you only want the toolchain decision, the hosted evidence already covers the install/doctor/serve/uninstall/coexistence questions and skipping is reasonable.** Expect the first interactive `doctor` in a PowerShell window to print nothing (GUI stub); pipe it (`... doctor | Out-String`) or use the Inno exe.
+
+#### Windows comparison (A vs B; for `decision-hat`)
+**A (keep PyInstaller + Inno)** is the shipped path: a two-exe split gives a console CLI and a windowless app, the Python interpreter is bundled so there is no Python-on-PATH requirement for the app itself (the interpreter for agent `python_exec` is still the external one), Inno handles close-to-tray via `KillRunning` and Restart Manager settings, per-machine install in Program Files, one Add/Remove entry, one Start-menu entry, and an upgrade that replaces itself; the cost is owning a spec and an `.iss` (upkeep listed in the paper half) and not matching a macOS/Linux toolchain. **B (Briefcase MSI)**, measured on a hosted runner: builds in about 3 min, MSI 115.5 MiB, per-user install with a wizard, unsigned, a clean uninstall, `doctor` strictly 12/12, pywin32/pywinpty/webview/pystray importable under the embeddable Python, the CLI works from a redirected stdout; but it is a GUI-subsystem stub only (no console CLI exe; interactive `doctor` is silent), needs an external Python 3.11 on PATH like macOS B, installs beside rather than over the Inno install (two entries, two Start-menu items, shared data dir), and the bare-launch, data-dir (gate 4) and cross-installer data checks are unmeasured because of the harness defect above. On Windows, B shows no blocking limitation but also no win over A: it trades Inno's single console-plus-GUI install for a cross-platform toolchain and a stub with a smaller CLI. Paper half: A's Windows upkeep (two EXE blocks, Restart Manager workaround, signing) is already paid; B would add a per-user scope decision, an MSI upgrade-code and code-signing story, and a doubled folder name to fix.
+
+
 ---
 
 ## Evidence Table
@@ -766,15 +812,59 @@ No change to the workflow (its `on:` block and every step are untouched; `git di
 macOS upkeep notes for B: patch 02's macOS clause held with no change; `universal_build = false` and `min_os_version = 11.0` as configured; the app embeds Python 3.11.9 (`Python.framework`), and the interpreter it resolves is the system/toolcache one (a real macOS install would need a Python installed: paper item 1 stands). A (run 2) adds `packaging/macos/` (379 lines, 5 files) and the Finder `-psn_*` argv shim; see the comparison in `### macos-probe-run`.
 
 
-**Windows (hosted windows-2022), run 1 (40060053657, 2026-10-24, 2 min 20 s; B), DD7.** Evidence root `$HOME/the-one-m32-evidence/windows/run-1/packaging-probe-windows-logs/B/`. Run 1 died in the recipe (a variable-name collision, see `### windows-cost` "Hosted run 1"), so no MSI exists and B's Windows cells are not reached; the retry fills them.
+**Windows (hosted windows-2022), run 2 (40060408672, 2026-10-24, about 8.5 min; B), DD7.** Run 1 (40060053657) died in the recipe (variable-name collision) before any MSI existed. Evidence root `$HOME/the-one-m32-evidence/windows/run-2/B/`; details and FAIL classification in `### windows-cost` "Hosted run 2".
 
 | candidate | install path | Start menu | Add/Remove | doctor | G2 | serve/live | G4 data dir | build time | MSI size | upgrade over Inno | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | A / Inno installer | existing Inno path, not built here; proven by the Concourse per-push build (`build-windows-installer`) and `windows-installer.yml` | same | same | same | same | same | same | n/a | n/a (released `the-one-setup-*.exe`, 138 MB) | n/a (the baseline) | the "before" state for B's upgrade scenario |
-| B / Briefcase MSI (per-user) | not reached | not reached | not reached | not reached | not reached | not reached | not reached | create 55 s measured; build and package not reached | not built | not reached | `briefcase create` rc=0 (template, embeddable Python 3.11.9, GUI stub, 89 wheels); `build` never launched (path bug); no artifact |
+| B / Briefcase MSI (per-user, `perUserOrMachine` scope, default Just me) | PASS `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI\GleepGlorp AI.exe` | one user-scope link `\GleepGlorp AI\GleepGlorp AI.lnk` | one entry "GleepGlorp AI 0.11.9" | PASS strict, 12 gates, rc 0, 7 s, `bad: []` | PASS (setup-python's `python.exe`, outside the install dir) | PASS `{"status":"ok"}` | NOT MEASURED (script defect: env restore left `THE_ONE_PORT=''`, gate hit an error/hang, rc 124) | create 58 s + build 2 s + package 73 s = 132 s (step about 2 min 55 s) | 121,108,264 bytes (115.5 MiB), sha256 `181ede8e...3347a` | side by side, not replaced: 2 Add/Remove entries, 2 Start-menu items, separate dirs; seeded-agent read-back NOT MEASURED (script defects: env restore, lazy credential) | stub is GUI-subsystem; `version` and `doctor` stdout arrived directly (no wrapper needed); pywin32/pywinpty/webview/pystray import OK under the embeddable Python; `sys.executable` is the stub; clean uninstall (0 entries, 0 links, dir gone); bare launch NOT MEASURED (`BRIEFCASE_MAIN_MODULE=''` leaked by the same defect); no window/tray observed (no desktop) |
 
 ---
 
 ## Decision
 
-_(recorded at `decision-hat`)_
+_(The operator's decision is recorded at `decision-hat`. Below is the Flight Director's brief, written 2026-10-24 before the session: a recommendation, not a decision.)_
+
+### Flight Director's decision brief (recommendation)
+
+**Recommendation: candidate A, PyInstaller on every platform, keeping Inno Setup on Windows.** Ship the `.deb` as the primary Linux package, and keep the AppImage, fixed in Flight 2 so it stops depending on two libraries stock desktops lack.
+
+**What the evidence says, per platform:**
+
+- **Linux.**
+  - **A's `.deb` passes every hard gate and every soft check** on Ubuntu 26.04 and Debian 13: one copy of the host GTK/WebKit stack, a real Python for tools, the data dir unchanged, the N to N+1 upgrade, single-instance. `apt` resolves its declared dependencies on a bare image, and **one `.deb` serves both distros**.
+  - **A's AppImage** passes on Ubuntu except the unpinned tray (no Ayatana typelib on a stock desktop). It fails on Debian 13, whose stock desktop lacks `libgirepository-2.0`, so it cannot load `gi` and opens no window.
+  - **B's `.deb`s pass everything, but only with two app patches** (bare start opens the window; Briefcase counts as frozen), and only as **one `.deb` per distro**, each built in Docker against that distro's Python.
+  - **B's AppImage does not build.**
+- **macOS.**
+  - Both candidates pass every hard check on the hosted runner (strict `doctor`, real Python, `serve`, data dir, ad-hoc signature).
+  - A is half B's size (`.app` 177 MB against 353 MB; `.dmg` 125 against 139 MB) and builds in about half the time.
+  - A's bare launch opened a native window, its first paint blank. B's started the server with no visible window.
+  - Both are for the contributors to confirm in Flight 3.
+- **Windows.**
+  - B's per-user MSI builds, installs, passes strict `doctor`, serves and uninstalls cleanly.
+  - But it **coexists with the Inno install rather than replacing it**: two Add/Remove entries, two same-named Start-menu items, two install dirs. Moving to it means a migration step for the one Windows user.
+  - Its GUI-subsystem stub gives an interactive console `doctor` no output, so B needs a second console entry point (A already has the two-exe split).
+  - A is the existing, proven path, with in-place upgrades by a fixed AppId, Restart Manager and the tinted title bar.
+  - The data-dir and shared-data checks were not measured on Windows (a harness defect), and nothing suggests B would differ there.
+
+**Why A:**
+1. **No app patches.** B needs two changes to `the_one/` (start-up default and frozen detection) on all three platforms. Both are behaviour changes Flight 2 would have to design, test and gate. A needs none.
+2. **One Linux package for both distros**, against one per distro, each tied to its distro's Python.
+3. **Windows stays on the proven installer**, with no migration for the operator and the per-push Concourse build unchanged.
+4. **One tool across all three platforms in practice**: PyInstaller everywhere, with thin per-platform wrappers. That is also the "one recipe" the mission asked for, once Flight 2 adds the single metadata source.
+5. **Smaller and faster on macOS.**
+
+**What A costs, carried to Flights 2-4:**
+- **More packaging code to own:** the Linux spec, the exclude list and the runtime hook (about 530 lines), plus `packaging/macos/` (about 380 lines). The host-GTK exclude list must be kept in step with what PyInstaller's gi hooks collect, and that depends on the build host's GLib version.
+- **The version lives in three places today.** Flight 2 builds the single metadata source the mission's criterion requires (name, version, identifier, icon), and the `.iss` reads it too.
+- **The AppImage's two host dependencies.** Flight 2's options: bundle the small AppIndicator and girepository libraries (not the WebKit stack), and fix the pystray `ValueError` fall-through (the planning finding), so a missing tray degrades instead of failing. Or ship the AppImage with a stated host prerequisite. The mission's "no manual step" criterion favours the first.
+
+**Not recommended:**
+- **B everywhere:** the app patches, per-distro packages, a Windows migration, and a CLI gap.
+- **A hybrid with B's `.deb` on Linux:** it buys a smaller `.deb` at the cost of the app patches and per-distro builds.
+
+**What the operator decides at `decision-hat`:**
+1. A, B or a hybrid.
+2. The AppImage approach for Flight 2: bundle the two libraries, or state a prerequisite.
+3. Whether to try the MSI on the real machine at all. It is optional for the decision; the hosted run already shows coexistence rather than replacement.
