@@ -67,3 +67,27 @@ Output under `$M32_BUILD` (outside the repo): `packages-briefcase/the-one_<ver>-
 - `run-gates.sh <label>`: runs `packaging/spike/check.sh` over the four deb x image combinations.
 - `probe.sh <label> <pkgdir> <version>`: the `sys.executable` / `is_frozen` / child `PATH` / `.env`
   probes and the bare-launch (desktop entry) window check.
+
+## macOS (hosted probe, leg `macos-probe-prepare`)
+
+Built and checked only by `.github/workflows/packaging-probe-macos.yml` on a hosted `macos-15`
+runner (Apple Silicon). `build-macos.sh <version>` is its twin of `build.sh`: it installs Briefcase
+0.4.6 into a venv on the runner's Python 3.11, stages (patches 01 and 02), writes the same
+placeholders, the `.icns` (`../macos/make-icns.py`) and the closure, fills `pyproject.toml.in`, runs
+`briefcase create|build|package macOS app --no-input` (`package` adds `--adhoc-sign --no-notarize`), and
+then `../spike/macos-checks.sh`.
+
+- The `[tool.briefcase.app.the-one.macOS]` section: `universal_build = false` (the default second
+  pass would install `name==version` pins that `--require-hashes` refuses), `min_os_version = "11.0"`
+  (the lowest tag at which the whole closure resolves for arm64), and `--no-binary proxy-tools` appended
+  to `requirement_installer_args`. Briefcase passes `--only-binary :all:` on macOS, and `proxy-tools`
+  (pywebview's dependency on every platform) is the one sdist-only package; its sdist hash is already
+  in the hashed closure. No system requirements: the app ships Briefcase's own Python framework.
+- Patch 02 gained a macOS clause (`_is_briefcase_macos_app()`): `sys.executable` is the stub
+  `X.app/Contents/MacOS/<name>` and `Contents/Resources/app_packages` exists. The Linux clause is
+  untouched (the new patch is the old one plus added lines). `_bundle_dir()` returns None there too.
+- `check-env-layouts.py` is the Linux-side proof of the clause (a faked `X.app` layout, Linux, a source
+  install and two near-misses). `macos-resolution-rehearsal.py` reproduces Briefcase's macOS pip
+  install as `pip download --platform macosx_<V>_arm64` so a missing wheel shows before a hosted minute.
+- The macOS stub's behaviour (`sys.executable`, `sys.frozen`, argv forwarding, whether stdout reaches the
+  terminal) is from memory until the run; `macos-checks.sh` prints it from inside the app first.

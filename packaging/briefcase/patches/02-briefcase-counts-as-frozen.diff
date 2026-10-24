@@ -8,7 +8,7 @@
  import os
  import sys
  from pathlib import Path
-@@ -152,14 +153,32 @@
+@@ -152,14 +153,49 @@
  _EXTRA_PATH_ENV = "THE_ONE_EXTRA_PATH"
  
  
@@ -25,6 +25,22 @@
 +    return (exe.parent.parent / "lib" / exe.name / "app_packages").is_dir()
 +
 +
++@functools.lru_cache(maxsize=1)
++def _is_briefcase_macos_app() -> bool:
++    """True inside a Briefcase macOS app bundle.
++
++    Its stub binary is the main executable (``X.app/Contents/MacOS/<name>``) and embeds
++    the Python framework, so ``sys.executable`` is the stub, not a Python. Briefcase sets
++    no ``sys.frozen`` and no ``sys._MEIPASS``. The marker is the bundle layout:
++    ``Contents/Resources/app_packages`` beside ``Contents/MacOS``. Requiring the parent
++    to be named ``MacOS`` keeps a source install or a venv from matching.
++    """
++    exe = Path(sys.executable)
++    if exe.parent.name != "MacOS":
++        return False
++    return (exe.parent.parent / "Resources" / "app_packages").is_dir()
++
++
  def is_frozen() -> bool:
      """True when running inside a PyInstaller (or similar) frozen bundle.
  
@@ -39,16 +55,20 @@
 +        bool(getattr(sys, "frozen", False))
 +        or hasattr(sys, "_MEIPASS")
 +        or _is_briefcase_system_app()
++        or _is_briefcase_macos_app()
 +    )
  
  
  def _bundle_dir() -> str | None:
-@@ -175,6 +194,9 @@
+@@ -175,6 +211,12 @@
      meipass = getattr(sys, "_MEIPASS", None)
      if meipass:
          return str(meipass)
 +    if _is_briefcase_system_app():
 +        # the launcher lives in the system bin dir (/usr/bin); there is no bundle dir to strip
++        return None
++    if _is_briefcase_macos_app():
++        # the stub's Contents/MacOS holds no runtimes; there is no bundle dir to strip
 +        return None
      return str(Path(sys.executable).resolve().parent)
  

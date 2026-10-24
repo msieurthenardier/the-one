@@ -55,3 +55,26 @@ system_runtime_requires = [
     "gir1.2-ayatanaappindicator3-0.1",
     "libcairo2",
 ]
+
+[tool.briefcase.app.the-one.macOS]
+# macOS (hosted probe, Mission 32 Flight 1 leg 4). The Python in the app is Briefcase's own
+# framework support package, so there is no system_requires / system_runtime_requires here.
+#
+# arm64 only. The default (universal_build = true) installs the binary packages a second time
+# for x86_64 as bare `name==version` pins, which `--require-hashes` below refuses; and the
+# hosted runner is Apple Silicon.
+universal_build = false
+# Explicit, not left to the support package's default: the lowest macOS tag at which the whole
+# hash-pinned closure resolves for arm64 wheels (rehearsed on Linux with `pip download
+# --platform macosx_<V>_arm64`: 11_0, 12_0 and 14_0 all resolve; 10_9 fails at cffi, which has
+# no arm64 wheel below 11.0).
+min_os_version = "11.0"
+# Briefcase passes `--only-binary :all:` on macOS. `proxy-tools` (a pywebview dependency on every
+# platform) is the one pure-Python package that ships only an sdist, so it is the one exception.
+# Its sdist hash is already in the hashed closure, so --require-hashes still holds. The Linux
+# section keeps its own args (no --only-binary there).
+requirement_installer_args = ["--no-deps", "--require-hashes", "--no-binary", "proxy-tools"]
+
+[tool.briefcase.app.the-one.macOS.info]
+# Retina rendering for the web view; the Briefcase template's Info.plist does not set it.
+NSHighResolutionCapable = true

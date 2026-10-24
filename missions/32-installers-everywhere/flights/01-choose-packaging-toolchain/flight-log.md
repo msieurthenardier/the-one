@@ -101,6 +101,24 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
 
   Legs 01-03 are set to `completed` and committed by the Flight Director (a mechanical commit of reviewed changes).
 - **`macos-probe` split** into `macos-probe-prepare` (autonomous; no push, PR or dispatch) and `macos-probe-run`. Between them, the Flight Director commits and pushes, opens the `.github/`-only PR to `main` with the operator's go, merges it after `pr-lint`, and dispatches. That human checkpoint is why it is two legs. The flight now has seven legs.
+- **`macos-probe-prepare` risk tier: high** (it spends scarce hosted minutes, and its output reaches `main`). **Design review (Developer): approve with changes.** Folded in as numbered findings in the leg:
+  - B's build would fail on sdist-only `proxy-tools` under Briefcase's macOS `--only-binary :all:`; fix with `--no-binary proxy-tools`;
+  - a Linux rehearsal of macOS pip resolution at three `min_os_version` tags;
+  - a layered cost guard (30-minute job, 15-minute steps, in-script time limits, concurrency, a choice input);
+  - one entry script for A that defaults to `app` on a bare launch;
+  - macOS-specific gate 2 scoring;
+  - quoting the space in B's executable name;
+  - `--no-input`;
+  - patch 02's macOS clause narrowed, with `_bundle_dir()` returning `None`;
+  - `sys.executable` probed first.
+- **`macos-probe-prepare` landed, then review checkpoint: `[HANDOFF:confirmed]`** (Sonnet Reviewer; no blocking issues). Three non-blocking fixes were applied by a Developer:
+  - the job cap raised from 30 to 40 minutes (the estimate sat at the cap, and 40 lets the 15-minute step caps fire first, so the log upload is always reached);
+  - a final step that fails the job on a FAIL or missing candidate summary;
+  - time limits on `log show` and `screencapture`.
+
+  The Flight Director checked the triggers and caps, then committed. The operator approved (2026-10-23) the push, the `.github/`-only PR to `main`, its merge after `pr-lint`, and one macOS dispatch building both candidates, and confirmed the minutes budget. A second dispatch needs the operator's go.
+
+  The billing API is unreadable without the `user` scope, so the operator confirms minutes before dispatch. No second review: these are the reviewer's own specified fixes. Set to `ready`.
 
   No second review (Flight Director call): the changes are the review's own specified fixes. Set to `ready`.
 
@@ -310,6 +328,111 @@ See the table below.
 4. Cold vs warm: 105/223 s vs about 70 s per target.
 5. `build.sh` copied stale `dist/*.deb` from the previous target until `rm -rf dist` was added per target.
 6. The AppImage template/CLI mismatch (AC6) is an upstream defect at this version; a later 0.4.x may fix it.
+
+### macos-probe-prepare
+**Status**: landed
+**Started**: 2026-10-23
+**Landed**: 2026-10-23
+
+#### Changes Made
+- `packaging/macos/` (new): `the-one.spec` (A's `BUNDLE`, `GleepGlorp AI.app`), `frozen_entry_mac.py`, `make-icns.py`, `build.sh`, `README.md`.
+- `packaging/briefcase/`: `pyproject.toml.in` gained `[tool.briefcase.app.the-one.macOS]` (+ `.info`); patch 02 gained a macOS clause; `build-macos.sh`, `check-env-layouts.py` (faked-layout check) and `macos-resolution-rehearsal.py` (pip rehearsal) are new; README gained a macOS section.
+- `packaging/spike/`: `macos-checks.sh` (shared per-`.app` checks), `m32probe.py` (stub probe module, a lint-clean copy of the one leg 3 used); `stage.py` applies the diffs with `git apply` on darwin only (macOS ships BSD `patch`, which may lack GNU's `--no-backup-if-mismatch`; the Linux path is unchanged; both patches were proven to give a byte-identical tree under `git apply` and `patch`).
+- `.github/workflows/packaging-probe-macos.yml` (complete) and `packaging-probe-windows.yml` (stub). Nothing else outside `packaging/`, `.github/workflows/` (those two files) and `missions/` changed. No push, PR, dispatch or commit.
+- Tools (checksums in `$M32_BUILD/tools/SHA256SUMS`): actionlint 1.7.7 linux_amd64 `023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757`, shellcheck 0.10.0 linux.x86_64 `6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87`. Scratch for the rehearsal: `$HOME/the-one-m32-build/macos-rehearsal/`.
+
+#### Decisions
+1. **A's Finder launch: one entry script** (`frozen_entry_mac.py`): ignoring `-psn_*`, an empty argv becomes `app`; anything else is the CLI unchanged, so `Contents/MacOS/the-one doctor|serve|version` still work for the checks. `console=False` + `ensure_stdio_streams()`. Recipe upkeep, not an app patch. Side effect, noted in the README: bare `the-one` in a shell also opens the window.
+2. **Python versions.** Both candidates run on the runner's `setup-python` 3.11 (A freezes on it; Briefcase's macOS support package follows the Python that runs Briefcase, so B's app is 3.11; the template pins support revision 10 for 3.11, checked in the v0.4.6 template's `briefcase.toml`). Linux B ran 3.13/3.14 (distro Python); this is a difference to log for Flight 2.
+3. **B must be `universal_build = false`** (not in the leg text; found in Briefcase 0.4.6's `macOS/__init__.py::_install_app_requirements`). The default does a second install pass for x86_64 with bare `name==version` pins, which `--require-hashes` would refuse ("requirements without hashes"). The runner is arm64, so one slice.
+4. **`requires` by absolute path on macOS.** On Linux Briefcase copies `-r ./closure.txt` into the container; on macOS `requires` goes straight to `pip` (cwd-relative), so `build-macos.sh` writes the absolute staged path.
+5. **Patch 02, macOS clause** (leg finding 8): `_is_briefcase_macos_app()` is true when `sys.executable`'s parent is named `MacOS` AND `../Resources/app_packages` is a directory; `is_frozen()` gains one `or` line; `_bundle_dir()` returns `None` there (a Briefcase macOS stub's `Contents/MacOS` holds nothing to strip, as `/usr/bin` on Linux), which supersedes the leg Context's "return `Contents/MacOS`". The new patch is the old one plus added lines only; the only "changed" lines are the two hunk headers' counts:
+
+```
+$ diff 02-old.diff 02-new.diff | grep '^<'
+< @@ -152,14 +153,32 @@
+< @@ -175,6 +194,9 @@
+```
+   (no Linux hunk content line removed or altered; the added lines are the new function, one `or _is_briefcase_macos_app()` line in `is_frozen()` and a 3-line `if` in `_bundle_dir()`).
+6. **Cost guard (finding 3), as built:** job `timeout-minutes: 30`; each candidate step 15; `concurrency: packaging-probe-macos` with `cancel-in-progress: false`; `candidates` is a `choice` (`"A B"`, `"A"`, `"B"`); inside the scripts `doctor` (240 s), `serve` (240 s alarm, 60 s start-up wait), `hdiutil` (300 s, one retry), `version` and the interpreter run (60 s) go through `perl -e 'alarm ...; exec @ARGV'`; `serve` runs in the background with an EXIT trap that stops it by recorded PID. Permissions `contents: read`; no `secrets.`; the only upload is the logs directory (`retention-days: 7`), never a `.app` or `.dmg`.
+7. **macOS bash is 3.2:** `"${extra[@]}"` of an empty array is an unbound-variable error under `set -u` there, so `build-macos.sh` uses `${extra[@]+"${extra[@]}"}`; no `[[`, `mapfile` or case-folding expansions anywhere.
+8. **B's `doctor`/stub output** might be swallowed by a GUI stub (unconfirmed); if `version` prints nothing, `macos-checks.sh` saves the unified-log tail (`unified-log.txt`) for leg 5.
+9. **Best-effort extra (unscored):** `macos-checks.sh` also does one Finder-style `open -n --env ... "$APP"` (no arguments), polls `/api/live`, posts `/api/window/focus`, takes a `screencapture`, and stops the app by the PID that owns port 8490. It answers "does a double-click choose `app`" for both candidates at no extra job.
+
+#### macOS pip resolution (AC4, B's install exactly as Briefcase 0.4.6 runs it)
+Briefcase passes `--platform macosx_<min_os>_arm64 --only-binary :all:` then the extra args (`create.py`/`virtual_environment/base.py`). The rehearsal (`macos-resolution-rehearsal.py`, `pip download --dest ... --platform ... --python-version ... --implementation cp --only-binary :all: --no-binary proxy-tools --no-deps --require-hashes -r closure`) first evaluates every environment marker as macOS arm64 (pip on Linux would drop `pyobjc-*` and keep `pygobject`), leaving 90 pins (12 dropped by marker), and strips the evaluated markers. Evidence: `macos-rehearsal/result-py3.11.txt`, `result-py3.12.txt`.
+
+```
+macosx_11_0_arm64 py3.11: rc=0 files=90     macosx_11_0_arm64 py3.12: rc=0 files=90
+macosx_12_0_arm64 py3.11: rc=0 files=90     macosx_12_0_arm64 py3.12: rc=0 files=90
+macosx_14_0_arm64 py3.11: rc=0 files=90     macosx_14_0_arm64 py3.12: rc=0 files=90
+macosx_10_9_arm64 py3.11: rc=1   ERROR: Could not find a version that satisfies the requirement cffi==2.0.0   (negative control)
+```
+- **Chosen `min_os_version = "11.0"`:** the lowest tag at which the closure resolves (arm64 itself starts at 11.0; `cffi` has no arm64 wheel below it). 3.11 is the runner's Python for B and for A; 3.12 is recorded because the staged venvs on this host use it.
+- **A** installs natively on the runner (`pip install --require-hashes --no-deps`, not `--platform`), so the same 3.11 result covers it; the macOS runner's own tag (`macosx_15_0_arm64`) accepts every wheel found at `11_0`.
+- **`proxy-tools` (finding 1):** sdist-only (`proxy_tools-0.1.0.tar.gz`). Without `--no-binary proxy-tools`: `ERROR: No matching distribution found for proxy-tools==0.1.0` (proved). With it: resolves, and its sdist hash is already in the hashed closure, so `--require-hashes` holds: **the fallback (a pure wheel via `--find-links`, dropping it from the hashed file) was not needed.** `pip wheel` of the sdist builds `proxy_tools-0.1.0-py3-none-any.whl`.
+- **Full install rehearsal:** the actual Briefcase command (`pip --python <venv> install --no-user --upgrade --target T --platform macosx_11_0_arm64 --only-binary :all: --no-deps --require-hashes --no-binary proxy-tools -r closure`) ran to completion on Linux for both Pythons (`target311`: 193 entries, 255 MB installed, `numpy/_core/_multiarray_umath.cpython-311-darwin.so`, `objc`, five `pyobjc-*` dist-infos, `usearch`, `proxy_tools`).
+- Caveat (not testable on Linux): wheels for the `x86_64` slice are not needed (`universal_build = false`); `uv`'s resolver is not involved (Briefcase's default env manager is `venv`/pip).
+
+#### Rehearsal results (AC4)
+- `actionlint` 1.7.7 with `-shellcheck` 0.10.0 on both workflows: clean. (It caught one real defect first: `runner` context is not allowed in a job-level `env`; the paths are now set in a first step through `GITHUB_ENV`.) YAML parse (PyYAML): both have only `workflow_dispatch`, `candidates` is `type: choice`.
+- `bash -n` and `shellcheck -x` on `packaging/macos/build.sh`, `packaging/briefcase/build-macos.sh`, `packaging/spike/macos-checks.sh`: clean. `py_compile` on the spec, entry, `make-icns.py`, the two Linux-side checks, `stage.py`, `m32probe.py`: clean. `ruff check packaging/` and `ruff format --check packaging/`: pass.
+- `stage.py --candidate briefcase`: both patches apply (`applied 01-...`, `applied 02-...`); staged with `--candidate macos`: no patches. Config: Briefcase's own `parse_config(..., platform="macOS", output_format="app")` on the generated `pyproject.toml` merges the macOS section (`universal_build False`, `min_os_version 11.0`, the three installer args, `info {NSHighResolutionCapable: True}`, `allow_subprocesses True`).
+- Faked layouts (`check-env-layouts.py`, output in `macos-rehearsal/faked-layout.txt`):
+
+```
+ok   macos-app: frozen=True bundle=None            (strip_path unchanged=True; clean_path = given PATH + runtime dirs appended)
+ok   linux-system: frozen=True bundle=None
+ok   source-install: frozen=False bundle=None
+ok   macos-shaped-not-MacOS: frozen=False bundle=None   (Other.app/Contents/Elsewhere/<stub> with Resources/app_packages)
+ok   macos-no-app_packages: frozen=False bundle=None    (Bare.app/Contents/MacOS/<stub>, no Resources/app_packages)
+RESULT PASS
+```
+- A's spec ran through PyInstaller 6.22.3 Analysis/COLLECT on Linux against a staged macOS copy (rc 0, version `0.11.8` printed from the staged tree; the `gi` tracebacks in that log are the Linux venv's hooks, absent on a Mac; `BUNDLE` is a no-op off macOS). The `.icns` writes with Pillow (1.2 MB, 16-512 px).
+- `macos-checks.sh` dry run on Linux with shim `codesign`/`sw_vers`/`plutil`/`ditto`/`open`/`log` and a fake `.app` (a stand-in executable replaying a real `doctor` capture and serving `/api/live`): ran end to end for labels A and B, `exit=0`, all six hard checks PASS. The dry run found one real bug (gate 2 passed for a non-existent interpreter), fixed: gate 2 now requires the resolved interpreter to run.
+- Per-candidate command listing (what the workflow executes; `$M32_VERSION` is `__version__` read from the checkout):
+
+```
+common   : checkout; mkdir logs; sw_vers/uname/xcodebuild/df; setup-python 3.11;
+           pip install uv==0.10.0; uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > requirements-closure.txt
+A  (15 min cap, continue-on-error): bash packaging/macos/build.sh $M32_VERSION
+   = stage.py --candidate macos; python3 -m venv; pip install --require-hashes --no-deps -r closure; pip install pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.8;
+     make-icns.py; pyinstaller --noconfirm --clean packaging/macos/the-one.spec; codesign --force --deep -s - "GleepGlorp AI.app";
+     hdiutil create -volname "GleepGlorp AI" -srcfolder ... -format UDZO (x2 max, 300 s each); macos-checks.sh A
+B  (15 min cap, continue-on-error): bash packaging/briefcase/build-macos.sh $M32_VERSION
+   = python3 -m venv; pip install briefcase==0.4.6 pillow; stage.py --candidate briefcase; make-icns.py; fill pyproject.toml (absolute closure path);
+     briefcase create macOS app --no-input -v; briefcase build macOS app --no-input -v; briefcase package macOS app --no-input -v --adhoc-sign --no-notarize; macos-checks.sh B
+checks   : codesign -dv; codesign --verify --deep --strict -vv; layout/size/plutil; (B) stub probe on a copy; version; doctor (240 s) -> score_doctor;
+           gate 2 (resolved interpreter run, no ".app/" or "Contents"); serve :8490 + /api/live (scratch THE_ONE_DATA_DIR); rotate-api-credential (default dir);
+           best-effort `open -n` (no args) + focus + screencapture
+final    : summary to GITHUB_STEP_SUMMARY; upload logs (7 days)
+```
+
+#### Dispatch command (for the Flight Director, after the `.github/`-only PR is merged to `main`)
+`gh workflow run packaging-probe-macos.yml --ref flight/01-choose-packaging-toolchain -f candidates="A B"`
+Estimated job: setup 2-3 min; A about 9-13 min (closure install, PyInstaller on 3 cores, dmg, checks); B about 10-14 min (venv, template/support download, install, signing of every Mach-O, dmg, checks): **roughly 22-30 min, so the 30-minute job cap is tight if both are slow** (a candidate step is cut at 15 min regardless, and the log upload still runs). Billed at 10x, a full run is up to ~300 billed minutes; confirm the budget first.
+
+#### Paper items (DD6; for Flight 3)
+1. **`/usr/bin/python3` on a fresh Mac is the Xcode command-line-tools stub** (prints an install prompt and exits). `the_one/platform/interpreter.py::_is_store_alias` (line 90) is purely Windows: it checks for a `Microsoft\WindowsApps` parent via `PureWindowsPath`, and `_resolve_frozen_python` (line 105) only calls it for the bare-name search (line 131). On macOS, `shutil.which("python3")` on the cleaned PATH can return `/usr/bin/python3`, which `resolve_python` accepts. The runner has a real Python, so this cannot be observed there.
+2. **A Finder-launched `.app` gets launchd's minimal `PATH`** (`/usr/bin:/bin:/usr/sbin:/sbin`). `the_one/platform/env.py::_common_runtime_dirs` (line 181) appends `/usr/local/bin`, `/opt/homebrew/bin`, `~/.local/bin`, `~/.cargo/bin` and `~/.npm-global/bin` on POSIX, which covers Homebrew and uv, but not `nvm`, `fnm`, `volta`, `asdf` or `pyenv` shims (user-installed Node via those never lands on the PATH); `THE_ONE_EXTRA_PATH` is the only escape.
+3. **`DesktopSession` has no darwin lifecycle** (`the_one/interfaces/desktop/shell.py:368`): its only lifecycle hooks are `_on_closing` (hide to tray, line 463) and the tray; there is no `applicationShouldHandleReopen` (Dock click after the window is hidden), no Cmd-Q / app-menu Quit handling, and no "close the window but keep running" convention check. A grep of `desktop/*.py` and `interfaces/app.py` finds no `darwin` branch except `_webview_available`.
+4. **`_webview_available` returns `True` on darwin without probing** (`shell.py:320-321`: `if sys.platform in ("win32", "darwin"): return True`). A broken or missing WKWebView would only show at window creation.
+
+#### AC status
+- AC1 met (see Decisions 6; actionlint clean). AC2 met (`py_compile`, Analysis run on Linux; every macOS-only line in the spec carries a comment). AC3 met (config section, patch clause, additive diff, five-layout check). AC4 met (above). AC5 met (above). AC6 met (changes only under `packaging/`, `.github/workflows/`, `missions/`; ruff clean; no push/PR/dispatch/commit; `gh auth status` read only).
+
+#### Residual risks for the run
+- B's macOS stub behaviour (argv forwarding, `sys.executable` being the stub, whether stdout reaches the terminal, `BRIEFCASE_MAIN_MODULE` support in the stub) is from memory; the run prints it first.
+- The 30-minute job cap versus two cold builds on a 3-core runner (above).
+- `pyobjc`/`PyInstaller` hidden imports for pywebview's Cocoa backend are a best guess; a missing module would show in `doctor`'s desktop-shell gate or the `open` probe.
+- First time `doctor` runs on macOS at all: the file-watcher (FSEvents), embedding and window-chrome gates are unproven there.
+- Briefcase clones its template and downloads its support package/stub from GitHub at build time.
+
+#### Review fixes (leg 04)
+- Workflow job `timeout-minutes` raised 30 -> 40 (worst case about 36 min; the 15-minute step caps now always fire first and the upload is reached). Header comment updated. Recorded post-review amendment: leg 04 AC1 now reads "40 or less" (the leg was already landed; the Flight Director changed the wording after review).
+- New final step "Fail on a failed or missing candidate" (`if: always()`, after the upload): fails the job when a selected candidate's SUMMARY is missing or contains FAIL.
+- `macos-checks.sh`: `log show` and `screencapture` wrapped in `tl 60`.
+- Lint: actionlint 1.7.7 (with shellcheck 0.10.0) clean on the workflow; shellcheck clean on `macos-checks.sh`; `ruff check packaging/` and `ruff format --check packaging/` pass.
 
 ---
 

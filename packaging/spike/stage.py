@@ -80,8 +80,15 @@ def main() -> int:
 
     patch_dir = REPO / "packaging" / args.candidate / "patches"
     for diff in sorted(patch_dir.glob("*.diff")):
+        if sys.platform == "darwin":
+            # macOS ships BSD patch, whose option set differs from GNU's; git is already a
+            # build requirement (Briefcase clones its template) and applies the same diffs.
+            cmd = ["git", "apply", "-p1", "--verbose", str(diff)]
+        else:
+            cmd = ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(dest), "-i", str(diff)]
         r = subprocess.run(
-            ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(dest), "-i", str(diff)],
+            cmd,
+            cwd=dest if sys.platform == "darwin" else None,
             capture_output=True,
             text=True,
         )
