@@ -1,0 +1,9 @@
+#!/bin/sh
+# AppImage entry point (Mission 32 Flight 1 spike). Runs the frozen bundle.
+# PATH is deliberately NOT modified: the app resolves node, uv and python from the
+# user's PATH, and an AppDir ahead of the system directories would shadow them.
+HERE="$(dirname "$(readlink -f "$0")")"
+if [ "$#" -eq 0 ]; then
+    set -- app
+fi
+exec "$HERE/usr/lib/gleepglorp-ai/the-one" "$@"
