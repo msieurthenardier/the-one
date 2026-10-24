@@ -670,7 +670,13 @@ class MCPClient:
             # eventually GC it. Better to leak than to hang the agent build.
             async def _safe_cleanup() -> None:
                 try:
-                    await asyncio.wait_for(self._cleanup_after_failed_connect(), timeout=3.0)
+                    # ``asyncio.timeout`` runs the cleanup in THIS task on 3.11
+                    # and 3.12 alike. ``wait_for`` runs it in a child task on
+                    # 3.11 (3.12 inlined it), and the SDK's anyio cancel scope
+                    # then gets exited from a task other than the one that
+                    # entered it, cancelling the connecting task (squawk 0251).
+                    async with asyncio.timeout(3.0):
+                        await self._cleanup_after_failed_connect()
                 except (
                     asyncio.TimeoutError,
                     asyncio.CancelledError,
