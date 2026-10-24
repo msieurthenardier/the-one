@@ -1145,17 +1145,6 @@
     color: var(--fg);
     margin: 0;
   }
-  /* New-entity header CTA (M17 F3 leg 03 CTA unification): one
-     always-visible vocabulary button (.btn-outlined-primary, icon +
-     text label) per entity grid, in BOTH empty and populated states.
-     The former icon-only/hover-reveal treatment and the
-     `:has(.empty-canvas)`-driven display:none state-split are retired —
-     the create affordance no longer moves between two buttons. The
-     empty-canvas keeps a second instance of the same component
-     (.empty-canvas-cta spacing hook, defined with the empty-state
-     rules above); the margin-left:auto pins the header CTA to the
-     header's right edge. */
-  .page-header > .btn-outlined-primary { margin-left: auto; flex-shrink: 0; }
 
   /* === App.ui.pageHeader (M31 F4 L04a) ===
      The control's own marker class. The geometry is the .page-header rules above
@@ -1168,9 +1157,10 @@
     margin: 0;
   }
   .ui-page-header-actions { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; }
-  /* inset: 'none' (editorShell, M31 F4 L04a): no horizontal padding. !important so
-     it holds against any later-layer rule too. */
-  .editor-header--flush { padding-left: 0 !important; padding-right: 0 !important; }
+  /* inset: 'none' (editorShell, M31 F4 L04a): no horizontal padding. No !important since
+     M31 F4 L11: no areas-layer rule styles .editor-header or .page-header any more; the
+     :is() lifts the specificity over the later `.editor-header` padding. */
+  .editor-header--flush:is(.editor-header, .page-header) { padding-left: 0; padding-right: 0; }
 
   /* === App.ui.tabs (M31 F2 L4): the tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
   /* Used by the studio agent editor's General/Knowledge/Tools tabs. The
@@ -1426,14 +1416,15 @@
      the section divider; admin's editor uses three sections (Connection /
      Models / Danger Zone). */
   .editor-section { padding: 12px 0; }
-  /* inset: 'none' (App.ui.section, M31 F4 L04a); !important holds against area rules. */
+  /* inset: 'none' (App.ui.section, M31 F4 L04a). !important stays (M31 F4 L11) against ONE
+     remaining areas-layer rule, `.area-studio .editor-section { padding: 0 20px }` in
+     studio.css; Flight 5 deletes that rule and this !important with it. */
   .editor-section--flush { padding-left: 0 !important; padding-right: 0 !important; }
   .editor-section + .editor-section { border-top: 1px solid var(--border); padding-top: 16px; }
   /* One rule per section boundary (M25 F6 L4, D2): a section that opens with a
      section title already draws that title's rule, so the divider goes. A
      section with no leading title keeps its divider. */
   .editor-section + .editor-section:has(> .section-title:first-child),
-  .editor-section + .editor-section:has(> .section-title-row:first-child),
   .editor-section + .editor-section:has(> .ui-section-title-row:first-child) { border-top: 0; }
   /* Friendly description flush under a section title (lifted from studio.css,
      M31 F1 L4): body-sm muted text with a modest bottom margin. */

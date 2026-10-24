@@ -222,16 +222,18 @@ def test_default_variant_header_dom_is_pinned(engine_page: Page) -> None:
     assert out["h"] == "H1.editor-title" and out["ui"] == 0
 
 
+@pytest.mark.parametrize("ancestor", ["area-admin", "area-studio"])
 @pytest.mark.parametrize("variant", ["default", "page"])
 def test_inset_none_removes_horizontal_padding_under_area_admin(
-    engine_page: Page, variant: str
+    engine_page: Page, variant: str, ancestor: str
 ) -> None:
-    _shell(engine_page, f"{{variant: '{variant}', inset: 'none', title: 'T'}}", "area-admin")
+    # No !important on the flush modifier (M31 F4 L11): it must win on specificity alone.
+    _shell(engine_page, f"{{variant: '{variant}', inset: 'none', title: 'T'}}", ancestor)
     got = engine_page.evaluate(
         "() => { const c = getComputedStyle(__shell.el); return [c.paddingLeft, c.paddingRight, __shell.el.classList.contains('editor-header--flush'), c.paddingTop]; }"
     )
     assert got[:3] == ["0px", "0px", True]
-    _shell(engine_page, f"{{variant: '{variant}', title: 'T'}}", "area-admin")
+    _shell(engine_page, f"{{variant: '{variant}', title: 'T'}}", ancestor)
     plain = engine_page.evaluate("() => getComputedStyle(__shell.el).paddingLeft")
     assert plain != "0px"
 

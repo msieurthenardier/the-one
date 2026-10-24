@@ -3,7 +3,7 @@
 **Slug**: `start-a-chat`
 **Status**: active
 **Created**: 2026-10-05
-**Updated**: 2026-10-06 (M25 F6 leg 4b, DD14: step 2 Today time reads local 12-hour `h:mm AM/PM`; M25 F6 leg 3, squawk 0122: wording only, no expectation changed: frames judged per step with each step's frame actions listed, a recorder restart's reload sequence, step 11's geometric criterion, step 13's Description selector); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
+**Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-06 (M25 F6 leg 4b, DD14: step 2 Today time reads local 12-hour `h:mm AM/PM`; M25 F6 leg 3, squawk 0122: wording only, no expectation changed: frames judged per step with each step's frame actions listed, a recorder restart's reload sequence, step 11's geometric criterion, step 13's Description selector); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
 **Last Run**: 2026-10-07-11-51-23 — pass (26/26; Light + Dark; M25 F6 mission close, step 2 12-hour Today times)
 
 ## Intent
@@ -142,7 +142,7 @@ Notation: `t(Δ)` is the UTC instant `Δ` before the seed ran, as an ISO-8601 st
 - **Theme.** Run steps 2–14 in **Light** and in **Dark**, each in its **own fresh browser
   context** (a new handoff mint). Before step 2, inside that context, open
   `{base}/#settings/appearance`, choose the variant's option in the theme radiogroup, and
-  confirm `aria-checked="true"` on it and `data-theme` on `<html>`. The choice lives in the
+  confirm it is `checked` (the options are native radios) and `data-theme` on `<html>`. The choice lives in the
   context (`localStorage`), so it must be made in the variant's own context before the first
   checkpoint; closing the context restores the operator's setting. Re-seed per variant
   (step 15, then step 1); reusing the seed is allowed only when `GET {base}/api/chat/sessions`

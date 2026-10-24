@@ -379,7 +379,9 @@ def test_library_chip_list_keeps_its_own_look_under_an_area(
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
-@pytest.mark.parametrize("area", ["area-studio", "area-admin"])
+@pytest.mark.parametrize(
+    "area", ["area-studio"]
+)  # the area-admin half left with Settings (M31 F4 L11)
 def test_string_built_chip_list_keeps_the_area_look(
     engine_page: Page, area: str, theme: str
 ) -> None:

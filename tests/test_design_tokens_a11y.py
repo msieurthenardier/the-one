@@ -603,7 +603,7 @@ _FILL_SITES = [
         ("var(--accent)", "var(--fg-on-accent)"),
     ),
     (
-        "admin.css",
+        "studio.css",
         _ON_TRACK.format("studio"),
         ("--accent-fill",),
         ("var(--accent)",),
@@ -631,13 +631,13 @@ _FILL_SITES = [
     # Boundaries and thumbs (DD7).
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
     (
-        "admin.css",
+        "studio.css",
         ".area-studio .tool-enable-switch-track",
         ("--control-border",),
         ("--border-strong",),
     ),
     (
-        "admin.css",
+        "studio.css",
         ".area-studio .tool-enable-switch-track::after",
         ("--control-thumb",),
         ("--fg-on-accent",),

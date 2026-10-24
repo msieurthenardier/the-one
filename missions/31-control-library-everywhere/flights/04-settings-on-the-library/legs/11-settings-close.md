@@ -1,6 +1,6 @@
 # Leg: settings-close
 
-**Status**: ready
+**Status**: landed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective

@@ -425,6 +425,7 @@ caught — but it cannot see where the attribute is emitted.
 | `thinking-disclosure` | chat | |
 | `thinking-indicator` | chat | |
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
+| `tool-editor-header` | admin | The open Built-in tool editor's header (`editorShell` `testid`); the page reveals and focuses it on an intent open (M31 F4 L11, replaces class queries) |
 | `tool-test-details` | admin | M31 F4 L07d — the collapsed "Technical details" `App.ui.disclosure` under the Test result (absent when the output is empty) |
 | `tool-test-output` | admin | M31 F4 L07d — the code block inside `tool-test-details`: the first 2 KB of the tool's output, with an ellipsis at the cut |
 | `tool-toggle` | admin | The tile's enable switch (`role=switch`, named "Enable {name} for all agents", M31 F4 L06); it never navigates (M25 F3 L5b) |

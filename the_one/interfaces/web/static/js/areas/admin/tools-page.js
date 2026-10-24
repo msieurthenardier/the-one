@@ -102,8 +102,8 @@ App.admin.toolsPage = {
       var gen = ctx.getGen();
       setTimeout(function () {
         if (gen !== ctx.getGen() || !itemEl.isConnected) return;
-        var header = itemEl.querySelector('.editor-header');
-        var title = itemEl.querySelector('.editor-title');
+        var header = itemEl.querySelector('[data-testid="tool-editor-header"]');
+        var title = header ? header.querySelector('h2[tabindex="-1"]') : null;
         if (header && typeof header.scrollIntoView === 'function') header.scrollIntoView({ block: 'nearest' });
         if (title) focusNoScroll(title);
       }, 0);
@@ -362,7 +362,7 @@ App.admin.toolsPage = {
         revealItem(scaffold.itemEl);
         return;
       }
-      var link = target.closest('a.editor-breadcrumb-link');
+      var link = target.closest('a[data-testid="editor-breadcrumb-link"]');
       if (!link || !ctx.content.contains(link)) return;
       e.preventDefault();
       var closing = closingItem();

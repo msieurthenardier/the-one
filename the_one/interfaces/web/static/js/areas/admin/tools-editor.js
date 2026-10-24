@@ -160,6 +160,7 @@
       titleLevel: 2,
       subtitle: categoryLabel(name),
       inset: 'none',
+      testid: 'tool-editor-header',
       errorRole: 'alert',
       actions: {
         cancel: { testid: 'cancel-tool-btn', onClick: cancel },

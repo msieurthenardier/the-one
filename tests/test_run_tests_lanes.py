@@ -30,6 +30,7 @@ LANES = (
     "mcp",
     "routing",
     "settings",
+    "settings-tools",
     "providers",
     "contracts-overlay",
     "contracts-controls",
@@ -89,6 +90,17 @@ def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[
     assert not (lanes["shared"] & ui)
 
 
+def test_settings_tools_lane_is_the_built_in_tools_files(lanes: dict[str, set[str]]) -> None:
+    """M31 F4 L11: `settings` was split; the tools files go to `settings-tools`, and the
+    `system` alias is still the union of both settings lanes and `providers`."""
+    tools = lanes["settings-tools"]
+    assert "tests/browser/test_flow_admin_tools_editor.py" in tools
+    assert "tests/browser/test_flow_admin_tool_config_fields.py" in tools
+    assert "tests/browser/test_flow_admin_encryption_page.py" in lanes["settings"]
+    assert not (tools & lanes["settings"])
+    assert _lane_files("system") == lanes["settings"] | tools | lanes["providers"]
+
+
 def test_list_without_lane_exits_2() -> None:
     proc = _list("--list")
     assert proc.returncode == 2
@@ -100,7 +112,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|providers|"
+        "chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|settings-tools|providers|"
         "contracts-overlay|contracts-controls|shared"
     )
     assert lanes in proc.stderr
