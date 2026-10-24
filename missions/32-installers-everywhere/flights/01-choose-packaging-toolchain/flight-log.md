@@ -173,6 +173,7 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
   - Accepted: the Windows stub's comment ("Leg windows-cost fills in…") is now stale, but must stay byte-identical to `main`'s copy. Flight 4 replaces or removes the stub. A cosmetic long comment line in the macOS workflow is left as is.
   - Unit tests: not re-run. Nothing under `the_one/` or `tests/` changed across the flight, and leg 01 recorded `make test-unit` at 6783 passed / 12 skipped. Browser gate: not run, since no app code changed.
 - **Flight landed.** Seven legs complete; status `landed`. The debrief is next (`/mission-control:flight-debrief`).
+- **Debrief (2026-10-24)**, in `flight-debrief.md`. Squawk 0251 (the CPython 3.11 unit failures) was logged on the operator's go. The operator confirmed that the flight is `completed`, and that "continue autonomously" is the standing Flight Director mode when they hand over.
 
 #### Changes Made
 - `packaging/spike/` (candidate-neutral): `stage.py`, `images/{ubuntu-26.04,debian-13}.Dockerfile` (targets `baseline` and `bare`, each with a final observe layer), `README.md` (says spike tooling, not product).
