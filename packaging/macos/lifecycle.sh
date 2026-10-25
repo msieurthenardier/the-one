@@ -48,7 +48,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 T_OPEN=20; T_SHOT=10; T_OSA=15; T_LSAPP=10; T_QUIT=30; T_CLI=90; T_DITTO=120
 # step caps (the table in README.md; the sum plus the install is the worst case)
 # (M32_CAP_Ln overrides one, for the rehearsal of a cap firing)
-CAP_L1="${M32_CAP_L1:-80}"; CAP_L2="${M32_CAP_L2:-50}"; CAP_L3="${M32_CAP_L3:-70}"
+CAP_L1="${M32_CAP_L1:-110}"; CAP_L2="${M32_CAP_L2:-50}"; CAP_L3="${M32_CAP_L3:-70}"
 CAP_L4="${M32_CAP_L4:-50}"; CAP_L5="${M32_CAP_L5:-200}"; CAP_L6="${M32_CAP_L6:-130}"
 CAP_L7="${M32_CAP_L7:-120}"; CAP_L8="${M32_CAP_L8:-130}"; CAP_L9="${M32_CAP_L9:-190}"
 CAP_L10="${M32_CAP_L10:-70}"
@@ -85,6 +85,8 @@ touch "$TRACK" "$SUMMARY"
 
 # the exact log lines (leg 4's AC5 table); grep -F substrings
 T_INSTALL='macos dock: delegate installed (route=subclass, app nap activity held)'
+T_LOADED='macos: main window shown after page load'
+T_LOADED_ANY='macos: main window shown after'
 T_HIDE='dock: window hidden on close'
 T_REOPEN='reopen: decision=show'
 T_RECV='terminate: applicationShouldTerminate received (decision=drain-then-reply)'
@@ -308,6 +310,13 @@ l1() {
   # the route line first: if the delegate did not install, every later row is explained by it
   wait_log "$mark" "$T_INSTALL" 15
   chk "log: $T_INSTALL" $?
+  # the main window must have waited for its page (HAT P1): the fallback line means the page
+  # never reported loaded and the splash was covered by an unpainted window
+  wait_log "$mark" "$T_LOADED_ANY" 35
+  chk "log: $T_LOADED_ANY" $?
+  log_seg "$mark" "$SD/.loaded"
+  if grep -qF -- "$T_LOADED" "$SD/.loaded"; then rc=0; else rc=1; fi
+  chk "log: $T_LOADED ($(grep -F -- "$T_LOADED_ANY" "$SD/.loaded" | tail -1 | cut -c1-120))" "$rc"
   poll_state visible true 25
   chk "visible: true (read $POLL_VAL)" $?
   p="$(sget tray)"

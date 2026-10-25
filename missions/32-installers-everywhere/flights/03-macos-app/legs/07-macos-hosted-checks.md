@@ -1,6 +1,6 @@
 # Leg: macos-hosted-checks
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -41,10 +41,10 @@ Prove the macOS app on the hosted runner: a `lifecycle` dispatch builds N and N+
    - **`tests/behavior/macos-app-install.md`:** finalized from the evidence (the Gatekeeper wording, the log path, step 9's crash expectation), still status `draft` with "Last Run: never". The run is Flight 4's.
 
 ## Acceptance Criteria
-- [ ] **AC1:** a `lifecycle` run with every `A/SUMMARY.txt` and `lifecycle/SUMMARY.txt` row PASS, the audit enforcing and clean, the `.dmg` artifact uploaded, and its run id recorded. **Or**, if the budget runs out, every remaining FAIL has a classification and an operator disposition.
-- [ ] **AC2:** every product or harness fix carries tests or a rehearsal, and is recorded in the flight log; `make test-unit` passes with 12 skips; ruff is clean.
-- [ ] **AC3:** the docs as listed. The guide's commands and paths are the ones the run exercised (cross-checked in the flight log).
-- [ ] **AC4:** the hosted minutes are recorded per run, with the flight total.
+- [x] **AC1:** a `lifecycle` run with every `A/SUMMARY.txt` and `lifecycle/SUMMARY.txt` row PASS, the audit enforcing and clean, the `.dmg` artifact uploaded, and its run id recorded. **Or**, if the budget runs out, every remaining FAIL has a classification and an operator disposition.
+- [x] **AC2:** every product or harness fix carries tests or a rehearsal, and is recorded in the flight log; `make test-unit` passes with 12 skips; ruff is clean.
+- [x] **AC3:** the docs as listed. The guide's commands and paths are the ones the run exercised (cross-checked in the flight log).
+- [x] **AC4:** the hosted minutes are recorded per run, with the flight total.
 
 ## Files Affected
 - per fixes: `the_one/interfaces/desktop/*`, `packaging/macos/*`, `.github/workflows/macos-packages.yml` (the `on:` block untouched)

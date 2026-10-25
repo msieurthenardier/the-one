@@ -56,8 +56,9 @@ def _run(
     start_effect: Any = None,
     wait_effect: Any = None,
     create_effect: Any = None,
-    loaded_is_set: bool = False,
+    loaded_is_set: Any = False,
     run_boot: bool = False,
+    loaded_bound: float = 0.05,
     graceful: Any = None,
 ) -> SimpleNamespace:
     import the_one.interfaces.desktop.shell as shell
@@ -67,9 +68,17 @@ def _run(
     monkeypatch.setattr(chrome, "os_theme", lambda: "dark")
     monkeypatch.setattr(chrome, "register", lambda w, t: None)
     splash, main = _splash(), MagicMock()
-    main.events.loaded.is_set.return_value = loaded_is_set
+    main.events.loaded.__iadd__.side_effect = lambda handler: main.events.loaded  # keep self
+    if callable(loaded_is_set):
+        main.events.loaded.is_set.side_effect = loaded_is_set
+    elif isinstance(loaded_is_set, list):  # a scripted sequence; the last value repeats
+        seq = list(loaded_is_set)
+        main.events.loaded.is_set.side_effect = lambda: seq.pop(0) if len(seq) > 1 else seq[0]
+    else:
+        main.events.loaded.is_set.return_value = loaded_is_set
     webview_mock.create_window.side_effect = create_effect or [splash, main]
     monkeypatch.setattr(macos_dock, "BOOT_WAIT_BOUND", 0.05)
+    monkeypatch.setattr(shell, "MAIN_LOADED_BOUND", loaded_bound)
 
     def _start(*args, **kwargs):
         if start_effect is not None:
@@ -357,6 +366,78 @@ def test_boot_error_with_terminate_pending_does_not_terminate_again(
     assert isinstance(ns.error, RuntimeError)
     assert ("terminate_app",) not in seams.calls
     assert state.boot_stopped.is_set()
+
+
+# -- the main window waits for its page before it is shown (HAT P1) --------------
+
+
+def _show_recorder(monkeypatch):
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    order: list[str] = []
+    monkeypatch.setattr(shell_mod.window_control, "_show_window", lambda w: order.append("show"))
+    monkeypatch.setattr(shell_mod.window_control, "_mark_visible", lambda: None)
+    return order
+
+
+def _macos_lines(caplog):
+    return [r.getMessage() for r in caplog.records if r.getMessage().startswith("macos: main")]
+
+
+def test_darwin_shows_main_only_after_loaded(webview_mock, tmp_path, monkeypatch, seams, caplog):
+    caplog.set_level("INFO")
+    order = _show_recorder(monkeypatch)
+    # False x3 then True: the wait polls, shows only once loaded; step 4a then dismisses
+    ns = _run(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        loaded_is_set=[False, False, False, True],
+        run_boot=True,
+        loaded_bound=5.0,
+    )
+    assert ns.error is None
+    assert order == ["show"]
+    assert ns.main.events.loaded.is_set.call_count >= 4
+    ns.splash.destroy.assert_called_once()
+    lines = _macos_lines(caplog)
+    assert len(lines) == 1 and lines[0].startswith("macos: main window shown after page load (")
+
+
+def test_darwin_fallback_shows_after_the_bound(webview_mock, tmp_path, monkeypatch, seams, caplog):
+    caplog.set_level("INFO")
+    order = _show_recorder(monkeypatch)
+    ns = _run(webview_mock, tmp_path, monkeypatch, loaded_is_set=False, run_boot=True)
+    assert ns.error is None
+    assert order == ["show"]
+    assert _macos_lines(caplog) == [
+        "macos: main window shown after the 0.05s fallback (page not loaded)"
+    ]
+
+
+def test_darwin_quit_during_the_wait_stops_without_showing(
+    webview_mock, tmp_path, monkeypatch, seams, caplog
+):
+    caplog.set_level("INFO")
+    order = _show_recorder(monkeypatch)
+    calls = {"n": 0}
+
+    def _is_set():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            state.begin_quit()  # what the terminate callback does first
+        return False
+
+    ns = _run(
+        webview_mock, tmp_path, monkeypatch, loaded_is_set=_is_set, run_boot=True, loaded_bound=30.0
+    )
+    assert ns.error is None
+    assert order == []  # never shown
+    assert _macos_lines(caplog) == []
+    assert state.boot_stopped.is_set()
+    ns.splash.destroy.assert_not_called()
+    ns.main.destroy.assert_not_called()
+    assert ("terminate_app",) not in seams.calls
 
 
 # -- install and the delegate callbacks ------------------------------------------

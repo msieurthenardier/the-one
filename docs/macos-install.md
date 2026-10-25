@@ -55,16 +55,21 @@ On macOS 15 the dialog has only **Done** and **Move to Trash**; there is no Open
 3. Enter your password or use Touch ID when asked.
 4. In the dialog that follows, click **Open** (or **Open Anyway**).
 
-The app now opens, and macOS remembers your decision for that copy; later launches do not ask
-again. A newly downloaded version is a new download to macOS and may ask once more. (The **Open Anyway** button only appears for about an hour after the
-refused launch. If it is missing, open the app once more from Applications, click **Done**, and
-look again.)
+The app now opens, and macOS remembers your decision for that copy; later launches should not ask
+again (Apple's documented behaviour, not yet confirmed on a real Mac). A newly downloaded version
+is a new download to macOS and may ask once more. (Apple says the **Open Anyway** button stays
+available for about an hour after the refused launch. If it is missing, open the app once more
+from Applications, click **Done**, and look again.)
 
 **macOS versions.** The steps above are for macOS 15 (Sequoia), where the dialog was observed on
 15.7. macOS 14 (Sonoma) offers the same Privacy & Security route; it may also show an **Open**
 button in the first dialog, or let you Control-click the app and choose **Open**. The macOS 14
-screens have not been checked. If you would rather use Terminal, `xattr -dr com.apple.quarantine
-"/Applications/GleepGlorp AI.app"` removes the download mark and skips the prompt.
+screens have not been checked.
+
+**Advanced fallback (Terminal).** **Open Anyway** is the preferred route. If it does not work,
+`xattr -dr com.apple.quarantine "/Applications/GleepGlorp AI.app"` removes the download mark and
+skips Gatekeeper's check entirely, so macOS no longer vets the app at all. Use it only on a
+`.dmg` you downloaded from the project's official releases page.
 
 ---
 
@@ -81,12 +86,15 @@ GleepGlorp AI keeps running in the Dock when you close its window, so your agent
 stay available. There is no menu-bar icon.
 
 - **Close** (the red button, or **Cmd-W**) hides the window. The Dock icon stays, with its
-  running dot.
+  running dot. (The hosted macOS runner observed both the close button and Cmd-W hiding the
+  window.)
 - **Click the Dock icon** to bring the window back. (Opening the app from Applications or
   Spotlight again does the same; no second copy starts.)
 - **Quit** to really exit: **Cmd-Q**, **GleepGlorp AI › Quit** in the menu bar, or right-click
   the Dock icon and choose **Quit**. Quitting waits a moment while the app shuts its server down
-  cleanly, then exits.
+  cleanly, then exits. (The runner drove Cmd-Q, the menu and the quit request; Dock **Quit**
+  sends the same request but has not yet been confirmed on a real Mac, which the contributor check
+  does.)
 - Logging out or restarting the Mac also quits it; the app is built to shut down cleanly then,
   but that path has not been exercised on a real Mac yet.
 

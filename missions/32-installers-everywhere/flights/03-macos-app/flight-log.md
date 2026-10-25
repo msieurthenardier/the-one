@@ -385,6 +385,40 @@ Planning.
   - G3: an `LCRASH` row and per-quit readability checks.
 - **Committed and dispatched: dispatch 4 of 5** (`mode=lifecycle`).
 
+- **Run `40214604211` (dispatch 4 of 5, lifecycle, `e347719`): AC1 met.**
+  - **`A/SUMMARY.txt`:** 13 PASS, 0 failed; the **audit enforcing** passes; the `.dmg` attaches read-only and holds the `.app` plus the `Applications` symlink.
+  - **`lifecycle/SUMMARY.txt`:** 13 PASS, 0 FAIL, in 67 s:
+    - L0 installs from the mounted `.dmg`;
+    - L1 `route=subclass`, first paint at +1 s with `visible=true`;
+    - L2 the close button hides;
+    - L3 reopen, the same pid, frontmost;
+    - L4 a second launch focuses and exits;
+    - L5 geometry 716×537 at 102,106 survives Cmd-Q;
+    - L6 Apple event, L7 `the-one quit --wait`, L8 Cmd-Q: each drains in order, exits, with no crash report;
+    - L9 the N → N+1 upgrade keeps the provider, agent, chat and credential prefix;
+    - L10 trash keeps the data;
+    - LEND clean.
+  - The `.dmg` artifact `GleepGlorp_AI-0.11.8-arm64.dmg` was uploaded (7 days).
+  - About 40 billed min. **The flight total is about 190 billed macOS minutes (4 of 5 dispatches; 1 spare unused).**
+  - Leg 7 `landed`.
+- **Closing work, run in parallel:**
+  - a final Reviewer pass over what no checkpoint review covered (`c2db6f1`, the leg 3b probe fix; `e347719`, leg 7's harness fixes and docs);
+  - the full local gate (`make test-unit`, then all browser lanes `--parallel 3`), the first full browser run on this branch since Mission 31's UI merge.
+
+  Then the HAT (leg 8).
+
+- **Final review (Sonnet) of `c2db6f1` and `e347719`: `[HANDOFF:confirmed]`.** Docs follow-ups (the stale `agents.md` lifecycle lines, the `xattr` risk, hedges on behaviours the runner never drove, a stray line break) are being fixed beside the HAT.
+- **Full local gate green:**
+  - `make test-unit` 7399 passed, 12 skipped (337 s);
+  - browser `PARALLEL_RESULT rc=0 total=2137s lanes=13`, run at `--parallel 2` beside Mission 31's lanes; none over budget (`chats` 442/450 the closest);
+  - ruff clean.
+
+  The gate Developer briefly ran a fourth host-wide lane (its first `--parallel 3` overlapped a new Mission 31 lane) and stopped it within about 15 s by its recorded parent pid.
+- **Leg 8 (`macos-hat`):** the operator reviewed the evidence page (https://claude.ai/artifact/NDe59MPrKZpU5Cwe5LxDYh).
+  - **Decisions:** P1 "Fix now"; P2 "Squawk it" → **squawk 0260** (the seed lists retired `claude-3-5-haiku-20241022`, so the coverage guard blocks every catalog refresh: more than a cosmetic warning); `xattr` "Keep with a warning"; the second Dock icon "Accept".
+  - **Correction, logged:** the Flight Director first described P1 as "the splash drawn with a title bar". The evidence (`visible=true` at +1 s, the window title and size) shows it is the main window, shown before its page painted, covering the splash. The page was corrected. The decision's intent is unchanged.
+  - The P1 fix (darwin: show on `loaded`, with a bounded fallback) is a look-and-feel FIX on one surface. It is verified by **dispatch 5 of 5** after review.
+
 ## Leg Progress
 
 ### shell-split
@@ -883,6 +917,14 @@ Files: `.github/workflows/macos-packages.yml`, `packaging/macos/lifecycle.sh`, `
 - **G3**: `crash_dirs_state` lists `DiagnosticReports` and `Retired/` as readable / absent / UNREADABLE (exists but cannot be listed). A new `LCRASH` row (PASS/FAIL, printing the three states) is emitted after L0, and every quit step (`drain_checks`: L6-L8) gains a `crash report directories readable` check, so an unreadable directory FAILs with that reason instead of looking empty. The row count in a green run goes from 12 to 13 PASS.
 - **Rehearsal** (`rehearse6-scripts/run-lifecycle7.sh`, evidence in `$HOME/the-one-m32-evidence/f3/leg7/`): `ok` (fake tar `.dmg`, shim attach/detach logged, 13 PASS 0 FAIL, no leftovers), `nodmg` (build-dir fallback row, 13 PASS), `dmgfail` (`FAIL L0 could not attach the .dmg`, steps skipped, no leftovers), `crashperm` (chmod 000 dir: `FAIL LCRASH ... UNREADABLE` plus `[BAD: crash report directories readable]` in L6-L8). `wf7.py lifecycle` (the workflow's `run:` steps extracted): lifecycle step green with L0 from the mounted `.dmg`, 13 PASS.
 
+#### flight gate
+
+Run on the flight branch at `e347719` (Linux/WSL host, no code changes).
+- `make test-unit`: 7399 passed, 12 skipped, 2987 deselected in 337 s (the expected 12 skips).
+- Browser lanes (`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1`, `--parallel 2` because another session held a lane): `PARALLEL_RESULT rc=0 total=2137s lanes=13 failed=-`; every lane rc=0, none over budget (`chats` 442 s of 450 s, closest).
+- `ruff check` clean; `ruff format --check`: 703 files already formatted.
+- Note: a first `--parallel 3` start was killed within about 15 s (a second session's lane made four) and restarted at 2; the `.pgids`/parent PID I recorded were the only things signalled.
+
 ---
 
 ## Anomalies
@@ -890,3 +932,15 @@ Files: `.github/workflows/macos-packages.yml`, `packaging/macos/lifecycle.sh`, `
 ---
 
 ## Session Notes
+
+#### Docs review fixes
+
+Final-review fixes, docs only (no code, no tests run). `the_one/agents.md` "Lifecycle driver": confirming run is `40214604211` (13 PASS in `checks.sh` and in the lifecycle, audit enforcing); L0 installs from the mounted `.dmg` (build-dir fallback only if absent); the crash check now tells "none" from "unreadable"; stale "flips" wording removed. `docs/macos-install.md`: the `xattr` tip kept per the operator ("keep with a warning") as an advanced fallback after Open Anyway, stating it skips Gatekeeper's check and is for official-release `.dmg`s only; unobserved claims hedged (later launches not asking again, the Open Anyway window, Dock Quit); Cmd-W hiding cited as observed by the runner (run `40214604211`, L3i); stray line break fixed.
+
+### macos-hat
+
+**P1 fix (inline, operator: "fix now").** Cause: on the hosted runner the L1 +1 s screenshot showed the main window ("GleepGlorp AI", ~568x405, `visible=true`) with an unpainted dark body covering the 400x300 splash; `_boot` step 4b showed the main window right after `create_window`, before its page had loaded, while the splash is only destroyed on `loaded`. Change (darwin only; Linux and Windows ordering untouched): in `shell.py` step 4b, after `chrome.register`, `_boot` polls `main_win.events.loaded.is_set()` (50 ms ticks, on the boot thread) and shows the window (`_show_window`/`_mark_visible`, unchanged) only once it is set. A quit during the wait ends it at the next tick and goes through `_abort_if_quit` (darwin: returns without publishing, `boot_stopped` set by the existing finally). Fallback `MAIN_LOADED_BOUND = 12.0` s: a local load is under a second and a cold first launch a few seconds; 12 s is inside the 15 s server wait and the 25 s splash-handler wait, so a page that never reports `loaded` still gets a window. Exactly one INFO line on darwin: `macos: main window shown after page load (<s>s)` or `macos: main window shown after the 12s fallback (page not loaded)`. The `loaded` handler (`_main_shown.wait(25)` then `_destroy_splash`), step 4a's backstop and step 6 are unchanged and still dismiss the splash right after the show. pywebview 5.4 Cocoa finding: `BrowserView.__init__` calls `load_url` regardless of `hidden`; only `first_show` skips `makeKeyAndOrderFront_` for a hidden window. A WKWebView in a never-ordered-in window normally still navigates and fires `didFinishNavigation_` (so `loaded`), but that is unverified on a real Mac; if it does not, the 12 s fallback shows the window (a 12 s splash) and L1 will FAIL on the fallback line, which is the signal. `lifecycle.sh` L1 now waits for either `macos: main window shown after` line and FAILs unless it is the `after page load` one (the failing text carries the actual line); the first-paint series is kept; `packaging/macos/README.md` L1 row updated.
+
+Tests (`tests/test_macos_dock_shell.py`): `test_darwin_shows_main_only_after_loaded`, `test_darwin_fallback_shows_after_the_bound`, `test_darwin_quit_during_the_wait_stops_without_showing`; `tests/test_desktop_shell.py`: `test_non_darwin_shows_immediately_without_waiting_for_loaded[linux|win32]`. The `_run` harness's `loaded.__iadd__` now returns the same mock (before, `+=` swapped in a fresh MagicMock whose `is_set()` was always truthy, so `loaded_is_set` never took effect on darwin). Gates: targeted desktop tests 151 pass; `make test-unit` 7404 passed, 12 skipped; ruff check and format clean; `bash -n lifecycle.sh` clean (shellcheck not installed here); the Linux rehearsal "ok" lifecycle scenario (fake app now emits the new line) 13 PASS 0 FAIL; Linux real-GTK smoke on `ubuntu-26.04` with the rebuilt `0.11.9.dev34` .deb: OVERALL PASS (evidence `$HOME/the-one-m32-evidence/f3/leg8/ubuntu-26.04`), containers `m32-*` none left, files chowned back. The fix is proven on a real Mac only by the next hosted lifecycle run (L1 screenshot +1 s and the new log line).
+
+**Review fix (L1 wait).** `lifecycle.sh` L1 waited at most 25 s for the `macos: main window shown after` line, less than a slow cold start that hits the 12 s fallback (15 s server wait + 12 s fallback). The wait is now 35 s and the L1 step cap 80 to 110 s (README bound table updated; still under the 200 s per-step maximum). `bash -n` clean; shellcheck 0.10.0 only the pre-existing SC1091/SC2034/SC2153; the Linux rehearsal "ok" scenario: 13 PASS, 0 FAIL.

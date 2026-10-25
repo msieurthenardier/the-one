@@ -1880,3 +1880,18 @@ def test_browser_branch_entry_honours_a_quit_recorded_while_booting(
         shell_mod.run_desktop()
     wait.assert_not_called()
     assert opened == []
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_non_darwin_shows_immediately_without_waiting_for_loaded(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    platform: str,
+) -> None:
+    """HAT P1 is darwin-only: other platforms show before `loaded` (unchanged ordering)."""
+    caplog.set_level("INFO")
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, platform=platform, loaded_is_set=False)
+    assert ns.order.count("show") == 1
+    assert not [r for r in caplog.records if r.getMessage().startswith("macos: main")]

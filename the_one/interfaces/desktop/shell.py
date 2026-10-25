@@ -38,6 +38,12 @@ log = logging.getLogger(__name__)
 # The one-time notice for a close that hides the window into the tray.
 # Short on purpose: GNOME's banner truncates long text with an ellipsis.
 # ``tray.notify(icon, message, title)`` order.
+# macOS only: how long _boot waits for the (hidden) main window's first page load before
+# showing it anyway. A local load is well under a second and a cold first launch (Gatekeeper
+# scan, App Translocation) a few; 12 s is generous, yet inside the 15 s server wait and the
+# 25 s splash handler wait, so a page that never reports `loaded` still shows a window.
+MAIN_LOADED_BOUND = 12.0
+
 _TRAY_NOTICE_TITLE = "GleepGlorp AI is still running"
 _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
 
@@ -839,6 +845,34 @@ class DesktopSession:
                         if _abort_if_quit():
                             return
                         chrome.register(main_win, launch_theme)
+                        if sys.platform == "darwin":
+                            # An unpainted main window ordered in front of the splash shows
+                            # a dark empty body (HAT P1): keep it hidden until its page has
+                            # loaded, so the splash stays visible meanwhile. Bounded.
+                            t0 = time.monotonic()
+                            loaded_in_time = False
+                            while True:
+                                if main_win.events.loaded.is_set():
+                                    loaded_in_time = True
+                                    break
+                                if state.quit_was_requested():
+                                    break
+                                if time.monotonic() - t0 >= MAIN_LOADED_BOUND:
+                                    break
+                                time.sleep(0.05)
+                            if _abort_if_quit():
+                                return
+                            if loaded_in_time:
+                                log.info(
+                                    "macos: main window shown after page load (%.1fs)",
+                                    time.monotonic() - t0,
+                                )
+                            else:
+                                log.info(
+                                    "macos: main window shown after the %gs fallback"
+                                    " (page not loaded)",
+                                    MAIN_LOADED_BOUND,
+                                )
                         try:
                             window_control._show_window(main_win)
                         except Exception:

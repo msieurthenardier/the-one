@@ -91,7 +91,7 @@ It reads leg 4's observables: the log `~/Library/Logs/GleepGlorp AI/app.log` by 
 
 | step | does | asserts | cap (s) |
 |---|---|---|---|
-| L1 | `open -a` the installed app; screenshots at +1, +3, +5 s | `macos dock: delegate installed (route=subclass, ...)` first; `visible: true`, `tray: "dock"`, version N, pid is a process under the install path | 80 |
+| L1 | `open -a` the installed app; screenshots at +1, +3, +5 s | `macos dock: delegate installed (route=subclass, ...)` first; `macos: main window shown after page load` (the "fallback (page not loaded)" line fails the step); (waited up to 35 s from the launch mark: a cold start can spend the 15 s server wait plus the 12 s fallback); `visible: true`, `tray: "dock"`, version N, pid is a process under the install path | 110 |
 | L2 | System Events `click button 1 of window 1` of the process by pid | `visible: false`, pid alive, `/api/live` 200, `dock: window hidden on close` | 50 |
 | L3 | `open -a` again; then Cmd-W (information only) | `visible: true`, same pid, `lsappinfo front` is the app, `reopen: decision=show` | 70 |
 | L4 | `open -n -a` | frontmost is the app, one listener (the first pid), the second process (if seen) exits | 50 |
