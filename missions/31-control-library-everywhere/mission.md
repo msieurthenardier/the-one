@@ -114,7 +114,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - Split `knowledge-section.js`, then move the knowledge-base create and detail editors and the connector editor onto the library. Builds the disclosure and the key-value table's core (the channel map is its first consumer).
   - The knowledge-base item menu moves onto `App.ui.menu`. Fixes the defects found in planning (the channel map losing values, double-create, the poll stealing focus, the chip-list cascade).
   - Absorb squawks 0100, 0191 and 0192.
-- [ ] Flight 4: **Settings on the library.**
+- [x] Flight 4: **Settings on the library.**
   - Settings › Built-in tools (editor, grid, the shared schema-field module from `tools-form-helpers.js` and `tool-override-fields.js`), Knowledge indexing, Appearance, Prompts, Encryption, Date and time.
   - The `admin.js` split (the tools-page controller out) and the `admin.css` ownership cleanup.
   - Builds the banner and page-header controls, a `searchList` inline variant, and the Built-in tools tile. The library switch replaces the legacy iOS switch (operator, 2026-10-22).

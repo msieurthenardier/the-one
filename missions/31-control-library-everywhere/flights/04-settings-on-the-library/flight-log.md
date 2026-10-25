@@ -579,3 +579,20 @@ Verification: see the final report of this fix pass.
   - the edits were discarded with Cancel.
 
   Closed with no app change.
+
+### HAT close (2026-10-24)
+- **Steps.** All 15 HAT steps passed. Each failure was fixed and re-verified: rows 49-52 (commit 470f325), rows 53-54 (02af563). The keystroke freeze turned out to be a Goldfinch defect (goldfinch#270, fixed in 0.19.7), with no app change.
+  - Steps 12-14 (Knowledge indexing, the dark-theme disabled Save, the Library and Self-configuration surfaces, the double-click Create) passed first time. The double-click Create made exactly one "HAT disposable provider", which was then deleted.
+- **Rows 53-54 review.** A Reviewer confirmed with no issues. The accessibility notes were low severity, with no action: the button's name matches its visible text, and the zone ids stay in the banner's title.
+- **Captures (step 15, approved by the operator).** The final set `m31-f4-final` (220 PNGs, 4 skipped as before) was compared against `m31-f4-before`:
+  - 30 surfaces changed, each mapped to its ledger rows;
+  - 21 changed only in the disabled header buttons (row 37);
+  - 4 were identical.
+  
+  Three unexpected surfaces were checked by eye and are covered by rows 37 and 42 (agent Rules and notes, the connector editor, the Ollama models panel). The operator reviewed a private comparison page (https://claude.ai/artifact/JscgR4EHNp8vTyGeBKeP96).
+- **Merge.** origin/main (Mission 32 Linux packages, #310 and #311) was merged as 07fc5c6, with no conflicts. The re-close gate ran on the merged tree.
+- **Re-close gate** (alone; HAT instance stopped; scratch instances 8492/8493 left by the freeze investigation were stopped). Command: `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate`, rc=0.
+  - Unit: 7188 passed, 15 skipped. The 15th skip is `test_packaging_apprun.py::test_read_only_data_home_does_not_stop_launch`, from the merge: a root-only permission test under netns.
+  - Browser: `PARALLEL_RESULT rc=0 total=1571s lanes=13 failed=-`.
+  - Per-lane wall time (budget): routing 575 (600), agents 498 (540), chats 446 (450), mcp 358 (450), knowledge 317 (420), providers 346 (420), contracts-controls 341 (420), shared 328 (420), agent-tabs 313 (360), settings 291 (360), settings-tools 259 (330), contracts-overlay 225 (270), library 167 (210).
+  - No lane is over budget; `chats` is within 1% of its budget.

@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Settings on the library](../flight.md)
 
 ## Objective
@@ -86,9 +86,9 @@ Each step is presented one at a time, after the FD has dry-run it.
 15. **[captures] Review the before and after set** (or the comparison page). Approve it, or name each difference to change.
 
 ## Acceptance Criteria
-- [ ] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
-- [ ] The before and after capture set is approved.
-- [ ] If any code changed during the HAT, leg 11's close checks re-ran (line guard, unused selectors, catalogue and docs greps, a full gate) before landing.
+- [x] Every step passes, or each failure is fixed and re-verified, with the fixes recorded in the flight log.
+- [x] The before and after capture set is approved.
+- [x] If any code changed during the HAT, leg 11's close checks re-ran (line guard, unused selectors, catalogue and docs greps, a full gate) before landing.
 
 ## Edge Cases
 - **The encryption rotation** runs only on the scratch instance (never 8484 or the operator's data dir).

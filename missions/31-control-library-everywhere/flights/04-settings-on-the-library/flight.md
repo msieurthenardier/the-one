@@ -1,22 +1,22 @@
 # Flight: Settings on the library
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **Every kind of control is defined once in the library** (partial). This flight adds:
+- [x] **Every kind of control is defined once in the library** (partial). This flight adds:
   - the page header, the `editorShell` page variant, the banner, the code block, the facts list, the Built-in tools tile, the searchList inline variant, and options on `textInput`, `section`, `tabs`, `editorShell` and `radioGroup`;
   - a shared schema-field module (one renderer for tool settings in Settings and on the agent Tools tab);
   - small library helpers: "latest request wins", the keyed child reconcile and the error reader.
 
   Every Settings page is then built only from library controls. The legacy `App.tabs` and the legacy iOS switch leave Settings.
-- [ ] **A change to one control reaches every place it appears** (partial). The Settings files reach zero reuse-allowance rows: `tools-grid.js`, `tools-editor.js`, `system-page.js`, `date-time-page.js`, `knowledge-settings-page.js`, the non-tools half of `admin.js`, the new tools-page module and `admin.css`. `tools-form-helpers.js` keeps only the rows of the chip-list string path that Flight 5's MCP editor still uses, and the `.area-studio` chip and switch rules move from `admin.css` to `studio.css` as a recorded move of their rows. That is about 120 of the 315 uses left at Flight 3's close. No leg raises the allowance (DD12).
-- [ ] **No UI markup is built from HTML strings** (partial). `tools-editor.js` (8), `tools-grid.js` (3), `admin.js` (1), `knowledge-settings-page.js` (1) and `theme.js` (1) reach zero sinks: 14 of the 37 left.
-- [ ] **Each control's styles are owned by that control** (partial). `admin.css` becomes Settings-only: the dead blocks go, the rules that restyle library controls are folded into their owners or removed, and the Flight 5 halves (`.area-studio` switch and chip rules) move to `studio.css`. The unused-selector report is reviewed.
-- [ ] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures of every Settings page in both themes, on one realistic seed. The approved visible changes are the presentation-debt items the operator approved at planning (DD7), not ones found at the HAT.
-- [ ] **Every library control works by keyboard and by role in both engines.** The new controls; the tile and Enabled switches become `role=switch` with honest names; the theme picker becomes native radios.
-- [ ] **The area code is organised by surface** (partial). `admin.js` splits (the tools-page controller out), `knowledge-folders.js` splits (repaying Flight 3's 897 lines), and a static guard enforces the 800-line rule for every area module from now on.
-- [ ] **Existing behaviour holds.** The defects found in planning are fixed, each with a test that reproduces it first (DD8). The squawks in DD9 are closed.
+- [x] **A change to one control reaches every place it appears** (partial). The Settings files reach zero reuse-allowance rows: `tools-grid.js`, `tools-editor.js`, `system-page.js`, `date-time-page.js`, `knowledge-settings-page.js`, the non-tools half of `admin.js`, the new tools-page module and `admin.css`. `tools-form-helpers.js` keeps only the rows of the chip-list string path that Flight 5's MCP editor still uses, and the `.area-studio` chip and switch rules move from `admin.css` to `studio.css` as a recorded move of their rows. That is about 120 of the 315 uses left at Flight 3's close. No leg raises the allowance (DD12).
+- [x] **No UI markup is built from HTML strings** (partial). `tools-editor.js` (8), `tools-grid.js` (3), `admin.js` (1), `knowledge-settings-page.js` (1) and `theme.js` (1) reach zero sinks: 14 of the 37 left.
+- [x] **Each control's styles are owned by that control** (partial). `admin.css` becomes Settings-only: the dead blocks go, the rules that restyle library controls are folded into their owners or removed, and the Flight 5 halves (`.area-studio` switch and chip rules) move to `studio.css`. The unused-selector report is reviewed.
+- [x] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures of every Settings page in both themes, on one realistic seed. The approved visible changes are the presentation-debt items the operator approved at planning (DD7), not ones found at the HAT.
+- [x] **Every library control works by keyboard and by role in both engines.** The new controls; the tile and Enabled switches become `role=switch` with honest names; the theme picker becomes native radios.
+- [x] **The area code is organised by surface** (partial). `admin.js` splits (the tools-page controller out), `knowledge-folders.js` splits (repaying Flight 3's 897 lines), and a static guard enforces the 800-line rule for every area module from now on.
+- [x] **Existing behaviour holds.** The defects found in planning are fixed, each with a test that reproduces it first (DD8). The squawks in DD9 are closed.
 
 ---
 
@@ -413,14 +413,14 @@ Verified at `bfeb3f6` (planning surveys, 2026-10-23, and Flight Director spot-ch
 - [x] Squawk 0248 is merged to `main` (the denylist schema defaults): `8a52a39` (#304). The flight branch is cut from it.
 - [x] The operator's DD7 decisions are recorded in the ledger (2026-10-23).
 - [x] The branch `flight/04-settings-on-the-library` is created from `main` (`8a52a39`) at flight start (2026-10-23).
-- [ ] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of every leg that runs browser tests.
-- [ ] The before captures are taken in leg 01, before any Settings file changes.
+- [x] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of every leg that runs browser tests.
+- [x] The before captures are taken in leg 01, before any Settings file changes.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -444,16 +444,16 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 - **Leg 12:** the HAT.
 
 ### Checkpoints
-- [ ] The line guard is in, the Settings before set is taken, and squawks 0230, 0240, 0246 and 0247 are closed; the gate is green.
-- [ ] `admin.js` and `knowledge-folders.js` are split, with no behaviour change; full gate green.
-- [ ] One error reader with `fieldErrors`, and `latest()`, are in the library; the knowledge callers use them.
-- [ ] `syncChildren` and the opt-in section stack are in the library; the connector and knowledge captures match or have ledger rows.
-- [ ] The new controls and options are contract-tested in both engines, the emitted-class guard is in, and no allowance row was added.
-- [ ] The shared field module serves both editors; the agent Tools tab is unchanged except for its ledger rows.
-- [ ] The tools grid and editor are on the library; DD8 1-9 fixed; `App.tabs` and `js/tabs.js` gone.
-- [ ] Appearance, Prompts, Encryption, Date and time and Knowledge indexing are on the library; DD8 10-19 fixed.
-- [ ] Every Settings file is at zero sinks and zero allowance rows (apart from the Flight 5 chip-list path); budgets re-measured; full gate green.
-- [ ] HAT passed, and the close checks re-run after any HAT code change.
+- [x] The line guard is in, the Settings before set is taken, and squawks 0230, 0240, 0246 and 0247 are closed; the gate is green.
+- [x] `admin.js` and `knowledge-folders.js` are split, with no behaviour change; full gate green.
+- [x] One error reader with `fieldErrors`, and `latest()`, are in the library; the knowledge callers use them.
+- [x] `syncChildren` and the opt-in section stack are in the library; the connector and knowledge captures match or have ledger rows.
+- [x] The new controls and options are contract-tested in both engines, the emitted-class guard is in, and no allowance row was added.
+- [x] The shared field module serves both editors; the agent Tools tab is unchanged except for its ledger rows.
+- [x] The tools grid and editor are on the library; DD8 1-9 fixed; `App.tabs` and `js/tabs.js` gone.
+- [x] Appearance, Prompts, Encryption, Date and time and Knowledge indexing are on the library; DD8 10-19 fixed.
+- [x] Every Settings file is at zero sinks and zero allowance rows (apart from the Flight 5 chip-list path); budgets re-measured; full gate green.
+- [x] HAT passed, and the close checks re-run after any HAT code change.
 
 ### Adaptation Criteria
 
@@ -520,7 +520,7 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
   - catalogue (including the "declared not controls" note), registry, CLAUDE.md and `agents.md`;
   - the behavior-spec amendments check;
   - the line guard re-run.
-- [ ] `flight-hat` *(the operator wants one per flight)*: the operator walks every Settings page, plus the changed Agents and Library surfaces, in both themes on the leg 01 seed. The steps come from the ledger, and the FD dry-runs each one on the seeded instance; destructive steps use their own disposable, clearly named items. If the HAT changes code, the leg 11 close checks re-run before landing, and a HAT feature gets the Accessibility Reviewer too.
+- [x] `flight-hat` *(the operator wants one per flight)*: the operator walks every Settings page, plus the changed Agents and Library surfaces, in both themes on the leg 01 seed. The steps come from the ledger, and the FD dry-runs each one on the seeded instance; destructive steps use their own disposable, clearly named items. If the HAT changes code, the leg 11 close checks re-run before landing, and a HAT feature gets the Accessibility Reviewer too.
 
 > Leg design greps every moved path, renamed class and retired selector across `tests/`, `scripts/`, `Makefile`, `docs/ui-testid-registry.md` and `tests/behavior/`, and pastes the hits into the leg.
 
@@ -529,10 +529,10 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - The line guard passes, and every module it allows is at or under its recorded count; `admin.js`, the new tools-page module and every knowledge module are ≤ 800 lines.
