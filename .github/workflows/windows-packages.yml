@@ -1,0 +1,296 @@
+name: windows-packages
+
+# Mission 32 Flight 4 (Windows on shared metadata, and one release), DD5, DD7. Builds GleepGlorp AI
+# for Windows on a hosted runner and drives the installer's behaviour on the runner's desktop
+# session. Publishes nothing and reads no repository secret. Dispatch-only (plus workflow_call, the
+# entry point the release workflow uses), so it never runs on a push, PR or tag:
+#
+#   gh workflow run windows-packages.yml --ref flight/04-windows-and-release -f mode=probe [-f version=0.11.9.dev3]
+#
+# (GitHub offers a manual run only for a workflow file that exists on the default branch, and
+# validates the dispatch inputs against that copy: a `.github/`-only stub with the same `on:` block
+# lands on main first (packaging/windows/probe/windows-packages.stub.yml), and --ref then runs the
+# flight branch's copy. So the `on:` block below is FROZEN for the whole flight: adding an input
+# needs another stub PR. `workflow_call` has no outputs: callers find artifacts by name.)
+#
+# Modes:
+#   probe      the Flight 4 premise probe (this leg): builds N (the version input, or, when empty,
+#              render.py --next-version of the_one/__init__.py's version, so N never equals a
+#              released version), then the two variant installers at N+1 (the quit variant) and N+2
+#              (the Restart Manager variant), and runs packaging/windows/probe/probe.ps1, which
+#              answers premises W1-W6 and writes probe/SUMMARY.txt. Uses today's UNSTAGED build
+#              recipe (the same install-and-freeze steps as windows-installer.yml) and stays that
+#              way once full/lifecycle move to the staged build.
+#   full       lands in leg 3b (exits 1 until then)
+#   lifecycle  lands in leg 3b (exits 1 until then)
+#
+# The job reads red when a build step failed, when probe/SUMMARY.txt is missing or lacks its
+# "== probe done" line, or when any line of it starts with FAIL.
+#
+# Cost: Windows minutes bill at 2x on a private repo; the run caps itself in layers (job timeout 60
+# minutes, a timeout on every step, a concurrency group that never cancels a running build, and a
+# global bound inside probe.ps1 that is below its step's timeout).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: choice
+        options:
+          - full
+          - lifecycle
+          - probe
+        default: full
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: string
+        required: false
+        default: full
+
+permissions:
+  contents: read
+
+# the same shell as windows-installer.yml (Git Bash: `bash --noprofile --norc -eo pipefail {0}`);
+# steps that need PowerShell say `shell: pwsh`
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: windows-packages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # pinned, not windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        timeout-minutes: 3
+
+      # the runner context is not available in a job-level env, so the paths are set here. The
+      # paths are in forward-slash form (cygpath -m) so Git Bash, PowerShell and ISCC all take them.
+      - name: Paths
+        timeout-minutes: 1
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in
+            probe) ;;
+            full | lifecycle) echo "mode '$MODE' lands in leg 3b"; exit 1 ;;
+            *) echo "unknown mode '$MODE' (full, lifecycle or probe)"; exit 1 ;;
+          esac
+          T="$(cygpath -m "$RUNNER_TEMP")"
+          {
+            echo "M32_BUILD=$T/m32-build"
+            echo "M32_LOGS=$T/m32-build/logs"
+            echo "M32_INSTALLERS=$T/m32-build/installers"
+            echo "M32_T0=$(date +%s)"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$T/m32-build/logs" "$T/m32-build/installers"
+
+      - name: Runner evidence
+        timeout-minutes: 2
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          {
+            echo "== mode: $MODE"
+            echo "== ImageOS=$ImageOS ImageVersion=$ImageVersion"
+            echo "== ver"; cmd //c ver
+            echo "== disk"; df -h /c 2>&1 | tail -2
+            echo "== whoami"; whoami
+          } 2>&1 | tee "$M32_LOGS/runner.txt"
+
+      - uses: actions/setup-python@v6
+        timeout-minutes: 3
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # A syntax error in probe.ps1 costs a minute here, not the dispatch.
+      - name: Parse probe.ps1
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $errs = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'packaging/windows/probe/probe.ps1').Path, [ref]$tokens, [ref]$errs) | Out-Null
+          if ($errs -and $errs.Count -gt 0) {
+            $errs | ForEach-Object { Write-Host ("probe.ps1:{0}:{1} {2}" -f $_.Extent.StartLineNumber, $_.Extent.StartColumnNumber, $_.Message) }
+            exit 1
+          }
+          Write-Host "probe.ps1 parses clean ($($tokens.Count) tokens)"
+
+      - name: Versions (N, N+1, N+2)
+        timeout-minutes: 2
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          VERSION="$VERSION_INPUT"
+          if [ -z "$VERSION" ]; then
+            BASE="$(python -c 'import re,pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("the_one/__init__.py").read_text(), re.M).group(1))')"
+            # a released version's next dev version, so N never equals the released one
+            VERSION="$(python packaging/render.py --next-version "$BASE")"
+          fi
+          V1="$(python packaging/render.py --next-version "$VERSION")"
+          V2="$(python packaging/render.py --next-version "$V1")"
+          {
+            echo "M32_VERSION=$VERSION"
+            echo "M32_VERSION_Q=$V1"
+            echo "M32_VERSION_R=$V2"
+          } >> "$GITHUB_ENV"
+          echo "N=$VERSION  N+1 (quit variant)=$V1  N+2 (Restart Manager variant)=$V2" | tee -a "$M32_LOGS/runner.txt"
+
+      # Today's unstaged recipe, verbatim from windows-installer.yml: the locked closure with
+      # --no-deps (see that file for why), the project editable with --no-deps, PyInstaller.
+      - name: Install GUI freeze deps + PyInstaller
+        timeout-minutes: 12
+        run: |
+          pip install uv
+          uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+          pip install -r release-requirements.txt --no-deps
+          pip install -e . --no-deps
+          pip install pyinstaller
+
+      - name: Build frozen one-dir (PyInstaller)
+        id: freeze
+        timeout-minutes: 15
+        run: |
+          set -eo pipefail
+          pyinstaller --noconfirm packaging/windows/the-one.spec 2>&1 | tee "$M32_LOGS/pyinstaller.log"
+          test -f dist/the-one/the-one.exe
+          test -f dist/the-one/the-one-app.exe
+
+      # The three installers share one frozen one-dir and differ in AppVersion and in the .iss:
+      # N = today's the-one.iss, N+1 = the quit variant, N+2 = the Restart Manager variant. Each
+      # build has its own output dir, so the names cannot collide. PowerShell, not Git Bash, so
+      # /O and /D reach ISCC as written (no MSYS path mangling). The quit variant needs
+      # ExecAsOriginalUser, which is Inno Setup 6.1 or newer: below that the step fails clearly.
+      - name: Build the three installers (ISCC)
+        id: iscc
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cands = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe")
+          $iscc = $cands | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = $cands | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { Write-Host 'ISCC.exe not found after install'; exit 1 }
+          $fv = (Get-Item -LiteralPath $iscc).VersionInfo.FileVersion
+          Write-Host "ISCC: $iscc version $fv"
+          $parts = ($fv -split '[^0-9]+') | Where-Object { $_ -ne '' }
+          $major = [int]$parts[0]; $minor = [int]$parts[1]
+          if (($major -lt 6) -or ($major -eq 6 -and $minor -lt 1)) {
+            Write-Host "Inno Setup $fv is older than 6.1: ExecAsOriginalUser (the quit variant) is unavailable. Failing."
+            exit 1
+          }
+          "M32_ISCC=$($iscc -replace '\\', '/')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          function Build-Installer([string]$Iss, [string]$Version, [string]$OutDir) {
+            New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+            & $iscc "/DAppVersion=$Version" "/O$OutDir" $Iss 2>&1 | Tee-Object -FilePath "$env:M32_LOGS/iscc.log" -Append
+            if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed for $Iss (exit $LASTEXITCODE)"; exit 1 }
+            $expected = "$OutDir/the-one-setup-$Version.exe"
+            if (-not (Test-Path -LiteralPath $expected)) { Write-Host "missing output $expected"; exit 1 }
+          }
+          Build-Installer 'packaging/windows/the-one.iss' $env:M32_VERSION "$env:M32_INSTALLERS/n"
+          Build-Installer 'packaging/windows/probe/the-one-probe-quit.iss' $env:M32_VERSION_Q "$env:M32_INSTALLERS/q"
+          Build-Installer 'packaging/windows/probe/the-one-probe-rm.iss' $env:M32_VERSION_R "$env:M32_INSTALLERS/r"
+          Get-ChildItem "$env:M32_INSTALLERS" -Recurse -File | ForEach-Object { Write-Host ("{0,12} {1}" -f $_.Length, $_.FullName) }
+
+      # Observations and PASS/FAIL rows. The step never fails: the final check reads the FAIL rows,
+      # so the upload below always runs.
+      # Budget arithmetic (job cap 60 min): probe.ps1 bounds itself to min(-GlobalSeconds 2100,
+      # M32_T0 + 45 min - now). M32_T0 is set in the second step, at most ~4 min after the job
+      # started (checkout 3 min cap plus job setup), so the probe ends by job start + ~49 min at the
+      # very latest, leaving >= 11 min for the cleanup it runs, the Summary (1), the upload (3) and
+      # the fail step (1). The step timeout below is only a hang backstop for the script's own
+      # bounded waits; it is set to 42 min, the most the script could use from a 0-minute start.
+      # Earlier steps' caps sum to more than 60 min in theory but not in practice, and the script's
+      # job-relative bound, not this timeout, is what protects the post-probe steps.
+      - name: Premise probe
+        id: probe
+        if: ${{ !cancelled() && steps.iscc.outcome == 'success' }}
+        continue-on-error: true
+        shell: pwsh
+        timeout-minutes: 42
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:M32_LOGS/probe" | Out-Null
+          $pyi = (python -m PyInstaller --version 2>&1 | Out-String).Trim()
+          $py = (python --version 2>&1 | Out-String).Trim()
+          & ./packaging/windows/probe/probe.ps1 `
+            -Logs $env:M32_LOGS `
+            -VersionN $env:M32_VERSION -VersionQ $env:M32_VERSION_Q -VersionR $env:M32_VERSION_R `
+            -InstallerN "$env:M32_INSTALLERS/n/the-one-setup-$($env:M32_VERSION).exe" `
+            -InstallerQ "$env:M32_INSTALLERS/q/the-one-setup-$($env:M32_VERSION_Q).exe" `
+            -InstallerR "$env:M32_INSTALLERS/r/the-one-setup-$($env:M32_VERSION_R).exe" `
+            -IsccPath $env:M32_ISCC -PythonVersion $py -PyInstallerVersion $pyi `
+            -GlobalSeconds 2100 *>&1 | Tee-Object -FilePath "$env:M32_LOGS/probe-step.log"
+          Write-Host "probe.ps1 finished"
+          if (Test-Path "$env:M32_LOGS/probe/SUMMARY.txt") { Get-Content "$env:M32_LOGS/probe/SUMMARY.txt" }
+          exit 0
+
+      - name: Summary
+        if: ${{ always() }}
+        timeout-minutes: 1
+        run: |
+          f="$M32_LOGS/probe/SUMMARY.txt"
+          if [ -f "$f" ]; then
+            echo "### probe" >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          du -sh "$M32_LOGS" || true
+
+      # Logs, Inno /LOG files, app logs, screenshots, doctor output, tasklist snapshots and
+      # registry dumps. No installer or build output is uploaded.
+      - name: Upload logs and evidence
+        if: ${{ always() }}
+        timeout-minutes: 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages-logs
+          path: ${{ runner.temp }}/m32-build/logs
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed build reads as a red job without ever blocking the log upload. The FAIL
+      # match is anchored: evidence text that contains the word never trips it.
+      - name: Fail on a failed or missing result
+        if: ${{ always() }}
+        timeout-minutes: 1
+        env:
+          FREEZE_OUTCOME: ${{ steps.freeze.outcome }}
+          ISCC_OUTCOME: ${{ steps.iscc.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          rc=0
+          [ "$FREEZE_OUTCOME" = success ] || { echo "freeze: did not succeed ($FREEZE_OUTCOME)"; rc=1; }
+          [ "$ISCC_OUTCOME" = success ] || { echo "iscc: did not succeed ($ISCC_OUTCOME)"; rc=1; }
+          [ "$PROBE_OUTCOME" = success ] || { echo "probe: step did not succeed ($PROBE_OUTCOME)"; rc=1; }
+          f="$M32_LOGS/probe/SUMMARY.txt"
+          if [ ! -f "$f" ]; then echo "probe: SUMMARY missing"; rc=1
+          elif ! grep -q '^== probe done' "$f"; then echo "probe: no '== probe done' line (the probe did not finish)"; rc=1
+          elif grep -q '^FAIL' "$f"; then echo "probe: FAIL in SUMMARY"; grep '^FAIL' "$f"; rc=1; fi
+          exit "$rc"
