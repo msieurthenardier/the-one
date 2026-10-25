@@ -15,7 +15,8 @@
 # Environment (all optional): M32_INSTALL_DIR (/Applications), M32_PRODUCT_PORT (8484, the
 # product's own port; the runner is disposable and the Linux rehearsal uses another),
 # M32_DATA_DIR (the default data dir), M32_APP_LOG ("$HOME/Library/Logs/GleepGlorp AI/app.log"),
-# M32_CRASH_DIR ("$HOME/Library/Logs/DiagnosticReports"), M32_EXE_PRODUCT (the-one),
+# M32_DMG_N (the N .dmg: L0 mounts it and copies the .app out; absent -> the build-dir copy, said in
+# the L0 row; N+1 has no .dmg, so L9 installs it from the build dir), M32_CRASH_DIR ("$HOME/Library/Logs/DiagnosticReports"), M32_EXE_PRODUCT (the-one),
 # M32_BUDGET (a step is skipped once this many seconds have passed, 850), M32_SCALE (multiplies
 # the series offsets and settle sleeps; the rehearsal uses a small value; it never changes a
 # bound), M32_STOP_WAIT (seconds between TERM and KILL, 8).
@@ -177,6 +178,20 @@ crash_list() {
   ls -1 "$CRASH_DIR"/*the-one*.ips "$CRASH_DIR"/*GleepGlorp*.ips \
     "$CRASH_DIR"/Retired/*the-one*.ips "$CRASH_DIR"/Retired/*GleepGlorp*.ips 2> /dev/null | sort -u
 }
+crash_dirs_state() { # sets CRASH_NOTE (what was readable) and returns 1 when a directory exists but cannot be listed
+  local d bad=0
+  CRASH_NOTE=""
+  for d in "$CRASH_DIR" "$CRASH_DIR/Retired"; do
+    if [ ! -d "$d" ]; then
+      CRASH_NOTE="$CRASH_NOTE [$d: absent]"
+    elif ls -1 "$d" > /dev/null 2>&1; then
+      CRASH_NOTE="$CRASH_NOTE [$d: readable]"
+    else
+      CRASH_NOTE="$CRASH_NOTE [$d: UNREADABLE]"; bad=1
+    fi
+  done
+  return "$bad"
+}
 crash_new() { crash_list | comm -13 "$1" - 2> /dev/null; } # $1 = the list taken before
 
 # ---- launching and driving the app -----------------------------------------------------------
@@ -274,6 +289,8 @@ drain_checks() { # $1 = log offset  $2 = pid  $3 = tag: the path-T quit asserts 
   if live; then chk "/api/live refused after the exit" 1; else chk "/api/live refused after the exit" 0; fi
   sleep_s 5
   crash="$(crash_new "$SD/crash-before.txt" | tr '\n' ' ')"
+  crash_dirs_state; rc=$?
+  chk "crash report directories readable:$CRASH_NOTE" "$rc"
   if [ -z "$crash" ]; then chk "no new crash report" 0; else chk "no new crash report ($crash)" 1; fi
 }
 
@@ -578,7 +595,7 @@ for p in json.load(sys.stdin):
     # replacing the app while it runs crashes the old copy (DD5): N is gone before this point
     rm -rf "$INSTALLED"
     runrc "$SD/ditto.txt" "$T_DITTO" ditto "$APP_N1" "$INSTALLED"
-    chk "ditto N+1 over the installed path ($(rcnote "$RC" "$SD/ditto.txt"))" "$RC"
+    chk "ditto N+1 over the installed path, from the build dir (N+1 has no .dmg) ($(rcnote "$RC" "$SD/ditto.txt"))" "$RC"
     L_SERIES=0
     launch_app upgraded
     rc=$?
@@ -640,7 +657,15 @@ fi
 # ---- the main process: install N, run every step under its own cap ----------------------------
 [ -d "$APP_N" ] || { echo "lifecycle.sh: missing app: $APP_N" >&2; exit 2; }
 [ -d "$APP_N1" ] || { echo "lifecycle.sh: missing app: $APP_N1" >&2; exit 2; }
-trap 'stop_all; exit 0' EXIT TERM INT ALRM
+MNT=""
+detach_dmg() { # idempotent: detach the mounted .dmg, one -force retry
+  [ -n "$MNT" ] || return 0
+  if ! tl 60 hdiutil detach "$MNT" > "$OUT/L0/detach.txt" 2>&1; then
+    tl 60 hdiutil detach -force "$MNT" >> "$OUT/L0/detach.txt" 2>&1 || echo "detach failed: $MNT" >> "$OUT/L0/detach.txt"
+  fi
+  MNT=""
+}
+trap 'stop_all; detach_dmg; exit 0' EXIT TERM INT ALRM
 SD="$OUT/L0"; mkdir -p "$SD"
 {
   echo "lifecycle.sh started $(date -u +%Y-%m-%dT%H:%M:%SZ) N=$VERSION_N N+1=$VERSION_N1 app_id=$APP_ID port=$PORT scale=$SCALE"
@@ -655,19 +680,39 @@ cat "$OUT/header.txt"
 mkdir -p "$(dirname "$APP_LOG")"
 
 INSTALL_OK=0
+DMG_N="${M32_DMG_N:-}"
 pre="$(listeners)$(pids_for "$EXE" | tr '\n' ' ')"
 if [ -n "$pre" ]; then
   emit FAIL L0 "something already runs before step 1: listeners/pids: $pre"
 else
   rm -rf "$INSTALLED"
-  runrc "$SD/ditto.txt" "$T_DITTO" ditto "$APP_N" "$INSTALLED"
-  if [ "$RC" = 0 ] && [ -x "$EXE" ]; then
-    INSTALL_OK=1
-    emit PASS L0 "installed N $VERSION_N at $INSTALLED ($(du -sk "$INSTALLED" 2> /dev/null | cut -f1) KB)"
+  SRC_NOTE=""; ATT_OK=1
+  if [ -n "$DMG_N" ] && [ -f "$DMG_N" ]; then
+    # the way a user installs: mount the .dmg read-only, copy the .app out of the volume
+    MNT="$SD/mnt"; mkdir -p "$MNT"
+    runrc "$SD/attach.txt" 60 hdiutil attach -readonly -nobrowse -noverify -noautoopen -mountpoint "$MNT" "$DMG_N"
+    if [ "$RC" != 0 ]; then
+      ATT_OK=0; MNT=""
+      emit FAIL L0 "could not attach the .dmg $(basename "$DMG_N") (hdiutil $(rcnote "$RC" "$SD/attach.txt"))"
+    else
+      runrc "$SD/ditto.txt" "$T_DITTO" ditto "$MNT/$(basename "$APP_N")" "$INSTALLED"
+      SRC_NOTE="from the mounted .dmg $(basename "$DMG_N") (hdiutil attach -readonly, ditto out of the volume)"
+      detach_dmg
+    fi
   else
-    emit FAIL L0 "could not install N at $INSTALLED (ditto $(rcnote "$RC" "$SD/ditto.txt"))"
+    runrc "$SD/ditto.txt" "$T_DITTO" ditto "$APP_N" "$INSTALLED"
+    SRC_NOTE="from the BUILD DIR copy, not the .dmg (no .dmg: ${DMG_N:-M32_DMG_N unset})"
+  fi
+  if [ "$ATT_OK" = 1 ]; then
+    if [ "$RC" = 0 ] && [ -x "$EXE" ]; then
+      INSTALL_OK=1
+      emit PASS L0 "installed N $VERSION_N at $INSTALLED $SRC_NOTE ($(du -sk "$INSTALLED" 2> /dev/null | cut -f1) KB)"
+    else
+      emit FAIL L0 "could not install N at $INSTALLED $SRC_NOTE (ditto $(rcnote "$RC" "$SD/ditto.txt"))"
+    fi
   fi
 fi
+if crash_dirs_state; then emit PASS LCRASH "crash report directories:$CRASH_NOTE"; else emit FAIL LCRASH "a crash report directory is unreadable, so 'no new crash report' proves nothing:$CRASH_NOTE"; fi
 
 for entry in L1:$CAP_L1 L2:$CAP_L2 L3:$CAP_L3 L4:$CAP_L4 L5:$CAP_L5 L6:$CAP_L6 L7:$CAP_L7 L8:$CAP_L8 L9:$CAP_L9 L10:$CAP_L10; do
   name="${entry%%:*}"; cap="${entry##*:}"

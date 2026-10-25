@@ -1,6 +1,6 @@
 # Leg: macos-hosted-checks
 
-**Status**: ready
+**Status**: in-flight
 **Flight**: [macOS app](../flight.md)
 
 ## Objective

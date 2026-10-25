@@ -16,7 +16,7 @@ name: macos-packages
 #
 # Modes:
 #   full       build N, then packaging/macos/checks.sh as its own step (strict doctor, gate 2, serve,
-#              gate 4, the signature, the bundle audit with --report-only, the .dmg layout), then
+#              gate 4, the signature, the bundle audit (enforcing), the .dmg layout), then
 #              upload the .dmg (7 days) and the logs.
 #   lifecycle  full, then build N+1 (the version from `render.py --next-version`, the build venv
 #              reused, no .dmg) and packaging/macos/lifecycle.sh: install N in /Applications, then
@@ -201,7 +201,7 @@ jobs:
         timeout-minutes: 10
         env:
           # leg 7 flips this to enforcing (empty) once a real bundle's report is clean
-          M32_AUDIT_ARGS: "--report-only"
+          M32_AUDIT_ARGS: ""
         run: |
           mkdir -p "$M32_LOGS/A"
           if [ ! -f "$M32_BUILD_ENV" ]; then
@@ -250,11 +250,11 @@ jobs:
         timeout-minutes: 21
         run: |
           mkdir -p "$M32_LOGS/lifecycle"
-          APP_N="" APP_N1="" VERSION="" APP_ID=""
+          APP_N="" APP_N1="" VERSION="" APP_ID="" DMG_N=""
           if [ -f "$M32_BUILD_ENV" ]; then
             # shellcheck disable=SC1090
             . "$M32_BUILD_ENV"
-            APP_N="$APP"; VERSION_N="$VERSION"; APP_ID_N="$APP_ID"
+            APP_N="$APP"; VERSION_N="$VERSION"; APP_ID_N="$APP_ID"; DMG_N="${DMG:-}"
           fi
           if [ -f "$M32_BUILD_ENV_N1" ]; then
             # shellcheck disable=SC1090
@@ -275,7 +275,7 @@ jobs:
           fi
           echo "lifecycle bound: ${B} s (internal budget $((B-200)) s)"
           rc=0
-          M32_BUDGET=$((B-200)) perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- "$B" \
+          M32_DMG_N="$DMG_N" M32_BUDGET=$((B-200)) perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- "$B" \
             bash packaging/macos/lifecycle.sh "$APP_N" "$APP_N1" "$APP_ID_N" "$VERSION_N" "$M32_VERSION_N1" "$M32_LOGS/lifecycle" \
             > "$M32_LOGS/lifecycle-step.log" 2>&1 || rc=$?
           echo "lifecycle.sh rc=$rc"

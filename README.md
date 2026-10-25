@@ -109,6 +109,8 @@ Press Ctrl K (⌘ K on a Mac) to **Jump to** any agent, chat, knowledge base, MC
 
 **Linux:** download the AppImage (any supported desktop, no terminal) or the `.deb` from the [releases page](https://github.com/msieurthenardier/the-one/releases). Ubuntu 26.04 LTS and Debian 13 on GNOME are supported. [docs/linux-install.md](docs/linux-install.md) covers installing, upgrading and removing it.
 
+**macOS:** download `GleepGlorp_AI-<version>-arm64.dmg` from the [releases page](https://github.com/msieurthenardier/the-one/releases) and drag the app to Applications. Apple Silicon Macs on macOS 14 or later are supported. The app is not notarized, so macOS asks you to approve it once under System Settings › Privacy & Security › Open Anyway. [docs/macos-install.md](docs/macos-install.md) walks through it, including upgrading (quit first) and where your data lives.
+
 **From source, with Python 3.11+** (the `gir1.2-webkit2-4.1` step below is for source installs only; the Linux packages bring their own):
 
 ```bash

@@ -350,6 +350,41 @@ Planning.
 - **Leg 6 review fixes applied** (a 60-min job; caps summing to 42 min before lifecycle; the dynamic bound; the `L0` no-time path rehearsed; `BUDGET` 850; the `== A done` guard; the `.dmg` `$?` fix; the audit at 420 s). No re-review: the Reviewer's own items. Leg 6 `completed`, committed as checkpoint 4.
 - **Dispatch 3 of 5:** `mode=lifecycle` (leg 7, step 1).
 
+- **Run `40213503970` (dispatch 3 of 5, lifecycle): genuinely green.** The reader cross-checked every row against the logs, state and screenshots.
+  - **Why 3.5 min:** a freeze is about 30 s on this runner.
+  - **Verified:**
+    - `doctor` passes frozen (`tray: dock`, `path: login shell`, Cocoa gate OK);
+    - `route=subclass` with App Nap held;
+    - close hides, reopen shows, `open -n` focuses;
+    - the geometry round-trip;
+    - 6 quits each drain (`drain-then-reply` → done in 0.1-0.2 s → reply → `willTerminate`), with no crash reports;
+    - the N → N+1 upgrade keeps the data and the credential;
+    - the audit is clean (152 Mach-O, 0 fat, max minos 14.0).
+  - About 40 billed min; the flight total is about 150 billed, 3 of 5 dispatches.
+  - **Gaps:**
+    - G1: L0 installed from the build dir, not the `.dmg`;
+    - G2: Dock clicks, Dock-menu Quit and logout can't be driven on the runner (contributor check);
+    - G3: the crash check swallowed an unreadable directory;
+    - G4: the audit ran report-only.
+  - **Product observations, for the debrief:**
+    - P1: the splash shows a native title bar with traffic lights at +1 s (cosmetic);
+    - P2: a `model_catalog: fetch missing seed pair` WARNING at every launch (not macOS-specific).
+  - **Next:**
+    - the audit enforcing, plus the G1 and G3 harness fixes (rehearsed), then **dispatch 4** to confirm;
+    - the docs (step 4) are written in parallel on disjoint files; no product fix is needed.
+
+- **Docs written** (step 4):
+  - `docs/macos-install.md`, `docs/macos-contributor-check.md`, a README macOS paragraph, and additive "macOS packaging (M32 F3)" sections in `CLAUDE.md` and `the_one/agents.md`;
+  - the behavior test finalized (still `draft`);
+  - unverified items are stated as such (Open Anyway, Dock clicks, logout).
+
+  **For the flight-end review:** the guide's `xattr -dr com.apple.quarantine` tip bypasses Gatekeeper, so it must be framed as an advanced fallback.
+- **Fixes for dispatch 4, rehearsed:**
+  - the audit enforcing;
+  - G1: L0 installs from the mounted `.dmg`, falling back to the build dir only if the `.dmg` is absent; a `.dmg` that fails to attach is `FAIL L0` (the Developer's choice, accepted: the same attach flags worked in run 3's checks);
+  - G3: an `LCRASH` row and per-quit readability checks.
+- **Committed and dispatched: dispatch 4 of 5** (`mode=lifecycle`).
+
 ## Leg Progress
 
 ### shell-split
@@ -698,6 +733,157 @@ Job `build`: 14:47:26Z to 14:51:56Z = **4 min 30 s** (billed as 5 whole minutes,
   9. **Hosted minutes.** Job `build` 15:15:11Z to 15:20:26Z = 5 min 15 s, billed as 6 whole minutes: 6 x 10 = **60 billed macOS minutes** (about 52.5 if billed by the exact 5.25 min). Of that the premise step was 234 s. Flight total so far: 50 (run 40203877635) + 60 = **110 billed minutes**.
 
   **Leg-4 preconditions, answered:** (a) route that installed: `subclass`; (b) logged signatures: terminate `I@:@` (superclass), reopen `B@:@B` (protocol), willTerminate `v@:@` (protocol), `NSApp.delegate().className()` = `M32ProbeAppDelegate`; (c) counts: terminate=1 (called), reply=1, willTerminate=1 event (the SUMMARY row prints 2, a double grep match); (d) **callAfter reply delivered: yes** (both quit paths; 3 s deferral, `willTerminate` 7 ms and 5 ms after the reply); (e) neither-route-installed gate: does not apply; (f) the `NSRunLoopCommonModes` fallback: not needed; (g) `classAddMethods`: not chosen, `install` replaces the class attribute as DD4 says.
+
+### macos-hosted-checks
+
+**Leg 7, step 2 (read the evidence).** Status `in-flight`. Run `40213503970` (`mode=lifecycle`, commit `ddbac09`, version 0.11.8, N+1 `0.11.9.dev1`), conclusion success. Runner macOS 15.7.9 arm64, Xcode 16.4, 5 cores, a 1024x768 display. Evidence: `$HOME/the-one-m32-evidence/f3/leg7/run-40213503970/` (artifacts `macos-packages-logs`, `macos-dmg`, plus `run.log` from `gh run view --log`; sha256 list in `$HOME/the-one-m32-evidence/f3/leg7/sha256.txt`, 95 files). Not edited: code, workflow, or any other file.
+
+**Verdict: the green is genuine.** The 3.5-minute total is explained by step times from `run.log` (below): a PyInstaller freeze on this runner takes 29-31 s, not minutes. Every row below was cross-checked against a log segment, state or screenshot, not just the SUMMARY text. No FAIL, no vacuous PASS. Four fidelity gaps and two product observations are listed at the end; none blocks AC1.
+
+#### Step wall times (from `run.log` timestamps)
+
+| step | time (Z) | wall |
+|---|---|---|
+| job start / checkout | 16:49:14 / 16:49:19-25 | 11 s |
+| Paths, evidence, setup-python, versions, export closure | 16:49:25-28 | about 3 s |
+| Build N (venv, freeze, sign, dmg) | 16:49:28 - 16:50:44 | 76 s: venv 21 s, `pyinstaller rc=0 in 31 s`, sign 0.2 s, `hdiutil attempt 1 rc=0` + verify 23 s |
+| Checks (`checks.sh`) | 16:50:44 - 16:50:55 | 11 s |
+| Build N+1 (venv reused, no dmg) | 16:50:55 - 16:51:25 | 30 s: `pyinstaller rc=0 in 29 s` |
+| Lifecycle (`lifecycle.sh`) | 16:51:25 - 16:52:31 | 66 s (`== done in 66 s: 12 PASS, 0 FAIL`) |
+| Upload logs, `.dmg` (122 MB), verdict step | 16:52:31 - 16:52:38 | 7 s |
+
+The two builds really froze two apps: build.env paths `macos-0.11.8` and `macos-0.11.9.dev1`, both `pyinstaller rc=0`, both signed; N+1's version was read back by L9 from `/api/info` (`0.11.9.dev1`). The venv install (21 s) is fast because the wheels are cached/prebuilt; the freeze is fast on Apple Silicon. The original ~15 min estimate was a Linux-shaped guess. Lifecycle is short because every quit drains in 0.1-0.2 s and every launch is up in 1.0-1.5 s (first cold launch 5.2 s). Only the `PASS`/`FAIL` aggregation is quick; the work is visible in the logs.
+
+#### `A/SUMMARY.txt`, row by row
+
+| row (quoted) | did the action happen? evidence |
+|---|---|
+| `codesign -dv rc=0; verify --deep --strict rc=0; Identifier=ai.gleepglorp.GleepGlorpAI Signature=adhoc` / `PASS codesign verify` | Yes. `A/codesign-dv.txt`, `A/codesign-verify.txt` present; run.log shows `codesign sign rc=0` in the build step and the verify in the checks step (16:50:44.46). |
+| `size: 177M`, `version: GleepGlorp AI v0.11.8 (rc=0)` | Yes: the frozen exe ran `--version`; the 181752 KB matches L0's installed size. |
+| `doctor score: {"pass": true, "rc": 0, "gates": 12, "bad": []}`, `PASS gate 1 doctor` | Yes, the real frozen doctor ran (2 s, 16:50:44.5-46.5). `A/doctor.txt` shows all 12 gates `OK` and `RESULT: PASS` (quoted in the doctor section). 12 gates counted by the scorer, matching the product's gate list. |
+| `PASS doctor: desktop shell is the Cocoa backend`, `tray is dock`, `a path: line is present` | Yes, each read from `A/doctor.txt`: `desktop shell: OK — Cocoa backend present`, `tray: dock — macOS keeps the app in the Dock`, `path: login shell`. |
+| `gate 2: resolved: /opt/homebrew/Cellar/python@3.14/3.14.7/.../python3.14|...` / `PASS gate 2 interpreter outside the bundle` | Yes: an external Homebrew 3.14 interpreter, not in the `.app`. (Doctor's `python interpreter: OK — resolved to /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/bin/python3.14`.) |
+| `serve /api/live: {"status":"ok"}` / `PASS serve answers /api/live` | Yes: the body is the real response; run.log shows 2.2 s between doctor and serve (16:50:46.6 -> 48.8). |
+| `gate 4: Local API credential created at /Users/runner/Library/Application Support/the-one/api-credential (mode 0600).|rc=0|` / `PASS gate 4 data dir under Application Support` | Yes. `A/gate4-ls.txt`: `-rw-------@ ... 85 api-credential` in the data dir. This is the file lifecycle's header records (`prefix loc_89c05c587787f723`) and L9 later finds unchanged. |
+| `audit (--report-only): audit: 152 Mach-O files, 0 fat, max minos 14.0 (declared 14.0), 0 with no minos, 0 problem(s)` / `PASS bundle audit` | Yes: `A/audit.txt` carries the same line, `rc=0`; 5.7 s of work (16:50:49 -> 54.7). 152 files is a real walk, not an empty one. |
+| `PASS dmg file exists (GleepGlorp_AI-0.11.8-arm64.dmg)`, `dmg attaches read-only`, `holds GleepGlorp AI.app`, `Applications is a symlink to /Applications` | Yes: `A/dmg-layout.txt` lists `Applications -> /Applications` (lrwxr-xr-x) and `GleepGlorp AI.app`; `A/dmg-attach.txt`/`dmg-detach.txt` present; the downloaded artifact is `GleepGlorp_AI-0.11.8-arm64.dmg`, 122,212,476 bytes, identical to the size in `A/SUMMARY.txt` and the build's `ls`. |
+| `== A done: 0 hard check(s) failed` | Yes (16:50:54.99). |
+
+Checks ran only against build N's `dist` copy (not against N+1, and not against the app mounted from the `.dmg`); that is by design.
+
+#### Audit report (`A/audit.txt`)
+
+`audit: 152 Mach-O files, 0 fat (universal), max minos 14.0 (declared 14.0), 0 with no minos, 0 problem(s)`, `rc=0`. Files 152, fat files 0, max minos 14.0 = declared `min_os` 14.0 (DD8), no file without a minos, no problems. **Clean: flip to enforcing.** The change is the workflow's Checks step line 204, `M32_AUDIT_ARGS: "--report-only"` -> `M32_AUDIT_ARGS: ""` (checks.sh line 27 uses `${M32_AUDIT_ARGS---report-only}`, so an empty-but-set value enforces; `on:` block untouched). Caveat: the report-only run proves the rules find nothing wrong on this tree; it does not prove the enforcing path fails on a bad bundle. The audit's own unit tests (leg 5/6) cover that; dispatch 4 will show the enforcing run passing.
+
+#### Doctor on darwin (`A/doctor.txt`, frozen, rc=0)
+
+```
+frozen: True
+child spawn: OK — spawned via '/bin/sh', round-trip OK
+python interpreter: OK — resolved to /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/bin/python3.14
+desktop shell: OK — Cocoa backend present
+llm providers: OK — all 6 provider modules importable
+model catalog: OK — seed resolves claude-sonnet-4-6 -> 1000000
+usearch: OK — HNSW round-trip returned key 7 (numkong=yes, simd=neon)
+fts5: OK — fts5 available (SQLite 3.45.1); porter+unicode61 MATCH round-trip returned rowid 1
+embedding model: OK — 512-dim float16 model -> float32 seam, norm 1.0000, truncated=0 (... peak RSS 244.4 MiB) from .../GleepGlorp AI.app/Contents/Frameworks/the_one/embeddings/data/potion-retrieval-32M
+file watcher: OK — native change notification round-trip OK
+window chrome: OK — skipped (not Windows)
+time zones: OK — 345 zones (tzdata 2026d); system zone: UTC
+mcp sdk: OK — mcp 2.3.0, handshake 2025-11-25, modern 2026-07-28, httpcore2 2.13.1
+sandbox: passthrough — non-Linux host (darwin)
+tray: dock — macOS keeps the app in the Dock
+path: login shell
+RESULT: PASS
+```
+
+All 12 gates OK; the file-watcher gate did a real round trip in the frozen app (macOS native notifier); the embedding model resolved inside the bundle. Runtimes found: node and npx in `/opt/homebrew/bin`, uv/uvx in the hosted Python's bin, `python` in `/Library/Frameworks/Python.framework/Versions/Current/bin`, `python3` `/opt/homebrew/bin/python3`. `doctor-score.err` is empty.
+
+#### `lifecycle/SUMMARY.txt`, row by row
+
+Header: `lifecycle.sh started 2026-10-25T16:51:25Z N=0.11.8 N+1=0.11.9.dev1 ... port=8484 scale=1`; credential present before step 1 (prefix `loc_89c05c587787f723`). `app.log` (71 KB) holds every launch.
+
+| row | action really happened? evidence |
+|---|---|
+| `PASS L0 installed N 0.11.8 at /Applications/GleepGlorp AI.app (181752 KB)` | Yes: `L0/ditto.txt` `rc=0`; size equals the build's. Note: installed by `ditto` from the build dir, not by mounting the `.dmg` and copying (gap 1). |
+| `PASS L1 launch ... [ok: started: pid 5714 in 5.2s (open rc=0)] ... [ok: log: macos dock: delegate installed (route=subclass, app nap activity held)] [ok: visible: true] [ok: tray: dock] [ok: version 0.11.8] [mode=window] [ok: state pid 5714 is a process under /Applications/GleepGlorp AI.app]` | Yes. `app.log` line 8: `2026-10-25 16:51:26,777 INFO the_one.interfaces.desktop.shell: macos dock: delegate installed (route=subclass, app nap activity held)`, then `Uvicorn running on http://127.0.0.1:8484`. First-paint series `+1s bytes=81155 live=200 visible=true; +3s bytes=130680 ...; +5s bytes=130685 ...`: `first-paint-+1s.png` shows a small dark window with a gray native title bar (traffic lights, "GleepGlorp AI") and an empty rounded dark card (the launch splash); `+3s`/`+5s` show the full app, "Hello." with the mascot and the Chats/Agents/Library/Settings rail (Read: identical, 1024x768, the Dock shows one app icon). **L1's `route=subclass` is now proven on the real product** (the leg-3b probe's route held). |
+| `PASS L2 close button hides the window: [ok: close button AXPress (rc=0)] [ok: visible: false] [ok: process 5714 alive] [ok: /api/live 200] [ok: log: dock: window hidden on close] [ok: same pid]` | Yes: `L2/close.txt` `button 1 of window GleepGlorp AI of application process the-one`, `rc=0` (System Events AXPress works); `app.log` line 153 `16:51:31,309 ... dock: window hidden on close`. |
+| `INFO L3i Cmd-W on the main window: keystroke rc=0, visible=false afterwards` | Yes: `app.log` line 168 `16:51:34,483 ... dock: window hidden on close`. So **Cmd-W on the product's main window hides to the Dock**, unlike the probe's no-op (leg 3b item 5). A product fact for the guide. |
+| `PASS L3 reopen from the Dock path: [open -a rc=0] [visible: true] [same pid 5714] [lsappinfo front is the app] [log: reopen: decision=show]` | Yes: `app.log` line 162 `16:51:31,614 ... reopen: decision=show hasVisibleWindows=False` (twice, lines 162 and 171). `L3/reopened.png` shows the full app window, front. `open -a` is the harness's stand-in for a Dock click (gap 2). |
+| `PASS L4 second launch focuses the first: [open -n rc=0] [second process: 6301] [frontmost is the app (front=5714, first 5714, second 6301)] [second process 6301 exited (0.0 s)] [one listener on 8484, the first process] [visible: true and the same pid]` | Yes: `app.log` line 180 `POST /api/window/focus HTTP/1.1 200 OK` (the focus path). `L4/after-second.png` shows the app and **two** app icons in the Dock (the transient second process, in the screenshot taken just before it exited), then `L4/before.pids` is `5714` only. |
+| `PASS L5 window geometry survives Cmd-Q and a relaunch: [screen 1024x768] [before ... pos=64,64 size=896x640; target 716x537 at 102,106] [set position and size] [AX frame read back] [Cmd-Q keystroke] [exited after Cmd-Q (0.3 s)] [window-state.json exists and changed ({"width": 716.0, "height": 537.0, "x": 102, "y": 106})] [terminate lines after Cmd-Q: 10] [relaunched: pid 6645 in 1.0s] [AX frame after the relaunch ... 716x537 ... 102,106]` | Yes: the geometry really moved (cksum of `window-state.json` before `108391246` vs after `1264133660`) and the file holds the target; relaunch frame equals it exactly. Cmd-Q log: `16:51:43,034 terminate: applicationShouldTerminate received (decision=drain-then-reply)`, `drain started`, `drain done in 0.1s`, `reply sending`, `applicationWillTerminate (AppKit exiting)`. |
+| `PASS L6 quit Apple event drains, then exits ... [only the installed copy runs] [quit Apple event rc=0] [exited within 70 s (0.0 s)] [log: received, drain started, drain done, reply sending, in order] [applicationWillTerminate logged] [/api/live refused after the exit] [no new crash report]` | Yes: `app.log` lines 352-373, `16:51:50,257` received, `drain done in 0.2s` at `16:51:50,470`, willTerminate `16:51:50,473`; **no `POST /api/window/quit` precedes it**, so this really was the Apple event reaching the `/Applications` copy by bundle id (the leg-6 "unproven" item is proven). |
+| `PASS L7 the-one quit --wait: [started the app first (pid 7039, up in 1.5s)] [rc=0] ... in order` | Yes: `L7/cli.txt`: `GleepGlorp AI is quitting.` / `GleepGlorp AI has quit.`, `rc=0`; `app.log` line 515 `POST /api/window/quit 200 OK`, then lines 516-537, `16:52:00,497`, `drain done in 0.2s`. The CLI by path (DD12) works. |
+| `PASS L8 Cmd-Q keystroke drains, then exits: [pid 7348, up in 1.5s] ... [exited ... (0.3 s)]` | Yes: `app.log` lines 679-700, `16:52:11,399`, `drain done in 0.1s`; no POST before it (a keystroke path). |
+| `PASS L9 upgrade to N+1 keeps the data and the credential: [credential prefix before: loc_89c05c587787f723] [seeded provider (201)] [seeded agent (201)] [seeded chat (201)] [quit N (rc=0)] [N exited (0.0 s)] [ditto N+1 over the installed path (rc=0)] [N+1 launched: pid 7919 in 1.2s] [/api/info version 0.11.9.dev1] [seeded provider present] [seeded agent present] [seeded chat present] [credential prefix unchanged]` | Yes: `L9/quit-n.txt` as above; `app.log` line 730 `POST /api/window/quit 200`, `16:52:21,452`, `drain done in 0.1s`; `ditto.txt rc=0`; N+1 then reported `0.11.9.dev1` from the server and read back all three seeded rows with the same credential. Upgrade was quit-first, as the guide will say; replace-while-running was not exercised (by design, DD5). |
+| `PASS L10 trash the app; the data stays: [quit rc=0] [exited (0.0 s)] [the app is gone from /Applications] [the database is still in the data dir] [api-credential is still in the data dir]` | Yes: `app.log` line 783 `POST /api/window/quit 200`, `16:52:27,262`, `drain done in 0.2s`. |
+| `PASS LEND no process or listener left` | Yes by the harness; `tracked.pids` lists 7 pids (5714, 6301, 6645, 7039, 7348, 7770, 7919). |
+| `== done in 66 s: 12 PASS, 0 FAIL` | 12 PASS rows counted: L0-L10 plus LEND (L3i is `INFO`). |
+
+#### Per-quit drain lines and timings (AC5 observable table; all six present, from `app.log`)
+
+| quit | received | drain | willTerminate | log path |
+|---|---|---|---|---|
+| L5 Cmd-Q | 16:51:43,034 | `drain done in 0.1s` | 16:51:43,178 | keystroke |
+| L6 Apple event | 16:51:50,257 | `drain done in 0.2s` | 16:51:50,473 | Apple event (no POST) |
+| L7 `the-one quit --wait` | 16:52:00,497 | `drain done in 0.2s` | 16:52:00,663 | `POST /api/window/quit` |
+| L8 Cmd-Q | 16:52:11,399 | `drain done in 0.1s` | 16:52:11,524 | keystroke |
+| L9 quit N | 16:52:21,452 | `drain done in 0.1s` | 16:52:21,603 | `POST /api/window/quit` |
+| L10 quit | 16:52:27,262 | `drain done in 0.2s` | 16:52:27,460 | `POST /api/window/quit` |
+
+Each shows `decision=drain-then-reply`, then `drain started`, `drain done`, `reply sending`, `applicationWillTerminate (AppKit exiting)`, in order. The harness's "exited within 70 s (0.0-0.3 s)" matches the 0.1-0.2 s drains; there was no `boot did not stop within 5.0s`, no `already-pending`, no `path S` line. The `NSTerminateLater` + `callAfter` reply mechanism is proven on the real product for the Apple event, Cmd-Q and the API/CLI route.
+
+#### Crash reports
+
+`lifecycle/crash-reports.txt` is empty; every step's `crash-before.txt` is empty (steps L5-L8 each also asserted `no new crash report`). `crash_list` reads `~/Library/Logs/DiagnosticReports` and swallows errors (`2>/dev/null`), so an unreadable directory would also read empty; the directory is the macOS default for the runner and the run had no abnormal exits (every process ended through `applicationWillTerminate`), so the empty result is credible, not proof by itself (gap 3).
+
+#### Other observations
+
+- `app.log` has no traceback. Each launch logs `model_catalog: fetch missing seed pair (anthropic, claude-3-5-haiku-20241022) — skipping cache write to protect existing catalog` (WARNING; the runner could not complete the catalog fetch). Product behavior, not a macOS defect; likely also present on the Linux run; record, do not fix in this leg.
+- The `+1s` first paint is the splash, drawn with a native gray title bar and traffic lights on macOS (the splash is meant to be frameless); the app window at +3 s is correct. Cosmetic, for the contributor check's screenshots (see classification P1).
+- Annotations: one `##[warning]` (Node.js 20 deprecation for `actions/upload-artifact@v4`), no errors.
+
+#### Hosted minutes (AC4)
+
+Job `build` 16:49:14Z to 16:52:41Z = 3 min 27 s, billed as **4 whole minutes x 10 = 40 billed macOS minutes** (about 34.5 by the exact minutes). Flight total so far: leg 3's probe about 50 + leg 3b's re-run 60 + this run 40 = **about 150 billed minutes**, 3 of 5 dispatches used (dispatches 4 and 5 remain; a sixth needs the operator).
+
+#### Classification of every FAIL and every weak PASS
+
+No FAIL. The following are the only items that are not full proof, each with a disposition:
+
+| id | what | class | fix |
+|---|---|---|---|
+| G1 | L0 installs by `ditto` from the build dir; no step mounts the `.dmg` and copies from the mounted volume (A only attaches it and lists the layout) | harness fidelity gap | Optional for dispatch 4: have L0 copy the app out of the attached `.dmg` (the real drag install), then detach. Not needed for AC1; the dmg layout rows already prove the content. |
+| G2 | L3 reopens via `open -a`, not a real Dock click; the Dock's menu Quit and logout paths are untested | runner limit (no Dock click on a headless session) | Keep; the guide/contributor check says "click the Dock icon" and the behavior test lists Dock Quit as a human step (Flight 4). |
+| G3 | The crash check cannot tell "no reports" from an unreadable directory | harness defect (minor) | Optional: have `crash_list` record `ls` rc into `crash-before.txt` (or a one-line `dir readable` check). |
+| G4 | The audit is `--report-only`, so its pass is not proof that enforcement fails on a bad bundle | by design | Flip to enforcing (`M32_AUDIT_ARGS: ""`) in dispatch 4. |
+| P1 | The splash shows a native title bar and traffic lights at +1 s (the intended splash is frameless) | product cosmetic (not an AC1 FAIL) | Out of scope for AC1; log as a squawk if the operator wants it fixed (pywebview frameless splash on macOS). |
+| P2 | `model_catalog: fetch missing seed pair` WARNING at every launch on the runner | product observation, likely network/seed related, not macOS-specific | None here. |
+
+**AC1 assessment: met on the evidence.** Every `A/SUMMARY.txt` and `lifecycle/SUMMARY.txt` row is PASS and genuine, the audit is clean, the `.dmg` artifact was uploaded (`macos-dmg`, 7 days, run id `40213503970`). The one remaining AC1 term is "the audit enforcing": it is clean, but the workflow still passes `--report-only`, so AC1 completes only with the one-line flip and a green dispatch 4 (which will also be the first run with the enforcing audit). The fix list:
+
+1. `.github/workflows/macos-packages.yml` line 204: `M32_AUDIT_ARGS: "--report-only"` -> `M32_AUDIT_ARGS: ""` (the `on:` block untouched), then dispatch 4 (`mode=lifecycle`, same inputs), expecting every row PASS again.
+2. Optional, if bundled into the same dispatch: G1 (L0 from the mounted `.dmg`) and G3 (crash-dir readable check), each with a Linux rehearsal; neither is required for AC1.
+3. No product fix is required. Docs (step 4) can start: the log segments above are the commands/paths the run exercised (app log `~/Library/Logs/GleepGlorp AI/app.log`; data `~/Library/Application Support/the-one`; CLI by path `/Applications/GleepGlorp AI.app/Contents/MacOS/the-one` with `quit --wait`, `doctor`: `tray: dock`, `path: login shell`; Cmd-W and the red button both hide to the Dock).
+
+#### docs
+
+Leg 7 step 4 (Developer, no commit/push/dispatch). Written: `docs/macos-install.md` (new, modelled on the Linux guide: download, drag install, Gatekeeper, first launch, Dock behaviour, upgrade (quit first), remove, data and log paths, the CLI by path and `doctor`, Python, troubleshooting), `docs/macos-contributor-check.md` (new, self-contained, 11 steps numbered as the behavior test, pasteable State/Alive/Doctor commands that print only the `loc_<id>` prefix, screenshots per step), README Install (a macOS paragraph), additive "macOS packaging (M32 F3)" paragraph in `CLAUDE.md` and section in `the_one/agents.md`, and `tests/behavior/macos-app-install.md` (still `draft`, Last Run never; Gatekeeper wording, log observable, step 9 recorded as an observation step per P5, step 10 `path:` line).
+
+Cross-check of the guide against the run's evidence (run `40213503970` unless noted): data dir `~/Library/Application Support/the-one/` and `api-credential` (gate 4, L10); log `~/Library/Logs/GleepGlorp AI/app.log` (L1-L10 segments); CLI `"/Applications/GleepGlorp AI.app/Contents/MacOS/the-one"` with `doctor` and `quit --wait` (L7, `A/doctor.txt`); doctor lines `tray: dock — macOS keeps the app in the Dock`, `path: login shell`, `sandbox: passthrough`; `.dmg` name `GleepGlorp_AI-0.11.8-arm64.dmg` and layout (A/dmg-layout.txt); min macOS 14 (audit: max minos 14.0); red button and Cmd-W hide to the Dock (L2, L3i); Dock/`open -a` reopen (L3); Cmd-Q, Apple event, CLI quits drain (L5-L8); upgrade quit-first keeps data (L9); trash leaves data (L10); `/api/window/state` fields (`visible`, `tray`, `pid`, `version`). Gatekeeper text is from probe run 40203877635 P6 (macOS 15.7 "Not Opened", Done / Move to Trash, translocated path, `spctl` rejected); replace-while-running from probe run 40206047338 P5 (old copy crashed with `FileNotFoundError` on pywebview's js directory; leg 3's "keeps running" retracted).
+
+Stated honestly in the docs as not observed on the runner: the Privacy & Security "Open Anyway" screens and the macOS 14 dialog wording (the guide gives Apple's documented route and says macOS 14 is unchecked), a physical Dock click and Dock-menu Quit, logout. The `xattr -dr com.apple.quarantine` tip and the "Open Anyway lasts about an hour" remark come from Apple's documentation, not the run. Nothing in the guide depends on code changed after run 40213503970. `make test-unit` not run (no test reads the touched docs; `tests/test_evals_cli.py`, which reads CLAUDE.md, passes under the venv).
+
+#### Fixes for dispatch 4 (Developer, step 3)
+
+Files: `.github/workflows/macos-packages.yml`, `packaging/macos/lifecycle.sh`, `packaging/macos/README.md` (the workflow's `on:` block is byte-identical to `probe/macos-packages.stub.yml`; shellcheck 0.10.0 shows only the 3 pre-existing warnings, actionlint 1.7.7 clean, `bash -n` clean).
+
+- **G4**: `M32_AUDIT_ARGS: ""` (enforcing). The Linux workflow rehearsal now fails its audit on the fixture's deliberately bad `.so`, so the enforcing path is exercised.
+- **G1**: the lifecycle step passes `M32_DMG_N` (from build.env's `DMG`, read right after sourcing N's env, before N+1's overwrites it). L0 attaches it (`hdiutil attach -readonly -nobrowse -noverify -noautoopen -mountpoint`, 60 s bound), `ditto`s the `.app` out of the volume, detaches (`detach_dmg`, idempotent, also in the EXIT/TERM trap, one `-force` retry). The L0 row says "from the mounted .dmg <name>"; with the `.dmg` absent it says "from the BUILD DIR copy, not the .dmg (no .dmg: ...)"; a `.dmg` that is present but will not attach is `FAIL L0` (no silent fallback). L9's ditto label says it installs N+1 from the build dir because N+1 has no `.dmg`.
+- **G3**: `crash_dirs_state` lists `DiagnosticReports` and `Retired/` as readable / absent / UNREADABLE (exists but cannot be listed). A new `LCRASH` row (PASS/FAIL, printing the three states) is emitted after L0, and every quit step (`drain_checks`: L6-L8) gains a `crash report directories readable` check, so an unreadable directory FAILs with that reason instead of looking empty. The row count in a green run goes from 12 to 13 PASS.
+- **Rehearsal** (`rehearse6-scripts/run-lifecycle7.sh`, evidence in `$HOME/the-one-m32-evidence/f3/leg7/`): `ok` (fake tar `.dmg`, shim attach/detach logged, 13 PASS 0 FAIL, no leftovers), `nodmg` (build-dir fallback row, 13 PASS), `dmgfail` (`FAIL L0 could not attach the .dmg`, steps skipped, no leftovers), `crashperm` (chmod 000 dir: `FAIL LCRASH ... UNREADABLE` plus `[BAD: crash report directories readable]` in L6-L8). `wf7.py lifecycle` (the workflow's `run:` steps extracted): lifecycle step green with L0 from the mounted `.dmg`, 13 PASS.
+
+---
 
 ## Anomalies
 

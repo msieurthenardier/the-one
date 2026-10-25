@@ -29,8 +29,8 @@ on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator'
   `version`, strict `doctor` (the score, plus exact greps for `desktop shell: OK — Cocoa backend present`,
   `tray: dock` and a `path:` line), the interpreter doctor resolved, `serve` on a scratch port,
   `rotate-api-credential` against the default data dir (this is what creates the credential before
-  `lifecycle.sh`'s first launch), the signature, the bundle audit (`--report-only` until leg 7 flips
-  it: the default of `M32_AUDIT_ARGS`) and the `.dmg` layout (`hdiutil attach -readonly -nobrowse
+  `lifecycle.sh`'s first launch), the signature, the bundle audit (enforcing since dispatch 4; `M32_AUDIT_ARGS=--report-only`
+  is the unset default) and the `.dmg` layout (`hdiutil attach -readonly -nobrowse
   -noverify -noautoopen -mountpoint`, then `GleepGlorp AI.app` and `Applications` -> `/Applications`;
   detached in a trap, `-force` on a retry). The window is not touched here.
 - `lifecycle.sh APP_N APP_N1 APP_ID VERSION_N VERSION_N1 OUT_DIR`: the dock behaviour on the runner's
@@ -84,7 +84,7 @@ which runs even when `checks.sh` failed, as long as both `.app` bundles exist. T
 `A/SUMMARY.txt` or `lifecycle/SUMMARY.txt` starts with `FAIL` (anchored: evidence text that says "FAIL" never
 trips it), when a build step failed, or when the lifecycle summary is missing in lifecycle mode.
 
-`lifecycle.sh` installs N in `/Applications` (`ditto`), then runs ten steps, each as a child under its own cap and
+`lifecycle.sh` installs N in `/Applications` the way a user does (attaches the N `.dmg` read-only, `ditto`s the `.app` out of the volume, detaches; `M32_DMG_N`; without a `.dmg` it copies from the build dir and the L0 row says so; N+1 has no `.dmg`, so L9 copies it from the build dir), checks that the crash-report directories are readable (an unreadable one is `FAIL LCRASH`), then runs ten steps, each as a child under its own cap and
 each writing one `PASS`/`FAIL` row with its evidence (a step that finds no app running starts one and says so).
 It reads leg 4's observables: the log `~/Library/Logs/GleepGlorp AI/app.log` by byte offset per step, and
 `GET /api/window/state` (`visible`, `tray`, `pid`, `version`, `mode`).
