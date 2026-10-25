@@ -20,7 +20,12 @@
 // and the L3 endpoint preserves the stored secret.
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
-//              onListStale }
+//              onListStale, onMounted }
+// Returns a controller {destroy, setBusy, setError, runTest} (M31 F5 L03) and
+// reports it through callbacks.onMounted on every mount, Reset's re-mount
+// included. A destroyed mount skips its DOM writes and mount-bound callbacks but
+// still invalidates the store and calls onListStale for a server change that
+// already happened (mcp-editor-lifecycle.js).
 // M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
 // breadcrumb "Library / MCP servers" ("Library" a link to `#library`, the group plain text)
 // and the unsaved caption, whose text follows every onDirtyChange report.
@@ -56,11 +61,14 @@
   var wireResetButton = mcpEditor.connectionStatus.wireResetButton;
   var syncResetButtonVisibility = mcpEditor.connectionStatus.syncResetButtonVisibility;
   var handleTestConnection = mcpEditor.connectionStatus.handleTestConnection;
+  var createMount = mcpEditor.lifecycle.createMount;
 
   // ── Public entry point ──────────────────────────────────────────────
 
   function renderMcpSourceEditor(container, source, mcpTypes, callbacks) {
     callbacks = callbacks || {};
+    var mount = createMount();
+    var handles = mount.handles;
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var isCreate = !source;
@@ -249,12 +257,20 @@
     headerText.insertBefore(crumb, headerText.firstChild);
 
     mountChipListEditors(container, source);
-    wireEditorEvents(container, source, mcpTypes, callbacks);
+    handles.container = container;
+    handles.testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
+    var api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount);
+    var controller = {
+      destroy: mount.destroy, setBusy: api.setBusy, setError: api.setError, runTest: api.runTest
+    };
+    if (callbacks.onMounted) callbacks.onMounted(controller);
+    return controller;
   }
 
   // ── Form snapshot + dirty tracking ──────────────────────────────────
 
-  function getFormSnapshot(container) {
+  function getFormSnapshot(handles) {
+    var container = handles.container;
     /* Three explicit walks (avoid the flat data[dataset.field] = value
        collision since multiple kv rows share data-field="kv-key" etc.). */
     var helpers = window.App.adminFormHelpers;
@@ -303,10 +319,12 @@
 
   // ── Event wiring ────────────────────────────────────────────────────
 
-  function wireEditorEvents(container, source, mcpTypes, callbacks) {
+  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount) {
+    var container = handles.container;
     var isEdit = !!source;
-    var snapshot = getFormSnapshot(container);
+    var snapshot = getFormSnapshot(handles);
     var dirty = false;
+    var busy = false;
     var nextRowIdx = container.querySelectorAll('.mcp-kv-table tbody tr.mcp-kv-row').length;
 
     // Every dirty report goes through here: the header's unsaved caption
@@ -318,26 +336,35 @@
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
     }
 
-    function checkDirty() {
-      var current = getFormSnapshot(container);
-      dirty = (current !== snapshot);
+    // Save and Cancel follow the dirty flag and the controller's busy flag.
+    // Edit mode only: the create form's Cancel (abandon, DD8) stays enabled.
+    function applyButtons() {
       var saveBtn = container.querySelector('.save-btn');
       var cancelBtn = container.querySelector('.cancel-btn');
-      if (saveBtn) saveBtn.disabled = !dirty;
-      // Edit mode only: the create form's Cancel (abandon, DD8) stays enabled.
-      if (cancelBtn) cancelBtn.disabled = isEdit && !dirty;
+      if (saveBtn) saveBtn.disabled = busy || !dirty;
+      if (cancelBtn) cancelBtn.disabled = busy || (isEdit && !dirty);
+    }
+
+    function checkDirty() {
+      dirty = (getFormSnapshot(handles) !== snapshot);
+      applyButtons();
       reportDirty(dirty);
     }
 
     function recaptureSnapshot() {
-      snapshot = getFormSnapshot(container);
+      snapshot = getFormSnapshot(handles);
       dirty = false;
-      var saveBtn = container.querySelector('.save-btn');
-      var cancelBtn = container.querySelector('.cancel-btn');
-      if (saveBtn) saveBtn.disabled = true;
-      if (cancelBtn) cancelBtn.disabled = isEdit;
+      applyButtons();
       reportDirty(false);
     }
+
+    function setError(msg) {
+      var el = container.querySelector('.editor-error');
+      if (el) el.textContent = msg || '';
+    }
+
+    // The mount reports its initial clean state once.
+    if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
 
     // ── Static field listeners ────────────────────────────────────────
     function attachStaticListeners() {
@@ -400,15 +427,11 @@
     function titleEl() { return container.querySelector('.editor-title'); }
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
+        if (!mount.alive()) return;
         if (isEdit) {
           var cancelTok = App.focusAfter.begin(cancelBtn);
-          revertEditorToSource(container, source, callbacks);
-          // Re-bind delegated/static listeners that depend on snapshot/dirty
-          // tracking — note: kv table itself was rebuilt; the table's
-          // delegated listeners are still attached to the same .mcp-kv-table
-          // element (we did innerHTML on the section, NOT replaceChild on
-          // the table) — but to be safe, re-acquire references.
-          // Actually we replace the tbody contents in-place.
+          revertEditorToSource(handles, source, callbacks);
+          // The kv tbody was rebuilt in place; its delegated listeners stay.
           recaptureSnapshot();
           App.focusAfter.restore(cancelTok, titleEl);
         } else if (callbacks.onCancel) {
@@ -421,9 +444,9 @@
     var saveBtn = container.querySelector('.save-btn');
     if (saveBtn) {
       saveBtn.addEventListener('click', function () {
-        var errorEl = container.querySelector('.editor-error');
-        if (errorEl) errorEl.textContent = '';
-        var payload = collectFormData(container, source, isEdit);
+        if (!mount.alive()) return;
+        setError('');
+        var payload = collectFormData(handles, source, isEdit);
         if (!payload) return;
         var saveTok = App.focusAfter.begin(saveBtn);
         var url = isEdit ? '/api/mcp-sources/' + encodeURIComponent(source.id) : '/api/mcp-sources';
@@ -468,6 +491,9 @@
             // The Library list shows the source (DD9). Invalidated BEFORE
             // onSaveSuccess, whose router sync names the new item.
             App.store.invalidate('mcp-sources');
+            // A Save that lands after destroy still saved on the server: the
+            // list follows, the dead editor is not touched.
+            if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
             window.App.showFlash(container, isEdit ? 'MCP Server saved' : 'MCP Server created');
             // Create mounts the saved editor asynchronously (the orchestrator's
             // `ready` promise): park the restore for its mount to flush.
@@ -476,11 +502,9 @@
             if (isEdit) {
               // Edit→edit: refresh snapshot from the masked response so
               // subsequent typing dirties from the post-save baseline.
-              snapshot = getFormSnapshot(container);
+              snapshot = getFormSnapshot(handles);
               dirty = false;
-              if (saveBtn) saveBtn.disabled = true;
-              var c2 = container.querySelector('.cancel-btn');
-              if (c2) c2.disabled = true;
+              applyButtons();
               reportDirty(false);
               // Squawk 0126: the title follows the saved row (a rename).
               var t2 = titleEl();
@@ -489,7 +513,8 @@
             }
           })
           .catch(function (err) {
-            if (errorEl) errorEl.textContent = err.message || String(err);
+            if (!mount.alive()) return;
+            setError(err.message || String(err));
             App.focusAfter.defer(null);
             App.focusAfter.restore(saveTok, saveBtn);
           });
@@ -497,26 +522,24 @@
     }
 
     // ── Test Connection (edit only, streamable-http only) ─────────────
-    var testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
+    var testBtn = handles.testBtn;
+    var runTest = function () {};
     if (testBtn) {
       // F9 L1 (vibing follow-up): after a successful /test/connect (Phase A
-      // ok OR Phase 2 ok after OAuth popup), refetch the source so any
-      // OAuth-state-dependent UI (currently: the Reset button) reflects
-      // the post-flow truth. Without this, a fresh OAuth grant via the
-      // popup leaves source.oauth_active stale at the value captured on
-      // editor mount, hiding the Reset button until the operator
-      // reloads. Targeted DOM mutation keeps in-flight form edits intact
-      // (a full re-render would clobber dirty form state).
+      // ok OR Phase 2 ok after OAuth popup), refetch the source so the
+      // OAuth-state-dependent UI (the Reset button) reflects the post-flow
+      // truth, by targeted DOM mutation that keeps in-flight edits intact.
       function onTestConnectSuccess() {
         // handleTestConnection invalidated 'mcp-sources' just before calling
         // this (the connect rewrote config._cache): the list reloads.
         if (callbacks.onListStale) callbacks.onListStale();
+        if (!mount.alive()) return;
         fetch('/api/mcp-sources/' + encodeURIComponent(source.id))
           .then(function (r) { return r && r.ok ? r.json() : null; })
           .then(function (refreshed) {
-            if (!refreshed) return;
+            if (!refreshed || !mount.alive()) return;
             source.oauth_active = !!refreshed.oauth_active;
-            syncResetButtonVisibility(container, source, mcpTypes, callbacks);
+            syncResetButtonVisibility(container, source, mcpTypes, callbacks, mount);
             // Squawk 0102: the refresh just rewrote config._cache server-side
             // (serverInfo, capabilities, instructions, ...) — repaint the
             // Server section from it. source.config._cache is deliberately
@@ -528,30 +551,24 @@
           })
           .catch(function () { /* best-effort; UI stays consistent on next mount */ });
       }
-      testBtn.addEventListener('click', function () {
-        // F8 L4: pass a no-op error-clearer so collectFormData's
-        // validation messages don't accidentally show up in the editor's
-        // generic .editor-error div for the Test path; if validation
-        // fails (missing name / type / url), the form data is null and
-        // we fall through to the no-payload path which uses persisted
-        // state — same behavior as before.
-        var formData = collectFormData(container, source, true);
-        // F9 L1 (vibing follow-up): the auto-run-after-create path
-        // (studio.js onSaveSuccess) sets dataset.autoRun on the button
-        // before dispatching click() — signal to handleTestConnection
-        // that it must NOT open the OAuth popup automatically (the
-        // user-gesture context from Save is no longer fresh). Cleared
-        // after read so subsequent manual clicks behave normally.
-        var autoRun = testBtn.dataset.autoRun === '1';
-        if (autoRun) delete testBtn.dataset.autoRun;
-        // The auto-run has no keyboard user behind it: no token, so it does not
-        // supersede the create's parked focus restore.
+      // The one entry for a Test click and the glue's auto-run after create
+      // ({autoRun: true}: the Save click's user gesture is gone, so
+      // handleTestConnection must NOT open the OAuth popup; there is no keyboard
+      // user behind it, so no focus token and the create's parked restore stands).
+      // A defined no-op while Test is disabled or a sign-in session is live.
+      runTest = function (opts) {
+        if (!mount.alive() || testBtn.disabled || mount.sessionActive()) return;
+        var autoRun = !!(opts && opts.autoRun);
+        // F8 L4: validation failures give null form data, so the Test falls back
+        // to the persisted state (collectFormData also writes .editor-error).
+        var formData = collectFormData(handles, source, true);
         handleTestConnection(source.id, container, testBtn, formData,
           onTestConnectSuccess, {
-            noAutoPopup: autoRun,
+            noAutoPopup: autoRun, mount: mount,
             focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
           });
-      });
+      };
+      testBtn.addEventListener('click', function () { runTest({}); });
     }
 
     // ── Delete (edit only) ────────────────────────────────────────────
@@ -563,33 +580,38 @@
             if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
             App.store.invalidate('mcp-sources');
             App.store.invalidate('agents');
+            // A late Delete drops the row but never closes the open item.
+            if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
             window.App.showFlash(container, 'MCP Server deleted');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })
           .catch(function (err) {
+            if (!mount.alive()) return;
             revertFn();
             window.App.showFlash(container, 'Error: ' + err.message, true);
           });
       }
       deleteBtn.addEventListener('click', function () {
-        // L6: NO agent-usage pre-gate (F4 lands per-agent attachments).
-        // Bare confirmDelete two-step.
         window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
       });
     }
 
-    // ── Reset connection (edit only, streamable-http with OAuth state) ─
-    // F9 L1 (vibing): clears tokens + DCR + tools cache server-side and
-    // re-renders the editor from the response shape so the Tools section
-    // collapses to empty-state and the button itself hides (no more
-    // OAuth state to reset). On error, surfaces via showFlash.
+    // ── Reset connection (edit only): clears tokens + DCR + tools cache
+    // server-side and re-mounts from the response (connection-status.js).
     if (isEdit) {
-      wireResetButton(container, source, mcpTypes, callbacks);
+      wireResetButton(container, source, mcpTypes, callbacks, mount);
     }
+
+    return {
+      setBusy: function (b) { busy = !!b; applyButtons(); },
+      setError: setError,
+      runTest: function (opts) { runTest(opts); }
+    };
   }
   // ── Cancel-revert: rebuild kv-table + chip-lists from source ────────
 
-  function revertEditorToSource(container, source, callbacks) {
+  function revertEditorToSource(handles, source, callbacks) {
+    var container = handles.container;
     /* In edit mode, revert the form to the source object. Static fields
        restore via a value-loop; the kv-table rebuilds from source (its
        row count can change during edit); chip-list editors re-mount
@@ -684,7 +706,8 @@
 
   // ── Payload assembly ────────────────────────────────────────────────
 
-  function collectFormData(container, source, isEdit) {
+  function collectFormData(handles, source, isEdit) {
+    var container = handles.container;
     /* Routes by `type` (NOT by visible-field set). A type-change
        immediately followed by Save emits the type-correct payload. */
     var errorEl = container.querySelector('.editor-error');

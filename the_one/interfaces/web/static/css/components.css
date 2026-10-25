@@ -1289,10 +1289,31 @@
     gap: 8px;
     flex-shrink: 0;
   }
-  .form-actions .editor-error {
+  /* One shared declaration for the error's colour and size. The legacy selector
+     stays only for the MCP editor's hand-built header until leg 10 deletes it (DD7). */
+  .form-actions .editor-error,
+  .ui-editor-error-row {
     color: var(--status-danger);
     font-size: var(--font-size-body-sm);
   }
+  /* The editorShell's error row (M31 F5 L05, A1): the header wraps and the error is
+     a full-width last row, so a long message never narrows the title or the cluster.
+     No row gap, and the row's own top spacing applies only while it has text, so an
+     empty row adds no height. */
+  .ui-editor-shell-header {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  /* The empty error span used to trail the cluster, and the cluster's 8px gap trailed
+     it; leaving the cluster would move Cancel, Save and Test 8px right, so the
+     cluster keeps that 8px as a margin and the no-error layout is unchanged. */
+  .ui-editor-shell-header .form-actions { margin-right: 8px; }
+  .ui-editor-error-row {
+    flex: 0 0 100%;
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .ui-editor-error-row:not([data-empty]) { margin-top: 8px; }
   /* Unsaved-changes caption (M25 F3 DD2, A15): a stable span at the start of
      .form-actions whose text checkDirty sets ("Unsaved changes") or clears.
      It stays rendered while empty (never display: none), so its role=status
@@ -1532,6 +1553,8 @@
   .api-key-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .api-key-eye:hover { color: var(--fg); border-color: var(--border-strong); }
   .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-secret-hint { margin-top: 2px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
+  .ui-secret-hint:empty { margin: 0; height: 0; overflow: hidden; }
   .api-key-eye svg { width: 14px; height: 14px; display: block; }
 
   /* === App.ui.clearableInput (M31 F3 L03b): a text input with an in-field clear button ===
@@ -2451,6 +2474,13 @@
     padding: 4px;
     line-height: 0;
   }
+  /* Secret and toggle columns (M31 F5 L04): the modifier sets a width, so fixed layout applies
+     (the <colgroup> sizes the toggle and remove columns); a text-only table keeps width: auto. */
+  .ui-kv-table--fixed { width: 100%; table-layout: fixed; }
+  .ui-kv-secret .api-key-wrap { width: 100%; min-width: 0; }
+  .ui-kv-secret .api-key-wrap .field-input { min-width: 0; }
+  .ui-kv-toggle { text-align: center; }
+  .ui-kv-toggle .ui-toggle { display: inline-flex; justify-content: center; }
   .ui-kv .ui-kv-remove { color: var(--fg-secondary); transition: color var(--motion-fast) ease; }
   .ui-kv .ui-kv-remove:hover { color: var(--status-danger); }
   .ui-kv .ui-kv-remove svg { width: 16px; height: 16px; display: block; }

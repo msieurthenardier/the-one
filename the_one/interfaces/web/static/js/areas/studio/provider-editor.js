@@ -18,7 +18,7 @@
 //   App.ui.section       Connection, Anthropic Account, Available models
 //   App.ui.field + the form controls (textInput, select, toggle, secretInput)
 //   App.ui.status        the Test result line (provider-test-result)
-//   App.ui.dangerZone    Delete Provider (agent-usage block, then arm and commit)
+//   App.ui.dangerZone    Delete provider (agent-usage block, then arm and commit)
 //
 // Fields keep their ids (#pf-*), testids and data-field attributes, so the dirty
 // snapshot and the payload builder read them unchanged. The breadcrumb link
@@ -243,9 +243,9 @@
       sections.push(App.ui.section({ title: 'Available models', children: [modelsHelp, h.modelsHost] }).el);
 
       h.danger = App.ui.dangerZone({
-        title: 'Danger Zone',
+        title: 'Danger zone',
         action: {
-          label: 'Delete Provider', testid: 'delete-provider-btn', dataset: { name: provider.name || '' },
+          label: 'Delete provider', testid: 'delete-provider-btn', dataset: { name: provider.name || '' },
           beforeArm: beforeDeleteArm, onConfirm: doDelete
         },
         notice: { testid: 'delete-blocked-message' }

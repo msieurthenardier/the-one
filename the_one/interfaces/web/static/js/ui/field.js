@@ -462,6 +462,18 @@
   //   property, never an attribute, a title or an aria-label; revealing flips
   //   only the input type. setValue replaces the value and hides it again.
   //   Focus stays on the button when it is toggled (only its icon is swapped).
+  //   showLabel / hideLabel (M31 F5 L04): the eye's names (defaults "Show password" and
+  //   "Hide password"); setLabels(show, hide) renames them (a table re-numbers per row).
+  //   stored / setStored(mask|null) (M31 F5 L04, TABLE CELLS ONLY: App.ui.field rewrites
+  //   aria-describedby wholesale, so a stored secretInput in a field is unsupported): a
+  //   non-empty string is the server's stored mask. While the value equals it, the eye is
+  //   hidden, a hint (controller.hintEl, div.ui-secret-hint, placed by the caller) is linked
+  //   through aria-describedby, and every edit REPLACES the mask: a beforeinput handler
+  //   replaces it whole (typing, delete, cut, drop, paste and replacement text; not IME
+  //   composition or history), with an input-event fallback that strips the mask from an IME
+  //   result. setHint(text|null) shows a one-off message on the same element (cleared on the
+  //   next edit); the hint element is created on first use (and then stays in the DOM, empty and collapsed
+  //   when it has no text, so its live region announces reliably); the default DOM is unchanged.
   App.ui.secretInput = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
@@ -475,33 +487,134 @@
       value: opts.value
     });
     if (opts.label) input.setAttribute('aria-label', opts.label);
+    var showLabel = opts.showLabel || 'Show password';
+    var hideLabel = opts.hideLabel || 'Hide password';
     var button = util.el('button', {
       type: 'button',
       className: 'api-key-eye',
-      'aria-label': 'Show password',
+      'aria-label': showLabel,
       'aria-pressed': 'false'
     }, [App.ui.icon('eye', { size: 'sm' })]);
     if (opts.revealTestid) button.setAttribute('data-testid', opts.revealTestid);
     var revealed = false;
+    var stored = typeof opts.stored === 'string' ? opts.stored : '';
+    var hintEl = null;
+    var message = '';
+    var prev = input.value;
+    function isStored() {
+      return stored !== '' && input.value === stored;
+    }
+    function sync() {
+      var active = isStored();
+      if (active && document.activeElement === button) input.focus();
+      button.hidden = active;
+      if (!hintEl) return;
+      var text = active ? 'Stored. Type a new value to replace it.' : message;
+      if (hintEl.textContent !== text) hintEl.textContent = text;
+      if (text) util.addDescribedBy(input, hintEl.id);
+      else util.removeDescribedBy(input, hintEl.id);
+    }
+    function ensureHint() {
+      if (hintEl) return hintEl;
+      hintEl = util.el('div', { className: 'ui-secret-hint', id: util.uid('secret-hint') });
+      hintEl.setAttribute('aria-live', 'polite');
+      controller.hintEl = hintEl;
+      return hintEl;
+    }
     function setRevealed(value) {
       revealed = !!value;
       input.type = revealed ? 'text' : 'password';
       button.replaceChildren(App.ui.icon(revealed ? 'eye-off' : 'eye', { size: 'sm' }));
-      button.setAttribute('aria-label', revealed ? 'Hide password' : 'Show password');
+      button.setAttribute('aria-label', revealed ? hideLabel : showLabel);
       button.setAttribute('aria-pressed', revealed ? 'true' : 'false');
     }
     button.addEventListener('click', function () {
       setRevealed(!revealed);
     });
-    return {
+    // Replaces the whole mask for the edit types we can resolve ourselves (WebKit applies
+    // the edit to the caret and ignores a selection made inside beforeinput, so selecting
+    // alone is not a guarantee); anything else selects all first.
+    function replaceWhole(text, e) {
+      e.preventDefault();
+      input.value = text;
+      input.setSelectionRange(text.length, text.length);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    input.addEventListener('beforeinput', function (e) {
+      var t = e.inputType || '';
+      if (!isStored() || t === 'insertCompositionText' || t.indexOf('history') === 0) return;
+      if (t.indexOf('delete') === 0) {
+        replaceWhole('', e);
+        return;
+      }
+      if (t.indexOf('insert') === 0) {
+        var text = e.data !== null && e.data !== undefined ? e.data
+          : (e.dataTransfer ? e.dataTransfer.getData('text/plain') : null);
+        if (text !== null && text !== undefined && text !== '') {
+          replaceWhole(String(text).replace(/[\r\n]+/g, ' '), e);
+          return;
+        }
+      }
+      input.setSelectionRange(0, input.value.length);
+    });
+    function afterEdit() {
+      var v = input.value;
+      if (stored !== '' && prev === stored && v !== stored && v.length > stored.length) {
+        var at = v.indexOf(stored);
+        if (at !== -1) {
+          var caret = input.selectionStart;
+          input.value = v.slice(0, at) + v.slice(at + stored.length);
+          caret = caret > at ? Math.max(at, caret - stored.length) : at;
+          input.setSelectionRange(caret, caret);
+        }
+      }
+      prev = input.value;
+      if (message) message = '';
+      sync();
+    }
+    // Rewriting .value mid-composition aborts an IME composition (Chromium), so the
+    // fallback waits for compositionend.
+    input.addEventListener('input', function (e) {
+      if (e.isComposing) return;
+      afterEdit();
+    });
+    input.addEventListener('compositionend', afterEdit);
+    var controller = {
       el: util.el('div', { className: 'api-key-wrap' }, [input, button]),
       input: input,
       button: button,
+      hintEl: null,
       setRevealed: setRevealed,
       setValue: function (text) {
         input.value = text === null || text === undefined ? '' : String(text);
+        prev = input.value;
         setRevealed(false);
+        sync();
+      },
+      setLabels: function (show, hide) {
+        showLabel = show;
+        hideLabel = hide;
+        button.setAttribute('aria-label', revealed ? hideLabel : showLabel);
+      },
+      setStored: function (mask) {
+        var next = typeof mask === 'string' ? mask : '';
+        if (next !== stored) message = '';
+        stored = next;
+        if (stored) ensureHint();
+        sync();
+      },
+      setHint: function (text) {
+        message = text ? String(text) : '';
+        if (message) ensureHint();
+        sync();
+      },
+      sync: function () {
+        prev = input.value;
+        sync();
       }
     };
+    if (stored) ensureHint();
+    sync();
+    return controller;
   };
 })();

@@ -137,17 +137,23 @@ def test_page_variant_header_shape(engine_page: Page) -> None:
             kids: Array.from(s.el.children).map((k) => k.className),
             intro: s.el.querySelector('.ui-page-header-intro').textContent,
             acts: Array.from(s.el.querySelector('.form-actions').children).map((k) => k.tagName + '.' + k.className),
+            lastChild: s.el.lastElementChild.className,
             inActionsSlot: s.el.querySelector('.ui-page-header-actions > .form-actions') !== null,
             matches: [t.matches('.editor-title'), t.matches('.page-title'), t.matches('[tabindex="-1"]')]
           };
         }"""
     )
-    assert out["root"] == "page-header ui-page-header"
+    assert out["root"] == "page-header ui-page-header ui-editor-shell-header"
     assert out["tid"] == "hdr"
     assert out["title"] == ["H1", "page-title editor-title", -1]
-    assert out["kids"] == ["ui-page-header-text", "ui-page-header-actions"]
+    assert out["kids"] == [
+        "ui-page-header-text",
+        "ui-page-header-actions",
+        "editor-error ui-editor-error-row",
+    ]
     assert out["intro"] == "Defaults."
-    assert out["acts"][0] == "SPAN.editor-unsaved" and out["acts"][-1] == "SPAN.editor-error"
+    assert out["acts"][0] == "SPAN.editor-unsaved" and out["acts"][-1] != "SPAN.editor-error"
+    assert out["lastChild"] == "editor-error ui-editor-error-row"
     assert out["inActionsSlot"] and out["matches"] == [True, True, True]
 
 
@@ -212,13 +218,14 @@ def test_default_variant_header_dom_is_pinned(engine_page: Page) -> None:
           const acts = s.el.querySelector('.form-actions');
           return {root: s.el.className, kids: Array.from(s.el.children).map((k) => k.className),
             first: [acts.firstElementChild.tagName, acts.firstElementChild.getAttribute('role')],
-            last: acts.lastElementChild.className, h: s.titleEl.tagName + '.' + s.titleEl.className,
+            last: acts.lastElementChild.className, errLast: s.el.lastElementChild.className, h: s.titleEl.tagName + '.' + s.titleEl.className,
             ui: s.el.querySelectorAll('.ui-page-header, .page-title').length};
         }"""
     )
-    assert out["root"] == "editor-header"
-    assert out["kids"] == ["editor-header-text", "form-actions"]
-    assert out["first"] == ["SPAN", "status"] and out["last"] == "editor-error"
+    assert out["root"] == "editor-header ui-editor-shell-header"
+    assert out["kids"] == ["editor-header-text", "form-actions", "editor-error ui-editor-error-row"]
+    assert out["first"] == ["SPAN", "status"] and out["last"] == "btn-filled-primary save-btn"
+    assert out["errLast"] == "editor-error ui-editor-error-row"
     assert out["h"] == "H1.editor-title" and out["ui"] == 0
 
 
@@ -280,5 +287,5 @@ def test_shell_exposes_error_el_and_subtitle_testid(engine_page: Page) -> None:
           };
         }"""
     )
-    assert out["page"] == ["editor-error", "boom", "alert", "Sub"]
+    assert out["page"] == ["editor-error ui-editor-error-row", "boom", "alert", "Sub"]
     assert out["plain"] == "editor-subtitle"

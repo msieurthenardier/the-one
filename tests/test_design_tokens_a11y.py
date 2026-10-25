@@ -474,8 +474,11 @@ def test_editor_shell_error_passes_body_aa_and_consumes_the_danger_token(theme: 
     `var(--status-danger)` text on the editor header's ground (`--bg`, or the card
     `--surface`): gated here at body AA in both themes, and the rule is pinned to the token
     so a retune to a novel colour needs its own gate."""
-    body = " ".join(_rule_bodies("components.css", ".form-actions .editor-error"))
-    assert "color: var(--status-danger)" in body, body
+    # One shared declaration (M31 F5 L05): the shell's error row and the legacy cluster
+    # selector (kept for the MCP editor's hand-built header until leg 10) are pinned alike.
+    for selector in (".form-actions .editor-error", ".ui-editor-error-row"):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "color: var(--status-danger)" in body, (selector, body)
     palette = _palette(theme)
     for ground in ("bg", "surface"):
         ratio = contrast_ratio(palette["status_danger"], palette[ground])

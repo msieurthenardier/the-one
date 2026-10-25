@@ -131,7 +131,7 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
     expect(first).to_have_count(1)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
     expect(page.locator('.form-actions [data-testid="test-connection-btn"]')).to_be_visible()
-    expect(page.locator(".form-actions .editor-error")).to_have_count(1)
+    expect(page.locator(".editor-header .editor-error")).to_have_count(1)
 
 
 @pytest.mark.browser
@@ -142,7 +142,7 @@ def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) 
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
     # No Test button in create mode.
     expect(page.locator('.form-actions [data-testid="test-connection-btn"]')).to_have_count(0)
-    expect(page.locator(".form-actions .editor-error")).to_have_count(1)
+    expect(page.locator(".editor-header .editor-error")).to_have_count(1)
 
 
 # ── Save / Cancel disabled-SSoT ──────────────────────────────────────────
@@ -238,7 +238,7 @@ def test_danger_zone_renders_in_edit_mode(app_with_provider: SeededApp, page: Pa
         f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
-    expect(page.locator(".section-title.danger-zone-title")).to_have_text("Danger Zone")
+    expect(page.locator(".section-title.danger-zone-title")).to_have_text("Danger zone")
     expect(page.locator('[data-testid="delete-provider-btn"]')).to_be_visible()
 
 
@@ -278,7 +278,7 @@ def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Pa
 
     Hard-block message lives in a sibling banner below the button, NOT
     in the button text — keeps the button compact when agent-name lists
-    are long. Button stays at "Delete Provider" but is disabled. F6 HAT
+    are long. Button stays at "Delete provider" but is disabled. F6 HAT
     refinement.
     """
     _nav.goto(
@@ -293,9 +293,9 @@ def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Pa
     expect(blocked_msg).to_contain_text("Used by:")
     assert app_with_agent.agent_name is not None
     expect(blocked_msg).to_contain_text(app_with_agent.agent_name)
-    # Button itself stays at "Delete Provider" but is disabled.
+    # Button itself stays at "Delete provider" but is disabled.
     expect(delete_btn).to_be_disabled()
-    expect(delete_btn).to_contain_text("Delete Provider")
+    expect(delete_btn).to_contain_text("Delete provider")
 
 
 @pytest.mark.browser
@@ -320,7 +320,7 @@ def test_delete_confirm_lapse_is_visually_distinct(
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
-    expect(delete_btn).to_contain_text("Delete Provider")
+    expect(delete_btn).to_contain_text("Delete provider")
     # Never committed: still on the editor, provider still there.
     _nav.expect_route(page, f"library/providers/{_nav.seg(app_with_provider.provider_id)}")
 
@@ -351,7 +351,7 @@ def test_delete_confirm_lapse_via_fail_open_path_is_visually_distinct(
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
-    expect(delete_btn).to_contain_text("Delete Provider")
+    expect(delete_btn).to_contain_text("Delete provider")
 
 
 # ── Test button ──────────────────────────────────────────────────────────

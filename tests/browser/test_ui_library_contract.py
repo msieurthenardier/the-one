@@ -68,12 +68,14 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
     )
     assert shape["ui"] == "object"
     assert shape["util"] == [
+        "addDescribedBy",
         "applyDataset",
         "el",
         "icon",
         "latest",
         "middleEllipsis",
         "mountSlot",
+        "removeDescribedBy",
         "rovingFocus",
         "syncChildren",
         "uid",

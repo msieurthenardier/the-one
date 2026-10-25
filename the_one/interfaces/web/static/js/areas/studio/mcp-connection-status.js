@@ -73,7 +73,7 @@
   // DOM. Idempotent: skips wiring if a marker dataset is already set on
   // the button (re-runs from syncResetButtonVisibility are no-ops on
   // already-wired buttons).
-  function wireResetButton(container, source, mcpTypes, callbacks) {
+  function wireResetButton(container, source, mcpTypes, callbacks, mount) {
     var resetBtn = container.querySelector('[data-testid="reset-mcp-connection-btn"]');
     if (!resetBtn) return;
     if (resetBtn.dataset.resetWired === '1') return;
@@ -93,15 +93,24 @@
           return r.json();
         })
         .then(function (refreshed) {
-          // Re-render from the refreshed source. The Tools section
-          // collapses to empty-state (no _cache); the Reset button
-          // hides itself (no more OAuth state); the kv-table rebuilds
-          // (OAuth-managed keys were stripped from the response anyway,
-          // so the visible kv shape is unchanged for non-OAuth secrets).
+          // The mount died during the refetch (the server change already
+          // invalidated the list above): nothing is mounted.
+          if (!mount.alive()) return;
+          // Re-render from the refreshed source: destroy this mount, mount the
+          // new one (its onMounted hands the glue the new controller), then
+          // focus and flash. The Tools section collapses to empty-state, the
+          // Reset button hides itself, and the editor is clean again.
+          var tok = App.focusAfter.begin(resetBtn);
+          mount.destroy();
           renderMcpSourceEditor(container, refreshed, mcpTypes, callbacks);
+          App.focusAfter.restore(tok, function () {
+            return container.querySelector('[data-testid="mcp-test-connection"]') ||
+              container.querySelector('h1');
+          });
           window.App.showFlash(container, 'Connection reset');
         })
         .catch(function (err) {
+          if (!mount.alive()) return;
           revertFn();
           window.App.showFlash(container, 'Error: ' + err.message, true);
         });
@@ -116,7 +125,7 @@
   // /test/connect refetch reveals oauth_active changed (e.g., after a
   // fresh OAuth grant via the popup). Targeted DOM mutation — does NOT
   // re-render the editor (would clobber in-flight form edits).
-  function syncResetButtonVisibility(container, source, mcpTypes, callbacks) {
+  function syncResetButtonVisibility(container, source, mcpTypes, callbacks, mount) {
     var escapeAttr = window.App.escapeAttr;
     var actionsHost = container.querySelector('.mcp-connection-actions');
     if (!actionsHost) return;
@@ -146,7 +155,7 @@
       } else {
         actionsHost.appendChild(btn);
       }
-      wireResetButton(container, source, mcpTypes, callbacks);
+      wireResetButton(container, source, mcpTypes, callbacks, mount);
     } else if (existing) {
       existing.parentNode.removeChild(existing);
     }
@@ -170,6 +179,9 @@
     // popup-blockers reject popups not triggered by direct interaction.
     // Default false preserves the manual-Refresh-click behavior verbatim.
     var noAutoPopup = !!(opts && opts.noAutoPopup);
+    // The mount context (mcp-editor-lifecycle.js): a continuation that lands
+    // after destroy writes nothing; the server-change invalidations still run.
+    var mount = (opts && opts.mount) || { alive: function () { return true; }, destroy: function () {} };
     // Focus inside the status panel (the sign-in link block) is lost when the
     // panel is rewritten; on success it is handed to Refresh connection.
     var focusWasInStatus = !!(document.activeElement &&
@@ -181,6 +193,7 @@
     testBtn.disabled = true; // concurrent-Test guard: re-enabled only on final state
 
     function settle() {
+      if (!mount.alive()) return;
       testBtn.disabled = false; // re-enable on final state
       // M25 F6 L1b (DD2): focus returns to the button the keyboard user pressed.
       // A null token (the auto-run after create) is a no-op.
@@ -190,11 +203,13 @@
     // Starts the OAuth sign-in popup (mcp-oauth-consent.js); `rerun` re-runs this
     // test with noAutoPopup once the token lands.
     function rerun() {
-      handleTestConnection(sourceId, container, testBtn, formData, onSuccess, { noAutoPopup: true });
+      handleTestConnection(sourceId, container, testBtn, formData, onSuccess,
+        { noAutoPopup: true, mount: mount });
     }
     function launchConsentPopup(consentUrl) {
       window.App.studio.mcpEditor.oauthConsent.launchConsentPopup({
-        consentUrl: consentUrl, statusEl: statusEl, sourceId: sourceId, settle: settle, rerun: rerun
+        consentUrl: consentUrl, statusEl: statusEl, sourceId: sourceId, settle: settle,
+        rerun: rerun, mount: mount
       });
     }
 
@@ -233,11 +248,17 @@
         });
       })
       .then(function (data) {
+        var live = mount.alive();
+        if (!live && data.status !== 'ok') return;
         if (data.status === 'ok') {
           // A successful connect rewrote config._cache server-side (Refresh,
           // the auto-run after create, Phase 2 after sign-in): the Library
           // list's tool count is stale (DD9).
           App.store.invalidate('mcp-sources');
+          if (!live) {
+            if (typeof onSuccess === 'function') onSuccess();
+            return;
+          }
           // Render summary + collapsible tool list. Cloudflare-class servers
           // ship verbose multi-paragraph descriptions; <details> keeps the
           // section scannable while preserving full content.
@@ -318,6 +339,7 @@
         }
       })
       .catch(function (err) {
+        if (!mount.alive()) return;
         statusEl.innerHTML = '';
         var netErrEl = window.App.buildMcpError(err && err.message ? err.message : '');
         netErrEl.setAttribute('data-testid', 'mcp-connection-error');

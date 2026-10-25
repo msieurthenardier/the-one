@@ -7,6 +7,9 @@
 // link, the popup, the `message` listener, the token poll and renderRetryUi.
 // `rerun` re-runs the connection test on success, so this module never calls
 // back into connectionStatus.
+// launchConsentPopup registers its session with the mount (args.mount) and
+// returns {cancel, isDone}; cancel stops the poll without closing the popup
+// (M31 F5 L03).
 // Exposes: launchConsentPopup.
 (function () {
   'use strict';
@@ -43,6 +46,12 @@
     var sourceId = args.sourceId;
     var settle = args.settle;
     var rerun = args.rerun;
+    // The mount owns the one live session (mcp-editor-lifecycle.js): launching
+    // cancels the previous one and disables Test until this one ends (defect 8).
+    var mount = args.mount;
+    var handle = { cancel: cancel, isDone: function () { return state === 'DONE'; } };
+    if (!mount.alive()) return handle;
+    mount.setSession(handle);
 
     // Sortie 04 DD1/DD2: the status panel (testid mcp-test-status, kept on the
     // outer element) gets a status-text child, a retry area and the sign-in
@@ -117,6 +126,7 @@
     //   DONE    — final action taken (re-POST or retry-UI). Idempotent.
     var state = 'POLLING';
     var pollTimer = null;
+    var textTimer = null;
     var pollAttempts = 0;
     // Overall consent-wait ceiling: 2 minutes, long enough for a real
     // sign-in (IdP login, MFA, consent screen). The server-side pending
@@ -127,13 +137,26 @@
 
     function cleanup() {
       if (pollTimer) clearInterval(pollTimer);
+      if (textTimer) clearTimeout(textTimer);
       window.removeEventListener('message', onOAuthMessage);
+    }
+
+    // Idempotent. Stops the poll, the listener and the delayed first status write,
+    // and never calls rerun, settle or a finalize writer. It does not close the
+    // popup: a sign-in the operator is finishing in the browser still lands on
+    // the server.
+    function cancel() {
+      if (state === 'DONE') return;
+      state = 'DONE';
+      cleanup();
+      mount.endSession(handle);
     }
 
     function finalize(action) {
       if (state === 'DONE') return;
       state = 'DONE';
       cleanup();
+      mount.endSession(handle);
       action();
     }
 
@@ -187,7 +210,7 @@
 
     // The live region (textEl) is in the DOM empty; its first text goes in on
     // the next tick so assistive tech sees the change rather than a new node.
-    setTimeout(function () {
+    textTimer = setTimeout(function () {
       if (state === 'POLLING' && !textEl.textContent) textEl.textContent = 'Awaiting sign-in…';
     }, 0);
 
@@ -225,6 +248,7 @@
         })
         .catch(function () { /* transient fetch error; next tick retries */ });
     }, POLL_INTERVAL_MS);
+    return handle;
   }
 
   window.App.studio.mcpEditor.oauthConsent = {

@@ -157,9 +157,9 @@ Four changes reach beyond the MCP editor, and are named here so no lane is surpr
 
 **DD6: One connection state for the editor and the Library list (A6, A9, B6), from one additive server field.** (Reworked at Architect cycle 1: the first draft's three premises were false.)
 - **One derivation, two readers.** A shared helper, `App.usage.mcpState(source)` (in `store.js` beside `mcpToolCount`), returns `{state, tools, checkedAt}`. The editor's status line (leg 08b) and the Library row (leg 11) both read it, and a test asserts they name the same state for each seeded server. The state takes the first that applies:
-  1. **"Sign-in needed":** no `has_access_token`, and either `oauth_active` or the last check was `auth_required` (Architect cycle 2: a token that lands while the editor is closed must clear it). The seeded tests include that case.
-  2. **"Couldn't connect":** the last check failed.
-  3. **"Connected":** the tools list is cached and the last check (if any) was ok. The row shows "{n} tools".
+  1. **"Sign-in needed":** `!has_access_token && (oauth_active || last_check.status === 'auth_required')`.
+  2. **"Couldn't connect":** `last_check.status === 'error'`.
+  3. **"Connected":** the tools list is cached, and the last check is absent, `ok`, or an `auth_required` superseded by a token (leg 08a's design review). The row shows "{n} tools".
   4. **"Not connected":** otherwise.
 
   `checkedAt` is `last_check.at`, falling back to `_cache.last_updated`.
@@ -341,8 +341,8 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
 ### Checkpoints
 - [x] The MCP surfaces are in the capture tool, the before set is taken, the MOVES rule is in, and `chats` is re-measured.
 - [ ] The editor is split into modules with no behaviour change; full gate green.
-- [ ] The editor has a teardown, async writes are keyed on identity, and one consent poll at most; defects 1, 2, 6 and 8 fixed.
-- [ ] The masked column and the shell's error line are in the library, contract-tested in both engines; the channel map is unchanged.
+- [x] The editor has a teardown, async writes are keyed on identity, and one consent poll at most; defects 1, 2, 6 and 8 fixed.
+- [x] The masked column and the shell's error line are in the library, contract-tested in both engines; the channel map is unchanged.
 - [ ] The server records the last connection check without losing any other `_cache` key, and the editor and the Library list read one derived state.
 - [ ] The fields, the env and headers, the connection status and sign-in, and the server info are on the library; `tools-form-helpers.js` and the legacy switch are gone.
 - [ ] The controller is on `editorShell` with patch-in-place Save and Cancel; zero sinks and zero allowance rows in the MCP files; under 800 lines.
@@ -373,15 +373,15 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - Path pins and code-text anchors are retargeted, as listed in DD3.
   - The line-guard entry goes here if the controller lands at 800 lines or fewer.
   - Lanes: `mcp`, `library`, `shared`, `routing` (the store pins).
-- [ ] `editor-lifecycle` (03), **tier high (lifecycle, async)**: `renderMcpSourceEditor` returns `{destroy, setBusy, setError, runTest}`; the glue calls `destroy` from `reset()` and before every remount, and runs the auto-run after create through `runTest({autoRun: true})`; `latest()` and identity guards on Save, Test and the poll; the per-mount `handles` object passed to collect, snapshot and revert (DD4); `oauthConsent.start()` returns `{cancel}` with one poll at most; Reset's dirty flag and focus. Defects 1, 2, 6 (part) and 8, test first.
-- [ ] `kv-secret-column` (04), **tier high (a shared library control, secrets)**:
+- [x] `editor-lifecycle` (03), **tier high (lifecycle, async)**: `renderMcpSourceEditor` returns `{destroy, setBusy, setError, runTest}`; the glue calls `destroy` from `reset()` and before every remount, and runs the auto-run after create through `runTest({autoRun: true})`; `latest()` and identity guards on Save, Test and the poll; the per-mount `handles` object passed to collect, snapshot and revert (DD4); `oauthConsent.start()` returns `{cancel}` with one poll at most; Reset's dirty flag and focus. Defects 1, 2, 6 (part) and 8, test first.
+- [x] `kv-secret-column` (04), **tier high (a shared library control, secrets)**:
   - `keyValueTable` gains a `secret` cell (masked by a boolean row key, the `secretInput` shell, `.value` only, `autocomplete="new-password"`, the eye with `aria-pressed` and a per-row name, B5's stored-value hint and select-on-focus) and a `toggle` cell (`App.ui.toggle`, with a `change` listener);
   - a `clearOnUnmask` option, a focus-keeping `setRow`, and per-row remove names;
   - new `ui-kv-*` marker classes; the catalogue row; contract tests in both engines;
   - the connector channel map unchanged (its 32 tests pass untouched).
   - Key edits on a row with a stored mask clear the value and ask for it again (DD5).
   - Defects 11 (part), 14 and 15.
-- [ ] `shared-editor-changes` (05), **tier high (every editor)**:
+- [x] `shared-editor-changes` (05), **tier high (every editor)**:
   - the `editorShell` error line (A1), per DD7, with the pins listed there retargeted, the page variant included, and the `.form-actions .editor-error` rule kept for the MCP header until leg 10;
   - `editorShell` `setTestState({disabled, label})`, so a dirty change does not re-enable a Test held for a consent poll (DD4), with a contract test in both engines;
   - B7's sentence-case danger buttons in the provider, connector and knowledge editors.

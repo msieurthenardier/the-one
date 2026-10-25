@@ -293,7 +293,7 @@
     var danger = App.ui.dangerZone({
       notice: { testid: 'kb-delete-error' },
       actions: [{
-        label: 'Delete Knowledge Base',
+        label: 'Delete knowledge base',
         testid: 'delete-knowledge-base-btn',
         icon: 'trash',
         onConfirm: function (revert) {

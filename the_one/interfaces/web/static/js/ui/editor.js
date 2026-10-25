@@ -64,8 +64,14 @@
   //     test {label 'Test', testid, onClick, className}: secondary, default size
   //       (same as Cancel and Save), with the play icon; no shrinking class.
   //     extra: nodes placed before Cancel.
-  //   div.form-actions holds span.editor-unsaved[role=status] first and
-  //   span.editor-error last.
+  //   div.form-actions holds span.editor-unsaved[role=status] first. The error
+  //   (span.editor-error.ui-editor-error-row) is the header's last child, a
+  //   full-width row under the title and the cluster (M31 F5 L05, A1); it
+  //   carries data-empty while it has no text, so it takes no height. The
+  //   header carries ui-editor-shell-header.
+  //   setTestState({disabled, label}): holds Test disabled across setDirty and
+  //   setBusy (DD4) and relabels its text node (null restores); no-op without
+  //   actions.test.
   //   setDirty(true): caption "Unsaved changes", Save and Cancel enabled;
   //   setDirty(false): caption cleared, Save disabled, Cancel enabled only
   //   when enabledWhenClean. setBusy(true) disables Save, Cancel and Test and
@@ -136,7 +142,14 @@
     if (opts.errorRole !== undefined && opts.errorRole !== 'alert') {
       throw new Error('App.ui.editorShell: unknown errorRole "' + opts.errorRole + '"');
     }
-    var errorEl = util.el('span', { className: 'editor-error' });
+    // The error is the header's last child, a full-width row of its own (M31 F5 L05,
+    // A1): inside the cluster a long message squeezed the title column to nothing.
+    // data-empty (never hidden or display none, so a role=alert region stays in the
+    // tree) lets an empty row take no height and no gap.
+    var errorEl = util.el('span', {
+      className: 'editor-error ui-editor-error-row',
+      'data-empty': ''
+    });
     if (opts.errorRole) errorEl.setAttribute('role', 'alert');
     var cluster = util.el('div', { className: 'form-actions' }, [unsaved]);
     var i;
@@ -162,7 +175,6 @@
       });
       cluster.appendChild(testButton);
     }
-    cluster.appendChild(errorEl);
 
     var header;
     if (isPage) {
@@ -185,17 +197,33 @@
       if (opts.testid) header.setAttribute('data-testid', opts.testid);
     }
     if (opts.inset === 'none') header.classList.add('editor-header--flush');
+    header.classList.add('ui-editor-shell-header');
+    header.appendChild(errorEl);
 
     var dirty = false;
+    var errorToken = 0;
     var busy = false;
     var cleanSave = !!actions.save.enabledWhenClean;
     var cleanCancel = !!(actions.cancel && actions.cancel.enabledWhenClean);
+    var testHeld = false;
+    var testLabelNode = null;
+    var testLabelText = null;
+    if (testButton) {
+      // The visible label is the button's last text node; the icon is left alone.
+      for (i = testButton.childNodes.length - 1; i >= 0; i--) {
+        if (testButton.childNodes[i].nodeType === 3) {
+          testLabelNode = testButton.childNodes[i];
+          testLabelText = testLabelNode.nodeValue;
+          break;
+        }
+      }
+    }
 
     function apply() {
       unsaved.textContent = dirty ? 'Unsaved changes' : '';
       saveButton.disabled = busy || !(dirty || cleanSave);
       if (cancelButton) cancelButton.disabled = busy || !(dirty || cleanCancel);
-      if (testButton) testButton.disabled = busy;
+      if (testButton) testButton.disabled = busy || testHeld;
     }
     apply();
 
@@ -226,7 +254,41 @@
         apply();
       },
       setError: function (text) {
-        errorEl.textContent = text || '';
+        var next = text || '';
+        if (next && errorEl.textContent === next) {
+          // The same message again must re-announce: clear, then restore next frame.
+          errorEl.textContent = '';
+          var token = ++errorToken;
+          requestAnimationFrame(function () {
+            if (token === errorToken) errorEl.textContent = next;
+          });
+        } else {
+          errorToken++;
+          errorEl.textContent = next;
+        }
+        if (text) errorEl.removeAttribute('data-empty');
+        else errorEl.setAttribute('data-empty', '');
+      },
+      // setTestState({disabled, label}) (M31 F5 L05, DD4): holds Test disabled
+      // across setDirty and setBusy until released with {disabled: false}; a label
+      // replaces the visible text only (the icon survives), null restores the
+      // configured one. A no-op without actions.test.
+      setTestState: function (state) {
+        if (!testButton) return;
+        state = state || {};
+        testHeld = !!state.disabled;
+        if (testLabelNode) {
+          var want = state.label === undefined || state.label === null ? testLabelText : state.label;
+          if (testLabelNode.nodeValue !== want) testLabelNode.nodeValue = want;
+          if (testButton.hasAttribute('aria-label') && !testButton.hasAttribute('data-orig-aria')) {
+            testButton.setAttribute('data-orig-aria', testButton.getAttribute('aria-label'));
+          }
+          if (testButton.hasAttribute('data-orig-aria')) {
+            testButton.setAttribute('aria-label',
+              state.label ? state.label : testButton.getAttribute('data-orig-aria'));
+          }
+        }
+        apply();
       }
     };
   };
@@ -301,7 +363,7 @@
 
   // App.ui.dangerZone(opts) -> {el, button, buttons, setNotice(text|null),
   // setDisabled(bool, index?)}.
-  //   title ('Danger Zone'), action {label, testid, confirmLabel ('Confirm
+  //   title ('Danger zone'), action {label, testid, confirmLabel ('Confirm
   //   delete?'), revertMs, dataset, onConfirm(revert), beforeArm(proceed),
   //   icon ('trash')}, or actions [action, ...] (M31 F2 L4: one delete-style
   //   button per action, in order; action is the one-item form), notice
@@ -322,7 +384,7 @@
     var actions = opts.actions || (opts.action ? [opts.action] : []);
     if (!actions.length) throw new Error('App.ui.dangerZone: action.label is required');
     var root = util.el('div', { className: 'editor-section danger-zone' }, [
-      util.el('div', { className: 'section-title danger-zone-title', text: opts.title || 'Danger Zone' })
+      util.el('div', { className: 'section-title danger-zone-title', text: opts.title || 'Danger zone' })
     ]);
     var buttons = [];
     function build(action) {

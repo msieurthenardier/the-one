@@ -191,6 +191,20 @@
     }
   };
 
+  // addDescribedBy(el, id) / removeDescribedBy(el, id) - treat aria-describedby as a
+  // token list: add or remove only this id, never the whole attribute (M31 F5 L04).
+  App.ui.util.addDescribedBy = function (el, id) {
+    var cur = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+    if (cur.indexOf(id) === -1) cur.push(id);
+    el.setAttribute('aria-describedby', cur.join(' '));
+  };
+  App.ui.util.removeDescribedBy = function (el, id) {
+    var cur = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+    var next = cur.filter(function (t) { return t !== id; });
+    if (next.length) el.setAttribute('aria-describedby', next.join(' '));
+    else el.removeAttribute('aria-describedby');
+  };
+
   // uid(prefix) - a monotonic, page-unique id: ui-<prefix>-<n>.
   App.ui.util.uid = function (prefix) {
     uidCounter += 1;

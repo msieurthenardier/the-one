@@ -1,6 +1,6 @@
 # Leg: editor-lifecycle
 
-**Status**: planning
+**Status**: completed
 **Flight**: [The MCP server editor on the library](../flight.md)
 
 ## Objective
@@ -35,42 +35,65 @@ Defects 1, 2, 6 (the dirty flag and focus) and 8 are fixed, each test first. The
 - Legs 01 and 02 landed and committed at the batch B1 checkpoint.
 
 ## Outputs
-- **A new module, `js/areas/studio/mcp-editor-lifecycle.js`** (`App.studio.mcpEditor.lifecycle`). It holds the mount context, so the controller stays at 800 lines or fewer (it is 775 now). It carries its own script tag in `index.html` before the controller, the `test_index_asset_cache_busting.py` and script-order checks, and any move-table entries if a use moves into it. It provides:
+- **A new module, `js/areas/studio/mcp-editor-lifecycle.js`** (`App.studio.mcpEditor.lifecycle`). It holds the mount context, so the controller stays at 800 lines or fewer (it is 775 now). It carries its own script tag in `index.html`, before `mcp-connection-status.js` and `mcp-oauth-consent.js`, and both the asset test and the line-guard glob pick it up; the `test_index_asset_cache_busting.py` and script-order checks, and any move-table entries if a use moves into it. It provides:
   - **`createMount(callbacks)`**, which returns the mount context `{alive(), ifAlive(fn), destroy(), setSession(s), session(), handles}`;
   - **`ifAlive(fn)`**, the one dead-mount rule every continuation goes through;
-  - **`destroy()`**: it is idempotent. It sets the dead flag and cancels the current consent session. It does **not** call `App.focusAfter.cancel()`, which is global and would wipe the create → edit restore that the glue's `flush()` lands. Restore targets are alive-gated instead: the mount's `titleEl` returns `null` once the mount is dead, so `focusAfter` rejects it. Leaving the editor is already covered by `closeOpenItem`'s `App.focusAfter.cancel()`.
+  - **`destroy()`**: it is idempotent. It sets the dead flag and cancels the current consent session. It does **not** call `App.focusAfter.cancel()`, which is global and would wipe the create → edit restore that the glue's `flush()` lands. `titleEl` is **not** gated (cycle 2):
+    - a late Save, Test, Cancel or Reset continuation is skipped as a whole by the dead-mount rule, so its restore never runs;
+    - the one `defer` that must outlive its mount, create → edit, is parked while the mount is still alive, immediately before `onSaveSuccess`. `flush()` then resolves `titleEl` against the new mount's title;
+    - leaving the editor is already covered by `closeOpenItem`'s `App.focusAfter.cancel()`.
+  - **`setSession(s)`** cancels the previous session, then stores the new one. A session marks itself done when it finalizes or is cancelled, and `sessionActive()` reports whether one is live.
 - **`mcp-server-editor.js`:**
   - **`renderMcpSourceEditor` returns `{destroy, setBusy, setError, runTest}`.**
     - `setBusy(bool)` and `setError(msg|null)` act on today's hand-built header (Save, Cancel and the `.editor-error` span). Leg 10 moves them onto `editorShell`.
     - `runTest({autoRun})` runs the same path as a Test click. It is a defined no-op while a consent session is active or the Test button is disabled.
   - **Every mount calls `callbacks.onMounted(controller)`**, including Reset's re-mount, so the glue always holds the live controller.
-  - **What a dead mount skips, and what it still does** (design review M4):
+  - **What a dead mount skips, and what it still does** (design review M4; spelled out at cycle 2):
     - **It skips** the DOM writes and mount-bound callbacks: flashes, title, snapshot, caption and button writes, `reportDirty` and `onDirtyChange`, `onSaveSuccess`, `onDeleteSuccess`, LED, "Last updated", server info and Reset injection.
-    - **It still does** whatever reflects a server change that already happened: `App.store.invalidate(...)` and `callbacks.onListStale()`. A late Delete therefore calls `onListStale` instead of `onDeleteSuccess`, so the list drops the row without closing the open item. The request itself is never aborted.
+    - **It still does** whatever reflects a server change that already happened: `App.store.invalidate(...)` and `callbacks.onListStale()`, in today's order (invalidate first: the Reset path's order is pinned by `tests/test_store_static.py:267`).
+      - A late Delete calls `onListStale` instead of `onDeleteSuccess`, so the list drops the row without closing the open item.
+      - A late successful Test (`onTestConnectSuccess`) runs `invalidate('mcp-sources')` and `onListStale()`, and skips the status, the LED, "Last updated", the per-id refetch, the server-info repaint and the Reset injection.
+      - The rule also covers every `.catch` and every `settle()`. For example, Delete's `.catch` calls `showFlash(container, …)`, which would write into the next editor.
+      - Requests are never aborted, including an in-flight Test at `destroy`.
   - **On mount, report the initial clean state:** `onDirtyChange(false)` once.
   - **The per-mount `handles` object** (from the mount context) is passed to `collectFormData`, `getFormSnapshot` and `revertEditorToSource`, which keep their `container` reads for now (DD4).
 - **`mcp-connection-status.js`:**
   - `handleTestConnection` receives the mount context and threads it through `rerun()` (which today calls `handleTestConnection` with `{noAutoPopup: true}` and would drop it);
-  - **one consent session per mount, and the rule is refuse** (DD4): Test is disabled when a session starts and re-enabled when the session settles or is cancelled. On the auto-run path, `settle()` no longer re-enables Test while the "Sign in" flow is active (defect 8). A second launch, including the retry button's, replaces the mount's session slot; it never runs beside it;
-  - **Reset's order:** alive check, then `App.focusAfter.begin(resetBtn)`, then destroy the old controller, then mount the new one (which reports through `onMounted`), then restore focus to the new mount's Test or Refresh button (the title is the fallback), then the flash. If the mount died during the refetch, nothing is mounted.
+  - **one consent session per mount, and the rule is refuse** (DD4; the mechanism corrected at cycle 2):
+    - **Today's flow.** The auto-run `auth_required` branch calls `settle()` before any session exists, so `settle()` there rightly re-enables Test. The operator then clicks "Sign in", which starts a session while Test is enabled, so a further click starts a second poller (defect 8).
+    - **The fix.** Starting a session disables Test, and Test is re-enabled when the session finalizes or is cancelled. The mount context owns this (it holds the Test button), so `launchConsentPopup` needs no `testBtn`. The retry button re-launches through the same path and picks it up.
+    - **The manual-click path** already keeps Test disabled through the session; that stays.
+    - **The "Sign in" button** is not disabled; `statusEl.replaceChildren()` replaces it.
+    - **A second launch** goes through `setSession`, which cancels the first;
+  - **Reset's order:**
+    1. the alive check;
+    2. `App.focusAfter.begin(resetBtn)`;
+    3. destroy the old controller;
+    4. mount the new one, whose `onMounted` runs before the next step, so the glue's `current` is already the new controller;
+    5. restore focus to the new mount's Test or Refresh button (the title is the fallback);
+    6. the flash.
+
+    If the mount died during the refetch, nothing is mounted. Reset now drops unsaved edits and leaves the editor clean, which is intended (the editor was re-mounted before too, but kept a stale dirty flag).
 - **`mcp-oauth-consent.js`:**
   - `launchConsentPopup(args)` registers its session in the mount's slot (`args.mount.setSession`) and returns `{cancel}`;
   - `cancel()` is idempotent. It clears the poll and the `message` listener, stops the delayed first status write (the `setTimeout` at `:190`), and puts the session in a done state, so it never calls `rerun`, `settle` or a `finalize` writer;
   - **`cancel()` does not close the popup** (an FD decision on the review's question). Leaving the editor must not kill a sign-in the operator is finishing in the browser. The server stores the tokens, and a reopened editor shows the result.
 - **`mcp-glue.js`:**
-  - keeps `current`, set only from `onMounted` and only when the mount's generation still matches;
+  - keeps `current`, set only from `onMounted` and only when the mount's generation (`mcpGen`) still matches. A controller reported in a stale generation is destroyed at once, so it cannot leak;
+  - exposes a test-only accessor `self._currentMcpEditor = function () { return current; }`, like the area's other `_` seams;
   - calls `current.destroy()` (when set) in each of these places:
     - at the top of `renderMcpSourcesSection`;
     - immediately before `App.studio.renderMcpSourceEditor` inside `ready.then`, after the `editorGen` check, so two queued renders never leave an orphan (the connector precedent, `connector-glue.js:70-79, :113`);
     - in `_closeMcpForm`;
     - in `reset()`;
   - exposes a destroy-only `self._resetMcp`, which `studio.js` `deactivate()` (`:739-750`) calls beside `_resetKnowledge`. Leaving the Library area with a clean editor (to Chats or Settings) destroys the editor. It leaves `mcpSourceFormMode` alone, so a return is a fresh mount as today;
-  - runs the auto-run after create through `current.runTest({autoRun: true})` instead of `dataset.autoRun` and a synthetic click. The deferred call checks that `current` is still the controller for `updated.id`, in the same generation, before it runs. The streamable-HTTP-only rule stays.
+  - runs the auto-run after create through `runTest({autoRun: true})` instead of `dataset.autoRun` and a synthetic click. The deferred call keeps the controller reference that this render's `onMounted` reported, and runs only if `current` is still that same object and `mcpGen` is unchanged. The streamable-HTTP-only rule stays;
+  - after `_resetMcp`, the dead editor's DOM stays in `sectionContentEl` while Library is hidden. That is harmless: the router re-renders the section on return.
 - **Tests** in `tests/browser/test_flow_studio_mcp_editor.py` (lane `mcp`), each failing on the leg 02 tree first and named for the behaviour:
   - **A late Save never writes into the next editor (defect 1).**
     1. Open A (edit) and make it dirty.
     2. Press Save with the PUT held (`page.route`).
-    3. Open B. The leave guard asks, because A is still dirty; choose to leave.
+    3. Open B. The leave guard asks, because A is still dirty; choose to leave through `App.confirmDialog`, with the selectors `test_dirty_breadcrumb_close_confirm_dialog` uses.
     4. Release the PUT and wait for its response (`expect_response`), then yield one page macrotask (`page.evaluate` of a resolved `setTimeout(0)` promise; never `wait_for_timeout`).
     5. Assert: B's title is B's name, not A's; B's Save and Cancel state and its "Unsaved changes" caption match B's own state; no flash appeared in B; `App.nav`'s dirty state is B's; A's new name reached the server (a GET) and shows in A's Library row.
   - **A late Delete never closes the next editor (defect 1, Delete).** Hold A's DELETE, open B, and release it. B stays open, and A's row is gone from the list.
@@ -81,7 +104,7 @@ Defects 1, 2, 6 (the dirty flag and focus) and 8 are fixed, each test first. The
     4. B's LED, "Last updated", Server section and Reset presence are unchanged, and no Reset in B carries A's name.
   - **Leaving the editor stops the sign-in poll (defect 2).**
     1. `page.clock.install()` before `_nav.goto_settled`. The precedents are `tests/browser/test_flow_studio_knowledge_inventory.py:2084` and `test_ui_copy_contract.py`. The time-zone tests avoid `install()` because of `wait_settled`; install it before the first `goto_settled`, as those two do.
-    2. Count requests with a page-side `window.fetch` counter keyed by exact path (`/api/mcp-sources/{A}`, `/api/mcp-sources/{A}/test/connect`), read through `page.evaluate`.
+    2. Count requests with a page-side `window.fetch` counter keyed by exact path (`/api/mcp-sources/{A}`, `/api/mcp-sources/{A}/test/connect`), installed with `page.add_init_script` before `goto_settled`, and read through `page.evaluate`. Time flows normally under `install()`, so each count is taken against a baseline read just before the `run_for` it measures.
     3. Start a consent session on A (`/test/connect` stubbed to `auth_required`, `window.open` stubbed), and `run_for` until at least one poll GET is counted (the positive control).
     4. Leave. There are three cases: open another item; go to Settings with a clean editor (this exercises `deactivate`); and close through the breadcrumb.
     5. `run_for(125_000)`: no further GET of A's path and no re-POST.
@@ -92,7 +115,7 @@ Defects 1, 2, 6 (the dirty flag and focus) and 8 are fixed, each test first. The
   - **One sign-in poll at a time (defect 8).**
     1. On the create path, the per-id GET route is a regex matching any id, because the id is unknown until create.
     2. The `auth_required` auto-run shows "Sign in"; click it, and a session is polling.
-    3. Test is disabled, and `runTest` is a no-op.
+    3. Test is disabled, and `App.studio._currentMcpEditor().runTest()` is a no-op (no new `/test/connect`).
     4. The page-side counter shows one poll GET per 500 ms of `run_for`, not two.
   - **`destroy` is idempotent.** In a `page.evaluate`, call `App.studio.renderMcpSourceEditor(detachedDiv, source, types, {})` directly, call `destroy()` twice, and check that no error is thrown and no `pageerror` fires.
   - **The auto-run fires once** after a streamable-HTTP create and never after a stdio create; `test_create_streamable_http_auto_run_auth_required_does_not_open_popup` stays green unchanged.
@@ -118,6 +141,7 @@ Defects 1, 2, 6 (the dirty flag and focus) and 8 are fixed, each test first. The
 ## Verification Steps
 - `git grep -n "destroy()\|_resetMcp\|onMounted" the_one/interfaces/web/static/js/areas/studio.js the_one/interfaces/web/static/js/areas/studio/`.
 - `wc -l the_one/interfaces/web/static/js/areas/studio/mcp-*.js`.
+- `tests/test_store_static.py`: its per-file `invalidate` counts and the Reset order pin still pass. If a use moves into the lifecycle module, update the per-file tables (`test_store_static.py` and `_ui_ownership_allowance.py`).
 - `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh -m browser tests/browser/test_flow_studio_mcp_editor.py -x --timeout 60`, first with only the new tests added (expect the defect tests to fail), then after the fix.
 - `--lane mcp` and `--lane library`, then by file with `-m browser`: `test_studio_mcps_tab.py`, `test_oauth_modal_flow.py`, `test_flow_chiplist_label_resolver.py`. Run at most 3 at a time.
 - The capture compare against `m31-f5-split`.
@@ -166,3 +190,15 @@ Completion steps (status transitions, the flight-log update, checking off in the
   - defect 8 is refuse, with one session slot and the mount context threaded through `rerun` (M8);
   - the idempotence test seam, the leave dialog, and the Reset-test setup (L).
   - FD decision on the review's question: `cancel()` stops polling but does not close the popup. A second cycle follows.
+- **Developer design review, cycle 2 (2026-10-25): approve with changes.** Applied in place:
+  - `titleEl` is not gated, and the create → edit `defer` is parked while the mount is alive (H);
+  - the defect 8 mechanism is corrected: the mount context disables Test at session launch, and the auto-run `settle()` before a session stays as it is (M);
+  - `setSession` cancels the previous session, and sessions expose a done state (M);
+  - the `_currentMcpEditor` test seam (M);
+  - the dead-mount rule for `onTestConnectSuccess`, every `.catch` and `settle`, with the invalidate order kept (M);
+  - the auto-run guard by controller identity plus `mcpGen` (M);
+  - a stale-generation controller is destroyed (L);
+  - the script order (L); the per-file count tables in Verification (L);
+  - the test mechanics: the leave dialog, the counter installation and count baselines (L).
+  - Questions settled: the "Sign in" button is not disabled, and `destroy` aborts nothing.
+  - This was the last of two cycles; the leg is `ready`.

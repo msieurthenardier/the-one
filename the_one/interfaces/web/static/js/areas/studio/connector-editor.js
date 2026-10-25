@@ -595,7 +595,7 @@
       var deleting = false;
       var danger = App.ui.dangerZone({
         action: {
-          label: 'Delete Connector', testid: 'delete-connector-btn',
+          label: 'Delete connector', testid: 'delete-connector-btn',
           onConfirm: function (revert) {
             if (deleting) return; // one DELETE per commit, until it settles
             deleting = true;
