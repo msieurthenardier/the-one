@@ -59,6 +59,9 @@ CANON_LANES=(chats agents agent-tabs library knowledge mcp routing settings sett
 
 # Per-lane wall-clock budgets in seconds (re-measured in the M31 F4 L11 --parallel 3 run after the settings split; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
+# QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
+# other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
+# `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
   [chats]=450
   [agents]=540

@@ -260,7 +260,8 @@ _ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+
 # for-targets whose control ``id`` is emitted through a concatenation helper,
 # invisible to the literal-id scan but present at runtime.
 #
-# ``mf-args`` / ``mf-sandbox-writable-paths`` (mcp-server-editor.js): the two
+# ``mf-args`` / ``mf-sandbox-writable-paths`` (mcp-connection-fields.js,
+# mountChipListEditors): the two
 # chip-list ``label[for]`` targets. M17 F6 L3 fixed the runtime label-dangle by
 # landing the id on the real ``.chip-list-input`` via renderChipListEditor's
 # ``controlId`` option (the placeholder <div> the label used to target carried

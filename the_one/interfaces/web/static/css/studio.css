@@ -137,7 +137,7 @@
      total) is read by SIX source files, not just this one:
      `css/studio.css` (this file, the definitions), `areas/studio.js`,
      `studio/tools-tab.js`, `studio/mcps-tab.js`,
-     `studio/mcp-server-editor.js` — its original consumers, styling the
+     `studio/mcp-server-info.js` — its original consumers, styling the
      MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js` and
      `studio/knowledge-rows.js`, a LATER, cross-page borrow:
      `buildFolderPanel` (folder panels, in folders) and

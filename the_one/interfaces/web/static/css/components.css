@@ -1340,7 +1340,7 @@
          (e.g., "Connected" / "Not connected").
        - Exemplar: provider-models.js LEDs sit beside the model name
          (visible text fully describes the row) → aria-hidden="true".
-         mcp-server-editor.js LEDs sit beside a "Reset connection"
+         mcp-connection-status.js LEDs sit beside a "Reset connection"
          button (action, NOT state) → aria-label="Connected"/"Not connected".
        - When ambiguous (label partially conveys state, e.g., "Test"
          button next to a result LED), prefer aria-label for explicitness.

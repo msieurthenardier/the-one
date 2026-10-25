@@ -257,10 +257,13 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
     """M25 F3 L4a: a connect success and Reset connection invalidate
     'mcp-sources' and then tell the studio (``onListStale``) to reload the list,
     so the row's tool count follows a Refresh."""
+    # M31 F5 L02: onTestConnectSuccess stays in the controller; the Reset window
+    # moved with wireResetButton to mcp-connection-status.js.
     src = _src("areas/studio/mcp-server-editor.js")
     connect = _window(src, "function onTestConnectSuccess()", "fetch(")
     assert "callbacks.onListStale()" in connect
-    reset = _window(src, "'/connection', { method: 'DELETE' })", "return fetch(")
+    status = _src("areas/studio/mcp-connection-status.js")
+    reset = _window(status, "'/connection', { method: 'DELETE' })", "return fetch(")
     assert reset.index("App.store.invalidate('mcp-sources')") < reset.index(
         "callbacks.onListStale()"
     )
@@ -278,7 +281,9 @@ def test_oauth_and_provider_mutations_invalidate_providers() -> None:
 def test_cross_collection_mutations_invalidate_agents() -> None:
     for rel, minimum in (
         ("areas/studio/knowledge-detail.js", 2),  # M31 F3 L02: rename and delete
-        ("areas/studio/mcp-server-editor.js", 2),
+        # M31 F5 L02: the Delete site stays in the controller, Reset moved out.
+        ("areas/studio/mcp-server-editor.js", 1),
+        ("areas/studio/mcp-connection-status.js", 1),
         # M31 F2 L02a: the self-configuration refresh site moved to agent-data (1);
         # M31 F2 L03: the four editor sites (create, rename, save, delete) moved to
         # the controller and studio.js keeps none. Per file, so a lost site is
@@ -325,13 +330,13 @@ INVALIDATION_ROWS = (
         ("mcp-sources", "agents"),
     ),
     (  # MCP source: connection delete (Reset)
-        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/connection', { method: 'DELETE' })",
         "return fetch(",
         ("mcp-sources", "agents"),
     ),
     (  # MCP source: Refresh tools / test-connect success (writes config._cache)
-        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/test/connect', fetchOpts)",
         "renderToolsListHtml(data.tools)",
         ("mcp-sources",),

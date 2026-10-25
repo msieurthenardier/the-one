@@ -1,4 +1,4 @@
-// Chip-list string helpers for the MCP editor (studio/mcp-server-editor.js).
+// Chip-list string helpers for the MCP editor (studio/mcp-connection-fields.js).
 //
 // Extracted from admin/tools-editor.js in F6 leg 05 so the per-agent tool_overrides editor
 // and the per-tool admin editor shared one field-rendering substrate. Both of those now

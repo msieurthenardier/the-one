@@ -24,6 +24,13 @@ aborts loopback requests with ``ERR_NETWORK_CHANGED``.
     .venv/bin/python scripts/ui_capture.py --list
     .venv/bin/python scripts/ui_capture.py --keep-running   # seed, print, leave it up
 
+MCP surfaces (M31 F5 L01) need real MCP servers: when one is selected the tool also
+starts three fixture servers (``tests/fixtures/mcp/rich_http_server.py``: a rich HTTP server, a
+legacy-handshake one and a bare-401 one) as subprocesses on free loopback ports it reads back
+(never 8484, 8485, 8491 or the instance's own port), seeds seven MCP servers, and stops every
+child by its recorded PID in a ``finally``. This process still never imports ``the_one`` or
+``mcp``.
+
 ``--keep-running`` (M31 F4 L01) starts the scratch instance, seeds it with the same
 realistic data the captures use, prints its URL, port, data dir, PID and credential file,
 and exits WITHOUT stopping the instance (the HAT reuses that seed; stop it by the printed
@@ -57,6 +64,10 @@ FORBIDDEN_PORTS = {
     8484: "the operator's production instance",
     8485: "the Flight Director's preview instance",
 }
+# Fixture MCP servers (M31 F5 L01) never bind these: the two protected ports plus 8491, the
+# Flight Director's long-lived scratch instance. (Inside the namespace 8491 is invisible, so
+# this is policy, not a collision check.)
+FIXTURE_FORBIDDEN_PORTS = {**FORBIDDEN_PORTS, 8491: "another session's long-lived scratch instance"}
 NETNS_SENTINEL = "THE_ONE_UI_CAPTURE_IN_NETNS"
 VIEWPORT = {"width": 1280, "height": 900}  # the first of SIZES (kept for the manifest)
 # Every surface is captured at both widths (M31 F4): file names end --<theme>--<width>.
@@ -173,6 +184,17 @@ def check_capture_safety(
         )
 
 
+def check_fixture_port(port: int, instance_port: int) -> None:
+    """Raise CaptureError when a fixture MCP server bound a port it must never use: 8484, 8485,
+    8491 or the scratch instance's own port. (A port-0 bind makes this a belt-and-braces check.)"""
+    if port in FIXTURE_FORBIDDEN_PORTS:
+        raise CaptureError(
+            f"refusing fixture port {port}: that is {FIXTURE_FORBIDDEN_PORTS[port]}."
+        )
+    if port == instance_port:
+        raise CaptureError(f"refusing fixture port {port}: that is the scratch instance's port.")
+
+
 def collect_env_data_dirs(environ: dict[str, str], repo_root: Path) -> list[Path]:
     """THE_ONE_DATA_DIR values from the environment and the repo's ``.env``, parsed
     as text (the app's settings are never imported in this process)."""
@@ -242,6 +264,15 @@ class Surface:
     # Undoes server-side state the surface changed (called with base, token, ids after
     # EVERY theme/width capture, so the next one starts clean).
     restore: Callable[[str, str, dict[str, str]], None] | None = None
+    # The widths this surface is taken at, intersected with --widths (None: all of them).
+    widths: tuple[int, ...] | None = None
+    # True: needs the MCP fixture servers and seed_mcp() (only then are they started).
+    needs_mcp: bool = False
+
+
+def widths_for(s: Surface, requested: list[int]) -> list[int]:
+    """The widths to take ``s`` at: ``--widths`` intersected with the surface's own list."""
+    return [w for w in requested if s.widths is None or w in s.widths]
 
 
 def _ollama_stubs(page) -> None:
@@ -368,6 +399,19 @@ MASK_JS = r"""
     + '.kb-search-hit-path, [data-testid="kb-search-hit-path"], '
     + '[data-testid="kb-panel-file-path"], .kb-item-path, [data-testid="kb-item-path"], '
     + '[data-testid="kb-item-full-path"]';
+  // MCP surfaces (M31 F5 L01): a fixture server's loopback port and the run id inside the
+  // scratch path vary per run; each is replaced by a fixed value of the SAME length. The
+  // "Last updated" line and the Test status keep their unit and digit count.
+  const ANY_TEXT = [
+    [/127\.0\.0\.1:(\d+)/g,
+      (m, port) => '127.0.0.1:' + '49152'.padEnd(port.length, '0').slice(0, port.length)],
+    [/(the-one-ui-capture\/)(\d{8}-\d{6}-)(\d+)/g,
+      (m, dir, stamp, pid) => dir + '20260301-120000-' + '0'.repeat(pid.length)],
+  ];
+  const MCP_TIME = '[data-testid="mcp-tools-last-updated"], [data-testid="mcp-test-status"]';
+  const MCP_RELATIVE = [
+    [/\d+ (?:second|minute|hour|day)s? ago/g, (m) => m.replace(/\d/g, '2')],
+  ];
   const maskText = (str, rules) => {
     let out = str;
     for (const [re, fn] of rules) out = out.replace(re, fn);
@@ -395,6 +439,20 @@ MASK_JS = r"""
       if (t !== n.textContent) n.textContent = t;
     });
     eachText(TIME, TIME_RULES);
+    eachText(MCP_TIME, TIME_RULES.concat(MCP_RELATIVE));
+    eachText('body', ANY_TEXT);
+    document.querySelectorAll('input, textarea').forEach((n) => {
+      const v = maskText(n.value, ANY_TEXT);
+      if (v !== n.value) n.value = v;
+    });
+    document.querySelectorAll('[title], [aria-label], [data-value]').forEach((n) => {
+      for (const a of ['title', 'aria-label', 'data-value']) {
+        const cur = n.getAttribute(a);
+        if (cur === null) continue;
+        const v = maskText(cur, ANY_TEXT);
+        if (v !== cur) n.setAttribute(a, v);
+      }
+    });
     eachText(SCORE, [DIGITS]);
     // The derived tool name carries the knowledge base's random 8-hex id.
     eachText('[data-testid^="agent-knowledge-row-"]',
@@ -1098,10 +1156,434 @@ SURFACES += [
 ]
 
 
+# ── MCP editor surfaces (Mission 31 Flight 5, DD2) ───────────────────────────
+#
+# The before set for the flight: every state of the MCP server editor as it stands on `main`
+# (the legs change the editor; these surfaces are re-run after them, so selectors that a leg
+# retires are retargeted in that leg). Each state is produced by a REAL fixture server
+# (seed_mcp): the connected ones by the Test run once at seed time (it stores the tools cache
+# the editor shows), a failed or rejected one by one Test click in the surface's prepare (the
+# failure is client-side state today), and only Team calendar's sign-in states by a stubbed
+# /test/connect answering auth_required.
+
+MCP_SIGNIN_URL = (
+    "https://auth.example.com/oauth/authorize?client_id=the-one&state=capture-fixed"
+    "&code_challenge=capture-fixed"
+)
+MCP_NAV_KEYS = ("mcp_stdio", "mcp_fail", "mcp_http", "mcp_legacy", "mcp_rej", "mcp_oauth")
+MCP_STATUS_SETTLED = (
+    "() => { const el = document.querySelector('[data-testid=\"mcp-test-status\"]');"
+    " const b = document.querySelector('[data-testid=\"mcp-test-connection\"]');"
+    " return !!el && !/Testing connection/.test(el.textContent) && !!b && !b.disabled; }"
+)
+
+
+def _mcp_ready(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="mcp-test-status"]').first.wait_for(state="attached")
+
+
+def _mcp_run_test(ctx: Ctx) -> None:
+    """Click the editor's Test (today's Refresh connection) and wait for it to settle."""
+    page = ctx.page
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    page.wait_for_function(MCP_STATUS_SETTLED, timeout=90000)
+    details = page.locator('[data-testid="mcp-connection-error"] summary')
+    if details.count():
+        details.first.click()  # the raw text under "Technical details"
+
+
+def _mcp_open_disclosures(ctx: Ctx) -> None:
+    ctx.page.evaluate(
+        "() => document.querySelectorAll('#main-content details').forEach(d => { d.open = true; })"
+    )
+
+
+def _mcp_dirty(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator("#mf-name").fill("Hello tools (local, edited)")
+    chip_input = page.locator("[data-field=args] .chip-list-input, [data-field=args] input").first
+    if chip_input.count():
+        chip_input.fill("--verbose")
+        chip_input.press("Enter")
+    page.locator('[data-testid="editor-unsaved"]').first.wait_for(state="attached")
+    page.wait_for_timeout(200)
+
+
+def _mcp_save_error(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator("#mf-name").fill("self-configuration")  # a reserved name: the server refuses
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    page.locator("#main-content .editor-error:not(:empty)").first.wait_for(timeout=15000)
+
+
+def _mcp_reset_armed(ctx: Ctx) -> None:
+    btn = ctx.page.locator('[data-testid="reset-mcp-connection-btn"]')
+    btn.click()
+    ctx.page.locator('[data-testid="reset-mcp-connection-btn"].confirm-delete').wait_for(
+        timeout=5000
+    )
+
+
+def _mcp_danger_armed(ctx: Ctx) -> None:
+    btn = ctx.page.locator('[data-testid="delete-mcp-source-btn"]')
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    ctx.page.locator("#main-content .danger-zone .confirm-delete").first.wait_for(timeout=5000)
+
+
+def _stub_signin(ctx: Ctx) -> None:
+    """Team calendar's /test/connect answers auth_required with a pinned consent URL."""
+    ctx.page.context.route("https://auth.example.com/**", lambda r: r.abort())
+    ctx.page.on("popup", lambda p: p.close())
+    ctx.page.route(
+        "**/api/mcp-sources/*/test/connect",
+        lambda r: r.fulfill(json={"status": "auth_required", "consent_url": MCP_SIGNIN_URL}),
+    )
+
+
+def _mcp_signin_manual(ctx: Ctx) -> None:
+    _stub_signin(ctx)
+    ctx.page.locator('[data-testid="mcp-test-connection"]').click()
+    ctx.page.locator('[data-testid="mcp-consent-link-url"]').wait_for(timeout=15000)
+    ctx.page.wait_for_timeout(600)
+
+
+def _mcp_signin_after_create(ctx: Ctx) -> None:
+    page = ctx.page
+    _stub_signin(ctx)
+    page.locator("#mf-name").fill(MCP_TEMP_NAME)
+    page.locator("#mf-type").select_option("streamable-http")
+    page.locator("#mf-url").fill(f"http://127.0.0.1:{ctx.ids['mcp_dead_port']}/mcp")
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    page.locator('[data-testid="mcp-consent-btn"]').wait_for(timeout=20000)
+
+
+MCP_TEMP_NAME = "Capture temp server"
+
+
+def _restore_mcp_temp(base: str, token: str, ids: dict[str, str]) -> None:
+    """Delete the server a create-and-sign-in capture made, so the next one starts clean."""
+    for row in _api(base, token, "GET", "/api/mcp-sources"):
+        if row["name"] == MCP_TEMP_NAME:
+            req = urllib.request.Request(
+                f"{base}/api/mcp-sources/{row['id']}",
+                method="DELETE",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            urllib.request.urlopen(req, timeout=15).close()  # noqa: S310 - loopback
+
+
+def _mcp_create_stdio(ctx: Ctx) -> None:
+    ctx.page.locator("#mf-type").select_option("stdio")
+    ctx.page.locator('[data-testid="mcp-command-runtime"]').wait_for(state="visible")
+
+
+def _mcp_create_http(ctx: Ctx) -> None:
+    ctx.page.locator("#mf-type").select_option("streamable-http")
+    ctx.page.locator("#mf-url").wait_for(state="visible")
+
+
+def _mcp_agent_tab_expanded(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid^="mcp-source-expand-"]').first.wait_for(timeout=15000)
+    for key in ("mcp_http", "mcp_rej", "mcp_fail"):
+        page.locator(f'[data-testid="mcp-source-expand-{ctx.ids[key]}"]').click()
+    for key in ("mcp_http", "mcp_rej", "mcp_fail"):
+        body = f'[data-testid="mcp-source-details-body-{ctx.ids[key]}"]'
+        page.wait_for_function(
+            "sel => { const b = document.querySelector(sel);"
+            " return !!b && b.textContent.trim() !== '' && !b.querySelector('.loading'); }",
+            arg=body,
+            timeout=90000,
+        )
+
+
+def _ref_provider_long_error(ctx: Ctx) -> None:
+    """A long editor error in a provider editor (A1's degenerate case): injected text."""
+    ctx.page.evaluate(
+        """(msg) => { const e = document.querySelector('#main-content .editor-error');
+        if (e) e.textContent = msg; }""",
+        LONG_EDITOR_ERROR,
+    )
+
+
+LONG_EDITOR_ERROR = (
+    "'self-configuration' is reserved for the self-configuration surface; enable it from the "
+    "owning agent's Self-configuration tab instead of creating or renaming an MCP source to "
+    "this name."
+)
+
+
+def _ref_danger_armed(selector: str):
+    def prepare(ctx: Ctx) -> None:
+        btn = ctx.page.locator(selector)
+        btn.scroll_into_view_if_needed()
+        btn.click()
+        ctx.page.locator("#main-content .danger-zone .confirm-delete").first.wait_for(timeout=5000)
+
+    return prepare
+
+
+_MCP_SAVE = '[data-testid="save-mcp-source-btn"]'
+
+
+def _mcp(name, hash_, desc, ready=_MCP_SAVE, **kw) -> Surface:
+    kw.setdefault("widths", (1280,))
+    return Surface(name, hash_, ready, desc, needs_mcp=True, **kw)
+
+
+def _ref(name, hash_, desc, ready, **kw) -> Surface:
+    kw.setdefault("widths", (1280,))
+    return Surface(name, hash_, ready, desc, **kw)
+
+
+SURFACES += [
+    _mcp(
+        "mcp-create-empty",
+        "#library/mcp/~new",
+        "MCP editor, create form, nothing chosen yet",
+        ready="#mf-type",
+        widths=(1280, 1024),
+    ),
+    _mcp(
+        "mcp-create-stdio",
+        "#library/mcp/~new",
+        "MCP editor, create form, stdio chosen (command, env table, sandbox)",
+        ready="#mf-type",
+        prepare=_mcp_create_stdio,
+        widths=(1280, 1024),
+    ),
+    _mcp(
+        "mcp-create-http",
+        "#library/mcp/~new",
+        "MCP editor, create form, streamable-http chosen (URL, headers table)",
+        ready="#mf-type",
+        prepare=_mcp_create_http,
+        widths=(1280, 1024),
+    ),
+    _mcp(
+        "mcp-edit-stdio",
+        "#library/mcp/{mcp_stdio}",
+        "MCP editor, Hello tools (local): connected stdio, 4 args (one 90 chars), env table "
+        "(3 plain, 1 sensitive), network off, 2 writable paths (one 87 chars)",
+        prepare=_mcp_ready,
+        widths=(1280, 1024),
+    ),
+    _mcp(
+        "mcp-edit-stdio-failed",
+        "#library/mcp/{mcp_fail}",
+        "MCP editor, Always fails (local): stdio, after a real Test that errors",
+        prepare=_mcp_run_test,
+    ),
+    _mcp(
+        "mcp-edit-http",
+        "#library/mcp/{mcp_http}",
+        "MCP editor, Docs search: connected streamable-http, headers table (1 plain, 1 sensitive)",
+        prepare=_mcp_ready,
+        widths=(1280, 1024),
+    ),
+    _mcp(
+        "mcp-edit-http-open",
+        "#library/mcp/{mcp_http}",
+        "MCP editor, Docs search: tools, instructions and server-meta disclosures open",
+        prepare=lambda ctx: (_mcp_ready(ctx), _mcp_open_disclosures(ctx)),
+    ),
+    _mcp(
+        "mcp-edit-legacy",
+        "#library/mcp/{mcp_legacy}",
+        "MCP editor, Legacy wiki: connected through the older handshake",
+        prepare=_mcp_ready,
+    ),
+    _mcp(
+        "mcp-edit-rejected",
+        "#library/mcp/{mcp_rej}",
+        "MCP editor, Billing API: the server rejected the configured credentials (real Test)",
+        prepare=_mcp_run_test,
+    ),
+    _mcp(
+        "mcp-edit-signin",
+        "#library/mcp/{mcp_oauth}",
+        "MCP editor, Team calendar: sign in from Test (manual path; connect stubbed)",
+        prepare=_mcp_signin_manual,
+    ),
+    _mcp(
+        "mcp-edit-signin-after-create",
+        "#library/mcp/~new",
+        "MCP editor, sign-in after create: the 'Sign in' button (connect stubbed)",
+        ready="#mf-type",
+        prepare=_mcp_signin_after_create,
+        restore=_restore_mcp_temp,
+    ),
+    _mcp(
+        "mcp-edit-dirty",
+        "#library/mcp/{mcp_stdio}",
+        "MCP editor, Hello tools: unsaved edits (name changed, one argument added)",
+        prepare=_mcp_dirty,
+    ),
+    _mcp(
+        "mcp-edit-save-error",
+        "#library/mcp/{mcp_http}",
+        "MCP editor, Docs search: a Save the server refuses (reserved name) shows its error",
+        prepare=_mcp_save_error,
+    ),
+    _mcp(
+        "mcp-edit-reset-armed",
+        "#library/mcp/{mcp_http}",
+        "MCP editor, Docs search: Reset connection armed (first click)",
+        prepare=_mcp_reset_armed,
+    ),
+    _mcp(
+        "mcp-edit-danger-armed",
+        "#library/mcp/{mcp_stdio}",
+        "MCP editor, Hello tools: Delete armed (first click)",
+        prepare=_mcp_danger_armed,
+    ),
+    _mcp(
+        "agent-mcps-full",
+        "#agents/{mcp_agent}/mcps",
+        "Agent editor, MCPs tab: Docs search, Billing API and Always fails expanded (real tests)",
+        ready='[data-testid^="mcp-source-expand-"]',
+        prepare=_mcp_agent_tab_expanded,
+    ),
+    _mcp(
+        "mcp-library-list",
+        "#library",
+        "Library list, MCP servers group (seven servers)",
+        ready='[data-testid="mcp-source-card"]',
+        shot='[data-testid="library-list"]',
+    ),
+    # Reference surfaces (A1, B7): the other editors' headers, long errors and danger zones.
+    _ref(
+        "ref-provider-long-error",
+        "#library/providers/{openai-compatible}",
+        "Provider editor header with a long editor error (injected text, A1's degenerate case)",
+        '[data-testid="save-provider-btn"]',
+        prepare=_ref_provider_long_error,
+    ),
+    _ref(
+        "ref-provider-danger-armed",
+        "#library/providers/{openai-compatible}",
+        "Provider editor: Delete Provider armed (first click)",
+        '[data-testid="save-provider-btn"]',
+        prepare=_ref_danger_armed('[data-testid="delete-provider-btn"]'),
+    ),
+    _ref(
+        "ref-connector-danger-armed",
+        "#library/connectors/{conn}",
+        "Connector editor: Delete Connector armed (first click)",
+        '[data-testid="delete-connector-btn"]',
+        prepare=_ref_danger_armed('[data-testid="delete-connector-btn"]'),
+    ),
+]
+# The existing kb-detail, kb-danger-armed, provider-edit-* and connector-edit surfaces already
+# show the other editors' headers and (for the knowledge base) the armed danger zone.
+
+
 def print_table() -> None:
     for s in SURFACES:
         tail = f"  SKIPPED: {s.skipped}" if s.skipped else ""
         print(f"{s.name:34} {s.hash or '-':44} {s.description}{tail}")
+
+
+# ── MCP fixture servers (M31 F5 L01) ─────────────────────────────────────────
+
+FIXTURE_MODULE = "tests.fixtures.mcp.rich_http_server"
+
+
+class FixtureServers:
+    """The fixture MCP servers, as subprocesses under this interpreter with the repo on
+    ``sys.path``. Each binds port 0 and prints ``PORT <n>``; the port is read back from its
+    log file and checked by ``check_fixture_port``. Every child is stopped by its recorded
+    PID. Start AFTER ``maybe_reexec_in_netns`` so they live in the instance's namespace."""
+
+    def __init__(self, log_dir: Path) -> None:
+        self.log_dir = log_dir
+        self.procs: dict[str, subprocess.Popen] = {}
+        self.ports: dict[str, int] = {}
+
+    def start(self, mode: str, instance_port: int) -> int:
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        log = self.log_dir / f"fixture-{mode}.log"
+        env = dict(os.environ, PYTHONPATH=str(REPO_ROOT))
+        for key in [k for k in env if k.startswith("THE_ONE_") and k != NETNS_SENTINEL]:
+            del env[key]
+        logf = open(log, "wb")  # noqa: SIM115 - the child owns it until stop()
+        proc = subprocess.Popen(
+            [sys.executable, "-m", FIXTURE_MODULE, "--mode", mode, "--port", "0"],
+            cwd=REPO_ROOT,
+            env=env,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+        )
+        self.procs[mode] = proc  # recorded before anything can fail
+        print(f"ui_capture: fixture '{mode}' pid {proc.pid}", file=sys.stderr)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise CaptureError(f"fixture '{mode}' exited early; see {log}")
+            for line in log.read_text(errors="replace").splitlines():
+                if line.startswith("PORT "):
+                    port = int(line.split()[1])
+                    check_fixture_port(port, instance_port)
+                    self.ports[mode] = port
+                    return port
+            time.sleep(0.1)
+        raise CaptureError(f"fixture '{mode}' did not report a port; see {log}")
+
+    def stop(self) -> None:
+        for mode, proc in self.procs.items():
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+        for mode, proc in self.procs.items():
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        if self.procs:
+            pids = {m: p.pid for m, p in self.procs.items()}
+            print(f"ui_capture: fixtures stopped (pids {pids})", file=sys.stderr)
+        self.procs.clear()
+
+
+def free_dead_port(instance_port: int) -> int:
+    """A loopback port nothing listens on (bound, then released), never a forbidden one."""
+    for _ in range(50):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        try:
+            check_fixture_port(port, instance_port)
+        except CaptureError:
+            continue
+        return port
+    raise CaptureError("could not find a free loopback port")
+
+
+def probe_sandbox_backend(data_dir: Path, cwd: Path) -> str:
+    """The sandbox backend the instance will give stdio servers: a one-line probe in the
+    instance's own environment (same namespace, scratch data dir)."""
+    env = dict(os.environ)
+    for key in [k for k in env if k.startswith("THE_ONE_") and k != NETNS_SENTINEL]:
+        del env[key]
+    env["THE_ONE_DATA_DIR"] = str(data_dir)
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from the_one.platform.sandbox.factory import get_sandbox_backend;"
+            " print(type(get_sandbox_backend()).__name__)",
+        ],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if out.returncode != 0:
+        raise CaptureError(f"sandbox backend probe failed: {out.stderr[-300:]}")
+    return out.stdout.strip().splitlines()[-1]
 
 
 # ── Instance ─────────────────────────────────────────────────────────────────
@@ -1352,6 +1834,133 @@ def seed_library(base: str, token: str, ids: dict[str, str], files_root: Path) -
             "secrets": {},
         },
     )["id"]
+
+
+MCP_AGENT = "research-assistant"
+MCP_LONG_ARG_PREFIX = "--config=/home/capture/config/hello-server-production-settings"
+
+
+def _padded(prefix: str, suffix: str, length: int) -> str:
+    """``prefix + filler + suffix`` of exactly ``length`` characters (no filler when the
+    prefix and suffix already reach it, as with an unusually long home directory)."""
+    fill = length - len(prefix) - len(suffix)
+    if fill <= 0:
+        return prefix + suffix
+    return prefix + ("-v2" * fill)[:fill] + suffix
+
+
+def seed_mcp(
+    base: str, token: str, ids: dict[str, str], fixtures: FixtureServers, files_root: Path
+) -> dict[str, dict]:
+    """Seven MCP servers and one agent with all of them attached (Flight 5 DD2). Each server's
+    Test is run ONCE here: a connected one stores its tools cache; a failing one is reported.
+    Returns each Test's outcome for the manifest and the log."""
+    ok_port = fixtures.ports["ok"]
+    legacy_port = fixtures.ports["legacy"]
+    rej_port = fixtures.ports["401"]
+    dead_port = free_dead_port(int(base.rsplit(":", 1)[1]))
+    ids["mcp_dead_port"] = str(dead_port)
+    out_dir = files_root / "mcp-out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    long_dir = Path(_padded(str(files_root / "mcp-cache" / "run-"), "", 87))
+    long_dir.mkdir(parents=True, exist_ok=True)
+    long_arg = _padded(MCP_LONG_ARG_PREFIX, ".json", 90)
+    py = sys.executable
+    sources = {
+        "mcp_stdio": {
+            "name": "Hello tools (local)",
+            "type": "stdio",
+            "config": {
+                "command": py,
+                "args": ["-m", "tests.fixtures.mcp.hello_server", "--stdio", long_arg],
+                "cwd": str(REPO_ROOT),
+                "env": {
+                    "PYTHONPATH": str(REPO_ROOT),
+                    "LOG_LEVEL": "info",
+                    "HELLO_REGION": "eu-west-1",
+                },
+                "sandbox": {
+                    "network_allowed": False,
+                    "writable_paths": [str(out_dir), str(long_dir)],
+                },
+            },
+            "secrets": {"HELLO_API_TOKEN": "hk_live_7f3a9c2e5b1d4f60a8e2"},
+        },
+        "mcp_fail": {
+            "name": "Always fails (local)",
+            "type": "stdio",
+            "config": {
+                "command": py,
+                "args": ["-c", "import sys; sys.exit(1)"],
+                "env": {},
+                "sandbox": {"network_allowed": False, "writable_paths": []},
+            },
+            "secrets": {},
+        },
+        "mcp_http": {
+            "name": "Docs search",
+            "type": "streamable-http",
+            "config": {"url": f"http://127.0.0.1:{ok_port}/mcp", "headers": {"X-Team": "platform"}},
+            "secrets": {"Authorization": "Bearer sk-live-docs-0123456789abcdef"},
+        },
+        "mcp_legacy": {
+            "name": "Legacy wiki",
+            "type": "streamable-http",
+            "config": {"url": f"http://127.0.0.1:{legacy_port}/mcp", "headers": {}},
+            "secrets": {},
+        },
+        "mcp_rej": {
+            "name": "Billing API",
+            "type": "streamable-http",
+            "config": {"url": f"http://127.0.0.1:{rej_port}/mcp", "headers": {}},
+            "secrets": {"Authorization": "Bearer expired-billing-token"},
+        },
+        "mcp_oauth": {
+            "name": "Team calendar",
+            "type": "streamable-http",
+            "config": {"url": f"http://127.0.0.1:{dead_port}/mcp", "headers": {}},
+            "secrets": {},
+        },
+    }
+    for key, body in sources.items():
+        ids[key] = _api(base, token, "POST", "/api/mcp-sources", body)["id"]
+    results: dict[str, dict] = {}
+    # Test once: connected servers store their tools cache, so the editor opens connected;
+    # the failing ones are run to prove (and log) their error text.
+    for key in ("mcp_stdio", "mcp_fail", "mcp_http", "mcp_legacy", "mcp_rej"):
+        r = _api(base, token, "POST", f"/api/mcp-sources/{ids[key]}/test/connect", {})
+        results[key] = {
+            "name": sources[key]["name"],
+            "status": r.get("status"),
+            "error": r.get("error"),
+        }
+        print(
+            f"ui_capture: seed Test {sources[key]['name']!r}: {r.get('status')}"
+            + (f" - {str(r.get('error'))[:160]}" if r.get("error") else ""),
+            file=sys.stderr,
+        )
+    for key, want in (("mcp_stdio", "ok"), ("mcp_http", "ok"), ("mcp_legacy", "ok")):
+        if results[key]["status"] != want:
+            raise CaptureError(f"seed Test of {results[key]['name']!r}: {results[key]}")
+    for key in ("mcp_fail", "mcp_rej"):
+        if results[key]["status"] != "error":
+            raise CaptureError(f"seed Test of {results[key]['name']!r} should fail: {results[key]}")
+    _api(
+        base,
+        token,
+        "POST",
+        "/api/agents",
+        {
+            "name": MCP_AGENT,
+            "description": "Looks things up in the docs and the wiki.",
+            "provider_config_id": ids["mock"],
+            "llm_model": "mock-default",
+            "system_prompt": "You help the platform team find answers.",
+            "mcp_source_ids": [ids[k] for k in MCP_NAV_KEYS],
+        },
+    )
+    ids["mcp_agent"] = MCP_AGENT
+    return results
 
 
 def seed_settings(base: str, token: str) -> None:
@@ -1619,6 +2228,7 @@ def run(argv: list[str]) -> int:
     if wanted and (unknown := [n for n in wanted if n not in known]):
         raise CaptureError(f"unknown surface(s): {', '.join(unknown)} (see --list)")
     todo = [s for s in SURFACES if wanted is None or s.name in wanted]
+    needs_mcp = any(s.needs_mcp and not s.skipped for s in todo)
 
     from playwright.sync_api import sync_playwright
 
@@ -1626,9 +2236,18 @@ def run(argv: list[str]) -> int:
     proc = None
     captured: list[str] = []
     failed: list[dict] = []
+    fixtures = FixtureServers(scratch / "fixtures")
+    sandbox_backend: str | None = None
+    mcp_seed: dict[str, dict] = {}
     try:
         base, proc, token = start_instance(port, data_dir, scratch / "cwd", scratch / "serve.log")
         ids = seed(base, token, scratch / "home")
+        if needs_mcp:
+            for mode in ("ok", "legacy", "401"):
+                fixtures.start(mode, port)
+            sandbox_backend = probe_sandbox_backend(data_dir, scratch / "cwd")
+            print(f"ui_capture: stdio sandbox backend: {sandbox_backend}", file=sys.stderr)
+            mcp_seed = seed_mcp(base, token, ids, fixtures, scratch / "home")
         with sync_playwright() as pw:
             browser = pw.chromium.launch(args=CHROMIUM_DETERMINISM_ARGS)
             try:
@@ -1636,7 +2255,7 @@ def run(argv: list[str]) -> int:
                     if s.skipped:
                         continue
                     for theme in THEMES:
-                        for width in widths:
+                        for width in widths_for(s, widths):
                             try:
                                 path = capture_one(browser, base, token, ids, s, theme, out, width)
                                 captured.append(path.name)
@@ -1657,6 +2276,7 @@ def run(argv: list[str]) -> int:
             finally:
                 browser.close()
     finally:
+        fixtures.stop()
         if proc is not None:
             stop_instance(proc)
         if not args.keep:
@@ -1666,6 +2286,9 @@ def run(argv: list[str]) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git("rev-parse", "HEAD"),
         "git_status": _git("status", "--short").splitlines(),
+        "git_status_the_one": _git("status", "--short", "--", "the_one").splitlines(),
+        "stdio_sandbox_backend": sandbox_backend,
+        "mcp_seed_tests": mcp_seed,
         "viewports": {str(w): SIZES[w] for w in widths},
         "server_time_zone": SERVER_TZ,
         "seed_operator_zone": SEED_ZONE,

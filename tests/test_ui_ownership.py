@@ -36,7 +36,13 @@ from collections import Counter
 from pathlib import Path
 
 from tests._ui_guard_helpers import JS_DIR
-from tests._ui_ownership_allowance import OWNERSHIP_ALLOWANCE
+from tests._ui_ownership_allowance import (
+    MOVES,
+    OWNERSHIP_ALLOWANCE,
+    START_ROWS,
+    TOTAL_USES,
+    OwnershipMove,
+)
 from tests.test_ui_control_inventory import INVENTORY, control_table_rows
 
 STATIC_DIR = JS_DIR.parent
@@ -281,6 +287,89 @@ def test_ownership_matches_allowance() -> None:
     )
 
 
+# ── The move rule (M31 F5 L01, DD2) ─────────────────────────────────────────
+#
+# A file split moves allowance rows between files, and the exact-match test above cannot tell a
+# move from growth. Three rules close that: the TOTAL of every key across all files is exact
+# (``TOTAL_USES``); a row that did not exist at the flight's start (``START_ROWS``) must be
+# covered by ``MOVES`` entries; and a ``MOVES`` entry must name a live row. Paths are relative to
+# ``static/`` (``js/areas/...``, ``css/...``), the same key space as ``measure()``.
+
+
+def key_space_errors(moves: list[OwnershipMove]) -> list[str]:
+    errs = []
+    for m in moves:
+        for path in (m.from_file, m.to_file):
+            if not path.startswith(("js/", "css/")):
+                errs.append(
+                    f"  {m.key}: path {path!r} is in the wrong key space; expected a path "
+                    "relative to static/ such as 'js/areas/studio/x.js' or 'css/studio.css'"
+                )
+    return errs
+
+
+def total_errors(found: dict[tuple[str, str], int], totals: dict[str, int]) -> list[str]:
+    live: Counter[str] = Counter()
+    for (_file, key), n in found.items():
+        live[key] += n
+    return [
+        f"  {key}: total {live.get(key, 0)}, TOTAL_USES says {totals.get(key, 0)}"
+        for key in sorted(set(live) | set(totals))
+        if live.get(key, 0) != totals.get(key, 0)
+    ]
+
+
+def new_row_errors(
+    allowance: dict[tuple[str, str], int],
+    start_rows: frozenset[tuple[str, str]] | set[tuple[str, str]],
+    moves: list[OwnershipMove],
+) -> list[str]:
+    errs = []
+    for (file, key), count in sorted(allowance.items()):
+        if (file, key) in start_rows:
+            continue
+        covered = sum(m.uses for m in moves if m.to_file == file and m.key == key)
+        if covered < count:
+            errs.append(
+                f"  new row ({file}, {key}): {count} uses, MOVES cover {covered} "
+                "(a new row needs OwnershipMove entries with this to_file)"
+            )
+    return errs
+
+
+def stale_move_errors(
+    allowance: dict[tuple[str, str], int], moves: list[OwnershipMove]
+) -> list[str]:
+    return [
+        f"  {m.key}: {m.from_file} -> {m.to_file} names no live allowance row (delete the entry)"
+        for m in moves
+        if (m.to_file, m.key) not in allowance
+    ]
+
+
+def test_total_uses_are_exact() -> None:
+    """Every key's total across all files equals ``TOTAL_USES`` (a missing key counts 0).
+
+    On failure: if you removed uses, lower ``TOTAL_USES`` in the same change; if a total grew,
+    that is new debt (or a copy instead of a move) and needs a flight-log reason."""
+    errs = total_errors(measure(), TOTAL_USES)
+    assert not errs, "Owned-class totals differ from TOTAL_USES:\n" + "\n".join(errs)
+
+
+def test_new_allowance_rows_are_covered_by_moves() -> None:
+    """A row absent from ``START_ROWS`` must be covered by ``MOVES`` entries (the uses sum to at
+    least the row's count). On failure: add ``OwnershipMove`` entries to
+    ``tests/_ui_ownership_allowance.py`` (and delete them by their ``retire_by`` leg)."""
+    errs = key_space_errors(MOVES) + new_row_errors(OWNERSHIP_ALLOWANCE, START_ROWS, MOVES)
+    assert not errs, "\n".join(errs)
+
+
+def test_moves_name_live_rows() -> None:
+    """Every ``MOVES`` entry names a live allowance row. On failure: delete the stale entry."""
+    errs = stale_move_errors(OWNERSHIP_ALLOWANCE, MOVES)
+    assert not errs, "\n".join(errs)
+
+
 def test_scan_ends_in_the_code_state() -> None:
     """The tokenizer stays in sync over every real JS file (guards against desynchronisation)."""
     bad = {
@@ -383,3 +472,52 @@ def test_retired_api_calls_count_in_code_only() -> None:
         "api:App.consentLink.": 1,
         "api:App.tabs(": 2,
     }
+
+
+# ── Move-rule fixture tests ─────────────────────────────────────────────────
+
+_A = "js/areas/studio/a.js"
+_B = "js/areas/studio/b.js"
+_C = "js/areas/studio/c.js"
+
+
+def _mv(key: str, src: str, dst: str, uses: int) -> OwnershipMove:
+    return OwnershipMove(key, src, dst, uses, "leg 99")
+
+
+def test_move_rule_pure_move_passes() -> None:
+    start = {(_A, "chip")}
+    allowance = {(_B, "chip"): 8}  # all 8 uses moved A -> B
+    assert new_row_errors(allowance, start, [_mv("chip", _A, _B, 8)]) == []
+    assert stale_move_errors(allowance, [_mv("chip", _A, _B, 8)]) == []
+    assert total_errors({(_B, "chip"): 8}, {"chip": 8}) == []
+
+
+def test_move_rule_split_into_two_files_passes() -> None:
+    start = {(_A, "chip")}
+    allowance = {(_B, "chip"): 5, (_C, "chip"): 3}
+    moves = [_mv("chip", _A, _B, 5), _mv("chip", _A, _C, 3)]
+    assert new_row_errors(allowance, start, moves) == []
+
+
+def test_move_rule_growth_fails() -> None:
+    assert total_errors({(_A, "chip"): 9}, {"chip": 8})
+    # a class that was never counted has total 0
+    assert total_errors({(_A, "badge"): 1}, {"chip": 8})
+
+
+def test_move_rule_unlisted_move_fails() -> None:
+    start = {(_A, "chip")}
+    allowance = {(_B, "chip"): 8}
+    assert new_row_errors(allowance, start, [])
+    assert new_row_errors(allowance, start, [_mv("chip", _A, _B, 3)])  # under-covers
+
+
+def test_move_rule_stale_entry_fails() -> None:
+    assert stale_move_errors({(_B, "chip"): 1}, [_mv("chip", _A, _C, 1)])
+
+
+def test_move_rule_wrong_key_space_names_the_expected_form() -> None:
+    errs = key_space_errors([_mv("chip", "areas/studio/a.js", _B, 1)])
+    assert errs and "js/areas/studio/x.js" in errs[0]
+    assert key_space_errors([_mv("api:App.icon(", _A, "css/studio.css", 1)]) == []

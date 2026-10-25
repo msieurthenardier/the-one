@@ -51,6 +51,7 @@ pytest + pathlib + re, no new dependencies).
 from __future__ import annotations
 
 from collections import Counter
+from typing import NamedTuple
 
 from browser.design_tokens import DARK, LIGHT
 
@@ -103,21 +104,30 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # area has no dynamic HTML sink left
     # (test_chat_area_has_no_baselined_sink pins it).
     "areas/studio/mcp-server-editor.js": [
+        "container.innerHTML = html;",
+        "tbody.innerHTML = html;",
+        "wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], ",
+        "wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths', (sou",
+    ],
+    "areas/studio/mcp-server-info.js": [
         # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
         # re-emits the same escaped renderServerInfoSection output that the
         # mount path already sends through the baselined
-        # ``container.innerHTML = html;`` below — no new data reaches the DOM.
+        # ``container.innerHTML = html;`` in mcp-server-editor.js — no new data
+        # reaches the DOM.
         "tmp.innerHTML = html;",
-        "container.innerHTML = html;",
+    ],
+    "areas/studio/mcp-connection-fields.js": [
         "argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs ||",
         "sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-path",
+    ],
+    "areas/studio/mcp-env-headers.js": [
         "eyeBtn.innerHTML = window.App.icon('eye-off');",
         "eyeBtn.innerHTML = window.App.icon('eye');",
         "tmp.innerHTML = renderKvRow(emptyRow, idx);",
         "btn.innerHTML = window.App.icon('eye');",
-        "tbody.innerHTML = html;",
-        "wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], ",
-        "wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths', (sou",
+    ],
+    "areas/studio/mcp-connection-status.js": [
         "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
         "listEl.innerHTML = renderToolsListHtml(data.tools);",
     ],
@@ -133,8 +143,216 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/chat.js": 5,
-    "areas/studio/mcp-server-editor.js": 18,
+    "areas/studio/mcp-connection-fields.js": 2,
+    "areas/studio/mcp-connection-status.js": 7,
+    "areas/studio/mcp-env-headers.js": 4,
+    "areas/studio/mcp-server-editor.js": 4,
+    "areas/studio/mcp-server-info.js": 1,
 }
+
+# ── The move rule for the sink tables (M31 F5 L01, DD2) ─────────────────────
+#    A file split moves sinks between files; the exact per-file test cannot tell a move from
+#    growth. Paths here are relative to ``js/`` (``areas/studio/x.js``), the tables' own key
+#    space. ``retire_by`` is documentation: every table is empty at the flight's landing.
+
+
+class SinkMove(NamedTuple):
+    from_file: str
+    to_file: str
+    count: int
+    retire_by: str
+
+
+class SnippetMove(NamedTuple):
+    snippet: str
+    from_file: str
+    to_file: str
+    retire_by: str
+
+
+# The sum of HTML_SINK_ALLOWANCE, exact: lower it with each removal, never raise it without a
+# flight-log reason.
+SINK_TOTAL = 23
+# The files that held an HTML_SINK_ALLOWANCE row / a DYNAMIC_SINK_BASELINE entry at the
+# flight's start. A file key outside these is new and needs SINK_MOVES / SNIPPET_MOVES entries.
+SINK_START_FILES: frozenset[str] = frozenset({"areas/chat.js", "areas/studio/mcp-server-editor.js"})
+SNIPPET_START_FILES: frozenset[str] = frozenset({"areas/studio/mcp-server-editor.js"})
+
+SINK_MOVES: list[SinkMove] = [
+    SinkMove(
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-fields.js",
+        2,
+        "M31 F5 L10",
+    ),
+    SinkMove(
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",
+        7,
+        "M31 F5 L10",
+    ),
+    SinkMove(
+        "areas/studio/mcp-server-editor.js", "areas/studio/mcp-env-headers.js", 4, "M31 F5 L10"
+    ),
+    SinkMove(
+        "areas/studio/mcp-server-editor.js", "areas/studio/mcp-server-info.js", 1, "M31 F5 L10"
+    ),
+]
+SNIPPET_MOVES: list[SnippetMove] = [
+    SnippetMove(
+        "tmp.innerHTML = html;",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-server-info.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs ||",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-fields.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-path",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-fields.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "eyeBtn.innerHTML = window.App.icon('eye-off');",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-env-headers.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "eyeBtn.innerHTML = window.App.icon('eye');",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-env-headers.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "tmp.innerHTML = renderKvRow(emptyRow, idx);",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-env-headers.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "btn.innerHTML = window.App.icon('eye');",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-env-headers.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",
+        "M31 F5 L10",
+    ),
+    SnippetMove(
+        "listEl.innerHTML = renderToolsListHtml(data.tools);",
+        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",
+        "M31 F5 L10",
+    ),
+]
+
+
+def sink_key_space_errors(paths: list[str]) -> list[str]:
+    return [
+        f"  path {p!r} is in the wrong key space; expected a path relative to js/ such as "
+        "'areas/studio/x.js'"
+        for p in paths
+        if p.startswith(("js/", "the_one/", "static/"))
+    ]
+
+
+def sink_total_errors(allowance: dict[str, int], total: int) -> list[str]:
+    have = sum(allowance.values())
+    return [] if have == total else [f"  allowance sums to {have}, SINK_TOTAL says {total}"]
+
+
+def sink_new_file_errors(
+    allowance: dict[str, int], start_files: frozenset[str] | set[str], moves: list[SinkMove]
+) -> list[str]:
+    errs = []
+    for file, count in sorted(allowance.items()):
+        if file in start_files:
+            continue
+        covered = sum(m.count for m in moves if m.to_file == file)
+        if covered < count:
+            errs.append(
+                f"  new file {file}: {count} sinks, SINK_MOVES cover {covered} "
+                "(a new file needs SinkMove entries with this to_file)"
+            )
+    return errs
+
+
+def sink_stale_errors(allowance: dict[str, int], moves: list[SinkMove]) -> list[str]:
+    return [
+        f"  {m.from_file} -> {m.to_file} names no live allowance row (delete the entry)"
+        for m in moves
+        if m.to_file not in allowance
+    ]
+
+
+def snippet_move_errors(
+    baseline: dict[str, list[str]],
+    live: dict[str, list[str]],
+    start_files: frozenset[str] | set[str],
+    moves: list[SnippetMove],
+) -> list[str]:
+    """Snippet rules: a baseline snippet under a new file key needs an entry; no snippet's live
+    count (all files) exceeds its baseline count (all files), so a copy fails; an entry's
+    ``to_file`` must hold the snippet in the baseline. The ``from`` file may be stale."""
+    errs = []
+    for file, snippets in sorted(baseline.items()):
+        if file in start_files:
+            continue
+        for snippet in sorted(set(snippets)):
+            if not any(m.snippet == snippet and m.to_file == file for m in moves):
+                errs.append(f"  {file}: snippet {snippet!r} is new here and has no SnippetMove")
+    base_total = Counter(s for snippets in baseline.values() for s in snippets)
+    live_total = Counter(s for snippets in live.values() for s in snippets)
+    for snippet, n in sorted((live_total - base_total).items()):
+        errs.append(f"  snippet {snippet!r} appears {n} more time(s) than the baseline (a copy)")
+    for m in moves:
+        if m.snippet not in baseline.get(m.to_file, []):
+            errs.append(f"  stale SnippetMove to {m.to_file}: {m.snippet!r} is not in the baseline")
+    return errs
+
+
+def test_sink_total_is_exact() -> None:
+    """The whole-app HTML-sink total equals ``SINK_TOTAL``. On failure: lower ``SINK_TOTAL``
+    with the removal; growth needs a flight-log reason."""
+    errs = sink_total_errors(HTML_SINK_ALLOWANCE, SINK_TOTAL)
+    assert not errs, "\n".join(errs)
+
+
+def test_new_sink_files_are_covered_by_moves() -> None:
+    """A file key absent at the flight's start needs ``SinkMove`` entries covering its count.
+    On failure: add entries to ``SINK_MOVES`` in tests/test_ui_guards.py."""
+    paths = [m.from_file for m in SINK_MOVES] + [m.to_file for m in SINK_MOVES]
+    errs = sink_key_space_errors(paths) + sink_new_file_errors(
+        HTML_SINK_ALLOWANCE, SINK_START_FILES, SINK_MOVES
+    )
+    assert not errs, "\n".join(errs)
+
+
+def test_sink_moves_name_live_rows() -> None:
+    """Every ``SinkMove`` names a live allowance row. On failure: delete the stale entry."""
+    errs = sink_stale_errors(HTML_SINK_ALLOWANCE, SINK_MOVES)
+    assert not errs, "\n".join(errs)
+
+
+def test_snippet_moves_cover_baseline_changes() -> None:
+    """A snippet may appear under a new file key only through a ``SnippetMove``, and no snippet
+    may appear more often live than in the baseline (copying instead of moving). On failure: add
+    the entry, or move (do not copy) the statement."""
+    dynamic, _ = classify_sinks()
+    paths = [m.from_file for m in SNIPPET_MOVES] + [m.to_file for m in SNIPPET_MOVES]
+    errs = sink_key_space_errors(paths) + snippet_move_errors(
+        DYNAMIC_SINK_BASELINE, dynamic, SNIPPET_START_FILES, SNIPPET_MOVES
+    )
+    assert not errs, "\n".join(errs)
 
 
 def test_testids_in_source_are_registered() -> None:
@@ -730,3 +948,57 @@ def test_studio_builds_no_hand_made_banner_or_code_block_classes() -> None:
             if pattern.search(line):
                 hits.append(f"{path.name}:{n}: {line.strip()}")
     assert hits == []
+
+
+# ── Move-rule fixture tests ─────────────────────────────────────────────────
+
+
+def test_sink_rule_pure_move_and_split_pass() -> None:
+    allowance = {"areas/studio/b.js": 5, "areas/studio/c.js": 3}
+    moves = [SinkMove("areas/studio/a.js", "areas/studio/b.js", 5, "x")]
+    moves.append(SinkMove("areas/studio/a.js", "areas/studio/c.js", 3, "x"))
+    assert sink_new_file_errors(allowance, {"areas/studio/a.js"}, moves) == []
+    assert sink_stale_errors(allowance, moves) == []
+    assert sink_total_errors(allowance, 8) == []
+
+
+def test_sink_rule_growth_unlisted_move_and_stale_fail() -> None:
+    allowance = {"areas/studio/b.js": 5}
+    assert sink_total_errors(allowance, 4)
+    assert sink_new_file_errors(allowance, {"areas/studio/a.js"}, [])
+    assert sink_stale_errors(
+        allowance, [SinkMove("areas/studio/a.js", "areas/studio/z.js", 1, "x")]
+    )
+
+
+def test_sink_rule_wrong_key_space_names_expected_form() -> None:
+    errs = sink_key_space_errors(["js/areas/studio/a.js"])
+    assert errs and "areas/studio/x.js" in errs[0]
+    assert sink_key_space_errors(["areas/studio/a.js"]) == []
+
+
+def test_snippet_rule_pure_move_passes_and_stale_from_is_fine() -> None:
+    baseline = {
+        "areas/studio/a.js": ["x.innerHTML = h;"],
+        "areas/studio/b.js": ["y.innerHTML = h;"],
+    }
+    live = {"areas/studio/b.js": ["y.innerHTML = h;"]}
+    moves = [SnippetMove("y.innerHTML = h;", "areas/studio/a.js", "areas/studio/b.js", "x")]
+    assert snippet_move_errors(baseline, live, {"areas/studio/a.js"}, moves) == []
+
+
+def test_snippet_rule_move_without_entry_fails() -> None:
+    baseline = {"areas/studio/b.js": ["y.innerHTML = h;"]}
+    assert snippet_move_errors(baseline, {}, {"areas/studio/a.js"}, [])
+
+
+def test_snippet_rule_copy_instead_of_move_fails() -> None:
+    baseline = {"areas/studio/a.js": ["y.innerHTML = h;"]}
+    live = {"areas/studio/a.js": ["y.innerHTML = h;"], "areas/studio/b.js": ["y.innerHTML = h;"]}
+    errs = snippet_move_errors(baseline, live, {"areas/studio/a.js"}, [])
+    assert errs and "copy" in errs[0]
+
+
+def test_snippet_rule_stale_entry_fails() -> None:
+    moves = [SnippetMove("gone;", "areas/studio/a.js", "areas/studio/b.js", "x")]
+    assert snippet_move_errors({}, {}, set(), moves)

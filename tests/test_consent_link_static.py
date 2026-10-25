@@ -20,7 +20,7 @@ def test_consent_link_loads_after_copy_field_and_before_its_consumers() -> None:
     assert srcs.index("ui/copy.js") < at
     for consumer in (
         "areas/chat.js",
-        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-oauth-consent.js",  # M31 F5 L02: the controller no longer calls it
     ):
         assert at < srcs.index(consumer), consumer
 
@@ -45,7 +45,7 @@ def test_http_only_rule_is_shared_by_every_open_site() -> None:
     text = MODULE.read_text()
     assert "isSafeUrl" in text and "https?:" in text
     chat = (STATIC / "js/areas/chat.js").read_text()
-    editor = (STATIC / "js/areas/studio/mcp-server-editor.js").read_text()
+    editor = (STATIC / "js/areas/studio/mcp-oauth-consent.js").read_text()
     assert chat.count("isSafeUrl(") >= 2 and chat.count("consentSafe") >= 3
     assert "isSafeUrl(consentUrl)" in editor
     body = editor[editor.index("function launchConsentPopup") :]

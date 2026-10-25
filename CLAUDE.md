@@ -376,6 +376,8 @@ THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lan
 THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/run-tests.sh --parallel 3 --tb=short
 ```
 
+**Quiet-host rule (squawk 0259):** a lane budget reading counts only from a `--parallel 3` run with no other test process on the host (no other lanes, no unit suite, no other session's tests); check `uptime` (1-minute load below about 1.0) and `ps` first, and never re-budget from a solo `--lane` run or a loaded host.
+
 **Lane time budgets** (wall seconds in a `--parallel 3` run, re-measured at the end of M31 Flight 4 (leg 11: the full `make gate` ran `settings` over 1.3x its budget during the flight, 465-589 s against 360 under load, so `settings-tools` was split out of it; two `--parallel 3` runs on a quiet host measured every lane within 2%, and the table below is the second run, `PARALLEL_RESULT rc=0 total=1470s lanes=13`; squawk 0217's rule). Budgets are measured plus 25% headroom, rounded up to 30 s, and a lane whose time moved more than 15% was re-budgeted (`knowledge` 279 to 319 s and `contracts-controls` 249 to 318 s). The table in `scripts/run-tests.sh` is the source of truth and the `--parallel` summary flags `OVER BUDGET`, a warning rather than a failure):
 
 | lane | budget (s) | measured (s) |
