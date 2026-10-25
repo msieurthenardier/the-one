@@ -1,6 +1,6 @@
 # Leg: macos-dock-mode
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -121,12 +121,12 @@ Linux and Windows are unchanged.
   - `SECURITY-MODEL.md`: only if a route's behaviour changes. It shouldn't: the routes' answers are unchanged.
 
 ## Acceptance Criteria
-- [ ] **AC1:** every Output is implemented and unit-tested as listed, on Linux, with `sys.platform` patched where needed and AppKit faked through injected seams (no `objc` import in tests).
-- [ ] **AC2:** Linux and Windows unchanged. Every existing desktop test passes unmodified, except tests that pinned darwin's old tray path, each renamed and inverted (state which). The split guard passes.
-- [ ] **AC3:** `make test-unit` passes with 12 skips; ruff is clean. The `settings` browser lane passes (`THE_ONE_TEST_NETNS=1`).
-- [ ] **AC4:** the Linux real-GTK smoke test still passes on one baseline (`packaging/linux/checks/gtk-smoke.sh ubuntu-26.04 --deb <new build>`). A build from this tree proves the shared `shell.py` paths didn't regress.
-- [ ] **AC5:** the hosted proof is leg 7's `lifecycle.sh`. This leg records, in its flight-log section, a table of the exact observable each lifecycle step will read: the log line text (the route installed, terminate received, the drain started and done, reply sending, path S exiting) and the state-route field.
-- [ ] **AC6:** hygiene as in leg 1's AC7.
+- [x] **AC1:** every Output is implemented and unit-tested as listed, on Linux, with `sys.platform` patched where needed and AppKit faked through injected seams (no `objc` import in tests).
+- [x] **AC2:** Linux and Windows unchanged. Every existing desktop test passes unmodified, except tests that pinned darwin's old tray path, each renamed and inverted (state which). The split guard passes.
+- [x] **AC3:** `make test-unit` passes with 12 skips; ruff is clean. The `settings` browser lane passes (`THE_ONE_TEST_NETNS=1`).
+- [x] **AC4:** the Linux real-GTK smoke test still passes on one baseline (`packaging/linux/checks/gtk-smoke.sh ubuntu-26.04 --deb <new build>`). A build from this tree proves the shared `shell.py` paths didn't regress.
+- [x] **AC5:** the hosted proof is leg 7's `lifecycle.sh`. This leg records, in its flight-log section, a table of the exact observable each lifecycle step will read: the log line text (the route installed, terminate received, the drain started and done, reply sending, path S exiting) and the state-route field.
+- [x] **AC6:** hygiene as in leg 1's AC7.
 
 ## Verification Steps
 - The test names per Output; the `make test-unit` and lane summaries; the smoke `OVERALL` line; `git status`.

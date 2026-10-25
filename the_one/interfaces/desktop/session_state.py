@@ -29,7 +29,7 @@ class SessionState:
     def __init__(self) -> None:
         # Guards the boot/quit race. Never rebound by ``reset()``.
         self.lock = threading.Lock()
-        # Set by a future boot-stop path (leg 4, DD3); inert today.
+        # Set by ``_boot`` on every exit (DD3): the terminate worker waits on it.
         self.boot_stopped = threading.Event()
         self._set_defaults()
 
@@ -40,7 +40,7 @@ class SessionState:
         # The pywebview Window object; populated once the boot publishes it.
         self.desktop_window = None
         # How the tray was decided this launch: "indicator" | "xembed" | "none" |
-        # "failed" | None (Windows/macOS, or not decided yet).
+        # "failed" | "dock" (macOS) | None (Windows, or not decided yet).
         self.tray_mode: str | None = None
         # The running DesktopSession (set at the top of run(), cleared when it
         # returns); quit_desktop() uses it from the HTTP route.
@@ -59,6 +59,10 @@ class SessionState:
         # also keeps them as locals for its ``finally``. Inert until leg 4 (DD3).
         self.server = None
         self.thread = None
+        # macOS (DD3): a terminate is being drained (a repeat answers NSTerminateLater
+        # and starts nothing), and ``webview.start`` has returned (path S).
+        self.terminate_pending: bool = False
+        self.loop_stopped: bool = False
         self.boot_stopped.clear()
 
     def reset(self) -> None:
@@ -71,6 +75,27 @@ class SessionState:
         """A quit from here on is recorded for _boot (or the browser branch)."""
         with self.lock:
             self.booting = True
+
+    def begin_quit(self):
+        """Start a quit: set ``really_quit`` and ``quit_requested`` under the lock.
+
+        Returns the published window to save the geometry of (read it OUTSIDE the
+        lock), or None when there is none or a quit was already begun (so the
+        geometry is saved once).
+        """
+        with self.lock:
+            first = not self.really_quit
+            self.really_quit = True
+            self.quit_requested = True
+            return self.desktop_window if first else None
+
+    def mark_terminate_pending(self) -> bool:
+        """Record a terminate in progress. False when one was already pending."""
+        with self.lock:
+            if self.terminate_pending:
+                return False
+            self.terminate_pending = True
+            return True
 
     def clear_booting(self) -> None:
         with self.lock:

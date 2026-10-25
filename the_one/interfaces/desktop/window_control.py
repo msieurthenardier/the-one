@@ -14,7 +14,7 @@ import sys
 import threading
 
 from the_one import __version__
-from the_one.interfaces.desktop import chrome, notice
+from the_one.interfaces.desktop import chrome, macos_dock, notice
 from the_one.interfaces.desktop import host as desktop_host
 from the_one.interfaces.desktop.session_state import state
 
@@ -97,6 +97,8 @@ def window_visible() -> bool | None:
     window = state.desktop_window
     if window is None:
         return None
+    if sys.platform == "darwin":
+        return macos_dock.native_visible(window)
     if not _is_gtk_backend():
         return state.tracked_visible
     try:
@@ -160,9 +162,20 @@ def quit_desktop() -> str | None:
     under ``state.lock`` (``SessionState.request_quit``); the blocking quit runs
     after the lock is released.
     """
+    if sys.platform == "darwin" and state.loop_stopped:
+        return "window"  # path S: the loop has stopped and the drain is under way
     tag, session = state.request_quit()
     if tag == "already":
         return "window"  # a quit is already under way; never destroy twice
+    if sys.platform == "darwin" and tag in ("window", "booting"):
+        # DD3 path T: one drain path. AppKit terminates on the main thread; the
+        # delegate's applicationShouldTerminate: runs the drain worker.
+        try:
+            macos_dock.terminate_app()
+            return tag
+        except Exception:
+            log.warning("quit_desktop: terminate_app raised", exc_info=True)
+            return None
     if tag != "window":
         return tag  # "booting" / "browser" / None
     try:
@@ -212,7 +225,9 @@ def focus_window(activation_token: str | None = None) -> bool:
     if state.desktop_window is None:
         return False
     try:
-        if activation_token and _is_gtk_backend():
+        if sys.platform == "darwin":
+            macos_dock.activate(state.desktop_window)
+        elif activation_token and _is_gtk_backend():
             log.info("focus_window: activation token %s...", activation_token[:6])
             _gtk_activate(state.desktop_window, activation_token)
             _mark_visible()

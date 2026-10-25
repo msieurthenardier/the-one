@@ -9,6 +9,7 @@ modules, never by importing their names.
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import sys
 import threading
@@ -19,10 +20,18 @@ import httpx
 import uvicorn
 
 from the_one.config import settings
-from the_one.interfaces.desktop import chrome, notice, takeover, tray, window_control
+from the_one.interfaces.desktop import (
+    chrome,
+    macos_dock,
+    notice,
+    takeover,
+    tray,
+    window_control,
+)
 from the_one.interfaces.desktop import host as desktop_host
 from the_one.interfaces.desktop import window_state as window_state_store
 from the_one.interfaces.desktop.session_state import state
+from the_one.platform import env as platform_env
 
 log = logging.getLogger(__name__)
 
@@ -407,6 +416,8 @@ class DesktopSession:
         - tray running (``self._icon``): hide to tray.
         - ``tray_mode == "none"``: hide through ``window_control._no_tray_hide`` (the app
           stays running; a relaunch or ``the-one quit`` reaches it).
+        - ``tray_mode == "dock"`` (macOS, M32 F3): ``macos_dock.on_close`` decides; a close
+          hides the window (the app stays in the Dock, no notice), a failed hide allows.
         - anything else (``failed``, None: no tray decided yet, or a non-Linux
           path with no tray): allow the destroy.
 
@@ -422,7 +433,9 @@ class DesktopSession:
             chrome.deregister()
             return True  # Quit callback already requested real destroy
 
-        if self._icon is not None:
+        if state.tray_mode == "dock":
+            hidden = self._dock_hide(window)
+        elif self._icon is not None:
             hidden = self._close_to_tray()
         elif state.tray_mode == "none":
             hidden = window_control._no_tray_hide(window)
@@ -431,6 +444,51 @@ class DesktopSession:
         if not hidden:
             chrome.deregister()  # allowing the destroy
         return not hidden  # True → allow destroy; False → cancel
+
+    def _dock_hide(self, window) -> bool:
+        """Dock-mode close: hide when ``on_close`` says so. True when hidden."""
+        view = macos_dock.snapshot(state, native_window=window is not None)
+        if macos_dock.on_close(view) != "hide" or window is None:
+            return False
+        try:
+            window.hide()
+        except Exception:
+            log.warning("dock: hide on close raised — allowing the destroy", exc_info=True)
+            return False
+        log.info("dock: window hidden on close")
+        return True
+
+    def _drain(self, server, thread) -> None:
+        """Drain the session's server (the terminate worker's ``drain``)."""
+        _graceful_shutdown(server, thread)
+
+    def _path_s_begin(self) -> None:
+        """Path S, before the drain: the loop stopped without ``applicationShouldTerminate:``."""
+        log.info("path S: webview.start returned — draining")
+        state.loop_stopped = True
+        saved = state.begin_quit()  # also makes a still-running _boot stop
+        window = state.desktop_window or self._window
+        if window is not None:
+            macos_dock.order_out(window)
+        if saved is not None:
+            self._save_current_geometry(saved)
+
+    def _path_s_exit(self) -> None:
+        """Path S, after the drain: bounded wait on the boot, flush, hard exit.
+
+        pywebview starts ``_boot`` on a non-daemon thread that can be stuck in
+        ``create_window`` after the loop stopped, which would keep the process alive.
+        """
+        if not state.boot_stopped.wait(macos_dock.BOOT_WAIT_BOUND):
+            log.warning("path S: boot did not stop within %.1fs", macos_dock.BOOT_WAIT_BOUND)
+        log.info("path S: exiting (os._exit(0))")
+        macos_dock.flush_log_handlers()
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        os._exit(0)
 
     def _on_show(self, icon) -> None:
         """Tray "Show" menu callback: show the window.
@@ -490,6 +548,10 @@ class DesktopSession:
         # more than once in tests after a reload).
         state.reset()
         state.session = self
+        if sys.platform == "darwin":
+            # Dock mode (M32 F3 DD2): set BEFORE webview.start so no tray_mode=None gap
+            # lets _on_closing allow a destroy; pystray is never imported on macOS.
+            state.tray_mode = "dock"
         chrome.reset()
 
         host, port = settings.host, settings.port
@@ -518,6 +580,9 @@ class DesktopSession:
         # A quit from here on is recorded for _boot (or the browser branch) to
         # honour; cleared on every exit path (see ``clear_booting``).
         state.begin_boot()
+        # DD7: prime the login-shell PATH (frozen macOS only; a no-op elsewhere, up to 5 s
+        # on macOS). After begin_boot, so a quit arriving during the probe finds the guard.
+        platform_env.prime_login_shell_path()
         # Base URL only — deliberately WITHOUT a handoff credential yet (DD7,
         # DD12). The token is single-use and short-lived, so it is minted
         # separately, close to each navigation call site below (inside
@@ -531,6 +596,7 @@ class DesktopSession:
         base_url = f"http://{host}:{sel_port}/"
         server = None
         thread = None
+        path_s = False
         # is_ours=True already returned above; reaching here means is_ours=False —
         # we always start our own server on the selected port.
         from the_one.interfaces.web.app import app
@@ -648,9 +714,22 @@ class DesktopSession:
                 # (a hidden window can finish loading before show()).
                 _main_shown = threading.Event()
 
+                # macOS: destroying the splash while a terminate drains (or after the loop
+                # stopped, or after a failed boot) would run its windowWillClose_, which
+                # empties BrowserView.instances and stops the loop mid-drain.
+                _boot_errored = threading.Event()
+
+                def _splash_blocked() -> bool:
+                    return sys.platform == "darwin" and (
+                        state.terminate_pending
+                        or state.really_quit
+                        or state.loop_stopped
+                        or _boot_errored.is_set()
+                    )
+
                 def _destroy_splash() -> None:
                     """Destroy the splash window — idempotent (safe to call twice)."""
-                    if _splash_closed.is_set():
+                    if _splash_closed.is_set() or _splash_blocked():
                         return
                     _splash_closed.set()
                     try:
@@ -694,8 +773,12 @@ class DesktopSession:
                         """
                         if not state.quit_was_requested():
                             return False
-                        state.really_quit = True  # the destroy below must not be cancelled
                         _main_shown.set()
+                        if sys.platform == "darwin":
+                            # DD3: stop without publishing; the terminate path (or path S)
+                            # owns the exit. Never terminate_/destroy from here.
+                            return True
+                        state.really_quit = True  # the destroy below must not be cancelled
                         if main_win is not None:
                             chrome.deregister()
                             try:
@@ -786,6 +869,8 @@ class DesktopSession:
                         # behaviour until the no-tray hide lands, leg 5).
                         try:
                             tray_backend = None
+                            if sys.platform == "darwin":
+                                raise _NoTrayError  # dock mode: no tray, pystray not imported
                             if sys.platform.startswith("linux"):
                                 tray_backend = desktop_host.choose_pystray_backend()
                                 mode, reason = desktop_host.detect_tray(tray_backend)
@@ -825,7 +910,9 @@ class DesktopSession:
                         # published window. ``_on_quit`` runs after the lock is released.
                         quit_now = state.publish_window(main_win)
                         self._window = main_win
-                        if quit_now:
+                        if quit_now and sys.platform == "darwin":
+                            _main_shown.set()  # the terminate path owns the exit
+                        elif quit_now:
                             # The window may be destroyed before its ``loaded`` fires,
                             # which would leave the splash (and webview.start) alive.
                             self._on_quit(self._icon)
@@ -836,6 +923,16 @@ class DesktopSession:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
                         state.clear_booting()
                         _main_shown.set()  # release a waiting loaded handler
+                        if sys.platform == "darwin":
+                            # No destroy (it would stop the loop mid-boot); one terminate_
+                            # lets the delegate drain the server, unless one is pending.
+                            _boot_errored.set()
+                            if not state.terminate_pending:
+                                try:
+                                    macos_dock.terminate_app()
+                                except Exception:
+                                    log.warning("boot error: terminate_ failed", exc_info=True)
+                            raise
                         _destroy_splash()
                         if main_win is not None:
                             chrome.deregister()
@@ -844,6 +941,8 @@ class DesktopSession:
                             except Exception:
                                 log.debug("main_win.destroy() raised in error path", exc_info=True)
                         raise
+                    finally:
+                        state.boot_stopped.set()  # DD3: every exit, for the terminate worker
 
                 # Persist localStorage/cookies (e.g. the theme preference) across app
                 # restarts AND reinstalls. pywebview defaults to private_mode=True — an
@@ -854,11 +953,16 @@ class DesktopSession:
                 # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
                 storage_dir = settings.data_dir / "webview"
                 storage_dir.mkdir(parents=True, exist_ok=True)
+                if sys.platform == "darwin":
+                    macos_dock.install(self)
                 webview.start(  # blocks until all windows closed (or Quit → destroy)
                     _boot,
                     private_mode=False,
                     storage_path=str(storage_dir),
                 )
+                if sys.platform == "darwin":
+                    path_s = True
+                    self._path_s_begin()
             else:
                 # Browser-fallback path: no pywebview, no splash.  Keep the
                 # _wait_until_serving call here (it moved into _boot for the webview
@@ -900,8 +1004,11 @@ class DesktopSession:
             state.clear_booting()
             state.release_browser_server()
             _graceful_shutdown(server, thread)  # no-op when server is None (case b)
+            state.server = state.thread = None
             if state.session is self:
                 state.session = None
+        if path_s:
+            self._path_s_exit()
 
 
 def run_desktop() -> None:

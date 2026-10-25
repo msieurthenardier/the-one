@@ -237,6 +237,86 @@ Planning.
     - an unpublished window's geometry save is skipped.
   - **No second cycle:** every change is the reviewer's own recommendation. Two phases (A: core, state, control, canary; B: shell wiring, install, docs, gates). Status `ready`. The 3b gate applies to **Phase B only**: Phase A (the pure core, the worker, state, control, the canary) does not depend on the route, so it starts now, beside 3b's probe fix (disjoint files).
 
+- **Leg 3b AC1 (the probe fix) done.**
+  - The signatures are taken from the runtime (the inherited prototype; the protocol, then constants for reopen).
+  - The selftest fails on route `none`, and the probe still runs after it.
+  - Prompt dismissal, a focused Cmd-W, denser P1 marks and a `PLN` row.
+  - Four Linux rehearsals pass.
+
+  The fix is test-harness only, and the Reviewer's medium on leg 2 was the same class, so no separate review: the flight-end Reviewer covers it.
+  - Committed `c2db6f1` (the probe plus the flight artifacts; leg 4 phase A's and leg 5's code stay out). Pushed. `gh auth` re-verified.
+  - **Run `40206047338` dispatched** (`mode=probe`, `c2db6f1`). **Dispatch 2 of 5.**
+
+- **Leg 3b landed (run `40206047338`, dispatch 2 of 5, about 60 billed min; the flight total so far is about 110 billed).**
+  - **Leg 4's Phase B gate is met:**
+    - route `subclass`;
+    - signatures `applicationShouldTerminate:` `I@:@` (inherited), reopen `B@:@B` (protocol), `willTerminate` `v@:@`;
+    - **the `callAfter` reply was delivered** during the `NSTerminateLater` wait, for the quit Apple event (terminate → reply 3.0 s → `willTerminate`) and for a real Cmd-Q;
+    - Cmd-Q is **path T, observed**;
+    - the reopen handler fires on `open -a` with no new process;
+    - no local-network prompt for the product.
+  - **Corrected reading (P5):** replacing the `.app` while it runs **crashes the old process without a drain** (pywebview's `FileNotFoundError` for its JS dir), and `open -a` then starts the new one. No data loss was observed (SQLite is crash-safe), so divert 4 is not triggered.
+    - **Disposition:** the guide says to quit before replacing (DD5 already planned that). The contributor check's step 9 observes Finder's real behaviour. A guard (e.g. the new copy taking over before the old one touches its moved files) is out of this flight's scope; it's a candidate for the debrief.
+  - **Probe Cmd-W:** it has no effect on the probe's window, cause unknown. The product's Cmd-W behaves (it exits with a drain on today's build), so Cmd-W is not used as a driver.
+  - **Still unproven until leg 7:** the delegate on the real product under load, and the Dock's Quit and logout paths.
+
+- **Leg 4 Phase A accepted** (`make test-unit` 7325 passed, 12 skipped; ruff clean; the split guard passes; the canary has 7 `ast` checks).
+  - Accepted deviations:
+    - `macos_dock` is imported at module top in `window_control.py`. The DD12 test forbids lazy imports on the close path, and `macos_dock` has no top-level AppKit import (subprocess-tested);
+    - `begin_quit()` returns the window on the first call only, so geometry is saved once across paths T and S;
+    - `DockView` gains `native_window`.
+  - **Phase B started;** its gate is met by leg 3b.
+- **Sequencing:** leg 6 Phase A changes the Linux build (`render.py`, the templates, `build-inner.sh`), and leg 4 Phase B builds a `.deb` for its GTK smoke from the working tree. So leg 6 Phase A starts **after** leg 4 Phase B lands, not beside it.
+
+- **Leg 6 (`macos-recipe`) risk tier: HIGH** (the metadata interface consumed by Linux and Flight 4; it builds what leg 7 spends dispatches on).
+  - **Design review cycle 1 (Sonnet): approve with changes.** Four highs folded in:
+    1. the spec can't render from the staged copy, so `build.sh` writes `product.json` and passes it as `M32_PRODUCT_JSON`;
+    2. universal2 wheels would fail an arm64-only rule, so the audit requires arm64 present, reports fat files, uses `otool -arch arm64`, and the first run is `--report-only`;
+    3. probe mode would pass the old bundle id, so it comes from `build.env`;
+    4. `checks.sh` had two owners, so the workflow owns it, `build.sh` no longer calls it, and `M32_SKIP_DMG`/`M32_REUSE_VENV` are added for N+1.
+
+    The mediums folded in:
+    - logs read from a file (below);
+    - apps addressed by path, with System Events by pid;
+    - the port as a parameter;
+    - geometry compared AX against AX;
+    - AXPress on the close button;
+    - an anchored `^FAIL` and the lifecycle summary in the final check;
+    - a fixed N+1 scheme, with the version read from `/api/info`;
+    - `hdiutil attach` details;
+    - `.ips` crash-report diffs;
+    - explicit `doctor` greps;
+    - the full pystray removal from the spec;
+    - shared shell helpers in `lib.sh`;
+    - `info_plist.py` as a helper;
+    - two more rehearsal scenarios.
+  - **The Flight Director's call (logged for alignment): a log file for Finder launches.** A Finder-launched macOS app's stdout/stderr go nowhere today (`ensure_stdio_streams` only replaces `None` streams). `frozen_entry_mac.py` (packaging code) redirects the `app` command's output to `~/Library/Logs/GleepGlorp AI/app.log` when stderr is not a TTY, truncated past 10 MB. That gives contributors a log to send back, and `lifecycle.sh` one stable place to read; the guide names it.
+  - **The reviewer's questions, answered:**
+    - `lifecycle.sh` runs even after `checks.sh` failures (dispatches are scarce);
+    - Phase B starts from leg 4's AC5 table, quoted;
+    - logs come from the new log file.
+  - **No second cycle.** Status `ready`. Phase A starts after leg 4 Phase B lands (the Linux build overlap).
+
+- **Leg 4 landed** (Phase B):
+  - `make test-unit` 7358 passed, 12 skipped; ruff clean; the split guard passes;
+  - the `settings` lane passed 108;
+  - Linux `0.11.9.dev32` GTK smoke OVERALL PASS on `ubuntu-26.04`;
+  - the AC5 observable table is in its section.
+  - **Accepted deviation:** `_destroy_splash` is not suppressed on `boot_stopped` alone, since `_boot` sets that event on a normal boot too and the splash would never close. On darwin it is suppressed on `terminate_pending`, `really_quit`, `loop_stopped` or a boot error. Every quit sets `really_quit` through `begin_quit`, and a test pins that a normal boot still closes the splash.
+  - **Not provable off a Mac:** `_install_delegate`'s class body and `_begin_activity` (`# pragma: no cover`); leg 7's hosted run is their proof.
+- **Checkpoint review of legs 4 and 5 (Sonnet:** process signalling, the shared seam, the credential-gated routes) runs beside **leg 6 Phase A**, which edits packaging files only. The Reviewer runs targeted tests only, so leg 6's in-progress files can't disturb it.
+
+- **Checkpoint review of legs 4 and 5 (Sonnet): `[HANDOFF:confirmed]`, no blocking issues.** 283 targeted tests pass.
+  - Paths T and S, the splash suppression, the darwin `quit_desktop` mapping, the inherited delegate signatures and the AppKit import isolation are verified.
+  - Linux and Windows are unchanged (priming is a no-op; the `PATH` walk keeps `PATHEXT`; `killpg` only on the login shell's own group).
+  - The security surface is unchanged.
+  - Non-blocking notes:
+    1. a failed delegate install leaves the stock delegate (Cmd-Q then terminates without a drain), so **`lifecycle.sh` asserts `route=subclass` first** (carried to legs 6-7);
+    2. the static `PATH` additions are cross-platform (covered by AC2's exception);
+    3. `strip_bundle_dir_from_path`'s docstring says "front" but strips everywhere (pre-existing);
+    4. the darwin gate is only really exercised in the hosted run.
+  - Legs 4 and 5 `completed`, committed as checkpoint 3 (leg 6 Phase A's in-progress packaging files stay out).
+
 ## Leg Progress
 
 ### shell-split
@@ -289,6 +369,70 @@ Planning.
 **AC4** (`THE_ONE_DATA_DIR=<scratch> THE_ONE_PORT=8496 the-one doctor`, non-frozen Linux): the same gate lines as before (child spawn, python interpreter, desktop shell, llm providers, model catalog, usearch, fts5, embedding model, file watcher, window chrome, time zones, mcp sdk) all OK, `RESULT: PASS`; advisory lines `sandbox: bubblewrap` and `tray: none — no tray backend for this session`; no `path:` line. (The pre-existing `desktop shell: OK — skipped — unexpected error: Namespace AyatanaAppIndicator3 not available` is the untouched generic Linux path.) The runtimes list now reads python3 via the per-entry walk (`/bin/python3`); `python` is not found on this host, as before. Scratch dir removed; no 8484/8485 contact.
 
 **For leg 4**: add `from the_one.platform.env import prime_login_shell_path` and a single `prime_login_shell_path()` call in `DesktopSession.run` just after the `is_ours` return; it never raises and is a no-op off frozen darwin. This leg did not touch `the_one/interfaces/desktop/`. Tests that monkeypatch `sys.platform` to darwin and freeze must reset `env_mod._PRIMED` (the new test file does so with an autouse fixture).
+
+### macos-dock-mode
+
+**Phase A checkpoint** (leg 4; status `in-flight`; Phase B waits for leg 3b's evidence on the delegate route and the reply mechanism). Uncommitted.
+
+**Built**
+- `the_one/interfaces/desktop/macos_dock.py` (new; no top-level AppKit/objc import, verified by a subprocess test): `DockView` (frozen: `really_quit, booting, has_window, terminate_pending, has_server, native_window`), `snapshot(state, *, native_window=False)`, `on_close(view)`, `on_reopen(view)`, `on_terminate(view)`, `terminate_reply_code(decision)` (`reply-now` -> 1 `NSTerminateNow`; the other two -> 2 `NSTerminateLater`), constants `NS_TERMINATE_NOW/LATER/CANCEL`, `BOOT_WAIT_BOUND = 5.0`.
+- `TerminateWorker(reply, drain, boot_wait, log_flush, clock=time.monotonic, sleep=time.sleep, boot_bound=5.0)` with `.run()` and `.start()` (one daemon thread). Order: `boot_wait(5.0)` (timeout only warns), `drain()` (exceptions logged, never block the reply), log "terminate: reply sending", `log_flush()`, `reply()` (one retry after `sleep(0.5)`). Never reads geometry, never takes `state.lock`. `flush_log_handlers()` flushes (never closes) root + shell logger handlers: pass it as `log_flush`.
+- AppKit seams (lazy imports inside each): `_call_after(fn, *args)`, `_nsapp()`, `_native_window(window)` (= `window.native`, which is the `NSWindow` in pywebview 5.4), `terminate_app()`, `reply_to_terminate(ok=True)`, `activate(window)`, `native_visible(window) -> bool | None`. **`install` is not written** (Phase B). `reply_to_terminate` uses `_call_after` (`AppHelper.callAfter`); Phase B swaps in the `performSelectorOnMainThread...` fallback if 3b says callAfter replies are not delivered.
+- `session_state.py`: `begin_quit()` (sets `really_quit` + `quit_requested`; returns the published window ONLY on the first call, else None, so geometry is saved once), `terminate_pending` + `mark_terminate_pending() -> bool`, `loop_stopped`; both cleared by `reset()`.
+- `window_control.py`: darwin `quit_desktop` (`loop_stopped` -> "window" with nothing more; "already" -> "window", no second terminate; tags "window"/"booting" -> `macos_dock.terminate_app()`, which raising returns None; "browser"/None unchanged), darwin `focus_window` -> `macos_dock.activate`, darwin `window_visible` -> `macos_dock.native_visible`. `macos_dock` is imported at module top, because `tests/test_desktop_shell.py::test_close_path_functions_have_no_imports` (DD12) forbids lazy imports in `quit_desktop`.
+
+**Tests**: `tests/test_macos_dock.py` (decision truth tables over all 64 views plus named cases; snapshot; worker order, boot bound/takeover bound, boot timeout, drain raising, reply retry, no lock held, daemon thread, flush without close; `begin_quit`, `mark_terminate_pending`, `reset`; darwin `quit_desktop` per tag incl. already/loop_stopped/failure; `focus_window`; `window_visible`; chrome register/deregister unchanged; `activate` main-thread dispatch; `native_visible` direct/fallback/None/timeout; `terminate_app`/`reply_to_terminate`; no AppKit import) and `tests/test_pywebview_cocoa_canary.py` (7 `ast` facts: AppDelegate has `applicationShouldTerminate_` and no reopen method; `windowShouldClose_` -> `should_close` -> `events.closing.set`; `windowWillClose_` calls `app.stop_` + `abortModal`, posts no event; `keyDown_` `'q'` -> `app.stop_`; `_add_app_menu` `terminate:`/`q`; `BrowserView.__init__` calls `AppDelegate.alloc`; `restore` calls `deminiaturize_` directly). The worker's `drain` is not yet wired to `_graceful_shutdown`.
+
+**Results**: `make test-unit` 7325 passed, 12 skipped; `ruff check` and `ruff format --check` clean; split guard passes. (One first-run failure, the DD12 no-lazy-import test, was fixed by the top-level import above.) No existing test needed inverting.
+
+**Phase B must know**
+- The delegate callback does, on the main thread: `view = macos_dock.snapshot(state, native_window=...)`; `d = on_terminate(view)`; for `drain-then-reply`: `mark_terminate_pending()`, `win = state.begin_quit()`, save geometry from `win` (direct `frame()` read) if a window was published, build `TerminateWorker(reply=reply_to_terminate, drain=lambda: _graceful_shutdown(state.server, state.thread), boot_wait=state.boot_stopped.wait, log_flush=flush_log_handlers).start()`, return 2. `already-pending` returns 2; `reply-now` returns 1. Return values use the runtime's `I@:@`, not `NSUInteger`.
+- `snapshot` reads `state.server`, which `run()` must now set (and clear at exit); `state.tray_mode = "dock"` must be assigned at the top of `run()`.
+- `begin_quit()` returns None on a repeat, so path S after path T does not save geometry twice.
+
+**AC5 observable table (for leg 7's `lifecycle.sh`)**: log lines `terminate: drain started`, `terminate: drain done in <s>s`, `terminate: reply sending`, `terminate: boot did not stop within 5.0s` (warning); the install-route line and the terminate-received / path-S-exiting lines are Phase B's. State-route fields: `tray: "dock"` (Phase B), `visible` (real `isVisible`), `mode`, `pid`.
+
+**Phase B gate quote (leg 3b, `### macos-probe-rerun`, run `40206047338`)**, read before any Phase B code:
+- Route installed: `subclass` (`selftest ok route=subclass`; `[BLOCKED:delegate-unextendable]` does not apply). So `install` replaces `BrowserView.AppDelegate` with a subclass, not `classAddMethods`.
+- Logged signatures: `terminate=b'I@:@' (superclass) reopen=b'B@:@B' (protocol) willTerminate=b'v@:@' (protocol)`. `applicationShouldTerminate_` and `applicationWillTerminate_` are plain methods (no explicit signature, inherited prototype); reopen is wrapped in `objc.selector(..., signature=<protocol encoding, offsets stripped>)`.
+- Counts: terminate=1, reply=1, willTerminate=1 event (the SUMMARY's 2 is a double grep match).
+- `callAfter` reply delivered during the NSTerminateLater wait: YES, for both the quit Apple event and Cmd-Q (path T observed directly). The `NSRunLoopCommonModes` fallback is not used; `reply_to_terminate` keeps `AppHelper.callAfter`.
+
+**Phase B checkpoint** (leg 4; status `landed`). Uncommitted.
+
+**Wired**
+- `shell.py`: darwin sets `state.tray_mode = "dock"` right after `state.reset()`; `macos_dock.install(self)` just before `webview.start`; no tray (step 5 raises `_NoTrayError` on darwin, pystray never imported); `_on_closing` dock branch (`_dock_hide`: `on_close` + `window.hide()`, no notice, failed hide allows); `_destroy_splash` suppression; `_boot` sets `boot_stopped` in a `finally` (every exit, all platforms); on darwin `_abort_if_quit` and the step-6 quit return without publishing/destroying, and an unhandled boot error calls `macos_dock.terminate_app()` once unless `terminate_pending`; path S (`_path_s_begin` after `webview.start`, the existing `finally` drain, then `_path_s_exit`: 5 s wait on `boot_stopped`, flush, `os._exit(0)`); `finally` clears `state.server`/`state.thread`; `platform_env.prime_login_shell_path()` after `state.begin_boot()` (after the `is_ours` return); `DesktopSession._drain` (the worker's drain, wraps `_graceful_shutdown`).
+- `macos_dock.py`: `handle_terminate` / `_start_terminate` / `handle_reopen`, `order_out`, `_reopen_signature`/`_protocol_signature`, `_install_delegate` (subclass `GleepGlorpAppDelegate`, plain `applicationShouldTerminate_`/`applicationWillTerminate_`, reopen via `objc.selector` with the protocol encoding; failure leaves the stock delegate, route `none`), `_begin_activity`, `install` (once; token in module-level `_ACTIVITY_TOKEN`). `_install_delegate` and `_begin_activity` are the only unit-untestable bodies (`# pragma: no cover`, need AppKit); they are exercised by leg 7's hosted run.
+- Docs: `the_one/agents.md` "macOS dock mode (M32 F3 L04, DD2-DD5)" paragraph (after the L01 module-map paragraph), one `CLAUDE.md` sentence in the Desktop launcher section.
+
+**One deliberate deviation from the leg text**: `_destroy_splash` is NOT suppressed on `boot_stopped` alone. `_boot` sets `boot_stopped` on every exit including a successful one, and the page's `loaded` handler dismisses the splash after that, so literal suppression would leave the splash up forever. Suppression is `terminate_pending or really_quit or loop_stopped or a boot error` (darwin only); every quit path sets one of the first two (`begin_quit`), and the error path sets a local event. Tested (a normal darwin boot still destroys the splash).
+
+**Tests** (`tests/test_macos_dock_shell.py`, 33 with the Phase A file's neighbours unchanged): `test_dock_tray_mode_and_install_precede_webview_start`, `test_no_pystray_on_darwin_boot`, `test_prime_called_once_after_begin_boot`, `test_prime_not_called_on_the_is_ours_branch`, `test_server_and_thread_cleared_after_run`, `test_path_s_ordered_sequence` (install, start returns, order_out, save, drain, flush, exit(0)), `test_path_s_with_only_the_splash_saves_nothing`, `test_path_s_waits_on_boot_stopped_before_exit`, the five `test_dock_*close*` tests, `test_splash_destroy_is_suppressed_by_each_flag[terminate_pending|really_quit|loop_stopped]`, `test_splash_still_destroyed_on_a_normal_darwin_boot`, `test_boot_abort_on_darwin_sets_boot_stopped_and_destroys_nothing`, `test_boot_error_on_darwin_calls_terminate_once`, `test_boot_error_with_terminate_pending_does_not_terminate_again`, `test_install_*` (token stored at module level, runs once and logs the route, survives an activity failure), `test_handle_terminate_*` (drain and LATER, repeat starts one worker, window client NOW, unpublished window skips the save, never raises), `test_handle_reopen_*`, `test_reopen_signature_*`, `test_a_dock_close_state_route_reports_dock`. The canary and the Phase A tests are unchanged. No existing test was inverted or modified.
+
+**Gates**: `make test-unit` 7358 passed, 12 skipped; `ruff check` and `ruff format --check` (the_one tests scripts evals) clean; split guard passes. `settings` lane (`THE_ONE_TEST_NETNS=1`): 108 passed in 236 s. Linux build `0.11.9.dev32` (`M32_BUILD=$HOME/the-one-m32-build/f3`) then `gtk-smoke.sh ubuntu-26.04 --deb ...dev32_amd64.deb`: **`OVERALL PASS`** (evidence `$HOME/the-one-m32-evidence/f3/leg4/`: `build.log`, `smoke.log`). No containers or root-owned files left.
+
+**AC5 observable table** (logger `the_one.interfaces.desktop.shell`, in `~/Library/Logs/...`/the app log; state route = `GET /api/window/state`):
+
+| lifecycle step | log line (exact text) | state-route field |
+|---|---|---|
+| launch (install) | `macos dock: delegate installed (route=subclass, app nap activity held)` | `tray: "dock"`, `mode`, `pid` |
+| window closed (red button / Cmd-W on main) | `dock: window hidden on close` | `visible: false` (real `NSWindow.isVisible`), process alive |
+| Dock icon / `open -a` | `reopen: decision=show hasVisibleWindows=<bool>` (`decision=defer` while booting, `ignore` while quitting) | `visible: true` |
+| second launch | focus POST handled (existing focus path), `reopen:` as above when AppKit forwards it | `visible: true`, same `pid` |
+| any path-T quit (menu/Dock Quit, Apple event, logout, Cmd-Q, `the-one quit`, `POST /api/window/quit`, takeover) | `terminate: applicationShouldTerminate received (decision=drain-then-reply)` | (server then drains) |
+| drain | `terminate: drain started` then `terminate: drain done in <s>s` (uvicorn's `Shutting down` / `Finished server process` lines in stderr) | route unreachable afterwards |
+| reply | `terminate: reply sending`, then `terminate: applicationWillTerminate (AppKit exiting)` | process gone |
+| boot did not stop in time | `terminate: boot did not stop within 5.0s` (warning) | - |
+| repeat terminate | `terminate: applicationShouldTerminate received (decision=already-pending)` | - |
+| window-only client quit | `... (decision=reply-now)` | - |
+| path S (Cmd-W on splash alone) | `path S: webview.start returned — draining`, drain lines from uvicorn, `path S: exiting (os._exit(0))` | gone |
+| boot stuck on path S | `path S: boot did not stop within 5.0s` (warning) before the exit line | gone |
+
+**Leg 6/7 must know**
+- Nothing here has run on a Mac: `_install_delegate`'s class body and `_begin_activity` are unverified until leg 7. Their failure modes are logged (`macos dock: delegate install failed — stock delegate` -> route `none`; then Cmd-Q takes path S, the red button still hides). Leg 7's `lifecycle.sh` should assert the `route=subclass` line first.
+- `quit_desktop` on darwin sends every non-None tag, `"booting"` included, through `terminate_app()`; the quit route's JSON still says `state: "window"` (or `"booting"`).
+- The launch can take up to 5 s longer before the splash on a frozen macOS build (`prime_login_shell_path`).
+- Dock-mode `Window` state: `tracked_visible` is not used on darwin; `window_visible` reads the native window.
 
 ## Decisions
 
@@ -389,6 +533,35 @@ Job `build`: 14:47:26Z to 14:51:56Z = **4 min 30 s** (billed as 5 whole minutes,
   - **`probe.sh`:** `lnp_check` (one bounded System Events call, 8 s) reads the alert windows of `UserNotificationCenter`, `CoreServicesUIAgent`, `SecurityAgent`, `NotificationCenter` and `universalaccessd` (owner, window name, texts, buttons) and, when asked, presses Allow, else Don't Allow (AXPress, by button name). It runs after every probe launch (P1's launches skip it so the marks are not delayed; P1's control runs it after its series). New row `PLN`: after the cold product launch's series, a screenshot (`P1/pln.png`) and a read without dismissing, then the dismissal attempt (two rows). P3's probe Cmd-W now raises the probe and clicks the window centre first (`focus_click`), and records the window's count/visible/frontmost/position/size before and 2 s after (`window_state`). P1 marks are +1, +2, +3, +5, +10 (+20, +30 for the product).
   - **Checks:** ruff format and check, `py_compile`, `bash -n`, shellcheck 0.10.0 and actionlint 1.7.7 are clean.
   - **Rehearsals (Linux, shims)**, evidence under `$HOME/the-one-m32-evidence/f3/leg3b/`: `rehearsal-ok` (43 s), `rehearsal-tcc` (363 s; every System Events call hits its bound, the PLN and P3 rows say so), `rehearsal-openfail` (178 s), all with no leftover process or listener; and `rehearsal-workflow-none` (the fake selftest reports route `none`, exits 3: the selftest step fails, the premise probe still runs and writes SUMMARY, the logs directory is populated, the final check step passes) beside `rehearsal-workflow-ok`. The shims return empty output for System Events reads, so the new `PLN`/`window_state` text paths are exercised only for "none seen" and "unreadable"; real alert text is untested until dispatch 2. On the rehearsal, the cold series' last mark shows `cut` at a 0.05 scale (shot time against the scaled cap); at scale 1 the 45 s cap leaves wide margin.
+
+- **AC3 (evidence reading)** (Developer, no code change, commit or dispatch). Run `40206047338` (dispatch 2 of 5; `macos-packages.yml`, `mode=probe`, commit `c2db6f1`; run 15:15:08Z to 15:20:27Z; every step green including "Probe app selftest", `selftest ok route=subclass`). Evidence: `~/the-one-m32-evidence/f3/leg3b/run-40206047338/` (artifact), `run-40206047338/run.log` (`gh run view --log`), `sha256.txt` beside it (one line per file, 198 lines). Paths below are relative to `run-40206047338/macos-packages-logs/`; `probe/` = the probe evidence. Runner: macOS 15.7.9, arm64 (`runner.txt`). The probe's own logs are `probe/P*/…-probe.log`; the premise step ended `== done in 234 s` (`probe-step.log`).
+
+  **Answers (the leg-4 gate is items 1, 2, 3):**
+
+  1. **Route and signatures: `subclass` installed.** `probe-selftest.txt`: `resolved signatures: terminate=b'I@:@' (superclass) reopen=b'B@:@B' (protocol) willTerminate=b'v@:@' (protocol)`; `signature subclass applicationShouldTerminate_=b'I@:@'`; `signature subclass applicationWillTerminate_=b'v@:@'`; `signature subclass applicationShouldHandleReopen_hasVisibleWindows_=b'B@:@B'`; `signature superclass applicationShouldTerminate_=b'I@:@'`; `route: subclass`; `pywebview=? pyobjc=12.2`; `selftest ok route=subclass`. Sources: terminate = superclass (the plain method with no explicit signature inherits `I@:@`), reopen and willTerminate = the `NSApplicationDelegate` protocol (the reopen selector is not on pywebview's delegate). The delegate in effect: `NSApp.delegate().className() at shown = M32ProbeAppDelegate` (`probe/P2/probe-probe.log`, line 11; identical in P3/P4). `classAddMethods` was not needed and not exercised. **Not blocked: `[BLOCKED:delegate-unextendable]` does not apply.**
+  2. **`NSTerminateLater` plus the deferred reply: it terminated, both ways. callAfter reply delivered: YES.** The reply is `AppHelper.callAfter(app.replyToApplicationShouldTerminate_, True)` from a `terminate-worker` thread after a 3 s sleep (`delegate_probe.py` line 80), so the reply crossed from a non-main thread through `callAfter`, and AppKit finished the termination.
+     - **Quit Apple event** (`probe/P2/probe-probe.log`): `3.534 [MainThread] terminate: applicationShouldTerminate_ called; returning NSTerminateLater (2)`; `6.549 [terminate-worker] terminate: replying True after 3 s`; `6.556 [MainThread] willTerminate: applicationWillTerminate_ (AppKit reached its exit)` (7 ms after the reply); `6.563 window closed event`. SUMMARY: `P2: probe (route subclass): osascript rc=0; exited 0.0s after the event returned; log: terminate=1 reply=1 willTerminate=2` (the count 2 is a grep that also matches the `resolved signatures … willTerminate=` line; the log has one `willTerminate:` event). `osascript` returned only once the app was gone, i.e. AppKit held the quit event pending the reply (the event reply is itself deferred).
+     - **Cmd-Q keystroke** (`probe/P3/probe-q-probe.log`): `5.562 applicationShouldTerminate_ called; returning NSTerminateLater (2)`; `8.576 replying True after 3 s`; `8.581 willTerminate`; `8.584 window closed event`. SUMMARY: `P3: probe Cmd-Q (route subclass): front=23596 (the app); keystroke rc=0; exited=yes after 3.3s; path=T (applicationShouldTerminate_ ran)`: the process exit follows the 3 s deferral, so the process did not exit until the reply was delivered.
+     - Caveats: the probe's main loop was idle (no server, no other main-thread work); the run-loop mode AppKit was in while waiting is not logged, so this proves `callAfter` is delivered under `NSTerminateLater` for an idle app, not under a busy main thread. The named fallback (`performSelectorOnMainThread_withObject_waitUntilDone_modes_` with `NSRunLoopCommonModes`) is therefore **not needed**; leg 4 should keep `callAfter` and keep its own bounded worker (a reply that never arrives would hang quit).
+  3. **Cmd-Q's path: T, observed directly.** `exited=yes after 3.3s; path=T (applicationShouldTerminate_ ran)`, with the `applicationShouldTerminate_` log line above. (Leg 3's inference of T is confirmed.)
+  4. **Reopen handler on `open -a`: fired**, with `hasVisibleWindows=True`: `probe/P4/probe-probe.log` line 12: `3.469 [MainThread] reopen: applicationShouldHandleReopen called hasVisibleWindows=True`; SUMMARY `P4: probe (route subclass): open -a on the running app rc=0; pids before [21610 ] after [21610 ]` (no new process). It also fired in P3 (`probe-q-probe.log` 3.437 and `probe-w-probe.log` 3.402) on the `open -a` that precedes each keystroke. The product, still on pywebview's stock delegate, has no handler (unchanged: pids `[21899]` before and after; `open -n` second pid 22190 exited 0.3 s after appearing, one focus line in the first's log, `lsappinfo front pid=21899`).
+  5. **Cmd-W on the focused probe window: no effect.** SUMMARY: `P3: probe Cmd-W after a click in the window (clicked 512,384 rc=0): front=22913 (the app); state before: windows=1 visible=true frontmost=true pos=192,184 size=640x400; keystroke rc=0; state 2 s after: windows=1 visible=true frontmost=true pos=192,184 size=640x400; exited=no`. The window was clicked, frontmost and visible, and still is after the keystroke (`probe/P3/probe-w-before.png` and `probe-w-after.png` are the same white window; the log has no close event). So focus was not the cause in leg 3: the probe window ignores Cmd-W with the click and the raise done. (Cause not established; a missing Close menu binding on the probe's pywebview window is a hypothesis, not observed.) The **product's Cmd-W**: `front=22606 (the app); … keystroke rc=0; state after: curl-rc=7; pid alive=no`, and this time the drain ran (`probe/P3/product.stderr` lines 29-36: `Shutting down` … `Finished server process [22606]`), as in leg 3. Leg 4 must not rely on Cmd-W as a driver for a no-menu pywebview window; the product exits on it only through its close fallback.
+  6. **PLN: the product did not trigger a local-network prompt, and the probe's did not appear either.** SUMMARY: `PLN: after the product's first launch: alert windows none seen (rc=0); screenshot 130582B (pln.png)`; `PLN: dismissal attempt: none seen (rc=0)`; every later `*-lnp.txt` is `rc=0` with nothing read. `probe/P1/pln.png` shows the painted Chats page ("Hello.") with no dialog; no screenshot in the run shows an overlay (leg 3's stale "Allow M32 Probe to find devices on local networks?" prompt is gone from `cold-1.png`, `probe-w-*.png`, `pln.png`). Caveats: the read covers the alert windows of the five listed owners and "none seen" means no AX window was found, so a prompt owned by another process would be missed, but the screenshots agree. Why the prompt vanished is not established (a fresh runner image state, or the earlier prompt having been a one-off tied to the probe's first local-network use); the product itself reads clean on this run.
+  7. **Changed readings vs leg 3** (quote both):
+     - **First paint (DD11):** cold: `+1 bytes=84614` (dark empty window, `P1/cold-1.png`: title bar and a uniform near-black client area), `+2 84796` (still empty), `+3 130637` (painted, stable to +30 s); warm: `+1 84771`, `+2 93492` (mid-paint), `+3 130234`. `/api/live` was 200 at +1 s. The control (data-URL window, no server): `84042B` at +1, +2, +3, +5 (blank white) and `84137B` at +10. So the paint lands between +2 and +3 s (cold) and the empty window is visible at +1 and +2 s: consistent with leg 3 (1-3 s) and now narrowed to 2-3 s; no blank beyond 3 s. Reading unchanged: not reproduced as a persistent blank; environmental per DD11; leg 4 changes nothing for first paint.
+     - **P5 replace while running: a different outcome.** Leg 3: the old process stayed alive and answered. Now: `old alive=no; open -a rc=0; pids now [24220 ]` (a new pid; the old 24189 is gone) and `state: 200 {…"pid":24220}`. `probe/P5/old.stderr` line 56: `*** Terminating app due to uncaught exception 'OC_PythonException', reason: '<class 'FileNotFoundError'>: Cannot find JS directory in /Applications/GleepGlorp AI.app/Contents/Frameworks/webview/js'` then `libc++abi: terminating due to uncaught exception of type NSException`. So deleting a running bundle can crash the old process the next time it lazily reads a resource from the bundle (here pywebview's js directory, most likely when the window or a page triggers it), with no server drain; whether it crashes depends on timing. Divert 4 is not triggered (the marker copy is intact and the new process runs; the crash lost no stored data in evidence), but **the guide's replace advice must say "quit before replacing" without promising the old copy keeps running**, and leg 3's "the running copy keeps running" sentence is retracted.
+     - **P2 on the product** is unchanged: the quit Apple event gives no drain (`probe/P2/product.stderr` ends at `connection open`, no `Shutting down`), while Cmd-W and the cold quit (`probe/P1/cold.stderr` lines 29-36) do drain: the defect leg 4 fixes.
+     - P9 unchanged (`destroy: webview.start returned 0.013 s after window.destroy(); process alive=yes`), P6 unchanged (`spctl rc=3`, `syspolicy_check rc=70`, translocated path, "Not Opened" dialog), OTOOL unchanged (`max minos=14.0`, 13 files at 14.0), P8 unchanged (runner PATH, `SHELL=/bin/bash`, `--env` passes). P1 `quit rc=0, exited in 0.3s` cold and `0.7s` warm. One new harness note: `probe-step.log` line 1 has `probe.sh: line 140: …/the-one/api-credential: No such file or directory` (the product's credential file is read before it exists; harmless, the premise rows are present).
+  8. **Divert and acceptable-variation criteria re-evaluated.**
+     - Delegate cannot be extended by either route (DD4): **CLEARED, not triggered** (the subclass route installed and ran).
+     - `NSTerminateLater` does not drain (DD3): **CLEARED, not triggered** (items 2-3: the deferred reply terminated both the Apple-event quit and Cmd-Q).
+     - No GUI session: not triggered. Replace-while-running loses or corrupts data (P5): not triggered (see item 7 for the changed crash reading).
+     - 5-dispatch budget spent without a green lifecycle run: not triggered (2 of 5 used, 3 left; this run's selftest and probe are green).
+     - Acceptable variations: the `callAfter` reply worked, so the `NSRunLoopCommonModes` fallback is not taken; the `classAddMethods` and `os._exit(0)` variations are not needed; first paint "environmental" stands.
+     - **Still unanswered:** the delegate on the real product (the probe has no server, no tray, no busy main thread); the run-loop mode during the wait; how a Dock quit or logout path behaves (the probe tested only the Apple event and Cmd-Q).
+  9. **Hosted minutes.** Job `build` 15:15:11Z to 15:20:26Z = 5 min 15 s, billed as 6 whole minutes: 6 x 10 = **60 billed macOS minutes** (about 52.5 if billed by the exact 5.25 min). Of that the premise step was 234 s. Flight total so far: 50 (run 40203877635) + 60 = **110 billed minutes**.
+
+  **Leg-4 preconditions, answered:** (a) route that installed: `subclass`; (b) logged signatures: terminate `I@:@` (superclass), reopen `B@:@B` (protocol), willTerminate `v@:@` (protocol), `NSApp.delegate().className()` = `M32ProbeAppDelegate`; (c) counts: terminate=1 (called), reply=1, willTerminate=1 event (the SUMMARY row prints 2, a double grep match); (d) **callAfter reply delivered: yes** (both quit paths; 3 s deferral, `willTerminate` 7 ms and 5 ms after the reply); (e) neither-route-installed gate: does not apply; (f) the `NSRunLoopCommonModes` fallback: not needed; (g) `classAddMethods`: not chosen, `install` replaces the class attribute as DD4 says.
 
 ## Anomalies
 

@@ -85,6 +85,9 @@ def cli_entry() -> None:
 
         run()
     elif args[0] == "serve":
+        from the_one.platform.env import prime_login_shell_path
+
+        prime_login_shell_path()  # frozen macOS only (DD7); a no-op elsewhere
         from the_one.interfaces.web.app import app
 
         uvicorn.run(app, host=settings.host, port=settings.port)
@@ -97,6 +100,9 @@ def cli_entry() -> None:
 
         print(f"GleepGlorp AI v{__version__}")
     elif args[0] == "doctor":
+        from the_one.platform.env import prime_login_shell_path
+
+        prime_login_shell_path()  # frozen macOS only (DD7); a no-op elsewhere
         from the_one.diagnostics import run_doctor
 
         sys.exit(run_doctor())

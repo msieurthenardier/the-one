@@ -1249,7 +1249,94 @@ class TestAdvisoryLines:
         monkeypatch.setattr(sys, "platform", "win32")
         assert diagnostics._tray_line() == "tray: system tray (Windows)"
         monkeypatch.setattr(sys, "platform", "darwin")
-        assert diagnostics._tray_line() == "tray: not probed (macOS)"
+        assert diagnostics._tray_line() == "tray: dock — macOS keeps the app in the Dock"
+
+
+class TestMacosDoctor:
+    """M32 F3 L5: darwin desktop-shell gate, ``path:`` line, stub-aware runtimes."""
+
+    def _freeze(self, monkeypatch: pytest.MonkeyPatch, frozen: bool = True) -> None:
+        monkeypatch.setattr(sys, "platform", "darwin")
+        if frozen:
+            monkeypatch.setattr(sys, "frozen", True, raising=False)
+            monkeypatch.setattr(sys, "_MEIPASS", "/bundle", raising=False)
+        else:
+            monkeypatch.delattr(sys, "frozen", raising=False)
+            monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+
+    def test_cocoa_present_is_ok_without_the_word_skipped(self, monkeypatch) -> None:
+        self._freeze(monkeypatch)
+        seen: list[tuple[str, ...]] = []
+        monkeypatch.setattr(
+            diagnostics, "bundle_has_modules", lambda names: seen.append(tuple(names)) or []
+        )
+        r = _probe_desktop_shell()
+        assert (r.ok, r.detail) == (True, "Cocoa backend present")
+        assert "skipped" not in r.detail
+        assert seen == [("webview.platforms.cocoa", "objc", "AppKit", "WebKit")]
+
+    def test_frozen_missing_fails(self, monkeypatch) -> None:
+        self._freeze(monkeypatch)
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: ["objc", "AppKit"])
+        r = _probe_desktop_shell()
+        assert not r.ok
+        assert r.detail == "missing from the bundle: objc, AppKit"
+
+    def test_not_frozen_missing_is_skipped_but_ok(self, monkeypatch) -> None:
+        self._freeze(monkeypatch, frozen=False)
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: ["objc"])
+        r = _probe_desktop_shell()
+        assert r.ok and "skipped" in r.detail
+
+    def test_never_imports_cocoa_or_pystray(self, monkeypatch) -> None:
+        self._freeze(monkeypatch)
+        monkeypatch.setattr(diagnostics, "bundle_has_modules", lambda names: [])
+        for mod in ("webview.platforms.cocoa", "AppKit", "pystray"):
+            monkeypatch.delitem(sys.modules, mod, raising=False)
+        _probe_desktop_shell()
+        assert not {"webview.platforms.cocoa", "AppKit", "pystray"} & set(sys.modules)
+
+    def test_path_line_only_on_frozen_darwin(self, monkeypatch) -> None:
+        from the_one.platform import env as env_mod
+
+        self._freeze(monkeypatch)
+        monkeypatch.setattr(env_mod, "_PRIMED", ("login shell", "", ("/a",)))
+        assert "path: login shell" in diagnostics._advisory_lines()
+        monkeypatch.setattr(env_mod, "_PRIMED", ("static fallback", "zsh exited 1", ()))
+        assert "path: static fallback — zsh exited 1" in diagnostics._advisory_lines()
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert not any(ln.startswith("path:") for ln in diagnostics._advisory_lines())
+        self._freeze(monkeypatch, frozen=False)
+        assert not any(ln.startswith("path:") for ln in diagnostics._advisory_lines())
+
+    def test_detect_runtimes_reports_the_stub_as_not_found(self, monkeypatch) -> None:
+        from the_one.platform import interpreter as interp_mod
+
+        self._freeze(monkeypatch)
+        monkeypatch.setattr(interp_mod, "_command_line_tools_installed", lambda: False)
+
+        def which(name, path=None):
+            return f"{path}/{name}" if path == "/usr/bin" else None
+
+        monkeypatch.setattr(interp_mod.shutil, "which", which)  # the same module object
+        by_name = {r.name: r for r in detect_runtimes({"PATH": "/usr/bin"})}
+        for name in ("python", "python3"):
+            assert by_name[name].ok
+            assert by_name[name].detail == (
+                "not found — only the macOS Command Line Tools stub is on PATH; "
+                "install Python 3 (python.org or Homebrew)"
+            )
+        assert by_name["node"].detail == "found at /usr/bin/node"
+
+    def test_detect_runtimes_walks_past_the_stub(self, monkeypatch) -> None:
+        from the_one.platform import interpreter as interp_mod
+
+        self._freeze(monkeypatch)
+        monkeypatch.setattr(interp_mod, "_command_line_tools_installed", lambda: False)
+        table = {("python3", "/usr/bin"): "/usr/bin/python3", ("python3", "/opt"): "/opt/python3"}
+        monkeypatch.setattr(interp_mod.shutil, "which", lambda c, path=None: table.get((c, path)))
+        by_name = {r.name: r for r in detect_runtimes({"PATH": "/usr/bin:/opt"})}
+        assert by_name["python3"].detail == "found at /opt/python3"
 
 
 pytestmark = pytest.mark.usefixtures("stub_desktop_host")
