@@ -10,8 +10,10 @@
   //   setError(rowIndex, colKey, text|null), focusRow(i, colKey), destroy()} (M31 F3 L04, flight
   //   DD4; secret and toggle columns, setRow, M31 F5 L04, flight DD5). A column-defined table,
   //   one row per model entry, an "Add row" button and an icon-only remove per row.
-  //   columns [{key, label (string or Node), placeholder, inputTestid, mono, type}] (at least one,
-  //   keys unique). type is 'text' (default), 'secret' or 'toggle'; anything else throws.
+  //   columns [{key, label (string or Node), placeholder, inputTestid, mono, type, width}] (at least
+  //   one, keys unique). width (a CSS length such as '120px', M31 F5 L07) sets the column's width in
+  //   a fixed-layout table (a table with a secret or toggle column); a toggle column is 88px
+  //   without it, which fits a one-word label but not a label with an info button. type is 'text' (default), 'secret' or 'toggle'; anything else throws.
   //   A 'secret' column adds {maskedBy: '<toggle column key>', storedKey: '<row key holding the
   //   stored mask>', clearOnUnmask}: while row[maskedBy] is true (always, with no maskedBy) the
   //   cell is an App.ui.secretInput (eye named "Show value, row n", stored mode when
@@ -84,6 +86,7 @@
       for (c = 0; c < columns.length; c++) {
         var colEl = util.el('col');
         if (typeOf(columns[c]) === 'toggle') colEl.style.width = '88px';
+        if (columns[c].width) colEl.style.width = String(columns[c].width);
         colgroup.appendChild(colEl);
       }
       var actionsCol = util.el('col');

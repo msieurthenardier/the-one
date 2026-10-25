@@ -1,213 +1,187 @@
 // App.studio.mcpEditor.connectionFields — the MCP source editor's Connection
-// fields (M31 F5 L02, split out of mcp-server-editor.js, moved verbatim).
+// fields, built from the control library (M31 F5 L06, DD4).
 //
-// Holds: renderConnectionFields (name, transport, stdio command runtime, cwd,
-// args placeholder, command hint, URL), mountChipListEditors / wireChipLists
-// (the args and sandbox writable-paths chip lists), and the transport and
-// stdio-runtime visibility helpers (applyStdioRuntimeSelection,
-// applyTransportVisibility).
-// Exposes: renderConnectionFields, mountChipListEditors, wireChipLists,
-// applyStdioRuntimeSelection, applyTransportVisibility.
+//   create({source, mcpTypes, onChange, onTypeChange}) ->
+//     {el, values(), setValues(source), setError(field, msg|null), focus(field),
+//      setType(type), destroy()}
+//
+// Fields, in DOM order: Name, Type, Command (with its runtime hint), Custom command,
+// Working directory, Arguments, URL. The ids (mf-name, mf-type, mf-command-runtime,
+// mf-command, mf-cwd, mf-args, mf-url), the data-field values and the testids
+// (mcp-command-runtime, mcp-command-custom, mcp-command-hint) are the stable DOM
+// contract.
+//   values()  {name, type, runtime, command, cwd, args, url}; args is the operator's
+//             chips only (the implicit `-y` of `npx -y` and `run` of `pipx run` are the
+//             controller's to prepend on collect).
+//   setValues(source)  writes a stored source (or the create defaults for null) into the
+//             fields and calls setType; it never fires onChange.
+//   setType(type)  shows the stdio-only or the HTTP-only fields through the `hidden`
+//             attribute. The mcp-stdio-only and mcp-streamable-http-only classes are
+//             plain markers with no CSS.
+// onChange fires for every user edit (text on input, selects on change, every chip
+// change, a Cancel's re-set chips included). A type change also calls onTypeChange(type).
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
   window.App.studio.mcpEditor = window.App.studio.mcpEditor || {};
 
-  var STDIO_CUSTOM_SENTINEL = window.App.studio.mcpEditor.shared.STDIO_CUSTOM_SENTINEL;
-  var STDIO_RUNTIME_OPTIONS = window.App.studio.mcpEditor.shared.STDIO_RUNTIME_OPTIONS;
-  var deriveStdioRuntimeSelection = window.App.studio.mcpEditor.shared.deriveStdioRuntimeSelection;
-  var lookupStdioRuntimeHint = window.App.studio.mcpEditor.shared.lookupStdioRuntimeHint;
+  var shared = window.App.studio.mcpEditor.shared;
+  var STDIO_CUSTOM_SENTINEL = shared.STDIO_CUSTOM_SENTINEL;
+  var STDIO_RUNTIME_OPTIONS = shared.STDIO_RUNTIME_OPTIONS;
+  var deriveStdioRuntimeSelection = shared.deriveStdioRuntimeSelection;
+  var lookupStdioRuntimeHint = shared.lookupStdioRuntimeHint;
 
-  function renderConnectionFields(source, mcpTypes) {
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
+  function create(opts) {
+    opts = opts || {};
+    var ui = window.App.ui;
+    var source = opts.source || null;
     var isCreate = !source;
-    var type = isCreate ? '' : (source.type || '');
-    var stdioHidden = (type !== 'stdio');
-    var streamableHidden = (type !== 'streamable-http');
+    var alive = true;
+    var currentType = '';
 
-    var html = '';
+    function report() { if (alive && opts.onChange) opts.onChange(); }
 
     // Name
-    html += '<div class="field-group">';
-    html += '<label for="mf-name">Name</label>';
-    html += '<input class="field-input" id="mf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : (source.name || '')) + '" placeholder="My MCP Server" />';
-    html += '</div>';
+    var nameInput = ui.textInput({
+      id: 'mf-name', placeholder: 'My MCP server', dataset: { field: 'name' }, onInput: report
+    });
+    var nameField = ui.field({ label: 'Name', control: nameInput });
 
-    // Type
-    html += '<div class="field-group">';
-    html += '<label for="mf-type">Type</label>';
-    html += '<select class="field-input field-select" id="mf-type" data-field="type">';
-    // F5 L6 HAT: ``hidden`` attribute keeps the placeholder out of the
-    // open list while still displaying its text in the closed state.
-    if (isCreate) html += '<option value="" disabled selected hidden>Select a transport…</option>';
-    var types = mcpTypes || [];
+    // Type: the placeholder is hidden from the open list (create mode only).
+    var typeOptions = [];
+    var types = opts.mcpTypes || [];
+    if (isCreate) typeOptions.push({ value: '', label: 'Choose how it connects', disabled: true });
+    var knownType = false;
     for (var t = 0; t < types.length; t++) {
-      var mt = types[t];
-      html += '<option value="' + escapeAttr(mt.value) + '"' + (!isCreate && type === mt.value ? ' selected' : '') + '>' + escapeHtml(mt.label) + '</option>';
+      typeOptions.push({ value: types[t].value, label: types[t].label });
+      if (source && types[t].value === source.type) knownType = true;
     }
-    html += '</select>';
-    html += '</div>';
-
-    // stdio: command — F9 L2 vibing: replaced free-text input with a
-    // canonical-runtime dropdown + Custom… escape. The dropdown is the
-    // primary affordance; the legacy free-text input still ships in the DOM
-    // (hidden by default) and only surfaces when the operator picks
-    // Custom…. Hydrate flow: derive (dropdownValue, displayArgs,
-    // customCommand) from the saved (command, args) pair so the dropdown
-    // selection round-trips. New stdio source: default to `uvx` (canonical
-    // "just works" path); operator can change.
-    var savedCommand = (!isCreate && source.config && source.config.command) ? source.config.command : '';
-    var savedArgs = (!isCreate && source.config && source.config.args) ? source.config.args : [];
-    var stdioSelection = deriveStdioRuntimeSelection(savedCommand, savedArgs);
-    var dropdownValue = stdioSelection.dropdownValue || (isCreate ? 'uvx' : '');
-    var customCommandValue = stdioSelection.customCommand || '';
-    var customCommandHidden = (dropdownValue !== STDIO_CUSTOM_SENTINEL);
-
-    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-command-runtime">Command</label>';
-    html += '<select class="field-input field-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
-    for (var ri = 0; ri < STDIO_RUNTIME_OPTIONS.length; ri++) {
-      var opt = STDIO_RUNTIME_OPTIONS[ri];
-      var isSelected = (opt.value === dropdownValue);
-      html += '<option value="' + escapeAttr(opt.value) + '"' + (isSelected ? ' selected' : '') + '>' +
-              escapeHtml(opt.label) + '</option>';
+    if (!isCreate && !knownType) {
+      typeOptions.push({ value: source.type || '', label: source.type || '' });
     }
-    html += '</select>';
-    html += '</div>';
+    var typeSelect = ui.select({
+      id: 'mf-type', options: typeOptions, value: isCreate ? '' : (source.type || ''),
+      dataset: { field: 'type' },
+      onChange: function () {
+        setType(typeSelect.value);
+        report();
+        if (alive && opts.onTypeChange) opts.onTypeChange(typeSelect.value);
+      }
+    });
+    if (isCreate) typeSelect.options[0].hidden = true;
+    var typeField = ui.field({ label: 'Type', control: typeSelect });
 
-    // stdio: custom command (free-text) — only visible when Custom… is
-    // selected. The legacy `mf-command` id + data-field="command" are
-    // preserved so any external selector that pinned to them keeps
-    // working; the field only feeds `config.command` when the dropdown is
-    // on the Custom sentinel (collectFormData enforces this).
-    html += '<div class="field-group mcp-stdio-only mcp-command-custom-row' +
-            (stdioHidden || customCommandHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-command">Custom command</label>';
-    html += '<input class="field-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
-            'value="' + escapeAttr(customCommandValue) + '" placeholder="bash /app/start.sh" />';
-    html += '</div>';
+    // Command: the runtime dropdown and its hint.
+    var runtimeSelect = ui.select({
+      id: 'mf-command-runtime', testid: 'mcp-command-runtime',
+      options: STDIO_RUNTIME_OPTIONS.map(function (o) { return { value: o.value, label: o.label }; }),
+      value: 'uvx', dataset: { field: 'command-runtime' },
+      onChange: function () { syncRuntime(); report(); }
+    });
+    var runtimeField = ui.field({
+      label: 'Command', control: runtimeSelect, hintTestid: 'mcp-command-hint'
+    });
+    runtimeField.el.classList.add('mcp-stdio-only');
 
-    // stdio: cwd
-    var cwdValue = (!isCreate && source.config && source.config.cwd) ? source.config.cwd : '';
-    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-cwd">Working Directory</label>';
-    html += '<input class="field-input" id="mf-cwd" data-field="cwd" value="' + escapeAttr(cwdValue) + '" placeholder="(optional)" />';
-    html += '</div>';
+    var customInput = ui.textInput({
+      id: 'mf-command', testid: 'mcp-command-custom', placeholder: 'bash /app/start.sh',
+      dataset: { field: 'command' }, onInput: report
+    });
+    var customField = ui.field({ label: 'Custom command', control: customInput });
+    customField.el.classList.add('mcp-stdio-only', 'mcp-command-custom-row');
 
-    // stdio: args (chip-list, mounted via App.adminFormHelpers post-innerHTML)
-    // M17 F6 L3: placeholder <div> carries NO id (mountChipListEditors replaces
-    // it via outerHTML=, which strips ids); the `label[for="mf-args"]` target is
-    // landed on the real `.chip-list-input` via renderChipListEditor's controlId.
-    // Post-mount selectors key on [data-field="args"].chip-list-editor
-    // (js:857/915/1484), not the id, so dropping the placeholder id is safe.
-    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-args">Arguments</label>';
-    html += '<div class="chip-list-editor" data-field="args" data-field-type="array"></div>';
-    html += '</div>';
+    var cwdInput = ui.textInput({
+      id: 'mf-cwd', placeholder: '(optional)', dataset: { field: 'cwd' }, onInput: report
+    });
+    var cwdField = ui.field({ label: 'Working directory', control: cwdInput });
+    cwdField.el.classList.add('mcp-stdio-only');
 
-    // F9 L2 vibing: helper text below the args field, dynamically updated
-    // on dropdown change. Low-emphasis tone (--fg-secondary, body-sm)
-    // matches the studio token convention; uses .form-hint for the new
-    // class hook (added in studio.css alongside this leg).
-    var initialHint = lookupStdioRuntimeHint(dropdownValue);
-    // De-guttered (F5 L4): dropped the empty label-slot + `.field-row` wrapper
-    // so the hint aligns flush-left under the now-stacked `.field-group` args
-    // field above it (the migration invalidated the old 100px-gutter alignment
-    // whose whole purpose was to line up with the label-left args row).
-    html += '<div class="mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<small class="form-hint mcp-command-hint" data-testid="mcp-command-hint">' +
-            escapeHtml(initialHint) + '</small>';
-    html += '</div>';
+    var argsChips = ui.chipList({
+      inputId: 'mf-args', dataset: { field: 'args', fieldType: 'array' }, onChange: report
+    });
+    var argsField = ui.field({ label: 'Arguments', control: argsChips.input, host: argsChips.el });
+    argsField.el.classList.add('mcp-stdio-only');
 
-    // streamable-http: url
-    var urlValue = (!isCreate && source.config && source.config.url) ? source.config.url : '';
-    html += '<div class="field-group mcp-streamable-http-only' + (streamableHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-url">URL</label>';
-    html += '<input class="field-input" id="mf-url" data-field="url" value="' + escapeAttr(urlValue) + '" placeholder="https://example.com/mcp" />';
-    html += '</div>';
+    var urlInput = ui.textInput({
+      id: 'mf-url', placeholder: 'https://example.com/mcp', dataset: { field: 'url' }, onInput: report
+    });
+    var urlField = ui.field({ label: 'URL', control: urlInput });
+    urlField.el.classList.add('mcp-streamable-http-only');
 
-    return html;
+    var el = document.createElement('div');
+    el.className = 'mcp-connection-fields';
+    [nameField, typeField, runtimeField, customField, cwdField, argsField, urlField].forEach(
+      function (f) { el.appendChild(f.el); });
+
+    var byName = {
+      name: nameField, type: typeField, runtime: runtimeField, command: customField,
+      cwd: cwdField, args: argsField, url: urlField
+    };
+
+    // The Custom row follows the transport AND the runtime; the hint follows the runtime.
+    function syncRuntime() {
+      customField.el.hidden = !(currentType === 'stdio' && runtimeSelect.value === STDIO_CUSTOM_SENTINEL);
+      runtimeField.setHint(lookupStdioRuntimeHint(runtimeSelect.value));
+    }
+
+    function setType(type) {
+      currentType = type || '';
+      var stdio = currentType === 'stdio';
+      runtimeField.el.hidden = !stdio;
+      cwdField.el.hidden = !stdio;
+      argsField.el.hidden = !stdio;
+      urlField.el.hidden = currentType !== 'streamable-http';
+      syncRuntime();
+    }
+
+    function setValues(next) {
+      var cfg = (next && next.config) || {};
+      var sel = deriveStdioRuntimeSelection(cfg.command || '', cfg.args || []);
+      nameInput.value = (next && next.name) || '';
+      typeSelect.value = (next && next.type) || '';
+      runtimeSelect.value = sel.dropdownValue || 'uvx';
+      customInput.value = sel.customCommand || '';
+      cwdInput.value = cfg.cwd || '';
+      argsChips.setValues(sel.displayArgs || []);
+      urlInput.value = cfg.url || '';
+      setType((next && next.type) || '');
+    }
+
+    function values() {
+      return {
+        name: nameInput.value,
+        type: typeSelect.value,
+        runtime: runtimeSelect.value,
+        command: customInput.value,
+        cwd: cwdInput.value,
+        args: argsChips.values(),
+        url: urlInput.value
+      };
+    }
+
+    setValues(source);
+
+    return {
+      el: el,
+      values: values,
+      setValues: setValues,
+      setError: function (field, msg) {
+        if (byName[field]) byName[field].setError(msg || null);
+      },
+      focus: function (field) {
+        var f = byName[field];
+        if (!f) return;
+        var c = f === argsField ? argsChips.input : f.control;
+        if (c && !f.el.hidden) c.focus();
+      },
+      setType: setType,
+      destroy: function () {
+        alive = false;
+        argsChips.destroy();
+      }
+    };
   }
 
-  // ── Chip-list mount helpers ─────────────────────────────────────────
-
-  function mountChipListEditors(container, source) {
-    var helpers = window.App.adminFormHelpers;
-    if (!helpers || !helpers.renderChipListEditor) return;
-
-    var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
-    if (argsHost) {
-      // F9 L2 vibing: when the saved (command, args) pair represents
-      // the `npx -y` or `pipx run` runtime split, the implicit `-y` /
-      // `run` lives at args[0]. The dropdown's hydrate path already
-      // collapses that pair back into the dropdown selection — strip
-      // it from the chip-list so the operator sees only their own args
-      // (the package name + flags they typed).
-      var savedCmd = (source && source.config && source.config.command) || '';
-      var savedArgsList = (source && source.config && source.config.args) || [];
-      var derived = deriveStdioRuntimeSelection(savedCmd, savedArgsList);
-      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, { controlId: 'mf-args' });
-    }
-    // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
-    // any type — visibility is controlled by the section's mcp-stdio-only
-    // class).
-    var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
-    if (sandboxPathsHost) {
-      var sandboxPathsItems = (source && source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [];
-      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, { controlId: 'mf-sandbox-writable-paths' });
-    }
-  }
-
-  function wireChipLists(container, onChange) {
-    var helpers = window.App.adminFormHelpers;
-    if (!helpers || !helpers.wireChipListEditor) return;
-    var hosts = container.querySelectorAll('.chip-list-editor');
-    for (var i = 0; i < hosts.length; i++) {
-      helpers.wireChipListEditor(hosts[i], { onChange: onChange });
-    }
-  }
-
-  // ── Type-change visibility helpers ──────────────────────────────────
-
-  // F9 L2 vibing: keep the Custom… free-text row's visibility + the
-  // args-helper text in sync with the dropdown selection. Called from
-  // the change handler AND from revertEditorToSource so a Cancel-revert
-  // restores the row visibility to match the source's saved command.
-  function applyStdioRuntimeSelection(container, dropdownValue) {
-    var customRow = container.querySelector('.mcp-command-custom-row');
-    if (customRow) {
-      customRow.classList.toggle('is-hidden', dropdownValue !== STDIO_CUSTOM_SENTINEL);
-    }
-    var hintEl = container.querySelector('[data-testid="mcp-command-hint"]');
-    if (hintEl) {
-      hintEl.textContent = lookupStdioRuntimeHint(dropdownValue);
-    }
-  }
-
-  function applyTransportVisibility(container, type) {
-    var stdioRows = container.querySelectorAll('.mcp-stdio-only');
-    var streamableRows = container.querySelectorAll('.mcp-streamable-http-only');
-    for (var i = 0; i < stdioRows.length; i++) {
-      stdioRows[i].classList.toggle('is-hidden', type !== 'stdio');
-    }
-    for (var j = 0; j < streamableRows.length; j++) {
-      streamableRows[j].classList.toggle('is-hidden', type !== 'streamable-http');
-    }
-    var kvLabel = container.querySelector('.kv-section-title');
-    if (kvLabel) {
-      var stdioLabel = kvLabel.getAttribute('data-stdio-label') || 'Environment Variables';
-      var streamLabel = kvLabel.getAttribute('data-streamable-http-label') || 'Custom Headers';
-      kvLabel.textContent = (type === 'streamable-http') ? streamLabel : stdioLabel;
-    }
-  }
-
-  window.App.studio.mcpEditor.connectionFields = {
-    renderConnectionFields: renderConnectionFields,
-    mountChipListEditors: mountChipListEditors,
-    wireChipLists: wireChipLists,
-    applyStdioRuntimeSelection: applyStdioRuntimeSelection,
-    applyTransportVisibility: applyTransportVisibility
-  };
+  window.App.studio.mcpEditor.connectionFields = { create: create };
 })();

@@ -579,9 +579,11 @@ def _rule_bodies(css_file: str, selector: str) -> list[str]:
     return out
 
 
-_ON_TRACK = (
-    '.area-{0} .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track'
-)
+# M31 F5 L07: the legacy iOS switch (.tool-enable-switch*) is gone. Its three pins (the
+# on-track fill, the off-track border and the thumb) are the library toggle's own pins
+# below: `.ui-toggle-input:checked + .ui-toggle-track` (--accent-fill), `.ui-toggle-track`
+# (--control-border) and `.ui-toggle-track::after` (--control-thumb), so every pair stays
+# gated.
 
 # (css file, selector, tokens the block must consume, tokens it must NOT consume)
 _FILL_SITES = [
@@ -605,12 +607,6 @@ _FILL_SITES = [
         ("--accent-fill", "--fg-on-accent-fill"),
         ("var(--accent)", "var(--fg-on-accent)"),
     ),
-    (
-        "studio.css",
-        _ON_TRACK.format("studio"),
-        ("--accent-fill",),
-        ("var(--accent)",),
-    ),
     # M31 F2 L08b: the studio pill (.tool-switch) is gone; the library toggle's
     # mixed (tristate master) track and thumb carry the indeterminate pin.
     (
@@ -633,18 +629,6 @@ _FILL_SITES = [
     ),
     # Boundaries and thumbs (DD7).
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
-    (
-        "studio.css",
-        ".area-studio .tool-enable-switch-track",
-        ("--control-border",),
-        ("--border-strong",),
-    ),
-    (
-        "studio.css",
-        ".area-studio .tool-enable-switch-track::after",
-        ("--control-thumb",),
-        ("--fg-on-accent",),
-    ),
     # M25 F1 L4: the indeterminate dash and the library toggle consume the same
     # gated pairs as the tick and the legacy switches.
     (

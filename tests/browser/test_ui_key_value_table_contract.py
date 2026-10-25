@@ -242,7 +242,49 @@ def test_destroy_removes_listeners(engine_page: Page) -> None:
     p.evaluate("() => window.__kv.destroy()")  # idempotent
 
 
-LEGACY = """<table class="mcp-kv-table"><thead class="mcp-kv-thead"><tr><th>Key</th><th aria-label="Actions"></th></tr></thead>
+# The MCP editor's own table rules, frozen here (M31 F5 L07 deleted them from studio.css with
+# the editor's last use of the table); the parity tests compare the library table to them.
+LEGACY_KV_CSS = """<style>
+.area-studio .mcp-kv-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
+.area-studio .legacy-kv-head.is-hidden { display: none; }
+.area-studio .legacy-kv-head th {
+  text-align: left;
+  padding: 4px 8px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-tiny);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.area-studio .mcp-kv-th-sensitive {
+  white-space: nowrap;
+}
+.area-studio .mcp-kv-th-sensitive .field-info-icon {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.area-studio .mcp-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
+.area-studio .mcp-kv-sensitive-cell { width: 1%; white-space: nowrap; }
+
+.area-studio .kv-remove-row-btn {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--fg-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  transition: color var(--motion-fast) ease;
+}
+.area-studio .kv-remove-row-btn:hover { color: var(--status-danger); }
+.area-studio .kv-remove-row-btn svg { width: 16px; height: 16px; display: block; }
+</style>"""
+
+LEGACY = """<table class="mcp-kv-table"><thead class="legacy-kv-head"><tr><th>Key</th><th aria-label="Actions"></th></tr></thead>
 <tbody><tr class="mcp-kv-row"><td><input class="field-input" value="a"></td><td><button type="button" class="kv-remove-row-btn" aria-label="Remove row"></button></td></tr></tbody></table>"""
 
 
@@ -257,7 +299,7 @@ def test_look_and_size_parity_with_legacy_mcp_table(engine_page: Page, theme: st
         """() => {
           const lib = window.__kv.el;
           const host = document.createElement('div'); host.className = 'area-studio';
-          host.innerHTML = `__LEGACY__`;
+          host.innerHTML = `__CSS____LEGACY__`;
           const rm = host.querySelector('.kv-remove-row-btn');
           rm.innerHTML = lib.querySelector('.ui-kv-remove svg').outerHTML;
           lib.parentNode.className = 'area-studio';
@@ -276,7 +318,9 @@ def test_look_and_size_parity_with_legacy_mcp_table(engine_page: Page, theme: st
           res.rowH = [L.tr.getBoundingClientRect().height, N.tr.getBoundingClientRect().height];
           res.table = [cs(L.table, ['width', 'marginBottom', 'borderCollapse']), cs(N.table, ['marginBottom', 'borderCollapse'])];
           return res;
-        }""".replace("__LEGACY__", LEGACY.replace("\n", ""))
+        }""".replace("__CSS__", LEGACY_KV_CSS.replace("\n", " ")).replace(
+            "__LEGACY__", LEGACY.replace("\n", "")
+        )
     )
     assert out["th"][0] == out["th"][1]
     assert out["td"][0] == out["td"][1]
@@ -292,9 +336,11 @@ def test_remove_hover_colour_matches_legacy(engine_page: Page, theme: str) -> No
     p = engine_page
     p.evaluate(
         """() => { const host = document.createElement('div'); host.className = 'area-studio';
-          host.innerHTML = '<button type="button" class="kv-remove-row-btn" id="legacy-rm"></button>';
+          host.innerHTML = `__CSS__<button type="button" class="kv-remove-row-btn" id="legacy-rm"></button>`;
           window.__kv.el.parentNode.className = 'area-studio';
-          document.getElementById('harness-root').appendChild(host); }"""
+          document.getElementById('harness-root').appendChild(host); }""".replace(
+            "__CSS__", LEGACY_KV_CSS.replace("\n", " ")
+        )
     )
     sample = """(sel) => { const s = getComputedStyle(document.querySelector(sel)); return [s.color, s.backgroundColor, s.width, s.height]; }"""
     # The hover colour animates; compare the settled values.
@@ -388,6 +434,25 @@ def test_secret_and_toggle_cells_dom_and_names(engine_page: Page) -> None:
     assert "ui-kv-input" in b["cls"] and "ui-kv-input--mono" in b["cls"]
     assert b["sw"] == ["switch", "Sensitive, row 2", False] and b["rm"] == "Remove HOST"
     expect(p.get_by_role("switch", name="Sensitive, row 2")).to_have_count(1)
+
+
+def test_column_width_sets_the_col_and_a_toggle_defaults_to_88px(engine_page: Page) -> None:
+    """M31 F5 L07: a column's `width` is the <col> width (a toggle column is 88px without it)."""
+    p = engine_page
+    _sec(p)
+    default = p.evaluate(
+        "() => Array.from(window.__kv.el.querySelectorAll('colgroup > col')).map((c) => c.style.width)"
+    )
+    assert default == ["", "", "88px", "48px"]
+    _mount(
+        p,
+        "{columns: [{key: 'k', label: 'Key'}, {key: 'on', label: 'On', type: 'toggle', width: '120px'},"
+        " {key: 'v', label: 'Value', width: '30%'}], rows: [{k: 'a', on: true, v: 'x'}]}",
+    )
+    widths = p.evaluate(
+        "() => Array.from(window.__kv.el.querySelectorAll('colgroup > col')).map((c) => c.style.width)"
+    )
+    assert widths == ["", "120px", "30%", "48px"]
 
 
 def test_toggle_column_with_node_label_needs_aria_label(engine_page: Page) -> None:

@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
@@ -1223,6 +1223,35 @@ class MCPSourceRepository:
                     now_iso(),
                     source.id,
                 ),
+            )
+
+    async def merge_cache(
+        self,
+        source_id: str,
+        fields: dict[str, Any],
+        delete: Iterable[str] = (),
+    ) -> None:
+        """Merge ``fields`` into ``config["_cache"]``, then drop the keys in ``delete``.
+
+        Config-only write: no other column and not ``updated_at`` changes (nothing reads
+        it for MCP sources, and a connection check is not an edit). A ``None`` value in
+        ``fields`` is stored as null, never treated as a delete. The read and the write
+        share one write transaction. Raises ``KeyError`` for an unknown id.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT config FROM mcp_sources WHERE id = ?", (source_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"MCP source not found: {source_id}")
+            config = json.loads(row[0]) if row[0] else {}
+            cache = {**(config.get("_cache") or {}), **fields}
+            for key in delete:
+                cache.pop(key, None)
+            config["_cache"] = cache
+            await self.conn.execute(
+                "UPDATE mcp_sources SET config=? WHERE id=?", (json.dumps(config), source_id)
             )
 
     async def delete(self, source_id: str) -> None:

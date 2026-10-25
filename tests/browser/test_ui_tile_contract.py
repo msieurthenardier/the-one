@@ -673,6 +673,9 @@ def test_tool_tile_setters_and_selected(engine_page: Page) -> None:
     assert engine_page.evaluate("() => window.__calls") == []  # setters are silent
 
 
+# Frozen legacy markup (M31 F5 L07): the `.tool-enable-switch` label is part of the legacy
+# tile this test compares against; its rules live in the frozen `_legacy_tool_css.py` copy, not
+# in `studio.css` (the live rules were deleted with the switch's last user).
 LEGACY_TOOL_TILE = (
     """<div class="@ET@ tool-tile" data-testid="tt-card" data-name="read_file" role="listitem">
   <div class="tile-title-row"><a class="@ET@-name tool-tile-link" href="#tools/read_file">read_file</a>

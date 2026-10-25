@@ -263,6 +263,17 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
     connect = _window(src, "function onTestConnectSuccess()", "fetch(")
     assert "callbacks.onListStale()" in connect
     status = _src("areas/studio/mcp-connection-status.js")
+    # Leg 08a: an error / auth_required outcome (a recorded last_check) invalidates
+    # and tells the studio once, through opts.onListStale, before the torn-down return.
+    outcome = _window(status, "var live = mount.alive();", "if (data.status === 'ok') {")
+    assert outcome.index("App.store.invalidate('mcp-sources')") < outcome.index(
+        "opts.onListStale()"
+    )
+    assert outcome.index("opts.onListStale()") < outcome.index(
+        "if (!live && data.status !== 'ok') return;"
+    )
+    assert "data.status !== 'ok' && opts" in outcome
+    assert "onListStale: callbacks.onListStale" in src
     reset = _window(status, "'/connection', { method: 'DELETE' })", "return fetch(")
     assert reset.index("App.store.invalidate('mcp-sources')") < reset.index(
         "callbacks.onListStale()"
@@ -338,13 +349,15 @@ INVALIDATION_ROWS = (
     (  # MCP source: Refresh tools / test-connect success (writes config._cache)
         "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/test/connect', fetchOpts)",
-        "renderToolsListHtml(data.tools)",
+        # Leg 08a: the end anchor sits BEFORE the ok check, so this pins the
+        # every-outcome invalidation (error / auth_required record last_check).
+        "if (!live && data.status !== 'ok') return;",
         ("mcp-sources",),
     ),
     (  # MCP source: the agent editor's tools load (also /test/connect; agent-data now)
         "areas/studio/agent-data.js",
         "'/test/connect', {",
-        "return data;",
+        "if (data.status === 'ok') {",  # leg 08a: before the ok check, every outcome
         ("mcp-sources",),
     ),
     (  # connector: create and save

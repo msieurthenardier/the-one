@@ -326,8 +326,8 @@
      (Mission 08 F1 L5 / F2 L2). Mission 08 F2 L5 polish: 14px → 16px, kept
      1.5px border (crisper than 2px at this size), zero border-radius,
      vertical-align: middle for non-flex consumers. Reads as a crisp square
-     indicator. Distinct from the iOS-toggle .tool-enable-switch primitive
-     (admin.css) which expresses a single binary feature flip. */
+     indicator. Distinct from the iOS-style toggle (.ui-toggle) which expresses
+     a single binary feature flip. */
   .checkbox-primary {
     appearance: none;
     -webkit-appearance: none;
@@ -2446,8 +2446,8 @@
   .ui-copy-field .btn-outlined-primary { white-space: nowrap; }
 
   /* === App.ui.keyValueTable (M31 F3 L04, flight DD4) ===
-     Owned by the control. Copies the MCP editor's key-value table look (studio.css keeps
-     its .mcp-kv-* and .kv-remove-row-btn rules as intentional duplicates until Flight 5).
+     Owned by the control. Carries the look the MCP editor's key-value table had before it moved
+     onto this control (M31 F5 L07 deleted the editor's own rules).
      The remove button is a library icon-only ghost button; .ui-kv .ui-kv-remove outweighs
      .btn-icon and .btn-ghost (and their hover) to restore the legacy ~24px transparent look. */
   .ui-kv-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }

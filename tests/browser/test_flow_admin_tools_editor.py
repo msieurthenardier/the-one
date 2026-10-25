@@ -5,7 +5,8 @@ Covers the L3 per-tool editor surface plus the HAT inline UX fixes:
 - Editor header has a `// prompt` block (HAT inline fix #1) — the tool
   description IS the prompt baked into the LLM tools schema, surfaced
   with a labeled monospace block rather than an inline subtitle.
-- The enable toggle uses the iOS-style `.tool-enable-switch` widget for
+- The enable toggle uses the iOS-style switch (`App.ui.toggle`; formerly the legacy
+  `.tool-enable-switch`) for
   visual parity with the grid (HAT inline fix #2).
 - All WebConfig fields render in admin mode for a WebConfig-backed tool
   (`fetch_url`), INCLUDING the unmarked `redirect_cap` (operator-only).

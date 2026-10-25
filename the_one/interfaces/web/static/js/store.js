@@ -178,6 +178,42 @@
     return cache && Array.isArray(cache.tools) ? cache.tools.length : null;
   }
 
+  // The MCP source's connection state, derived from what the server stored
+  // (leg 08a, DD6): {state: 'signin'|'error'|'connected'|'none', tools, checkedAt}.
+  // `lc` is config._cache.last_check (the last Studio connection check) or null.
+  // Precedence: (1) signin when there is no access token and either an OAuth
+  // session exists or the last check said auth_required; (2) error when the last
+  // check errored; (3) connected when tools are cached (so, with a token, a stale
+  // auth_required reads connected); (4) none.  `checkedAt` is lc.at, else
+  // _cache.last_updated, in SECONDS (callers multiply by 1000), or null.
+  function mcpState(source) {
+    var cache = (source && source.config && source.config._cache) || null;
+    var lc = cache && cache.last_check && typeof cache.last_check === 'object' ?
+      cache.last_check : null;
+    var tools = cache && Array.isArray(cache.tools) ? cache.tools.length : null;
+    var checkedAt = null;
+    if (lc && typeof lc.at === 'number') checkedAt = lc.at;
+    else if (cache && typeof cache.last_updated === 'number') checkedAt = cache.last_updated;
+    var state = 'none';
+    if (!(source && source.has_access_token) &&
+        ((source && source.oauth_active) || (lc && lc.status === 'auth_required'))) {
+      state = 'signin';
+    } else if (lc && lc.status === 'error') {
+      state = 'error';
+    } else if (tools !== null) {
+      state = 'connected';
+    }
+    return { state: state, tools: tools, checkedAt: checkedAt };
+  }
+
+  // The words for a state: the one source for the editor and the Library list.
+  function mcpStateLabel(state) {
+    if (state === 'signin') return 'Sign-in needed';
+    if (state === 'error') return "Couldn't connect";
+    if (state === 'connected') return 'Connected';
+    return 'Not connected';
+  }
+
   window.App = window.App || {};
   window.App.store = { get: get, peek: peek, invalidate: invalidate, prime: prime, subscribe: subscribe };
   window.App.usage = {
@@ -185,6 +221,8 @@
     kbAgents: kbAgents,
     mcpAgents: mcpAgents,
     connectorAgents: connectorAgents,
-    mcpToolCount: mcpToolCount
+    mcpToolCount: mcpToolCount,
+    mcpState: mcpState,
+    mcpStateLabel: mcpStateLabel
   };
 })();

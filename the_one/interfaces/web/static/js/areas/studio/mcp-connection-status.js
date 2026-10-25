@@ -249,12 +249,17 @@
       })
       .then(function (data) {
         var live = mount.alive();
+        // Every outcome changes the server-side record: a successful connect
+        // rewrote config._cache (DD9) and an error / auth_required Test recorded
+        // _cache.last_check (leg 08a, DD6), so the Library list is stale either way,
+        // even when the editor is already torn down. An ok reaches the list
+        // through onSuccess; the other outcomes through opts.onListStale, once.
+        App.store.invalidate('mcp-sources');
+        if (data.status !== 'ok' && opts && typeof opts.onListStale === 'function') {
+          try { opts.onListStale(); } catch (e) { /* swallow */ }
+        }
         if (!live && data.status !== 'ok') return;
         if (data.status === 'ok') {
-          // A successful connect rewrote config._cache server-side (Refresh,
-          // the auto-run after create, Phase 2 after sign-in): the Library
-          // list's tool count is stale (DD9).
-          App.store.invalidate('mcp-sources');
           if (!live) {
             if (typeof onSuccess === 'function') onSuccess();
             return;

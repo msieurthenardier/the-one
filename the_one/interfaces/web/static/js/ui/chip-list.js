@@ -5,9 +5,9 @@
 
   // App.ui.chipList(opts) -> {el, input, values(), setValues(values, locked),
   // setError(bool), destroy()} (M31 F2 L4, flight DD3). The editable list of
-  // short strings (host allowlists, tool overrides). It copies, exactly, the
-  // behaviour of the hand-built editor in areas/admin/tools-form-helpers.js,
-  // which stays until its consumers migrate.
+  // short strings (host allowlists, tool overrides, the MCP editor's arguments and
+  // writable paths). It copies, exactly, the behaviour of the hand-built editor that
+  // lived in areas/admin/tools-form-helpers.js (deleted in M31 F5 L06).
   //   label (the group's aria-label), values [string], locked [string] (a locked
   //   chip has no remove button and cannot be re-positioned; a locked value
   //   missing from values is added first), placeholder ('Add entry…'),

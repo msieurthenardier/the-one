@@ -4,20 +4,15 @@
 // Mirrors provider-editor.js structural shape:
 //   <div class="editor-header"> … </div>
 //   <div class="editor-section">Connection</div>          (name, type, transport-fields)
-//   <div class="editor-section">Environment Variables /
-//                               Custom Headers</div>      (unified kv table)
+//   <div class="editor-section">Environment variables /
+//                               Headers</div>             (the key-value table, DOM-built)
 //   <div class="editor-section danger-zone"> … </div>     (edit only)
 //
-// Per-row UI shape (option c): unified kv table with key / value / sensitive
-// checkbox / eye / remove columns. The label swaps "Environment Variables"
-// (stdio) ↔ "Custom Headers" (streamable-http) on type change. Sensitive=true
-// rows route to `secrets[key]`; sensitive=false rows route to `config.env[key]`
-// (stdio) or `config.headers[key]` (streamable-http).
-//
-// Per-key __MASKED__ round-trip: each kv row captures `_originalMasked` at
-// mount via data-original-masked attribute. At save time, if value ===
-// _originalMasked AND sensitive=true, payload sends '__MASKED__' for that key
-// and the L3 endpoint preserves the stored secret.
+// The env and headers rows live in mcp-env-headers.js (M31 F5 L07): a key-value table
+// with Key / Value / Sensitive columns. Sensitive=true rows route to `secrets[key]`;
+// sensitive=false rows route to `config.env[key]` (stdio) or `config.headers[key]`
+// (streamable-http). The per-key __MASKED__ round trip (a stored secret whose value is
+// untouched sends the sentinel) is the module's partition(); this file only calls it.
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
 //              onListStale, onMounted }
@@ -41,22 +36,13 @@
 
   var mcpEditor = window.App.studio.mcpEditor;
   var STDIO_CUSTOM_SENTINEL = mcpEditor.shared.STDIO_CUSTOM_SENTINEL;
-  var deriveStdioRuntimeSelection = mcpEditor.shared.deriveStdioRuntimeSelection;
   var renderToolsListHtml = mcpEditor.serverInfo.renderToolsListHtml;
   var renderServerInfoSection = mcpEditor.serverInfo.renderServerInfoSection;
   var cacheHasServerInfo = mcpEditor.serverInfo.cacheHasServerInfo;
   var syncServerInfoSection = mcpEditor.serverInfo.syncServerInfoSection;
-  var renderConnectionFields = mcpEditor.connectionFields.renderConnectionFields;
-  var mountChipListEditors = mcpEditor.connectionFields.mountChipListEditors;
-  var wireChipLists = mcpEditor.connectionFields.wireChipLists;
-  var applyStdioRuntimeSelection = mcpEditor.connectionFields.applyStdioRuntimeSelection;
-  var applyTransportVisibility = mcpEditor.connectionFields.applyTransportVisibility;
-  var renderSandboxSection = mcpEditor.sandboxFields.renderSandboxSection;
-  var collectExistingKvRows = mcpEditor.envHeaders.collectExistingKvRows;
-  var renderKvTable = mcpEditor.envHeaders.renderKvTable;
-  var renderKvRow = mcpEditor.envHeaders.renderKvRow;
-  var updateKvHeadVisibility = mcpEditor.envHeaders.updateKvHeadVisibility;
-  var partitionKvRows = mcpEditor.envHeaders.partitionKvRows;
+  var connectionFields = mcpEditor.connectionFields;
+  var sandboxFields = mcpEditor.sandboxFields;
+  var envHeadersFields = mcpEditor.envHeaders;
   var renderConnectionActions = mcpEditor.connectionStatus.renderConnectionActions;
   var wireResetButton = mcpEditor.connectionStatus.wireResetButton;
   var syncResetButtonVisibility = mcpEditor.connectionStatus.syncResetButtonVisibility;
@@ -110,7 +96,8 @@
     // ── Connection section ────────────────────────────────────────────
     html += '<div class="editor-section">';
     html += '<div class="section-title">Connection</div>';
-    html += renderConnectionFields(source, mcpTypes);
+    // The fields are DOM-built by connectionFields (M31 F5 L06); a host holds their place.
+    html += '<div class="mcp-connection-host"></div>';
     // F9 L1: Refresh-connection button (renamed from "Test connection")
     // lives at the bottom of the Connection section in edit-mode for
     // streamable-http sources. The result panel renders into the Tools
@@ -143,7 +130,7 @@
     html += '</div>';
 
     // ── Sandbox section (stdio only) ──────────────────────────────────
-    html += renderSandboxSection(source, type);
+    html += '<div class="mcp-sandbox-host"></div>';
 
     // ── Tools section (edit only, streamable-http + stdio) ────────────
     // Populated by handleTestConnection after a successful refresh. Empty
@@ -204,16 +191,10 @@
     }
 
     // ── Environment / Headers section ─────────────────────────────────
-    // Sits below Tools for streamable-http (F9 L1 reorder); for stdio
-    // there is no Tools section, so it lands right after Sandbox as before.
-    var kvLabel = (type === 'streamable-http') ? 'Custom Headers' : 'Environment Variables';
-    html += '<div class="editor-section">';
-    html += '<div class="section-title kv-section-title" ' +
-            'data-stdio-label="Environment Variables" ' +
-            'data-streamable-http-label="Custom Headers">' +
-            escapeHtml(kvLabel) + '</div>';
-    html += renderKvTable(source, type);
-    html += '</div>';
+    // Sits below Tools for streamable-http (F9 L1 reorder); for stdio there is no
+    // Tools section, so it lands right after Sandbox. DOM-built by envHeaders
+    // (M31 F5 L07); a host holds its place.
+    html += '<div class="mcp-env-headers-host"></div>';
 
     // ── Danger Zone (edit only) ───────────────────────────────────────
     // F9 L1 (vibing follow-up): the "Reset connection" button moved out
@@ -256,10 +237,38 @@
     crumb.appendChild(document.createTextNode(' / MCP servers'));
     headerText.insertBefore(crumb, headerText.firstChild);
 
-    mountChipListEditors(container, source);
     handles.container = container;
+    // The late-bound dirty trampoline: checkDirty is defined in wireEditorEvents.
+    var checkDirtyFn = null;
+    function dirtyTrampoline() { if (checkDirtyFn) checkDirtyFn(); }
+    var sandbox = sandboxFields.create({ source: source, onChange: dirtyTrampoline });
+    var envHeaders = envHeadersFields.create({
+      source: source, type: type, onChange: dirtyTrampoline
+    });
+    var connection = connectionFields.create({
+      source: source, mcpTypes: mcpTypes, onChange: dirtyTrampoline,
+      onTypeChange: function (t) {
+        sandbox.setType(t);
+        envHeaders.setType(t);
+      }
+    });
+    var connHost = container.querySelector('.mcp-connection-host');
+    connHost.parentNode.replaceChild(connection.el, connHost);
+    var sandboxHost = container.querySelector('.mcp-sandbox-host');
+    sandboxHost.parentNode.replaceChild(sandbox.el, sandboxHost);
+    var envHost = container.querySelector('.mcp-env-headers-host');
+    envHost.parentNode.replaceChild(envHeaders.el, envHost);
+    handles.connectionFields = connection;
+    handles.sandboxFields = sandbox;
+    handles.envHeaders = envHeaders;
+    sandbox.setType(type);
+    mount.onDestroy(connection.destroy);
+    mount.onDestroy(sandbox.destroy);
+    mount.onDestroy(envHeaders.destroy);
     handles.testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
-    var api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount);
+    var api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount, function (fn) {
+      checkDirtyFn = fn;
+    });
     var controller = {
       destroy: mount.destroy, setBusy: api.setBusy, setError: api.setError, runTest: api.runTest
     };
@@ -269,63 +278,23 @@
 
   // ── Form snapshot + dirty tracking ──────────────────────────────────
 
+  // The fields' snapshot. The env and headers rows are not in it: the module keeps
+  // its own baseline and reports through isDirty() (M31 F5 L07).
   function getFormSnapshot(handles) {
-    var container = handles.container;
-    /* Three explicit walks (avoid the flat data[dataset.field] = value
-       collision since multiple kv rows share data-field="kv-key" etc.). */
-    var helpers = window.App.adminFormHelpers;
-    var staticData = {};
-    // F3 L5b: sandbox-network-allowed is a checkbox; the loop below reads
-    // el.checked for type === 'checkbox' and el.value otherwise.
-    // F9 L2 vibing: `command-runtime` is the new dropdown driving the
-    // stdio command field. It needs to be in the dirty-tracking snapshot
-    // so changing the dropdown alone (e.g. uvx → npx -y without typing in
-    // the Custom field) marks the form dirty.
-    var staticFields = ['name', 'type', 'command', 'command-runtime', 'cwd', 'url',
-                        'sandbox-network-allowed'];
-    for (var i = 0; i < staticFields.length; i++) {
-      var el = container.querySelector('[data-field="' + staticFields[i] + '"]:not(.chip-list-editor)');
-      if (el && el.type === 'checkbox') {
-        staticData[staticFields[i]] = !!el.checked;
-      } else {
-        staticData[staticFields[i]] = el ? el.value : '';
-      }
-    }
-
-    var chips = { args: [], 'sandbox-writable-paths': [] };
-    if (helpers && helpers.readChipListValue) {
-      var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
-      if (argsHost) chips.args = helpers.readChipListValue(argsHost);
-      var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
-      if (sandboxPathsHost) chips['sandbox-writable-paths'] = helpers.readChipListValue(sandboxPathsHost);
-    }
-
-    var kvRows = [];
-    var rowEls = container.querySelectorAll('.mcp-kv-table tbody tr.mcp-kv-row');
-    for (var j = 0; j < rowEls.length; j++) {
-      var row = rowEls[j];
-      var keyEl = row.querySelector('.kv-key-input');
-      var valueEl = row.querySelector('.kv-value-input');
-      var sensEl = row.querySelector('.kv-sensitive-checkbox');
-      kvRows.push({
-        key: keyEl ? keyEl.value : '',
-        value: valueEl ? valueEl.value : '',
-        sensitive: sensEl ? !!sensEl.checked : false
-      });
-    }
-
-    return JSON.stringify({ static: staticData, chips: chips, kvRows: kvRows });
+    return JSON.stringify({
+      connection: handles.connectionFields.values(),
+      sandbox: handles.sandboxFields.values()
+    });
   }
 
   // ── Event wiring ────────────────────────────────────────────────────
 
-  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount) {
+  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount, bindDirty) {
     var container = handles.container;
     var isEdit = !!source;
     var snapshot = getFormSnapshot(handles);
     var dirty = false;
     var busy = false;
-    var nextRowIdx = container.querySelectorAll('.mcp-kv-table tbody tr.mcp-kv-row').length;
 
     // Every dirty report goes through here: the header's unsaved caption
     // (M25 F3 DD2, a stable span in the markup) follows the same value that
@@ -346,16 +315,21 @@
     }
 
     function checkDirty() {
-      dirty = (getFormSnapshot(handles) !== snapshot);
+      dirty = (getFormSnapshot(handles) !== snapshot) || handles.envHeaders.isDirty();
       applyButtons();
       reportDirty(dirty);
     }
 
+    bindDirty(checkDirty);
+
+    // The fields' snapshot is retaken; the env and headers rows keep their own baseline
+    // (revert() and remaskAfterSave() have already settled it), so an edit made to a row
+    // while a Save was in flight stays dirty.
     function recaptureSnapshot() {
       snapshot = getFormSnapshot(handles);
-      dirty = false;
+      dirty = handles.envHeaders.isDirty();
       applyButtons();
-      reportDirty(false);
+      reportDirty(dirty);
     }
 
     function setError(msg) {
@@ -366,55 +340,9 @@
     // The mount reports its initial clean state once.
     if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
 
-    // ── Static field listeners ────────────────────────────────────────
-    function attachStaticListeners() {
-      var inputs = container.querySelectorAll('.editor-section .field-input:not(.kv-key-input):not(.kv-value-input), .editor-section .field-select');
-      for (var i = 0; i < inputs.length; i++) {
-        // Skip chip-list elements (handled via wireChipLists).
-        if (inputs[i].classList.contains('chip-list-editor')) continue;
-        if (inputs[i].classList.contains('chip-list-input')) continue;
-        inputs[i].addEventListener('input', checkDirty);
-        inputs[i].addEventListener('change', checkDirty);
-      }
-    }
-    attachStaticListeners();
-
-    // Chip-list onChange bridges
-    wireChipLists(container, checkDirty);
-
-    // ── Type-change handler ───────────────────────────────────────────
-    var typeSelect = container.querySelector('[data-field="type"]');
-    var runtimeSelect = container.querySelector('[data-field="command-runtime"]');
-    if (typeSelect) {
-      typeSelect.addEventListener('change', function () {
-        applyTransportVisibility(container, typeSelect.value);
-        // F9 L2 vibing: applyTransportVisibility blindly toggles the
-        // `is-hidden` class on every `.mcp-stdio-only` row based on the
-        // selected transport. The Custom-command row is also gated by
-        // the runtime dropdown's state (Custom… vs canonical literal),
-        // so a transport-switch into stdio would otherwise reveal the
-        // Custom row even when the dropdown is on `uvx`. Re-sync here.
-        if (typeSelect.value === 'stdio' && runtimeSelect) {
-          applyStdioRuntimeSelection(container, runtimeSelect.value);
-        }
-        // checkDirty already wired via static listener above.
-      });
-    }
-
-    // ── F9 L2 vibing: stdio command-runtime dropdown change handler ──
-    // Toggles the Custom-command free-text row visibility + swaps the
-    // helper-text under the args chip-list. checkDirty is already wired
-    // via attachStaticListeners (the dropdown carries .field-select), so
-    // we don't re-wire that here.
-    if (runtimeSelect) {
-      runtimeSelect.addEventListener('change', function () {
-        applyStdioRuntimeSelection(container, runtimeSelect.value);
-      });
-    }
-
-    // ── kv table delegated events + Add-row button ────────────────────
-    mcpEditor.envHeaders.wire(container, checkDirty);
-
+    // ── Field listeners ───────────────────────────────────────────────
+    // None here: connectionFields, sandboxFields and envHeaders report their own
+    // changes through the trampoline (onChange).
 
     // ── Cancel ────────────────────────────────────────────────────────
     // Edit mode reverts in place; create mode hands over to onCancel (the
@@ -431,7 +359,6 @@
         if (isEdit) {
           var cancelTok = App.focusAfter.begin(cancelBtn);
           revertEditorToSource(handles, source, callbacks);
-          // The kv tbody was rebuilt in place; its delegated listeners stay.
           recaptureSnapshot();
           App.focusAfter.restore(cancelTok, titleEl);
         } else if (callbacks.onCancel) {
@@ -448,6 +375,8 @@
         setError('');
         var payload = collectFormData(handles, source, isEdit);
         if (!payload) return;
+        // What this click sent per row, for the re-mask and the post-Save baseline.
+        var submitted = handles.lastPartition;
         var saveTok = App.focusAfter.begin(saveBtn);
         var url = isEdit ? '/api/mcp-sources/' + encodeURIComponent(source.id) : '/api/mcp-sources';
         var method = isEdit ? 'PUT' : 'POST';
@@ -500,12 +429,11 @@
             if (!isEdit) App.focusAfter.defer(saveTok, titleEl);
             if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
             if (isEdit) {
-              // Edit→edit: refresh snapshot from the masked response so
-              // subsequent typing dirties from the post-save baseline.
-              snapshot = getFormSnapshot(handles);
-              dirty = false;
-              applyButtons();
-              reportDirty(false);
+              // Edit→edit (M31 F5 L07): re-mask the secrets the server now holds, then
+              // retake the fields' snapshot; the form stays dirty only for an edit made
+              // while the PUT was in flight.
+              handles.envHeaders.remaskAfterSave(submitted, updated);
+              recaptureSnapshot();
               // Squawk 0126: the title follows the saved row (a rename).
               var t2 = titleEl();
               if (t2 && updated && updated.name) t2.textContent = updated.name;
@@ -559,12 +487,20 @@
       runTest = function (opts) {
         if (!mount.alive() || testBtn.disabled || mount.sessionActive()) return;
         var autoRun = !!(opts && opts.autoRun);
-        // F8 L4: validation failures give null form data, so the Test falls back
-        // to the persisted state (collectFormData also writes .editor-error).
-        var formData = collectFormData(handles, source, true);
+        // Leg 08a (DD6): the dirty check comes first. A clean form posts NO body, so
+        // the server tests (and records) the saved server and collectFormData, which
+        // validates and writes .editor-error, is not called at all. A dirty form
+        // sends its values, as before; validation failures give null form data, so
+        // that Test falls back to the persisted state. The server never records a
+        // body-ful Test as the saved server's last check.
+        var formDirty = (getFormSnapshot(handles) !== snapshot) || handles.envHeaders.isDirty();
+        var formData = formDirty ? collectFormData(handles, source, true) : null;
         handleTestConnection(source.id, container, testBtn, formData,
           onTestConnectSuccess, {
             noAutoPopup: autoRun, mount: mount,
+            // Fired once for an error / auth_required outcome (an ok goes through
+            // onTestConnectSuccess, which calls it): the list's record changed.
+            onListStale: callbacks.onListStale,
             focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
           });
       };
@@ -608,100 +544,25 @@
       runTest: function (opts) { runTest(opts); }
     };
   }
-  // ── Cancel-revert: rebuild kv-table + chip-lists from source ────────
+
+  // ── Cancel-revert ────────────────────────────────────────────────────
 
   function revertEditorToSource(handles, source, callbacks) {
-    var container = handles.container;
-    /* In edit mode, revert the form to the source object. Static fields
-       restore via a value-loop; the kv-table rebuilds from source (its
-       row count can change during edit); chip-list editors re-mount
-       fresh. */
+    /* In edit mode, revert the form: the fields to the source object (until leg 10
+       gives them a baseline of their own), the env and headers rows to their module
+       baseline (the last saved rows). */
     if (!source) return;
 
-    // 1. Static fields
-    // F9 L2 vibing: derive the command-runtime dropdown value + the
-    // free-text Custom… field's value from the saved (command, args)
-    // pair. `command` (free-text) is only populated when the saved
-    // command falls into Custom… — for the canonical runtimes the
-    // Custom row is hidden and its value is empty.
-    var savedCmd = (source.config && source.config.command) || '';
-    var savedArgs = (source.config && source.config.args) || [];
-    var sel = deriveStdioRuntimeSelection(savedCmd, savedArgs);
-    var staticMap = {
-      'name': source.name || '',
-      'type': source.type || '',
-      'command-runtime': sel.dropdownValue || '',
-      'command': sel.customCommand || '',
-      'cwd': (source.config && source.config.cwd) || '',
-      'url': (source.config && source.config.url) || ''
-    };
-    Object.keys(staticMap).forEach(function (key) {
-      var el = container.querySelector('[data-field="' + key + '"]:not(.chip-list-editor)');
-      if (el) el.value = staticMap[key];
-    });
-    // Sync the Custom-row visibility + helper-text to the restored
-    // dropdown selection.
-    applyStdioRuntimeSelection(container, sel.dropdownValue || '');
-    // F3 L5b: sandbox-network-allowed is a checkbox — its display state
-    // is controlled by .checked, not .value. Pulled out of the loop above
-    // so el.value = ... doesn't no-op the visible checked state.
-    var sandboxNetEl = container.querySelector('[data-field="sandbox-network-allowed"]:not(.chip-list-editor)');
-    if (sandboxNetEl) {
-      sandboxNetEl.checked = !!(source.config && source.config.sandbox && source.config.sandbox.network_allowed === true);
-    }
+    // 1. Fields: written through their handles, silently (the caller recaptures the
+    //    snapshot); setValues also shows the rows for the stored type.
+    handles.connectionFields.setValues(source);
+    handles.sandboxFields.setValues(source);
+    handles.sandboxFields.setType(source.type || '');
 
-    // 2. Visibility
-    applyTransportVisibility(container, source.type || '');
-
-    // 3. KV table — rebuild tbody contents
-    var tbody = container.querySelector('.mcp-kv-table tbody');
-    if (tbody) {
-      var rows = collectExistingKvRows(source, source.type || '');
-      var html = '';
-      for (var i = 0; i < rows.length; i++) {
-        html += renderKvRow(rows[i], i);
-      }
-      tbody.innerHTML = html;
-      updateKvHeadVisibility(container);
-    }
-
-    // 4. Chip-list editors — re-mount fresh
-    var helpers = window.App.adminFormHelpers;
-    if (helpers && helpers.renderChipListEditor) {
-      var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
-      if (argsHost && argsHost.parentNode) {
-        var wrapper = document.createElement('div');
-        // F9 L2 vibing: use sel.displayArgs so the operator's chip-list
-        // shows only their own args — the implicit `-y` for `npx -y` and
-        // the implicit `run` for `pipx run` (option (b) split) stay in
-        // the saved JSON but never surface as editable chips the
-        // operator could accidentally remove.
-        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, { controlId: 'mf-args' });
-        var newArgs = wrapper.firstChild;
-        argsHost.parentNode.replaceChild(newArgs, argsHost);
-        if (helpers.wireChipListEditor) {
-          helpers.wireChipListEditor(newArgs, function () {
-            // Note: this onChange fires before we have a recaptured snapshot;
-            // the orchestrator's wireEditorEvents runs once per render and
-            // captures dirty-tracking via its own checkDirty closure. After
-            // a Cancel revert, we recaptureSnapshot externally.
-          });
-        }
-      }
-      // F3 L5b: sandbox writable_paths chip-list re-mount.
-      var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
-      if (sandboxPathsHost && sandboxPathsHost.parentNode) {
-        var wrapper3 = document.createElement('div');
-        wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths',
-          (source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [],
-          null, { controlId: 'mf-sandbox-writable-paths' });
-        var newSandboxPaths = wrapper3.firstChild;
-        sandboxPathsHost.parentNode.replaceChild(newSandboxPaths, sandboxPathsHost);
-        if (helpers.wireChipListEditor) {
-          helpers.wireChipListEditor(newSandboxPaths, function () { /* dirty-tracking handled externally */ });
-        }
-      }
-    }
+    // 2. The env and headers rows: the label follows the stored type, then the rows go
+    //    back to the module's baseline (the last saved rows).
+    handles.envHeaders.setType(source.type || '');
+    handles.envHeaders.revert();
   }
 
   // ── Payload assembly ────────────────────────────────────────────────
@@ -711,14 +572,13 @@
     /* Routes by `type` (NOT by visible-field set). A type-change
        immediately followed by Save emits the type-correct payload. */
     var errorEl = container.querySelector('.editor-error');
-    var nameEl = container.querySelector('[data-field="name"]');
-    var name = nameEl ? nameEl.value.trim() : '';
+    var fv = handles.connectionFields.values();
+    var name = fv.name.trim();
     if (!name) {
       if (errorEl) errorEl.textContent = 'Name is required.';
       return null;
     }
-    var typeEl = container.querySelector('[data-field="type"]');
-    var type = typeEl ? typeEl.value : '';
+    var type = fv.type;
     if (!type) {
       if (errorEl) errorEl.textContent = 'Type is required.';
       return null;
@@ -737,13 +597,11 @@
       // layer doesn't try to exec a 2-token string as a single binary
       // and FileNotFoundError. For Custom… the free-text input feeds
       // `config.command` directly (operator owns resolution).
-      var runtimeEl = container.querySelector('[data-field="command-runtime"]');
-      var runtimeValue = runtimeEl ? runtimeEl.value : '';
+      var runtimeValue = fv.runtime;
       var command = '';
       var prependArgs = [];
       if (runtimeValue === STDIO_CUSTOM_SENTINEL) {
-        var customEl = container.querySelector('[data-field="command"]');
-        command = customEl ? customEl.value.trim() : '';
+        command = fv.command.trim();
       } else if (runtimeValue === 'npx -y') {
         command = 'npx';
         prependArgs = ['-y'];
@@ -758,34 +616,26 @@
         return null;
       }
       config.command = command;
-      var cwdEl = container.querySelector('[data-field="cwd"]');
-      var cwd = cwdEl ? cwdEl.value.trim() : '';
+      var cwd = fv.cwd.trim();
       if (cwd) config.cwd = cwd;
-      var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
-      var helpers = window.App.adminFormHelpers;
-      var userArgsList = (argsHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(argsHost) : [];
-      var argsList = prependArgs.concat(userArgsList);
+      var argsList = prependArgs.concat(fv.args);
       if (argsList.length > 0) config.args = argsList;
       config.env = {};
-      partitionKvRows(container, config.env, secrets);
+      handles.lastPartition = handles.envHeaders.partition(config.env, secrets);
       // F3 L5b: sandbox profile (stdio only). Always-emit precedent
       // matches config.env above: empty defaults are written explicitly,
       // not omitted. The L1b API validator accepts the default shape.
-      var sandboxNetEl = container.querySelector('[data-field="sandbox-network-allowed"]');
-      var networkAllowed = !!(sandboxNetEl && sandboxNetEl.checked);
-      var sandboxPathsList = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
-      var writablePaths = (sandboxPathsList && helpers && helpers.readChipListValue) ? helpers.readChipListValue(sandboxPathsList) : [];
-      config.sandbox = { network_allowed: networkAllowed, writable_paths: writablePaths };
+      var sv = handles.sandboxFields.values();
+      config.sandbox = { network_allowed: sv.networkAllowed, writable_paths: sv.writablePaths };
     } else if (type === 'streamable-http') {
-      var urlEl = container.querySelector('[data-field="url"]');
-      var urlValue = urlEl ? urlEl.value.trim() : '';
+      var urlValue = fv.url.trim();
       if (!urlValue) {
         if (errorEl) errorEl.textContent = 'URL is required for streamable-http servers.';
         return null;
       }
       config.url = urlValue;
       config.headers = {};
-      partitionKvRows(container, config.headers, secrets);
+      handles.lastPartition = handles.envHeaders.partition(config.headers, secrets);
     } else {
       if (errorEl) errorEl.textContent = 'Unsupported transport type: ' + type;
       return null;

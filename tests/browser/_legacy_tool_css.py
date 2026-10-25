@@ -7,6 +7,10 @@ that styled the old markup (.tools-category-tile*, .tool-tile*, .tool-switch pil
 contract tests (test_ui_tile_contract.py) still compare the library controls to the
 old look computed from the old markup, so the rules live here, verbatim, scoped
 under ``.area-studio`` as they were. Not product CSS: never loaded by the app.
+
+M31 F5 L07: the legacy iOS switch rules (``.tool-enable-switch*``) were deleted from
+studio.css with the switch's last user; the copy below is kept because the legacy tile
+fixture in test_ui_tile_contract.py still carries that switch's markup.
 """
 
 LEGACY_TOOLS_CSS = """<style>
@@ -186,11 +190,6 @@ LEGACY_TOOLS_CSS = """<style>
   padding: 0;
   line-height: inherit;
 }
-</style>"""
-
-# The one studio rule the chip-list contract compares a locked chip against.
-LEGACY_LOCKED_CHIP_CSS = """<style>
-.area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
 </style>"""
 
 # The retired tile class name is spelled in pieces so the retired-selector guard

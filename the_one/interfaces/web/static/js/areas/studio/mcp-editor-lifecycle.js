@@ -11,6 +11,7 @@
 //                  the new one and disables Test until the session ends
 //   endSession(s)  called by a session as it finalizes or is cancelled; re-enables Test
 //   sessionActive() whether a session is live
+//   onDestroy(fn)  registers a disposer run once by destroy (the field modules' destroy)
 //   handles        the per-mount object the form helpers read (container, testBtn)
 // A session is {cancel(), isDone()}; cancel() never closes the popup.
 (function () {
@@ -22,6 +23,7 @@
   function createMount() {
     var dead = false;
     var session = null;
+    var disposers = [];
     var mount = { handles: {} };
 
     mount.alive = function () { return !dead; };
@@ -42,10 +44,14 @@
       if (session !== s) return;
       if (!dead && mount.handles.testBtn) mount.handles.testBtn.disabled = false;
     };
+    mount.onDestroy = function (fn) { disposers.push(fn); };
     mount.destroy = function () {
       if (dead) return;
       dead = true;
       if (session) session.cancel();
+      var list = disposers;
+      disposers = [];
+      for (var i = 0; i < list.length; i++) list[i]();
     };
     return mount;
   }

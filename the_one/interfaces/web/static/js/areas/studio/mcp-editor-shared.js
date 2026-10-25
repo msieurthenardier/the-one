@@ -105,39 +105,38 @@
   var STDIO_RUNTIME_OPTIONS = [
     {
       value: 'uvx',
-      label: 'uvx (Python · PyPI lazy install)',
-      hint: 'Args: package name (e.g. `mcp-server-time`). Fetched + cached on first use.',
+      label: 'Python package (uvx)',
+      hint: 'Runs a Python package from PyPI, downloaded on first use. Put the package name in Arguments.',
     },
     {
       value: 'npx -y',
-      label: 'npx -y (Node · npm lazy install)',
-      hint: 'Args: package name (e.g. `@modelcontextprotocol/server-everything`). Fetched + cached on first use.',
+      label: 'Node package (npx)',
+      hint: 'Runs a Node package from npm, downloaded on first use. Put the package name in Arguments.',
     },
     {
       value: 'pipx run',
-      label: 'pipx run (Python · PyPI alternative)',
-      hint: 'Args: package name. Alternative to uvx.',
+      label: 'Python package (pipx)',
+      hint: 'Runs a Python package from PyPI with pipx, downloaded on first use. Put the package name in Arguments.',
     },
     {
       value: 'python',
-      label: 'python (pre-installed module/script)',
-      hint: 'Args: `-m <module>` (module must be pip-installed) or path to script.',
+      label: 'Python module or script',
+      hint: 'Runs a Python module or script that is already installed. Put -m and the module name, or the script path, in Arguments.',
     },
     {
       value: 'node',
-      label: 'node (script path)',
-      hint: 'Args: path to .js file inside container.',
+      label: 'Node script',
+      hint: 'Runs a Node script. Put the path to the .js file in Arguments.',
     },
     {
       value: 'bash',
-      label: 'bash (wrapper script)',
-      hint: 'Args: path to shell script.',
+      label: 'Shell script',
+      hint: 'Runs a shell script. Put the script path in Arguments.',
     },
     {
       value: STDIO_CUSTOM_SENTINEL,
-      label: 'Custom…',
-      hint: 'Free-text mode — operator owns the command resolution. ' +
-            'Common patterns: `bash /app/script.sh`, absolute paths, custom binaries on container PATH.',
+      label: 'Other command\u2026',
+      hint: 'Runs the command exactly as you type it.',
     },
   ];
 

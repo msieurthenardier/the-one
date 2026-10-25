@@ -1,54 +1,29 @@
-"""Asset wiring for the F6 L5 shared tools-form-helpers module."""
+"""The F6 L5 shared tools-form-helpers module is gone (M31 F5 L06, DD11).
+
+Its last consumer, the MCP editor's string-built chip lists, moved onto ``App.ui.chipList``.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from httpx import ASGITransport, AsyncClient
 
 import the_one.interfaces.web.app as web_app
-from tests._credential_helpers import auth_headers
-from tests._schema_template import connect_template_db
-from the_one.interfaces.web.api import router
 
 # Resolve the prod static dir from the package source — independent of CWD.
 _STATIC_DIR = Path(web_app.__file__).parent / "static"
 
 
-@pytest.fixture
-async def client(tmp_path):
-    db_path = tmp_path / "test.db"
-    conn = await connect_template_db(db_path)
-    with patch("the_one.interfaces.web.api.get_connection", return_value=conn):
-        test_app = FastAPI()
-        test_app.include_router(router)
-        test_app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(
-            transport=transport, base_url="http://test", headers=auth_headers()
-        ) as c:
-            yield c
-    await conn.close()
+class TestToolsFormHelpersGone:
+    def test_file_is_gone(self) -> None:
+        assert not (_STATIC_DIR / "js" / "areas" / "admin" / "tools-form-helpers.js").exists()
 
+    def test_index_does_not_reference_it(self) -> None:
+        index = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        assert "tools-form-helpers" not in index
+        assert "adminFormHelpers" not in index
 
-class TestToolsFormHelpersAssets:
-    async def test_tools_form_helpers_js_served(self, client: AsyncClient) -> None:
-        resp = await client.get("/static/js/areas/admin/tools-form-helpers.js")
-        assert resp.status_code == 200
-        assert "App.adminFormHelpers" in resp.text
-        # M31 F4 L07b: only the string-built chip list the MCP editor still mounts is left.
-        for kept in ("renderChipListEditor", "wireChipListEditor", "readChipListValue"):
-            assert kept in resp.text
-        for gone in (
-            "renderField",
-            "renderFieldErrors",
-            "clearFieldErrors",
-            "clearFieldErrorA11y",
-            "humanizeValidationMsg",
-            "readFieldValue",
-        ):
-            assert gone + ":" not in resp.text and "function " + gone not in resp.text
+    def test_no_script_uses_the_helper_namespace(self) -> None:
+        for path in (_STATIC_DIR / "js").rglob("*.js"):
+            text = path.read_text(encoding="utf-8")
+            assert "adminFormHelpers" not in text, path
+            assert "renderChipListEditor" not in text, path

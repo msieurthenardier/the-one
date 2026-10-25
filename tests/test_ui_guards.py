@@ -105,9 +105,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # (test_chat_area_has_no_baselined_sink pins it).
     "areas/studio/mcp-server-editor.js": [
         "container.innerHTML = html;",
-        "tbody.innerHTML = html;",
-        "wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], ",
-        "wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths', (sou",
     ],
     "areas/studio/mcp-server-info.js": [
         # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
@@ -116,16 +113,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         # ``container.innerHTML = html;`` in mcp-server-editor.js — no new data
         # reaches the DOM.
         "tmp.innerHTML = html;",
-    ],
-    "areas/studio/mcp-connection-fields.js": [
-        "argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs ||",
-        "sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-path",
-    ],
-    "areas/studio/mcp-env-headers.js": [
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "tmp.innerHTML = renderKvRow(emptyRow, idx);",
-        "btn.innerHTML = window.App.icon('eye');",
     ],
     "areas/studio/mcp-connection-status.js": [
         "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
@@ -143,10 +130,8 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/chat.js": 5,
-    "areas/studio/mcp-connection-fields.js": 2,
     "areas/studio/mcp-connection-status.js": 7,
-    "areas/studio/mcp-env-headers.js": 4,
-    "areas/studio/mcp-server-editor.js": 4,
+    "areas/studio/mcp-server-editor.js": 1,
     "areas/studio/mcp-server-info.js": 1,
 }
 
@@ -172,7 +157,7 @@ class SnippetMove(NamedTuple):
 
 # The sum of HTML_SINK_ALLOWANCE, exact: lower it with each removal, never raise it without a
 # flight-log reason.
-SINK_TOTAL = 23
+SINK_TOTAL = 14
 # The files that held an HTML_SINK_ALLOWANCE row / a DYNAMIC_SINK_BASELINE entry at the
 # flight's start. A file key outside these is new and needs SINK_MOVES / SNIPPET_MOVES entries.
 SINK_START_FILES: frozenset[str] = frozenset({"areas/chat.js", "areas/studio/mcp-server-editor.js"})
@@ -181,18 +166,9 @@ SNIPPET_START_FILES: frozenset[str] = frozenset({"areas/studio/mcp-server-editor
 SINK_MOVES: list[SinkMove] = [
     SinkMove(
         "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-fields.js",
-        2,
-        "M31 F5 L10",
-    ),
-    SinkMove(
-        "areas/studio/mcp-server-editor.js",
         "areas/studio/mcp-connection-status.js",
         7,
         "M31 F5 L10",
-    ),
-    SinkMove(
-        "areas/studio/mcp-server-editor.js", "areas/studio/mcp-env-headers.js", 4, "M31 F5 L10"
     ),
     SinkMove(
         "areas/studio/mcp-server-editor.js", "areas/studio/mcp-server-info.js", 1, "M31 F5 L10"
@@ -203,42 +179,6 @@ SNIPPET_MOVES: list[SnippetMove] = [
         "tmp.innerHTML = html;",
         "areas/studio/mcp-server-editor.js",
         "areas/studio/mcp-server-info.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs ||",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-fields.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-path",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-fields.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-env-headers.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-env-headers.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "tmp.innerHTML = renderKvRow(emptyRow, idx);",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-env-headers.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "btn.innerHTML = window.App.icon('eye');",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-env-headers.js",
         "M31 F5 L10",
     ),
     SnippetMove(

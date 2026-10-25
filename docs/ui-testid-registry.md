@@ -69,7 +69,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
-| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
+| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
@@ -250,7 +250,7 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-vector-store-dtype` | admin | Knowledge settings panel — read-only vector-store dtype value (DD-7, M24 F06 L04) |
 | `knowledge-vector-store-readonly-reason` | admin | Knowledge settings panel — states why vector store is read-only, not a disabled input (L4-D1, M24 F06 L04) |
 | `knowledge-watch-enabled-toggle` | admin | Knowledge settings panel — `monitoring.watch_enabled` toggle (M24 F06 L04) |
-| `kv-add-row-btn` | studio | |
+| `kv-add-row-btn` | studio | The MCP environment variables / headers table's Add row button (`addTestid`, M31 F5 L07) |
 | `library-add-btn` | studio | Library list title-row "Add" (`App.ui.menu` trigger, small outlined, plus icon; the menu opens with `align: 'end'`) (M25 F3 L4a, DD5) |
 | `library-add-connector` | studio | Library Add menu item "Connector" -> `#library/connectors/~new` (M25 F3 L4a) |
 | `library-add-provider` | studio | Library Add menu item "Model provider" (the first item) -> `#library/providers/~new` (sortie 02, DD6) |
@@ -269,10 +269,8 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-consent-btn` | studio | |
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
-| `mcp-kv-sensitive-info` | studio | |
-| `mcp-kv-table` | studio | |
-| `mcp-kv-tbody` | studio | |
-| `mcp-kv-thead` | studio | |
+| `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
+| `mcp-kv-table` | studio | The environment variables / headers `App.ui.keyValueTable` (`<table>`, named like its section); its thead hides while it has no rows (M31 F5 L07) |
 | `mcp-sandbox-section` | studio | |
 | `mcp-server-info-section` | studio | |
 | `mcp-server-instructions` | studio | |
@@ -413,7 +411,7 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
-| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
+| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `settings-nav` | admin | The Settings nav (`<nav aria-label="Settings">`, an `App.ui.navGroups` in the Settings column, reference spec section 8.1); its items are `settings-nav-{section}` links (M25 F3 L5a, DD6) |
 | `studio-knowledge-inventory` | studio | Knowledge-base detail view root (L1-D5, M24 F06 L01; retires the F5 placeholder testid). Since M25 F3 L4a it marks the detail view only: the grid is retired, and the create form at `#library/knowledge/~new` does not carry it |
 | `test-connection-btn` | admin | |
@@ -487,6 +485,9 @@ again. A retired id cannot come back.
 |------------|---------|------------|
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
+| `mcp-kv-tbody` | studio | M31 F5 L07 — the MCP key-value table is `App.ui.keyValueTable`; reach rows through `[data-testid="mcp-kv-table"] tbody tr` |
+| `mcp-kv-thead` | studio | M31 F5 L07 — use `[data-testid="mcp-kv-table"] thead` (hidden while the table has no rows) |
+| `mcp-kv-sensitive-info` | studio | M31 F5 L07 — the Sensitive column's info button is `App.ui.infoButton` (named "More information about Sensitive") |
 | `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `kb-other-items-panel` | studio | M31 F3 HAT — the "Other items" panel is renamed "Individual files" (`kb-individual-files-panel`), with a description and a per-row remove |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |

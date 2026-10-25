@@ -1,6 +1,6 @@
 # Leg: connection-check-record
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The MCP server editor on the library](../flight.md)
 
 ## Objective
@@ -68,7 +68,7 @@ Make the server record the outcome of every Studio connection check of a saved M
   - **`updated_at` is unchanged** by `merge_cache`;
   - **the PUT pin:** a PUT after a recorded check keeps `last_check`; **Reset** drops it;
   - **`merge_cache`'s `None`-deletes rule.**
-- **`static/js/store.js`:** `App.usage.mcpState(source) -> {state: 'signin'|'error'|'connected'|'none', tools: number|null, checkedAt: number|null}`, with DD6's precedence, beside `mcpToolCount`. The labels ("Sign-in needed", …) are leg 08b's and 11's.
+- **`static/js/store.js`:** `App.usage.mcpState(source) -> {state: 'signin'|'error'|'connected'|'none', tools: number|null, checkedAt: number|null}`, with DD6's precedence, beside `mcpToolCount`, and `App.usage.mcpStateLabel(state)` returning "Sign-in needed", "Couldn't connect", "Connected" and "Not connected" (the one source of the words; amended at leg 11's design review). Legs 08b and 11 read both.
 - **The clients:**
   - **the editor:**
     - the dirty check comes **first**. On a clean form `runTest` posts no body and does not call `collectFormData` at all (that call validates and writes `.editor-error`, about `mcp-server-editor.js:564`). On a dirty form it collects and sends, as today;

@@ -183,7 +183,7 @@ Four changes reach beyond the MCP editor, and are named here so no lane is surpr
 - **Reset and its stale-hint escape** (A7; Architect M7).
   - **"Reset connection"** shows only when `oauth_active` (the `_cache` fallback at MSE :95 goes). Otherwise DD6's failure write would show it on every failed server.
   - **A cached `auth_posture: no_auth` makes a later 401 skip the re-probe** (`api.py:3864`, :3591-3599), and today only Reset clears it. So a streamable-HTTP server with no sign-in but a cached `auth_posture` or tools list (`streamable-http && !oauth_active && (_cache.auth_posture || _cache.tools)`) gets a quieter **"Forget tools list"**, A7's approved wording.
-  - It calls the same `DELETE .../connection`, and its confirm reads "Forget this server's tools list and connection details?".
+  - It calls the same `DELETE .../connection`, and its armed label reads "Forget tools list?" (leg 08b's design review).
   - stdio gets neither button. The route evicts the pool, which would stop a running stdio child, and the existing tests pin "no Reset for stdio".
 
 **DD7: Visible changes, and the ledger.**
@@ -387,17 +387,17 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - B7's sentence-case danger buttons in the provider, connector and knowledge editors.
   - (`section.setTitle` already exists, `editor.js:239`, so the env and headers title swap needs no new option.)
   - Lanes: `providers`, `library`, `knowledge`, `settings`, `settings-tools`, both contracts lanes.
-- [ ] `connection-and-sandbox-fields` (06):
+- [x] `connection-and-sandbox-fields` (06):
   - Name, Type, the runtime select, command, cwd, Arguments and URL on `field`, `select`, `textInput` and `chipList`; Writable paths on `chipList` with the middle ellipsis (B4); Allow network on `App.ui.toggle`;
   - the presentation items: B3's labels, A5's hint, A10, A14 and A17;
   - the fields' snapshot, collect and revert moved onto their handles (DD4); field `setError` handles for leg 10; defect 7;
   - the chip-list handover (DD11): the four guarded helper reads replaced first, with a payload test written first; then `tools-form-helpers.js` deleted with its script tag, its asset test inverted, the chip-list parity tests retired, and the `studio.css` chip rules and their 5 allowance keys gone. The legacy switch stays until leg 07.
-- [ ] `env-and-headers` (07), **tier high (secrets; the Security Reviewer)**:
+- [x] `env-and-headers` (07), **tier high (secrets; the Security Reviewer)**:
   - the env and headers module on the masked column (A11-A13, the table named "Environment variables" or "Headers"), with its snapshot, collect, revert and partition on handles (DD4);
   - the re-mask after Save (defect 4); the Save and Test bodies send `__MASKED__`, never a mask shape (DD5);
   - the payload round-trip tests (DD5); the `mcp-sensitive-headers-round-trip` behavior spec drafted;
   - the `.mcp-kv-*` rules deleted; the legacy switch deleted (its last user moves here) with its catalogue row and its pins retargeted (DD11).
-- [ ] `connection-check-record` (08a), **tier high (server, an inverted pin)**:
+- [x] `connection-check-record` (08a), **tier high (server, an inverted pin)**:
   - DD6's server part: the route wrapper and the one helper, with the inner function returning `(result, recordable)`; `MCPSourceRepository.merge_cache`, with the two posture helpers moved onto it; `last_check` only for a body-less Test of the saved server; unit tests for each outcome, a partial-config source, the survival of every other `_cache` key, no `updated_at` bump, the PUT pin and Reset's drop;
   - the client sends a Test body only when the form is dirty;
   - `tests/test_mcp_stdio_test_connect.py:275` inverted and renamed;

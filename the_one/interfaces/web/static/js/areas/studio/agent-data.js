@@ -379,10 +379,11 @@ App.studio.agentData = {
         }
         return r.json();
       }).then(function (data) {
+        // Every outcome changes the server-side record (a connect rewrote
+        // config._cache; an error / auth_required Test recorded _cache.last_check,
+        // leg 08a DD6): the Library list is stale either way (M25 F3 L2, DD9).
+        App.store.invalidate('mcp-sources');
         if (data.status === 'ok') {
-          // The connect rewrote config._cache server-side: the Library list's
-          // tool count is stale (M25 F3 L2, DD9).
-          App.store.invalidate('mcp-sources');
           return data;
         }
         if (data.status === 'auth_required') {

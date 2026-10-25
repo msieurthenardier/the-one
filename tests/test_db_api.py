@@ -3572,6 +3572,11 @@ class TestMCPSourceAPI:
         data = resp.json()
         assert {entry["value"] for entry in data} == {"stdio", "streamable-http"}
         assert all("label" in entry for entry in data)
+        # M31 F5 L06 (B3): plain labels, exactly.
+        assert {entry["value"]: entry["label"] for entry in data} == {
+            "stdio": "Local program (stdio)",
+            "streamable-http": "Remote server (HTTP)",
+        }
 
     async def test_types_endpoint_route_order_does_not_collide_with_get_by_id(
         self, client: AsyncClient
