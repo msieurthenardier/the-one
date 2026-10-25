@@ -1,11 +1,12 @@
 name: macos-packages
 
-# Mission 32 Flight 3 (macOS app), DD10. Builds GleepGlorp AI for macOS on a hosted Apple Silicon
-# runner (packaging/macos/build.sh, PyInstaller, ad-hoc signed) and runs it on the runner's GUI
-# session. Publishes nothing and reads no repository secret. Dispatch-only, so it never runs on
-# a push, PR or tag:
+# Mission 32 Flight 3 (macOS app), DD8, DD10, DD13. Builds GleepGlorp AI for macOS on a hosted
+# Apple Silicon runner (packaging/macos/build.sh, PyInstaller, ad-hoc signed, a drag-to-
+# Applications .dmg), checks it, and drives its dock behaviour on the runner's GUI session.
+# Publishes nothing and reads no repository secret. Dispatch-only, so it never runs on a push,
+# PR or tag:
 #
-#   gh workflow run macos-packages.yml --ref flight/03-macos-app [-f mode=probe] [-f version=0.11.9.dev12]
+#   gh workflow run macos-packages.yml --ref flight/03-macos-app [-f mode=lifecycle] [-f version=0.11.9.dev12]
 #
 # (GitHub offers a manual run only for a workflow file that exists on the default branch, and
 # validates the dispatch inputs against that copy: a `.github/`-only stub with the same `on:` block
@@ -14,17 +15,28 @@ name: macos-packages
 # point the release workflow uses.
 #
 # Modes:
-#   probe      builds the product .app (checks skipped: M32_SKIP_CHECKS=1, so the default data dir and
-#              credential do not exist before the premise probe's first launch), freezes the
-#              minimal probe .app (packaging/macos/probe), proves it imports with --selftest, then
-#              runs packaging/macos/probe/probe.sh, which records observations (P1-P9, otool) and
-#              writes $M32_LOGS/probe/SUMMARY.txt. No .app or .dmg is uploaded.
-#   full       today's Flight 1 build and checks (doctor, serve, gate 4), unchanged. Leg 6 replaces it.
-#   lifecycle  reserved for the N and N+1 lifecycle check; it runs the same steps as full until then.
+#   full       build N, then packaging/macos/checks.sh as its own step (strict doctor, gate 2, serve,
+#              gate 4, the signature, the bundle audit with --report-only, the .dmg layout), then
+#              upload the .dmg (7 days) and the logs.
+#   lifecycle  full, then build N+1 (the version from `render.py --next-version`, the build venv
+#              reused, no .dmg) and packaging/macos/lifecycle.sh: install N in /Applications, then
+#              launch, close, reopen, second launch, geometry, the three quits, upgrade to N+1 with
+#              data, and trash, each a PASS or FAIL row in lifecycle/SUMMARY.txt. lifecycle.sh runs
+#              even when checks.sh had failures, as long as both .app bundles exist (dispatches are
+#              scarce). Its own global bound is 20 minutes.
+#   probe      the Flight 3 premise probe: builds the product .app (no .dmg, no checks), freezes
+#              the minimal probe .app (packaging/macos/probe), proves it imports with --selftest,
+#              then runs packaging/macos/probe/probe.sh, which records observations and writes
+#              $M32_LOGS/probe/SUMMARY.txt. No .app or .dmg is uploaded.
+#
+# The job reads red when any line of A/SUMMARY.txt (or lifecycle/SUMMARY.txt) starts with FAIL, when
+# a build step failed, or when a mode's summary is missing.
 #
 # Cost: macOS minutes bill at 10x on a private repo, so the run caps itself in layers: the job
-# timeout, a timeout on every step, a concurrency group that never cancels a running build and never
-# lets two run at once, and a hard bound on every probe call and premise (see packaging/macos/probe/README.md).
+# timeout (60 min), a timeout on every step, a concurrency group that never cancels a running build
+# and never lets two run at once, and a hard bound on every driver call (see packaging/macos/README.md
+# and packaging/macos/probe/README.md). Typical lifecycle run: about 15 minutes; plausible worst
+# case about 40 (the estimate in packaging/macos/README.md).
 on:
   workflow_dispatch:
     inputs:
@@ -70,27 +82,36 @@ jobs:
   build:
     # pinned, not macos-latest: Apple Silicon (arm64) on macOS 15
     runs-on: macos-15
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-        timeout-minutes: 5
+        timeout-minutes: 2
 
       # the runner context is not available in a job-level env, so the paths are set here
       - name: Paths
-        timeout-minutes: 2
+        timeout-minutes: 1
+        env:
+          MODE: ${{ inputs.mode }}
         run: |
+          case "$MODE" in
+            full | lifecycle | probe) ;;
+            *) echo "unknown mode '$MODE' (full, lifecycle or probe)"; exit 1 ;;
+          esac
           {
             echo "M32_BUILD=$RUNNER_TEMP/m32-build"
             echo "M32_LOGS=$RUNNER_TEMP/m32-build/logs"
             echo "M32_REQUIREMENTS=$RUNNER_TEMP/m32-build/requirements-closure.txt"
+            echo "M32_T0=$(date +%s)"
           } >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/m32-build/logs"
 
       - name: Runner evidence
-        timeout-minutes: 3
+        timeout-minutes: 2
+        env:
+          MODE: ${{ inputs.mode }}
         run: |
           {
-            echo "== mode: ${{ inputs.mode }}"
+            echo "== mode: $MODE"
             echo "== sw_vers"; sw_vers
             echo "== uname -m"; uname -m
             echo "== /usr/bin/python3 (the Xcode command-line-tools python on this image)"
@@ -99,15 +120,16 @@ jobs:
             echo "== disk"; df -h /System/Volumes/Data 2>&1 | tail -2
             echo "== cpu/mem"; sysctl -n hw.ncpu hw.memsize
             echo "== /Applications writable: $(test -w /Applications && echo yes || echo no)"
+            echo "== display"; system_profiler SPDisplaysDataType 2>&1 | grep -E 'Resolution|Display Type|Main Display' || true
           } 2>&1 | tee "$M32_LOGS/runner.txt"
 
       - uses: actions/setup-python@v6
-        timeout-minutes: 5
+        timeout-minutes: 3
         with:
           python-version: "3.11"
 
       - name: Python and tool versions
-        timeout-minutes: 2
+        timeout-minutes: 1
         run: |
           {
             python3 --version; python3 -m pip --version
@@ -117,7 +139,7 @@ jobs:
       # The same hash-pinned closure the Windows CI and the release pip-audit use, exported once;
       # the build installs it with --no-deps --require-hashes.
       - name: Export the pinned dependency closure
-        timeout-minutes: 8
+        timeout-minutes: 5
         env:
           VERSION_INPUT: ${{ inputs.version }}
         run: |
@@ -130,26 +152,137 @@ jobs:
           if [ -z "$VERSION" ]; then
             VERSION="$(python3 -c 'import re,pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("the_one/__init__.py").read_text(), re.M).group(1))')"
           fi
-          echo "M32_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "M32_APP=$RUNNER_TEMP/m32-build/macos-$VERSION/dist/GleepGlorp AI.app" >> "$GITHUB_ENV"
-          echo "M32_PROBE_APP=$RUNNER_TEMP/m32-build/probe/dist/M32 Probe.app" >> "$GITHUB_ENV"
-          echo "building version $VERSION"
+          # N+1 (lifecycle's upgrade step): sorts above N, and above any final release of N's line
+          NEXT="$(python3 packaging/render.py --next-version "$VERSION")"
+          {
+            echo "M32_VERSION=$VERSION"
+            echo "M32_VERSION_N1=$NEXT"
+            echo "M32_BUILD_ENV=$RUNNER_TEMP/m32-build/macos-$VERSION/build.env"
+            echo "M32_BUILD_ENV_N1=$RUNNER_TEMP/m32-build/macos-$NEXT/build.env"
+            echo "M32_PROBE_APP=$RUNNER_TEMP/m32-build/probe/dist/M32 Probe.app"
+          } >> "$GITHUB_ENV"
+          echo "building version $VERSION (N+1 would be $NEXT)"
 
-      # ---- full and lifecycle: today's build and checks, unchanged ----------------------------
-      - name: Build and check (PyInstaller)
+      # ---- full and lifecycle: build N --------------------------------------------------------
+      # build.sh writes build.env (VERSION, APP_ID, APP, DMG; shell-quoted: source it). It no
+      # longer runs the checks: the next step does.
+      - name: Build (PyInstaller, ad-hoc signed, .dmg)
+        id: build
         if: ${{ inputs.mode != 'probe' }}
         continue-on-error: true
-        timeout-minutes: 20
-        run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
+        timeout-minutes: 12
+        run: |
+          bash packaging/macos/build.sh --version "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"
+          rc="${PIPESTATUS[0]}"
+          if [ "$rc" = 0 ] && [ -f "$M32_BUILD_ENV" ]; then
+            # shellcheck disable=SC1090
+            . "$M32_BUILD_ENV"
+            echo "M32_DMG=$DMG" >> "$GITHUB_ENV"
+          fi
+          exit "$rc"
 
-      # ---- probe: the product .app, no checks -------------------------------------------------
-      - name: Build the product app (probe mode, checks skipped)
+      # ---- probe: the product .app, no .dmg, no checks ----------------------------------------
+      - name: Build the product app (probe mode, checks and .dmg skipped)
+        id: build_probe
         if: ${{ inputs.mode == 'probe' }}
         timeout-minutes: 20
         env:
           M32_SKIP_CHECKS: "1"
-        run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
+          M32_SKIP_DMG: "1"
+        run: bash packaging/macos/build.sh --version "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
 
+      # ---- full and lifecycle: the checks, as their own step ----------------------------------
+      # Runs even when the build step failed (it then records why) and is the only step whose
+      # failures a later one waits on: lifecycle runs regardless.
+      - name: Checks (checks.sh)
+        id: checks
+        if: ${{ !cancelled() && inputs.mode != 'probe' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          # leg 7 flips this to enforcing (empty) once a real bundle's report is clean
+          M32_AUDIT_ARGS: "--report-only"
+        run: |
+          mkdir -p "$M32_LOGS/A"
+          if [ ! -f "$M32_BUILD_ENV" ]; then
+            echo "FAIL checks: no build.env (the build did not get far enough)" | tee -a "$M32_LOGS/A/SUMMARY.txt"
+            exit 1
+          fi
+          # shellcheck disable=SC1090
+          . "$M32_BUILD_ENV"
+          PJ="$(dirname "$(dirname "$APP")")/product.json"
+          EXE_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_executable"])' "$PJ")"
+          if [ ! -x "$APP/Contents/MacOS/$EXE_NAME" ]; then
+            echo "FAIL checks: the .app is missing or has no $EXE_NAME" | tee -a "$M32_LOGS/A/SUMMARY.txt"
+            exit 1
+          fi
+          M32_DMG="$DMG" M32_PRODUCT_JSON="$PJ" \
+            bash packaging/macos/checks.sh A "$APP" "$APP/Contents/MacOS/$EXE_NAME" "$M32_LOGS" \
+            2>&1 | tee "$M32_LOGS/A-checks.log"
+          exit "${PIPESTATUS[0]}"
+
+      # ---- lifecycle: build N+1 -----------------------------------------------------------------
+      - name: Build N+1 (venv reused, no .dmg)
+        id: build_n1
+        if: ${{ !cancelled() && inputs.mode == 'lifecycle' && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          M32_REUSE_VENV: "1"
+          M32_SKIP_DMG: "1"
+        run: |
+          # its own log directory: N's A/ evidence stays as checks.sh saw it
+          export M32_LOGS="$M32_LOGS/n1"
+          mkdir -p "$M32_LOGS"
+          bash packaging/macos/build.sh --version "$M32_VERSION_N1" 2>&1 | tee "$M32_LOGS/A-step.log"
+          exit "${PIPESTATUS[0]}"
+
+      # ---- lifecycle: the dock behaviour on the GUI session -------------------------------------
+      # Runs even when checks.sh failed, as long as both bundles exist. The outer bound (<= 20 min)
+      # is the time left in the job (see B below), above lifecycle.sh's own worst case (a step is
+      # skipped once M32_BUDGET = B - 200 s have passed, and no step cap exceeds 200 s), so its
+      # SUMMARY is written before the bound. The step never fails: the final check reads
+      # the FAIL rows.
+      - name: Lifecycle (lifecycle.sh)
+        id: lifecycle
+        if: ${{ !cancelled() && inputs.mode == 'lifecycle' }}
+        continue-on-error: true
+        timeout-minutes: 21
+        run: |
+          mkdir -p "$M32_LOGS/lifecycle"
+          APP_N="" APP_N1="" VERSION="" APP_ID=""
+          if [ -f "$M32_BUILD_ENV" ]; then
+            # shellcheck disable=SC1090
+            . "$M32_BUILD_ENV"
+            APP_N="$APP"; VERSION_N="$VERSION"; APP_ID_N="$APP_ID"
+          fi
+          if [ -f "$M32_BUILD_ENV_N1" ]; then
+            # shellcheck disable=SC1090
+            . "$M32_BUILD_ENV_N1"
+            APP_N1="$APP"
+          fi
+          if [ -z "$APP_N" ] || [ -z "$APP_N1" ] || [ ! -d "$APP_N" ] || [ ! -d "$APP_N1" ]; then
+            echo "FAIL L0 an app bundle is missing (N: ${APP_N:-none}; N+1: ${APP_N1:-none})" | tee -a "$M32_LOGS/lifecycle/SUMMARY.txt"
+            exit 0
+          fi
+          # what is left of the 60-minute job, less 7 minutes kept for Summary, uploads and the
+          # final check; at most 1200 s; below 300 s there is no point starting
+          B=$(( 3600 - ($(date +%s) - M32_T0) - 420 ))
+          [ "$B" -gt 1200 ] && B=1200
+          if [ "$B" -lt 300 ]; then
+            echo "FAIL L0 no time left (${B} s of the job budget remain for lifecycle; 300 s needed)" | tee -a "$M32_LOGS/lifecycle/SUMMARY.txt"
+            exit 0
+          fi
+          echo "lifecycle bound: ${B} s (internal budget $((B-200)) s)"
+          rc=0
+          M32_BUDGET=$((B-200)) perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- "$B" \
+            bash packaging/macos/lifecycle.sh "$APP_N" "$APP_N1" "$APP_ID_N" "$VERSION_N" "$M32_VERSION_N1" "$M32_LOGS/lifecycle" \
+            > "$M32_LOGS/lifecycle-step.log" 2>&1 || rc=$?
+          echo "lifecycle.sh rc=$rc"
+          cat "$M32_LOGS/lifecycle/SUMMARY.txt" 2>&1 || true
+          exit 0
+
+      # ---- probe: the minimal probe app and the premise probe -----------------------------------
       - name: Freeze the probe app
         if: ${{ inputs.mode == 'probe' }}
         timeout-minutes: 10
@@ -185,9 +318,12 @@ jobs:
         timeout-minutes: 23
         run: |
           mkdir -p "$M32_LOGS/probe"
+          # the product app and its bundle id come from build.sh's build.env, never hard-coded
+          # shellcheck disable=SC1090
+          . "$M32_BUILD_ENV"
           rc=0
           perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 1290 \
-            bash packaging/macos/probe/probe.sh "$M32_APP" "$M32_PROBE_APP" ai.gleepglorp.the-one "$M32_LOGS/probe" \
+            bash packaging/macos/probe/probe.sh "$APP" "$M32_PROBE_APP" "$APP_ID" "$M32_LOGS/probe" \
             > "$M32_LOGS/probe-step.log" 2>&1 || rc=$?
           echo "probe.sh rc=$rc"
           cat "$M32_LOGS/probe/SUMMARY.txt" 2>&1 || true
@@ -195,19 +331,19 @@ jobs:
 
       - name: Summary
         if: ${{ always() }}
-        timeout-minutes: 2
+        timeout-minutes: 1
         run: |
-          for f in "$M32_LOGS"/A/SUMMARY.txt "$M32_LOGS"/probe/SUMMARY.txt; do
+          for f in "$M32_LOGS"/A/SUMMARY.txt "$M32_LOGS"/lifecycle/SUMMARY.txt "$M32_LOGS"/probe/SUMMARY.txt; do
             [ -f "$f" ] || continue
             echo "### $(basename "$(dirname "$f")")" >> "$GITHUB_STEP_SUMMARY"
             { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           done
           du -sh "$M32_LOGS" || true
 
-      # Logs, listings, evidence and screenshots only. Never a bundle, .app or .dmg.
+      # Logs, listings, evidence and screenshots only. The .dmg has its own upload below.
       - name: Upload logs and evidence
         if: ${{ always() }}
-        timeout-minutes: 5
+        timeout-minutes: 3
         uses: actions/upload-artifact@v4
         with:
           name: macos-packages-logs
@@ -215,17 +351,44 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      # Last, so a failed build reads as a red job without ever blocking the log upload.
+      # The N .dmg (ad-hoc signed, not notarized): a contributor downloads it from the run page
+      # for seven days. Never the .app, and never the N+1 build.
+      - name: Upload the .dmg
+        if: ${{ !cancelled() && inputs.mode != 'probe' && env.M32_DMG != '' }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ${{ env.M32_DMG }}
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed build reads as a red job without ever blocking the log upload. The FAIL
+      # match is anchored: evidence text that contains the word never trips it.
       - name: Fail on a failed or missing result
         if: ${{ always() }}
-        timeout-minutes: 2
+        timeout-minutes: 1
+        env:
+          MODE: ${{ inputs.mode }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          BUILD_PROBE_OUTCOME: ${{ steps.build_probe.outcome }}
+          N1_OUTCOME: ${{ steps.build_n1.outcome }}
         run: |
           rc=0
-          if [ "${{ inputs.mode }}" = probe ]; then
+          if [ "$MODE" = probe ]; then
+            [ "$BUILD_PROBE_OUTCOME" = success ] || { echo "probe: the product build did not succeed ($BUILD_PROBE_OUTCOME)"; rc=1; }
             [ -f "$M32_LOGS/probe/SUMMARY.txt" ] || { echo "probe: SUMMARY missing"; rc=1; }
           else
+            [ "$BUILD_OUTCOME" = success ] || { echo "build: did not succeed ($BUILD_OUTCOME)"; rc=1; }
             f="$M32_LOGS/A/SUMMARY.txt"
             if [ ! -f "$f" ]; then echo "build: SUMMARY missing"; rc=1
-            elif grep -q 'FAIL' "$f"; then echo "build: FAIL in SUMMARY"; rc=1; fi
+            elif grep -q '^FAIL' "$f"; then echo "build: FAIL in SUMMARY"; grep '^FAIL' "$f"; rc=1
+            elif ! grep -q '^== A done' "$f"; then echo "build: checks.sh did not finish (no '== A done' line)"; rc=1; fi
+            if [ "$MODE" = lifecycle ]; then
+              [ "$N1_OUTCOME" = success ] || { echo "lifecycle: the N+1 build did not succeed ($N1_OUTCOME)"; rc=1; }
+              f="$M32_LOGS/lifecycle/SUMMARY.txt"
+              if [ ! -f "$f" ]; then echo "lifecycle: SUMMARY missing"; rc=1
+              elif grep -q '^FAIL' "$f"; then echo "lifecycle: FAIL in SUMMARY"; grep '^FAIL' "$f"; rc=1; fi
+            fi
           fi
           exit "$rc"

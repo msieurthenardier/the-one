@@ -6,7 +6,7 @@
 #
 #     PRODUCT_APP         absolute path of "GleepGlorp AI.app" (built from main's desktop code)
 #     PROBE_APP           absolute path of "M32 Probe.app" (delegate_probe.py frozen by probe.spec)
-#     PRODUCT_BUNDLE_ID   today ai.gleepglorp.the-one (DD8 changes it in leg 6); recorded, and
+#     PRODUCT_BUNDLE_ID   build.env's APP_ID (ai.gleepglorp.GleepGlorpAI since leg 6); recorded, and
 #                         never used to address an app (apps are addressed by absolute path)
 #     OUT_DIR             evidence directory; SUMMARY.txt gets one "P<n>: ..." row per premise
 #
@@ -25,10 +25,12 @@
 #
 # bash 3.2 (macOS /bin/bash is not used, but the runner's bash may be): no mapfile, no ${x,,},
 # no [[ =~ ]] captures, no associative arrays, no arrays at all (so no empty-array expansion).
-# shellcheck disable=SC2317  # functions are called indirectly (gate_wait, the --run dispatch)
+# shellcheck disable=SC2317,SC2034  # functions are called indirectly (gate_wait, the --run dispatch); some globals are read by lib.sh
 set -u
 
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+# shellcheck source=../lib.sh
+. "$(dirname "$SELF")/../lib.sh"
 
 # ---- bounds (seconds) -------------------------------------------------------------------
 T_OPEN=20; T_SHOT=10; T_OSA=15; T_LSAPP=10; T_SPCTL=20; T_LOG=25; T_QUIT=15
@@ -37,17 +39,6 @@ T_DITTO=60; T_SIGN=40; T_SMALL=10; T_LNP=8
 CAP_P7=20; CAP_OTOOL=70; CAP_P8=120; CAP_P1=260; CAP_P4=110
 CAP_P2=110; CAP_P3=180; CAP_P9=60; CAP_P5=80; CAP_P6=100
 
-tl() { local n="$1"; shift; perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- "$n" "$@"; }
-now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
-fsub() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.1f", b-a}'; }
-SCALE="${M32_SCALE:-1}"
-STOP_WAIT="${M32_STOP_WAIT:-10}"
-sleep_s() { sleep "$(awk -v s="$1" -v k="$SCALE" 'BEGIN{printf "%.3f", s*k}')"; }
-wait_until() { # $1 = absolute time (now() scale)
-  local d
-  d="$(awk -v t="$1" -v n="$(now)" 'BEGIN{d=t-n; if (d<0) d=0; printf "%.3f", d}')"
-  sleep "$d"
-}
 
 # ---- the --run child ------------------------------------------------------------------
 MODE=main
@@ -80,39 +71,6 @@ row() { # $1 = P-name  $2 = text (one line)
 has_row() { grep -q "^$1:" "$SUMMARY" 2>/dev/null; }
 
 # ---- pid registry ----------------------------------------------------------------------
-track() { printf '%s %s\n' "$1" "$2" >> "$TRACK"; }
-alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
-pids_for() { # $1 = absolute executable path: pids whose command line starts with it
-  ps -axo pid=,command= 2>/dev/null | awk -v exe="$1" '
-    { p = $1; sub(/^ *[0-9]+ +/, ""); if (index($0, exe) == 1) print p }'
-}
-stop_all() { # TERM every tracked pid still alive, wait up to STOP_WAIT, then KILL the rest
-  local p l i any
-  any=0
-  while read -r p l; do
-    if alive "$p"; then kill -TERM "$p" 2>/dev/null; any=1; fi
-  done < "$TRACK"
-  [ "$any" = 1 ] || return 0
-  i=0
-  while [ "$i" -lt "$STOP_WAIT" ]; do
-    any=0
-    while read -r p l; do alive "$p" && any=1; done < "$TRACK"
-    [ "$any" = 0 ] && return 0
-    sleep 1; i=$((i + 1))
-  done
-  while read -r p l; do
-    if alive "$p"; then kill -KILL "$p" 2>/dev/null; echo "killed $p ($l)" >> "$OUT/quiesce.log"; fi
-  done < "$TRACK"
-}
-stop_pid() { # one pid: TERM, KILL after STOP_WAIT
-  local p="$1" i=0
-  alive "$p" || return 0
-  kill -TERM "$p" 2>/dev/null
-  while [ "$i" -lt "$STOP_WAIT" ]; do alive "$p" || return 0; sleep 1; i=$((i + 1)); done
-  kill -KILL "$p" 2>/dev/null
-  echo "killed $p" >> "$OUT/quiesce.log"
-}
-listener() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1; }
 quiesce() { # $1 = label; sets Q_NOTE when something was still there
   local l
   Q_NOTE=""
@@ -122,67 +80,6 @@ quiesce() { # $1 = label; sets Q_NOTE when something was still there
 }
 
 # ---- small helpers -----------------------------------------------------------------------
-runrc() { # $1 = file  $2 = bound  rest = command; sets RC; appends rc=N to the file
-  local f="$1" b="$2"
-  shift 2
-  tl "$b" "$@" > "$f" 2>&1
-  RC=$?
-  echo "rc=$RC" >> "$f"
-}
-rcnote() { # $1 = rc  $2 = file: "rc=0" / "rc=142 (bound fired)" / "rc=1 err: first line"
-  local e
-  case "$1" in
-    0) echo "rc=0" ;;
-    142) echo "rc=142 (bound fired)" ;;
-    *) e="$(grep -v '^rc=' "$2" 2>/dev/null | head -1 | cut -c1-110)"; echo "rc=$1 err: $e" ;;
-  esac
-}
-cred() { tr -d '[:space:]' < "$CRED_FILE" 2>/dev/null; }
-cred_prefix() { cred | cut -d. -f1; }
-http() { # $1 = path  $2 = 1 for the bearer credential; prints "<code> <body>" or a reason
-  local out rc c code body
-  if [ "${2:-0}" = 1 ]; then
-    c="$(cred)"
-    [ -n "$c" ] || { echo "no-credential"; return 0; }
-    out="$(curl -s -m 3 -w '\n%{http_code}' -H "Authorization: Bearer $c" "$BASE$1" 2>&1)"; rc=$?
-  else
-    out="$(curl -s -m 3 -w '\n%{http_code}' "$BASE$1" 2>&1)"; rc=$?
-  fi
-  [ "$rc" = 0 ] || { echo "curl-rc=$rc"; return 0; }
-  code="$(printf '%s\n' "$out" | tail -1)"
-  body="$(printf '%s\n' "$out" | sed '$d' | tr -d '\n' | cut -c1-200)"
-  echo "$code $body"
-}
-http_post() { # $1 = path (authenticated POST, empty body)
-  local c out rc
-  c="$(cred)"
-  [ -n "$c" ] || { echo "no-credential"; return 0; }
-  out="$(curl -s -m 5 -X POST -w '\n%{http_code}' -H "Authorization: Bearer $c" "$BASE$1" 2>&1)"; rc=$?
-  [ "$rc" = 0 ] || { echo "curl-rc=$rc"; return 0; }
-  echo "$(printf '%s\n' "$out" | tail -1) $(printf '%s\n' "$out" | sed '$d' | tr -d '\n' | cut -c1-200)"
-}
-shot() { # $1 = png path -> sets SHOT_BYTES
-  tl "$T_SHOT" screencapture -x "$1" > "$1.txt" 2>&1; SHOT_RC=$?
-  SHOT_BYTES="$(wc -c < "$1" 2>/dev/null | tr -d ' ')"
-  [ -n "$SHOT_BYTES" ] || SHOT_BYTES=0
-}
-front_pid() { # sets FRONT_ASN, FRONT_PID (empty when lsappinfo fails)
-  FRONT_ASN="$(tl "$T_LSAPP" lsappinfo front 2>&1 | head -1)"
-  FRONT_PID="$(tl "$T_LSAPP" lsappinfo info -only pid "$FRONT_ASN" 2>&1 | sed -n 's/.*"pid"=\([0-9][0-9]*\).*/\1/p' | head -1)"
-}
-front_note() { # $1 = expected pid -> "front=PID (matches)|(expected X)|(unknown: ASN)"
-  front_pid
-  if [ -z "$FRONT_PID" ]; then echo "front=unknown(${FRONT_ASN:-no lsappinfo output})"
-  elif [ "$FRONT_PID" = "$1" ]; then echo "front=$FRONT_PID (the app)"
-  else echo "front=$FRONT_PID (expected $1: mismatch)"; fi
-}
-gate_wait() { # $1 = seconds (polled every 0.25 s); rest = command that succeeds when up
-  local n="$1" i=0 max
-  shift
-  max=$((n * 4))
-  while [ "$i" -lt "$max" ]; do "$@" && return 0; sleep 0.25; i=$((i + 1)); done
-  return 1
-}
 
 # ---- the local-network prompt (leg 3b) ---------------------------------------------------------------
 # A "would like to find and connect to devices on your local network" alert is owned by a system
@@ -240,23 +137,6 @@ lnp_check() { # $1 = tag  $2 = 1 to dismiss
     LNP_NOTE="none seen ($(rcnote "$RC" "$f"))"
   fi
 }
-window_state() { # $1 = pid: "windows=N visible=B frontmost=B pos=x,y size=wxh" through System Events
-  local f="$PDIR/window-state-$$-$RANDOM.txt"
-  runrc "$f" "$T_OSA" osascript \
-    -e 'tell application "System Events"' \
-    -e "set p to first process whose unix id is $1" \
-    -e 'set r to "windows=" & (count of windows of p) & " visible=" & (visible of p) & " frontmost=" & (frontmost of p)' \
-    -e 'try' \
-    -e 'set {x, y} to position of window 1 of p' \
-    -e 'set {w, h} to size of window 1 of p' \
-    -e 'set r to r & " pos=" & x & "," & y & " size=" & w & "x" & h' \
-    -e 'end try' \
-    -e 'return r' \
-    -e 'end tell'
-  WS_NOTE="$(grep -v '^rc=' "$f" | head -1 | cut -c1-140)"
-  [ -n "$WS_NOTE" ] || WS_NOTE="unreadable ($(rcnote "$RC" "$f"))"
-  rm -f "$f"
-}
 focus_click() { # $1 = pid: raise the app and click the centre of its first window; sets FC_NOTE
   local f="$PDIR/focus-click-$$-$RANDOM.txt"
   runrc "$f" "$T_OSA" osascript \
@@ -294,14 +174,6 @@ launch_product() { # $1 = tag; rest = extra open args. Sets LP_PID, LP_RC, LP_T0
   return "$LP_UP"
 }
 launch_up() { alive "$LP_PID" && prod_live; }
-new_pid() { # $1 = exe  $2 = before-file: sets NEW_PID to the first pid not in the file
-  local p
-  NEW_PID=""
-  for p in $(pids_for "$1"); do
-    if ! grep -qx "$p" "$2" 2>/dev/null; then NEW_PID="$p"; return 0; fi
-  done
-  return 1
-}
 launch_probe() { # $1 = tag; $2 = mode (wait|destroy); rest = extra open args (before --args)
   local tag="$1" mode="$2" before
   shift 2
@@ -321,17 +193,6 @@ launch_probe() { # $1 = tag; $2 = mode (wait|destroy); rest = extra open args (b
 }
 probe_up() { alive "$LB_PID" && grep -q 'webview.start begin' "$PROBE_LOG" 2>/dev/null; }
 save_probe_log() { cp "$PROBE_LOG" "$PDIR/$1-probe.log" 2>/dev/null || echo "(no probe log)" > "$PDIR/$1-probe.log"; }
-wait_exit() { # $1 = pid  $2 = seconds (polled every 0.25 s); sets WE_SECS ("" when it did not exit)
-  local t0 i=0 max
-  t0="$(now)"
-  max=$(($2 * 4))
-  WE_SECS=""
-  while [ "$i" -lt "$max" ]; do
-    if ! alive "$1"; then WE_SECS="$(fsub "$t0" "$(now)")"; return 0; fi
-    sleep 0.25; i=$((i + 1))
-  done
-  return 1
-}
 cap_hit() { # the child's ALRM/TERM handler: say so, clean up, leave
   has_row "$PREMISE" || row "$PREMISE" "premise cap of ${M32_CAP:-?} s reached; partial evidence in $OUT"
   stop_all

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>@METAINFO_ID@</id>
+  <id>@APP_ID@</id>
   <name>@DISPLAY_NAME@</name>
   <icon type="stock">@DESKTOP_ID@</icon>
   <summary>@SUMMARY@</summary>

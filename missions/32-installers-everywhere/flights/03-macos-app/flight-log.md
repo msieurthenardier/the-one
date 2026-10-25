@@ -317,6 +317,39 @@ Planning.
     4. the darwin gate is only really exercised in the hosted run.
   - Legs 4 and 5 `completed`, committed as checkpoint 3 (leg 6 Phase A's in-progress packaging files stay out).
 
+- **Leg 6 Phase A accepted:**
+  - `make test-unit` 7399 passed, 12 skipped; ruff and shellcheck clean;
+  - the Linux no-change proof's only difference is `METAINFO_ID` → `APP_ID` (same value);
+  - the Linux `0.11.9.dev33` build and its audit pass (1027 files, max GLIBC 2.34);
+  - the macOS spec's Analysis on Linux exits 0;
+  - the `build.sh` rehearsal passes.
+
+  Choices noted: a failed `.dmg` is now fatal in `build.sh`; `build.env` is shell-quoted, so the workflow must `source` it; a dylib's own install name is exempt from the load-path rule.
+  - **Phase B started** (the workflow modes, `checks.sh`, `lib.sh`, `lifecycle.sh`, the rehearsal). Until it lands, the committed workflow's `full` mode would build with no checks. Nothing dispatches before Phase B.
+  - **Check:** the Phase A agent reported "background work"; no process of its own was found running (only Flight 2's known `dbus-daemon` 2132116).
+
+- **Operator (2026-10-25): "go ahead and kill it".** The Flight Director stopped the two leftover `dbus-daemon` processes from Flight 2 leg 2's doctor smoke by their recorded PIDs (2132116 at-spi, 2132108 session bus); both are gone. That closes the item carried since Flight 2.
+- **Leg 6 landed** (Phase B):
+  - `lib.sh` factored (probe.sh's rehearsal unchanged);
+  - `lifecycle.sh` L1-L10, asserting `route=subclass` first;
+  - the workflow's `full`/`lifecycle`/`probe` modes;
+  - `checks.sh` updated;
+  - 7 lifecycle rehearsal scenarios plus 6 workflow-extraction runs; the rehearsal found and fixed 4 `lifecycle.sh` bugs;
+  - `make test-unit` 7399 passed, 12 skipped.
+  - **Open:** the per-step `timeout-minutes` sum to 71 against a 50-minute job, so the worst case might cut the evidence upload; sent to the review.
+  - A `the-one` process on 8491 reported by the Developer (pid 2322812) had exited by the time the Flight Director checked. It was not this flight's (likely Mission 31's test instance).
+  - **Checkpoint review before dispatch 3 (Sonnet:** CI workflow surface, scarce dispatches).
+
+- **Leg 6 checkpoint review (Sonnet): `[HANDOFF:confirmed]` with one required change.** The per-step caps sum to about 79 min (with the evidence steps) against a 50-min job, so a job-timeout cancellation could lose the evidence.
+  - **The fix:** a 60-min job; tightened early caps; `M32_T0` recorded; a dynamic lifecycle bound that always leaves 7 min for the evidence steps (`FAIL L0 no time left` if under 300 s); lifecycle `BUDGET` 850 s.
+  - **Optional fixes taken:** the final check requires `checks.sh`'s end marker; the `checks.sh` `.dmg`-exists `$?` bug; the audit cap 420 s.
+  - **Cost:** the worst case rises from 50 to 60 min; the typical run (about 15 min) is unchanged.
+  - **Noted for the debrief (not fixed):** `render.load()` now always derives the bundle versions, so a non-`X.Y.Z[.devN]` version (for example `1.0`) fails every render, Linux and Windows included. Harmless for `0.11.x`; Flight 4's dynamic version should know it.
+- **Leg 7 (`macos-hosted-checks`) risk tier: LOW** for its spec: a dispatch, evidence reading, fixes and docs. Any product fix it needs is reviewed at flight end. No design review. Status `ready`.
+
+- **Leg 6 review fixes applied** (a 60-min job; caps summing to 42 min before lifecycle; the dynamic bound; the `L0` no-time path rehearsed; `BUDGET` 850; the `== A done` guard; the `.dmg` `$?` fix; the audit at 420 s). No re-review: the Reviewer's own items. Leg 6 `completed`, committed as checkpoint 4.
+- **Dispatch 3 of 5:** `mode=lifecycle` (leg 7, step 1).
+
 ## Leg Progress
 
 ### shell-split
@@ -433,6 +466,109 @@ Planning.
 - `quit_desktop` on darwin sends every non-None tag, `"booting"` included, through `terminate_app()`; the quit route's JSON still says `state: "window"` (or `"booting"`).
 - The launch can take up to 5 s longer before the splash on a frozen macOS build (`prime_login_shell_path`).
 - Dock-mode `Window` state: `tracked_visible` is not used on darwin; `window_visible` reads the native window.
+
+### macos-recipe
+
+**Phase A checkpoint (leg 6, Developer).** Leg status is `in-flight`; Phase B (workflow `full`/`lifecycle`, `lifecycle.sh`, `lib.sh`, `checks.sh`, rehearsal) follows. Uncommitted.
+
+- **Built.**
+  - `packaging/product.toml`: top-level `app_id`, `[linux] metainfo_id` removed, `[macos]` (`bundle_name`, `bundle_executable`, `dmg_file_stem`, `min_os = "14.0"`, `bundle_category`).
+  - `render.py`: `load()` rejects a key repeated across sections or between a section and the top level, and a derived name in the TOML; derives `bundle_short_version` and `bundle_version` (refuses `a`/`b`/`rc`/`.postN`, two-part versions, dev >= 9999); `next_version()` and `render.py --next-version V` (`0.11.8` -> `0.11.9.dev1`, `.devN` -> `.devN+1`; `--repo` is not needed for it).
+  - Linux key rename `METAINFO_ID` -> `APP_ID` in `build.env.in`, `metainfo.xml.in`, `build-inner.sh`.
+  - `macos/info_plist.py` (pure; exactly the ten keys of the leg); `the-one.spec` reads `M32_PRODUCT_JSON` (name, id, short version, `info_plist(PRODUCT)`, executable name), pystray fully removed, docstring updated.
+  - `macos/build.sh`: `[--version X] [--from-head]` (positional warns), writes `macos-<v>/build.env` (shell-quoted `VERSION APP_ID APP DMG`; **source it**, `APP` has a space) and `product.json`, `SOURCE_DATE_EPOCH` from the last commit, no `checks.sh`, `M32_SKIP_DMG` (alias `M32_SKIP_CHECKS`), `M32_REUSE_VENV`, `.dmg` from `dmg-root/` (`ditto` of the .app + `Applications` symlink, `-fs HFS+ -format UDZO`, one retry, failure is now fatal).
+  - `macos/frozen_entry_mac.py`: `redirect_app_log()` (app command + non-TTY stderr -> `~/Library/Logs/GleepGlorp AI/app.log`, append, line-buffered, truncate if > 10 MB, failure -> None) and `_install_log()` (dup2 of fds 1/2 plus `sys.stdout/stderr`); `launch_args()` unchanged.
+  - `macos/audit.py` (`APP (--min-os V | --product-json F) [--report-only]`; lipo/otool; fat files listed not failed; dylib own install name excluded from the load-path check; missing minos reported as unknown). `macos/README.md` updated.
+- **Linux no-change proof.** Old tree = `git archive e21d219`, rendered with `--set version=0.11.9.dev33 --set release_date=2023-11-14` for `build.env`, `AppRun`, `control`, `deb.desktop`, `metainfo.xml`, the AppImage integration `.desktop.in` and the root `.desktop`. The only diff is `-METAINFO_ID=ai.gleepglorp.GleepGlorpAI` / `+APP_ID=ai.gleepglorp.GleepGlorpAI` in `build.env` (evidence: `~/the-one-m32-evidence/f3/leg6/linux-nochange.diff`).
+- **Linux build.** `M32_BUILD=$HOME/the-one-m32-build/f3 packaging/linux/build.sh --version 0.11.9.dev33` (the leg said dev31; dev33 was asked for): `.deb` + AppImage built; in-build bundle audit `1027 files, max GLIBC_2.34 (limit 2.39), 0 problem(s): PASS`; the `.deb` carries `usr/share/metainfo/ai.gleepglorp.GleepGlorpAI.metainfo.xml`.
+- **Spec Analysis on Linux.** The real spec ran through PyInstaller 6.22.3 against the staged copy (rc 0, `BUNDLE` a no-op on Linux but its arguments, `info_plist(PRODUCT)` included, are evaluated). A pystray WARNING in that log is the contrib stdhook reaching pystray through the app's own imports, not the spec.
+- **build.sh rehearsal.** With a fake venv (`pyinstaller` that makes the .app tree), and shims for `codesign`/`ditto`/`hdiutil`: full run rc 0, `build.env` sources correctly, the spec env gets `M32_PRODUCT_JSON`, the dmg root holds `GleepGlorp AI.app` + `Applications -> /Applications`; `M32_SKIP_CHECKS=1` + positional version skips the dmg; unknown option rc 2.
+- **Tests.** `tests/test_packaging_metadata.py` (REQUIRED updated; `app_id`, `[macos]` keys, collisions, derived-key rejection, mapping vs PEP 440 order, refusals, `next_version` + CLI round trip, metainfo id) and new `tests/test_packaging_macos_audit.py` (canned otool/lipo: pass, bad load path, no arm64, minos too high, unknown minos, legacy min, tool failure, exit codes, `--product-json`; `info_plist` keys and values; spec has no pystray; the log redirect: TTY, other command, append, truncation, failure fallback, folder name == `bundle_name`). 59 pass.
+- **Gates.** ruff check + format clean on `the_one/ tests/ scripts/ evals/ packaging/`; shellcheck 0.10.0 clean on `build.sh` and `build-inner.sh`; `bash -n` on `packaging/macos/*.sh`; `make test-unit`: 7399 passed, 12 skipped.
+- **Phase B must know.**
+  - `build.sh` no longer calls `checks.sh`, so the current workflow's `full` mode has no checks until Phase B rewires it (expected). The workflow still passes the positional version and the old probe bundle id `ai.gleepglorp.the-one`; both need updating (`APP_ID` is in `build.env`).
+  - `checks.sh` still has the old best-effort `open` block and an `$EXE` argument; the app/exe names should come from `build.env`/`product.json`.
+  - `audit.py` is not yet called anywhere; first hosted run uses `--report-only`.
+  - The Info.plist/bundle id changed to `ai.gleepglorp.GleepGlorpAI`, so the data-dir/log path expectations in `lifecycle.sh` use `~/Library/Logs/GleepGlorp AI/app.log`.
+  - Scratch: `$HOME/the-one-m32-build/f3/b-rehearse` (build.sh rehearsal kit: `venv-pyi/bin/{python,pyinstaller}`, `shims/`).
+
+**Phase B checkpoint (leg 6, Developer).** Leg status `landed`. Uncommitted. Evidence: `~/the-one-m32-evidence/f3/leg6/` (`rehearsal-lifecycle-*`, `rehearsal-workflow-*`, `rehearsal-probe-after-factoring-ok`, `rehearse6-scripts/` = the whole rehearsal kit, `test-unit.out`).
+
+**Leg 4's AC5 observable table, quoted** (the exact text `lifecycle.sh` asserts; logger `the_one.interfaces.desktop.shell` in `~/Library/Logs/GleepGlorp AI/app.log`; state route = `GET /api/window/state`):
+
+| lifecycle step | log line (exact text) | state-route field |
+|---|---|---|
+| launch (install) | `macos dock: delegate installed (route=subclass, app nap activity held)` | `tray: "dock"`, `mode`, `pid` |
+| window closed (red button / Cmd-W on main) | `dock: window hidden on close` | `visible: false` (real `NSWindow.isVisible`), process alive |
+| Dock icon / `open -a` | `reopen: decision=show hasVisibleWindows=<bool>` (`decision=defer` while booting, `ignore` while quitting) | `visible: true` |
+| second launch | focus POST handled (existing focus path), `reopen:` as above when AppKit forwards it | `visible: true`, same `pid` |
+| any path-T quit (menu/Dock Quit, Apple event, logout, Cmd-Q, `the-one quit`, `POST /api/window/quit`, takeover) | `terminate: applicationShouldTerminate received (decision=drain-then-reply)` | (server then drains) |
+| drain | `terminate: drain started` then `terminate: drain done in <s>s` (uvicorn's `Shutting down` / `Finished server process` lines in stderr) | route unreachable afterwards |
+| reply | `terminate: reply sending`, then `terminate: applicationWillTerminate (AppKit exiting)` | process gone |
+| boot did not stop in time | `terminate: boot did not stop within 5.0s` (warning) | - |
+| repeat terminate | `terminate: applicationShouldTerminate received (decision=already-pending)` | - |
+| window-only client quit | `... (decision=reply-now)` | - |
+| path S (Cmd-W on splash alone) | `path S: webview.start returned — draining`, drain lines from uvicorn, `path S: exiting (os._exit(0))` | gone |
+| boot stuck on path S | `path S: boot did not stop within 5.0s` (warning) before the exit line | gone |
+
+`lifecycle.sh` asserts the `route=subclass` install line FIRST (L1), then the rows it uses: install, `dock: window hidden on close`, `reopen: decision=show`, and for each quit the four lines received, `drain started`, `drain done in`, `reply sending` in that order (`applicationWillTerminate` is recorded, not required).
+
+**Built (Phase B)**
+- `packaging/macos/lib.sh` (new): `tl now fsub sleep_s wait_until track alive pids_for stop_all stop_pid listener runrc rcnote cred cred_prefix http http_post shot front_pid front_note gate_wait window_state new_pid wait_exit`, moved out of `probe/probe.sh` (which now sources it; behaviour unchanged, see the re-run below).
+- `packaging/macos/lifecycle.sh` (new, `lifecycle.sh APP_N APP_N1 APP_ID VERSION_N VERSION_N1 OUT_DIR`): installs N by `ditto` into `$M32_INSTALL_DIR` (default `/Applications`), runs L1-L10 as `--run` children each under its own cap, writes one `PASS|FAIL <id> <title>: [ok: ...] [BAD: ...]` row per step (+ `INFO L3i` for Cmd-W) and `== done`. Log read by byte offset; apps by path (`open -a`); System Events by `first process whose unix id is <pid>`; pids from `/api/window/state`; every call through `tl`. A step that finds no app running starts one (evidence says so). Parameters: `M32_PRODUCT_PORT` (non-default makes `open --env THE_ONE_PORT/THE_ONE_DATA_DIR` and the CLI env carry it), `M32_DATA_DIR`, `M32_APP_LOG`, `M32_CRASH_DIR`, `M32_INSTALL_DIR`, `M32_BUDGET` (1000), `M32_CAP_Ln`, `M32_SCALE`, `M32_STOP_WAIT`.
+- `packaging/macos/checks.sh`: old `open` block removed; strict doctor greps (`desktop shell: OK — Cocoa backend present`, `tray: dock`, `^ *path: `); bundle audit (`M32_AUDIT_ARGS`, default `--report-only`, note = the `audit:` summary line); `.dmg` layout (`hdiutil attach -readonly -nobrowse -noverify -noautoopen -mountpoint`, `GleepGlorp AI.app` + `Applications` -> `/Applications`, detached in an EXIT trap with a `-force` retry). `M32_DMG` / `M32_PRODUCT_JSON` come from the workflow (the bundle name and executable name from `product.json`).
+- `.github/workflows/macos-packages.yml` (`on:` byte-identical to `probe/macos-packages.stub.yml`, checked by `diff`; `actionlint 1.7.7` with shellcheck 0.10.0 clean): `inputs.mode` goes through `env` (not inlined), an unknown mode fails in Paths.
+- `packaging/macos/README.md`, `probe/README.md`, `probe.sh` header: the new files, modes, step table, bounds and the estimate.
+
+**Workflow mode map**
+
+| step | full | lifecycle | probe |
+|---|---|---|---|
+| Build (`build.sh --version $M32_VERSION`, `continue-on-error`, id `build`; exports `M32_DMG` from `build.env`) | yes | yes | - |
+| Build the product app (`M32_SKIP_CHECKS=1 M32_SKIP_DMG=1`, id `build_probe`) | - | - | yes |
+| Checks (`checks.sh A ...`, `!cancelled()`, `M32_AUDIT_ARGS=--report-only`; writes a `FAIL checks:` line itself when there is no `.app`) | yes | yes | - |
+| Build N+1 (`M32_REUSE_VENV=1 M32_SKIP_DMG=1`, version from `render.py --next-version`, logs in `logs/n1/`) | - | yes, only if the N build succeeded | - |
+| Lifecycle (`lifecycle.sh` under `perl alarm 1200`, `!cancelled()`, never fails the step; writes `FAIL L0` itself when a bundle is missing) | - | yes, even after a checks failure | - |
+| Freeze probe app, selftest, Premise probe (`probe.sh "$APP" ... "$APP_ID"` from `build.env`) | - | - | yes |
+| Summary (`A/`, `lifecycle/`, `probe/`), log upload, `.dmg` upload (`macos-dmg`, 7 days, `if env.M32_DMG != ''`), final check (anchored `^FAIL`; fails on a non-success build / N+1 build outcome; fails in lifecycle mode when `lifecycle/SUMMARY.txt` is missing) | yes | yes | yes (no `.dmg`) |
+
+**Bound table and worst case**
+
+| step | cap (s) | | step | cap (s) |
+|---|---|---|---|---|
+| install (`ditto`) | 120 | | L6 quit Apple event | 130 |
+| L1 launch | 80 | | L7 `quit --wait` | 120 |
+| L2 close | 50 | | L8 Cmd-Q | 130 |
+| L3 reopen | 70 | | L9 upgrade | 190 |
+| L4 second launch | 50 | | L10 trash | 70 |
+| L5 geometry | 200 | | | |
+
+Sum with the install: 1210 s, but a step is skipped once 1000 s have passed, so with every cap firing the run ends after L9 at about 1140 s plus the final stop (about 19-20 min), under the 1200 s outer bound (the cap trap runs after the current foreground call, at most one inner bound later, so the outer bound is the backstop). Estimated job (no hosted lifecycle run exists yet): **typical about 15 min** (setup and N build with `.dmg` 3, checks 3, N+1 build 1, lifecycle 5-8, uploads 1); **plausible worst case about 40 min** (every non-lifecycle step at 2x typical: 8 + 6 + 3 + 2, plus lifecycle at its 19-minute bound), under the 50 min job. The sum of every step's own `timeout-minutes` is 71 (3+1+2+4+1+6+12+12+8+22), so a run in which several steps hit their own caps would be cut by the job timeout; that run has already failed, and the `always()` steps upload what exists. The probe runs measured 4.5 and 5.25 min for a whole job including the build, so the 2x figure is generous for setup and N build.
+
+**Rehearsal by execution (Linux)** — `rehearse6` kit: a fake product exe (Python server answering `/api/live`, `/api/window/state`, `/api/info`, the quit/focus routes, providers/agents/sessions, writing leg 4's log lines to a fake `~/Library/Logs/GleepGlorp AI/app.log`, honouring `window-state.json`, refusing 8484/8485) and shims for `open`, `osascript`, `lsappinfo`, `screencapture`, `ditto`, `hdiutil` (a tar of the source folder, so attach rebuilds the layout), `codesign`, `otool`, `lipo`, `python3 -m pip|venv`, `uv`, `sysctl`, `df`. Ports 18490-18497 only. SUMMARY tails:
+- **all pass** (`rehearsal-lifecycle-ok`, 32 s): `== done in 32 s: 12 PASS, 0 FAIL`; e.g. `PASS L6 quit Apple event drains, then exits: [ok: app running] [ok: only the installed copy runs ...] [ok: quit Apple event (rc=0)] [ok: exited within 70 s (1.1 s)] [ok: log: received, drain started, drain done, reply sending, in order] ...`.
+- **one expectation fails** (`fail`: geometry not restored, 31 s): `FAIL L5 ... [BAD: size within 2 px (716x537 -> 1024x743)] [BAD: position within 40 px ...]`, `== done in 31 s: 11 PASS, 1 FAIL`; the script continued through L10. Also `crash` (a `.ips` after the Apple-event quit): `FAIL L6 ... [BAD: no new crash report (...the-one-....ips )]`.
+- **`osascript` hang** (`hang`: every System Events call sleeps 100 s, 330 s): `[BAD: close button AXPress (rc=142 (bound fired))]` in L2, `[BAD: set position and size (rc=142 (bound fired))]` and `[BAD: Cmd-Q keystroke (rc=142 (bound fired))]` in L5, L8 likewise; `== done in 330 s: 9 PASS, 3 FAIL`; no process or listener left. A cap firing is shown by `capfire` (`M32_CAP_L5=2`): `FAIL L5 step cap of 2 s reached; partial evidence in ...`, the next step restarts the app, `11 PASS, 1 FAIL`.
+- **`open -n` returns a second listening pid** (`second`, SO_REUSEPORT): `FAIL L4 ... [BAD: second process 1396075 exited (still alive)] [BAD: one listener on 18492, the first process (during: 1395479 1396075; after: 1395479 1396075)]` (L6 then fails as collateral: the listener that answers is the second process).
+- **drain lines missing** (`nodrain`, no log lines on the Apple-event quit): `FAIL L6 ... [BAD: log: received, drain started, drain done, reply sending, in order (missing: terminate: applicationShouldTerminate received (decision=drain-then-reply))] [applicationWillTerminate not logged]`, `11 PASS, 1 FAIL`.
+- Each scenario ended `leftover processes: none`, `listeners: none`.
+- **Workflow steps extracted and run** (`wf6.py`: `bash --noprofile --norc -eo pipefail` per `run:` step, `if:`/`continue-on-error`/`steps.*.outcome` evaluated, fake `RUNNER_TEMP`, the real `build.sh`, `checks.sh`, `lifecycle.sh`, `probe.sh`): `full` (checks `0 hard check(s) failed`; audit with `--report-only` prints `audit (--report-only): audit: 4 Mach-O files, 1 fat (universal), ... 1 problem(s)` and `PASS bundle audit` because it is report-only; `.dmg` layout 4 PASS; final check rc 0; both uploads would find their paths), `lifecycle` (N+1 version `0.11.9.dev41` from `--next-version`; 12 PASS; final check rc 0), `lifecycle` with `hdiutil attach` failing (checks `FAIL dmg attaches read-only`, lifecycle **still ran** 12 PASS, final check rc 1), `lifecycle` with the geometry failure (final check rc 1 listing the `FAIL L5` row), `lifecycle` with a failing freeze (checks write `FAIL checks: the .app is missing`, N+1 skipped, lifecycle writes `FAIL L0 an app bundle is missing`, final rc 1), `probe` (selftest, premise probe passes `bundle_id=ai.gleepglorp.GleepGlorpAI` from `build.env`, no `.dmg`, no `quiescence` rows, final rc 0). "Runner evidence" runs on Linux through `sysctl`/`df`/`xcodebuild`/`system_profiler` shims.
+- **probe.sh unchanged after the lib.sh factoring:** the "all shims succeed" rehearsal re-run (`rehearsal-probe-after-factoring-ok`, `driver rc=0 in 42 s`, no leftovers) against leg 3b's last `rehearsal-ok` SUMMARY: identical rows after normalising numbers and paths; the single difference is a timing mark (`+cut not-live` in 3b's cold series vs `live` now, the scaled-cap artefact leg 3b already recorded).
+- Bugs the rehearsal found in `lifecycle.sh` (fixed): `chk "..." $?` read after a command substitution in the label (four sites, now `rc=$?` first); `ensure_app` did not wait for the window after a launch; the exit time printed without a unit. Found by reading: `cli_env` running the shell function `tl` under `env` (replaced by `cli_run`, which puts `env` inside `tl`).
+
+**Checks.** `shellcheck 0.10.0 -x` clean on `lifecycle.sh lib.sh checks.sh build.sh probe/probe.sh`; `bash -n` under bash 3.2.57 (`bash:3.2` image, read-only mount; removed with `docker rmi`, no `m32-*` container left) for the same five; grep for `mapfile|readarray|${x,,}|declare -A|local -n|[[ =~|&>>|\|&` finds only comments (no arrays, no `[[`); `actionlint 1.7.7 -shellcheck` clean; `on:` block equals the stub; `ruff check` and `ruff format --check` (`packaging/ the_one/ tests/ scripts/ evals/`) clean; `make test-unit`: **7399 passed, 12 skipped** (384 s, `test-unit.out`).
+
+**Leg 7 (the hosted run) must know**
+- Nothing here has run on a Mac. Unproven until dispatch: System Events `click button 1 of window 1` as the close driver, `tell application id "ai.gleepglorp.GleepGlorpAI" to quit` reaching the `/Applications` copy (the build-directory copies are only asserted not to run), the JXA screen-size read, `lsappinfo front` after `open -a`, `lsof` listeners, `hdiutil attach -mountpoint` flags, `system_profiler` in "Runner evidence" (wrapped in `|| true`), and the two `_install_delegate`/`_begin_activity` bodies from leg 4. If L1's `route=subclass` row is BAD, read it first.
+- The `--report-only` audit passes whatever it finds: read `A/audit.txt` and flip `M32_AUDIT_ARGS` (workflow, Checks step; set it to the empty string to enforce) once the report is clean.
+- Dispatch with `-f mode=lifecycle -f version=<dev version>`: N is that version, N+1 is `render.py --next-version` of it. A dispatch with no version input uses `__version__` (a final `0.11.8` gives N+1 `0.11.9.dev1`, which `CFBundleVersion`-sorts above it).
+- `lifecycle.sh` needs the credential file to exist before L1: it is created by `checks.sh` gate 4 (`rotate-api-credential` on the default data dir); the lifecycle header and L9 record that. If the checks step is skipped or dies earlier, the state-route reads in L1 return 401 and every step fails honestly.
+- Geometry (L5) compares System Events' frame to System Events' frame (size +-2 px, position +-40 px); `window-state.json` is only asserted to exist and to have changed. The screen is read first; the target frame is 70% of it.
+- First-paint PNGs at +1, +3 and +5 s are in `lifecycle/L1/`; `lifecycle/app.log` is the whole log; each quit step keeps its segment (`quit-event.log`, `quit-cli.log`, `cmd-q.log`).
+- The `.dmg` artifact is `macos-dmg` (7 days). The N+1 build is never uploaded.
+
+**Review fixes (leg 6).** Timeout layering reworked: job 60 min; step caps checkout 2, Paths 1, Runner evidence 2, setup-python 3, versions 1, export 5, build 12, checks 10, N+1 build 6 (42 min before lifecycle), Lifecycle 21 (bound `B = min(1200, 3600 - elapsed - 420)` s from `M32_T0` recorded in the Paths step; `B < 300` writes `FAIL L0 no time left` and skips), Summary 1, log upload 3, .dmg upload 2, final check 1 (7 min after). `lifecycle.sh` gets `M32_BUDGET=B-200` (default lowered 1000 to 850). Worst case: 42 min + B 660 s + 7 min = 60 min, so at least 7 min remain for the evidence steps in every path. Also: the final check requires the `== A done` line in `A/SUMMARY.txt`; `checks.sh` dmg-exists capture no longer reads the `$(basename)` status (and clears SC2319); `audit.py` cap 300 to 420 s. Verified: actionlint 1.7.7 clean, shellcheck 0.10.0 clean at `-S error`, `bash -n`, `on:` block identical to the stub, workflow rehearsals in lifecycle mode (all pass: 12 PASS, final check rc 0), `late` scenario (`M32_T0` 3400 s back: `FAIL L0 no time left`, Summary/upload/final check ran, final check red), and full mode.
+
 
 ## Decisions
 

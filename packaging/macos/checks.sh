@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Checks against one built macOS .app (packaging checks, DD6).
-# Run on the hosted macos-15 runner by packaging/macos/build.sh; every step is logged, none aborts the later ones.
+# Checks against one built macOS .app and its .dmg (packaging checks, DD6, DD8).
+# Run on the hosted macos-15 runner as its own step of macos-packages.yml (build.sh no longer runs
+# it); every step is logged, none aborts the later ones. The window and the dock behaviour are
+# lifecycle.sh's, not this script's.
 #
 #   checks.sh LABEL APP EXE LOGDIR
 #     LABEL   A (the PyInstaller build; names the evidence directory)
 #     APP     path of "GleepGlorp AI.app" (quote it: the name has a space)
 #     EXE     path of the bundle's main executable (.../Contents/MacOS/the-one)
 #     LOGDIR  evidence directory; files land in LOGDIR/LABEL/
-# The window is not tested here (DD6), except for one best-effort Finder-style `open`.
+# Environment (optional): M32_DMG (the .dmg to layout-check; none = that check is skipped),
+# M32_PRODUCT_JSON (build.sh's product.json; default: beside the dist directory of APP, which is
+# where build.sh writes it: it names the bundle and gives the audit its minimum OS),
+# M32_AUDIT_ARGS (arguments for audit.py; the default is --report-only, so a false positive in
+# the first hosted run cannot burn a dispatch: leg 7 flips it to enforcing).
 # Exits 1 when a hard check failed (so the workflow step shows red), else 0.
 set -u
 LABEL="${1:?label}"; APP="${2:?app}"; EXE="${3:?exe}"; LOGDIR="${4:?logdir}"
@@ -16,6 +22,9 @@ OUT="$LOGDIR/$LABEL"; mkdir -p "$OUT"
 SCRATCH="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/m32-checks-$LABEL"; rm -rf "$SCRATCH"; mkdir -p "$SCRATCH/data" "$SCRATCH/cwd"
 SUMMARY="$OUT/SUMMARY.txt"; : > "$SUMMARY"
 FAILS=0
+DMG="${M32_DMG:-}"
+PJ="${M32_PRODUCT_JSON:-$(dirname "$(dirname "$APP")")/product.json}"
+AUDIT_ARGS="${M32_AUDIT_ARGS---report-only}"
 note() { echo "$*" | tee -a "$SUMMARY"; }
 hard() { # $1 = name  $2 = 0|1 failed
   if [ "$2" = 0 ]; then note "PASS $1"; else note "FAIL $1"; FAILS=$((FAILS + 1)); fi
@@ -74,6 +83,10 @@ print(json.dumps(score.score_doctor(open(sys.argv[2], errors="replace").read()))
 note "doctor score: $(cat "$OUT/doctor-score.json")"
 grep -q '"pass": true' "$OUT/doctor-score.json"; hard "gate 1 doctor" $?
 grep -E "desktop shell|file watcher|window chrome|python interpreter|time zones|mcp sdk" "$OUT/doctor.txt" | while IFS= read -r l; do note "  $l"; done
+# strict on top of the score: the three macOS facts leg 5 and leg 4 put in the doctor, by exact text
+grep -qF 'desktop shell: OK — Cocoa backend present' "$OUT/doctor.txt"; hard "doctor: desktop shell is the Cocoa backend" $?
+grep -qF 'tray: dock' "$OUT/doctor.txt"; hard "doctor: tray is dock" $?
+grep -qE '^ *path: ' "$OUT/doctor.txt"; hard "doctor: a path: line is present" $?
 
 # ---- gate 2: the interpreter doctor resolved, run independently --------------------
 PYP="$(sed -n 's/.*python interpreter: OK.*resolved to //p' "$OUT/doctor.txt" | head -1 | tr -d '\r')"
@@ -96,7 +109,15 @@ stop_serve() {
   for _ in $(seq 1 15); do kill -0 "$SERVE_PID" 2>/dev/null || { SERVE_PID=""; return 0; }; sleep 1; done
   kill -KILL "$SERVE_PID" 2>/dev/null; SERVE_PID=""
 }
-trap stop_serve EXIT
+DMG_MP=""
+detach_dmg() {
+  [ -n "$DMG_MP" ] || return 0
+  tl 60 hdiutil detach "$DMG_MP" > "$OUT/dmg-detach.txt" 2>&1 \
+    || { sleep 2; tl 60 hdiutil detach -force "$DMG_MP" >> "$OUT/dmg-detach.txt" 2>&1; }
+  DMG_MP=""
+}
+cleanup() { stop_serve; detach_dmg; }
+trap cleanup EXIT
 (cd "$SCRATCH/cwd" && exec perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 240 \
   env THE_ONE_PORT=8490 THE_ONE_DATA_DIR="$SCRATCH/data" "$EXE" serve) > "$OUT/serve.log" 2>&1 &
 SERVE_PID=$!
@@ -117,27 +138,41 @@ ls -laR "$HOME/Library/Application Support/the-one" > "$OUT/gate4-ls.txt" 2>&1
 note "gate 4: $(grep -v -e NSLog -e std-nslog "$OUT/gate4-rotate.txt" | head -2 | tr '\n' '|')"
 grep -q "Library/Application Support/the-one/" "$OUT/gate4-rotate.txt"; hard "gate 4 data dir under Application Support" $?
 
-# ---- best effort: a Finder-style launch (no arguments), the path a double-click takes ------
-# Not scored (DD6: the runner's GUI session is not reliable). Records whether the bare launch
-# starts the server (so `app` was chosen) and where the window gets to.
-rm -rf "$SCRATCH/data-open"; mkdir -p "$SCRATCH/data-open"
-tl 30 open -n --env THE_ONE_PORT=8490 --env THE_ONE_DATA_DIR="$SCRATCH/data-open" "$APP" > "$OUT/open.txt" 2>&1
-echo "open rc=$?" >> "$OUT/open.txt"
-OPENLIVE=1
-for _ in $(seq 1 60); do
-  if curl -fsS -m 2 http://127.0.0.1:8490/api/live > "$OUT/open-live.txt" 2>&1; then OPENLIVE=0; break; fi
-  sleep 1
-done
-note "finder-style open: live=$OPENLIVE $(head -c 120 "$OUT/open-live.txt" 2>/dev/null)"
-if [ "$OPENLIVE" = 0 ]; then
-  CRED="$(tr -d '[:space:]' < "$SCRATCH/data-open/api-credential" 2>/dev/null)"
-  curl -s -m 5 -X POST -H "Authorization: Bearer $CRED" http://127.0.0.1:8490/api/window/focus > "$OUT/open-focus.txt" 2>&1
-  note "  window focus: $(head -c 120 "$OUT/open-focus.txt")"
+# ---- the bundle audit (DD8): load paths, arm64 slices, minimum OS --------------------------
+if [ -f "$PJ" ]; then
+  # shellcheck disable=SC2086  # AUDIT_ARGS is a flag list on purpose
+  tl 420 python3 "$HERE/audit.py" "$APP" --product-json "$PJ" $AUDIT_ARGS > "$OUT/audit.txt" 2>&1
+  ARC=$?
+  echo "rc=$ARC" >> "$OUT/audit.txt"
+  note "audit ($AUDIT_ARGS): $(grep '^audit:' "$OUT/audit.txt" | head -1 | cut -c1-200)"
+  hard "bundle audit" "$ARC"
+else
+  note "audit: $PJ is missing"
+  hard "bundle audit (product.json present)" 1
 fi
-tl 60 screencapture -x "$OUT/open-screen.png" > "$OUT/screencapture.txt" 2>&1 || true
-# stop the launched app by the PID that owns the port (found by us, not by name)
-OPID="$(lsof -nP -iTCP:8490 -sTCP:LISTEN -t 2>/dev/null | head -1)"
-if [ -n "$OPID" ]; then kill -TERM "$OPID" 2>/dev/null; sleep 3; kill -KILL "$OPID" 2>/dev/null; fi
+
+# ---- the .dmg layout (DD8): the app beside an Applications symlink ---------------------------
+if [ -n "$DMG" ]; then
+  BNAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_name"])' "$PJ" 2>/dev/null)"
+  if [ -f "$DMG" ]; then DMG_RC=0; else DMG_RC=1; fi
+  hard "dmg file exists ($(basename "$DMG"))" "$DMG_RC"
+  MP="$SCRATCH/dmg-mount"; rm -rf "$MP"; mkdir -p "$MP"
+  tl 120 hdiutil attach -readonly -nobrowse -noverify -noautoopen -mountpoint "$MP" "$DMG" > "$OUT/dmg-attach.txt" 2>&1
+  ATT=$?
+  [ "$ATT" = 0 ] && DMG_MP="$MP"
+  hard "dmg attaches read-only" "$ATT"
+  if [ "$ATT" = 0 ]; then
+    ls -la "$MP" > "$OUT/dmg-layout.txt" 2>&1
+    D1=1; if [ -n "$BNAME" ] && [ -d "$MP/$BNAME.app" ]; then D1=0; fi
+    hard "dmg holds $BNAME.app" "$D1"
+    D2=1; if [ -L "$MP/Applications" ] && [ "$(readlink "$MP/Applications")" = /Applications ]; then D2=0; fi
+    hard "dmg Applications is a symlink to /Applications" "$D2"
+    note "dmg: $(wc -c < "$DMG" | tr -d ' ') bytes; $(tr '\n' '|' < "$OUT/dmg-layout.txt" | cut -c1-200)"
+  fi
+  detach_dmg
+else
+  note "dmg layout: skipped (no M32_DMG)"
+fi
 
 note "== $LABEL done: $FAILS hard check(s) failed"
 [ "$FAILS" = 0 ]

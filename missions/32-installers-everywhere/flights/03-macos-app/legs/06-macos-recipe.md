@@ -1,6 +1,6 @@
 # Leg: macos-recipe
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -120,12 +120,12 @@ Everything is rehearsed by execution on Linux before leg 7 spends a dispatch.
   Also: `shellcheck`, bash 3.2 `-n`, `actionlint`, and the workflow's steps extracted and run against a fake `RUNNER_TEMP`.
 
 ## Acceptance Criteria
-- [ ] **AC1 (A):** the metadata, render, Linux key rename, spec, `build.sh` and `.dmg` changes as listed. Unit tests pass, `make test-unit` passes with 12 skips, ruff is clean.
-- [ ] **AC2 (A):** the Linux no-change proof is recorded, with only the allowed difference. A Linux `.deb` and AppImage build (`M32_BUILD=$HOME/the-one-m32-build/f3 packaging/linux/build.sh --version 0.11.9.dev31`) succeeds and its audit passes.
-- [ ] **AC3 (A):** `audit.py` and its tests; the spec's PyInstaller Analysis still runs on Linux against the build venv.
-- [ ] **AC4 (B):** the workflow's `full`/`lifecycle` modes and `lifecycle.sh` as listed. `actionlint` and `shellcheck` are clean, and the `on:` block equals the stub.
-- [ ] **AC5 (B):** the three rehearsal scenarios run and are recorded. The worst-case wall time of `lifecycle` mode is estimated, and it fits the 50 min job.
-- [ ] **AC6:** hygiene: no 8484/8485 on this host, the operator data dir unchanged, only recorded pids killed, only `m32-*` containers (none left), no root-owned files left.
+- [x] **AC1 (A):** the metadata, render, Linux key rename, spec, `build.sh` and `.dmg` changes as listed. Unit tests pass, `make test-unit` passes with 12 skips, ruff is clean.
+- [x] **AC2 (A):** the Linux no-change proof is recorded, with only the allowed difference. A Linux `.deb` and AppImage build (`M32_BUILD=$HOME/the-one-m32-build/f3 packaging/linux/build.sh --version 0.11.9.dev31`) succeeds and its audit passes.
+- [x] **AC3 (A):** `audit.py` and its tests; the spec's PyInstaller Analysis still runs on Linux against the build venv.
+- [x] **AC4 (B):** the workflow's `full`/`lifecycle` modes and `lifecycle.sh` as listed. `actionlint` and `shellcheck` are clean, and the `on:` block equals the stub.
+- [x] **AC5 (B):** the three rehearsal scenarios run and are recorded. The worst-case wall time of `lifecycle` mode is estimated, and it fits the 50 min job.
+- [x] **AC6:** hygiene: no 8484/8485 on this host, the operator data dir unchanged, only recorded pids killed, only `m32-*` containers (none left), no root-owned files left.
 
 ## Files Affected
 - `packaging/{product.toml,render.py}`, `packaging/linux/{build.env.in,metainfo.xml.in,build-inner.sh}`

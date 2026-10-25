@@ -1,6 +1,6 @@
 # Product metadata, the one source for every installer (Mission 32, DD6).
-# Read by packaging/render.py. Consumers: the Linux recipe (packaging/linux/, Flight 2,
-# now); the macOS recipe (Flight 3) and the Windows recipe (Flight 4) later.
+# Read by packaging/render.py. Consumers: the Linux recipe (packaging/linux/, Flight 2),
+# the macOS recipe (packaging/macos/, Flight 3); the Windows recipe (Flight 4) later.
 # The version is not here: render.py reads it from the_one/__init__.py.
 
 display_name = "GleepGlorp AI"                       # menu name, window title, package title
@@ -11,6 +11,7 @@ homepage = "https://github.com/msieurthenardier/the-one"
 license = "MIT"                                      # SPDX identifier; must match pyproject.toml
 icon_source = "the_one/interfaces/web/static/brand/icon-512.png"
 data_slug = "the-one"                                # platformdirs name of the data dir; pinned to config.py by a test
+app_id = "ai.gleepglorp.GleepGlorpAI"                # reverse-DNS id: AppStream component id (Linux), CFBundleIdentifier (macOS); keep stable once shipped
 
 [linux]
 package = "gleepglorp-ai"                            # .deb package name, AppDir library dir
@@ -23,4 +24,10 @@ executable = "the-one"                               # the frozen binary; /usr/b
 wm_class = "the-one"                                 # StartupWMClass
 categories = "Utility;"
 quit_action_name = "Quit GleepGlorp AI"              # the desktop action that runs `the-one quit`
-metainfo_id = "ai.gleepglorp.GleepGlorpAI"           # AppStream component id; keep stable once shipped
+
+[macos]
+bundle_name = "GleepGlorp AI"                        # GleepGlorp AI.app, CFBundleName, the dmg volume name
+bundle_executable = "the-one"                        # Contents/MacOS/<this>
+dmg_file_stem = "GleepGlorp_AI"                      # GleepGlorp_AI-<version>-arm64.dmg
+min_os = "14.0"                                      # LSMinimumSystemVersion; the bundled numpy's arm64 extensions need macOS 14
+bundle_category = "public.app-category.productivity" # LSApplicationCategoryType

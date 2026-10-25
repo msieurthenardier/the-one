@@ -432,7 +432,7 @@ Verified against the working tree at `e21d219`:
 - [ ] `macos-probe-run` — one dispatch, the evidence read, the apparatus settled (Accessibility, or the test seam), the first-paint cause classified
 - [x] `macos-dock-mode` — the dock mode, reopen, both quit paths (terminate with `NSTerminateLater`; stop with `begin_quit` and the geometry save), `boot_stopped`, `activate` on the main thread, App Nap, the native visibility read, the pywebview canary, the desktop test seam if leg 3 needs it, and any shell first-paint fix with its Linux VM check (DD2-DD5, DD9, DD11)
 - [x] `macos-runtime-seam` — the interpreter `PATH` walk and the Command Line Tools stub, the login-shell `PATH`, the static additions, and every `doctor` change (the `PATH` source, the runtime list, `tray: dock`, the darwin `desktop shell` gate) (DD2, DD6, DD7)
-- [ ] `macos-recipe` — `app_id` and `[macos]` in `product.toml`, the Info.plist from `render.py`, the version mapping, `build.sh` CLI, the drag-install `.dmg`, `audit.py`, the full workflow with `lifecycle.sh`; rehearsed by execution (DD8-DD10, DD13)
+- [x] `macos-recipe` — `app_id` and `[macos]` in `product.toml`, the Info.plist from `render.py`, the version mapping, `build.sh` CLI, the drag-install `.dmg`, `audit.py`, the full workflow with `lifecycle.sh`; rehearsed by execution (DD8-DD10, DD13)
 - [ ] `macos-hosted-checks` — dispatches within the budget, fixes, then `docs/macos-install.md`, README, the `CLAUDE.md`/`agents.md` sections, the contributor checklist and `tests/behavior/macos-app-install.md` (draft) from the evidence (DD12-DD14)
 - [ ] `macos-hat` *(optional)* — the operator reviews the screenshot series, the `.dmg` and the guide; decisions are logged
 
