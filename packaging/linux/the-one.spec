@@ -6,7 +6,7 @@ collection contract, minus the Windows-only parts (winpty, pystray._win32, the
 console/windowed exe split: Linux has one exe serving the CLI and `app`).
 
 Build with build.sh. Environment:
-    M32_STAGE        the staged copy of the_one/ (packaging/spike/stage.py output). REQUIRED.
+    M32_STAGE        the staged copy of the_one/ (packaging/stage.py output). REQUIRED.
     M32_NO_EXCLUDES  "1" = skip excludes.txt and keep the gi typelibs (the AC4 "before" build).
 
 Unlike the Windows spec, this one never puts the repo root on sys.path and never
@@ -174,6 +174,15 @@ if not _NO_EXCLUDES:
     print(f"[the-one.spec] excluded {len(_dropped)} host-stack files:")
     for _d in sorted(_dropped):
         print(f"[the-one.spec]   - {_d}")
+
+# PyInstaller's stock gi/gio/glib/gtk runtime hooks run AFTER rthook_host_gtk.py and re-point
+# GI_TYPELIB_PATH, GIO_MODULE_DIR, XDG_DATA_DIRS, GTK_PATH and friends at directories in the
+# bundle, undoing the hook; WebKit's helper processes then inherit those. They only set
+# environment variables, and rthook_host_gtk.py owns that environment, so drop them.
+if not _NO_EXCLUDES:
+    a.scripts = [
+        s for s in a.scripts if s[0] not in {"pyi_rth_gi", "pyi_rth_gio", "pyi_rth_glib", "pyi_rth_gtk"}
+    ]
 
 pyz = PYZ(a.pure)  # noqa: F821
 

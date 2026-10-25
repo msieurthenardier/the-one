@@ -1,4 +1,4 @@
-# Mission 32 Flight 1 spike tooling (not product). Candidate-neutral images.
+# Packaging check images (Mission 32 Flight 2, DD8): the container images the gate suite runs in.
 #   docker build --target baseline -t m32/debian-13:baseline -f debian-13.Dockerfile .
 #   docker build --target bare     -t m32/debian-13:bare     -f debian-13.Dockerfile .
 # baseline = a stock GNOME desktop's packages (task-gnome-desktop, default

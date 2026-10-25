@@ -1,0 +1,26 @@
+# Product metadata, the one source for every installer (Mission 32, DD6).
+# Read by packaging/render.py. Consumers: the Linux recipe (packaging/linux/, Flight 2,
+# now); the macOS recipe (Flight 3) and the Windows recipe (Flight 4) later.
+# The version is not here: render.py reads it from the_one/__init__.py.
+
+display_name = "GleepGlorp AI"                       # menu name, window title, package title
+summary = "Your personal AI agent"                   # .desktop Comment, Debian synopsis, AppStream summary
+description = "GleepGlorp AI is a personal agent powered by the language model of your choice. It runs on your own computer, keeps your chats and settings there, and can read files, run code and browse the web when you allow it."
+maintainer = "GleepGlorp AI <noreply@invalid>"       # Debian Maintainer field
+homepage = "https://github.com/msieurthenardier/the-one"
+license = "MIT"                                      # SPDX identifier; must match pyproject.toml
+icon_source = "the_one/interfaces/web/static/brand/icon-512.png"
+data_slug = "the-one"                                # platformdirs name of the data dir; pinned to config.py by a test
+
+[linux]
+package = "gleepglorp-ai"                            # .deb package name, AppDir library dir
+desktop_id = "gleepglorp-ai"                         # .deb .desktop id and icon name; AppDir root entry
+appimage_desktop_id = "gleepglorp-ai-appimage"       # the AppImage's own application-menu entry and icon
+appimage_name = "GleepGlorp AI (AppImage)"           # its menu name, apart from the .deb's
+appimage_file_stem = "GleepGlorp_AI"                 # GleepGlorp_AI-<version>-x86_64.AppImage
+install_dir = "/opt/gleepglorp-ai"                   # .deb install prefix
+executable = "the-one"                               # the frozen binary; /usr/bin/ symlink name
+wm_class = "the-one"                                 # StartupWMClass
+categories = "Utility;"
+quit_action_name = "Quit GleepGlorp AI"              # the desktop action that runs `the-one quit`
+metainfo_id = "ai.gleepglorp.GleepGlorpAI"           # AppStream component id; keep stable once shipped

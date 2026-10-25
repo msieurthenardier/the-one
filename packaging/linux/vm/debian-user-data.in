@@ -1,0 +1,64 @@
+#cloud-config
+# Debian 13 GNOME base for the Mission 32 fresh-VM apparatus. Apparatus settings, not product.
+hostname: m32-debian
+ssh_pwauth: true
+users:
+  - name: @USER@
+    gecos: M32 test user
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    ssh_authorized_keys:
+      - @PUBKEY@
+chpasswd:
+  expire: false
+  users:
+    - {name: @USER@, password: @PASSWORD@, type: text}
+write_files:
+  - path: /usr/local/sbin/m32-provision.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -ux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y openssh-server sudo
+      # Default recommends on purpose: gnome-software + its PackageKit plugin come this way.
+      apt-get install -y task-gnome-desktop
+      # GDM autologin (Debian reads daemon.conf; custom.conf is the override file).
+      for f in /etc/gdm3/daemon.conf /etc/gdm3/custom.conf; do
+        mkdir -p /etc/gdm3
+        printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=@USER@\n' > "$f"
+      done
+      # First-run wizard off.
+      install -d -o @USER@ -g @USER@ /home/@USER@/.config
+      echo yes > /home/@USER@/.config/gnome-initial-setup-done
+      chown @USER@:@USER@ /home/@USER@/.config/gnome-initial-setup-done
+      # Lock, blanking and idle-suspend off for every user (system dconf default).
+      install -d /etc/dconf/profile /etc/dconf/db/local.d
+      printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+      cat > /etc/dconf/db/local.d/00-m32 <<'DCONF'
+      [org/gnome/desktop/session]
+      idle-delay=uint32 0
+      [org/gnome/desktop/screensaver]
+      lock-enabled=false
+      idle-activation-enabled=false
+      [org/gnome/settings-daemon/plugins/power]
+      sleep-inactive-ac-type='nothing'
+      sleep-inactive-battery-type='nothing'
+      [org/gnome/desktop/lockdown]
+      disable-lock-screen=true
+      DCONF
+      sed -i 's/^      //' /etc/dconf/db/local.d/00-m32
+      dconf update
+      # NetworkManager owns the network once GNOME is installed; drop cloud-init's renderer.
+      rm -f /etc/netplan/*.yaml
+      systemctl enable NetworkManager || true
+      touch /etc/cloud/cloud-init.disabled
+      apt-get clean
+      sync
+      echo M32-PROVISION-DONE
+      systemctl poweroff
+runcmd:
+  - [bash, -c, '/usr/local/sbin/m32-provision.sh > /var/log/m32-provision.log 2>&1']
