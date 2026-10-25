@@ -39,9 +39,16 @@ tuple. The Windows additions are separate and unioned only on Windows.
 
 from __future__ import annotations
 
+import logging
 import os
+import signal
+import subprocess
 import sys
+import tempfile
+import threading
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # M15 F6 review-fix — frozen windowed-app stdio guard.
@@ -185,7 +192,10 @@ def _common_runtime_dirs() -> list[str]:
     checked here (cheap, and a non-existent dir on PATH is harmless); de-dup and
     ordering are handled by the caller.
     """
-    home = Path.home()
+    try:
+        home = Path.home()
+    except (RuntimeError, KeyError, OSError):  # HOME unset in an odd launch
+        home = Path("/nonexistent-home")
     if os.name == "nt":
         program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
         appdata = os.environ.get("APPDATA", str(home / "AppData" / "Roaming"))
@@ -205,7 +215,142 @@ def _common_runtime_dirs() -> list[str]:
         str(home / ".local" / "bin"),
         str(home / ".cargo" / "bin"),  # uv default install location
         str(home / ".npm-global" / "bin"),
+        str(home / ".volta" / "bin"),
+        str(home / ".local" / "share" / "fnm" / "aliases" / "default" / "bin"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# M32 F3 L5 (DD7) — the login-shell PATH for a frozen macOS app.
+#
+# A Finder/Dock launch inherits launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+# which misses nvm/fnm/asdf/Volta/pyenv shims. ``prime_login_shell_path`` asks
+# the user's login shell for its PATH ONCE per process, synchronously, at command
+# start (``main.cli_entry`` for serve/doctor, ``DesktopSession.run`` for app). An
+# unprimed process never computes it lazily. Frozen darwin only; a no-op elsewhere.
+# ---------------------------------------------------------------------------
+
+_PATH_BEGIN = "__M32_PATH_BEGIN__"
+_PATH_END = "__M32_PATH_END__"
+_PRIME_LOCK = threading.Lock()
+# (source, reason, entries); None until primed.
+_PRIMED: tuple[str, str, tuple[str, ...]] | None = None
+_NOT_APPLICABLE = "not applicable"
+
+
+def _login_shell_applies() -> bool:
+    return is_frozen() and sys.platform == "darwin"
+
+
+def _login_shell() -> str:
+    shell = os.environ.get("SHELL", "").strip()
+    if shell:
+        return shell
+    try:
+        import pwd
+
+        pw_shell = pwd.getpwuid(os.getuid()).pw_shell
+        if pw_shell:
+            return pw_shell
+    except Exception:  # noqa: BLE001
+        pass
+    return "/bin/zsh"
+
+
+def _parse_marked_path(text: str) -> list[str]:
+    """Entries between the markers (the last complete block), or ``[]``."""
+    lines = text.splitlines()
+    result: list[str] = []
+    begin: int | None = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == _PATH_BEGIN:
+            begin = i
+        elif stripped == _PATH_END and begin is not None:
+            result = [ln.strip() for ln in lines[begin + 1 : i]]
+            begin = None
+    joined = "".join(result)
+    if not joined:
+        return []
+    return [e for e in joined.split(os.pathsep) if e]
+
+
+def _run_login_shell(timeout: float) -> tuple[list[str], str]:
+    """Run the probe; return ``(entries, reason)`` (reason set when entries empty)."""
+    shell = _login_shell()
+    script = f"printf '%s\\n' {_PATH_BEGIN}; /usr/bin/printenv PATH; printf '%s\\n' {_PATH_END}"
+    try:
+        with tempfile.TemporaryFile() as out:
+            proc = subprocess.Popen(  # noqa: S603
+                [shell, "-l", "-i", "-c", script],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            try:
+                rc = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                try:
+                    proc.wait(timeout=2)
+                except Exception:  # noqa: BLE001
+                    pass
+                return [], f"{os.path.basename(shell)} did not answer within {timeout:g}s"
+            if rc != 0:
+                return [], f"{os.path.basename(shell)} exited {rc}"
+            out.seek(0)
+            text = out.read().decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001 - missing/relative $SHELL etc.
+        return [], f"could not run {shell!r}: {exc.__class__.__name__}"
+    entries = _parse_marked_path(text)
+    if not entries:
+        return [], "the login shell printed no PATH"
+    return entries, ""
+
+
+def prime_login_shell_path(timeout: float = 5.0) -> str:
+    """Ask the login shell for its PATH once (frozen darwin only). Never raises.
+
+    Returns ``"login shell"``, ``"static fallback"`` (probe failed; cached too, so
+    the shell never runs again) or ``"not applicable"`` (not frozen darwin; no
+    state change). Idempotent and thread-safe.
+    """
+    global _PRIMED
+    try:
+        if not _login_shell_applies():
+            return _NOT_APPLICABLE
+        with _PRIME_LOCK:
+            if _PRIMED is not None:
+                return _PRIMED[0]
+            entries, reason = _run_login_shell(timeout)
+            if entries:
+                _PRIMED = ("login shell", "", tuple(entries))
+            else:
+                _log.warning("login-shell PATH unavailable (%s); using the static fallback", reason)
+                _PRIMED = ("static fallback", reason, ())
+            return _PRIMED[0]
+    except Exception:  # noqa: BLE001 - defensive: priming must never break startup
+        return "static fallback"
+
+
+def path_source() -> tuple[str, str]:
+    """``(source, reason)`` for ``doctor``: unprimed / login shell / static fallback /
+    not applicable. ``reason`` is empty except on fallback."""
+    if not _login_shell_applies():
+        return (_NOT_APPLICABLE, "")
+    primed = _PRIMED
+    if primed is None:
+        return ("unprimed", "")
+    return (primed[0], primed[1])
+
+
+def _reset_login_shell_state_for_tests() -> None:
+    global _PRIMED
+    _PRIMED = None
 
 
 def strip_bundle_dir_from_path(env: dict[str, str]) -> dict[str, str]:
@@ -256,7 +401,17 @@ def clean_subprocess_env(env: dict[str, str]) -> dict[str, str]:
     if not is_frozen():
         return env
 
-    stripped = strip_bundle_dir_from_path(env)
+    # DD7: on a primed frozen darwin the login shell's entries come first, then the
+    # inherited PATH, then the static list. The bundle strip runs over the combined
+    # PATH, so a login PATH naming the bundle dir cannot leak into a child.
+    primed = _PRIMED if _login_shell_applies() else None
+    login_entries = list(primed[2]) if primed and primed[0] == "login shell" else []
+    if login_entries:
+        combined = dict(env)
+        combined["PATH"] = os.pathsep.join([*login_entries, env.get("PATH", "")])
+        stripped = strip_bundle_dir_from_path(combined)
+    else:
+        stripped = strip_bundle_dir_from_path(env)
     existing = [p for p in stripped.get("PATH", "").split(os.pathsep) if p]
 
     augment = list(_common_runtime_dirs())

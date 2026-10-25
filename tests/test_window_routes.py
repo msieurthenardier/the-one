@@ -20,11 +20,11 @@ def _client():
 
 
 def test_state_without_window():
-    import the_one.interfaces.desktop.shell as shell
+    from the_one.interfaces.desktop.session_state import state
 
     with (
-        patch.object(shell, "_desktop_window", None),
-        patch.object(shell, "_session", None),
+        patch.object(state, "desktop_window", None),
+        patch.object(state, "session", None),
         _client() as c,
     ):
         r = c.get("/api/window/state", headers=auth_headers())
@@ -35,13 +35,14 @@ def test_state_without_window():
 
 
 def test_state_with_window():
-    import the_one.interfaces.desktop.shell as shell
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
     with (
-        patch.object(shell, "_desktop_window", object()),
-        patch.object(shell, "_session", object()),
-        patch.object(shell, "window_visible", return_value=True),
-        patch.object(shell, "_window_mapped", return_value=True),
+        patch.object(state, "desktop_window", object()),
+        patch.object(state, "session", object()),
+        patch.object(window_control, "window_visible", return_value=True),
+        patch.object(window_control, "_window_mapped", return_value=True),
         _client() as c,
     ):
         body = c.get("/api/window/state", headers=auth_headers()).json()
@@ -50,21 +51,25 @@ def test_state_with_window():
 
 
 def test_quit_without_window_and_with():
-    import the_one.interfaces.desktop.shell as shell
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
-    with patch.object(shell, "_desktop_window", None), _client() as c:
+    with patch.object(state, "desktop_window", None), _client() as c:
         r = c.post("/api/window/quit", headers=auth_headers())
     assert r.json() == {"quit": False, "pid": os.getpid(), "state": None}
-    for state in ("window", "booting", "browser"):
-        with patch.object(shell, "quit_desktop", return_value=state), _client() as c:
+    for tag in ("window", "booting", "browser"):
+        with patch.object(window_control, "quit_desktop", return_value=tag), _client() as c:
             r = c.post("/api/window/quit", headers=auth_headers())
-        assert r.json() == {"quit": True, "pid": os.getpid(), "state": state}
+        assert r.json() == {"quit": True, "pid": os.getpid(), "state": tag}
 
 
 def test_quit_never_500s_on_gui_error():
-    import the_one.interfaces.desktop.shell as shell
+    from the_one.interfaces.desktop import window_control
 
-    with patch.object(shell, "quit_desktop", side_effect=RuntimeError("gui")), _client() as c:
+    with (
+        patch.object(window_control, "quit_desktop", side_effect=RuntimeError("gui")),
+        _client() as c,
+    ):
         r = c.post("/api/window/quit", headers=auth_headers())
     assert r.status_code == 200 and r.json()["quit"] is False
 
@@ -85,8 +90,11 @@ def test_routes_are_plain_defs():
 
 
 def test_state_except_fallback_reports_serve():
-    import the_one.interfaces.desktop.shell as shell
+    from the_one.interfaces.desktop import window_control
 
-    with patch.object(shell, "window_state", side_effect=RuntimeError("gui")), _client() as c:
+    with (
+        patch.object(window_control, "window_state", side_effect=RuntimeError("gui")),
+        _client() as c,
+    ):
         body = c.get("/api/window/state", headers=auth_headers()).json()
     assert body["mode"] == "serve" and body["desktop"] is False and body["pid"] == os.getpid()

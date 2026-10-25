@@ -112,11 +112,26 @@ def detect_runtimes(env: dict[str, str]) -> list[ProbeResult]:
     # transport module (and its heavier deps) into the doctor's import path
     # unless doctor actually runs.
     from the_one.mcp.transports.stdio import _RUNTIME_INSTALL_HINTS
+    from the_one.platform.interpreter import walk_python_candidates
 
     path = env.get("PATH") or None
     results: list[ProbeResult] = []
     for name in _PROBED_RUNTIMES:
-        found = shutil.which(name, path=path)
+        if name in ("python", "python3"):
+            # Same per-entry walk and stub filter as the resolver (M32 F3 DD6).
+            found, skipped = walk_python_candidates([name], path)
+            if not found and skipped == "clt":
+                results.append(
+                    ProbeResult(
+                        name,
+                        True,
+                        "not found — only the macOS Command Line Tools stub is on PATH; "
+                        "install Python 3 (python.org or Homebrew)",
+                    )
+                )
+                continue
+        else:
+            found = shutil.which(name, path=path)
         if found:
             results.append(ProbeResult(name, True, f"found at {found}"))
         else:
@@ -201,6 +216,25 @@ def bundle_has_modules(names: tuple[str, ...] | list[str]) -> list[str]:
     return missing
 
 
+_DARWIN_SHELL_MODULES = ("webview.platforms.cocoa", "objc", "AppKit", "WebKit")
+
+
+def _probe_desktop_shell_darwin() -> ProbeResult:
+    """macOS desktop-shell gate (M32 F3 DD2): spec lookups only.
+
+    There is no tray on macOS, so pystray is never probed, and the Cocoa backend
+    is never imported (``bundle_has_modules`` runs no package ``__init__``).
+    """
+    missing = bundle_has_modules(_DARWIN_SHELL_MODULES)
+    if not missing:
+        return ProbeResult("desktop shell", True, "Cocoa backend present")
+    if is_frozen():
+        return ProbeResult("desktop shell", False, f"missing from the bundle: {', '.join(missing)}")
+    return ProbeResult(
+        "desktop shell", True, f"skipped (gui extra not installed: {', '.join(missing)})"
+    )
+
+
 def _probe_desktop_shell() -> ProbeResult:
     """Desktop-shell gate.
 
@@ -211,6 +245,8 @@ def _probe_desktop_shell() -> ProbeResult:
     the host can actually show a tray (its package ``__init__`` selects a
     backend at import and can raise ``ValueError`` or open an X display).
     """
+    if sys.platform == "darwin":
+        return _probe_desktop_shell_darwin()
     if not (sys.platform.startswith("linux") and is_frozen()):
         return _probe_desktop_shell_generic()
     try:
@@ -1106,6 +1142,14 @@ def _advisory_lines() -> list[str]:
         lines.append(_tray_line())
     except Exception as exc:  # noqa: BLE001
         lines.append(f"tray: unavailable — {exc.__class__.__name__}")
+    try:
+        from the_one.platform.env import path_source
+
+        source, reason = path_source()
+        if source != "not applicable":
+            lines.append(f"path: {source}" + (f" — {reason}" if reason else ""))
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"path: unavailable — {exc.__class__.__name__}")
     return lines
 
 
@@ -1113,7 +1157,7 @@ def _tray_line() -> str:
     if sys.platform == "win32":
         return "tray: system tray (Windows)"
     if sys.platform == "darwin":
-        return "tray: not probed (macOS)"
+        return "tray: dock — macOS keeps the app in the Dock"
     from the_one.interfaces.desktop import host
 
     if not host.host_has_desktop_gtk():

@@ -1,10 +1,16 @@
+"""The desktop launcher: ``DesktopSession`` and ``run_desktop``.
+
+Mission 32, Flight 3, DD1: the version takeover (``takeover.py``), the window
+control helpers (``window_control.py``) and the lifecycle flags
+(``session_state.py``) moved out; this module reaches them through those
+modules, never by importing their names.
+"""
+
 from __future__ import annotations
 
 import logging
 import os
-import re
 import signal
-import socket
 import sys
 import threading
 import time
@@ -13,50 +19,34 @@ import webbrowser
 import httpx
 import uvicorn
 
-from the_one import __version__
-from the_one.api_credential import get_credential
 from the_one.config import settings
-from the_one.interfaces.desktop import chrome, notice, tray
+from the_one.interfaces.desktop import (
+    chrome,
+    macos_dock,
+    notice,
+    takeover,
+    tray,
+    window_control,
+)
 from the_one.interfaces.desktop import host as desktop_host
 from the_one.interfaces.desktop import window_state as window_state_store
+from the_one.interfaces.desktop.session_state import state
+from the_one.platform import env as platform_env
 
 log = logging.getLogger(__name__)
 
-# ── Module-level lifecycle state (reset to these defaults each process launch) ──
-# Set to True by the Quit tray-menu callback so the `closing` handler allows
-# the window destroy instead of hiding it.
-_really_quit: bool = False
-# The pywebview Window object; populated in run_desktop() for use by callbacks.
-_desktop_window = None
-# How the tray was decided this launch: "indicator" | "xembed" | "none" |
-# "failed" | None (Windows/macOS, or not decided yet). Reset at the top of run().
-_tray_mode: str | None = None
-# The running DesktopSession (set at the top of run(), cleared when it returns);
-# quit_desktop() uses it from the HTTP route.
-_session = None
-# Visibility tracked by the shell for non-GTK backends (GTK reads get_visible()).
-_tracked_visible: bool | None = None
-# Pending quit and the boot race (DD4). Everything the quit route reads or the
-# boot publishes is guarded by ``_window_lock``; ``_on_quit`` (which blocks on
-# icon.stop() and destroy) is NEVER called while holding it.
-_window_lock = threading.Lock()
-# True from just after the ``is_ours`` return in run() until the window is
-# published (step 6), the browser branch is entered, or run() ends.
-_booting: bool = False
-# A quit that arrived while ``_booting``; _boot honours it at each checkpoint.
-_quit_requested: bool = False
-# The uvicorn server while the browser-fallback branch is active.
-_browser_server = None
-
-# The one-time notice for a close with no tray to go back to.
-# Short on purpose: GNOME's banner truncates long text with an ellipsis.
-_NO_TRAY_NOTICE_SUMMARY = "GleepGlorp AI is still running"
-_NO_TRAY_NOTICE_BODY = "Open it again to show it, or right-click its icon to quit."
-
 # The one-time notice for a close that hides the window into the tray.
-# Short for the same reason; ``tray.notify(icon, message, title)`` order.
+# Short on purpose: GNOME's banner truncates long text with an ellipsis.
+# ``tray.notify(icon, message, title)`` order.
+# macOS only: how long _boot waits for the (hidden) main window's first page load before
+# showing it anyway. A local load is well under a second and a cold first launch (Gatekeeper
+# scan, App Translocation) a few; 12 s is generous, yet inside the 15 s server wait and the
+# 25 s splash handler wait, so a page that never reports `loaded` still shows a window.
+MAIN_LOADED_BOUND = 12.0
+
 _TRAY_NOTICE_TITLE = "GleepGlorp AI is still running"
 _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
+
 
 # ── Splash screen ─────────────────────────────────────────────────────────────
 # Inline HTML rendered before the app server is up (no localhost URL, no CDN).
@@ -285,267 +275,6 @@ def _graceful_shutdown(server, thread, timeout: float = 60.0) -> None:
     thread.join(timeout=timeout)
 
 
-# -- Version takeover (DD13) -------------------------------------------------
-# Small, individually stubbable seams: the unit tests drive the whole takeover
-# through them with no real clock, process or network.
-
-_TAKEOVER_WAIT_BOUND = 75.0  # `_graceful_shutdown`'s 60 s join plus margin
-_TAKEOVER_POLL = 0.5
-_TAKEOVER_NOTICE_AFTER = 3.0
-
-
-def _now() -> float:
-    return time.monotonic()
-
-
-def _sleep(seconds: float) -> None:
-    time.sleep(seconds)
-
-
-def _parse_version(text: str):
-    """Parse ``X.Y.Z[.devN]`` into a sortable key, or None when it is not that.
-
-    A ``.devN`` build sorts before its release (``0.11.9.dev1 < 0.11.9``) and dev
-    numbers compare as integers (``dev9 < dev10``) -- the same order dpkg gives
-    ``0.11.9~dev1``. ``packaging`` is not a declared dependency, so this is
-    deliberately tiny; anything else (a local suffix, rc, junk) is None.
-    """
-    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\.dev(\d+))?", text.strip())
-    if not m:
-        return None
-    major, minor, patch, dev = m.groups()
-    # A release (no dev) sorts after every dev of the same X.Y.Z.
-    return (int(major), int(minor), int(patch), (0, int(dev)) if dev is not None else (1, 0))
-
-
-def _is_older(running: str | None, ours: str) -> bool:
-    """True only when both parse and ``running`` is strictly older than ``ours``."""
-    if running is None:
-        return False
-    a, b = _parse_version(running), _parse_version(ours)
-    if a is None or b is None:
-        return False
-    return a < b
-
-
-def _auth_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {get_credential().encode()}"}
-
-
-def _running_version(host: str, port: int) -> str | None:
-    """The running instance's version from ``GET /api/info``, or None (unknown)."""
-    try:
-        r = httpx.get(f"http://{host}:{port}/api/info", headers=_auth_headers(), timeout=2.0)
-        if r.status_code != 200:
-            return None
-        version = r.json().get("version")
-        return version if isinstance(version, str) else None
-    except (httpx.HTTPError, ValueError, AttributeError):
-        return None
-
-
-def _request_quit(host: str, port: int) -> dict | None:
-    """``POST /api/window/quit``. Returns ``{"status": int, "body": dict|None}``.
-
-    None on a connection error.
-    """
-    try:
-        r = httpx.post(
-            f"http://{host}:{port}/api/window/quit", headers=_auth_headers(), timeout=5.0
-        )
-    except httpx.HTTPError:
-        return None
-    try:
-        body = r.json() if r.status_code == 200 else None
-    except ValueError:
-        body = None
-    return {"status": r.status_code, "body": body if isinstance(body, dict) else None}
-
-
-def _pid_alive(pid: int) -> bool:
-    """Is process ``pid`` still running? Never ``os.kill`` on Windows, where any
-    signal other than CTRL_C/CTRL_BREAK is ``TerminateProcess``."""
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-
-        synchronize = 0x00100000
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        kernel32.OpenProcess.restype = wintypes.HANDLE
-        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        kernel32.WaitForSingleObject.restype = wintypes.DWORD
-        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-        kernel32.CloseHandle.restype = wintypes.BOOL
-        handle = kernel32.OpenProcess(synchronize, False, int(pid))
-        if not handle:
-            return False
-        try:
-            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(int(pid), 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _wait_for_exit(pid: int, bound: float = _TAKEOVER_WAIT_BOUND) -> bool:
-    """Wait until ``pid`` exits. True when it did, False at ``bound`` seconds."""
-    start = _now()
-    notified = False
-    while _pid_alive(pid):
-        elapsed = _now() - start
-        if elapsed >= bound:
-            return False
-        if not notified and elapsed >= _TAKEOVER_NOTICE_AFTER:
-            notified = True
-            desktop_host.send_notification("GleepGlorp AI", "Updating GleepGlorp AI\u2026")
-        _sleep(_TAKEOVER_POLL)
-    return True
-
-
-def _activation_token() -> str | None:
-    token = os.environ.get("XDG_ACTIVATION_TOKEN") or os.environ.get("DESKTOP_STARTUP_ID")
-    if token and len(token) <= 256 and not any(c.isspace() for c in token):
-        return token
-    return None
-
-
-def _post_focus(host: str, port: int) -> None:
-    """Raise the running instance's window, forwarding any activation token.
-
-    A failed or rejected POST is tolerated (logged): the existing instance keeps
-    running either way and this process is about to exit.
-    """
-    token = _activation_token()
-    try:
-        kwargs = {"json": {"activation_token": token}} if token else {}
-        httpx.post(
-            f"http://{host}:{port}/api/window/focus",
-            headers=_auth_headers(),
-            timeout=2.0,
-            **kwargs,
-        )
-    except httpx.HTTPError:  # intentionally broad: ConnectError + TimeoutException
-        log.warning("focus POST to running instance failed; exiting anyway")
-
-
-def _takeover(host: str, port: int) -> tuple[int, bool]:
-    """Handle an instance that shares our credential (DD13).
-
-    Returns ``(port, True)`` to mean "done: a running instance was focused or
-    left alone, exit" and ``(port, False)`` after an older instance was quit
-    and the port re-selected ("start normally").
-    """
-    running = _running_version(host, port)
-    if not _is_older(running, __version__):
-        _post_focus(host, port)
-        return port, True
-    log.info("running GleepGlorp AI %s is older than %s; replacing it", running, __version__)
-    answer = _request_quit(host, port)
-    if answer is None:
-        log.warning("quit request to the older instance failed; focusing it")
-        _post_focus(host, port)
-        return port, True
-    status, body = answer["status"], answer["body"]
-    if status in (401, 403):
-        log.warning(
-            "port %s answered %s to the quit request: another program, or a "
-            "different credential, holds it",
-            port,
-            status,
-        )
-        return port, True
-    if status in (404, 405):
-        log.warning(
-            "the running GleepGlorp AI has no quit route; restart GleepGlorp AI "
-            "to finish the upgrade"
-        )
-        _post_focus(host, port)
-        return port, True
-    if status != 200 or body is None:
-        log.warning("unexpected answer to the quit request (HTTP %s); focusing it", status)
-        _post_focus(host, port)
-        return port, True
-    if body.get("quit") is not True:
-        log.warning("a server-only instance holds the port; not replacing it")
-        return port, True
-    pid = body.get("pid")
-    if type(pid) is not int or pid <= 0:
-        log.warning("quit answer carries no valid pid; focusing the running instance")
-        _post_focus(host, port)
-        return port, True
-    if not _wait_for_exit(pid):
-        log.warning("the older instance (pid %s) did not exit in time; focusing it", pid)
-        _post_focus(host, port)
-        return port, True
-    # Two near-simultaneous launches can still race here; documented.
-    return _select_port(host, port)
-
-
-def _select_port(host: str, port: int, retries: int = 3, delay: float = 0.3) -> tuple[int, bool]:
-    """Select the port to use and determine if a the-one instance is already running.
-
-    Returns (port_to_use, is_our_instance):
-    - (port, False): port is free — start a new server on the configured port.
-    - (port, True): a the-one that shares OUR credential is already answering
-      on that port (DD4 case b, DD11) — do NOT start a second server.
-    - (free_port, False): a foreign process holds the configured port (DD4 case c)
-      — bind-0 a free port for this instance.
-
-    Uses a connect-probe (not a bind-probe with SO_REUSEADDR, which gives a
-    false "free" on a TIME_WAIT port). Includes a startup-retry so a the-one
-    that just bound but hasn't finished lifespan startup (/api/info not yet 200)
-    isn't misclassified as foreign.
-
-    DD11: "ours" is credentialed. The prior version-only check (200 +
-    matching `__version__`) misclassified a *different* instance running the
-    same version against a *different* data directory as ours — version
-    alone says nothing about which data directory (and therefore which
-    credential) answered. Sending our own credential and treating a 200 as
-    success is what "ours" should always have meant: the server on the other
-    end validated the exact credential this process would also use, which
-    only happens when it reads the same credential file. A foreign server
-    that also 401s (wrong or absent credential) simply resolves to "not
-    ours" — already the safe answer for the fall-through below.
-
-    Edge case: no credential file exists yet (fresh machine, first launch).
-    `get_credential()` creates one on first use rather than raising, so a
-    missing-credential machine still gets a well-formed probe — and "cannot
-    be ours" falls out naturally (nothing on a fresh machine could share a
-    credential that didn't exist a moment ago).
-    """
-    auth_headers = {"Authorization": f"Bearer {get_credential().encode()}"}
-    for attempt in range(retries):
-        # (b) a the-one that shares OUR credential already answering?
-        try:
-            r = httpx.get(f"http://{host}:{port}/api/info", headers=auth_headers, timeout=1.0)
-            if r.status_code == 200:
-                return port, True
-        except httpx.HTTPError:
-            pass
-        # Is ANYTHING listening? connect-probe — no bind race.
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            occupied = s.connect_ex((host, port)) == 0
-        if not occupied:
-            return port, False  # (a) free — fast path, no retry
-        if attempt < retries - 1:
-            # occupied-not-(yet)-ours: a starting the-one? give it the startup window
-            time.sleep(delay)
-    # (c) occupied by a foreign process, or by a the-one that never confirmed
-    # OUR credential (a different data dir or a rotated credential): bind-0 a
-    # free port. Ownership is decided by credential, never by version — a the-one
-    # of another version that shares our credential answered (b) above.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((host, 0))
-        return s.getsockname()[1], False
-
-
 def _webview_available() -> bool:
     """Probe whether a WebView backend is available without initializing the GUI stack.
 
@@ -592,269 +321,13 @@ def _no_webview_body() -> str:
     return _NO_WEBVIEW_BODIES[piece]
 
 
-def _is_gtk_backend() -> bool:
-    """True when pywebview runs its GTK/WebKit2 backend (read at call time).
-
-    ``webview.start()`` sets ``renderer`` before the first window is created.
-    Never ``from webview import renderer`` (a stale copy).
-    """
-    return getattr(sys.modules.get("webview"), "renderer", None) == "gtkwebkit2"
-
-
-def _on_wayland(window) -> bool:
-    """True when the window's GDK display is Wayland (falls back to the host probe)."""
-    try:
-        return "Wayland" in type(window.native.get_display()).__name__
-    except Exception:
-        return desktop_host.display_session() == "wayland"
-
-
-def _mark_visible() -> None:
-    global _tracked_visible
-    _tracked_visible = True
-
-
-def _show_window(window, *, restore: bool = False) -> None:
-    """Map and raise the main window.
-
-    On GTK, ``BrowserView.show()`` re-hides a window whose ``hidden`` flag is
-    still set (creation-time ``hidden=True``) when ``main_level() == 0``, so the
-    flag is cleared first and ``restore()`` (deiconify + present) maps it.
-    Elsewhere: ``show()``, plus ``restore()`` only when asked.
-    """
-    if _is_gtk_backend():
-        window.hidden = False
-        window.show()
-        window.restore()
-    else:
-        window.show()
-        if restore:
-            window.restore()
-    _mark_visible()
-
-
-def _gtk_read(fn, timeout: float = 1.0):
-    """Run ``fn()`` on the GTK main thread and return its value, or None on timeout."""
-    if threading.current_thread() is threading.main_thread():
-        return fn()
-    from webview.platforms import gtk as _gtkmod
-
-    done = threading.Event()
-    box: list = []
-
-    def _job():
-        try:
-            box.append(fn())
-        except Exception:
-            log.debug("gtk read raised", exc_info=True)
-            box.append(None)
-        finally:
-            done.set()
-        return False
-
-    _gtkmod.glib.idle_add(_job)
-    if not done.wait(timeout):
-        log.warning("window state read timed out after %.1fs", timeout)
-        return None
-    return box[0]
-
-
-def window_visible() -> bool | None:
-    """Whether the main window is visible; None when unknown (no window / timeout)."""
-    window = _desktop_window
-    if window is None:
-        return None
-    if not _is_gtk_backend():
-        return _tracked_visible
-    try:
-        return _gtk_read(lambda: bool(window.native.get_visible()))
-    except Exception:
-        log.warning("window_visible: read failed", exc_info=True)
-        return None
-
-
-def _window_mapped() -> bool | None:
-    window = _desktop_window
-    if window is None or not _is_gtk_backend():
-        return None
-    try:
-        return _gtk_read(lambda: bool(window.native.get_mapped()))
-    except Exception:
-        return None
-
-
-def _mode() -> str | None:
-    """The lifecycle mode: serve / quitting / window / booting / browser / None."""
-    if _session is None:
-        return "serve"
-    if _really_quit:
-        return "quitting"
-    if _desktop_window is not None:
-        return "window"
-    if _booting:
-        return "booting"
-    if _browser_server is not None:
-        return "browser"
-    return None
-
-
-def window_state() -> dict:
-    """The ``GET /api/window/state`` body. Never raises."""
-    try:
-        visible = window_visible()
-        mapped = _window_mapped()
-    except Exception:
-        log.warning("window_state: read failed", exc_info=True)
-        visible = mapped = None
-    return {
-        "desktop": _desktop_window is not None,
-        "mode": _mode(),
-        "visible": visible,
-        "mapped": mapped,
-        "tray": _tray_mode,
-        "version": __version__,
-        "pid": os.getpid(),
-    }
-
-
-def quit_desktop() -> str | None:
-    """Quit the desktop session (``POST /api/window/quit``).
-
-    Returns the state acted on: ``"window"`` (the session's quit ran),
-    ``"booting"`` (a quit is recorded and ``_boot`` honours it at its next
-    checkpoint), ``"browser"`` (the fallback server was told to drain), or
-    None when there is nothing to quit (``serve`` mode). The state is chosen
-    under ``_window_lock``; the blocking quit runs after the lock is released.
-    """
-    global _quit_requested
-    with _window_lock:
-        session = _session
-        if _desktop_window is not None and session is not None:
-            if _really_quit:
-                return "window"  # a quit is already under way; never destroy twice
-            state = "window"
-        elif _booting:
-            _quit_requested = True
-            return "booting"
-        elif _browser_server is not None:
-            _browser_server.should_exit = True
-            return "browser"
-        else:
-            return None
-    try:
-        session._on_quit(session._icon)
-        return state
-    except Exception:
-        log.warning("quit_desktop: raised", exc_info=True)
-        return None
-
-
-def _gtk_activate(window, token: str) -> None:
-    """Queue ONE GTK idle that raises ``window`` with an activation token.
-
-    ``set_startup_id`` hands the token to GDK (X11 startup-notification, or
-    ``xdg_activation_v1`` on Wayland) before the window is presented, so the
-    compositor's focus-stealing prevention accepts the raise. It replaces a
-    plain present: a present queued first could already be denied.
-    """
-    from webview.platforms import gtk as _gtkmod
-
-    def _job():
-        try:
-            native = window.native
-            native.set_startup_id(token)
-            native.deiconify()
-            native.present()
-        except Exception:
-            log.warning("focus_window: activation idle raised", exc_info=True)
-        return False
-
-    window.hidden = False
-    _gtkmod.glib.idle_add(_job)
-
-
-def focus_window(activation_token: str | None = None) -> bool:
-    """Raise and restore the registered desktop window (thread-safe).
-
-    ``activation_token`` is the launching desktop's ``XDG_ACTIVATION_TOKEN`` /
-    ``DESKTOP_STARTUP_ID`` (opaque; never logged in full). On GTK with a token
-    it is applied in a single idle (``_gtk_activate``); otherwise the plain
-    show-and-restore path runs.
-
-    Returns True when a window is registered and the raise succeeded. Returns
-    False when no window is registered (e.g. serve mode) or the call raises
-    (logged; never propagated into the HTTP handler).
-    """
-    if _desktop_window is None:
-        return False
-    try:
-        if activation_token and _is_gtk_backend():
-            log.info("focus_window: activation token %s...", activation_token[:6])
-            _gtk_activate(_desktop_window, activation_token)
-            _mark_visible()
-        else:
-            _show_window(_desktop_window, restore=True)
-        return True
-    except Exception:
-        log.warning("focus_window: show()/restore() raised", exc_info=True)
-        return False
-
-
-def set_window_theme(theme: str) -> dict:
-    """Tell the shell the page's resolved theme (``POST /api/window/chrome``).
-
-    Records and persists it (desktop session only) and tints the native title
-    bar when a window is registered on Windows. Returns ``{"theme", "desktop",
-    "tinted"}`` (``tinted`` is True, False or ``"pending"``). Never raises:
-    failures are logged, as ``focus_window()`` does.
-    """
-    try:
-        return chrome.request(theme)
-    except Exception:
-        log.warning("set_window_theme: raised", exc_info=True)
-        return {"theme": theme, "desktop": False, "tinted": False}
-
-
-def _clear_booting() -> None:
-    global _booting
-    with _window_lock:
-        _booting = False
-
-
-def _no_tray_hide(window=None) -> bool:
-    """Hide the window for a close with no tray (``_tray_mode == "none"``).
-
-    Hides, marks the tracked visibility False, then shows the one-time notice
-    (its own marker, separate from the tray's). ``send_notification`` returns at
-    once, so the GTK main thread never blocks (DD12). Returns False when there
-    is no window or ``hide()`` raised (the caller then allows the destroy).
-    """
-    global _tracked_visible
-    window = window or _desktop_window
-    if window is None:
-        return False
-    try:
-        window.hide()
-    except Exception:
-        log.warning("no-tray hide failed — allowing the close", exc_info=True)
-        return False
-    _tracked_visible = False
-    try:
-        if not notice.no_tray_notice_shown():
-            notice.mark_no_tray_notice_shown()
-            desktop_host.send_notification(_NO_TRAY_NOTICE_SUMMARY, _NO_TRAY_NOTICE_BODY)
-    except Exception:
-        log.debug("no-tray notice failed", exc_info=True)
-    return True
-
-
 class DesktopSession:
     """Owns the per-launch window/tray/quit lifecycle for the desktop app.
 
     All per-launch state (tray icon reference) lives here.  The window reference
-    and quit flag are kept as module globals so that focus_window() (module-level)
-    and the F6 test suite (which writes the module global directly) continue to
-    work without change — see DD1 and the RESOLVED note in the leg spec.
+    and quit flag live on ``session_state.state`` so that
+    ``window_control.focus_window()`` (module-level) and the test suite (which
+    sets ``session_state.state`` directly) share one copy — see M32 F3 DD1.
     """
 
     def __init__(self) -> None:
@@ -879,7 +352,7 @@ class DesktopSession:
         """
         if window is None or not window.events.shown.is_set():
             return
-        if _is_gtk_backend():
+        if window_control._is_gtk_backend():
             if threading.current_thread() is not threading.main_thread():
                 log.warning("window_state: GTK geometry save off the main thread — skipped")
                 return
@@ -889,7 +362,7 @@ class DesktopSession:
                 return
             try:
                 w, h = native.get_size()
-                if _on_wayland(window):
+                if window_control._on_wayland(window):
                     x = y = None
                 else:
                     x, y = native.get_position()
@@ -919,7 +392,7 @@ class DesktopSession:
         the destroy: a deterministic exit rather than a swallow into the event
         handler wrapper).
 
-        This method does NOT guard ``_really_quit`` — ``_on_closing`` does.
+        This method does NOT guard ``really_quit`` — ``_on_closing`` does.
         """
         if self._icon is None:
             return False  # nothing to hide into; _on_closing never gets here
@@ -932,9 +405,9 @@ class DesktopSession:
                 _TRAY_NOTICE_TITLE,
             )
 
-        if _desktop_window is not None:
+        if state.desktop_window is not None:
             try:
-                _desktop_window.hide()
+                state.desktop_window.hide()
             except Exception:
                 return False
         return True
@@ -945,10 +418,12 @@ class DesktopSession:
         Returns False (cancel the destroy) when the window was hidden, True
         (allow it) otherwise:
 
-        - ``_really_quit``: allow (the Quit callback asked for the destroy).
+        - ``really_quit``: allow (the Quit callback asked for the destroy).
         - tray running (``self._icon``): hide to tray.
-        - ``_tray_mode == "none"``: hide through ``_no_tray_hide`` (the app
+        - ``tray_mode == "none"``: hide through ``window_control._no_tray_hide`` (the app
           stays running; a relaunch or ``the-one quit`` reaches it).
+        - ``tray_mode == "dock"`` (macOS, M32 F3): ``macos_dock.on_close`` decides; a close
+          hides the window (the app stays in the Dock, no notice), a failed hide allows.
         - anything else (``failed``, None: no tray decided yet, or a non-Linux
           path with no tray): allow the destroy.
 
@@ -956,23 +431,70 @@ class DesktopSession:
         would lose the cancel value and destroy the window; the hide calls are
         wrapped and a failure allows the destroy deterministically.
         """
-        window = _desktop_window or self._window
+        window = state.desktop_window or self._window
         # Capture geometry before any hide/destroy (best-effort).
         self._save_current_geometry(window)
 
-        if _really_quit:
+        if state.really_quit:
             chrome.deregister()
             return True  # Quit callback already requested real destroy
 
-        if self._icon is not None:
+        if state.tray_mode == "dock":
+            hidden = self._dock_hide(window)
+        elif self._icon is not None:
             hidden = self._close_to_tray()
-        elif _tray_mode == "none":
-            hidden = _no_tray_hide(window)
+        elif state.tray_mode == "none":
+            hidden = window_control._no_tray_hide(window)
         else:
             hidden = False
         if not hidden:
             chrome.deregister()  # allowing the destroy
         return not hidden  # True → allow destroy; False → cancel
+
+    def _dock_hide(self, window) -> bool:
+        """Dock-mode close: hide when ``on_close`` says so. True when hidden."""
+        view = macos_dock.snapshot(state, native_window=window is not None)
+        if macos_dock.on_close(view) != "hide" or window is None:
+            return False
+        try:
+            window.hide()
+        except Exception:
+            log.warning("dock: hide on close raised — allowing the destroy", exc_info=True)
+            return False
+        log.info("dock: window hidden on close")
+        return True
+
+    def _drain(self, server, thread) -> None:
+        """Drain the session's server (the terminate worker's ``drain``)."""
+        _graceful_shutdown(server, thread)
+
+    def _path_s_begin(self) -> None:
+        """Path S, before the drain: the loop stopped without ``applicationShouldTerminate:``."""
+        log.info("path S: webview.start returned — draining")
+        state.loop_stopped = True
+        saved = state.begin_quit()  # also makes a still-running _boot stop
+        window = state.desktop_window or self._window
+        if window is not None:
+            macos_dock.order_out(window)
+        if saved is not None:
+            self._save_current_geometry(saved)
+
+    def _path_s_exit(self) -> None:
+        """Path S, after the drain: bounded wait on the boot, flush, hard exit.
+
+        pywebview starts ``_boot`` on a non-daemon thread that can be stuck in
+        ``create_window`` after the loop stopped, which would keep the process alive.
+        """
+        if not state.boot_stopped.wait(macos_dock.BOOT_WAIT_BOUND):
+            log.warning("path S: boot did not stop within %.1fs", macos_dock.BOOT_WAIT_BOUND)
+        log.info("path S: exiting (os._exit(0))")
+        macos_dock.flush_log_handlers()
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        os._exit(0)
 
     def _on_show(self, icon) -> None:
         """Tray "Show" menu callback: show the window.
@@ -983,8 +505,8 @@ class DesktopSession:
         hidden.  focus_window() keeps show()+restore() for the
         single-instance-focus path where the window may be minimized.
         """
-        if _desktop_window is not None:
-            _show_window(_desktop_window)
+        if state.desktop_window is not None:
+            window_control._show_window(state.desktop_window)
 
     def _on_quit(self, icon) -> None:
         """Tray "Quit" menu callback: graceful full exit.
@@ -995,8 +517,7 @@ class DesktopSession:
         destroy window (causes webview.start() to return) → the existing
         `finally: _graceful_shutdown(server, thread)` drains the server.
         """
-        global _really_quit
-        _really_quit = True  # tell _on_closing to allow destroy
+        state.really_quit = True  # tell _on_closing to allow destroy
         chrome.deregister()  # a request racing the destroy applies nothing
 
         # icon.stop() MUST run; guard so it survives even if destroy raises.
@@ -1006,14 +527,14 @@ class DesktopSession:
             except Exception:
                 log.warning("pystray icon.stop() raised during Quit — ignored", exc_info=True)
 
-        if _desktop_window is not None:
+        if state.desktop_window is not None:
             # Capture geometry before destroy (redundant-but-safe per edge-case
             # note in leg spec: closing fires on destroy in pywebview-5.4 for all
             # known backends, so _on_closing already ran; this second write is
             # idempotent forward-safety for any future backend that skips it).
-            if not _is_gtk_backend():  # on GTK, closing saves it (main thread)
-                self._save_current_geometry(_desktop_window)
-            _desktop_window.destroy()
+            if not window_control._is_gtk_backend():  # on GTK, closing saves it (main thread)
+                self._save_current_geometry(state.desktop_window)
+            state.desktop_window.destroy()
 
     # ── main run sequence ─────────────────────────────────────────────────────
 
@@ -1029,31 +550,26 @@ class DesktopSession:
         4. Splash teardown is idempotent (threading.Event guard) and the error
            path destroys both windows so the GUI loop always returns cleanly.
         """
-        global _really_quit, _desktop_window, _tray_mode, _session, _tracked_visible
-        global _booting, _quit_requested, _browser_server
-
         # Reset process-local state on each launch (e.g. if run_desktop() is called
         # more than once in tests after a reload).
-        _really_quit = False
-        _desktop_window = None
-        _tray_mode = None
-        _tracked_visible = None
-        _booting = False
-        _quit_requested = False
-        _browser_server = None
-        _session = self
+        state.reset()
+        state.session = self
+        if sys.platform == "darwin":
+            # Dock mode (M32 F3 DD2): set BEFORE webview.start so no tray_mode=None gap
+            # lets _on_closing allow a destroy; pystray is never imported on macOS.
+            state.tray_mode = "dock"
         chrome.reset()
 
         host, port = settings.host, settings.port
-        sel_port, is_ours = _select_port(host, port)
+        sel_port, is_ours = takeover._select_port(host, port)
         if is_ours:
             # A the-one that shares our credential already owns this port: focus
             # it, or, when it is an older version, replace it (DD13). Header-less
             # loopback POSTs (no Origin) clear the OriginAllowlistMiddleware; the
             # Authorization header carries the credential the gate requires.
-            sel_port, is_ours = _takeover(host, sel_port)
+            sel_port, is_ours = takeover._takeover(host, sel_port)
         if is_ours:
-            _session = None  # a window-only client owns nothing: not a desktop session
+            state.session = None  # a window-only client owns nothing: not a desktop session
             return
         # M21 F01 L02: `_select_port`'s fallback branch (Case C — the
         # configured port is occupied by a foreign process) resolves a
@@ -1068,9 +584,11 @@ class DesktopSession:
         # without ever running one).
         settings.port = sel_port
         # A quit from here on is recorded for _boot (or the browser branch) to
-        # honour; cleared on every exit path (see ``_clear_booting``).
-        with _window_lock:
-            _booting = True
+        # honour; cleared on every exit path (see ``clear_booting``).
+        state.begin_boot()
+        # DD7: prime the login-shell PATH (frozen macOS only; a no-op elsewhere, up to 5 s
+        # on macOS). After begin_boot, so a quit arriving during the probe finds the guard.
+        platform_env.prime_login_shell_path()
         # Base URL only — deliberately WITHOUT a handoff credential yet (DD7,
         # DD12). The token is single-use and short-lived, so it is minted
         # separately, close to each navigation call site below (inside
@@ -1084,6 +602,7 @@ class DesktopSession:
         base_url = f"http://{host}:{sel_port}/"
         server = None
         thread = None
+        path_s = False
         # is_ours=True already returned above; reaching here means is_ours=False —
         # we always start our own server on the selected port.
         from the_one.interfaces.web.app import app
@@ -1091,12 +610,13 @@ class DesktopSession:
         server = uvicorn.Server(uvicorn.Config(app, host=host, port=sel_port, log_level="info"))
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
+        state.server, state.thread = server, thread
         try:
             if _webview_available():
                 try:
                     import webview  # lazy: optional [gui] extra; off chat/version
                 except ImportError as exc:
-                    _clear_booting()
+                    state.clear_booting()
                     raise SystemExit(
                         "pywebview is not installed. "
                         "Install the desktop extra: pip install 'the-one[gui]'"
@@ -1200,9 +720,22 @@ class DesktopSession:
                 # (a hidden window can finish loading before show()).
                 _main_shown = threading.Event()
 
+                # macOS: destroying the splash while a terminate drains (or after the loop
+                # stopped, or after a failed boot) would run its windowWillClose_, which
+                # empties BrowserView.instances and stops the loop mid-drain.
+                _boot_errored = threading.Event()
+
+                def _splash_blocked() -> bool:
+                    return sys.platform == "darwin" and (
+                        state.terminate_pending
+                        or state.really_quit
+                        or state.loop_stopped
+                        or _boot_errored.is_set()
+                    )
+
                 def _destroy_splash() -> None:
                     """Destroy the splash window — idempotent (safe to call twice)."""
-                    if _splash_closed.is_set():
+                    if _splash_closed.is_set() or _splash_blocked():
                         return
                     _splash_closed.set()
                     try:
@@ -1232,9 +765,8 @@ class DesktopSession:
                         before the subscribe), call _destroy_splash() immediately.
                         pywebview 5.4 Event exposes is_set() — verified against pinned source.
                     5. Wire tray + closing handler.
-                    6. Set _desktop_window / self._window.
+                    6. Set state.desktop_window / self._window.
                     """
-                    global _desktop_window, _tray_mode, _booting
                     main_win = None
 
                     def _abort_if_quit() -> bool:
@@ -1245,12 +777,14 @@ class DesktopSession:
                         running loop is already mapped, so a quit after creation
                         flashes it briefly (accepted).
                         """
-                        global _really_quit
-                        with _window_lock:
-                            if not _quit_requested:
-                                return False
-                        _really_quit = True  # the destroy below must not be cancelled
+                        if not state.quit_was_requested():
+                            return False
                         _main_shown.set()
+                        if sys.platform == "darwin":
+                            # DD3: stop without publishing; the terminate path (or path S)
+                            # owns the exit. Never terminate_/destroy from here.
+                            return True
+                        state.really_quit = True  # the destroy below must not be cancelled
                         if main_win is not None:
                             chrome.deregister()
                             try:
@@ -1293,7 +827,7 @@ class DesktopSession:
                         main_win = webview.create_window("GleepGlorp AI", url, **_create_kwargs)
                         self._window = main_win
                         # Registered right after creation, before the tray decision:
-                        # with ``_tray_mode`` still None the handler allows the
+                        # with ``tray_mode`` still None the handler allows the
                         # destroy, so an X-button press during the tray probes never
                         # meets an unregistered window. It saves geometry in every mode.
                         main_win.events.closing += self._on_closing
@@ -1311,8 +845,36 @@ class DesktopSession:
                         if _abort_if_quit():
                             return
                         chrome.register(main_win, launch_theme)
+                        if sys.platform == "darwin":
+                            # An unpainted main window ordered in front of the splash shows
+                            # a dark empty body (HAT P1): keep it hidden until its page has
+                            # loaded, so the splash stays visible meanwhile. Bounded.
+                            t0 = time.monotonic()
+                            loaded_in_time = False
+                            while True:
+                                if main_win.events.loaded.is_set():
+                                    loaded_in_time = True
+                                    break
+                                if state.quit_was_requested():
+                                    break
+                                if time.monotonic() - t0 >= MAIN_LOADED_BOUND:
+                                    break
+                                time.sleep(0.05)
+                            if _abort_if_quit():
+                                return
+                            if loaded_in_time:
+                                log.info(
+                                    "macos: main window shown after page load (%.1fs)",
+                                    time.monotonic() - t0,
+                                )
+                            else:
+                                log.info(
+                                    "macos: main window shown after the %gs fallback"
+                                    " (page not loaded)",
+                                    MAIN_LOADED_BOUND,
+                                )
                         try:
-                            _show_window(main_win)
+                            window_control._show_window(main_win)
                         except Exception:
                             if sys.platform != "win32":
                                 log.exception("main window show() raised")
@@ -1322,7 +884,7 @@ class DesktopSession:
                                 exc_info=True,
                             )
                             chrome.native_show(main_win)  # raises when it fails too
-                            _mark_visible()
+                            window_control._mark_visible()
                         _main_shown.set()
 
                         # Step 4a — backstop (on this thread, so it must not wait): if
@@ -1341,11 +903,13 @@ class DesktopSession:
                         # behaviour until the no-tray hide lands, leg 5).
                         try:
                             tray_backend = None
+                            if sys.platform == "darwin":
+                                raise _NoTrayError  # dock mode: no tray, pystray not imported
                             if sys.platform.startswith("linux"):
                                 tray_backend = desktop_host.choose_pystray_backend()
                                 mode, reason = desktop_host.detect_tray(tray_backend)
                                 if mode in ("none", "unavailable"):
-                                    _tray_mode = "none"
+                                    state.tray_mode = "none"
                                     log.info(
                                         "No system tray (%s: %s); tray not started", mode, reason
                                     )
@@ -1362,28 +926,27 @@ class DesktopSession:
                                 )
                             self._icon.run_detached()
                             if sys.platform.startswith("linux"):
-                                _tray_mode = mode
+                                state.tray_mode = mode
                         except _NoTrayError:
                             pass
                         except Exception:
                             if sys.platform.startswith("linux"):
-                                _tray_mode = "failed"
+                                state.tray_mode = "failed"
                             log.warning(
                                 "System tray unavailable — close button will exit the app"
                                 " (F4 fallback)",
                                 exc_info=True,
                             )
 
-                        # Step 6 — publish the window, clear ``_booting`` and read
-                        # ``_quit_requested`` in ONE critical section, so a quit
+                        # Step 6 — publish the window, clear ``booting`` and read
+                        # ``quit_requested`` in ONE critical section, so a quit
                         # arriving at any moment is either seen here or finds the
                         # published window. ``_on_quit`` runs after the lock is released.
-                        with _window_lock:
-                            _desktop_window = main_win
-                            self._window = main_win
-                            _booting = False
-                            quit_now = _quit_requested
-                        if quit_now:
+                        quit_now = state.publish_window(main_win)
+                        self._window = main_win
+                        if quit_now and sys.platform == "darwin":
+                            _main_shown.set()  # the terminate path owns the exit
+                        elif quit_now:
                             # The window may be destroyed before its ``loaded`` fires,
                             # which would leave the splash (and webview.start) alive.
                             self._on_quit(self._icon)
@@ -1392,8 +955,18 @@ class DesktopSession:
 
                     except Exception:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
-                        _clear_booting()
+                        state.clear_booting()
                         _main_shown.set()  # release a waiting loaded handler
+                        if sys.platform == "darwin":
+                            # No destroy (it would stop the loop mid-boot); one terminate_
+                            # lets the delegate drain the server, unless one is pending.
+                            _boot_errored.set()
+                            if not state.terminate_pending:
+                                try:
+                                    macos_dock.terminate_app()
+                                except Exception:
+                                    log.warning("boot error: terminate_ failed", exc_info=True)
+                            raise
                         _destroy_splash()
                         if main_win is not None:
                             chrome.deregister()
@@ -1402,6 +975,8 @@ class DesktopSession:
                             except Exception:
                                 log.debug("main_win.destroy() raised in error path", exc_info=True)
                         raise
+                    finally:
+                        state.boot_stopped.set()  # DD3: every exit, for the terminate worker
 
                 # Persist localStorage/cookies (e.g. the theme preference) across app
                 # restarts AND reinstalls. pywebview defaults to private_mode=True — an
@@ -1412,24 +987,25 @@ class DesktopSession:
                 # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
                 storage_dir = settings.data_dir / "webview"
                 storage_dir.mkdir(parents=True, exist_ok=True)
+                if sys.platform == "darwin":
+                    macos_dock.install(self)
                 webview.start(  # blocks until all windows closed (or Quit → destroy)
                     _boot,
                     private_mode=False,
                     storage_path=str(storage_dir),
                 )
+                if sys.platform == "darwin":
+                    path_s = True
+                    self._path_s_begin()
             else:
                 # Browser-fallback path: no pywebview, no splash.  Keep the
                 # _wait_until_serving call here (it moved into _boot for the webview
                 # path, so it must remain explicitly on this branch — otherwise the
                 # browser would open before the server is ready).
                 # A quit recorded while booting wins; otherwise a later quit finds
-                # ``_browser_server`` and asks the server to drain.
-                with _window_lock:
-                    if _quit_requested:
-                        _booting = False
-                        return
-                    _browser_server = server
-                    _booting = False
+                # ``state.browser_server`` and asks the server to drain.
+                if not state.claim_browser_server(server):
+                    return
                 try:
                     _wait_until_serving(host, sel_port)
                 except RuntimeError:
@@ -1459,12 +1035,14 @@ class DesktopSession:
                     thread.join()  # blocks until SIGINT → should_exit → drain
                 # case (b)+no-backend: nothing to block on; just return
         finally:
-            _clear_booting()
-            with _window_lock:
-                _browser_server = None
+            state.clear_booting()
+            state.release_browser_server()
             _graceful_shutdown(server, thread)  # no-op when server is None (case b)
-            if _session is self:
-                _session = None
+            state.server = state.thread = None
+            if state.session is self:
+                state.session = None
+        if path_s:
+            self._path_s_exit()
 
 
 def run_desktop() -> None:
