@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import threading
 
+from the_one.interfaces.desktop import boot_policy
+
 
 class SessionState:
     """Process-wide lifecycle flags and the lock that guards the quit/boot race."""
@@ -64,6 +66,22 @@ class SessionState:
         self.terminate_pending: bool = False
         self.loop_stopped: bool = False
         self.boot_stopped.clear()
+        # The platform's boot policy: filled lazily by the ``policy`` property (the
+        # first read takes ``boot_policy.current()``), cleared here.
+        self._policy = None
+
+    @property
+    def policy(self) -> boot_policy.BootPolicy:
+        """The boot policy, chosen on first read (so a test that patches the
+        platform and calls ``reset()`` sees the new one)."""
+        policy = self._policy
+        if policy is None:
+            policy = self._policy = boot_policy.current()
+        return policy
+
+    @policy.setter
+    def policy(self, value: boot_policy.BootPolicy | None) -> None:
+        self._policy = value
 
     def reset(self) -> None:
         """Restore every field to its default, in place (the instance is kept)."""

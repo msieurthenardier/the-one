@@ -47,6 +47,10 @@ def _mark_visible() -> None:
     state.tracked_visible = True
 
 
+def _mark_hidden() -> None:
+    state.tracked_visible = False
+
+
 def _show_window(window, *, restore: bool = False) -> None:
     """Map and raise the main window.
 
@@ -97,7 +101,7 @@ def window_visible() -> bool | None:
     window = state.desktop_window
     if window is None:
         return None
-    if sys.platform == "darwin":
+    if state.policy.native_visibility:
         return macos_dock.native_visible(window)
     if not _is_gtk_backend():
         return state.tracked_visible
@@ -162,12 +166,12 @@ def quit_desktop() -> str | None:
     under ``state.lock`` (``SessionState.request_quit``); the blocking quit runs
     after the lock is released.
     """
-    if sys.platform == "darwin" and state.loop_stopped:
+    if state.policy.quit_after_loop_stopped_answers_window and state.loop_stopped:
         return "window"  # path S: the loop has stopped and the drain is under way
     tag, session = state.request_quit()
     if tag == "already":
         return "window"  # a quit is already under way; never destroy twice
-    if sys.platform == "darwin" and tag in ("window", "booting"):
+    if state.policy.quit_via_dock_terminate and tag in ("window", "booting"):
         # DD3 path T: one drain path. AppKit terminates on the main thread; the
         # delegate's applicationShouldTerminate: runs the drain worker.
         try:
@@ -225,7 +229,7 @@ def focus_window(activation_token: str | None = None) -> bool:
     if state.desktop_window is None:
         return False
     try:
-        if sys.platform == "darwin":
+        if state.policy.focus_via_dock:
             macos_dock.activate(state.desktop_window)
         elif activation_token and _is_gtk_backend():
             log.info("focus_window: activation token %s...", activation_token[:6])
@@ -270,7 +274,7 @@ def _no_tray_hide(window=None) -> bool:
     except Exception:
         log.warning("no-tray hide failed — allowing the close", exc_info=True)
         return False
-    state.tracked_visible = False
+    _mark_hidden()
     try:
         if not notice.no_tray_notice_shown():
             notice.mark_no_tray_notice_shown()

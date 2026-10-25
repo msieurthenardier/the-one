@@ -283,7 +283,7 @@ def _webview_available() -> bool:
     Gtk/WebKit2 (importing can init GLib / touch a display / hang on headless).
     Catches ImportError (no gi) and ValueError (typelib absent).
     """
-    if sys.platform in ("win32", "darwin"):
+    if state.policy.webview_assumed_present:
         return True  # WebView2 (Win) / WKWebView (mac) assumed present
     if not desktop_host.host_has_desktop_gtk():
         return False  # same predicate `the-one doctor` uses
@@ -410,6 +410,7 @@ class DesktopSession:
                 state.desktop_window.hide()
             except Exception:
                 return False
+            window_control._mark_hidden()
         return True
 
     def _on_closing(self) -> bool:
@@ -553,11 +554,14 @@ class DesktopSession:
         # Reset process-local state on each launch (e.g. if run_desktop() is called
         # more than once in tests after a reload).
         state.reset()
+        # Bound once, right after the reset: the _boot thread and its closures use this
+        # binding, so there is no first-read race and no mid-run flip.
+        policy = state.policy
         state.session = self
-        if sys.platform == "darwin":
-            # Dock mode (M32 F3 DD2): set BEFORE webview.start so no tray_mode=None gap
-            # lets _on_closing allow a destroy; pystray is never imported on macOS.
-            state.tray_mode = "dock"
+        if policy.initial_tray_mode is not None:
+            # Dock mode (M32 F3 DD2, macOS): set BEFORE webview.start so no tray_mode=None
+            # gap lets _on_closing allow a destroy; pystray is never imported there.
+            state.tray_mode = policy.initial_tray_mode
         chrome.reset()
 
         host, port = settings.host, settings.port
@@ -671,7 +675,9 @@ class DesktopSession:
                     # First launch: width and height only (no x/y, so WinForms'
                     # CenterScreen places the window).
                     try:
-                        _fw, _fh = first_launch_size(_resolve_screens(), sys.platform)
+                        _fw, _fh = first_launch_size(
+                            _resolve_screens(), policy.first_launch_platform
+                        )
                         _create_kwargs["width"] = _fw
                         _create_kwargs["height"] = _fh
                     except Exception:
@@ -702,7 +708,7 @@ class DesktopSession:
                     background_color=launch_bg,
                 )
 
-                if sys.platform == "win32":
+                if policy.splash_border:
                     # before_show is a locked event: it runs on the UI thread inside
                     # create(), before the first Show. The parameter must be named
                     # `window` for pywebview to pass the window.
@@ -726,7 +732,7 @@ class DesktopSession:
                 _boot_errored = threading.Event()
 
                 def _splash_blocked() -> bool:
-                    return sys.platform == "darwin" and (
+                    return policy.splash_blocked_in_quit_states and (
                         state.terminate_pending
                         or state.really_quit
                         or state.loop_stopped
@@ -780,7 +786,7 @@ class DesktopSession:
                         if not state.quit_was_requested():
                             return False
                         _main_shown.set()
-                        if sys.platform == "darwin":
+                        if policy.quit_in_boot_stops_without_destroy:
                             # DD3: stop without publishing; the terminate path (or path S)
                             # owns the exit. Never terminate_/destroy from here.
                             return True
@@ -845,7 +851,7 @@ class DesktopSession:
                         if _abort_if_quit():
                             return
                         chrome.register(main_win, launch_theme)
-                        if sys.platform == "darwin":
+                        if policy.wait_for_page_before_show:
                             # An unpainted main window ordered in front of the splash shows
                             # a dark empty body (HAT P1): keep it hidden until its page has
                             # loaded, so the splash stays visible meanwhile. Bounded.
@@ -876,7 +882,7 @@ class DesktopSession:
                         try:
                             window_control._show_window(main_win)
                         except Exception:
-                            if sys.platform != "win32":
+                            if not policy.native_show_fallback:
                                 log.exception("main window show() raised")
                                 raise
                             log.warning(
@@ -903,9 +909,9 @@ class DesktopSession:
                         # behaviour until the no-tray hide lands, leg 5).
                         try:
                             tray_backend = None
-                            if sys.platform == "darwin":
+                            if policy.tray.skip:
                                 raise _NoTrayError  # dock mode: no tray, pystray not imported
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.detect:
                                 tray_backend = desktop_host.choose_pystray_backend()
                                 mode, reason = desktop_host.detect_tray(tray_backend)
                                 if mode in ("none", "unavailable"):
@@ -925,12 +931,12 @@ class DesktopSession:
                                     on_show=self._on_show, on_quit=self._on_quit
                                 )
                             self._icon.run_detached()
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.records_tray_mode:
                                 state.tray_mode = mode
                         except _NoTrayError:
                             pass
                         except Exception:
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.records_tray_mode:
                                 state.tray_mode = "failed"
                             log.warning(
                                 "System tray unavailable — close button will exit the app"
@@ -944,7 +950,7 @@ class DesktopSession:
                         # published window. ``_on_quit`` runs after the lock is released.
                         quit_now = state.publish_window(main_win)
                         self._window = main_win
-                        if quit_now and sys.platform == "darwin":
+                        if quit_now and policy.publish_quit_left_to_terminate:
                             _main_shown.set()  # the terminate path owns the exit
                         elif quit_now:
                             # The window may be destroyed before its ``loaded`` fires,
@@ -957,7 +963,7 @@ class DesktopSession:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
                         state.clear_booting()
                         _main_shown.set()  # release a waiting loaded handler
-                        if sys.platform == "darwin":
+                        if policy.boot_error_terminates:
                             # No destroy (it would stop the loop mid-boot); one terminate_
                             # lets the delegate drain the server, unless one is pending.
                             _boot_errored.set()
@@ -987,14 +993,14 @@ class DesktopSession:
                 # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
                 storage_dir = settings.data_dir / "webview"
                 storage_dir.mkdir(parents=True, exist_ok=True)
-                if sys.platform == "darwin":
+                if policy.installs_dock:
                     macos_dock.install(self)
                 webview.start(  # blocks until all windows closed (or Quit → destroy)
                     _boot,
                     private_mode=False,
                     storage_path=str(storage_dir),
                 )
-                if sys.platform == "darwin":
+                if policy.runs_path_s:
                     path_s = True
                     self._path_s_begin()
             else:
@@ -1024,7 +1030,7 @@ class DesktopSession:
 
                 handoff_token = mint_handoff_credential()
                 url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
-                if sys.platform.startswith("linux"):
+                if policy.browser_fallback_notification:
                     desktop_host.send_notification("GleepGlorp AI", _no_webview_body())
                 webbrowser.open(url)
                 if server is not None:
