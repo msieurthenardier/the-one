@@ -51,6 +51,9 @@ slightly off-target. Logged as a deviation in the flight log.
 
 from __future__ import annotations
 
+import json
+import re
+
 import pytest
 from browser import _lists, _nav
 from playwright.sync_api import Page, expect
@@ -97,43 +100,39 @@ def test_editor_renders_prompt_block(app_clean: str, page: Page) -> None:
     # for the app's own fetch activity to go quiet (state-driven), then assert.
     _nav.goto_settled(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    block = page.locator(".editor-prompt-block")
+    # M31 F4 L07a (A14): the prompt is its own section below the header, a code block.
+    block = page.locator('.settings-item .editor-section:has(> .section-title:text-is("Prompt"))')
     expect(block).to_be_visible()
-    # Label uses .section-title with text "Prompt" (was .editor-prompt-label "// prompt").
     expect(block.locator(".section-title")).to_have_text("Prompt")
     # The description text is the actual tool prompt (long-form). Spot
     # check it contains a substantive token from the description body
     # rather than asserting verbatim — keeps the test resilient to small
     # prose tweaks.
-    text = (block.locator(".editor-prompt-text").inner_text() or "").strip()
+    text = (block.locator("pre.code-block").inner_text() or "").strip()
     assert len(text) > 20, f"prompt text too short or empty: {text!r}"
 
 
 @pytest.mark.browser
 def test_editor_connector_tool_shows_connectors_category(app_clean: str, page: Page) -> None:
     """Squawk 0032: the editor's category subtitle for a connector tool
-    reads 'connectors' — not 'unknown', which is what the pre-fix
-    tools-editor.js TOOL_CATEGORIES mirror gap produced.
+    reads 'Connectors' (the category's display name, A13) — not 'unknown',
+    which is what the pre-fix tools-editor.js TOOL_CATEGORIES mirror gap produced.
     """
     _nav.goto(page, app_clean, "settings/tools/send_to_platform_channel")
     expect(page.locator(".editor-title")).to_have_text("send_to_platform_channel", timeout=8000)
-    expect(page.locator(".editor-subtitle-meta")).to_have_text("connectors")
+    expect(page.locator(".settings-item .editor-subtitle")).to_have_text("Connectors")
 
 
 @pytest.mark.browser
 def test_editor_renders_enabled_toggle_inline(app_clean: str, page: Page) -> None:
-    """HAT inline fix #2: editor's `enabled` row uses the iOS-toggle
-    widget (`.tool-enable-switch`) — same visual as the grid tile.
-    Confirms it's not an inert plain checkbox.
-    """
+    """HAT inline fix #2: the `enabled` control is the library switch (the same look as
+    the grid tile's), a `role=switch` named "Enabled for all agents" (M31 F4 L07a, DD8-4)."""
     _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    row = page.locator(".tools-editor-enabled-row")
-    expect(row).to_be_visible()
-    # iOS-toggle wrapper present, with the visible track sibling.
-    expect(row.locator(".tool-enable-switch")).to_be_visible()
-    expect(row.locator(".tool-enable-switch-track")).to_be_visible()
-    expect(row.locator('[data-field="enabled"]')).to_be_checked()
+    switch = page.get_by_role("switch", name="Enabled for all agents")
+    expect(switch).to_be_checked()
+    expect(switch).to_have_attribute("data-field", "enabled")
+    expect(page.locator(".settings-item .ui-toggle .ui-toggle-track")).to_be_visible()
 
 
 @pytest.mark.browser
@@ -170,14 +169,13 @@ def test_editor_renders_web_search_config_fields(app_clean: str, page: Page) -> 
 
 
 @pytest.mark.browser
-def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: Page) -> None:
-    """HAT inline fix #4: per-field descriptions become tooltips on a
-    sibling info-icon (positioned AFTER the input), NOT inline
-    `<p class="field-description">` paragraphs.
+def test_editor_field_descriptions_are_info_button_toggletips(app_clean: str, page: Page) -> None:
+    """HAT inline fix #4, since M31 F4 L07a (ledger row 41): per-field descriptions are
+    press-to-open toggletips on an info button beside the label, not hover `title`
+    tooltips and not inline `<p class="field-description">` paragraphs.
 
-    Spot-checks 3 WebConfig fields with known non-empty descriptions and
-    confirms the inline `<p>` paragraph is gone. Re-homed to `fetch_url`
-    (WebConfig-backed).
+    Spot-checks 3 WebConfig fields with known non-empty descriptions. Re-homed to
+    `fetch_url` (WebConfig-backed).
     """
     _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
@@ -188,10 +186,18 @@ def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: 
     spot_check = ("timeout_seconds_max", "host_allowlist", "default_user_agent")
     for fname in spot_check:
         row = page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
-        icon = row.locator(".field-info-icon")
+        icon = row.locator("button.field-info-icon")
         expect(icon).to_be_visible()
-        title = icon.get_attribute("title") or ""
-        assert title, f"info-icon for {fname} missing title attribute"
+        assert not icon.get_attribute("title"), f"{fname}: no hover title any more"
+        assert (icon.get_attribute("aria-label") or "").startswith("More information")
+        icon.click()
+        bubble = row.locator(".ui-info-bubble")
+        expect(bubble).to_be_visible()
+        # The live region is filled one tick after the bubble opens (announced once).
+        expect(bubble).not_to_have_text("", timeout=3000)
+        assert len((bubble.inner_text() or "").strip()) > 10, f"{fname}: empty description"
+        icon.click()
+        expect(bubble).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -263,11 +269,12 @@ def test_editor_save_persists_across_reload(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_editor_model_validator_422_shows_banner(app_clean: str, page: Page) -> None:
+def test_editor_model_validator_422_shows_at_editor_level(app_clean: str, page: Page) -> None:
     """Narrow `timeout_seconds_max` to 10 (< default 30) → 422 from the
-    model-validator → `.editor-error-banner` visible with humanized text
-    (no "Value error," prefix per HAT inline fix #6) AND
-    `.field-error-highlight` applied to the two offending rows.
+    model-validator (loc `[]`, so it names no field) → the editor-level error
+    with humanized text (no "Value error," prefix per HAT inline fix #6). Since
+    M31 F4 L07b there is no banner and no heuristic row highlight (DD3, ledger
+    row 11): a model-level error is shown once, at editor level.
 
     Re-homed to `fetch_url` — the `timeout_seconds_default <=
     timeout_seconds_max` validator lives on WebConfig, which `web_search`
@@ -278,47 +285,33 @@ def test_editor_model_validator_422_shows_banner(app_clean: str, page: Page) -> 
     page.locator('input[data-field="timeout_seconds_max"]').fill("10")
     page.locator(".save-btn").click()
 
-    banner = page.locator(".editor-error-banner")
-    expect(banner).to_be_visible(timeout=5000)
-    text = banner.inner_text()
-    assert "Value error," not in text, f"banner should strip 'Value error,' prefix — got: {text!r}"
-    # Both offending field rows highlighted (heuristic in the editor:
-    # the model-validator msg names both fields).
-    expect(
-        page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
-        )
-    ).to_be_visible()
-    expect(
-        page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_default"].field-error-highlight'
-        )
-    ).to_be_visible()
+    error = page.locator(".settings-item .editor-error")
+    expect(error).to_contain_text("timeout_seconds_default", timeout=5000)
+    text = error.inner_text()
+    assert "Value error," not in text, f"error should strip 'Value error,' prefix — got: {text!r}"
+    expect(page.locator(".editor-error-banner")).to_have_count(0)
+    expect(page.locator(".settings-item [aria-invalid='true']")).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_editor_field_change_clears_highlight(app_clean: str, page: Page) -> None:
-    """HAT inline fix #7: after a 422, typing into a highlighted field
-    clears that row's `.field-error-highlight` (operator's edit signals
-    intent to fix). Other rows that are still in error keep theirs.
-    Re-homed to `fetch_url` (WebConfig model-validator).
-    """
+def test_editor_field_error_names_its_field_and_clears_on_change(
+    app_clean: str, page: Page
+) -> None:
+    """HAT inline fix #7, retargeted (M31 F4 L07b): a 422 whose `loc` names a field puts
+    its humanised message on that field with `aria-invalid`; typing into the field
+    clears it. (The row highlight class is retired.)"""
     _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
-    page.locator('input[data-field="timeout_seconds_max"]').fill("10")
+    page.locator('input[data-field="redirect_cap"]').fill("-1")
     page.locator(".save-btn").click()
-    expect(page.locator(".editor-error-banner")).to_be_visible(timeout=5000)
-    highlighted_row = page.locator(
-        '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
-    )
-    expect(highlighted_row).to_be_visible()
-    # Type into the highlighted field — clears its row's highlight.
-    page.locator('input[data-field="timeout_seconds_max"]').fill("60")
-    expect(
-        page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
-        )
-    ).to_have_count(0)
+    field = page.locator('input[data-field="redirect_cap"]')
+    expect(field).to_have_attribute("aria-invalid", "true", timeout=5000)
+    row = page.locator('.tools-editor-field[data-field-name="redirect_cap"]')
+    expect(row).to_contain_text("Must be 0 or more")
+    expect(page.locator(".field-error-highlight")).to_have_count(0)
+    field.fill("2")
+    expect(field).not_to_have_attribute("aria-invalid", "true")
+    expect(row).not_to_contain_text("Must be 0 or more")
 
 
 @pytest.mark.browser
@@ -381,16 +374,16 @@ def test_editor_settings_nav_dirty_gate(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_test_button_only_for_testable_tools(app_clean: str, page: Page) -> None:
     """Test button mounts only for `web_search` and `fetch_url`. Other
-    tools (e.g. `shell`) have no test surface — `.test-tool-btn` not
+    tools (e.g. `shell`) have no test surface — `test-tool-btn` not
     present.
     """
     _nav.goto(page, app_clean, "settings/tools/shell")
     expect(page.locator(".editor-title")).to_have_text("shell", timeout=8000)
-    expect(page.locator(".test-tool-btn")).to_have_count(0)
+    expect(page.locator('[data-testid="test-tool-btn"]')).to_have_count(0)
 
     _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    expect(page.locator(".test-tool-btn")).to_be_visible()
+    expect(page.locator('[data-testid="test-tool-btn"]')).to_be_visible()
 
 
 @pytest.mark.browser
@@ -401,38 +394,270 @@ def test_test_button_input_pre_filled(app_clean: str, page: Page) -> None:
     """
     _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    expect(page.locator(".test-tool-input")).to_have_value("the one cli agent")
+    expect(page.locator("[data-test-param]")).to_have_value("the one cli agent")
 
     _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
-    expect(page.locator(".test-tool-input")).to_have_value("https://example.com/")
+    expect(page.locator("[data-test-param]")).to_have_value("https://example.com/")
 
 
 @pytest.mark.browser
 def test_test_button_click_fires_request(app_clean: str, page: Page) -> None:
     """Click sequence (per design Reviewer): button disables → terminal
-    result span appears → button re-enables. Don't assert on response
-    content — DDG / example.com response is real network and varies.
-
-    Uses fetch_url (more reliable than DDG for this test). The terminal
-    state is either `.test-result-ok` (HTTP 200) or `.test-result-fail`
-    (network refusal / SSRF block); either is a valid terminal state.
-    """
+    result appears → button re-enables. Don't assert on response content, only
+    that a terminal state is reached (a real fetch fails or is refused under
+    the test netns; either is a valid terminal state)."""
     _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
-    test_btn = page.locator(".test-tool-btn")
+    test_btn = page.locator('[data-testid="test-tool-btn"]')
     expect(test_btn).to_be_visible()
 
     test_btn.click()
     # Immediately disabled — proves the request fired.
     expect(test_btn).to_be_disabled()
-    # Terminal state appears within 15s — covers both success & refusal.
-    # The selector matches any non-pending span inside the result region;
-    # bumped timeout covers slow real-network DDG / example.com rounds.
-    terminal = page.locator(".test-result span:not(.test-result-pending)")
-    expect(terminal).to_be_visible(timeout=15000)
-    # Button re-enables after the round-trip.
+    result = page.locator('[data-testid="test-result"]')
+    expect(result).to_have_attribute(
+        "data-state", re.compile("success|warning|danger"), timeout=15000
+    )
     expect(test_btn).not_to_be_disabled()
+
+
+# ── M31 F4 leg 07d: the Test section on the library (A15, A16) ───────────────
+
+TEST_BTN = '[data-testid="test-tool-btn"]'
+TEST_RESULT = '[data-testid="test-result"]'
+TEST_DETAILS = '[data-testid="tool-test-details"]'
+TEST_OUTPUT = '[data-testid="tool-test-output"]'
+
+
+def _stub_test(page: Page, tool: str, status: int = 200, body: str = "", **payload) -> None:
+    def handler(route):
+        if status == 200 and not body:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+        else:
+            route.fulfill(status=status, content_type="application/json", body=body)
+
+    page.route(f"**/api/tools/configs/{tool}/test", handler)
+
+
+def _payload(output: str, elapsed_ms: float, outcome: str) -> dict:
+    return {"output": output, "elapsed_ms": elapsed_ms, "outcome": outcome}
+
+
+def _run_test(page: Page) -> None:
+    page.locator(TEST_BTN).click()
+    expect(page.locator(TEST_BTN)).to_be_enabled(timeout=8000)
+
+
+@pytest.mark.browser
+def test_test_input_is_a_standard_field_with_the_button_on_its_line(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    field = page.locator("[data-test-param]")
+    expect(field).to_have_value("https://example.com/")
+    label = page.locator('label:has-text("URL")').first
+    box_in, box_btn, box_label = (
+        field.bounding_box(),
+        page.locator(TEST_BTN).bounding_box(),
+        label.bounding_box(),
+    )
+    assert box_in and box_btn and box_label
+    assert 30 <= box_in["height"] <= 40, box_in  # the standard field height (about 34px)
+    assert box_label["y"] + box_label["height"] <= box_in["y"] + 1, "the label is stacked above"
+    mid = box_btn["y"] + box_btn["height"] / 2
+    assert box_in["y"] <= mid <= box_in["y"] + box_in["height"], "the button is on the input's line"
+    assert box_btn["x"] >= box_in["x"] + box_in["width"] - 1
+
+
+@pytest.mark.browser
+def test_each_outcome_has_a_fixed_headline_and_one_status_mark(app_clean: str, page: Page) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    result = page.locator(TEST_RESULT)
+    timeout = "[error] Request timed out after 30s"
+    blocked = "[error] [constraint] host 'example.com' is in host_denylist"
+    cases = [
+        (_payload("page body", 12.4, "ok"), "Returned a result (12 ms)", "success"),
+        (_payload(blocked, 3.0, "blocked"), "Blocked by this tool's settings (3 ms)", "warning"),
+        (_payload(timeout, 30001.0, "failed"), "Request failed", "danger"),
+    ]  # fmt: skip
+    for payload, headline, state in cases:
+        page.unroute("**/api/tools/configs/fetch_url/test")
+        _stub_test(page, "fetch_url", **payload)
+        _run_test(page)
+        expect(result).to_have_attribute("data-state", state)
+        expect(result).to_have_text(headline)
+        expect(result.locator(".indicator-led")).to_have_count(1)
+        assert "\u2713" not in result.inner_text() and "\u2717" not in result.inner_text()
+        assert result.get_attribute("aria-live") == "polite"  # announced politely, once
+
+
+@pytest.mark.browser
+def test_a_test_produces_exactly_one_live_announcement(app_clean: str, page: Page) -> None:
+    """Flight review (a11y): the result's inner statuses are `live: off`, so one Test changes
+    exactly one live region (the polite result container), never several."""
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    _stub_test(page, "fetch_url", **_payload("page body", 12.4, "ok"))
+    page.evaluate(
+        """() => {
+          window.__liveHits = new Set();
+          const effective = (node) => {
+            for (let n = node.nodeType === 1 ? node : node.parentElement; n; n = n.parentElement) {
+              const v = n.getAttribute('aria-live');
+              if (v !== null) return v === 'off' ? null : n;
+              const r = n.getAttribute('role');
+              if (r === 'status' || r === 'alert') return n;
+            }
+            return null;
+          };
+          new MutationObserver((muts) => {
+            for (const m of muts) {
+              const r = effective(m.target);
+              if (r) window.__liveHits.add(r.getAttribute('data-testid') || r.className);
+            }
+          }).observe(document.body, {subtree: true, childList: true, characterData: true});
+        }"""
+    )
+    _run_test(page)
+    expect(page.locator(TEST_RESULT)).to_have_attribute("data-state", "success")
+    page.wait_for_timeout(300)
+    hits = page.evaluate("Array.from(window.__liveHits)")
+    assert hits == ["test-result"], hits
+
+
+@pytest.mark.browser
+def test_output_is_collapsed_opens_by_keyboard_and_shows_the_head(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    long_output = "HEADLINE" + "x" * 3000 + "TAILEND"
+    _stub_test(page, "fetch_url", output=long_output, elapsed_ms=5.0, outcome="ok")
+    _run_test(page)
+    details = page.locator(TEST_DETAILS)
+    expect(details).to_have_count(1)
+    assert details.evaluate("e => e.open") is False
+    expect(page.locator(TEST_OUTPUT)).to_be_hidden()
+    summary = details.locator("summary")
+    expect(summary).to_have_text("Technical details")
+    summary.focus()
+    page.keyboard.press("Enter")
+    assert details.evaluate("e => e.open") is True
+    text = page.locator(TEST_OUTPUT).inner_text()
+    assert text.startswith("HEADLINE"), text[:20]
+    assert "TAILEND" not in text
+    assert text.rstrip().endswith("…"), text[-10:]
+    assert len(text) < 2200
+
+
+@pytest.mark.browser
+def test_a_short_output_has_no_truncation_marker_and_an_empty_one_no_details(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    _stub_test(page, "fetch_url", output="short result", elapsed_ms=1.0, outcome="ok")
+    _run_test(page)
+    page.locator(TEST_DETAILS).locator("summary").click()
+    assert page.locator(TEST_OUTPUT).inner_text() == "short result"
+    page.unroute("**/api/tools/configs/fetch_url/test")
+    _stub_test(page, "fetch_url", output="", elapsed_ms=1.0, outcome="ok")
+    _run_test(page)
+    expect(page.locator(TEST_RESULT)).to_have_attribute("data-state", "success")
+    expect(page.locator(TEST_DETAILS)).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_an_http_error_reads_request_failed_with_the_reason_under_details(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    _stub_test(page, "fetch_url", status=400, body='{"detail": "Tool x does not support testing"}')
+    _run_test(page)
+    expect(page.locator(TEST_RESULT)).to_have_text("Request failed")
+    expect(page.locator(TEST_RESULT)).to_have_attribute("data-state", "danger")
+    page.locator(TEST_DETAILS).locator("summary").click()
+    expect(page.locator(TEST_OUTPUT)).to_contain_text("does not support testing")
+    # A non-JSON 500 shows the status line instead.
+    page.unroute("**/api/tools/configs/fetch_url/test")
+
+    def html_500(route):
+        route.fulfill(status=500, content_type="text/html", body="<html>oops</html>")
+
+    page.route("**/api/tools/configs/fetch_url/test", html_500)
+    _run_test(page)
+    expect(page.locator(TEST_RESULT)).to_have_text("Request failed")
+    page.locator(TEST_DETAILS).locator("summary").click()
+    expect(page.locator(TEST_OUTPUT)).to_contain_text("500")
+
+
+@pytest.mark.browser
+def test_a_stale_test_result_writes_nothing_after_the_tool_changed(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    held: list = []
+
+    def hold(route):
+        held.append(route)
+
+    page.route("**/api/tools/configs/fetch_url/test", hold)
+    page.locator(TEST_BTN).click()
+    for _ in range(200):
+        if held:
+            break
+        page.wait_for_timeout(25)
+    assert len(held) == 1
+    _lists.item_link(page, "settings/tools", "web_search").click()
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    held[0].fulfill(
+        status=200,
+        content_type="application/json",
+        body='{"output": "late", "elapsed_ms": 1, "outcome": "ok"}',
+    )
+    page.wait_for_timeout(200)  # the late response has been delivered to the page
+    expect(page.locator(TEST_BTN)).to_be_enabled()
+    expect(page.locator(TEST_RESULT)).to_have_text("")
+    expect(page.locator(TEST_DETAILS)).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_the_test_says_it_uses_the_saved_settings_only_while_dirty(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    hint = page.locator('[data-testid="test-saved-hint"]')
+    expect(hint).to_be_hidden()
+    page.locator('input[data-field="default_user_agent"]').fill("changed")
+    expect(hint).to_be_visible()
+    expect(hint).to_have_text("Tests the saved settings.")
+    page.locator('[data-testid="cancel-tool-btn"]').click()
+    expect(hint).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_test_result_is_kept_on_save_and_cleared_on_a_cancel_that_changes_a_value(
+    app_clean: str, page: Page
+) -> None:
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    _stub_test(page, "fetch_url", output="fine", elapsed_ms=2.0, outcome="ok")
+    _run_test(page)
+    result = page.locator(TEST_RESULT)
+    expect(result).to_have_text("Returned a result (2 ms)")
+    page.locator('input[data-field="default_user_agent"]').fill("kept-by-save")
+    page.locator('[data-testid="save-tool-btn"]').click()
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_be_disabled(timeout=5000)
+    expect(result).to_have_text("Returned a result (2 ms)")  # Save keeps it
+    page.locator('input[data-field="default_user_agent"]').fill("will-be-cancelled")
+    page.locator('[data-testid="cancel-tool-btn"]').click()
+    expect(result).to_have_text("")  # Cancel changed a value: the result no longer applies
 
 
 # ── M16 F08 leg 04: masked secret eye-toggle + show_if visibility ────────
@@ -602,11 +827,11 @@ def _denylist_save_round_trip(
     _nav.goto(page, base_url, f"settings/tools/{tool}")
     expect(page.locator(".editor-title")).to_have_text(tool, timeout=8000)
 
-    chips = page.locator(f'.chip-list-editor[data-field="{field}"] .chip')
+    chips = page.locator(f'[data-field="{field}"] .chip')
     expect(chips).to_have_count(len(expected))
     shown = page.evaluate(
-        """(field) => App.adminFormHelpers.readFieldValue(
-            document.querySelector('.chip-list-editor[data-field="' + field + '"]'))""",
+        """(field) => App.toolConfigFields.readValue(
+            document.querySelector('[data-field="' + field + '"]'))""",
         field,
     )
     assert shown == expected
@@ -627,12 +852,13 @@ def _denylist_save_round_trip(
 def test_unsaved_filesystem_tool_shows_and_keeps_default_path_denylist(
     app_clean: str, page: Page
 ) -> None:
+    # read_file, not move_file: move_file no longer shows allow_binary_files (05a, B6).
     from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST
 
     _denylist_save_round_trip(
         page,
         app_clean,
-        "move_file",
+        "read_file",
         "path_denylist",
         list(DEFAULT_PATH_DENYLIST),
         "allow_binary_files",
@@ -653,3 +879,26 @@ def test_unsaved_execution_tool_shows_and_keeps_default_command_denylist(
         list(DEFAULT_COMMAND_DENYLIST),
         "sandbox_network_allowed",
     )
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("width", [1280, 1024])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_test_button_is_vertically_centred_on_its_input(
+    app_clean: str, page: Page, width: int, theme: str
+) -> None:
+    """HAT step 5 (ledger 50): the Test connection button sat ~15px below its
+    input. Their vertical centres agree within 1px at both widths and themes."""
+    page.set_viewport_size({"width": width, "height": 900})
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
+    page.evaluate(f"document.documentElement.setAttribute('data-theme', '{theme}')")
+    inp = page.locator("input[data-test-param]")
+    btn = page.locator(TEST_BTN)
+    expect(btn).to_be_visible()
+    inp.scroll_into_view_if_needed()
+    ib, bb = inp.bounding_box(), btn.bounding_box()
+    assert ib is not None and bb is not None
+    ic = ib["y"] + ib["height"] / 2
+    bc = bb["y"] + bb["height"] / 2
+    assert abs(ic - bc) <= 1, (ib, bb)

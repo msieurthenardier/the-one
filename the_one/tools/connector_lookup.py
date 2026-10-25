@@ -32,6 +32,7 @@ class FindPlatformDestinationTool(Tool):
     """Look up a platform peer or channel by an observed name."""
 
     name = FIND_PLATFORM_DESTINATION_TOOL_NAME
+    summary = "Looks up a chat platform channel to send to."
     description = (
         "Look up a platform peer or channel by name in the directory of "
         "names the system has passively observed (matches display name "

@@ -1,10 +1,10 @@
 # Squawk 0240: Browser tests click switches through a library-internal class
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-23
-**Completed**: —
+**Completed**: 2026-10-23
 
 ## Report
 Since Mission 31 Flight 3 leg 07a, several browser tests toggle `App.ui.toggle` switches by clicking `label.ui-toggle-label:has(...)`, a class internal to the library. That couples them to the factory's markup. The tests should use role locators instead: for example, `get_by_role('switch', name='Enabled')` with `.set_checked()` or `.check()`, because the native input is visually hidden. Found in the Mission 31 Flight 3 flight review. Pick it up with Flight 4 or 5, which touch the same tests.
@@ -21,7 +21,9 @@ Since Mission 31 Flight 3 leg 07a, several browser tests toggle `App.ui.toggle` 
 - `tests/browser/test_deep_violet_computed_styles.py:53-54` builds the markup as a style fixture. That use is legitimate, and it stays.
 
 ## Corrective Action
+The nine `label.ui-toggle-label` clicks in `test_store_library.py`, `test_flow_studio_library_list.py` (2), `test_router_guard.py`, `test_studio_connector_editor.py` (3) now use the role locator `page.get_by_role("switch", name="Enabled")` and click its `xpath=ancestor::label` (a role locator alone fails: the visually hidden input is covered by the track, so Playwright reports the track intercepting the click; the same idiom as `_click_switch`); the two tile toggles in `test_flow_studio_tools_tab_patch.py` and `test_flow_studio_time_tool.py` use `[data-category-master="Web|Time"]` (an attribute, not a library class; the tristate master is not reachable by name as a switch) and its ancestor label. The style fixture in `test_deep_violet_computed_styles.py` stays.
 
 ## Verification
+`git grep -n ui-toggle-label tests/` returns only the fixture and `test_ui_*` contract tests. The changed browser files were run through their lanes (see the flight log).
 
 ## Sign-Off

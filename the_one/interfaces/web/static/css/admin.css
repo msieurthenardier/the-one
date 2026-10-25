@@ -14,106 +14,49 @@
      min-content (mandatory for overflow-y: auto to actually clip rather than
      propagate up the flex chain). */
   .area-admin .admin-content { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-  /* Admin's editors (tools, knowledge indexing) mount .editor-section blocks as direct children
-     of .admin-content — no .tabpanel wrapper (no tabs). Studio gets its
-     20px horizontal gutter from .tabpanel; admin needs the same gutter
-     applied to .editor-section directly to align with .editor-header's
-     20px padding. F6 HAT inline fix. */
-  .area-admin .editor-section { padding-left: 20px; padding-right: 20px; }
   /* `.admin-header` / `.admin-title` removed in F6 leg 03 — editor uses canonical `.editor-header` + `.editor-title`; the Settings pages use `.page-header` + `.page-title`. */
   /* The Settings page geometry (M25 F3 L5a; reference spec section 4): the
      page header is 16px 32px (no border, no breadcrumb) and the page content
-     is inset 0 32px with an 880px maximum width. Scoped to .area-admin:
-     .page-header is a shared rule (components.css) that other areas keep.
+     is inset 0 32px with an 880px maximum width. The header's geometry is the
+     page header control's own (.page-header, components.css, M31 F4 L10).
      .admin-form is content padding only — overflow is owned by .admin-content
      (single scroll container per Admin page). Removing the redundant
      overflow-y: auto here closes the nested-scrollbar bug surfaced on
      System (and previously on Design Language). */
-  .area-admin .page-header { padding: 16px 32px; }
   .area-admin .admin-form { flex: 1; padding: 0 32px 40px; max-width: 880px; }
   .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
-  .area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-bottom: 16px; line-height: var(--line-height-normal); }
-  .area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
-  .area-admin .admin-section:first-of-type { border-top: none; padding-top: 0; }
-  .area-admin .admin-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-  .area-admin .admin-placeholder-title { font-size: var(--font-size-h2); font-weight: var(--font-weight-bold); color: var(--fg); }
-  .area-admin .admin-placeholder-text { font-size: var(--font-size-body-lg); color: var(--fg-muted); }
 
   /* === System Panel (Appearance + Encryption + Base Prompt) === */
   .area-admin .admin-system-section { padding: 16px 0; border-top: 1px solid var(--border); }
   .area-admin .admin-system-section:first-of-type { border-top: none; padding-top: 0; }
   .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
-  /* Encryption warning callout — `<div class="banner banner-warning">`
-     (canonical primitive in components.css). Bottom margin separates it
-     from the rotate button. */
-  .area-admin .admin-system-section .banner-warning { margin-bottom: 16px; }
-  .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
-  .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-system-flash.error { color: var(--status-danger); }
-  /* Staged (not promoted) rotation result — degraded-but-succeeded, distinct
-     from both the ordinary success flash and a hard failure. */
-  .area-admin .admin-system-flash.warning { color: var(--status-warning); font-weight: var(--font-weight-semibold); }
-  /* Read-only key/value rows — Knowledge panel's Embedding/Vector Store
-     sections (M24 F06 L04, DD-7/L4-D1). A plain flex row, not a table:
-     there are only two or three rows per section. */
-  .area-admin .admin-kv-row { display: flex; gap: var(--space-2); padding: 4px 0; font-size: var(--font-size-body-sm); }
-  .area-admin .admin-kv-key { color: var(--fg-muted); min-width: 8rem; }
-  .area-admin .admin-kv-value { color: var(--fg-secondary); font-weight: var(--font-weight-medium); }
-  /* Base prompt block — composes the canonical .code-block primitive
-     defined in components.css. Adds admin-specific max-height bound. */
-  .area-admin .admin-base-prompt {
-    max-height: 24rem;
-    overflow-y: auto;
+  /* Knowledge indexing (M31 F4 L10): the interval field's short input with its humanised
+     echo beside it. */
+  .area-admin .knowledge-interval-row { display: flex; align-items: center; gap: var(--space-3); }
+  .area-admin .knowledge-interval-echo { font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+  /* Prompts page (M31 F4 L08b): the layers are App.ui.section stacks and every text an
+     App.ui.codeBlock, so the rhythm and the block look are the library's. Only the
+     page's own parts are styled here: the variant sub-heading (a plain semibold line,
+     not a second eyebrow), and a platform block (an h3 title, its "Applies when" line
+     and its text, one column). */
+  .area-admin .platform-sections { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-admin .prompt-variant {
     margin: 0;
-  }
-  /* Prompts page layers: one rhythm — eyebrow, one explanatory line, the
-     block; layers separated by one gap. */
-  .area-admin .admin-prompt-layer { margin-top: 24px; }
-  .area-admin .admin-prompt-layer .section-title { margin: 0 0 8px; }
-  .area-admin .admin-prompt-layer .admin-system-text { margin: 0 0 8px; }
-  /* Platform prompt blocks (Flight 2 leg 1c): title, "Applies when" line, text. */
-  .area-admin .platform-section { margin: 0 0 16px; }
-  .area-admin .platform-section-title {
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg);
-    margin: 0 0 4px;
-  }
-  .area-admin .platform-section .admin-system-text { margin: 0 0 8px; }
-  /* Theme toggle — quiet segmented control: accent-translucent base +
-     hairline border; active option takes the solid accent fill. */
-  .area-admin .admin-theme-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: var(--space-1);
-    padding: 2px;
-    background-color: var(--accent-translucent);
-  }
-  .area-admin .admin-theme-option {
-    background: transparent;
-    border: 1px solid transparent;
-    padding: 4px 14px;
-    color: var(--accent);
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
-    font-family: inherit;
-    cursor: pointer;
-    border-radius: var(--space-1);
-    transition: background-color var(--motion-base) var(--ease-tactile), color var(--motion-base) var(--ease-tactile);
+    color: var(--fg-secondary);
   }
-  .area-admin .admin-theme-option:hover {
-    background-color: var(--accent-translucent-hover);
-    transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
+  .area-admin .platform-sections .prompt-variant:not(:first-child) { margin-top: var(--space-2); }
+  .area-admin .prompt-block { display: flex; flex-direction: column; gap: 8px; }
+  .area-admin .prompt-block-title {
+    margin: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
   }
-  /* Active option = solid deep-violet fill, same family as .btn-filled-primary. */
-  .area-admin .admin-theme-option.active {
-    background-color: var(--accent-fill);
-    color: var(--fg-on-accent-fill);
-    border-color: var(--accent-fill);
-  }
-  .area-admin .admin-theme-option:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+  .area-admin .prompt-block .admin-system-text { margin: 0; }
+  /* A paragraph inside a section stack: the stack's gap is the spacing. */
+  .area-admin .admin-system-text.admin-system-intro { margin-bottom: 0; }
 
   /* === Settings item pages (M25 F3 L5b; flight DD7, reference spec 4 and 8.2) ===
      Built-in tools: the page header, then .settings-list (the tool list),
@@ -128,583 +71,55 @@
   /* The item sits under the list, divided by a hairline (DD7: below, not
      beside), on the same 32px inset and 880px column as the list (816px of
      content), so the header's actions line up with the table's edge. */
-  .area-admin .settings-item:not(:empty) { margin: 24px 32px 0; max-width: 816px; border-top: 1px solid var(--border); padding-bottom: 40px; }
-  .area-admin .settings-item .editor-header { padding: 16px 0 12px; }
-  .area-admin .settings-item .editor-section { padding-left: 0; padding-right: 0; }
-  /* The tool list keeps its tabs and tile cards (an accepted variation), on
-     the page's inset; the page is the only scroller. */
-  .area-admin .settings-list .tablist { padding: 0; }
-  .area-admin .settings-list .tabpanel { overflow: visible; }
-  .area-admin .settings-list .entity-tile-grid { flex: none; overflow: visible; padding: 16px 0 0; }
-  .area-admin .settings-list .empty-state { padding: 16px 0; }
-
-  /* Intro copy (section 8.2): 12px --fg-muted on the page's --bg. */
-  .area-admin .settings-intro { margin: 0 0 16px; font-size: var(--font-size-body-sm); color: var(--fg-muted); }
-
-  /* DD3 (squawk 0116): the name and the badge share a flex title row, so the
-     badge is in the flow beside the name and can never overlap it: the name
-     takes the free width and ellipsizes, the badge keeps its own. */
-  .area-admin .tile-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .area-admin .tile-title-row .entity-tile-name { flex: 1 1 auto; min-width: 0; }
-  .area-admin .tile-title-row .admin-tool-badge { position: static; flex: none; }
-  /* The name link (tool tiles): the tile's title ink (it keeps
-     .entity-tile-name's size, weight and ellipsis), it takes the title row's free width,
-     underlined on hover, with the standard accent ring on keyboard focus. */
-  .area-admin .tool-tile-link {
-    color: var(--fg);
-    text-decoration: none;
-    border-radius: var(--radius-sm);
-  }
-  .area-admin .tool-tile-link:hover { text-decoration: underline; }
-  .area-admin .tool-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* === Tool Category Badges (F6 leg 02) === */
-  /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced
-     eyebrow is retired — mirrors the L1 provider-badge quiet. Because the
-     shared `.entity-tile-badge` base (components.css) still declares
-     mono/uppercase/letter-spacing and this area-scoped selector outranks it
-     (0,2,0 > 0,1,0), quieting is an explicit OVERRIDE (sans / none / normal),
-     NOT a mere deletion of the three declarations (a bare delete would let the
-     base reassert the eyebrow). Per-type ink stays on the `--badge-ink-*`-gated
-     `.admin-tool-badge--{category}` modifiers below. Scoped to the tools
-     surface — studio's shared base untouched. */
-  .area-admin .admin-tool-badge {
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg-on-accent);
-    padding: 2px 8px;
-    border-radius: 4px;
-    flex-shrink: 0;
-    text-transform: none;
-    letter-spacing: normal;
-  }
-  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
-  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
-  .area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
-  /* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
-     for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
-  .area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
-  /* time (M28) — the current_time tool's category. */
-  .area-admin .admin-tool-badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
-  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
-
-  /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
-  /* L2 tile is a <div>, not <button>. Since M25 F3 L5b the tile is no longer
-     a click target: its tool NAME is the item link and the toggle is the only
-     other control, so the tile drops the shared pointer cursor and hover
-     wash. The open tool's tile keeps the selected wash (.entity-tile.active). */
-  .area-admin .tool-tile {
-    position: relative;
-    cursor: default;
-    /* Reserve space at bottom-right for the toggle so it doesn't collide
-       with .entity-tile-badge (which is hard-coded top:8px right:8px in
-       components.css). The toggle sits at bottom-right; description text
-       wraps above it. */
-    padding-bottom: 36px;
-  }
-  .area-admin .tool-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
-  .area-admin .tool-enable-switch,
-  .area-studio .tool-enable-switch {
-    position: relative;
-    display: inline-block;
-    width: 36px;
-    height: 20px;
-    cursor: pointer;
-    /* L7 (F7 Rec #3(a)): default flipped from absolute (tile-corner) to
-       relative (inline). Tile-corner consumers opt in via the
-       .tool-enable-switch--corner modifier below. */
-  }
-  .area-admin .tool-enable-switch--corner,
-  .area-studio .tool-enable-switch--corner {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
-  }
-  .area-admin .tool-enable-switch input[type="checkbox"],
-  .area-studio .tool-enable-switch input[type="checkbox"] {
-    /* Visually-hidden but keyboard-operable. position:absolute removes from
-       layout; opacity:0 hides without breaking screen-reader access. */
-    position: absolute;
-    opacity: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    cursor: pointer;
-    /* Z-index above the track so the click reliably hits the input first
-       (avoids label-click-through quirks in older WebKit). */
-    z-index: 1;
-  }
-  .area-admin .tool-enable-switch-track,
-  .area-studio .tool-enable-switch-track {
-    display: block;
-    width: 36px;
-    height: 20px;
-    /* Off-state track uses --control-border (M25 F1 L3, DD7: ≥3:1 non-text
-       against every surface; --border-strong was only ~2:1). --surface-muted
-       is NOT defined. */
-    background: var(--control-border);
-    border-radius: 10px;
-    position: relative;
-    transition: background 0.2s ease;
-    /* Track must NOT eat the click — the wrapping <label> + <input> handle it. */
-    pointer-events: none;
-  }
-  .area-admin .tool-enable-switch-track::after,
-  .area-studio .tool-enable-switch-track::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    /* Thumb is --control-thumb in BOTH states (gated against the off track
-       --control-border and the on track --accent-fill). */
-    background: var(--control-thumb);
-    border-radius: 50%;
-    transition: transform 0.2s ease;
-  }
-  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track,
-  .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
-    background: var(--accent-fill);
-  }
-  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after,
-  .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
-    transform: translateX(16px);
-  }
-  .area-admin .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track,
-  .area-studio .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  /* Disabled state during in-flight PUT (orchestrator sets disabled attr) */
-  .area-admin .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track,
-  .area-studio .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track {
-    opacity: 0.5;
-    cursor: wait;
-  }
-
-  /* === Tools Editor (F6 leg 03) === */
-  /* The Enabled-toggle row sits above the schema-driven field rows; align
-     its layout to the rest of the form (existing .field-row already
-     supplies display:flex + 100px label gutter — no extra layout here). */
-  .area-admin .tools-editor-enabled-row {
-    margin-bottom: 12px;
-  }
-  /* L7 (F7 Rec #3(a)): default .tool-enable-switch is now position: relative;
-     no override needed for .tools-editor-enabled-row, .mf-sandbox-network-row,
-     .cf-auto-relay-row, or .cf-always-listen-row. Tile-corner consumers opt in
-     via the .tool-enable-switch--corner modifier. */
-
-  /* === Editor prompt block (F6 HAT inline fix #1) ============================
-     The tool's `description` IS the prompt baked into the LLM tools schema.
-     The header re-shape moves it out of the small subtitle and into a
-     monospace-labeled block so operators see it as "what the agent sees".
-     The `.editor-subtitle-meta` modifier shrinks the now-just-category
-     subtitle. Quiet vocabulary (M17 F6 L2, SC1): the mono + UPPERCASE +
-     letter-spaced eyebrow is retired to sans / none / normal (only this rule
-     declares those three — the `.editor-subtitle` base carries none — so this
-     is a plain quiet, not an override). Size (tiny) + `--fg-muted` ink kept. */
-  .area-admin .editor-subtitle-meta {
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-tiny);
-    text-transform: none;
-    letter-spacing: normal;
-    color: var(--fg-muted);
-  }
-  /* Tools-editor prompt section — canonical .section-title eyebrow label
-     + .code-block body; the editor-prompt-block wrapper just adds layout. */
-  .area-admin .editor-prompt-block {
-    margin-top: 12px;
+  /* The item's own 4px top padding plus the editor header's 12px give the header 16px of room
+     under the hairline (no rule on the library header's class). */
+  .area-admin .settings-item:not(:empty) { margin: 24px 32px 0; max-width: 816px; border-top: 1px solid var(--border); padding-top: 4px; padding-bottom: 40px; }
+  /* === Tools editor: Test connection (M31 F4 L07d) ===
+     The input is a standard App.ui.field and the button sits on the input's line
+     (the field is flush, so the input's bottom edge is the row's bottom, and the button
+     is centred on the input's height); the wrapper's fixed `height: 35px` mirrors the text
+     input's computed height and is guarded by test_test_button_is_vertically_centred_on_its_input.
+     The "saved settings" hint and the result go below the row. */
+  .area-admin .tools-test-row {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  /* Override .section-title's :first-child {margin-top: 0} so the eyebrow
-     keeps a tiny gap above the code body when it's the first child of the
-     prompt block. (The 6px gap from flex parent handles inter-element
-     spacing; the title's margin-bottom is enough.) */
-  .area-admin .editor-prompt-block .section-title {
-    margin-top: 0;
-    margin-bottom: 0;
-  }
-  /* .editor-prompt-text composes .code-block in components.css; this rule
-     only adds editor-specific bounds (the prompt can be long; cap height). */
-  .area-admin .editor-prompt-text {
-    max-height: 18rem;
-    overflow-y: auto;
-  }
-
-  /* === Uniform field-control width (F6 HAT inline fix #3) ====================
-     Pre-fix widths varied: number inputs were narrow, text inputs full-width,
-     dropdowns medium. Pinning a uniform max-width aligns inputs in a column
-     while still degrading on narrow viewports. The chip-list editor already
-     wraps via `flex-wrap: wrap` — the max-width caps the wrapper itself. */
-  .area-admin .tools-editor-field input[type="text"],
-  .area-admin .tools-editor-field input[type="number"],
-  .area-admin .tools-editor-field select,
-  .area-admin .tools-editor-field .chip-list-editor {
-    width: 100%;
-    max-width: 320px;
-    box-sizing: border-box;
-  }
-
-  /* === Field info icon (F6 HAT inline fix #4; M17 F6 L3) ====================
-     Per-field descriptions are tooltips on an info-icon that now sits BESIDE
-     the label inside the `.field-group-label` header (renderField migrated to
-     the stacked `.field-group` vocabulary in L3). The base `.field-info-icon`
-     reset (components.css) + `.field-group-label`'s `align-items: center` place
-     the icon correctly, so the former label-left flex-row overrides (icon as
-     third flex child, chip-list-row top-alignment) are retired — they keyed on
-     the old `.field-row` geometry that no longer applies. */
-
-  /* === Field error highlight (F6 HAT inline fix #7) ==========================
-     Applied to `.tools-editor-field` rows whose field is the offender of a
-     422 validation error (matched directly via renderFieldErrors, or matched
-     heuristically via the model-level error name-substring scan in
-     tools-editor.js). Red border + label-color tint surface the offending
-     fields visually so the operator can find them without re-reading the
-     banner. Cleared at next save attempt and on any field's change event. */
-  .area-admin .tools-editor-field.field-error-highlight input,
-  .area-admin .tools-editor-field.field-error-highlight select,
-  .area-admin .tools-editor-field.field-error-highlight .chip-list-editor {
-    border-color: var(--status-danger);
-  }
-  .area-admin .tools-editor-field.field-error-highlight label {
-    color: var(--status-danger);
-  }
-
-  /* Chip-list editor primitive — chips are direct children of the
-     wrapper (no .chip-list-chips wrapper, per leg-03 design Reviewer).
-     F6 HAT scenario 8 inline fix: selectors extended to ALSO match
-     `.area-studio .chip-list-editor`. The per-agent override panel now uses
-     App.ui.chipList (M31 F2 L08b), whose own rules (components.css) carry the
-     locked-chip look. */
-  /* Chip-list editor — input affordance for array-typed fields (e.g.,
-     host_allowlist). Treated as part of the .field-input family: hairline
-     border + small radius, matching .field-input visually. Chips inside
-     use the canonical .chip primitive treatment (accent-translucent flat). */
-  .area-admin .chip-list-editor:not(.ui-chip-list),
-  .area-studio .chip-list-editor:not(.ui-chip-list) {
-    flex: 1;
-    display: flex;
+    align-items: flex-end;
+    gap: var(--space-3);
     flex-wrap: wrap;
-    gap: 4px;
-    align-items: center;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: var(--space-1);
-    min-height: 40px;
-    background: var(--surface);
   }
-  /* M31 F3 L03c (DD8-6): `areas` beats `components` whatever the specificity, so these
-     rules are narrowed to string-built lists; a library App.ui.chipList carries
-     .ui-chip-list and takes its look from components.css. */
-  /* Container focus: border-color shift (no halo). */
-  .area-admin .chip-list-editor:not(.ui-chip-list):focus-within,
-  .area-studio .chip-list-editor:not(.ui-chip-list):focus-within {
-    border-color: var(--accent);
-  }
-  .area-admin .chip-list-editor:not(.ui-chip-list) .chip,
-  .area-studio .chip-list-editor:not(.ui-chip-list) .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--accent-translucent);
-    border: 1px solid var(--border);
-    border-radius: var(--space-1);
-    font-size: var(--font-size-body-sm);
-    color: var(--fg);
-  }
-  .area-admin .chip-list-editor:not(.ui-chip-list) .chip-remove,
-  .area-studio .chip-list-editor:not(.ui-chip-list) .chip-remove {
-    background: none;
-    border: 0;
-    color: var(--accent);
-    cursor: pointer;
-    padding: 0 2px;
-    font-size: 1em;
-    line-height: 1;
-    transition: color var(--motion-base) var(--ease-tactile);
-  }
-  .area-admin .chip-list-editor:not(.ui-chip-list) .chip-remove:hover,
-  .area-studio .chip-list-editor:not(.ui-chip-list) .chip-remove:hover {
-    color: var(--status-danger);
-    transition: color var(--motion-fast) var(--ease-tactile);
-  }
-  .area-admin .chip-list-input:not(.ui-chip-list-input),
-  .area-studio .chip-list-input:not(.ui-chip-list-input) {
-    flex: 1;
-    min-width: 100px;
-    border: 0;
-    outline: none;
-    padding: 2px;
-    background: transparent;
-    color: var(--fg);
-    font-family: inherit;
-    font-size: var(--font-size-body);
-  }
-
-  /* Inline 422 errors — the message sits flush under the control inside the
-     stacked .field-group (M17 F3 vocabulary; F6 L4 made this the default).
-     The old .field-row label-gutter (margin: 4px 0 0 100px) + its
-     .field-group escape were retired in F6 L4 once every admin .field-row
-     with a .field-error consumer migrated to .field-group (Legs 1-3). The
-     .field-group's own flex-column gap supplies the top spacing. */
-  .area-admin .field-error {
-    display: block;
-    color: var(--status-danger);
-    font-size: var(--font-size-tiny);
-    margin: 0;
-  }
-
-  /* Developer-visible cue when renderField hits an un-dispatched type —
-     console.warn fires alongside this border so the issue is visible
-     in both dev surfaces. */
-  .area-admin .field-unknown-type {
-    border-color: var(--status-danger);
-  }
-
-  /* === Tools Editor — Connection Test Section (F6 leg 04) === */
-  /* Section uses the default .editor-section margin for vertical separation
-     from the Configuration block above; no extra rules needed here. The
-     selector exists as a hook for future per-section tweaks. */
-  .area-admin .tools-editor-test-section { /* uses default .editor-section margin */ }
-  .area-admin .tools-editor-test-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .area-admin .tools-editor-test-help {
-    margin-bottom: 8px;
-  }
-  /* F6 HAT inline tweak — section header row pairing the section title with
-     an info icon (hint moved out of the prior `.tools-editor-test-help`
-     paragraph onto a hover-revealed icon, mirroring the per-field
-     info-icon pattern). The row is a flex container so the icon sits on
-     the same baseline as the title text without affecting other section
-     titles (which keep their original block layout). The `.field-info-icon`
-     selector reuses the existing 14×14 styling block defined above. */
-  /* M25 F6 L4 (D1): the eyebrow rule sits on the ROW's ::after, after the info
-     icon; the row's .section-title suppresses its own rule (a flex-item span's
-     ::after would collapse and the icon would be pushed to the far edge). */
-  .area-admin .section-title-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 22px 0 10px;
-  }
-  .area-admin .section-title-row:first-child { margin-top: 0; }
-  .area-admin .section-title-row .section-title { display: block; margin: 0; }
-  .area-admin .section-title-row .section-title::after { content: none; }
-  .area-admin .section-title-row::after {
-    content: "";
-    flex: 1;
-    min-width: 0;
-    height: 1px;
-    background: var(--border);
-  }
-  /* Section-title-row info-icon — base reset lives in components.css; no
-     admin-specific overrides needed. */
-  /* .visually-hidden is a global utility defined once in components.css. */
-  /* F6 HAT inline tweak — `.test-tool-btn` SVG icon + label baselines were
-     mis-aligned because the canonical `.btn-outlined-primary` rule does not
-     opinionate on inline-flex/SVG sizing. Pin inline-flex centering + the
-     same 16×16 svg sizing the editor-error-banner uses. Provider-editor's
-     Test button has no icon so it's unaffected; other admin icon buttons
-     (Back, etc.) inherit `.btn-outlined-primary` and the icon happens to
-     baseline-align there for unrelated reasons — pinning on a class
-     specific to the test button avoids regressing them. */
-  .area-admin .test-tool-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .area-admin .test-tool-btn svg {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-  }
-  /* Tool-output panel — monospace, scrollable, max-height bounded so long
-     responses don't expand the editor unbounded. The `hidden` attribute is
-     the source of truth for visibility; the [hidden] rule below is defensive
-     against any CSS reset that clobbers the UA-stylesheet default. */
-  .area-admin .tool-test-output {
-    display: block;
-    max-height: 320px;
-    overflow-y: auto;
-    padding: 8px 10px;
-    margin-top: 8px;
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-body-sm);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  /* F6 HAT addition — editable Test-input field paired with the Test
-     connection button. Pre-filled with the per-tool default fixture
-     (TEST_FIXTURES in tools-editor.js) so operators can verify behavior
-     against arbitrary inputs. The label wraps the text + input as a
-     flex row so they baseline-align with the adjacent button. */
-  .area-admin .test-tool-input-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .area-admin .test-tool-input-label-text {
+  .area-admin .tools-test-field { flex: 1 1 240px; max-width: 360px; min-width: 0; }
+  /* The field is built flush (App.ui.field flush: true), so its bottom edge is the
+     input's. A text input is 35px tall, the secondary button 32px: the action cell
+     is the input's height and centres the button in it (the area's own element only). */
+  .area-admin .tools-test-action { display: flex; align-self: flex-end; align-items: center; height: 35px; }
+  .area-admin .tools-test-hint {
+    margin: var(--space-2) 0 0;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
-  .area-admin .test-tool-input {
-    width: 240px;
-    padding: 4px 8px;
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    background: var(--surface-elevated);
-    color: var(--fg);
-    font-size: var(--font-size-body-sm);
-  }
-  .area-admin .test-tool-input:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
+  .area-admin .tools-test-result:not(:empty) { margin-top: var(--space-3); }
+  .area-admin .tools-test-details { margin-top: var(--space-2); }
 
-  /* Editor error banner — F6 HAT inline fix #3. Renders model-level (loc:[])
-     and unmatched-field 422 errors prominently above the Configuration
-     section, instead of squeezing them into the small `.editor-error` span
-     next to Save/Cancel. The inline span is preserved for backward compat
-     with provider-editor; the L3 tools-editor now routes most error text
-     through this banner. Field-level errors (loc maps to a rendered field
-     row) still render as inline `.field-error` spans on the row. */
-  .area-admin .editor-error-banner {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    margin: 12px 0;
-    padding: 10px 14px;
-    background: var(--status-danger-bg-soft);
-    border-left: 3px solid var(--status-danger);
-    border-radius: 4px;
-    color: var(--status-danger);
-    font-size: var(--font-size-body-sm);
-  }
-  .area-admin .editor-error-banner svg {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    margin-top: 2px;
-  }
-  .area-admin .editor-error-banner-text {
-    flex: 1;
-    line-height: 1.4;
-    white-space: pre-wrap;
-  }
-
-  /* ── F4 L2 (M08): MCP source tile subtitle (agent-editor MCPs tab) ──
-     Lives in admin.css despite scoping to .area-studio because studio.css
-     is under active vibe iteration this leg and is off-limits. The cascade
-     is layer-equivalent (both files declare @layer areas), so the rule
-     lands in the same place either way. Renders the server-declared
-     identity (title || name + version) under the source name on the tile.
-     A `title=` tooltip on the element surfaces the server's free-form
-     `instructions` prose when present — the .has-instructions modifier
-     hints at the hover affordance with a help cursor. */
-  .area-studio .mcp-source-tile-subtitle {
-    font-size: var(--font-size-caption);
-    color: var(--fg-secondary);
-    margin-top: 2px;
-    /* Reserve horizontal space matched to the toggle column above so the
-       subtitle sits flush with the source name rather than the tile edge. */
-    padding-left: calc(var(--toggle-width, 36px) + 8px);
-    line-height: 1.3;
-  }
-  .area-studio .mcp-source-tile-subtitle.has-instructions {
-    cursor: help;
-    /* Subtle dotted underline communicates "hover for more" without
-       stealing focus from the source name above. */
-    text-decoration: underline dotted var(--border, currentColor);
-    text-underline-offset: 3px;
-  }
-
-  /* ── Date and time page (M28 F2 L3, flight DD4) ─────────────────────
-     Tokens only. The chooser lives in the zone option's slot. */
-  .area-admin .date-time-page .section-title:first-of-type { margin-top: 20px; }
+  /* ── Date and time page (M28 F2 L3, flight DD4; library controls since M31 F4 L09) ──
+     The sections, banner, statuses, facts and the inline zone list are the library's;
+     only the page's own parts are styled here. */
   .area-admin .date-time-page .date-time-mismatch {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    margin-bottom: var(--space-3);
   }
   .area-admin .date-time-page .date-time-mismatch-text { flex: 1; min-width: 0; }
-  .area-admin .date-time-page .date-time-mismatch .btn { flex: none; }
-  .area-admin .date-time-page .ui-radio-slot { margin-top: var(--space-3); }
   .area-admin .date-time-page .date-time-chosen {
     margin: 0 0 var(--space-2);
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
   .area-admin .date-time-page .date-time-chosen strong { color: var(--fg); }
-  .area-admin .date-time-page .ui-search-list-listbox {
-    max-height: 252px;
-    overflow-y: auto;
-  }
-  .area-admin .date-time-page .ui-search-list-description {
-    font-family: var(--font-family-mono);
-  }
-  .area-admin .date-time-page .ui-search-list-lead,
-  .area-admin .date-time-page .date-time-lead-spacer {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 16px;
-    height: 16px;
-    color: var(--accent);
-  }
-  .area-admin .date-time-page .ui-search-list-lead svg { width: 16px; height: 16px; }
-  /* An unfocused list shows no active row: the first option is always active
-     after a refresh, and would otherwise read as the chosen zone. */
-  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
-    background: transparent;
-    border-color: transparent;
-  }
-  .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] .ui-search-list-meta {
-    color: var(--fg-muted);
-  }
-  @media (forced-colors: active) {
-    .area-admin .date-time-page .ui-search-list:not(:focus-within) .ui-search-list-row[aria-selected="true"] {
-      border-color: Canvas;
-    }
-  }
-  .area-admin .date-time-page .date-time-status {
-    min-height: 20px;
-    margin: var(--space-3) 0 0;
-    font-size: var(--font-size-body-sm);
-    color: var(--status-success);
-  }
-  .area-admin .date-time-page .date-time-error { margin: var(--space-3) 0 0; font-size: var(--font-size-body-sm); }
-  .area-admin .date-time-page .date-time-preview { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-  .area-admin .date-time-page .date-time-preview-row { display: flex; flex-direction: column; gap: var(--space-1); }
-  .area-admin .date-time-page .date-time-preview dt {
-    font-size: var(--font-size-caption);
-    color: var(--fg-secondary);
-  }
-  .area-admin .date-time-page .date-time-preview dd {
-    margin: 0;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg);
-  }
-  .area-admin .date-time-page .date-time-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-caption);
+  /* B8: the id and offset in the list's mono font. */
+  .area-admin .date-time-page .date-time-chosen-id { font-family: var(--font-family-mono); }
+  /* DD8-13: "Use {zone}" hands focus here; a scripted focus must show a ring. */
+  .area-admin .date-time-page .date-time-chosen:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .area-admin .date-time-page .date-time-muted {
     display: block;
@@ -712,6 +127,6 @@
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
-  .area-admin .date-time-page .date-time-note { margin: var(--space-4) 0 0; }
+  .area-admin .date-time-page .date-time-note { margin: 0; }
   /* Last, so no display rule above can show a hidden node. */
 }

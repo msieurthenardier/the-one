@@ -17,12 +17,11 @@
   }
 
   // The page header (reference spec section 4): one h1 per page, no
-  // breadcrumb. `headingId` names the h1 for controls labelled by it.
+  // breadcrumb, built by App.ui.pageHeader (M31 F4 L08a). `headingId` names
+  // the h1 for anything labelled by it. Returns nothing.
   function renderPage(container, title, headingId, sectionChildren) {
     container.textContent = '';
-    container.appendChild(el('div', { className: 'page-header' }, [
-      el('h1', { className: 'page-title', id: headingId || null, text: title })
-    ]));
+    container.appendChild(window.App.ui.pageHeader({ title: title, headingId: headingId || null }).el);
     container.appendChild(el('div', { className: 'admin-form' }, [
       el('div', { className: 'admin-system-section' }, sectionChildren)
     ]));
@@ -32,219 +31,386 @@
     return el('p', { className: 'admin-system-text', text: copy });
   }
 
+  // A paragraph inside a section stack, where the stack's gap is the spacing.
+  function intro(copy) {
+    return el('p', { className: 'admin-system-text admin-system-intro', text: copy });
+  }
+
   // ── Appearance ────────────────────────────────────────────────────────
 
+  var THEME_EVENT = 'theme-preference-changed';
+
   function renderAppearancePage(container) {
-    // The theme radiogroup is labelled by the page's h1 ("Appearance"), the
-    // in-page title it was labelled by before the split.
-    var mount = el('div', {
-      className: 'admin-theme-toggle',
-      id: 'admin-theme-toggle-mount',
-      'aria-labelledby': 'admin-appearance-heading'
+    var App = window.App;
+    // The picker is an App.ui.radioGroup in its card look (ledger row 39). Its
+    // fieldset is named "Theme" through a hidden legend; the page's h1 names
+    // the page.
+    var group = App.ui.radioGroup({
+      legend: 'Theme',
+      legendHidden: true,
+      testid: 'theme-picker',
+      value: App.theme.get(),
+      options: [
+        { value: 'light', label: 'Light', testid: 'theme-option-light' },
+        { value: 'dark', label: 'Dark', testid: 'theme-option-dark' },
+        { value: 'auto', label: 'Auto', testid: 'theme-option-auto' }
+      ],
+      onChange: function (pref) { App.theme.set(pref); }
     });
     renderPage(container, 'Appearance', 'admin-appearance-heading', [
       text('Choose a theme. Auto follows your operating system preference.'),
-      mount
+      group.el
     ]);
-    if (window.App && window.App.theme && window.App.theme.renderToggle) {
-      window.App.theme.renderToggle(mount, { labelledBy: 'admin-appearance-heading' });
+    // Another tab or the desktop shell changing the theme updates the picker.
+    // The page returns {destroy()}, which admin.js calls on every re-render and
+    // teardown, so the listener is removed when the page goes (DD8-19). It also
+    // prunes itself on an event once the group has left the document, as a
+    // backstop. setValue is silent, so this never loops back into App.theme.set.
+    function onTheme(e) {
+      if (!group.el.isConnected) {
+        document.removeEventListener(THEME_EVENT, onTheme);
+        return;
+      }
+      group.setValue(e.detail.pref);
     }
+    document.addEventListener(THEME_EVENT, onTheme);
+    return {
+      destroy: function () { document.removeEventListener(THEME_EVENT, onTheme); }
+    };
   }
 
   // ── Prompts ───────────────────────────────────────────────────────────
 
-  function promptLayer(title, help, pre) {
-    var kids = [el('div', { className: 'section-title', text: title })];
-    if (help) { kids.push(text(help)); }
-    if (pre) { kids.push(pre); }
-    return el('div', { className: 'admin-prompt-layer' }, kids);
+  // One read-only prompt text: a trimmed, scrollable App.ui.codeBlock (A1). The
+  // `label` names it as a region when it scrolls. Text is set with textContent
+  // only: note text is attacker-influenced (CLAUDE.md).
+  function promptBlock(label) {
+    var block = window.App.ui.codeBlock({
+      text: 'Loading…',
+      trim: true,
+      maxHeight: 'tall',
+      label: label
+    });
+    return block;
   }
 
-  function promptPre() {
-    return el('pre', { className: 'admin-base-prompt code-block', text: 'Loading\u2026' });
+  // A sub-heading under a layer (A3): the variant a block below belongs to. A plain
+  // semibold line, not a second eyebrow, so it never competes with the layer title.
+  function variantHeading(copy) {
+    return el('p', { className: 'prompt-variant', text: copy });
   }
 
-  // One platform-prompt section as a block (Flight 2 leg 1c, DD8): a title, an
+  // One layer of the assembled prompt (B11): the layer title is the section's h2,
+  // the stronger heading; the rhythm between its parts is the section stack's (A2).
+  function promptLayer(title, help, children) {
+    return window.App.ui.section({
+      title: title,
+      titleTag: 'h2',
+      layout: 'stack',
+      inset: 'none',
+      description: help || null,
+      children: children
+    });
+  }
+
+  // One platform-prompt section as a block (Flight 2 leg 1c, DD8): an h3 title, an
   // "Applies when" line and the section's text. The test id is
   // `platform-section-{variant}-{id}` (a parametric family, see the registry).
   function platformSectionBlock(row) {
     var key = row.variant + '-' + row.id;
     var applies = el('p', {
-      className: 'admin-system-text platform-section-applies',
+      className: 'admin-system-text prompt-block-applies',
       text: 'Applies when: ' + row.applies_when
     });
     applies.setAttribute('data-testid', 'platform-section-' + key + '-applies-when');
-    var pre = el('pre', { className: 'admin-base-prompt code-block', text: row.text });
-    pre.setAttribute('data-testid', 'platform-section-' + key + '-text');
-    var block = el('div', { className: 'platform-section' }, [
-      el('div', { className: 'platform-section-title', text: row.title }),
+    var code = promptBlock(row.title);
+    code.el.setAttribute('data-testid', 'platform-section-' + key + '-text');
+    code.set(row.text);
+    var block = el('div', { className: 'prompt-block' }, [
+      el('h3', { className: 'prompt-block-title', text: row.title }),
       applies,
-      pre
+      code.el
     ]);
     block.setAttribute('data-testid', 'platform-section-' + key);
     return block;
   }
 
-  var PLATFORM_GROUPS = [
-    { variant: 'tools', caption: 'With tools' },
-    { variant: 'tool_free', caption: 'Without tools (models that can\u2019t call tools)' }
-  ];
+  // One list in assembly order (HAT step 9): the tools rows as served, with the
+  // tool-free Identity placed right after the Identity block. A tool-free row whose
+  // id and text repeat a tools row (Formatting) is shown once; one that differs
+  // stays, adjacent to its tools twin. Each block's "Applies when" line says which
+  // agents it reaches, so there are no variant sub-headings.
+  function platformOrder(rows) {
+    var tools = rows.filter(function (r) { return r.variant === 'tools'; });
+    var free = rows.filter(function (r) { return r.variant !== 'tools'; });
+    var out = tools.slice();
+    free.forEach(function (f) {
+      var twin = -1;
+      var i;
+      for (i = 0; i < out.length; i++) {
+        if (out[i].variant === 'tools' && out[i].id === f.id) { twin = i; }
+      }
+      if (twin !== -1) {
+        if (out[twin].text !== f.text) { out.splice(twin + 1, 0, f); }
+        return;
+      }
+      var at = f.id.indexOf('identity') === 0 ? 0 : out.length - 1;
+      for (i = 0; i < out.length; i++) {
+        if (out[i].id === 'identity') { at = i; }
+      }
+      out.splice(f.id.indexOf('identity') === 0 ? at + 1 : out.length, 0, f);
+    });
+    return out;
+  }
 
   function fillPlatformSections(mount, rows) {
     mount.textContent = '';
-    PLATFORM_GROUPS.forEach(function (group) {
-      var members = rows.filter(function (r) { return r.variant === group.variant; });
-      if (!members.length) { return; }
-      var wrap = el('div', { className: 'admin-prompt-layer' }, [
-        el('div', { className: 'section-title', text: group.caption })
-      ]);
-      members.forEach(function (r) { wrap.appendChild(platformSectionBlock(r)); });
-      mount.appendChild(wrap);
-    });
+    platformOrder(rows).forEach(function (r) { mount.appendChild(platformSectionBlock(r)); });
   }
 
   function renderPromptsPage(container) {
+    var App = window.App;
     var platform = el('div', { className: 'platform-sections' }, [
-      el('p', { className: 'admin-system-text', text: 'Loading\u2026' })
+      el('p', { className: 'admin-system-text', text: 'Loading…' })
     ]);
     platform.setAttribute('data-testid', 'platform-sections');
-    var rules = promptPre();
-    rules.setAttribute('data-testid', 'rules-prompt-content');
-    var notes = promptPre();
-    notes.setAttribute('data-testid', 'notes-prompt-content');
-    var notesFree = promptPre();
-    notesFree.setAttribute('data-testid', 'notes-prompt-content-tool-free');
-    var dateWith = promptPre();
-    dateWith.setAttribute('data-testid', 'date-prompt-content');
-    var dateWithout = promptPre();
-    dateWithout.setAttribute('data-testid', 'date-prompt-content-without-tool');
-    // The Date layer has two wordings; each pre gets a small caption (plain
-    // text, not a .section-title, so the layer-title list stays short).
-    var dateLayer = el('div', { className: 'admin-prompt-layer' }, [
-      el('div', { className: 'section-title', text: 'Date' }),
-      text('Added last to every agent\u2019s prompt, with the date in your time zone. ' +
-        'The first wording is used when the agent has the current_time tool; ' +
-        'the second when it doesn\u2019t.'),
-      text('With the time tool'),
-      dateWith,
-      text('Without it'),
-      dateWithout
-    ]);
-    var notesLayer = el('div', { className: 'admin-prompt-layer' }, [
-      el('div', { className: 'section-title', text: 'Notes' }),
-      text('Added after the rules when the agent keeps notes.'),
-      text('With tools'),
-      notes,
-      text('Without tools (it can\u2019t save notes, so the saving instructions are left out)'),
-      notesFree
-    ]);
+    var rules = promptBlock('Rules prompt');
+    rules.el.setAttribute('data-testid', 'rules-prompt-content');
+    var notes = promptBlock('Notes prompt');
+    notes.el.setAttribute('data-testid', 'notes-prompt-content');
+    var notesFree = promptBlock('Notes prompt without tools');
+    notesFree.el.setAttribute('data-testid', 'notes-prompt-content-tool-free');
+    var dateWith = promptBlock('Date prompt');
+    dateWith.el.setAttribute('data-testid', 'date-prompt-content');
+    var dateWithout = promptBlock('Date prompt without the time tool');
+    dateWithout.el.setAttribute('data-testid', 'date-prompt-content-without-tool');
+    var loadError = el('div', {});
+    loadError.setAttribute('data-testid', 'prompts-load-error');
     renderPage(container, 'Prompts', null, [
-      text('Every agent\u2019s system prompt is assembled from these layers, in this order, ' +
-        'separated by ---: the platform prompt, the agent\u2019s own system prompt (set on its General tab), ' +
+      text('Every agent’s system prompt is assembled from these layers, in this order, ' +
+        'separated by ---: the platform prompt, the agent’s own system prompt (set on its General tab), ' +
         'then rules, notes and the date. Parts of the platform prompt apply only when the agent ' +
         'can use them (each block says when). They are read-only and only change via code releases. ' +
         'The Rules and Notes layers below show placeholder content.'),
-      el('div', { className: 'admin-prompt-layer' }, [
-        el('div', { className: 'section-title', text: 'Platform prompt' })
-      ]),
-      platform,
-      promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.', rules),
-      notesLayer,
-      dateLayer
+      loadError,
+      promptLayer('Platform prompt', null, [platform]).el,
+      promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.',
+        [rules.el]).el,
+      promptLayer('Notes', 'Added after the rules when the agent keeps notes.', [
+        variantHeading('With tools'),
+        notes.el,
+        variantHeading('Without tools (it can’t save notes, so the saving instructions are left out)'),
+        notesFree.el
+      ]).el,
+      promptLayer('Date',
+        'Added last to every agent’s prompt, with the date in your time zone. ' +
+        'The first wording is used when the agent has the current_time tool; ' +
+        'the second when it doesn’t.', [
+          variantHeading('With the time tool'),
+          dateWith.el,
+          variantHeading('Without it'),
+          dateWithout.el
+        ]).el
     ]);
-    fetchPrompts(platform, rules, notes, notesFree, dateWith, dateWithout);
-  }
-
-  function fetchPrompts(platformEl, rulesEl, notesEl, notesFreeEl, dateWithEl, dateWithoutEl) {
-    function fill(pre, value, fallback) {
-      pre.textContent = typeof value === 'string' ? value : fallback;
+    function fill(block, value) {
+      block.set(typeof value === 'string' ? value : '(unavailable)');
     }
-    fetch('/api/info')
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (Array.isArray(data.platform_sections)) {
-          fillPlatformSections(platformEl, data.platform_sections);
-        } else {
-          platformEl.textContent = '(platform prompt unavailable)';
-        }
-        fill(rulesEl, data.rules_prompt_example, '(unavailable)');
-        fill(notesEl, data.notes_prompt_example, '(unavailable)');
-        fill(notesFreeEl, data.notes_prompt_example_tool_free, '(unavailable)');
-        fill(dateWithEl, data.date_prompt_example, '(unavailable)');
-        fill(dateWithoutEl, data.date_prompt_example_without_tool, '(unavailable)');
-      })
-      .catch(function () {
-        platformEl.textContent = '(failed to load)';
-        [rulesEl, notesEl, notesFreeEl, dateWithEl, dateWithoutEl].forEach(function (p) {
-          p.textContent = '(failed to load)';
-        });
-      });
+    var blocks = [rules, notes, notesFree, dateWith, dateWithout];
+    App.api.fetchJson('/api/info').then(function (data) {
+      if (!platform.isConnected) { return; }
+      if (Array.isArray(data.platform_sections)) {
+        fillPlatformSections(platform, data.platform_sections);
+      } else {
+        platform.textContent = '';
+        platform.appendChild(App.ui.status({ state: 'danger', role: 'alert',
+          text: 'The platform prompt is not available.' }).el);
+      }
+      fill(rules, data.rules_prompt_example);
+      fill(notes, data.notes_prompt_example);
+      fill(notesFree, data.notes_prompt_example_tool_free);
+      fill(dateWith, data.date_prompt_example);
+      fill(dateWithout, data.date_prompt_example_without_tool);
+    }).catch(function (err) {
+      if (!platform.isConnected) { return; }
+      platform.textContent = '';
+      blocks.forEach(function (b) { b.set('(unavailable)'); });
+      loadError.textContent = '';
+      loadError.appendChild(App.ui.status({
+        state: 'danger',
+        role: 'alert',
+        text: 'The prompts could not be loaded. ' + (err && err.message ? err.message : '')
+      }).el);
+    });
   }
 
   // ── Encryption ────────────────────────────────────────────────────────
 
-  function renderEncryptionPage(container) {
-    var rotateBtn = el('button', { className: 'btn-muted-destructive', type: 'button' }, [
-      el('span', { 'data-confirm-title': true, text: 'Rotate Encryption Key' })
-    ]);
-    rotateBtn.setAttribute('data-testid', 'rotate-key-btn');
-    var flashEl = el('div', { className: 'admin-system-flash', 'aria-live': 'polite' });
-    renderPage(container, 'Encryption', null, [
-      text('API keys for LLM providers are encrypted at rest. ' +
-        'You can rotate the encryption key to re-encrypt all stored credentials with a new key.'),
-      el('div', {
-        className: 'banner banner-warning',
-        role: 'note',
-        text: 'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.'
-      }),
-      rotateBtn,
-      flashEl
-    ]);
-    wireEncryptionRotate(rotateBtn, flashEl);
+  var ROTATE_OK_MS = 3000;
+  var STAGED_TEXT = 'The encryption key was rotated, but the key file could not be updated ' +
+    'on disk. The new key is staged and will be applied at next start. Check the server log.';
+  // The rotation timer, one handle for the whole module: cleared at the start of
+  // every attempt and whenever the page renders again (DD8-10), so a first rotation's
+  // "Key rotated." timer can never wipe a later attempt's warning.
+  var rotateTimer = null;
+
+  function clearRotateTimer() {
+    if (rotateTimer) {
+      clearTimeout(rotateTimer);
+      rotateTimer = null;
+    }
   }
 
-  function wireEncryptionRotate(rotateBtn, flashEl) {
-    rotateBtn.addEventListener('click', function () {
-      window.App.confirmDelete(rotateBtn, function (btn, revertFn) {
-        var titleEl = btn.querySelector('[data-confirm-title]');
-        btn.disabled = true;
-        if (titleEl) titleEl.textContent = 'Rotating…';
-        fetch('/api/encryption/rotate', { method: 'POST' })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Rotation failed'); });
-            return r.json();
-          })
-          .then(function (data) {
-            btn.disabled = false;
-            // Helper's revertFn restores the original "Rotate Encryption Key"
-            // text + removes the .confirm-delete class.
-            revertFn();
-            if (data && data.key_file === 'staged') {
-              // DB + in-memory key rotated, but the on-disk key file could
-              // not be promoted (`.next` sidecar reconciles at next start).
-              // Warn and leave the flash up — an operator must not mistake
-              // this for the ordinary success path.
-              flashEl.textContent =
-                'Encryption key rotated, but the key file could not be updated on disk — ' +
-                'the new key is staged and will be applied at next start. Check the server log.';
-              flashEl.className = 'admin-system-flash warning';
-            } else {
-              // "promoted" and any other/missing key_file value are treated
-              // as success (backward-compatible with older server builds).
-              flashEl.textContent = 'Encryption key rotated successfully.';
-              flashEl.className = 'admin-system-flash success';
-              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
-            }
-          })
-          .catch(function (err) {
-            btn.disabled = false;
-            revertFn();
-            flashEl.textContent = 'Error: ' + err.message;
-            flashEl.className = 'admin-system-flash error';
-            setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 4000);
-          });
-      }, { confirmLabel: 'Confirm Rotate?' });
+  function renderEncryptionPage(container) {
+    var App = window.App;
+    clearRotateTimer();
+    var gen = App.ui.util.latest();
+
+    // The rotate button: App.ui.button (danger) with the [data-confirm-title] span the
+    // two-step confirm swaps (App.ui.button's label is a bare text node).
+    var rotateBtn = App.ui.button({ variant: 'danger', testid: 'rotate-key-btn' });
+    var titleEl = el('span', { text: 'Rotate encryption key' });
+    titleEl.setAttribute('data-confirm-title', '');
+    rotateBtn.appendChild(titleEl);
+
+    // The result: a persistent polite live region holding one App.ui.status that is
+    // inserted when there is something to say and removed when there is not (a node
+    // inserted into a live region is announced reliably; toggling `hidden` is not).
+    var result = el('div', { role: 'status' });
+    result.setAttribute('data-testid', 'rotate-result');
+    function clearResult() {
+      result.textContent = '';
+      result.removeAttribute('data-state');
+    }
+    function showResult(state, copy) {
+      clearRotateTimer();
+      clearResult();
+      result.setAttribute('data-state', state);
+      result.appendChild(App.ui.status({ state: state, text: copy, live: 'off', textTone: true }).el);
+    }
+
+    // B12: when the key last changed and how many stored items it covers.
+    var lastRotated = el('span', { text: '…' });
+    lastRotated.setAttribute('data-testid', 'encryption-last-rotated');
+    var facts = App.ui.facts({
+      testid: 'encryption-facts',
+      rows: [
+        { label: 'Last rotated', value: lastRotated },
+        { label: 'Items with stored secrets', value: '…',
+          valueTestid: 'encryption-credential-count' }
+      ]
     });
+    var factsError = App.ui.status({ state: 'danger', text: 'The key details are unavailable.',
+      live: 'off' });
+    factsError.el.setAttribute('data-testid', 'encryption-facts-error');
+    factsError.el.hidden = true;
+    var rotatedIso = null;
+    function paintRotated() {
+      if (rotatedIso) {
+        lastRotated.textContent = App.time.formatDateTime(rotatedIso);
+        lastRotated.setAttribute('title', rotatedIso);
+        lastRotated.setAttribute('data-rotated-at', rotatedIso);
+      } else {
+        lastRotated.textContent = 'Never';
+        lastRotated.removeAttribute('title');
+        lastRotated.removeAttribute('data-rotated-at');
+      }
+    }
+    App.time.onChange(paintRotated, lastRotated);
+
+    function loadFacts(initial) {
+      var token = gen.next();
+      App.api.fetchJson('/api/encryption/status').then(function (data) {
+        if (!gen.isCurrent(token) || !result.isConnected) { return; }
+        rotatedIso = data.last_rotated_at || null;
+        paintRotated();
+        facts.set([
+          { label: 'Last rotated', value: lastRotated },
+          { label: 'Items with stored secrets', value: String(data.credential_count),
+            valueTestid: 'encryption-credential-count' }
+        ]);
+        facts.el.hidden = false;
+        factsError.el.hidden = true;
+        // A staged rotation keeps its warning across a reload (until the next attempt).
+        if (initial && data.key_file_pending && !result.firstChild) {
+          showResult('warning', STAGED_TEXT);
+        }
+      }).catch(function () {
+        if (!gen.isCurrent(token) || !result.isConnected) { return; }
+        facts.el.hidden = true;
+        factsError.el.hidden = false;
+      });
+    }
+
+    var busy = false;
+    function commit(btn, revertFn) {
+      if (busy) { return; }
+      busy = true;
+      clearRotateTimer();
+      clearResult();
+      var focus = App.focusAfter.begin(btn);
+      // aria-disabled, never `disabled`: a disabled button drops focus (DD8-12).
+      btn.setAttribute('aria-disabled', 'true');
+      titleEl.textContent = 'Rotating…';
+      function done() {
+        busy = false;
+        btn.removeAttribute('aria-disabled');
+        revertFn();
+        App.focusAfter.restore(focus, btn);
+      }
+      App.api.fetchJson('/api/encryption/rotate', { method: 'POST' }).then(function (data) {
+        done();
+        if (data && data.key_file === 'staged') {
+          // The database and the in-memory key rotated, but the key file could not be
+          // promoted (the `.next` sidecar reconciles at the next start). The warning
+          // stays until the next attempt: an operator must not mistake it for success.
+          showResult('warning', STAGED_TEXT);
+        } else {
+          // "promoted" and any other/missing key_file value are success.
+          showResult('success', 'Key rotated.');
+          rotateTimer = setTimeout(function () {
+            rotateTimer = null;
+            if (result.isConnected && result.getAttribute('data-state') === 'success') {
+              clearResult();
+            }
+          }, ROTATE_OK_MS);
+        }
+        loadFacts(false);
+      }).catch(function (err) {
+        done();
+        showResult('danger', err && err.message ? err.message : 'Rotation failed.');
+      });
+    }
+
+    rotateBtn.addEventListener('click', function () {
+      if (busy) { return; }
+      App.ui.confirm(rotateBtn, commit, {
+        confirmLabel: 'Rotate key?',
+        announceName: 'Rotate encryption key'
+      });
+    });
+
+    var banner = App.ui.banner({
+      tone: 'warning',
+      role: 'note',
+      text: 'The old key is discarded. This can’t be undone.'
+    });
+    renderPage(container, 'Encryption', null, [
+      App.ui.section({
+        layout: 'stack',
+        inset: 'none',
+        children: [
+          intro('The credentials the app stores, such as provider API keys, sign-in tokens, ' +
+            'server and connector secrets and tool settings, are encrypted at rest with one key. ' +
+            'Rotating generates a new key and re-encrypts everything stored with it.'),
+          banner.el,
+          facts.el,
+          factsError.el,
+          rotateBtn,
+          result
+        ]
+      }).el
+    ]);
+    loadFacts(true);
   }
 
   window.App.admin.renderPage = renderPage;

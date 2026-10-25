@@ -265,11 +265,15 @@
       if (text === null || text === undefined || text === '') {
         err.textContent = '';
         err.hidden = true;
+        err.removeAttribute('role');
         input.removeAttribute('aria-invalid');
         input.removeAttribute('aria-describedby');
         input.classList.remove('is-invalid');
       } else {
         err.textContent = String(text);
+        // Squawk 0238 (M31 F4 L03b): role=alert on show (a hidden pre-existing alert
+        // is unreliable), removed on clear; the input stays linked through aria-describedby.
+        err.setAttribute('role', 'alert');
         err.hidden = false;
         input.setAttribute('aria-invalid', 'true');
         input.setAttribute('aria-describedby', err.id);

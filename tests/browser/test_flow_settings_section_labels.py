@@ -78,11 +78,11 @@ def test_tools_editor_title_row_rule_runs_past_the_icon(app_clean: str, page: Pa
     page.emulate_media(color_scheme="dark")
     _nav.goto(page, app_clean, "settings/tools")
     _lists.open_tool(page, "web_search")
-    row = page.locator(".settings-item .section-title-row")
+    row = page.locator(".settings-item .ui-section-title-row")
     expect(row).to_be_visible(timeout=8000)
     t = page.evaluate(
         """() => {
-          const row = document.querySelector('.settings-item .section-title-row');
+          const row = document.querySelector('.settings-item .ui-section-title-row');
           const icon = row.querySelector('.field-info-icon').getBoundingClientRect();
           const text = row.querySelector('.section-title').getBoundingClientRect();
           const rr = row.getBoundingClientRect();
@@ -99,7 +99,7 @@ def test_tools_editor_title_row_rule_runs_past_the_icon(app_clean: str, page: Pa
     assert t["ownContent"] == "none", t
     title = page.evaluate(
         "() => { const n = document.querySelector("
-        "'.settings-item .section-title-row .section-title');"
+        "'.settings-item .ui-section-title-row .section-title');"
         " n.setAttribute('data-probe', 'row'); return true; }"
     )
     assert title

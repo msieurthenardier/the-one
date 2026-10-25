@@ -3,7 +3,10 @@
 //
 // Pure DOM-builder micro-helpers (no HTML-string sinks anywhere: the
 // Mission 17 Flight 1 dynamic-sink freeze in tests/test_ui_guards.py forbids
-// new call sites), the folder-path helpers and the response-error reader. Nothing here holds per-mount state.
+// new call sites), the folder-path helpers, the response-error reader and the
+// keyed-reconcile helpers (`setTextIfChanged`, `setAttrIfChanged`;
+// `syncChildren` is `App.ui.util.syncChildren` since M31 F4 L03b) that knowledge-folders.js and knowledge-rows.js share.
+// Nothing here holds per-mount state.
 // Loaded before every other knowledge-* module; they read it as
 // `App.studio.knowledgeShared`.
 (function () {
@@ -21,23 +24,6 @@
     if (opts.className) e.className = opts.className;
     if (opts.text !== undefined) e.textContent = opts.text;
     return e;
-  }
-
-  function _errorMessageFromResponse(body) {
-    var detail;
-    try {
-      var parsed = JSON.parse(body);
-      detail = parsed && parsed.detail;
-    } catch (_e) {
-      // Non-JSON body — fall through.
-    }
-    if (Array.isArray(detail)) {
-      detail = detail.map(function (d) {
-        var loc = (d.loc || []).join('.');
-        return loc ? (loc + ': ' + d.msg) : d.msg;
-      }).join(' | ');
-    }
-    return detail;
   }
 
   // AC-9 (Leg 6)/DD-9: separator-aware containment — a bare
@@ -109,18 +95,25 @@
   // Date getters). The precise value stays with the caller, in a `title` and
   // `data-indexed-at`. An unparseable value is shown as it came.
   function _formatStamp(iso) {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    return App.time.formatDate(d) + ', ' + App.time.formatClock(d);
+    return App.time.formatDateTime(iso);
+  }
+
+  function _setTextIfChanged(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+  }
+
+  function _setAttrIfChanged(node, name, value) {
+    if (node.getAttribute(name) !== value) node.setAttribute(name, value);
   }
 
   window.App.studio.knowledgeShared = {
     formatStamp: _formatStamp,
     STATUS_LABELS: STATUS_LABELS,
     el: _el,
-    errorMessageFromResponse: _errorMessageFromResponse,
     containingFolder: _containingFolder,
     relativeItemPath: _relativeItemPath,
-    baseName: _baseName
+    baseName: _baseName,
+    setTextIfChanged: _setTextIfChanged,
+    setAttrIfChanged: _setAttrIfChanged
   };
 })();

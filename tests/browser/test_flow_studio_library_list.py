@@ -573,7 +573,7 @@ def test_connector_save_create_syncs_the_url_with_no_navigation(
     _lists.library_add(page, "connectors")
     page.locator('[data-field="name"]').fill("Saved connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
     page.evaluate(
         """() => { const s = App.areas.find((a) => a.id === 'studio'); window.__hydrates = 0;
           const orig = s.hydrateState; s.hydrateState = function () { window.__hydrates += 1; return orig.apply(this, arguments); }; }"""
@@ -1392,7 +1392,7 @@ def test_connector_save_create_keeps_its_fields_and_pairing_state(
     map_row = page.locator('[data-testid="connector-channel-map-row"]')
     map_row.locator('[data-testid="connector-channel-map-channel"]').fill("chan-2")
     map_row.locator('[data-testid="connector-channel-map-agent"]').fill(agent)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
     page.wait_for_function("() => App.nav.isDirty()")
     _count_hydrates(page)
     before = page.evaluate("history.length")

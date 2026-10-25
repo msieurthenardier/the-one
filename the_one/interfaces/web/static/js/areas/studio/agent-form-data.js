@@ -9,7 +9,8 @@
 // controller both take checkDirty/getFormSnapshot from this handle, which is why
 // they live here and not in the controller (no picker <-> controller cycle).
 //
-// handle (module -> studio): collectFormData(), getFormSnapshot(), checkDirty().
+// handle (module -> studio): collectFormData(), getFormSnapshot(), checkDirty(),
+// blockingError() (M31 F4 L05c).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -202,22 +203,23 @@
       }
 
       // F6 leg 05 — collect tool_overrides from per-tool override panels.
-      // Each override input carries `data-tool-override-tool="{name}"` and
-      // `data-tool-override-field="{field}"`. The chip-list-editor wrapper
-      // <div> ALSO carries both attrs so the same selector picks it up;
-      // readFieldValue dispatches on shape.
+      // Each override control carries `data-tool-override-tool="{name}"` and
+      // `data-tool-override-field="{field}"` (App.toolConfigFields, M31 F4 L05b,
+      // agent mode; the row around it carries neither). The chip-list root carries
+      // both too, so the same selector picks it up; readValue dispatches on
+      // data-field-type.
       var overrideEls = editorEl.querySelectorAll('[data-tool-override-tool][data-tool-override-field]');
       var overrides = {};
-      var helpers = window.App.adminFormHelpers;
+      var renderedFields = {};
+      var read = window.App.toolConfigFields.readValue;
       for (var oi = 0; oi < overrideEls.length; oi++) {
         var oe = overrideEls[oi];
-        // Skip the .field-row wrapper (which carries the attrs for error
-        // rendering) — it's a div with no value to read.
-        if (oe.classList && oe.classList.contains('field-row')) continue;
         var toolName = oe.dataset.toolOverrideTool;
         var fieldName = oe.dataset.toolOverrideField;
         if (!toolName || !fieldName) continue;
-        var v = helpers ? helpers.readFieldValue(oe) : null;
+        if (!renderedFields[toolName]) renderedFields[toolName] = {};
+        renderedFields[toolName][fieldName] = true;
+        var v = read(oe);
         // Skip empty overrides — agent.tool_overrides only contains tools
         // with at least one set field.
         if (v === null || v === undefined) continue;
@@ -230,41 +232,35 @@
       // was opened this mount. If none was, OMIT the key (the server keeps
       // the stored map). If some were, the edited tools replace their stored
       // entry and tools never opened keep theirs; `{}` = everything cleared.
-      var loadedTools = {};
-      for (var li = 0; li < overrideEls.length; li++) {
-        if (overrideEls[li].dataset.toolOverrideTool) {
-          loadedTools[overrideEls[li].dataset.toolOverrideTool] = true;
-        }
-      }
+      var loadedTools = renderedFields;
       if (Object.keys(loadedTools).length > 0) {
         var stored = (self._selectedAgent && self._selectedAgent.tool_overrides) || {};
         Object.keys(stored).forEach(function (tn) {
-          if (!loadedTools[tn]) overrides[tn] = stored[tn];
+          if (!loadedTools[tn]) {
+            overrides[tn] = stored[tn];
+            return;
+          }
+          // M31 F4 L05c: a loaded tool's walk rebuilds its entry from the fields it
+          // RENDERED. A stored key with no rendered field (the tool's config_fields
+          // hides the setting, so it is never in the schema) is carried over
+          // unchanged: it stays stored and still applies at resolve time. A key whose
+          // field the schema shows but no longer marks overridable is the exception
+          // (the panel flags it in data-tool-override-dead): the resolver rejects such
+          // an override, so a Save drops it, as it always did.
+          var dead = deadFields(tn);
+          Object.keys(stored[tn] || {}).forEach(function (fn) {
+            if (renderedFields[tn][fn] || dead[fn]) return;
+            if (!overrides[tn]) overrides[tn] = {};
+            overrides[tn][fn] = stored[tn][fn];
+          });
         });
         data.tool_overrides = overrides;
       }
 
-      // F8 L3 — Walk mcp_overrides selectors. Mirrors the tool_overrides
-      // walk above, but groups by source-name (data-mcp-override-source)
-      // instead of tool-name. Per-tool checkboxes are handled separately
-      // below via [data-mcp-tool-toggle][data-mcp-source].
-      var mcpOverrideEls = editorEl.querySelectorAll(
-        '[data-mcp-override-source][data-mcp-override-field]'
-      );
+      // The dead-MCP-override walk that stood here (data-mcp-override-source /
+      // -field) had no producer left in js/ and is gone (M31 F4 L05c). The per-tool
+      // toggles below still fill mcpOverrides.
       var mcpOverrides = {};
-      for (var mi = 0; mi < mcpOverrideEls.length; mi++) {
-        var me = mcpOverrideEls[mi];
-        if (me.classList && me.classList.contains('field-row')) continue;
-        var mSourceName = me.dataset.mcpOverrideSource;
-        var mFieldName = me.dataset.mcpOverrideField;
-        if (!mSourceName || !mFieldName) continue;
-        var mv = helpers ? helpers.readFieldValue(me) : null;
-        if (mv === null || mv === undefined) continue;
-        if (Array.isArray(mv) && mv.length === 0) continue;
-        if (typeof mv === 'string' && mv === '') continue;
-        if (!mcpOverrides[mSourceName]) mcpOverrides[mSourceName] = {};
-        mcpOverrides[mSourceName][mFieldName] = mv;
-      }
 
       // Per-tool checkbox toggles within each attached source. Each
       // checkbox carries `data-mcp-tool-toggle` (un-prefixed tool name)
@@ -318,7 +314,43 @@
       return data;
     }
 
+    // The stored override keys the tool's panel flagged as no longer overridable.
+    function deadFields(toolName) {
+      var out = {};
+      var panels = editorEl.querySelectorAll('[data-tool-override-panel]');
+      for (var i = 0; i < panels.length; i++) {
+        if (panels[i].getAttribute('data-tool-override-panel') !== toolName) continue;
+        (panels[i].getAttribute('data-tool-override-dead') || '').split(' ').forEach(function (n) {
+          if (n) out[n] = true;
+        });
+      }
+      return out;
+    }
+
+    // M31 F4 L05c: the first override field whose value cannot be saved (a number
+    // override that is not a whole number), read from the live controls, or null.
+    // Kept apart from collectFormData, which stays pure (it also feeds checkDirty
+    // and the snapshot). The Save paths call it right after collectFormData.
+    // -> { tool, field, label, message, control } | null
+    function blockingError() {
+      var els = editorEl.querySelectorAll('[data-tool-override-tool][data-tool-override-field]');
+      for (var i = 0; i < els.length; i++) {
+        var message = window.App.toolConfigFields.invalidMessage(els[i]);
+        if (!message) continue;
+        var label = els[i].labels && els[i].labels[0] ? els[i].labels[0].textContent : '';
+        return {
+          tool: els[i].dataset.toolOverrideTool,
+          field: els[i].dataset.toolOverrideField,
+          label: label || els[i].dataset.toolOverrideField,
+          message: message,
+          control: els[i]
+        };
+      }
+      return null;
+    }
+
     return {
+      blockingError: blockingError,
       collectFormData: collectFormData,
       getFormSnapshot: getFormSnapshot,
       checkDirty: checkDirty

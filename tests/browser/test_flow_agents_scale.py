@@ -44,7 +44,7 @@ _ROUNDS = 12
 # performance.now() is coarsened (Chromium 100us; WebKit 1ms), coarser than one
 # keystroke, so a per-dispatch delta would mostly read 0. The figure is the
 # median over rounds of the mean script time per keystroke.
-_REPEAT = 10
+_REPEAT = 40
 _MEASURE_JS = """
 ([query, rounds, repeat]) => {
   const input = document.querySelector('[data-testid="agents-filter"]');
@@ -110,7 +110,9 @@ def test_filter_keystroke_cost_ratio_60_vs_10_throttled(
     record_property("filter_ratio", round(ratio, 2))
     print(f"[agents-scale] chromium x4: median 10={m10:.3f}ms 60={m60:.3f}ms ratio={ratio:.2f}")
     assert m60 <= 50, f"60-agent median {m60:.3f}ms exceeds 50ms"
-    assert m60 <= 3 * m10, f"60-agent median {m60:.3f}ms > 3x the 10-agent {m10:.3f}ms"
+    # An absolute floor (0.25 ms) keeps a tiny, timer-noise-sized m10 from turning
+    # the ratio into a flake (squawk 0230); REPEAT is sized so m10 sits well above it.
+    assert m60 <= max(3 * m10, 0.25), f"60-agent median {m60:.3f}ms > 3x the 10-agent {m10:.3f}ms"
 
 
 def test_filter_keystroke_cost_webkit_reported(

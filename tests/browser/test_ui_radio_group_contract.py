@@ -268,3 +268,22 @@ def test_validation_throws(engine_page: Page) -> None:
         )
         == "App.ui.radioGroup: duplicate value"
     )
+
+
+def test_slot_indent_label_aligns_the_slot_with_the_label_text(engine_page: Page) -> None:
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(
+        """() => {
+          const mk = (indent) => { const g = App.ui.radioGroup({legend: 'L' + indent, slotIndent: indent, options: [{value: 'a', label: 'Alpha'}]});
+            document.getElementById('harness-root').appendChild(g.el);
+            const slot = g.optionEl('a'); const p = document.createElement('p'); p.textContent = 'x'; slot.appendChild(p);
+            const left = (n) => Math.round(n.getBoundingClientRect().left * 10) / 10;
+            return {text: left(g.el.querySelector('.ui-radio-text')), slot: left(slot), label: left(g.el.querySelector('.ui-radio-label')),
+                    cls: g.el.querySelector('.ui-radio-option').className}; };
+          return {label: mk('label'), none: mk('none'), dflt: mk(undefined)};
+        }"""
+    )
+    assert abs(out["label"]["slot"] - out["label"]["text"]) <= 0.5
+    assert "ui-radio-option--indent" in out["label"]["cls"]
+    for k in ("none", "dflt"):
+        assert out[k]["slot"] == out[k]["label"] and "indent" not in out[k]["cls"]

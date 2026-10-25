@@ -19,10 +19,13 @@
   //   toolOverrideField, toolOverrideTool), className.
   //   el is div.chip-list-editor.ui-chip-list (the marker the area CSS is narrowed
   //   against, M31 F3 L03c) holding span.chip per value (locked:
-  //   [data-locked="true"] and aria-label "<v> (locked by operator)"; editable:
+  //   [data-locked="true"] and a .visually-hidden " (locked by operator)" text; editable:
   //   the text node then button.ui-chip-remove "×" named "Remove <v>") and
-  //   input.chip-list-input.ui-chip-list-input (aria-label "Add entry"). A chip's textContent is
-  //   the value plus the trailing "×", as in the legacy editor.
+  //   input.chip-list-input.ui-chip-list-input (aria-label "Add entry"). A chip carries its FULL value in
+  //   data-value and a title; its visible text is span.ui-chip-text, middle-ellipsized
+  //   to chipList.BUDGET (40) characters (a truncated text is aria-hidden, with a
+  //   .visually-hidden full-value twin; the remove button stays named "Remove <full>").
+  //   chipList.valuesOf(el) reads the full values from any container of chips.
   //   Keys on the input: Enter, comma and Tab commit a non-empty input (Tab on
   //   an empty input moves focus on); Backspace on an empty input removes the
   //   nearest editable chip before the input; a paste containing a comma splits
@@ -34,6 +37,7 @@
   App.ui.chipList = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
+    var CHIP_BUDGET = App.ui.chipList.BUDGET;
     var validate = typeof opts.validate === 'function' ? opts.validate : null;
 
     var root = util.el('div', {
@@ -54,15 +58,24 @@
     root.appendChild(input);
 
     function textOf(chip) {
-      var text = chip.textContent || '';
-      if (text.charAt(text.length - 1) === '×') text = text.slice(0, -1);
-      return text;
+      return chip.getAttribute('data-value') || '';
     }
     function values() {
-      var chips = root.querySelectorAll('.chip');
-      var out = [];
-      for (var i = 0; i < chips.length; i++) out.push(textOf(chips[i]));
-      return out;
+      return App.ui.chipList.valuesOf(root);
+    }
+    // The chip body: the visible text (middle-ellipsized past the budget) in
+    // span.ui-chip-text. A truncated text is aria-hidden and followed by a
+    // .visually-hidden twin with the full value, so a screen reader never reads "…".
+    function chipBody(chip, v) {
+      chip.setAttribute('data-value', v);
+      chip.setAttribute('title', v);
+      var shown = util.middleEllipsis(v, CHIP_BUDGET);
+      var text = util.el('span', { className: 'ui-chip-text', text: shown });
+      chip.appendChild(text);
+      if (shown !== v) {
+        text.setAttribute('aria-hidden', 'true');
+        chip.appendChild(util.el('span', { className: 'visually-hidden', text: v }));
+      }
     }
     function exists(value) {
       var chips = root.querySelectorAll('.chip');
@@ -75,16 +88,18 @@
       if (typeof opts.onChange === 'function') opts.onChange(values());
     }
     function lockedChip(v) {
-      return util.el('span', {
+      var chip = util.el('span', {
         className: 'chip',
-        'data-locked': 'true',
-        'aria-label': v + ' (locked by operator)',
-        text: v
+        'data-locked': 'true'
       });
+      chipBody(chip, v);
+      // A role-less span's aria-label is not announced: say the state in text.
+      chip.appendChild(util.el('span', { className: 'visually-hidden', text: ' (locked by operator)' }));
+      return chip;
     }
     function editableChip(v) {
       var chip = util.el('span', { className: 'chip' });
-      chip.appendChild(document.createTextNode(v));
+      chipBody(chip, v);
       chip.appendChild(util.el('button', {
         type: 'button',
         className: 'ui-chip-remove',
@@ -220,5 +235,17 @@
         root.removeEventListener('click', onClick);
       }
     };
+  };
+
+  // The visible character budget of one chip (a library constant, M31 F4 L04e).
+  App.ui.chipList.BUDGET = 40;
+  // chipList.valuesOf(el) -> [string]: the full values of the chips under el
+  // (a chipList's el, or any container of its chips), in DOM order, locked
+  // chips included, read from data-value, never from the (truncated) text.
+  App.ui.chipList.valuesOf = function (el) {
+    var chips = el.querySelectorAll('.chip[data-value]');
+    var out = [];
+    for (var i = 0; i < chips.length; i++) out.push(chips[i].getAttribute('data-value'));
+    return out;
   };
 })();

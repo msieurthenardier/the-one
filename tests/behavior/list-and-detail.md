@@ -3,7 +3,7 @@
 **Slug**: `list-and-detail`
 **Status**: active
 **Created**: 2026-10-02
-**Updated**: 2026-10-11 (steps 10, 12, 15 and 17: `#library` is the Library root and the Library editors' breadcrumb link is "Library"; model-providers sortie); 2026-10-07 (squawk 0127: wording only, no expectation changed: step 5 and step 16's focus after Continue, step 18's error-banner exemption); 2026-10-06 (steps 2, 8, 10, 15 and 17: the Agents and Library start pages, M25 F6 leg 4c); 2026-10-06 (step 2: the visually hidden root `h1`, M25 F6 leg 1a); 2026-10-05 (step 20: Providers tiles, M25 F3 leg 7)
+**Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-11 (steps 10, 12, 15 and 17: `#library` is the Library root and the Library editors' breadcrumb link is "Library"; model-providers sortie); 2026-10-07 (squawk 0127: wording only, no expectation changed: step 5 and step 16's focus after Continue, step 18's error-banner exemption); 2026-10-06 (steps 2, 8, 10, 15 and 17: the Agents and Library start pages, M25 F6 leg 4c); 2026-10-06 (step 2: the visually hidden root `h1`, M25 F6 leg 1a); 2026-10-05 (step 20: Providers tiles, M25 F3 leg 7)
 **Last Run**: 2026-10-07-11-51-23 — pass (38/38; Light + Dark; M25 F6 mission close, start pages re-authored in leg 4c; wording drift fixed by squawk 0127; see runs/)
 
 ## Intent
@@ -141,7 +141,7 @@ with the prefix `lnd-`.
 - **Theme.** Run the step table twice: once with the theme explicitly **Light**, once
   explicitly **Dark**.
   - **Switching.** Switch through Settings › Appearance **before step 2** of each
-    variant: click the radiogroup option, then confirm its `aria-checked="true"` and the
+    variant: click the radiogroup option, then confirm it is `checked` (native radio) and the
     document's `data-theme`.
   - **Restoring.** Record the operator's original option before the first switch, and
     restore it after the last variant.

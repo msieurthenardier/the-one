@@ -12,7 +12,9 @@
   // App.ui.textInput(opts) -> HTMLInputElement (class field-input).
   //   id (default: a generated ui-in-<n>), name, type (text | password |
   //   search | email | url | number; default text), value, placeholder,
-  //   disabled, required, autocomplete, onInput, dataset (a plain object copied to
+  //   disabled, required, autocomplete, onInput, min, max, step (attributes, M31 F4
+  //   L04b), inputMode (the inputmode attribute), width ('short': about 10ch, no
+  //   flex growth, ui-input--short; any other value throws), dataset (a plain object copied to
   //   data-*; a `testid` key is ignored, the test id option wins).
   //   The test id option is placed on the input itself (supplied by the caller).
   App.ui.textInput = function (opts) {
@@ -30,6 +32,16 @@
     if (opts.disabled) input.disabled = true;
     if (opts.required) input.required = true;
     if (opts.autocomplete) input.setAttribute('autocomplete', opts.autocomplete);
+    ['min', 'max', 'step'].forEach(function (name) {
+      if (opts[name] !== undefined && opts[name] !== null) input.setAttribute(name, String(opts[name]));
+    });
+    if (opts.inputMode) input.setAttribute('inputmode', opts.inputMode);
+    if (opts.width !== undefined) {
+      if (opts.width !== 'short') {
+        throw new Error('App.ui.textInput: unknown width "' + opts.width + '"');
+      }
+      input.classList.add('ui-input--short');
+    }
     App.ui.util.applyDataset(input, opts.dataset);
     if (opts.testid) input.setAttribute('data-testid', opts.testid);
     if (typeof opts.onInput === 'function') input.addEventListener('input', opts.onInput);
@@ -244,6 +256,8 @@
   //   aria-describedby leads with the description id). The test id option goes
   //   on the .field-group wrapper.
   //   Throws for a control marked data-ui-own-label (checkbox, toggle).
+  // flush: true drops the group's trailing margin (field-group--flush), so the
+  //   control's bottom edge is the group's, for a control that shares a row.
   // setLabel(text) replaces the visible label text.
   // The label is a direct child of the wrapper (the CSS keys off
   // .field-group > label). Hint and error elements each carry an id and are
@@ -266,7 +280,9 @@
     label.htmlFor = control.id;
     var info = opts.info ? App.ui.infoButton({ description: opts.info, label: opts.label }) : null;
     var head = info ? App.ui.util.el('div', { className: 'field-group-label' }, [label, info.el]) : label;
-    var wrapper = App.ui.util.el('div', { className: 'field-group' }, [head, opts.host || control]);
+    var wrapper = App.ui.util.el('div', {
+      className: opts.flush ? 'field-group field-group--flush' : 'field-group'
+    }, [head, opts.host || control]);
     if (opts.testid) wrapper.setAttribute('data-testid', opts.testid);
 
     var hintEl = null;

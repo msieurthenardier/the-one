@@ -5,8 +5,8 @@
 
   // App.ui.tabs(opts) -> {el, tablist, panels, select(id), selected(),
   // panel(id), destroy()}. The W3C manual-activation tablist (M31 F2 L4): the
-  // library form of the retired-in-time App.tabs helper (js/tabs.js, whose
-  // behaviour this reproduces exactly; the callers migrate in later legs).
+  // library form of the old App.tabs helper (js/tabs.js, deleted in M31 F4 L06
+  // when its last caller, the Built-in tools list, moved here).
   //   label (the tablist's aria-label), items [{id, label, testid}], initial,
   //   onBeforeChange(id, commit), onChange(id), idPrefix, panelClass, split.
   //   Tab ids are <idPrefix>-tab-<id>, panel ids <idPrefix>-panel-<id>; both
@@ -20,6 +20,9 @@
   //   it proceeds only if the callback calls commit() (now or later); doing
   //   nothing is the veto. Arrow keys never go through it. select(id) commits
   //   directly (no onBeforeChange) and, like a user commit, calls onChange.
+  //   panelPadding: 'none' (M31 F4 L04d) adds the marker .ui-tabs--flush to
+  //   the tablist and every panel: no padding and a visible overflow, so the
+  //   page that hosts the tabs owns the inset and the only scroller.
   //   destroy() removes the listeners and leaves the nodes to the caller.
   App.ui.tabs = function (opts) {
     opts = opts || {};
@@ -32,9 +35,10 @@
     var onBeforeChange = typeof opts.onBeforeChange === 'function' ? opts.onBeforeChange : null;
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {};
 
+    var flush = opts.panelPadding === 'none';
     var tablist = util.el('div', {
       role: 'tablist',
-      className: 'tablist',
+      className: 'tablist' + (flush ? ' ui-tabs--flush' : ''),
       'aria-label': opts.label
     });
     var panelsEl = util.el('div', { className: 'tabpanels' });
@@ -65,7 +69,7 @@
       });
       var panel = util.el('div', {
         role: 'tabpanel',
-        className: 'tabpanel' + (opts.panelClass ? ' ' + opts.panelClass : ''),
+        className: 'tabpanel' + (opts.panelClass ? ' ' + opts.panelClass : '') + (flush ? ' ui-tabs--flush' : ''),
         id: panelId,
         'aria-labelledby': tabId,
         'data-tab-id': item.id,

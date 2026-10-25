@@ -8,7 +8,7 @@ Covers the L2 admin Tools grid surface (HAT-refined into category tabs):
   Web / Connectors / Time); Filesystem selected by default. Connectors added by
   squawk 0032 (mirrors squawk 0028's studio.js Connectors category).
 - Tab click switches the visible panel (active panel shows tiles, others
-  hidden via the App.tabs helper's [hidden] attr).
+  hidden via the tabs [hidden] attr).
 - Each category surfaces the expected tile counts (9/6/4/2 = 21 total).
 - The tool NAME is the item link (M25 F3 leg 5b; the tile is no longer a
   click target): clicking it navigates to the per-tool editor at
@@ -25,8 +25,6 @@ Covers the L2 admin Tools grid surface (HAT-refined into category tabs):
 """
 
 from __future__ import annotations
-
-import re
 
 import pytest
 from browser import _lists, _nav
@@ -109,13 +107,12 @@ def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: P
 
 
 @pytest.mark.browser
-def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
+def test_admin_tools_connectors_tab_renders_its_three_tools_without_a_badge(
     app_clean: str, page: Page
 ) -> None:
-    """Squawk 0032: send_to_platform_channel / fetch_channel_history render
-    under the Connectors tab with the 'connectors' category badge — not the
-    'unknown' badge the pre-fix TOOL_CATEGORIES mirror gap produced.
-    """
+    """Squawk 0032: the three connector tools render under the Connectors tab
+    (the pre-fix TOOL_CATEGORIES mirror gap left them in no tab). Since M31 F4 L06
+    (ledger row 6, A6) a tile carries no category badge: the tab is the category."""
     _nav.goto(page, app_clean, "settings/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-connectors"]').click()
@@ -125,9 +122,7 @@ def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
     for name in ("send_to_platform_channel", "fetch_channel_history", "find_platform_destination"):
         tile = panel.locator(f'[data-testid="tool-card"][data-name="{name}"]')
         expect(tile).to_be_visible()
-        badge = tile.locator(".admin-tool-badge")
-        expect(badge).to_have_text("connectors")
-        expect(badge).to_have_class(re.compile(r"admin-tool-badge--connectors"))
+        expect(tile.locator(".badge")).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -173,7 +168,7 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
     web_panel = page.locator("#tools-panel-web")
     toggle = web_panel.locator('input[data-testid="tool-toggle"][data-name="web_search"]')
     expect(toggle).to_be_checked()
-    toggle.click()
+    toggle.click(force=True)
     # Per design Reviewer: await the in-flight gate clearing BEFORE reload
     # so the PUT round-trip has actually committed. Without this, the
     # reload races the network and the assertion below flakes.
@@ -203,7 +198,7 @@ def test_admin_tools_tile_toggle_does_not_navigate(app_clean: str, page: Page) -
         '#tools-panel-web input[data-testid="tool-toggle"][data-name="web_search"]'
     )
     expect(toggle).to_be_checked()
-    toggle.click()
+    toggle.click(force=True)
     # Wait for the in-flight to clear before asserting URL — without this
     # the assertion happens during the optimistic re-render and could miss
     # a stray navigation.
@@ -228,7 +223,7 @@ def test_admin_tools_active_tab_persists_across_toggle_re_render(
     toggle = page.locator(
         '#tools-panel-web input[data-testid="tool-toggle"][data-name="web_search"]'
     )
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
 
     # Active tab is still Web after re-render; Filesystem is NOT visible.

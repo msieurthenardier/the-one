@@ -27,7 +27,6 @@
 
   var K = window.App.studio.knowledgeShared;
   var _el = K.el;
-  var _errorMessageFromResponse = K.errorMessageFromResponse;
   var _baseName = K.baseName;
 
   function create(ctx) {
@@ -138,16 +137,8 @@
       // The menu has already returned focus to its trigger; move it to the
       // opened panel so it is never left on a hidden menu item.
       panel.titleEl.focus();
-      fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) +
+      App.api.fetchJson('/api/knowledge-bases/' + encodeURIComponent(kb.id) +
         '/items/' + encodeURIComponent(item.id) + path)
-        .then(function (r) {
-          if (!r.ok) {
-            return r.text().then(function (body) {
-              throw new Error(_errorMessageFromResponse(body) || ('HTTP ' + r.status));
-            });
-          }
-          return r.json();
-        })
         .then(function (data) {
           if (!slot.isCurrent(token)) return;
           panel.content.textContent = '';

@@ -67,8 +67,35 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
         " fact: ['button','textInput','field','listPane'].map(n => typeof App.ui[n])})"
     )
     assert shape["ui"] == "object"
-    assert shape["util"] == ["applyDataset", "el", "icon", "mountSlot", "rovingFocus", "uid"]
+    assert shape["util"] == [
+        "applyDataset",
+        "el",
+        "icon",
+        "latest",
+        "middleEllipsis",
+        "mountSlot",
+        "rovingFocus",
+        "syncChildren",
+        "uid",
+    ]
     assert shape["fact"] == ["function"] * 4
+
+
+def test_middle_ellipsis_exact_strings(engine_page: Page) -> None:
+    _load(engine_page)
+    long97 = "".join(chr(97 + i % 26) for i in range(97))
+    out = engine_page.evaluate(
+        """(long97) => { const m = App.ui.util.middleEllipsis;
+          return [m('short', 40), m('x'.repeat(40), 40) === 'x'.repeat(40), m(long97, 40), m(long97, 40).length, m(long97, 10), m('', 40), m(null, 5), m('abc', 0), m('', 0), m('abc', -3)]; }""",
+        long97,
+    )
+    assert out[0] == "short" and out[1] is True
+    # 40 -> the first 23, the ellipsis, the last 16 (the 97-character path, exact).
+    assert out[2] == "abcdefghijklmnopqrstuvw\u2026defghijklmnopqrs" and out[3] == 40
+    assert out[4] == "abcde\u2026" + long97[-4:]
+    assert out[5] == "" and out[6] == ""
+    # A budget below 1 is a budget of 1: the lone ellipsis, never a wrong slice.
+    assert out[7] == "\u2026" and out[8] == "" and out[9] == "\u2026"
 
 
 def test_core_el_builds_without_html(engine_page: Page) -> None:
@@ -95,6 +122,121 @@ def test_core_el_builds_without_html(engine_page: Page) -> None:
     assert out["bold"] is False  # a string child is a text node, never HTML
     assert out["text"] == "lead<b>x</b>5kid"
     assert out["kids"] == 4  # lead text, <b> text, 5, span
+
+
+SYNC_SETUP_JS = """() => {
+  const mk = (id) => { const b = document.createElement('button'); b.id = id; b.textContent = id; return b; };
+  const parent = document.createElement('div');
+  document.getElementById('harness-root').appendChild(parent);
+  const n = {};
+  ['H', 'A', 'B', 'C', 'X'].forEach((id) => { n[id] = mk(id); });
+  window.__sc = {parent, n, moves: [], blurs: 0};
+  const mo = new MutationObserver((recs) => recs.forEach((r) => {
+    r.addedNodes.forEach((a) => window.__sc.moves.push('add:' + a.id));
+    r.removedNodes.forEach((a) => window.__sc.moves.push('rm:' + a.id));
+  }));
+  mo.observe(parent, {childList: true});
+  window.__sc.mo = mo;
+  return true;
+}"""
+
+
+def _order(page: Page) -> list[str]:
+    return page.evaluate("() => Array.from(window.__sc.parent.children).map((c) => c.id)")
+
+
+def test_sync_children_orders_removes_and_keeps_siblings_before_anchor(engine_page: Page) -> None:
+    _load(engine_page)
+    engine_page.evaluate(SYNC_SETUP_JS)
+    out = engine_page.evaluate(
+        """() => {
+          const {parent, n} = window.__sc;
+          const sync = App.ui.util.syncChildren;
+          parent.appendChild(n.H);
+          sync(parent, [n.A, n.B, n.C], {after: n.H});
+          const first = Array.from(parent.children).map((c) => c.id);
+          sync(parent, [n.C, n.A], {after: n.H});
+          const second = Array.from(parent.children).map((c) => c.id);
+          sync(parent, [n.A, n.C]);
+          const third = Array.from(parent.children).map((c) => c.id);
+          return {first, second, third};
+        }"""
+    )
+    assert out["first"] == ["H", "A", "B", "C"]
+    assert out["second"] == ["H", "C", "A"]  # leftovers gone, H untouched
+    assert out["third"] == ["A", "C"]  # no anchor: the whole run, H removed
+
+
+def test_sync_children_never_moves_a_node_already_in_place(engine_page: Page) -> None:
+    _load(engine_page)
+    engine_page.evaluate(SYNC_SETUP_JS)
+    out = engine_page.evaluate(
+        """async () => {
+          const {parent, n} = window.__sc;
+          const sync = App.ui.util.syncChildren;
+          sync(parent, [n.A, n.C]);
+          window.__sc.mo.takeRecords();
+          window.__sc.moves.length = 0;
+          sync(parent, [n.A, n.X, n.C]);
+          await new Promise((r) => setTimeout(r, 0));
+          window.__sc.mo.takeRecords().forEach(() => {});
+          const insert = window.__sc.moves.slice();
+          window.__sc.moves.length = 0;
+          sync(parent, [n.A, n.X, n.C]);
+          await new Promise((r) => setTimeout(r, 0));
+          const noop = window.__sc.moves.slice();
+          // a swap moves exactly one node
+          window.__sc.moves.length = 0;
+          sync(parent, [n.C, n.A, n.X]);
+          await new Promise((r) => setTimeout(r, 0));
+          return {insert, noop, order: Array.from(parent.children).map((c) => c.id)};
+        }"""
+    )
+    assert out["insert"] == ["add:X"]
+    assert out["noop"] == []
+    assert out["order"] == ["C", "A", "X"]
+
+
+def test_sync_children_keeps_focus_when_an_earlier_node_is_removed(engine_page: Page) -> None:
+    _load(engine_page)
+    engine_page.evaluate(SYNC_SETUP_JS)
+    out = engine_page.evaluate(
+        """() => {
+          const {parent, n} = window.__sc;
+          const sync = App.ui.util.syncChildren;
+          sync(parent, [n.A, n.B, n.C]);
+          let blurs = 0;
+          n.C.addEventListener('blur', () => { blurs += 1; });
+          n.C.focus();
+          sync(parent, [n.A, n.C]);
+          return {active: document.activeElement && document.activeElement.id, blurs};
+        }"""
+    )
+    assert out == {"active": "C", "blurs": 0}
+
+
+def test_sync_children_throws_on_caller_bugs(engine_page: Page) -> None:
+    _load(engine_page)
+    engine_page.evaluate(SYNC_SETUP_JS)
+    engine_page.evaluate(
+        "() => { const {parent, n} = window.__sc; parent.appendChild(n.H); parent.appendChild(n.A); }"
+    )
+    pre = "const {parent, n} = window.__sc; const s = App.ui.util.syncChildren;"
+    assert "not a child" in _throws(engine_page, pre + "s(parent, [n.B], {after: n.X});")
+    assert "duplicate" in _throws(engine_page, pre + "s(parent, [n.B, n.B]);")
+    assert "elements" in _throws(engine_page, pre + "s(parent, [null]);")
+    assert "before the anchor" in _throws(engine_page, pre + "s(parent, [n.H], {after: n.A});")
+    # A node living in another parent is moved into the run.
+    out = engine_page.evaluate(
+        """() => {
+          const {parent, n} = window.__sc;
+          const other = document.createElement('div');
+          other.appendChild(n.B);
+          App.ui.util.syncChildren(parent, [n.B], {after: n.H});
+          return {order: Array.from(parent.children).map((c) => c.id), otherKids: other.children.length};
+        }"""
+    )
+    assert out == {"order": ["H", "B"], "otherKids": 0}
 
 
 def test_core_uid_is_prefixed_monotonic_and_unique(engine_page: Page) -> None:
@@ -1546,3 +1688,90 @@ def test_mount_slot_reentrancy_release_and_late_binding(engine_page: Page) -> No
     assert out["reentrant"] == {"log": ["d1"], "t2Current": True}
     assert out["released"] == {"current": None, "log": ["d1"]}
     assert out["thrown"] == "mount failed" and out["after"] is None and out["log"] == ["d1"]
+
+
+# ── M31 F4 L03a: App.ui.util.latest ───────────────────────────────────────
+
+
+def test_latest_next_invalidates_earlier_tokens(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const l = App.ui.util.latest();
+          const t1 = l.next();
+          const a = l.isCurrent(t1);
+          const t2 = l.next();
+          return {a, t1: l.isCurrent(t1), t2: l.isCurrent(t2), none: l.isCurrent(undefined)};
+        }"""
+    )
+    assert out == {"a": True, "t1": False, "t2": True, "none": False}
+
+
+def test_latest_invalidate_makes_every_token_stale_and_helpers_are_independent(
+    engine_page: Page,
+) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const a = App.ui.util.latest(), b = App.ui.util.latest();
+          const ta = a.next(), tb = b.next();
+          a.invalidate();
+          const afterInvalidate = {a: a.isCurrent(ta), b: b.isCurrent(tb), crossA: a.isCurrent(tb)};
+          const ta2 = a.next();
+          return {afterInvalidate, again: a.isCurrent(ta2), old: a.isCurrent(ta)};
+        }"""
+    )
+    assert out == {
+        "afterInvalidate": {"a": False, "b": True, "crossA": False},
+        "again": True,
+        "old": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "cls", ["btn-outlined-primary", "btn-filled-primary", "btn-ghost", "btn-muted-destructive"]
+)
+def test_aria_disabled_button_looks_disabled_and_stays_focusable(
+    engine_page: Page, cls: str
+) -> None:
+    """A button kept focusable with aria-disabled="true" uses the --btn-disabled-* tokens
+    (the same colour as its `:disabled` twin)."""
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """(cls) => {
+          const mk = () => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = 'Go';
+            document.getElementById('harness-root').appendChild(b); return b; };
+          const a = mk(); a.setAttribute('aria-disabled', 'true');
+          const d = mk(); d.disabled = true;
+          const live = mk();
+          a.focus();
+          const cs = (el) => { const c = getComputedStyle(el); return [c.color, c.cursor]; };
+          return {a: cs(a), d: cs(d), live: cs(live), focused: document.activeElement === a};
+        }""",
+        cls,
+    )
+    assert out["a"] == out["d"], out
+    assert out["a"] != out["live"], out
+    assert out["a"][1] == "not-allowed" and out["focused"] is True
+
+
+@pytest.mark.parametrize("ancestor", ["area-studio", "area-admin"])
+def test_field_flush_drops_the_trailing_margin(engine_page: Page, ancestor: str) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """(ancestor) => {
+          const host = document.createElement('div'); host.className = ancestor;
+          document.getElementById('harness-root').appendChild(host);
+          const mk = (flush) => {
+            const f = App.ui.field({label: 'L' + flush, control: App.ui.textInput({}), flush: flush});
+            host.appendChild(f.el);
+            return [f.el.className, getComputedStyle(f.el).marginBottom];
+          };
+          return {plain: mk(false), flush: mk(true)};
+        }""",
+        ancestor,
+    )
+    assert out["plain"][0] == "field-group" and out["plain"][1] != "0px"
+    assert out["flush"][0] == "field-group field-group--flush" and out["flush"][1] == "0px"

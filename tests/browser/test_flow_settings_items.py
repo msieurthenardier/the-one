@@ -87,13 +87,13 @@ def test_tool_toggle_never_navigates(app_clean: str, page: Page) -> None:
     toggle = _lists.tool_toggle(page, "http_request")
     expect(toggle).to_be_checked()
     before = page.evaluate("history.length")
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(toggle).not_to_be_checked()
     _nav.expect_route(page, "settings/tools")
     expect(page.locator(ITEM_TITLE)).to_have_count(0)
     assert page.evaluate("history.length") == before
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(toggle).to_be_checked()
 
@@ -110,7 +110,7 @@ def test_toggling_another_tool_keeps_the_open_editor_and_its_edit(
     page.locator('[data-field="search_backend"]').select_option("searxng")
     expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
     toggle = _lists.tool_toggle(page, "http_request")
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(toggle).not_to_be_checked()
     expect(toggle).to_be_focused()
@@ -131,14 +131,14 @@ def test_toggling_the_open_tool_updates_its_enabled_control_in_place(
     enabled = page.locator('.area-admin .settings-item [data-field="enabled"]')
     expect(enabled).to_be_checked()
     toggle = _lists.tool_toggle(page, "web_search")
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(enabled).not_to_be_checked()
     # Saved state, not an edit: the editor stays clean, Cancel stays disabled.
     expect(page.locator(UNSAVED)).to_have_text("")
     expect(page.locator('[data-testid="cancel-tool-btn"]')).to_be_disabled()
     assert _mark_of(page, ".area-admin .settings-item .editor-header") == "kept"
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(enabled).to_be_checked()
 
@@ -155,10 +155,10 @@ def test_deep_link_to_a_non_default_category(app_clean: str, page: Page) -> None
     # A later toggle re-render keeps the tab the user chose since.
     page.locator('[data-testid="tab-web"]').click()
     toggle = _lists.tool_toggle(page, "fetch_url")
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
     expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
-    toggle.click()
+    toggle.click(force=True)
     expect(toggle).not_to_be_disabled(timeout=5000)
 
 

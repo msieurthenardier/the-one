@@ -56,20 +56,30 @@ from the_one.tools.resolver import Narrow, NarrowSuperset
 # (``platform/`` is the lower layer; reaching into ``tools/`` from
 # ``platform/`` would be backwards).
 
-# F4 L4: shared ``ui_choices`` payload for the ``timeout_seconds_default`` field
-# on both ``ExecutionConfig`` and ``PythonExecConfig``. Hoisted to a module
-# constant because Pydantic v2 does NOT inherit ``json_schema_extra`` when a
-# subclass re-declares the field — without re-stating it, ``PythonExecConfig``
-# would lose its F6 admin UI metadata. The single source of truth keeps the two
-# Configs' dropdowns in lock-step (the ShellTool 30s default and the
-# PythonExecTool 90s default both appear as labeled choices).
-_TIMEOUT_DEFAULT_UI_CHOICES: list[dict[str, object]] = [
-    {"value": 10, "label": "10s — very tight"},
-    {"value": 30, "label": "30s — default (shell)"},
-    {"value": 60, "label": "60s — moderate compute"},
-    {"value": 90, "label": "90s — default (python)"},
-    {"value": 300, "label": "5m — long compute"},
-]
+# F4 L4 / M31 F4 L05a: shared ``ui_choices`` payload for the
+# ``timeout_seconds_default`` field of ``ExecutionConfig``, ``PythonExecConfig``
+# and ``WebConfig``. Pydantic v2 does NOT inherit ``json_schema_extra`` when a
+# subclass re-declares the field, so each Config states it itself; the helper
+# keeps the choices in lock-step. The plain label marks "(default)" on the
+# default of the Config it is built for (shell and web 30s, python_exec 90s), so
+# the dropdown never calls two values the default.
+_TIMEOUT_DEFAULT_VALUES: tuple[tuple[int, str], ...] = (
+    (10, "10s"),
+    (30, "30s"),
+    (60, "60s"),
+    (90, "90s"),
+    (300, "5m"),
+)
+
+
+def _timeout_default_ui_choices(default: int) -> list[dict[str, object]]:
+    """``ui_choices`` for a ``timeout_seconds_default`` field whose default is
+    ``default`` seconds: the shared values, with "(default)" on that one."""
+    return [
+        {"value": value, "label": f"{label} (default)" if value == default else label}
+        for value, label in _TIMEOUT_DEFAULT_VALUES
+    ]
+
 
 # F4 Decision 3: command denylist baseline. Trip-wire (NOT a fence) — catches
 # obvious-stupid (typos, prompt-injection telegraphs in plaintext, the
@@ -146,10 +156,14 @@ class ExecutionConfig(BaseModel):
         Field(
             ge=1,
             le=3600,
-            description="Used when agent omits timeout.",
+            title="Default timeout",
+            description=(
+                "How long a command may run when the agent does not ask for a "
+                "specific time. The agent can ask for longer, up to the maximum timeout."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
-                "ui_choices": _TIMEOUT_DEFAULT_UI_CHOICES,
+                "ui_choices": _timeout_default_ui_choices(30),
             },
         ),
     ] = 30
@@ -160,15 +174,18 @@ class ExecutionConfig(BaseModel):
         Field(
             ge=1,
             le=3600,
-            description="Hard ceiling; agent value clipped.",
+            title="Maximum timeout",
+            description=(
+                "The longest a command may run. If the agent asks for more, it is cut down to this."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 30, "label": "30s — strict"},
-                    {"value": 120, "label": "2m — default"},
-                    {"value": 300, "label": "5m — long compute"},
-                    {"value": 900, "label": "15m — long builds"},
-                    {"value": 3600, "label": "1h — max"},
+                    {"value": 30, "label": "30s"},
+                    {"value": 120, "label": "2m (default)"},
+                    {"value": 300, "label": "5m"},
+                    {"value": 900, "label": "15m"},
+                    {"value": 3600, "label": "1h"},
                 ],
             },
         ),
@@ -188,18 +205,21 @@ class ExecutionConfig(BaseModel):
         Field(
             ge=1024,
             le=104_857_600,  # 100 MB hard ceiling
-            description="Combined stdout+stderr transport/safety ceiling; "
-            "tail-preserving truncation. The context-budget governor applies the "
-            "model-derived LLM bound on top.",
+            title="Output size limit",
+            description=(
+                "The most output (normal and error text together) a command may "
+                "return. Longer output is cut, keeping the end. The agent's own "
+                "context limit may cut it shorter still."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 32_768, "label": "32KB — tight safety ceiling"},
-                    {"value": 65_536, "label": "64KB — small ceiling"},
-                    {"value": 262_144, "label": "256KB — default safety ceiling"},
-                    {"value": 524_288, "label": "512KB — long build logs"},
-                    {"value": 1_048_576, "label": "1MB — large logs"},
-                    {"value": 5_242_880, "label": "5MB — very large logs"},
+                    {"value": 32_768, "label": "32KB"},
+                    {"value": 65_536, "label": "64KB"},
+                    {"value": 262_144, "label": "256KB (default)"},
+                    {"value": 524_288, "label": "512KB"},
+                    {"value": 1_048_576, "label": "1MB"},
+                    {"value": 5_242_880, "label": "5MB"},
                 ],
             },
         ),
@@ -210,16 +230,19 @@ class ExecutionConfig(BaseModel):
         NarrowSuperset,
         Field(
             default_factory=lambda: list(DEFAULT_COMMAND_DENYLIST),
+            title="Blocked commands",
             description=(
-                "Substring tokens denied in any execution-tool command. Trip-wire "
-                "for obvious-stupid; not a fence against adversarial agents."
+                "Text that may not appear in a command. A command containing any "
+                "of these is refused. This catches obvious mistakes such as "
+                "sudo or rm -rf /; it is not a defence against a determined agent. "
+                "An agent can add entries but cannot remove these."
             ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
                     {
                         "value": list(DEFAULT_COMMAND_DENYLIST),
-                        "label": "default baseline (recommended)",
+                        "label": "Built-in list (recommended)",
                     },
                 ],
             },
@@ -232,15 +255,19 @@ class ExecutionConfig(BaseModel):
         Field(
             ge=10,
             le=3600,
-            description="Reap pty sessions idle longer than this.",
+            title="Idle session timeout",
+            description=(
+                "How long an interactive shell session may sit unused before it "
+                "is closed automatically."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 60, "label": "1m — aggressive (fast turns only)"},
-                    {"value": 300, "label": "5m — default"},
-                    {"value": 900, "label": "15m — long thinking turns"},
-                    {"value": 1800, "label": "30m — long multi-tool sequences"},
-                    {"value": 3600, "label": "1h — max"},
+                    {"value": 60, "label": "1m"},
+                    {"value": 300, "label": "5m (default)"},
+                    {"value": 900, "label": "15m"},
+                    {"value": 1800, "label": "30m"},
+                    {"value": 3600, "label": "1h"},
                 ],
             },
         ),
@@ -252,15 +279,18 @@ class ExecutionConfig(BaseModel):
         Field(
             ge=1,
             le=50,
-            description="Per-agent cap on simultaneous pty sessions.",
+            title="Maximum open sessions",
+            description=(
+                "How many interactive shell sessions one agent may have open at the same time."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 1, "label": "1 — single session only"},
-                    {"value": 3, "label": "3 — minimal parallel work"},
-                    {"value": 5, "label": "5 — default"},
-                    {"value": 10, "label": "10 — heavy parallel work"},
-                    {"value": 20, "label": "20 — max"},
+                    {"value": 1, "label": "1"},
+                    {"value": 3, "label": "3"},
+                    {"value": 5, "label": "5 (default)"},
+                    {"value": 10, "label": "10"},
+                    {"value": 20, "label": "20"},
                 ],
             },
         ),
@@ -270,9 +300,11 @@ class ExecutionConfig(BaseModel):
         bool,
         Narrow,
         Field(
+            title="Allow network in the sandbox",
             description=(
-                "Allow the sandboxed tool subprocess network access "
-                "(deny-by-default; the agent's dedicated web tools are unaffected)."
+                "Let commands the agent runs with host access use the network. "
+                "Commands in the default sandbox never have network access. Off "
+                "by default. The web tools are not affected by this setting."
             ),
         ),
     ] = False
@@ -313,7 +345,7 @@ class PythonExecConfig(ExecutionConfig):
 
     Pydantic v2 does NOT inherit ``json_schema_extra`` when a field is
     re-declared, so the ``ui_hint`` / ``ui_choices`` metadata must be
-    re-stated. Both Configs reference ``_TIMEOUT_DEFAULT_UI_CHOICES`` so the
+    re-stated. Both Configs build it with ``_timeout_default_ui_choices`` so the
     dropdown stays in lock-step. The cross-field ``_default_le_max``
     validator and ``model_config = ConfigDict(frozen=True)`` are inherited.
     """
@@ -324,10 +356,15 @@ class PythonExecConfig(ExecutionConfig):
         Field(
             ge=1,
             le=3600,
-            description="Default timeout (PythonExec: 90s vs Shell: 30s).",
+            title="Default timeout",
+            description=(
+                "How long code may run when the agent does not ask for a "
+                "specific time. The agent can ask for longer, up to the maximum "
+                "timeout. Python runs get 90 seconds by default, longer than shell."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
-                "ui_choices": _TIMEOUT_DEFAULT_UI_CHOICES,
+                "ui_choices": _timeout_default_ui_choices(90),
             },
         ),
     ] = 90

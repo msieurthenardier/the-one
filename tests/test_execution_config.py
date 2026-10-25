@@ -434,14 +434,16 @@ class TestPythonExecConfig:
         assert len(prop["ui_choices"]) >= 1
 
     def test_timeout_default_choices_match_execution_config(self) -> None:
-        """Both Configs' ``timeout_seconds_default`` dropdowns share the
-        same hoisted ``_TIMEOUT_DEFAULT_UI_CHOICES`` source; admin UI
-        renders identical choices for either tool (the only legitimate
-        difference is which value is the default)."""
+        """Both Configs' ``timeout_seconds_default`` dropdowns are built by the
+        same helper; admin UI renders the same values for either tool (the
+        only legitimate difference is which value is labelled the default)."""
         exec_choices = ExecutionConfig.model_json_schema()["properties"]["timeout_seconds_default"][
             "ui_choices"
         ]
         py_choices = PythonExecConfig.model_json_schema()["properties"]["timeout_seconds_default"][
             "ui_choices"
         ]
-        assert exec_choices == py_choices
+        assert [c["value"] for c in exec_choices] == [c["value"] for c in py_choices]
+        # Each list marks "(default)" on its own Config's default, and only there.
+        assert [c["value"] for c in exec_choices if "(default)" in c["label"]] == [30]
+        assert [c["value"] for c in py_choices if "(default)" in c["label"]] == [90]

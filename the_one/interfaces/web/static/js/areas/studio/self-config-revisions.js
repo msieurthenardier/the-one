@@ -127,9 +127,7 @@
       var baseHdr = document.createElement('div');
       baseHdr.className = 'revision-value-label';
       baseHdr.textContent = 'Current';
-      var baseVal = document.createElement('pre');
-      baseVal.className = 'revision-value code-block';
-      baseVal.setAttribute('data-testid', 'revision-base');
+      var baseVal = App.ui.codeBlock({ className: 'revision-value', testid: 'revision-base' }).el;
       baseBlock.appendChild(baseHdr);
       baseBlock.appendChild(baseVal);
       card.appendChild(baseBlock);
@@ -139,9 +137,9 @@
       var proposedHdr = document.createElement('div');
       proposedHdr.className = 'revision-value-label';
       proposedHdr.textContent = 'Proposed';
-      var proposedVal = document.createElement('pre');
-      proposedVal.className = 'revision-value code-block';
-      proposedVal.setAttribute('data-testid', 'revision-proposed');
+      var proposedVal = App.ui.codeBlock({
+        className: 'revision-value', testid: 'revision-proposed'
+      }).el;
       proposedBlock.appendChild(proposedHdr);
       proposedBlock.appendChild(proposedVal);
       card.appendChild(proposedBlock);
@@ -214,30 +212,28 @@
 
         // HAT "match design language": the drift advisory reuses
         // `.banner-warning` (components.css) instead of an unstyled <p>.
-        var warn = document.createElement('p');
-        warn.className = 'revision-stale-warning banner banner-warning';
-        warn.setAttribute('role', 'alert');
-        warn.textContent = 'This value has changed since the agent proposed its revision. ' +
-          'Approving will overwrite the current value below.';
-        stalePanel.appendChild(warn);
+        var warn = App.ui.banner({
+          tone: 'warning', role: 'alert', className: 'revision-stale-warning',
+          text: 'This value has changed since the agent proposed its revision. ' +
+            'Approving will overwrite the current value below.'
+        });
+        stalePanel.appendChild(warn.el);
 
         var curHdr = document.createElement('div');
         curHdr.className = 'revision-value-label';
         curHdr.textContent = 'Current value now';
-        var curVal = document.createElement('pre');
-        curVal.className = 'revision-value code-block';
-        curVal.setAttribute('data-testid', 'revision-current');
-        curVal.textContent = detail.current_value;
+        var curVal = App.ui.codeBlock({
+          className: 'revision-value', testid: 'revision-current', text: detail.current_value
+        }).el;
         stalePanel.appendChild(curHdr);
         stalePanel.appendChild(curVal);
 
         var propHdr = document.createElement('div');
         propHdr.className = 'revision-value-label';
         propHdr.textContent = 'Proposed value';
-        var propVal = document.createElement('pre');
-        propVal.className = 'revision-value code-block';
-        propVal.setAttribute('data-testid', 'revision-stale-proposed');
-        propVal.textContent = detail.proposed_value;
+        var propVal = App.ui.codeBlock({
+          className: 'revision-value', testid: 'revision-stale-proposed', text: detail.proposed_value
+        }).el;
         stalePanel.appendChild(propHdr);
         stalePanel.appendChild(propVal);
 

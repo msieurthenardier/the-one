@@ -22,6 +22,14 @@ from the_one.tools.filesystem import FilesystemConfig
 
 class ShellTool(Tool):
     name = "shell"
+    summary = "Runs a shell command in a sandbox and returns its output."
+    config_fields = (
+        "timeout_seconds_default",
+        "timeout_seconds_max",
+        "output_cap_bytes",
+        "command_denylist",
+        "sandbox_network_allowed",
+    )
     # M16 F08 L01 (HIGH-2): tail-preserve under the context-budget governor —
     # the [exit code: N] suffix + stderr tail (the diagnostic part) must survive.
     truncation_direction = "tail"

@@ -82,11 +82,31 @@ class FilesystemConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    path_allowlist: Annotated[list[str], NarrowPrefix] = ["~"]
+    path_allowlist: Annotated[
+        list[str],
+        NarrowPrefix,
+        Field(
+            title="Allowed paths",
+            description=(
+                "The folders this tool may reach. A path outside every folder listed "
+                "here is refused. By default only your home folder (~) is allowed."
+            ),
+        ),
+    ] = ["~"]
 
-    path_denylist: Annotated[list[str], NarrowSuperset] = Field(
-        default_factory=lambda: list(DEFAULT_PATH_DENYLIST)
-    )
+    path_denylist: Annotated[
+        list[str],
+        NarrowSuperset,
+        Field(
+            default_factory=lambda: list(DEFAULT_PATH_DENYLIST),
+            title="Denied paths",
+            description=(
+                "Paths the tool must never touch, even inside an allowed folder. "
+                "The built-in list covers credentials, keys and system folders. "
+                "An agent can add paths of its own but cannot remove these."
+            ),
+        ),
+    ]
 
     read_size_cap_bytes: Annotated[
         int,
@@ -94,21 +114,37 @@ class FilesystemConfig(BaseModel):
         Field(
             ge=1024,
             le=104_857_600,
+            title="Maximum read size",
+            description=(
+                "The largest file the tool will read. A bigger file is refused "
+                "(or skipped, when searching). The default is 1MB."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 51_200, "label": "50KB — very small models"},
-                    {"value": 102_400, "label": "100KB — small/7B-class friendly"},
-                    {"value": 262_144, "label": "256KB — most models comfortable"},
-                    {"value": 524_288, "label": "512KB — middle"},
-                    {"value": 1_048_576, "label": "1MB — default (Opus 200K headroom)"},
-                    {"value": 5_242_880, "label": "5MB — Opus 1M only"},
+                    {"value": 51_200, "label": "50KB"},
+                    {"value": 102_400, "label": "100KB"},
+                    {"value": 262_144, "label": "256KB"},
+                    {"value": 524_288, "label": "512KB"},
+                    {"value": 1_048_576, "label": "1MB (default)"},
+                    {"value": 5_242_880, "label": "5MB"},
                 ],
             },
         ),
     ] = 1_048_576
 
-    allow_binary_files: Annotated[bool, Narrow] = False
+    allow_binary_files: Annotated[
+        bool,
+        Narrow,
+        Field(
+            title="Allow binary files",
+            description=(
+                "Let the tool read files that are not plain text, such as images "
+                "and archives. Off by default: binary files are refused, or "
+                "skipped when searching."
+            ),
+        ),
+    ] = False
 
     # Eagerly-computed canonical paths cached as PrivateAttr.
     # NOT @computed_field @property — those re-execute on every access and
@@ -352,6 +388,7 @@ def _format_edit_preview(canonical: Path, old_text: str, old_string: str, new_st
 
 class ReadFileTool(Tool):
     name = "read_file"
+    summary = "Reads a text file's contents."
     description = "Read the contents of a file."
     parameters = {
         "type": "object",
@@ -393,6 +430,11 @@ class ReadFileTool(Tool):
 
 class WriteFileTool(Tool):
     name = "write_file"
+    summary = "Writes text to a file, creating folders as needed."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = "Write content to a file, creating directories as needed."
     parameters = {
         "type": "object",
@@ -419,6 +461,11 @@ class WriteFileTool(Tool):
 
 class ListDirTool(Tool):
     name = "list_dir"
+    summary = "Lists the files and folders in a folder."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = "List files and directories at a given path."
     parameters = {
         "type": "object",
@@ -454,6 +501,7 @@ class ListDirTool(Tool):
 
 class EditFileTool(Tool):
     name = "edit_file"
+    summary = "Replaces text inside an existing file."
     description = (
         "Edit a file by replacing exactly-once-matching text. The old_string "
         "must be unique in the file; if it matches multiple times, add "
@@ -513,6 +561,11 @@ class EditFileTool(Tool):
 
 class DeleteFileTool(Tool):
     name = "delete_file"
+    summary = "Deletes a file."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = "Delete a file. Refuses directories — use a different approach for those."
     parameters = {
         "type": "object",
@@ -541,6 +594,11 @@ class DeleteFileTool(Tool):
 
 class MoveFileTool(Tool):
     name = "move_file"
+    summary = "Moves or renames a file or folder."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = (
         "Move or rename a file from source to destination. By default "
         "refuses to overwrite an existing destination — pass overwrite=true "
@@ -586,6 +644,11 @@ class MoveFileTool(Tool):
 
 class MkdirTool(Tool):
     name = "mkdir"
+    summary = "Creates a folder."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = (
         "Create a directory and any missing parent directories. "
         "Idempotent — succeeds silently if the directory already exists."
@@ -613,6 +676,11 @@ class MkdirTool(Tool):
 
 class GlobTool(Tool):
     name = "glob"
+    summary = "Finds files by name pattern."
+    config_fields = (
+        "path_allowlist",
+        "path_denylist",
+    )
     description = (
         "Find files matching a pattern (Python pathlib glob syntax — "
         "'**' for recursive, '*' for any chars in a name). Returns "
@@ -666,6 +734,7 @@ class GlobTool(Tool):
 
 class GrepTool(Tool):
     name = "grep"
+    summary = "Searches inside files for text."
     description = (
         "Search file contents for a pattern (regex by default, or "
         "literal-string with fixed_string=true). Returns matches as "

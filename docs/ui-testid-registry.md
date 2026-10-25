@@ -86,7 +86,8 @@ caught — but it cannot see where the attribute is emitted.
 | `date-time-preview-prompt` | admin | What agents see: the new-chat date line (M28 F2 L3) |
 | `date-time-preview-tool` | admin | What agents see: the time tool's first line (M28 F2 L3) |
 | `date-time-search` | admin | The zone chooser's search input (M28 F2 L3) |
-| `date-time-status` | admin | The "Saved." status line on the Date and time page (M28 F2 L3) |
+| `date-time-status` | admin | The "Saved." status on the Date and time page: a persistent `role=status` region that holds one status only while there is something to say, so it takes no height when empty (M28 F2 L3; M31 F4 L09) |
+| `date-time-prompt-muted` | admin | The "time tool is turned off" line under "A new chat starts with" on the Date and time page (M31 F4 L09; was the `.date-time-muted` class) |
 | `date-time-use-browser` | admin | The "Use {browser zone}" button in the mismatch hint (M28 F2 L3) |
 | `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
 | `save-connector-btn` | studio | Connector-editor header Save / Create, from `App.ui.editorShell` (`actions.save`); busy (disabled) while its request is in flight (M31 F3 L07a) |
@@ -231,12 +232,16 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-overlap-hint` | admin | Knowledge settings panel — static hint under the overlap field (M24 F06 L04) |
 | `knowledge-reconcile-interval-error` | admin | Knowledge settings panel — `reconcile_interval_seconds` inline validation message (L4-D3, M24 F06 L04) |
 | `knowledge-reconcile-interval-input` | admin | Knowledge settings panel — `monitoring.reconcile_interval_seconds` field (M24 F06 L04) |
+| `knowledge-settings-cancel-btn` | admin | Knowledge settings panel — Cancel in the page header; patches the fields back to the baseline (M31 F4 L10) |
+| `knowledge-settings-intro` | admin | Knowledge settings panel — the intro line under the page title (B15, M31 F4 L10) |
+| `knowledge-settings-error` | admin | Knowledge settings panel — the shell's error span after a save failure with no field of its own (M31 F4 L10) |
+| `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
-| `knowledge-settings-flash` | admin | Knowledge settings panel — save success/error flash, mirrors `.admin-system-flash` (M24 F06 L04) |
-| `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure banner; no defaults are rendered over it (M24 F06 L04) |
+| `knowledge-settings-flash` | admin | Knowledge settings panel — region holding the "Saved." `App.ui.status` (inserted on success, cleared by the next attempt or after 3 s; M31 F4 L10) |
+| `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure text, set on the shell's error span (`errorRole: 'alert'`); the fields are disabled and Save never enables (M24 F06 L04, M31 F4 L10) |
 | `knowledge-settings-monitoring-section` | admin | Knowledge settings panel — Monitoring section container (M24 F06 L04) |
-| `knowledge-settings-panel` | admin | Knowledge settings panel — root `.admin-form` container (M24 F06 L04) |
+| `knowledge-settings-panel` | admin | Knowledge settings panel — the `.admin-form` body under the page header, holding the sections (M24 F06 L04) |
 | `knowledge-settings-save-btn` | admin | Knowledge settings panel — the one explicit Save for chunking + monitoring together (L4-D4, M24 F06 L04) |
 | `knowledge-settings-vector-store-section` | admin | Knowledge settings panel — Vector Store (read-only) section container (M24 F06 L04) |
 | `knowledge-size-chars-error` | admin | Knowledge settings panel — `size_chars` inline validation message (L4-D3, M24 F06 L04) |
@@ -353,6 +358,16 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-restore-node` | studio | Self-configuration revision-history distinct value-node row (M21 F02 L03) |
 | `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
 | `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
+| `theme-picker` | admin | The Appearance page's theme radio group (the fieldset; M31 F4 L08a) |
+| `theme-option-light` | admin | The Appearance page's Light radio (M31 F4 L08a) |
+| `theme-option-dark` | admin | The Appearance page's Dark radio (M31 F4 L08a) |
+| `theme-option-auto` | admin | The Appearance page's Auto radio (M31 F4 L08a) |
+| `rotate-result` | admin | The Encryption page's rotation result: a polite live region holding one status, with `data-state` `success` (clears after 3 s), `warning` (a staged rotation; stays until the next attempt) or `danger` (stays until the next attempt) (M31 F4 L08b) |
+| `encryption-facts` | admin | The Encryption page's key facts list (M31 F4 L08b) |
+| `encryption-last-rotated` | admin | The facts value for when the key was last rotated: "Never", or the date and time with the ISO value in `title` and `data-rotated-at` (M31 F4 L08b) |
+| `encryption-credential-count` | admin | The facts value for how many stored items hold a secret (M31 F4 L08b) |
+| `encryption-facts-error` | admin | The status shown instead of the facts when `GET /api/encryption/status` fails (M31 F4 L08b) |
+| `prompts-load-error` | admin | The Prompts page's load-error host (an error status when `GET /api/info` fails) (M31 F4 L08b) |
 | `rotate-key-btn` | admin | The Encryption page's rotate control (`#settings/encryption`; on the single General page until M25 F3 L5a) |
 | `route-announcer` | shell | Visually-hidden polite live region (`role=status`) written by `js/router.js` on a commit that changes destination/section/item (flight 02 review, WCAG 4.1.3) |
 | `save-agent-btn` | studio | |
@@ -404,11 +419,19 @@ caught — but it cannot see where the attribute is emitted.
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |
 | `test-provider-result` | studio | |
+| `test-result` | admin | M31 F4 L07d — the Built-in tools editor's Test result: a polite live region (`aria-live=polite`, `data-state` pending / success / warning / danger) holding one `App.ui.status` with the fixed headline ("Returned a result ({N} ms)", "Blocked by this tool's settings ({N} ms)", "Request failed"); empty until a Test runs |
+| `test-saved-hint` | admin | M31 F4 L07d — "Tests the saved settings.", visible only while the editor is dirty |
 | `test-tool-btn` | admin | |
 | `thinking-disclosure` | chat | |
 | `thinking-indicator` | chat | |
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
-| `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
+| `tool-editor-header` | admin | The open Built-in tool editor's header (`editorShell` `testid`); the page reveals and focuses it on an intent open (M31 F4 L11, replaces class queries) |
+| `tool-test-details` | admin | M31 F4 L07d — the collapsed "Technical details" `App.ui.disclosure` under the Test result (absent when the output is empty) |
+| `tool-test-output` | admin | M31 F4 L07d — the code block inside `tool-test-details`: the first 2 KB of the tool's output, with an ellipsis at the cut |
+| `tool-toggle` | admin | The tile's enable switch (`role=switch`, named "Enable {name} for all agents", M31 F4 L06); it never navigates (M25 F3 L5b) |
+| `tools-load-error` | admin | M31 F4 L06 — the Built-in tools list's load failure (`App.ui.status`, `role=alert`: "Couldn't load the built-in tools." and the server's reason); cleared by the next render |
+| `tools-load-retry` | admin | M31 F4 L06 — the Retry button beside `tools-load-error` |
+| `tools-loading` | admin | M31 F4 L06 — the "Loading tools…" status shown until the first list response |
 | `trace-shell` | chat | |
 | `ui-confirm-live` | shared | M31 F2 L5 (squawk 0220) — the one shared polite live region `App.ui.confirm` appends to `document.body` on the first arm; announces arm, lapse and commit |
 
@@ -416,7 +439,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
-| `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
+| `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`; one list, in assembly order, the tool-free Identity beside the tools Identity; the tool-free Formatting block is absent while its text equals the tools Formatting text, so only the tools block shows; a retired id cannot sit under a live family prefix, so it is not in the retired table, and `platform-variant-` is the retired entry) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
@@ -437,7 +460,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
-| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items: the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
+| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)
 
@@ -462,6 +485,8 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
+| `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
 | `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `kb-other-items-panel` | studio | M31 F3 HAT — the "Other items" panel is renamed "Individual files" (`kb-individual-files-panel`), with a description and a per-row remove |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |

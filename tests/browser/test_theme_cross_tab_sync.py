@@ -42,7 +42,7 @@ from playwright.sync_api import Page, expect
 
 
 def _toggle_option(page: Page, pref: str):
-    return page.locator(f'.admin-theme-option[data-theme-pref="{pref}"]')
+    return page.locator(f'[data-testid="theme-option-{pref}"]')
 
 
 @pytest.mark.browser
@@ -78,8 +78,8 @@ def test_theme_set_and_unset_propagate_across_tabs(app_clean: str, page: Page) -
         expect(page_b.locator("html")).to_have_attribute("data-theme", "dark")
         # ...AND the mounted toggle re-checked (proves the listener also
         # dispatched theme-preference-changed, not just apply()).
-        expect(_toggle_option(page_b, "dark")).to_have_attribute("aria-checked", "true")
-        expect(_toggle_option(page_b, "auto")).to_have_attribute("aria-checked", "false")
+        expect(_toggle_option(page_b, "dark")).to_be_checked()
+        expect(_toggle_option(page_b, "auto")).not_to_be_checked()
 
         # ── Direction 2: UNSET propagates (newValue === null path) ─────
         # Auto REMOVES the localStorage key in tab A.
@@ -88,7 +88,7 @@ def test_theme_set_and_unset_propagate_across_tabs(app_clean: str, page: Page) -
 
         # Tab B must degrade to auto (resolved light), not keep dark.
         expect(page_b.locator("html")).to_have_attribute("data-theme", "light")
-        expect(_toggle_option(page_b, "auto")).to_have_attribute("aria-checked", "true")
-        expect(_toggle_option(page_b, "dark")).to_have_attribute("aria-checked", "false")
+        expect(_toggle_option(page_b, "auto")).to_be_checked()
+        expect(_toggle_option(page_b, "dark")).not_to_be_checked()
     finally:
         page_b.close()

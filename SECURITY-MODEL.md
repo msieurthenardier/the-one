@@ -870,6 +870,11 @@ with the unsandboxed Windows posture.
   reconcile, rather than leaving any credential stranded on a key the
   process does not hold. See `the_one/agents.md` "Encryption-rotation
   invariant (seven corpora)" for the full handoff contract.
+  `GET /api/encryption/status` (read-only, behind the same credential gate) returns
+  the time of the last rotation, a count of items that hold a stored secret and a
+  flag for a staged-but-unpromoted key file: counts and a timestamp, no secret
+  material (the count is computed by decrypting in-process; nothing decrypted is
+  returned or logged).
 - **SQLite database and data directory** (squawk 0011 / GH #169): the data
   directory is created and tightened to mode `0o700`; `<data_dir>/the-one.db`
   and its `-wal`/`-shm` sidecars (when present) are created and tightened to

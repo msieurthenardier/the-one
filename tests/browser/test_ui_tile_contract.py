@@ -14,7 +14,7 @@ are identical, so one legacy tile covers both.
 from __future__ import annotations
 
 import pytest
-from browser._legacy_tool_css import LEGACY_TOOLS_CSS
+from browser._legacy_tool_css import ENTITY_TILE, LEGACY_ADMIN_TILE_CSS, LEGACY_TOOLS_CSS
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
@@ -587,3 +587,215 @@ def test_group_tile_mixed_track_has_a_visible_accent_edge(engine_page: Page) -> 
     )
     assert "inset" in out[0] and out[0] != "none"
     assert out[1:3] == ["36px", "20px"]  # no layout shift
+
+
+# ── toolTile (M31 F4 L04e) ──────────────────────────────────────────────────
+
+TOOL_DESC = "Reads a file from the local filesystem and returns its contents as text, with line numbers added, up to a limit, for reference."
+
+TOOL_TILE = """(extra) => {
+  window.__calls = [];
+  const o = Object.assign({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'filesystem'},
+    description: %s, testid: 'tt-card', dataset: {name: 'read_file'},
+    toggle: {label: 'read_file: enabled for all agents', checked: true, testid: 'tt-toggle', dataset: {name: 'read_file'},
+      onChange: (v) => window.__calls.push(v)}}, extra || {});
+  window.__tt = App.ui.toolTile(o);
+  document.getElementById('harness-root').appendChild(window.__tt.el);
+  return true;
+}""" % repr(TOOL_DESC)
+
+
+def _tool_tile(page: Page, extra: str = "null") -> None:
+    load_harness(page)
+    page.evaluate(f"({TOOL_TILE})({extra})")
+
+
+def test_tool_tile_dom_link_toggle_and_api(engine_page: Page) -> None:
+    _tool_tile(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const t = window.__tt, el = t.el, a = t.link, sw = el.querySelector('input');
+          return {root: [el.getAttribute('role'), el.getAttribute('data-testid'), el.dataset.name, el.classList.contains('ui-tool-tile')],
+            link: [a.tagName, a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')],
+            badge: [el.querySelector('.badge').textContent, el.querySelector('.badge').className],
+            desc: el.querySelector('.ui-tool-tile-desc').textContent.length > 20,
+            sw: [sw.getAttribute('role'), sw.checked, sw.getAttribute('data-testid'), sw.dataset.name, sw.closest('label').textContent.trim()],
+            inside: el.contains(sw), key: t.key, api: Object.keys(t).sort()};
+        }"""
+    )
+    assert out["root"] == ["listitem", "tt-card", "read_file", True]
+    assert out["link"] == ["A", "read_file", "#tools/read_file", None]
+    assert out["badge"][0] == "filesystem" and "badge--filesystem" in out["badge"][1]
+    assert out["desc"] is True
+    assert out["sw"] == [
+        "switch",
+        True,
+        "tt-toggle",
+        "read_file",
+        "read_file: enabled for all agents",
+    ]
+    assert out["inside"] is True and out["key"] == "read_file"
+    assert out["api"] == [
+        "el",
+        "key",
+        "link",
+        "setChecked",
+        "setDescription",
+        "setDisabled",
+        "setSelected",
+        "toggle",
+    ]
+    engine_page.locator(".ui-tool-tile .ui-toggle-track").click()
+    assert engine_page.evaluate("() => window.__calls") == [False]
+
+
+def test_tool_tile_requires_name_and_toggle_label(engine_page: Page) -> None:
+    load_harness(engine_page)
+    msgs = engine_page.evaluate(
+        """() => ['{}', '{name: "x"}', '{name: "x", toggle: {}}'].map((src) => {
+          try { App.ui.toolTile(eval('(' + src + ')')); return 'ok'; } catch (e) { return e.message; }
+        })"""
+    )
+    assert "name is required" in msgs[0]
+    assert "toggle.label is required" in msgs[1] and "toggle.label is required" in msgs[2]
+
+
+def test_tool_tile_setters_and_selected(engine_page: Page) -> None:
+    _tool_tile(engine_page, "{selected: true}")
+    state = """() => { const t = window.__tt; const sw = t.toggle.control;
+      return [t.link.getAttribute('aria-current'), t.el.classList.contains('ui-tool-tile--selected'), sw.checked, sw.disabled,
+        t.el.querySelector('.ui-tool-tile-desc').textContent]; }"""
+    assert engine_page.evaluate(state)[:4] == ["page", True, True, False]
+    engine_page.evaluate(
+        "() => { const t = window.__tt; t.setSelected(false); t.setChecked(false); t.setDisabled(true); t.setDescription('New text'); }"
+    )
+    assert engine_page.evaluate(state) == [None, False, False, True, "New text"]
+    assert engine_page.evaluate("() => window.__calls") == []  # setters are silent
+
+
+LEGACY_TOOL_TILE = (
+    """<div class="@ET@ tool-tile" data-testid="tt-card" data-name="read_file" role="listitem">
+  <div class="tile-title-row"><a class="@ET@-name tool-tile-link" href="#tools/read_file">read_file</a>
+    <span class="@ET@-badge admin-tool-badge admin-tool-badge--filesystem">filesystem</span></div>
+  <span class="@ET@-description">%s</span>
+  <label class="tool-enable-switch tool-enable-switch--corner"><input type="checkbox" checked /><span class="tool-enable-switch-track" aria-hidden="true"></span></label></div>"""
+    % TOOL_DESC
+)
+
+TILE_COMPARE_JS = """(args) => {
+  const [legacyCss, legacyHtml, standalone, ET] = args;
+  const host = document.createElement('div'); host.className = 'area-admin'; host.id = 'cmp'; host.style.width = '320px';
+  host.innerHTML = legacyCss + '<div id="legacy-side">' + legacyHtml + '</div>';
+  document.getElementById('harness-root').appendChild(host);
+  const t = App.ui.toolTile({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'filesystem'},
+    description: %s, toggle: {label: 'read_file: enabled for all agents', checked: true}});
+  let target = host;
+  if (standalone) {
+    // The marker classes alone: no legacy class names, outside any area wrapper.
+    target = document.createElement('div'); target.style.width = '320px'; document.getElementById('harness-root').appendChild(target);
+    [ET, 'tool-tile'].forEach((c) => t.el.classList.remove(c));
+    t.el.querySelector('.ui-tool-tile-row').classList.remove('tile-title-row');
+    t.link.classList.remove(ET + '-name', 'tool-tile-link');
+    t.el.querySelector('.ui-tool-tile-desc').classList.remove(ET + '-description');
+  }
+  const lib = document.createElement('div'); lib.id = 'lib-side'; lib.appendChild(t.el); target.appendChild(lib);
+  const P = ['display', 'gap', 'flexDirection', 'paddingTop', 'paddingLeft', 'paddingRight', 'borderTopWidth', 'borderTopStyle', 'borderTopColor',
+    'borderLeftWidth', 'borderRadius', 'backgroundColor', 'color', 'fontSize', 'fontWeight', 'fontFamily', 'lineHeight', 'minHeight',
+    'overflow', 'textOverflow', 'whiteSpace', 'textDecorationLine', 'textTransform', 'letterSpacing', 'position', 'flexGrow', 'flexShrink', 'minWidth',
+    'webkitLineClamp', 'webkitBoxOrient', 'height', 'width'];
+  const snap = (el, skip) => { const s = getComputedStyle(el); const o = {}; P.forEach((p) => { if (!skip || skip.indexOf(p) === -1) o[p] = s[p]; }); return o; };
+  const L = document.getElementById('legacy-side');
+  const pairs = {tile: ['.tool-tile', '.ui-tool-tile'], row: ['.tile-title-row', '.ui-tool-tile-row'], link: ['.tool-tile-link', '.ui-tool-tile-link'],
+    badge: ['.admin-tool-badge', '.badge'], desc: ['.' + ET + '-description', '.ui-tool-tile-desc']};
+  const out = {};
+  for (const k in pairs) {
+    const a = L.querySelector(pairs[k][0]), b = lib.querySelector(pairs[k][1]);
+    // Bottom padding and the tile height are excluded: the in-flow library toggle replaces the corner switch (ledger row 40).
+    // The library badge adds white-space: nowrap (it never wraps), a recorded improvement.
+    const skip = k === 'tile' ? ['height', 'position', 'flexGrow', 'flexShrink'] : k === 'badge' ? ['whiteSpace'] : null;
+    const x = snap(a, skip), y = snap(b, skip), d = {};
+    for (const p in x) if (x[p] !== y[p]) d[p] = [x[p], y[p]];
+    out[k] = d;
+  }
+  const ar = (el) => el.getBoundingClientRect();
+  const tr = ar(t.el), sw = ar(t.toggle.el), bd = ar(t.el.querySelector('.badge')), ds = ar(t.el.querySelector('.ui-tool-tile-desc'));
+  const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  out.layout = {inside: sw.left >= tr.left && sw.right <= tr.right && sw.top >= tr.top && sw.bottom <= tr.bottom,
+    overBadge: hit(sw, bd), overDesc: hit(sw, ds)};
+  return out;
+}""" % repr(TOOL_DESC)
+
+
+@pytest.mark.parametrize(
+    "standalone", [False, True], ids=["under-area-admin", "marker-classes-only"]
+)
+def test_tool_tile_look_equals_legacy_admin_tile(engine_page: Page, standalone: bool) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        TILE_COMPARE_JS,
+        [
+            LEGACY_ADMIN_TILE_CSS,
+            LEGACY_TOOL_TILE.replace("@ET@", ENTITY_TILE),
+            standalone,
+            ENTITY_TILE,
+        ],
+    )
+    layout = out.pop("layout")
+    assert layout == {"inside": True, "overBadge": False, "overDesc": False}, layout
+    if standalone:
+        pass  # the marker classes alone (no legacy names, no area wrapper) must give the same look
+    assert out == {k: {} for k in out}, out
+
+
+def test_tool_tile_grid_sync_keeps_focus_and_reconciles_by_key(engine_page: Page) -> None:
+    load_harness(engine_page)
+    engine_page.evaluate(
+        """() => {
+          window.__tiles = ['a', 'b', 'c'].map((n) => App.ui.toolTile({name: n, toggle: {label: n + ' on', checked: true}}));
+          window.__grid = App.ui.toolTile.grid({label: 'Tools', testid: 'g'});
+          document.getElementById('harness-root').appendChild(window.__grid.el);
+          window.__grid.sync(window.__tiles);
+        }"""
+    )
+    shape = engine_page.evaluate(
+        "() => [window.__grid.el.getAttribute('role'), window.__grid.el.getAttribute('aria-label'), window.__grid.el.getAttribute('data-testid'), window.__grid.el.children.length]"
+    )
+    assert shape == ["list", "Tools", "g", 3]
+    engine_page.get_by_role("switch", name="a on").focus()
+    engine_page.evaluate(
+        "() => { window.__blurs = 0; window.__tiles[0].toggle.control.addEventListener('blur', () => { window.__blurs += 1; }); }"
+    )
+    engine_page.evaluate(
+        "() => window.__grid.sync([window.__tiles[2], window.__tiles[1], window.__tiles[0]])"
+    )
+    out = engine_page.evaluate(
+        """() => ({order: Array.from(window.__grid.el.children).map((k) => k.querySelector('a').textContent),
+          focused: document.activeElement === window.__tiles[0].toggle.control, blurs: window.__blurs,
+          same: window.__grid.el.children[2] === window.__tiles[0].el})"""
+    )
+    assert out["order"] == ["c", "b", "a"] and out["focused"] is True and out["same"] is True
+    # Which engines needed the refocus is recorded in the leg log: blurs counts the raw blur events.
+    print("blurs on move", _engine(engine_page), out["blurs"])
+    engine_page.evaluate("() => window.__grid.sync([window.__tiles[1]])")
+    assert engine_page.evaluate("() => window.__grid.el.children.length") == 1
+    dup = engine_page.evaluate(
+        "() => { try { window.__grid.sync([window.__tiles[1], window.__tiles[1]]); return 'ok'; } catch (e) { return e.message; } }"
+    )
+    assert "duplicate" in dup
+
+
+def test_tool_tile_description_title_carries_the_full_text(engine_page: Page) -> None:
+    """The two-line clamp hides the rest: the full description is the tooltip."""
+    _tool_tile(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const d = window.__tt.el.querySelector('.ui-tool-tile-desc');
+          const first = [d.title, d.textContent];
+          window.__tt.setDescription('New text');
+          const second = d.title;
+          window.__tt.setDescription('');
+          return {first, second, cleared: d.hasAttribute('title')};
+        }"""
+    )
+    assert out["first"][0] == out["first"][1] and len(out["first"][0]) > 20
+    assert out["second"] == "New text" and out["cleared"] is False

@@ -682,3 +682,145 @@ def test_models_help_agents_link_uses_accent_colour(
         }"""
     )
     assert colors["link"] == colors["accent"], colors
+
+
+# ── Squawk 0236: Save is busy while the request is in flight ─────────────
+
+
+def _fill_create_form(page: Page, base: str, name: str) -> None:
+    _nav.goto(page, base, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
+    page.locator("#pf-type").select_option("openai-compatible")
+    page.locator("#pf-name").fill(name)
+    page.locator("#pf-base-url").fill("https://busy.example.com/v1")
+    page.locator("#pf-api-key").fill("sk-busy-key-1234")
+
+
+def _provider_count(base: str) -> int:
+    r = httpx.get(f"{base}/api/providers", timeout=5.0, headers=auth_headers_for(base))
+    return len(r.json())
+
+
+def _hold_provider_posts(page: Page) -> tuple[list, list]:
+    held: list = []
+    posts: list[str] = []
+
+    def handler(route) -> None:
+        if route.request.method == "POST":
+            posts.append(route.request.url)
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route("**/api/providers", handler)
+    return held, posts
+
+
+@pytest.mark.browser
+def test_double_click_on_create_sends_one_post_and_locks_the_form(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0236: Create had no busy state, so two quick clicks made two providers.
+    While the POST is held, Save, Cancel and Test are disabled; a 201 makes one provider."""
+    _fill_create_form(page, app_clean, "Busy create")
+    held, posts = _hold_provider_posts(page)
+    save = page.locator('[data-testid="save-provider-btn"]')
+    save.evaluate("el => { el.click(); el.click(); }")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "the create POST never left the page"
+    expect(save).to_be_disabled()
+    expect(page.locator('[data-testid="cancel-provider-btn"]')).to_be_disabled()
+    page.evaluate("() => { const b = document.querySelector('.save-btn'); if (b) b.click(); }")
+    page.wait_for_timeout(300)
+    assert len(posts) == 1, posts
+    held[0].continue_()
+    page.unroute("**/api/providers")
+    expect(page.locator(".editor-title")).to_have_text("Busy create", timeout=8000)
+    assert len(posts) == 1, posts
+    assert _provider_count(app_clean) == 1
+
+
+@pytest.mark.browser
+def test_failed_create_restores_the_form_after_the_busy_state(app_clean: str, page: Page) -> None:
+    _fill_create_form(page, app_clean, "Busy fail")
+    held, posts = _hold_provider_posts(page)
+    save = page.locator('[data-testid="save-provider-btn"]')
+    save.evaluate("el => { el.click(); el.click(); }")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    expect(save).to_be_disabled()
+    held[0].fulfill(
+        status=500, content_type="application/json", body='{"detail": "provider exploded"}'
+    )
+    expect(page.locator(".editor-error")).to_contain_text("provider exploded", timeout=8000)
+    expect(save).not_to_be_disabled()
+    expect(page.locator('[data-testid="cancel-provider-btn"]')).not_to_be_disabled()
+    assert len(posts) == 1, posts
+    assert _provider_count(app_clean) == 0
+
+
+@pytest.mark.browser
+def test_edit_save_is_busy_then_restored(app_with_provider: SeededApp, page: Page) -> None:
+    base = app_with_provider.base_url
+    pid = app_with_provider.provider_id
+    _nav.goto(page, base, f"library/providers/{_nav.seg(pid)}")
+    expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
+    page.locator("#pf-name").fill("renamed busy")
+    held: list = []
+    puts: list[str] = []
+
+    def handler(route) -> None:
+        if route.request.method == "PUT":
+            puts.append(route.request.url)
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(f"**/api/providers/{pid}", handler)
+    save = page.locator('[data-testid="save-provider-btn"]')
+    save.evaluate("el => { el.click(); el.click(); }")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    expect(save).to_be_disabled()
+    expect(page.locator('[data-testid="cancel-provider-btn"]')).to_be_disabled()
+    held[0].continue_()
+    page.unroute(f"**/api/providers/{pid}")
+    expect(page.locator(".editor-title")).to_have_text("renamed busy", timeout=8000)
+    expect(page.locator('[data-testid="cancel-provider-btn"]')).to_be_disabled()
+    assert len(puts) == 1, puts
+
+
+@pytest.mark.browser
+def test_double_click_on_create_mode_plan_signin_sends_one_post(app_clean: str, page: Page) -> None:
+    """The create-mode plan sign-in button shares performSave, so it is busy too."""
+    from browser import _providers
+
+    _providers.block_claude_ai(page)
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
+    page.locator("#pf-type").select_option("anthropic-plan")
+    page.locator("#pf-name").fill("Busy plan")
+    held, posts = _hold_provider_posts(page)
+    page.locator('[data-testid="plan-signin-btn"]').evaluate("el => { el.click(); el.click(); }")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled()
+    page.wait_for_timeout(300)
+    assert len(posts) == 1, posts
+    held[0].continue_()
+    page.unroute("**/api/providers")
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_be_visible(timeout=8000)
+    assert len(posts) == 1, posts
+    assert _provider_count(app_clean) == 1

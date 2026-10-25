@@ -21,6 +21,7 @@ class FetchChannelHistoryTool(Tool):
     """Fetch the last N messages from a platform channel or DM, when supported."""
 
     name = FETCH_CHANNEL_HISTORY_TOOL_NAME
+    summary = "Reads recent messages from a chat platform channel."
     description = (
         "Fetch the most recent messages from an external platform channel "
         "or DM this agent is bound to. Not every connector supports "

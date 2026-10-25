@@ -121,6 +121,11 @@
        bg/surface/surface-elevated (3.87/3.64/3.45); the thumb is white in
        both states. Gated. --fg-faint is not reused (never interactive). */
     --control-border: #6e717a;
+    /* disabled buttons (M31 F4 L04c, B14): opaque, label >= 3:1 on its own fill and on
+       bg/surface/surface-elevated; replaces the 0.4 opacity wash */
+    --btn-disabled-fg: #7d7f88;
+    --btn-disabled-bg: #2a2b31;
+    --btn-disabled-border: #3a3b43;
     --control-thumb: #ffffff;
     --accent-api: #22d3ee;
     --accent-translucent: rgba(167, 139, 250, 0.10);
@@ -261,6 +266,9 @@
     --fg-on-accent-fill: #ffffff;
     /* Control boundary + toggle thumb (3.60/3.45/3.28 vs bg/surface/elevated). Gated. */
     --control-border: #868690;
+    --btn-disabled-fg: #767680;
+    --btn-disabled-bg: #e4e4e7;
+    --btn-disabled-border: #d4d4d8;
     --control-thumb: #ffffff;
     --accent-api: #0e7490;
     --accent-translucent: rgba(109, 40, 217, 0.08);

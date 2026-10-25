@@ -3,7 +3,7 @@
 **Slug**: `workbench-navigation`
 **Status**: active
 **Created**: 2026-10-01
-**Updated**: 2026-10-11 (steps 4, 8, 9, 14 and 15: `#library` is the Library root; model-providers sortie); 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: a fresh `window` marker before each step that needs one, step 13's mid-dialog hash, screenshot and accessibility snapshot named as the primary evidence); 2026-10-05 (M25 F3: list and detail shell, steps 3–8 and 10; Providers as tiles, leg 7. M25 F4 leg 8: step 2 re-authored for the Chats list, the empty state and the agent picker)
+**Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-11 (steps 4, 8, 9, 14 and 15: `#library` is the Library root; model-providers sortie); 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: a fresh `window` marker before each step that needs one, step 13's mid-dialog hash, screenshot and accessibility snapshot named as the primary evidence); 2026-10-05 (M25 F3: list and detail shell, steps 3–8 and 10; Providers as tiles, leg 7. M25 F4 leg 8: step 2 re-authored for the Chats list, the empty state and the agent picker)
 **Last Run**: 2026-10-07-11-51-23 — pass (28/28; Light + Dark; M25 F6 mission close, start pages re-authored in leg 4c)
 
 ## Intent
@@ -26,7 +26,7 @@ Verify the Mission 25 workbench navigation contract end-to-end against a live in
   - **Never add a full-document load or any other history-altering probe that the steps do not call for**, especially between steps 10 and 13. A cross-document entry behind the editor turns step 13's Back into a document unload. The app's `beforeunload` guard handles that case, not the in-app dialog. One such probe forced a re-run in the first run.
   - The accessibility-tree dumps may omit `aria-current` and text-field values. Read those via a DOM eval alongside the rendered-state evidence.
   - Count the unsaved-changes dialog with `document.querySelectorAll('dialog[open]').length`. It is a native `<dialog>` element, and visibility queries on `[role=dialog]` disagree across apparatus.
-  - Report only rendered error banners, where `offsetParent !== null` and the text is non-empty. Settings › Knowledge indexing and the KB detail page keep hidden templates and empty per-field error slots in the DOM.
+  - Report only rendered error banners, where `offsetParent !== null` and the text is non-empty. Settings › Knowledge indexing and the KB detail page may keep empty per-field error slots in the DOM.
 - Run-tab environment: prefer an unoccluded/foregrounded window.
 
 ## Observables Required
@@ -66,7 +66,7 @@ Verify the Mission 25 workbench navigation contract end-to-end against a live in
 
 ## Variants
 
-- **Theme.** Run the whole step table twice: once with the theme explicitly **Light** and once explicitly **Dark**, switching through Settings › Appearance **before step 2** of each variant, inside that variant's own fresh browser context (step 2's fresh tab must open in the same context: the theme choice lives in the context's `localStorage`, and a new context starts at Auto). The theme control is a radiogroup: click its Light or Dark option, then confirm `aria-checked="true"` on that option and `data-theme` on the document. Record the operator's original option, which is the `aria-checked` option, before the first variant's switch. Restore it after the last variant, in step 16. Re-seed (step 1) and tear down (step 16) per variant, or reuse the seed and only re-run steps 2-15, as long as no `wbnav-` leftovers remain at the end.
+- **Theme.** Run the whole step table twice: once with the theme explicitly **Light** and once explicitly **Dark**, switching through Settings › Appearance **before step 2** of each variant, inside that variant's own fresh browser context (step 2's fresh tab must open in the same context: the theme choice lives in the context's `localStorage`, and a new context starts at Auto). The theme control is a radiogroup: click its Light or Dark option, then confirm that option is `checked` (native radios) and `data-theme` on the document. Record the operator's original option, which is the `checked` option, before the first variant's switch. Restore it after the last variant, in step 16. Re-seed (step 1) and tear down (step 16) per variant, or reuse the seed and only re-run steps 2-15, as long as no `wbnav-` leftovers remain at the end.
   - In **Dark**: `data-theme="dark"`, the body and rail grounds are dark, the current rail link shows its violet wash and ring, and the "Unsaved changes" dialog's text and its "Stay"/"Continue" buttons are legible against the dialog ground.
   - In **Light**: the same elements render on a light ground with legible dark text.
   - All route, history, dialog and focus expectations are identical in both themes. Evidence is computed colours for the rail, body and dialog surfaces (plus PDF/AX tree when screenshots are unavailable); the report says which path was used.

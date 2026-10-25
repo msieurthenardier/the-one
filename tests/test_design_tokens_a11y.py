@@ -466,39 +466,20 @@ def test_chip_danger_consumes_the_gated_danger_pair() -> None:
     )
 
 
-def test_editor_error_banner_consumes_the_gated_danger_pair() -> None:
-    """`.editor-error-banner` (admin.css) must paint `var(--status-danger)` text on
-    the `var(--status-danger-bg-soft)` fill — the EXACT pair already gated by
-    ``test_danger_text_on_soft_fill_passes_body_aa`` above.
-
-    M17 F6 L2 pins the usage (per the flight's composite-a11y DD: the danger-on-
-    soft pair is gated ONCE at the token level, not re-gated per surface — no new
-    ``_alpha_composite`` math). This is the sibling of
-    ``test_cap_chip_no_tools_consumes_the_gated_danger_pair``: the tools-editor's
-    prominent 422 / model-level error banner is the second admin danger-on-soft
-    surface. This source-grep guard fails loudly if a future retune points the
-    banner at a NOVEL fg/bg triple — a signal that a fresh composite gate is
-    warranted for whatever new pair it introduces."""
-    import re
-    from pathlib import Path
-
-    admin_css = (
-        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/admin.css"
-    )
-    css = admin_css.read_text(encoding="utf-8")
-    # Isolate the `.area-admin .editor-error-banner { ... }` declaration block
-    # (the base rule, not the `[hidden]` / ` svg` / `-text` companions).
-    m = re.search(r"\.area-admin\s+\.editor-error-banner\s*\{([^}]*)\}", css)
-    assert m, ".editor-error-banner rule not found in admin.css"
-    body = m.group(1)
-    assert "var(--status-danger-bg-soft)" in body, (
-        ".editor-error-banner must fill with var(--status-danger-bg-soft) (the "
-        "already-gated soft pair); a novel fill needs its own composite gate"
-    )
-    assert "var(--status-danger)" in body, (
-        ".editor-error-banner text/border must use var(--status-danger) (the "
-        "already-gated pair); a novel color needs its own composite gate"
-    )
+@pytest.mark.parametrize("theme", THEMES)
+def test_editor_shell_error_passes_body_aa_and_consumes_the_danger_token(theme: str) -> None:
+    """The editor shell's error line (`.form-actions .editor-error`, components.css) is the
+    one error surface of the Built-in tools editor since M31 F4 L07b (the admin.css
+    `.editor-error-banner` and its soft-fill pin are retired with the banner). It paints
+    `var(--status-danger)` text on the editor header's ground (`--bg`, or the card
+    `--surface`): gated here at body AA in both themes, and the rule is pinned to the token
+    so a retune to a novel colour needs its own gate."""
+    body = " ".join(_rule_bodies("components.css", ".form-actions .editor-error"))
+    assert "color: var(--status-danger)" in body, body
+    palette = _palette(theme)
+    for ground in ("bg", "surface"):
+        ratio = contrast_ratio(palette["status_danger"], palette[ground])
+        assert ratio >= 4.5, f"{theme}: status_danger on {ground} = {ratio:.2f}:1 (need >= 4.5:1)"
 
 
 # ---------------------------------------------------------------------------
@@ -622,19 +603,7 @@ _FILL_SITES = [
         ("var(--accent)", "var(--fg-on-accent)"),
     ),
     (
-        "admin.css",
-        ".area-admin .admin-theme-option.active",
-        ("--accent-fill", "--fg-on-accent-fill"),
-        ("var(--accent)", "var(--fg-on-accent)"),
-    ),
-    (
-        "admin.css",
-        _ON_TRACK.format("admin"),
-        ("--accent-fill",),
-        ("var(--accent)",),
-    ),
-    (
-        "admin.css",
+        "studio.css",
         _ON_TRACK.format("studio"),
         ("--accent-fill",),
         ("var(--accent)",),
@@ -662,14 +631,14 @@ _FILL_SITES = [
     # Boundaries and thumbs (DD7).
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
     (
-        "admin.css",
-        ".area-admin .tool-enable-switch-track",
+        "studio.css",
+        ".area-studio .tool-enable-switch-track",
         ("--control-border",),
         ("--border-strong",),
     ),
     (
-        "admin.css",
-        ".area-admin .tool-enable-switch-track::after",
+        "studio.css",
+        ".area-studio .tool-enable-switch-track::after",
         ("--control-thumb",),
         ("--fg-on-accent",),
     ),
@@ -813,6 +782,24 @@ def test_selected_row_meta_passes_body_aa(theme: str, bg_key: str) -> None:
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_checked_radio_option_pairs_pass_aa(theme: str) -> None:
+    """M31 F4 L08a: the library radio card's checked state (the Appearance theme picker
+    since the segmented toggle and its `.active` pin went): its label --fg >= 4.5:1 on the
+    composited --accent-translucent wash over --surface, and the --accent border >= 3:1
+    (non-text) against --surface, both themes. The rule must paint exactly those tokens."""
+    palette = _palette(theme)
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette["surface"])
+    text = contrast_ratio(palette["fg"], wash)
+    assert text >= 4.5, f"{theme} checked radio label = {text:.2f}:1 (need >= 4.5:1)"
+    border = contrast_ratio(palette["accent"], palette["surface"])
+    assert border >= 3.0, f"{theme} checked radio border = {border:.2f}:1 (need >= 3.0:1)"
+    rule = " ".join(_rule_bodies("components.css", ".ui-radio-option.is-checked"))
+    assert "border-color: var(--accent)" in rule, rule
+    assert "background: var(--accent-translucent)" in rule, rule
+    assert "color: var(--fg)" in " ".join(_rule_bodies("components.css", ".ui-radio-label")), rule
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_rail_label_pairs_pass_body_aa(theme: str) -> None:
     """M25 F2 L6: every text-on-surface pair the rail paints clears body AA (the
     10px labels are small text): --fg-secondary on --surface at rest, --fg on
@@ -948,7 +935,7 @@ def test_nav_groups_rules_consume_the_gated_pairs() -> None:
 
 
 # --accent-translucent-hover's own alphas (tokens.css: 0.16 dark, 0.13 light);
-# .entity-tile.active paints it, replacing the tile's --surface.
+# .ui-tool-tile--selected paints it, replacing the tile's --surface.
 _ACCENT_TRANSLUCENT_HOVER_ALPHA = {"dark": 0.16, "light": 0.13}
 
 
@@ -983,21 +970,22 @@ def test_settings_tile_pairs_pass_body_aa(theme: str) -> None:
 
 
 def test_settings_tool_tile_rules_consume_the_gated_pairs() -> None:
-    """The Built-in tools tile CSS (admin.css) paints exactly the pairs the test
-    above gates, the name link's focus ring is the standard 2px --accent ring,
-    and the open tile's wash is the shared .entity-tile.active token."""
-    intro = " ".join(_rule_bodies("admin.css", ".area-admin .settings-intro"))
-    assert "color: var(--fg-muted)" in intro, intro
-    link = " ".join(_rule_bodies("admin.css", ".area-admin .tool-tile-link"))
+    """The Built-in tools tile CSS (the library toolTile in components.css since
+    M31 F4 L06) paints exactly the pairs the test above gates, the name link's
+    focus ring is the standard 2px --accent ring, and the open tile's wash is the
+    --accent-translucent-hover token. (The dead .settings-intro pin and the
+    admin.css tile pins went with their rules.)"""
+    link = " ".join(_rule_bodies("components.css", ".ui-tool-tile-link"))
     assert "color: var(--fg)" in link, link
     assert "calc(100%" not in link, link  # DD3: no badge reserve; the title row lays it out
-    row = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row"))
+    assert "flex: 1 1 auto" in link and "min-width: 0" in link, link
+    row = " ".join(_rule_bodies("components.css", ".ui-tool-tile-row"))
     assert "display: flex" in row, row
-    name = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row .entity-tile-name"))
-    assert "flex: 1 1 auto" in name and "min-width: 0" in name, name
-    ring = " ".join(_rule_bodies("admin.css", ".area-admin .tool-tile-link:focus-visible"))
+    ring = " ".join(_rule_bodies("components.css", ".ui-tool-tile-link:focus-visible"))
     assert "outline: 2px solid var(--accent)" in ring, ring
-    active = " ".join(_rule_bodies("components.css", ".entity-tile.active"))
+    desc = " ".join(_rule_bodies("components.css", ".ui-tool-tile-desc"))
+    assert "color: var(--fg-secondary)" in desc, desc
+    active = " ".join(_rule_bodies("components.css", ".ui-tool-tile--selected"))
     assert "background-color: var(--accent-translucent-hover)" in active, active
 
 
@@ -1135,8 +1123,8 @@ def _forced_colors_rules(css_file: str) -> str:
 @pytest.mark.parametrize(
     ("css_file", "selector", "declaration"),
     [
-        ("components.css", ".entity-tile.active", "outline: 1px solid Highlight"),
-        ("components.css", ".entity-tile.active", "border-color: Highlight"),
+        ("components.css", ".ui-tool-tile--selected", "outline: 1px solid Highlight"),
+        ("components.css", ".ui-tool-tile--selected", "border-color: Highlight"),
         (
             "components.css",
             '.ui-list-pane-row[aria-current="true"]',
@@ -1464,7 +1452,7 @@ _CONTRAST_EXEMPT: dict[str, str] = {
     ),
     "--accent-translucent-hover": (
         "rgba wash of the gated --accent hue (alphas 0.16 dark, 0.13 light); the "
-        "open tile's fill (.entity-tile.active), replacing --surface. Composited-"
+        "open tile's fill (.ui-tool-tile--selected), replacing --surface. Composited-"
         "gated over both --bg and --surface at its consumer by "
         "test_settings_tile_pairs_pass_body_aa."
     ),
@@ -1622,3 +1610,70 @@ def test_status_text_tone_consumes_the_gated_status_text_tokens() -> None:
     assert dict(rules).keys() == {"danger", "warning"}, rules
     for state, body in rules:
         assert body.strip() == f"color: var(--status-{state});", (state, body)
+
+
+# ---------------------------------------------------------------------------
+# Disabled buttons (M31 F4 L04c, B14, ledger row 37)
+# ---------------------------------------------------------------------------
+#
+# A disabled button's label used to be the enabled colour at opacity 0.4, which fell below
+# 3:1 on the dark surfaces. WCAG exempts disabled controls; 3:1 is the operator's approved
+# readability target. The label token is opaque, so the flat formula applies. The checkbox
+# and the toggle track keep their opacity (a control state, not a label; out of B14's scope).
+
+_DISABLED_BUTTON_SELECTORS = (
+    ".btn-outlined-primary:disabled",
+    ".btn-filled-primary:disabled",
+    ".btn-ghost:disabled",
+    ".btn-muted-destructive:disabled",
+    ".refresh-btn:disabled",
+    ".ui-progress-cancel:disabled",
+)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("bg_key", ["bg", "surface", "surface_elevated", "btn_disabled_bg"])
+def test_disabled_button_label_reaches_3_to_1(theme: str, bg_key: str) -> None:
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["btn_disabled_fg"], palette[bg_key])
+    assert ratio >= 3.0, f"{theme} disabled label on {bg_key} = {ratio:.2f}:1 (need >= 3.0)"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_disabled_button_differs_from_the_enabled_look(theme: str) -> None:
+    palette = _palette(theme)
+    assert palette["btn_disabled_fg"] != palette["fg"]
+    assert palette["btn_disabled_bg"] != palette["accent_fill"]
+
+
+@pytest.mark.parametrize("selector", _DISABLED_BUTTON_SELECTORS)
+def test_disabled_button_sites_use_tokens_not_opacity(selector: str) -> None:
+    body = " ".join(_rule_bodies("components.css", selector))
+    assert body, selector
+    assert "var(--btn-disabled-fg)" in body, body
+    assert "opacity" not in body, body
+    assert "cursor: not-allowed" in body, body
+
+
+def test_filled_disabled_button_consumes_the_fill_tokens() -> None:
+    body = " ".join(_rule_bodies("components.css", ".btn-filled-primary:disabled"))
+    assert "var(--btn-disabled-bg)" in body and "var(--btn-disabled-border)" in body, body
+
+
+def test_save_button_disabled_state_has_no_opacity() -> None:
+    body = " ".join(_rule_bodies("components.css", ".save-btn[disabled]"))
+    assert "opacity" not in body and "cursor: not-allowed" in body, body
+    assert not _rule_bodies("components.css", ".save-btn:not([disabled])")
+
+
+def test_non_button_disabled_sites_keep_opacity() -> None:
+    for sel in (".checkbox-primary:disabled", ".ui-toggle-input:disabled + .ui-toggle-track"):
+        assert "opacity: 0.4" in " ".join(_rule_bodies("components.css", sel)), sel
+
+
+def test_disabled_buttons_use_graytext_in_forced_colors() -> None:
+    css = (_CSS_DIR / "components.css").read_text(encoding="utf-8")
+    block = css[css.index("@media (forced-colors: active)") :]
+    for sel in _DISABLED_BUTTON_SELECTORS:
+        assert sel in block, sel
+    assert "color: GrayText; border-color: GrayText;" in block

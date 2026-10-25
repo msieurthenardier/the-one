@@ -22,6 +22,7 @@ _ECHO_CAP = 64
 
 class CurrentTimeTool(Tool):
     name = CURRENT_TIME_TOOL_NAME
+    summary = "Tells the current date and time."
     description = (
         "Returns the current date, time and UTC offset in the operator's time zone, "
         "or in an optional named IANA time zone."
