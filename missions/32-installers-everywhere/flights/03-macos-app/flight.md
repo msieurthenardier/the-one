@@ -1,6 +1,6 @@
 # Flight: macOS app
 
-**Status**: landed
+**Status**: completed
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
