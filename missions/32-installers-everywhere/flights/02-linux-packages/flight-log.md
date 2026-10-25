@@ -630,6 +630,14 @@ Leg 11, landed (not committed).
 
 - **Tray notice (inline HAT fix, leg 13):** the close-to-tray notice was truncated in GNOME's banner. `shell.py` now sends title `_TRAY_NOTICE_TITLE` = "GleepGlorp AI is still running" and body `_TRAY_NOTICE_BODY` = "It's in the tray. Click its icon to show it or quit." (52 characters), replacing the single long string. Same code path as the Windows balloon (accepted). Pinned in `tests/test_desktop_tray.py`; once-only marker unchanged.
 - `docs/windows-install.md` (first-close notice quote) updated to the new title and body; historical mission and flight docs left as written.
+- **Operator dispositions (recorded at the debrief):**
+  - The walk passed at every step: step 1 "looks good", step 2 "looks good", step 3 "pas" (read as pass), step 4 "pass".
+  - Finding 1, the truncated tray notice: "Fix now", the fix above.
+  - Finding 2, the AppImage tile-label truncation: "Accept".
+  - Finding 3, the 20 s first-launch blank: "Squawk the 20 s blank" → squawk 0253.
+  - Finding 4, the GNOME "1" badge, and finding 5, Debian's close-only title bar: accepted.
+  - Finding 6, App Center's generic icon and "Unknown publisher": a known App Center limit.
+  - The re-show of the notice fix: "skip it".
 
 ## Decisions
 
