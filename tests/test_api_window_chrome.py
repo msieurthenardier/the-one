@@ -43,7 +43,9 @@ def test_post_writes_no_file_without_a_desktop_session(client: Any, tmp_path: An
 @pytest.mark.parametrize("tinted", [True, False, "pending"])
 def test_post_reports_tinted_from_set_window_theme(client: Any, tinted: Any) -> None:
     fake = {"theme": "dark", "desktop": True, "tinted": tinted}
-    with patch("the_one.interfaces.desktop.shell.set_window_theme", return_value=fake) as m:
+    with patch(
+        "the_one.interfaces.desktop.window_control.set_window_theme", return_value=fake
+    ) as m:
         r = client.post("/api/window/chrome", json={"theme": "dark"})
     m.assert_called_once_with("dark")
     assert r.status_code == 200 and r.json() == fake

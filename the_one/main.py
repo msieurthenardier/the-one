@@ -65,7 +65,7 @@ def _quit_command(wait: bool = False) -> int:
         print("GleepGlorp AI is quitting.")
         pid = body.get("pid")
         if wait and type(pid) is int and pid > 0:
-            from the_one.interfaces.desktop.shell import _wait_for_exit
+            from the_one.interfaces.desktop.takeover import _wait_for_exit
 
             if not _wait_for_exit(pid):
                 print("GleepGlorp AI did not exit within 75 seconds.")

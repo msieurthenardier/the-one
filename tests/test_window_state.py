@@ -30,6 +30,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from the_one.interfaces.desktop import takeover
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -279,7 +281,7 @@ def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
     # First create_window = splash; second (in _boot) = main window.
     webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
 
-    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
                 with patch.object(launcher_module, "_wait_until_serving"):
@@ -452,7 +454,7 @@ def test_run_desktop_no_state_uses_first_launch_size(
     mock_main_window = MagicMock()
     webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
 
-    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
                 with patch.object(launcher_module, "_wait_until_serving"):
@@ -571,7 +573,7 @@ def test_on_closing_saves_geometry(
     importlib.reload(tray_mod)
     monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: mock_icon)
 
-    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
                 with patch.object(launcher_module, "_wait_until_serving"):
@@ -809,7 +811,7 @@ def _run_with_state(webview_mock: MagicMock, tmp_path: Any, monkeypatch: Any, sa
     mock_splash = _make_splash_mock()
     mock_main_window = MagicMock()
     webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
-    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
                 with patch.object(launcher_module, "_wait_until_serving"):

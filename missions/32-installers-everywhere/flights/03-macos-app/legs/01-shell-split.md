@@ -1,6 +1,6 @@
 # Leg: shell-split
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -88,16 +88,16 @@ Split `the_one/interfaces/desktop/shell.py` into a takeover module, a window-con
 - **Docs:** `the_one/agents.md`'s "Desktop launcher" section (and the Linux packaging section's mentions of `shell.py` names) say where each piece now lives, in one short additive paragraph; `CLAUDE.md` needs no change unless it names a moved symbol (grep).
 
 ## Acceptance Criteria
-- [ ] **AC1 — Moved, not changed.** Every function listed under Outputs exists in its new module with a body identical to `main`'s apart from:
+- [x] **AC1 — Moved, not changed.** Every function listed under Outputs exists in its new module with a body identical to `main`'s apart from:
   - the module-qualified references (`state.X` for a flag, `takeover.X`/`window_control.X` for a cross-module call);
   - the lock sections replaced by `SessionState` methods.
 
   No log message, return value, route answer or branch changes. `shell.py` no longer defines any moved name.
-- [ ] **AC2 — Consumers.**
+- [x] **AC2 — Consumers.**
   - `from the_one.interfaces.app import _select_port, _webview_available, _wait_until_serving, _graceful_shutdown, run` still works (the CI packaged smoke depends on `_select_port`).
   - The window routes, `the-one quit` and `run_desktop` work through their new imports.
   - `grep -rn "from the_one.interfaces.desktop.shell import" the_one/` lists only names `shell.py` still defines.
-- [ ] **AC3 — The guard.** `tests/test_desktop_split_guard.py` parses every `tests/**/*.py` with `ast` and fails, naming file and line, when a test patches or assigns through `shell` a name that is **not a `def`, `class` or assignment target at the top level of `shell.py`** (read from `shell.py`'s own AST; names `shell.py` merely imports are not allowed, so a patch of `shell.__version__` or `shell.desktop_host` fails).
+- [x] **AC3 — The guard.** `tests/test_desktop_split_guard.py` parses every `tests/**/*.py` with `ast` and fails, naming file and line, when a test patches or assigns through `shell` a name that is **not a `def`, `class` or assignment target at the top level of `shell.py`** (read from `shell.py`'s own AST; names `shell.py` merely imports are not allowed, so a patch of `shell.__version__` or `shell.desktop_host` fails).
 
   The patch and assignment forms:
   - `monkeypatch.setattr("the_one.interfaces.desktop.shell.<name>", …)`;
@@ -117,13 +117,13 @@ Split `the_one/interfaces/desktop/shell.py` into a takeover module, a window-con
   Detection is by module binding, never by a variable's name, so files where `shell` is a tool or a fixture value (`test_agent_redundant_backstop.py`, `test_agent_degraded_injection.py`, `test_platform_shell.py`) are not flagged.
 
   The guard has its own small unit tests on synthetic sources: each patch form and each alias form is caught, an imported (not defined) name is caught, and an allowed name passes. It passes on the final tree.
-- [ ] **AC4 — Unit tier.** *(Phase A ends here.)*
+- [x] **AC4 — Unit tier.** *(Phase A ends here.)*
   - `make test-unit`: every test that existed on `e21d219` still exists (moved or re-pointed, none deleted or skipped) and passes.
   - New tests: `SessionState` (each method's return-after-unlock contract, `reset()` in place) and the guard.
   - The skip count is the expected 12 (no netns) or 14 (netns).
   - `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/` are clean.
-- [ ] **AC5 — Browser lanes.** `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane settings -x` passes (the window-chrome route and its mock). Run the full `--parallel 3` gate only if no other browser run is active on the host (check first, as the debrief Developer did), else record that only `settings` ran.
-- [ ] **AC6 — Real GTK, both baselines.**
+- [x] **AC5 — Browser lanes.** `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane settings -x` passes (the window-chrome route and its mock). Run the full `--parallel 3` gate only if no other browser run is active on the host (check first, as the debrief Developer did), else record that only `settings` ran.
+- [x] **AC6 — Real GTK, both baselines.**
   - Build a `.deb` from the working tree with Flight 2's recipe: `M32_BUILD=$HOME/the-one-m32-build/f3 packaging/linux/build.sh --version 0.11.9.dev30` (the default `M32_BUILD` is Flight 2's `…/f2`, so the override is required). Evidence goes under `$HOME/the-one-m32-evidence/f3/leg1/`. `dev30` is newer than Flight 2's `dev20`/`dev21`, as the takeover run needs.
   - Run `packaging/linux/checks/gtk-smoke.sh <distro> --deb FILE --evidence DIR` on the `ubuntu-26.04` and `debian-13` baselines. OVERALL PASS on both, with the same rows as Flight 2 leg 3:
     - the window maps;
@@ -133,7 +133,7 @@ Split `the_one/interfaces/desktop/shell.py` into a takeover module, a window-con
     - the tray decision is `none`.
   - Run it again with `--takeover-from OLD.deb` on one baseline, where OLD is Flight 2's `gleepglorp-ai_0.11.9~dev20_amd64.deb` from `$HOME/the-one-m32-build/f2/packages/` (present; built from `main`'s shell). The new build replaces the old running instance, as in Flight 2 (the takeover code moved).
   - The package's gates pass in the container: `packaging/linux/checks/gates.sh <label> deb <distro> baseline --pkgdir DIR --n VER --display xvfb` on both distros. The score line matches Flight 2's `.deb` rows (`G1p G1u G2 G3 G4 single` PASS; `upgrade=N/A` in single-version mode).
-- [ ] **AC7 — Hygiene.**
+- [x] **AC7 — Hygiene.**
   - No port 8484/8485 used, and the operator's data dir is unchanged (record its newest mtime before and after).
   - Only `m32-*` containers were created, and none are left.
   - Only PIDs you recorded were killed.

@@ -145,34 +145,34 @@ def test_cli_dispatch_and_usage(monkeypatch, capsys):
 
 
 def test_wait_waits_for_pid_exit(data_dir, stub_server, capsys, monkeypatch):
-    import the_one.interfaces.desktop.shell as shell
+    import the_one.interfaces.desktop.takeover as takeover
     from the_one.main import _quit_command
 
     rotate_credential()
     seen = []
-    monkeypatch.setattr(shell, "_wait_for_exit", lambda pid: seen.append(pid) or True)
+    monkeypatch.setattr(takeover, "_wait_for_exit", lambda pid: seen.append(pid) or True)
     assert _quit_command(wait=True) == 0
     assert seen == [1]
     assert "has quit" in capsys.readouterr().out
 
 
 def test_wait_timeout_exits_one(data_dir, stub_server, capsys, monkeypatch):
-    import the_one.interfaces.desktop.shell as shell
+    import the_one.interfaces.desktop.takeover as takeover
     from the_one.main import _quit_command
 
     rotate_credential()
-    monkeypatch.setattr(shell, "_wait_for_exit", lambda pid: False)
+    monkeypatch.setattr(takeover, "_wait_for_exit", lambda pid: False)
     assert _quit_command(wait=True) == 1
     assert "did not exit" in capsys.readouterr().out
 
 
 def test_no_wait_does_not_poll(data_dir, stub_server, capsys, monkeypatch):
-    import the_one.interfaces.desktop.shell as shell
+    import the_one.interfaces.desktop.takeover as takeover
     from the_one.main import _quit_command
 
     rotate_credential()
     monkeypatch.setattr(
-        shell, "_wait_for_exit", lambda pid: (_ for _ in ()).throw(AssertionError("polled"))
+        takeover, "_wait_for_exit", lambda pid: (_ for _ in ()).throw(AssertionError("polled"))
     )
     assert _quit_command(wait=False) == 0
 
@@ -202,12 +202,12 @@ def test_cli_entry_wait_default(monkeypatch, argv, tty, expected):
 
 @pytest.mark.parametrize("bad", ["true", "0", "-3", "null", '"7"'])
 def test_wait_ignores_invalid_pid(data_dir, stub_server, capsys, monkeypatch, bad):
-    import the_one.interfaces.desktop.shell as shell
+    import the_one.interfaces.desktop.takeover as takeover
     from the_one.main import _quit_command
 
     rotate_credential()
     stub_server["body"] = ('{"quit": true, "pid": %s, "state": "window"}' % bad).encode()
     monkeypatch.setattr(
-        shell, "_wait_for_exit", lambda pid: (_ for _ in ()).throw(AssertionError("polled"))
+        takeover, "_wait_for_exit", lambda pid: (_ for _ in ()).throw(AssertionError("polled"))
     )
     assert _quit_command(wait=True) == 0

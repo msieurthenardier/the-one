@@ -453,6 +453,19 @@ def _reset_window_chrome_state():
     chrome.reset()
 
 
+@pytest.fixture(autouse=True)
+def _reset_desktop_session_state():
+    """The desktop session's lifecycle flags are process-global (M32 F3 DD1: they
+    live on ``session_state.state``, no longer on the ``shell`` module, so a
+    ``importlib.reload(shell)`` does not reset them): reset them in place around
+    every test."""
+    from the_one.interfaces.desktop.session_state import state
+
+    state.reset()
+    yield
+    state.reset()
+
+
 @pytest.fixture
 def frozen_clock(request, monkeypatch):
     """Freeze the time-zone module's clock and system zone (M28 F1 L1).
@@ -526,13 +539,14 @@ def stub_desktop_host(monkeypatch):
     Apply with ``pytestmark = pytest.mark.usefixtures("stub_desktop_host")``;
     a test that wants its own behaviour monkeypatches the same attribute after.
     """
-    from the_one.interfaces.desktop import host, shell
+    from the_one.interfaces.desktop import host
+    from the_one.interfaces.desktop.session_state import state
 
     monkeypatch.setattr(host, "detect_tray", lambda backend: ("indicator", "stubbed"))
     monkeypatch.setattr(host, "choose_pystray_backend", lambda: None)
     monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: True)
     monkeypatch.setattr(host, "send_notification", lambda summary, body: None)
-    monkeypatch.setattr(shell, "_tray_mode", None, raising=False)
+    monkeypatch.setattr(state, "tray_mode", None)
 
 
 # ── Operator-port guard (M32 F2 L05) ─────────────────────────────────────────

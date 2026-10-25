@@ -139,6 +139,48 @@ Planning.
   - **Review: no blocking issue, one medium.** The `classAddMethods` fallback the leg asked for was missing, so a rejected subclass would have lost the whole dispatch. Two minors: destroy mode's lingering worker, and skipping the `.dmg` in probe mode. A fix Developer applied all three. The fallback order is subclass, then `classAddMethods`, then the stock delegate, logged as `route:` and shown in the P2/P3/P4 rows. No re-review: the fixes are the Reviewer's own items, spot-checked by the Flight Director.
   - Leg 2 status `completed`. It is committed alone (with the flight artifacts), and leg 1's uncommitted code stays out of the commit.
   - **Operator go (2026-10-25), "Yes, all three":** push, the `.github/`-only stub PR merged after lint, and the probe dispatch.
+  - **Outward steps done:**
+    - committed `503ac2e` (leg 2 plus the flight artifacts) and pushed `flight/03-macos-app`;
+    - stub PR #312 opened from a temporary worktree, lint and pip-audit passed, squash-merged as `5e93f6c`; its branch and worktree were removed. `gh`'s local "switch to main" was refused because `main` is checked out in Mission 31's worktree; nothing there was touched;
+    - `gh auth` re-verified;
+    - **probe run `40203877635` dispatched** (`--ref flight/03-macos-app -f mode=probe`, 14:47Z). **Dispatch 1 of 4.**
+- **Leg 1 landed** (phase B):
+  - on the merged tree, `make test-unit` 7237 passed, 12 skipped, with no fix needed;
+  - the `settings` lane passed 108 (the full gate was skipped: Mission 31's browser processes were live on the host; it runs at flight end);
+  - the GTK smoke OVERALL PASS on both baselines;
+  - the takeover over `~dev20` PASS;
+  - the container gates all PASS.
+
+  The Developer chowned 112 root-owned files that the containers left under `f3/` back to the user.
+  - **Not ours:** `$HOME/the-one-m32-evidence/A-recheck` (Flight 1) still holds root-owned files. It is to be cleaned with the operator's knowledge at flight end.
+  - **Checkpoint review of leg 1 now** (Sonnet: it moves the credential-gated window routes' backing and the process-signalling code), so legs 4-5 build on reviewed, committed modules.
+- **Leg 5 (`macos-runtime-seam`) risk tier: HIGH** (the shared frozen seam, with a Windows-visible change in the `PATH` walk). Its design review is running. It does not depend on the probe. Its interface to leg 4: `env.prime_login_shell_path()`, which leg 4 calls in `DesktopSession.run`.
+- **Leg 5 design review cycle 1 (Sonnet): approve with changes.** Folded in:
+  - the darwin gate reuses `bundle_has_modules` (pywebview 5.4's `__init__` imports no backend, so this is belt and braces), and a frozen OK detail never says "skipped" (`score_doctor`);
+  - a mandatory `score_doctor` regression test;
+  - the bundle strip runs over the combined `PATH` (the login entries could otherwise bypass it);
+  - a stub-specific runtime detail;
+  - a zombie-aware grandchild test with a short timeout, plus a never-exiting shell;
+  - a lock, a cached fallback, and `path_source()` returning `(source, reason)` (an addition to the leg-4 interface);
+  - `Exception`-wide fallback handling;
+  - empty `PATH` entries skipped, and a `normpath` stub match;
+  - the static additions accepted as an additive POSIX change.
+
+  **No second cycle:** every change is the reviewer's own recommendation. Status `ready`.
+  - **Sequencing:** leg 5 starts after the leg 1 checkpoint review finishes and leg 1 is committed, so the reviewer's unit run never sees half-done leg 5 edits.
+- **Leg 1 checkpoint review (Sonnet): `[HANDOFF:confirmed]`, no blocking issues.**
+  - AC1 was verified by AST diff: `takeover.py` is byte-identical apart from the logger line, and `window_control.py` differs only by `state.` substitutions and the `quit_desktop` extraction.
+  - `SessionState` reproduces every locked section exactly.
+  - No cycles; the shim stays GUI-free.
+  - The security-relevant paths are unchanged.
+  - 398 targeted tests pass.
+  - Non-blocking notes:
+    - the guard's untested exotic forms (`patch.multiple`, a non-literal attribute name, attribute-held aliases), which no test uses;
+    - `state.server`/`state.thread` stay set after `run()` ends, so **leg 4 clears them** when it starts using them;
+    - the AC boxes (now ticked).
+  - Leg 1 status `completed`, committed as a checkpoint.
+- **Probe run `40203877635` finished:** success, 14:47:26Z to 14:51:56Z, about 4.5 job-minutes. That is shorter than leg 2's typical estimate, so leg 3 checks whether premises bailed early.
+- **Leg 3 (`macos-probe-run`) risk tier: LOW.** It reads evidence and makes no product change. Its outputs are decisions (the apparatus, the first-paint cause, the `min_os`), each logged for the legs that depend on them. No design review.
 - **Mission 31 Flight 4 merged to `main` (#309, `b1e47ae`, 2026-10-25).** Mission 31 is still `active` (Flight 5 remains), so its constraints stand: no release, its checkout untouched, and shared files kept additive. 188 files changed. The overlap with this flight is `CLAUDE.md` and `the_one/agents.md` only; none of leg 1's or leg 2's working files are touched by it.
   - **Call:** merge `origin/main` into `flight/03-macos-app` at the next checkpoint (after leg 1 phase A and leg 2 land, before the review), not under two running Developers.
   - After the merge, leg 1's guard and `make test-unit` are re-run on the merged tree (main adds tests), and leg 1 phase B builds from it.
@@ -159,6 +201,14 @@ Planning.
 - **`SessionState` tests** (`tests/test_desktop_session_state.py`, 14 tests): defaults, in-place `reset()` (same lock and event objects, same key set), the module instance is never rebound, `begin_boot`/`clear_booting`/`quit_was_requested`, `publish_window` return contract, `claim_browser_server` (quit wins; booting cleared either way), `release_browser_server`, and `request_quit` for each of its five tags (no `_on_quit` under the lock; `should_exit` is set under the lock as before).
 - **Counts.** Unit tier collected before (any file changed, `e21d219` tree + leg files only): **7115** (`7115/9627 collected, 2512 deselected`). After: **7161** (`7161/9673`). Delta **+46** = 32 guard + 14 `SessionState` tests; every pre-existing test is still collected (the only removed code is the one stale patch line above).
 - **Gates.** `make test-unit`: `== 7105 passed, 12 skipped, 2556 deselected, 56 warnings in 330.09s ==` (the expected 12 skips). `ruff check the_one/ tests/ scripts/ evals/`: All checks passed. `ruff format --check`: 681 files already formatted. `the_one/agents.md` gained one additive "Desktop shell module map" paragraph; `CLAUDE.md` names no moved symbol (its `_select_port`/`_graceful_shutdown` mentions are generic and still true through `interfaces/app.py`), so it is unchanged.
+
+**Phase B checkpoint** (AC1-AC7 hold; leg status `landed`; run on the merged tree, `16484eb` plus the leg's uncommitted files).
+
+- **Re-verify on the merged tree.** Guard + `SessionState` tests: 46 passed. `make test-unit`: `== 7237 passed, 12 skipped, 2987 deselected, 56 warnings in 338.83s ==` (12 skips as expected; grew from 7105 with main's tests; the merge broke nothing in the leg's files). `ruff check` clean; `ruff format --check`: 697 files already formatted.
+- **AC5.** `THE_ONE_TEST_NETNS=1 ... --lane settings -x`: `108 passed in 239.43s`. The full `--parallel 3` gate was NOT run: Chromium/Playwright processes from the Mission 31 checkout were live on the host at the time, so only `settings` ran.
+- **AC6.** `.deb` built with `M32_BUILD=$HOME/the-one-m32-build/f3 packaging/linux/build.sh --version 0.11.9.dev30` (`gleepglorp-ai_0.11.9~dev30_amd64.deb`, plus an AppImage). `gtk-smoke.sh`: `ubuntu-26.04` OVERALL PASS, `debian-13` OVERALL PASS (0 FAIL rows each; window maps, WM_DELETE_WINDOW close per tray mode with `tray: none`, size stable 1440x900 across relaunches, quit route exits within 15 s). Takeover (`--takeover-from` Flight 2's `~dev20` on `ubuntu-26.04`): `OVERALL PASS (takeover)` (old v0.11.9.dev20 replaced, new v0.11.9.dev30 serving, window visible, `the-one quit` ends it). Gates (`gates.sh ... --display xvfb`): `deb/ubuntu-26.04-baseline: G1p=PASS G1u=PASS G2=PASS G3=PASS G4=PASS upgrade=N/A single=PASS`; `deb/debian-13-baseline`: same.
+- **AC7.** No 8484/8485 listener; operator data dir newest file mtime unchanged (1791383047.967 before and after). Only `m32-*` containers, none left. The smoke/gate runs left 112 root-owned files under `f3` evidence/build; chowned back with a throwaway `m32-chown` container (0 left under `f3`; the older `A-recheck` evidence dir from an earlier flight still holds root-owned files, untouched). No PID kills outside the scripts' own recorded groups. `git status` shows only this leg's files plus leg 2/3 artifacts.
+- **Evidence:** `$HOME/the-one-m32-evidence/f3/leg1/` (`settings-lane.log`, `build.log`, `smoke-<distro>.log`, `takeover.log`, `gates-<distro>.log`); packages in `$HOME/the-one-m32-build/f3/packages/`.
 
 ---
 
