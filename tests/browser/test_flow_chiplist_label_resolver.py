@@ -19,7 +19,7 @@ that every chip-list ``label[for]`` resolves to the real ``.chip-list-input``.
 
 Covers both cross-area consumers of the fix:
 - admin tools-editor (``fetch_url`` — WebConfig array fields render via
-  ``renderField`` → ``renderChipListEditor`` with ``controlId=tef-{name}``);
+  ``App.toolConfigFields.render`` → ``App.ui.chipList`` with the id ``tef-{name}``);
 - studio mcp-server-editor (``mf-args`` + ``mf-sandbox-writable-paths`` — the
   placeholder-div repoint site, ``controlId=mf-{name}``).
 """
@@ -58,7 +58,7 @@ def _assert_labels_resolve_to_chip_input(page: Page, ids: list[str]) -> None:
 @pytest.mark.browser
 def test_admin_tools_editor_chiplist_labels_resolve(app_clean: str, page: Page) -> None:
     """The admin tools-editor's WebConfig array fields (``host_allowlist`` et al.)
-    render chip-lists via the shared ``renderField``; each ``label[for=tef-{name}]``
+    render chip-lists via the shared ``App.toolConfigFields``; each ``label[for=tef-{name}]``
     must resolve to the real ``.chip-list-input`` in the mounted tree."""
     _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
@@ -71,13 +71,13 @@ def test_admin_tools_editor_chiplist_labels_resolve(app_clean: str, page: Page) 
         page,
         ["tef-host_allowlist", "tef-host_denylist", "tef-extra_allowed_hosts"],
     )
-    # M31 F3 L03c: the Settings string-built list keeps the area look (not a library list).
+    # M31 F4 L07a (B3): the Settings tool fields are library chip lists (App.ui.chipList)
+    # on the full form column, no longer the string-built list capped at 320px.
     box = page.locator('.tools-editor-field[data-field-name="host_allowlist"] .chip-list-editor')
-    assert "ui-chip-list" not in (box.get_attribute("class") or "")
-    look = box.evaluate(
-        "(el) => { const s = getComputedStyle(el); return {mh: s.minHeight, mw: s.maxWidth, pad: s.paddingTop}; }"
-    )
-    assert look == {"mh": "40px", "mw": "320px", "pad": "6px"}, look
+    assert "ui-chip-list" in (box.get_attribute("class") or "")
+    section = page.locator(".settings-item .editor-section", has_text="Configuration").first
+    assert box.bounding_box()["width"] > 0.8 * section.bounding_box()["width"]
+    assert box.evaluate("el => getComputedStyle(el).maxWidth") != "320px"
 
 
 @pytest.mark.browser

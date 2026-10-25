@@ -39,7 +39,7 @@ class TestToolsGridAssets:
     async def test_tools_grid_js_served(self, client: AsyncClient) -> None:
         resp = await client.get("/static/js/areas/admin/tools-grid.js")
         assert resp.status_code == 200
-        assert "App.admin.renderToolsGrid" in resp.text
+        assert "App.admin.toolsGrid" in resp.text
 
     async def test_index_html_includes_tools_grid_script(self, client: AsyncClient) -> None:
         # The SPA shell lives at /static/index.html; the prod / route serves it

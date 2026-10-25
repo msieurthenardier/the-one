@@ -121,24 +121,6 @@
     };
   }
 
-  // Make `parent`'s children after `anchor` exactly `desired` (in order), moving a node
-  // only when it is out of place and removing anything left over.
-  function placeNodes(parent, anchor, desired) {
-    var ref = anchor.nextSibling;
-    for (var i = 0; i < desired.length; i++) {
-      if (desired[i] === ref) {
-        ref = ref.nextSibling;
-      } else {
-        parent.insertBefore(desired[i], ref);
-      }
-    }
-    while (ref) {
-      var next = ref.nextSibling;
-      parent.removeChild(ref);
-      ref = next;
-    }
-  }
-
   function renderProviderModels(container, provider) {
     if (!provider || !provider.id || !container) return null;
     var ctl = null;
@@ -206,7 +188,7 @@
         desired.push(row);
       }
       Object.keys(rows).forEach(function (key) { if (!seen[key]) delete rows[key]; });
-      placeNodes(region.el, region.anchor, desired);
+      util.syncChildren(region.el, desired, { after: region.anchor });
       region.mode(names.length ? 'list' : 'empty');
     }
 
@@ -953,7 +935,7 @@
           names.push(availableRows[k].name);
         }
       }
-      placeNodes(region.el, region.anchor, desired);
+      util.syncChildren(region.el, desired, { after: region.anchor });
       order = names;
       region.mode(names.length ? 'list' : 'empty');
 

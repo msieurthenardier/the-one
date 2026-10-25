@@ -155,6 +155,10 @@
   //   aria-describedby, so the accessible name stays the label text alone) and
   //   an empty div.ui-radio-slot for caller content (optionEl). .is-checked is
   //   kept on every wrapper as a fallback for :has().
+  //   slotIndent (M31 F4 L04d): 'label' puts the slot's left edge on the
+  //   option's text (marker .ui-radio-option--indent on the option: the radio
+  //   gets a fixed 16px box and the slot a margin of that box plus the gap);
+  //   'none' (default) leaves the slot flush with the card's content edge.
   //   name defaults to a unique id; an explicit name shared by two groups is
   //   the caller's problem (the browser would merge them into one radio set).
   //   setValue is silent (no onChange); an unknown or disabled value is a
@@ -213,7 +217,8 @@
       label.htmlFor = input.id;
       var slot = util.el('div', { className: 'ui-radio-slot' });
       var wrap = util.el('div', {
-        className: 'ui-radio-option' + (o.disabled ? ' is-disabled' : '')
+        className: 'ui-radio-option' + (opts.slotIndent === 'label' ? ' ui-radio-option--indent' : '') +
+          (o.disabled ? ' is-disabled' : '')
       }, [label]);
       var row = { value: o.value, input: input, wrap: wrap, slot: slot, desc: null };
       if (o.description) {

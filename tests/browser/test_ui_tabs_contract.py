@@ -4,8 +4,8 @@
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``.
 Falls in the ``contracts`` browser lane.
 
-The legacy comparisons hand-write today's markup (``agent-editor.js`` / ``tools-grid.js``
-build it with HTML strings the harness cannot load) and compare a FIXED property list.
+The style comparisons hand-write the pre-library markup the (since migrated) callers once built
+with HTML strings, and compare a FIXED property list.
 Area-scoped rules are compared inside one explicit wrapper per test: ``area-studio`` for the
 agent editor's tablist, ``area-admin`` + ``settings-list`` for the Built-in tools page's.
 """
@@ -13,7 +13,7 @@ agent editor's tablist, ``area-admin`` + ``settings-list`` for the Built-in tool
 from __future__ import annotations
 
 import pytest
-from browser._ui_engines import STATIC_DIR, load_harness
+from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -149,86 +149,72 @@ def test_destroy_removes_listeners(engine_page: Page) -> None:
     ) == ["a", "a"]
 
 
-# ── keyboard parity with the legacy App.tabs ────────────────────────────────
+# ── keyboard contract ────────────────────────────────────────────────────────
+# (M31 F4 L06: the parity tests against the legacy ``App.tabs`` (js/tabs.js) were
+# deleted with that helper; they had proved the library reproduces it, and nothing
+# else loads the old file. The library's own contract is stated explicitly below.)
 
-LEGACY_BUILD = """(rootId) => {
-  const root = document.getElementById(rootId);
-  const mk = (id, label) => '<button type="button" role="tab" class="tab" id="lg-tab-' + id + '" aria-controls="lg-panel-' + id +
-    '" data-tab-id="' + id + '" aria-selected="false" tabindex="-1">' + label + '</button>';
-  const pn = (id) => '<div role="tabpanel" class="tabpanel" id="lg-panel-' + id + '" data-tab-id="' + id + '" aria-labelledby="lg-tab-' + id + '" hidden></div>';
-  root.innerHTML = '<div role="tablist" class="tablist" aria-label="Settings">' + mk('a', 'General') + mk('b', 'Rules and notes') + mk('c', 'Tools') +
-    '</div><div class="tabpanels">' + pn('a') + pn('b') + pn('c') + '</div>';
-  return root;
-}"""
-
-STATE_JS = """(root) => {
-  const tabs = Array.from(root.querySelectorAll('[role=tab]'));
+STATE_JS = """() => {
+  const tabs = Array.from(window.__tabs.tablist.querySelectorAll('[role=tab]'));
   return {
     focus: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.tabId || null : null,
     sel: tabs.map((b) => b.getAttribute('aria-selected')), ti: tabs.map((b) => b.getAttribute('tabindex')),
-    hid: Array.from(root.querySelectorAll('[role=tabpanel]')).map((p) => p.hidden)
+    hid: Array.from(window.__tabs.panels.querySelectorAll('[role=tabpanel]')).map((p) => p.hidden)
   };
 }"""
 
-KEYS = [
-    "ArrowRight", "ArrowRight", "ArrowRight", "ArrowLeft", "End", "Home", "Enter",
-    "ArrowRight", "Space", "End", "Enter", "Home", "ArrowLeft",
-]  # fmt: skip
+
+def test_keyboard_arrows_move_focus_and_enter_space_commit(engine_page: Page) -> None:
+    _mount(engine_page)
+    engine_page.get_by_test_id("t-a").focus()
+    engine_page.keyboard.press("ArrowRight")
+    st = engine_page.evaluate(STATE_JS)
+    # Arrows move focus only: the commit state (selection, roving tabindex, panels) is unchanged.
+    assert st == {
+        "focus": "b",
+        "sel": ["true", "false", "false"],
+        "ti": ["0", "-1", "-1"],
+        "hid": [False, True, True],
+    }
+    engine_page.keyboard.press("ArrowLeft")
+    engine_page.keyboard.press("ArrowLeft")  # wraps to the last tab
+    assert engine_page.evaluate(STATE_JS)["focus"] == "c"
+    engine_page.keyboard.press("ArrowRight")  # and wraps forward again
+    assert engine_page.evaluate(STATE_JS)["focus"] == "a"
+    engine_page.keyboard.press("End")
+    assert engine_page.evaluate(STATE_JS)["focus"] == "c"
+    engine_page.keyboard.press("Home")
+    assert engine_page.evaluate(STATE_JS)["focus"] == "a"
+    engine_page.keyboard.press("End")
+    engine_page.keyboard.press("Enter")
+    st = engine_page.evaluate(STATE_JS)
+    assert st == {
+        "focus": "c",
+        "sel": ["false", "false", "true"],
+        "ti": ["-1", "-1", "0"],
+        "hid": [True, True, False],
+    }
+    engine_page.keyboard.press("ArrowLeft")
+    engine_page.keyboard.press("Space")
+    st = engine_page.evaluate(STATE_JS)
+    assert st["sel"] == ["false", "true", "false"] and st["hid"] == [True, False, True]
+    assert engine_page.evaluate("() => window.__ch") == ["a", "c", "b"]
 
 
-def _drive(page: Page, which: str, veto: bool) -> list:
-    """Mount one implementation (legacy or new) and run KEYS then a click; return the states."""
-    load_harness(page)
-    page.add_script_tag(path=str(STATIC_DIR / "js" / "tabs.js"))
-    page.evaluate(
-        """([which, veto]) => {
-          window.__log = [];
-          const host = document.createElement('div'); host.id = 'host-' + which;
-          document.getElementById('harness-root').appendChild(host);
-          const before = veto ? (id, commit) => { window.__log.push('before:' + id); } : undefined;
-          if (which === 'legacy') {
-            ("""
-        + LEGACY_BUILD
-        + """)(host.id);
-            App.tabs(host.querySelector('.tablist'), host.querySelector('.tabpanels'),
-              {initial: 'a', onChange: (id) => window.__log.push(id), onBeforeChange: before});
-          } else {
-            const t = App.ui.tabs({label: 'Settings', idPrefix: 'lg', initial: 'a', onChange: (id) => window.__log.push(id), onBeforeChange: before,
-              items: [{id: 'a', label: 'General'}, {id: 'b', label: 'Rules and notes'}, {id: 'c', label: 'Tools'}]});
-            host.appendChild(t.el);
-          }
-        }""",
-        [which, veto],
-    )
-    sel = f"#host-{which} "
-    page.locator(sel + "[data-tab-id=a][role=tab]").focus()
-    states = []
-    for key in KEYS:
-        page.keyboard.press(key)
-        states.append(page.evaluate(f"({STATE_JS})(document.getElementById('host-{which}'))"))
-    page.locator(sel + "[data-tab-id=c][role=tab]").click()
-    states.append(page.evaluate(f"({STATE_JS})(document.getElementById('host-{which}'))"))
-    states.append(page.evaluate("() => window.__log"))
-    return states
-
-
-def test_keyboard_parity_with_legacy_app_tabs(engine_page: Page) -> None:
-    legacy = _drive(engine_page, "legacy", veto=False)
-    library = _drive(engine_page, "library", veto=False)
-    assert library == legacy
-    # Arrows move focus only: after the first ArrowRight the commit state is unchanged.
-    assert library[0]["focus"] == "b" and library[0]["ti"] == ["0", "-1", "-1"]
-    # The same onChange sequence, starting with the initial activation.
-    assert library[-1][0] == "a" and library[-1][-1] == "c"
-
-
-def test_veto_parity_with_legacy_app_tabs(engine_page: Page) -> None:
-    legacy = _drive(engine_page, "legacy", veto=True)
-    library = _drive(engine_page, "library", veto=True)
-    assert library == legacy
-    # A vetoed commit keeps the current tab: only the initial 'a' was ever activated.
-    assert [e for e in library[-1] if not e.startswith("before:")] == ["a"]
-    assert library[-2]["sel"] == ["true", "false", "false"]
+def test_keyboard_veto_keeps_the_current_tab(engine_page: Page) -> None:
+    _mount(engine_page, "{onBeforeChange: (id, commit) => { window.__asked = id; }}")
+    engine_page.get_by_test_id("t-a").focus()
+    engine_page.keyboard.press("End")  # arrows never go through the veto
+    assert engine_page.evaluate("() => window.__asked") is None
+    engine_page.keyboard.press("Enter")
+    assert engine_page.evaluate(
+        "() => [window.__asked, window.__tabs.selected(), window.__ch]"
+    ) == [
+        "c",
+        "a",
+        ["a"],
+    ]
+    assert engine_page.evaluate(STATE_JS)["sel"] == ["true", "false", "false"]
 
 
 def test_before_change_commit_proceeds(engine_page: Page) -> None:
@@ -317,3 +303,24 @@ def test_panel_id_prefix_option(engine_page: Page) -> None:
     _mount(engine_page)
     default = engine_page.evaluate("() => window.__tabs.panel('b').id")
     assert default == "tt-panel-b"
+
+
+def test_panel_padding_none_is_flush_under_area_admin(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const host = document.createElement('div'); host.className = 'area-admin';
+          const inner = document.createElement('div'); inner.className = 'settings-list'; host.appendChild(inner);
+          document.getElementById('harness-root').appendChild(host);
+          const mk = (extra) => { const t = App.ui.tabs(Object.assign({label: 'T', idPrefix: 'p' + Math.random().toString(36).slice(2, 6), initial: 'a',
+            items: [{id: 'a', label: 'A'}, {id: 'b', label: 'B'}]}, extra)); inner.appendChild(t.el); t.panel('a').hidden = false; return t; };
+          const flush = mk({panelPadding: 'none'}), plain = mk({});
+          const pad = (el) => { const s = getComputedStyle(el); return [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft, s.overflowY].join(' '); };
+          return {flush: pad(flush.panel('a')), tl: getComputedStyle(flush.tablist).paddingLeft,
+                  cls: flush.panel('a').className, tlcls: flush.tablist.className,
+                  plainCls: plain.panel('a').className, plainTl: getComputedStyle(plain.tablist).paddingLeft};
+        }"""
+    )
+    assert out["flush"] == "0px 0px 0px 0px visible" and out["tl"] == "0px"
+    assert "ui-tabs--flush" in out["cls"] and "ui-tabs--flush" in out["tlcls"]
+    assert "ui-tabs--flush" not in out["plainCls"]

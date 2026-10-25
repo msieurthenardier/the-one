@@ -49,7 +49,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from the_one.tools.base import ConstraintError
-from the_one.tools.execution import _TIMEOUT_DEFAULT_UI_CHOICES
+from the_one.tools.execution import _timeout_default_ui_choices
 from the_one.tools.resolver import Narrow, NarrowSuperset, Substitute
 
 # ---------------------------------------------------------------------------
@@ -74,12 +74,12 @@ _DEFAULT_USER_AGENT: str = "the-one/0.2 (https://github.com/msieurthenardier/the
 # Six dropdown choices mirroring F3's ``read_size_cap_bytes`` UI shape so
 # operators see consistent cap labels across filesystem and web caps.
 _RESPONSE_SIZE_UI_CHOICES: list[dict[str, object]] = [
-    {"value": 51_200, "label": "50KB — very small models"},
-    {"value": 102_400, "label": "100KB — small/7B-class friendly"},
-    {"value": 262_144, "label": "256KB — most models comfortable"},
-    {"value": 524_288, "label": "512KB — middle"},
-    {"value": 1_048_576, "label": "1MB — default (Opus 200K headroom)"},
-    {"value": 5_242_880, "label": "5MB — Opus 1M only"},
+    {"value": 51_200, "label": "50KB"},
+    {"value": 102_400, "label": "100KB"},
+    {"value": 262_144, "label": "256KB"},
+    {"value": 524_288, "label": "512KB"},
+    {"value": 1_048_576, "label": "1MB (default)"},
+    {"value": 5_242_880, "label": "5MB"},
 ]
 
 # Binary content-type prefixes (startswith match) and exact-match values
@@ -154,10 +154,14 @@ class WebConfig(BaseModel):
         Field(
             ge=1,
             le=3600,
-            description="Used when agent omits timeout.",
+            title="Default timeout",
+            description=(
+                "How long a web request may take when the agent does not ask for "
+                "a specific time. The agent can ask for longer, up to the maximum timeout."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
-                "ui_choices": _TIMEOUT_DEFAULT_UI_CHOICES,
+                "ui_choices": _timeout_default_ui_choices(30),
             },
         ),
     ] = 30
@@ -168,7 +172,11 @@ class WebConfig(BaseModel):
         Field(
             ge=1,
             le=3600,
-            description="Hard ceiling; agent value clipped.",
+            title="Maximum timeout",
+            description=(
+                "The longest a web request may take. If the agent asks for more, "
+                "it is cut down to this."
+            ),
         ),
     ] = 120
 
@@ -178,7 +186,11 @@ class WebConfig(BaseModel):
         Field(
             ge=1024,
             le=104_857_600,  # 100 MB hard ceiling, matches output_cap_bytes
-            description="Per-response cap; tail-preserving truncation.",
+            title="Response size limit",
+            description=(
+                "The largest response the tool will accept. A bigger download is "
+                "stopped part way, so a huge page cannot fill memory or disk."
+            ),
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": _RESPONSE_SIZE_UI_CHOICES,
@@ -201,9 +213,10 @@ class WebConfig(BaseModel):
         5,
         ge=0,
         le=20,
+        title="Redirect limit",
         description=(
-            "Maximum HTTP redirects per request. Tool-level only — agents "
-            "cannot narrow this. Set to 0 to disable redirects entirely."
+            "How many redirects one request may follow. Only you can change "
+            "this; agents cannot. Set it to 0 to follow no redirects."
         ),
     )
 
@@ -212,9 +225,10 @@ class WebConfig(BaseModel):
         Narrow,
         Field(
             default_factory=list,
+            title="Allowed hosts",
             description=(
-                "If non-empty, ONLY hosts in this list are allowed. "
-                "Empty = no allowlist constraint."
+                "If this list has any entries, only those hosts can be reached. "
+                "Leave it empty to allow any host that is not blocked."
             ),
         ),
     ]
@@ -224,10 +238,10 @@ class WebConfig(BaseModel):
         NarrowSuperset,
         Field(
             default_factory=list,
+            title="Denied hosts",
             description=(
-                "Hosts in this list are always refused, regardless of "
-                "allowlist. Agent must contain every operator entry; "
-                "agent may add more."
+                "Hosts that are always refused, even if they are in the allowed "
+                "list. An agent can add hosts of its own but cannot remove these."
             ),
         ),
     ]
@@ -237,12 +251,12 @@ class WebConfig(BaseModel):
         Narrow,
         Field(
             default_factory=list,
+            title="Extra allowed hosts",
             description=(
-                "Hosts whose resolved IPs are exempt from the SSRF "
-                "default-block list. Each entry: 'hostname' or "
-                "'hostname:port'. Common: 'localhost:11434' (Ollama). "
-                "The SSRF protection itself is not disable-able; this "
-                "list is the only opt-out."
+                "Hosts on your own machine or network that the tool may reach "
+                "even though private addresses are normally blocked. Write each "
+                "as 'hostname' or 'hostname:port', for example localhost:11434 "
+                "for Ollama. This list is the only way to open the block."
             ),
         ),
     ]
@@ -252,15 +266,11 @@ class WebConfig(BaseModel):
         Substitute,
         Field(
             default=_DEFAULT_USER_AGENT,
+            title="Default user agent",
             description=(
-                "User-Agent header sent on every web-tool request unless "
-                "the agent passes an explicit `User-Agent` in `headers`. "
-                "Substitute marker: agents can replace this with their own "
-                "identity (no narrowing semantic — UA strings aren't "
-                "ordered). Operator-set baseline identifies the-one to "
-                "remote servers; some sites (e.g. Wikipedia) reject this "
-                "default and require a browser-class UA — set per-agent "
-                "or override the operator default to work around."
+                "The name the tool sends to websites with each request. Some "
+                "sites, such as Wikipedia, refuse the default and need a browser-like "
+                "name. An agent can replace it with its own."
             ),
         ),
     ]

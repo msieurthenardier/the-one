@@ -116,14 +116,6 @@
     externalSection.appendChild(grantHint);
 
     // ── copy-once secret reveal (hidden until a mint/rotate returns) ──
-    var tokenReveal = document.createElement('div');
-    tokenReveal.className = 'self-configuration-external-token-reveal banner banner-warning';
-    tokenReveal.setAttribute('data-testid', 'self-configuration-external-token-reveal');
-    tokenReveal.setAttribute('role', 'status');
-    tokenReveal.setAttribute('aria-live', 'polite');
-    tokenReveal.tabIndex = -1;
-    tokenReveal.hidden = true;
-
     var tokenWarning = document.createElement('p');
     tokenWarning.className = 'self-configuration-external-token-warning';
     // Programmatic association target (WCAG 1.3.1): the copy button and token
@@ -132,7 +124,6 @@
     tokenWarning.id = 'self-configuration-external-token-warning';
     tokenWarning.textContent = 'Copy this token now — it is shown only once and cannot be ' +
       'retrieved again. If you lose it, revoke this grant and create a new one.';
-    tokenReveal.appendChild(tokenWarning);
 
     // The token field is created with NO value and filled by `setValue` on a reveal
     // (a property write, never an attribute), and it carries no dataset: the
@@ -148,7 +139,6 @@
     });
     tokenField.input.setAttribute('aria-describedby', 'self-configuration-external-token-warning');
     tokenField.button.setAttribute('aria-describedby', 'self-configuration-external-token-warning');
-    tokenReveal.appendChild(tokenField.el);
 
     var tokenUrl = document.createElement('p');
     tokenUrl.className = 'self-configuration-external-token-url';
@@ -159,7 +149,6 @@
     tokenUrlValue.setAttribute('data-testid', 'self-configuration-external-token-url');
     tokenUrl.appendChild(tokenUrlLabel);
     tokenUrl.appendChild(tokenUrlValue);
-    tokenReveal.appendChild(tokenUrl);
 
     var tokenDismissBtn = App.ui.button({
       variant: 'ghost',
@@ -168,7 +157,17 @@
       className: 'self-configuration-external-token-dismiss-btn',
       testid: 'self-configuration-external-token-dismiss-btn'
     });
-    tokenReveal.appendChild(tokenDismissBtn);
+
+    // Built with children and never set()/setChildren() afterwards (that would wipe the
+    // token field); hideTokenReveal hides it and empties the field.
+    var tokenRevealBanner = App.ui.banner({
+      tone: 'warning', role: 'status', hidden: true,
+      className: 'self-configuration-external-token-reveal',
+      testid: 'self-configuration-external-token-reveal',
+      children: [tokenWarning, tokenField.el, tokenUrl, tokenDismissBtn]
+    });
+    var tokenReveal = tokenRevealBanner.el;
+    tokenReveal.tabIndex = -1;
 
     externalSection.appendChild(tokenReveal);
 
@@ -203,7 +202,7 @@
     // destroy, the tab being deactivated) or by a new editor identity (a new
     // mount).
     function hideTokenReveal() {
-      tokenReveal.hidden = true;
+      tokenRevealBanner.hide();
       tokenField.setValue('');
       tokenUrlValue.textContent = '';
       copyLive.textContent = '';
@@ -213,7 +212,7 @@
       // `result` is the mint/rotate response: {identifier, label, token, url}.
       tokenField.setValue(result && result.token ? result.token : '');
       tokenUrlValue.textContent = result && result.url ? result.url : '';
-      tokenReveal.hidden = false;
+      tokenRevealBanner.show();
       // Focus lands on the reveal's primary action (Copy) — inside the
       // reveal, keyboard-operable, never the page top (AC7). The reveal is
       // an `aria-live` region, so its warning is announced as it appears.

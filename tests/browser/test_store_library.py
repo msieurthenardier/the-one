@@ -428,7 +428,7 @@ def test_connector_create_invalidates_connectors(app_with_agent: SeededApp, page
     _lists.library_add(page, "connectors")
     page.locator('[data-field="name"]').fill("UI Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
-    page.locator('label.ui-toggle-label:has([data-field="enabled"])').click()
+    page.get_by_role("switch", name="Enabled").locator("xpath=ancestor::label").click()
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
     assert "connectors" in _invalidated(page)

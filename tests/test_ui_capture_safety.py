@@ -108,3 +108,67 @@ def test_surface_table_lists_every_skipped_surface_with_a_reason() -> None:
     assert {"provider-create", "ollama-models-panel", "flash-after-save"} <= set(names)
     for ptype in cap.PROVIDERS:
         assert f"provider-edit-{ptype}" in names
+
+
+# --keep-running (M31 F4 L01) goes through the same refusals before anything starts.
+
+
+def _no_start(*_a, **_k):
+    raise AssertionError("the instance must not start when a refusal applies")
+
+
+def test_keep_running_refuses_a_protected_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cap, "pick_port", lambda: 8484)
+    monkeypatch.setattr(cap, "start_instance", _no_start)
+    with pytest.raises(cap.CaptureError, match="8484"):
+        cap.run(["--keep-running"])
+
+
+def test_keep_running_refuses_a_scratch_dir_inside_the_default_data_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The scratch tree lives under ~/.cache/the-one-ui-capture: a "default" that
+    # contains it must be refused.
+    monkeypatch.setattr(cap, "default_data_dir", lambda: Path.home() / ".cache")
+    monkeypatch.setattr(cap, "start_instance", _no_start)
+    with pytest.raises(cap.CaptureError, match="default data directory"):
+        cap.run(["--keep-running"])
+
+
+def test_keep_running_takes_no_out_and_out_still_needs_a_dir() -> None:
+    with pytest.raises(cap.CaptureError, match="takes no --out"):
+        cap.run(["--keep-running", "--out", "/tmp/x"])
+    with pytest.raises(cap.CaptureError, match="--out DIR is required"):
+        cap.run([])
+
+
+def test_time_mask_pins_the_meridiem(tmp_path: Path) -> None:
+    """The shape-preserving time mask must not keep the real AM/PM: it flips with the
+    time of day a capture runs ("12:00 AM" vs "12:00 PM" read as a run-to-run difference)."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    js = cap.MASK_JS
+    start = js.index("const MON")
+    end = js.index("\n  ];", start) + len("\n  ];")
+    script = (
+        js[start:end]
+        + "\nconst run = (s) => TIME_RULES.reduce((o, [re, fn]) => o.replace(re, fn), s);"
+        + "\nconsole.log(JSON.stringify(process.argv.slice(2).map(run)));"
+    )
+    path = tmp_path / "mask.js"
+    path.write_text(script)
+    inputs = ["Indexed 3:04 AM", "Indexed 11:59 PM", "at 9:30PM", "14:05", "Mar 4, 3:04 AM"]
+    out = subprocess.run(
+        [node, str(path), *inputs], capture_output=True, text=True, check=True
+    ).stdout
+    masked = json.loads(out)
+    assert masked[0] == "Indexed 12:00 PM"
+    assert masked[1].endswith("12:00 PM")
+    assert masked[2] == "at 12:00PM"
+    assert masked[3] == "12:00"
+    assert masked[4] == "Mar 1, 12:00 PM"

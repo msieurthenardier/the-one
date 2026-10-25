@@ -509,13 +509,13 @@ def test_an_armed_li_whose_item_is_gone_is_dropped_and_its_timer_is_harmless(
     )
     p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'c']))")
     assert p.evaluate("() => window.__armedLi.isConnected") is False
-    p.wait_for_timeout(300)  # the lapse timer fires on the detached node
+    p.wait_for_timeout(300)  # the lapse timer fires on the detached node: it reverts only (0237)
     out = p.evaluate(
         """() => ({armed: window.__armedLi.classList.contains('confirm-delete'),
                    lapsed: window.__armedLi.classList.contains('confirm-lapsed'),
                    title: window.__armedLi.querySelector('[data-confirm-title]').textContent})"""
     )
-    assert out == {"armed": False, "lapsed": True, "title": "Chat b"}
+    assert out == {"armed": False, "lapsed": False, "title": "Chat b"}
     assert errors == []
 
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import inspect
 import re
 
+from the_one.db import encryption_corpora
 from the_one.db.key_reconcile import _ENCRYPTED_CORPORA
 from the_one.interfaces.web import api as api_module
 
@@ -81,7 +82,7 @@ def _format_mismatch(label: str, derived: set[tuple[str, str]]) -> str:
     extra = derived - expected
     return (
         f"{label} out of sync with the_one/db/key_reconcile.py:_ENCRYPTED_CORPORA.\n"
-        f"  missing from the_one/interfaces/web/api.py:rotate_encryption_key {label}: "
+        f"  missing from the rotation route's {label}: "
         f"{sorted(missing)}\n"
         f"  present in rotate_encryption_key {label} but absent from _ENCRYPTED_CORPORA: "
         f"{sorted(extra)}\n"
@@ -91,11 +92,17 @@ def _format_mismatch(label: str, derived: set[tuple[str, str]]) -> str:
 
 
 def test_encrypted_corpora_matches_rotation_route_reads() -> None:
-    source = inspect.getsource(api_module.rotate_encryption_key)
+    # M31 F4 L08b: the route's reads moved into the gather helper it shares with
+    # GET /api/encryption/status, so the read half is derived from that helper (and the
+    # route must still call it).
+    route_source = inspect.getsource(api_module.rotate_encryption_key)
+    assert "gather_corpora(" in route_source, "rotate_encryption_key no longer uses the gather"
+    assert "gather_corpora(" in inspect.getsource(api_module.encryption_status)
+    source = inspect.getsource(encryption_corpora.gather_corpora)
     select_pairs = _extract_select_pairs(source)
     # Sanity check on the extractor itself: if this trips, the regex found
     # nothing to compare against and the test below would pass vacuously.
-    assert select_pairs, "extractor found no SELECT ... FROM pairs in rotate_encryption_key"
+    assert select_pairs, "extractor found no SELECT ... FROM pairs in gather_corpora"
     assert select_pairs == set(_ENCRYPTED_CORPORA), _format_mismatch("SELECT reads", select_pairs)
 
 

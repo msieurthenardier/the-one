@@ -96,20 +96,6 @@ KNOWN_DEAD_SELECTORS: set[str] = set()
 #    sites are exempt and not recorded.
 #    ─────────────────────────────────────────────────────────────────────────
 DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
-    "areas/admin/knowledge-settings-page.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
-    ],
-    "areas/admin/tools-editor.js": [
-        "container.innerHTML = html;",
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "banner.innerHTML = icon + '<span class=\"editor-error-banner-text\"></span>';",
-        "resultEl.innerHTML = '<span class=\"' + statusClass + '\">' + icon + ' (' + ms + '",
-        "resultEl.innerHTML = '<span class=\"test-result-fail\">✗ ' + window.App.escapeHtml",
-    ],
-    "areas/admin/tools-grid.js": [
-        "container.innerHTML = html;",
-    ],
     # M25 F4 L4a removed the chat sidebar sink (the Chats list is DOM-built)
     # and history-buckets.js with its delete-button sink; leg 4b removed the
     # content sink (the pane is areas/chat/chat-pane.js, the composer
@@ -146,13 +132,8 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    file. Lower a count in the same change that removes a sink; never raise one
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
-    "areas/admin.js": 1,
-    "areas/admin/knowledge-settings-page.js": 1,
-    "areas/admin/tools-editor.js": 8,
-    "areas/admin/tools-grid.js": 3,
     "areas/chat.js": 5,
     "areas/studio/mcp-server-editor.js": 18,
-    "theme.js": 1,
 }
 
 
@@ -729,3 +710,23 @@ def test_ui_dir_document_listeners_are_paired(tmp_path) -> None:
     _write(ui, "bad.js", "document.addEventListener('keydown', onKey, true);\n")
     seen, bad = find_unpaired_document_listeners(ui)
     assert seen == 2 and bad == [("bad.js", "keydown", "onKey")]
+
+
+def test_studio_builds_no_hand_made_banner_or_code_block_classes() -> None:
+    """M31 F4 L04f: under areas/studio a banner is App.ui.banner and a read-only value
+    block is App.ui.codeBlock, so no hand-built class string names either."""
+    import re
+    from pathlib import Path
+
+    studio = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/js/areas/studio"
+    )
+    pattern = re.compile(r"banner banner-|banner-(?:info|warning|error)|[' ]code-block['\" ]")
+    hits = []
+    for path in sorted(studio.glob("*.js")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("//"):
+                continue
+            if pattern.search(line):
+                hits.append(f"{path.name}:{n}: {line.strip()}")
+    assert hits == []

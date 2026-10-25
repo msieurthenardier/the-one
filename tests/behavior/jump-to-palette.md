@@ -3,7 +3,7 @@
 **Slug**: `jump-to-palette`
 **Status**: active
 **Created**: 2026-10-05
-**Updated**: 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: step 8's hash, step 9's Description selector, step 12's dialog count, the Variants' scrim alpha and the element the legibility check reads); 2026-10-06 (M25 F4 leg 9: step 2's empty-query expectation re-authored for the recent-chats/New chat…/recent-agents mix); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
+**Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: step 8's hash, step 9's Description selector, step 12's dialog count, the Variants' scrim alpha and the element the legibility check reads); 2026-10-06 (M25 F4 leg 9: step 2's empty-query expectation re-authored for the recent-chats/New chat…/recent-agents mix); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
 **Last Run**: 2026-10-06-14-00-21 — pass (a targeted re-run of steps 1, 2 and 14 in Light and Dark after M25 F4 leg 9, the empty-query mix; the full run 2026-10-06-06-01-26 passed 24/24)
 
 ## Intent
@@ -113,7 +113,7 @@ It runs in both themes (see Variants) and creates data prefixed `jtp-`.
 - **Theme.** Run steps 2–13 in **Light** and in **Dark**, each in its **own fresh browser
   context** (a new handoff mint). Before step 2, inside that context, open
   `{base}/#settings/appearance`, choose the variant's option in the theme radiogroup, and
-  confirm `aria-checked="true"` on it and `data-theme` on `<html>`. The choice lives in the
+  confirm it is `checked` (the options are native radios) and `data-theme` on `<html>`. The choice lives in the
   context (`localStorage`), so it must be made in the variant's own context before the first
   checkpoint; closing the context restores the operator's setting. The seed can be reused
   across variants: nothing in steps 2–13 changes the seeded data (step 12 discards its edit).

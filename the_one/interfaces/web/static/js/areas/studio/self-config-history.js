@@ -131,9 +131,9 @@
       row.setAttribute('data-field', node.field);
       row.setAttribute('data-side', node.side);
 
-      var preview = document.createElement('pre');
-      preview.className = 'revision-value code-block restore-node-value';
-      preview.textContent = node.value;
+      var preview = App.ui.codeBlock({
+        className: 'revision-value restore-node-value', text: node.value
+      }).el;
       row.appendChild(preview);
 
       // A short snippet of this node's own value distinguishes it from
@@ -268,14 +268,16 @@
           // two bare full-text blocks.
           var change = document.createElement('div');
           change.className = 'history-entry-change';
-          var beforeVal = document.createElement('pre');
-          beforeVal.className = 'revision-value code-block history-entry-before';
+          var beforeVal = App.ui.codeBlock({
+            className: 'revision-value history-entry-before'
+          }).el;
           var arrow = document.createElement('span');
           arrow.className = 'history-entry-arrow';
           arrow.setAttribute('aria-label', 'changed to');
           arrow.textContent = '→';
-          var afterVal = document.createElement('pre');
-          afterVal.className = 'revision-value code-block history-entry-after';
+          var afterVal = App.ui.codeBlock({
+            className: 'revision-value history-entry-after'
+          }).el;
           change.appendChild(beforeVal);
           change.appendChild(arrow);
           change.appendChild(afterVal);

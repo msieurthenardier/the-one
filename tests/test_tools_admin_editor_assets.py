@@ -40,12 +40,13 @@ class TestToolsEditorAssets:
         resp = await client.get("/static/js/areas/admin/tools-editor.js")
         assert resp.status_code == 200
         assert "App.admin.renderToolsEditor" in resp.text
-        # F6 HAT inline fix #3: model-level 422 errors and unmatched-field
-        # 422 errors route to a prominent banner (above .editor-section)
-        # rather than the small `.editor-error` span. The banner DOM is
-        # emitted in the renderer; assert the served bundle still carries
-        # the marker class.
-        assert "editor-error-banner" in resp.text
+        # M31 F4 L07b: every save error goes through the shell's one error line
+        # (editorShell.setError), a 422 that names a field onto that field
+        # (App.api.fieldErrors); the banner and its heuristics are gone.
+        assert "App.api.fieldErrors" in resp.text
+        assert "shell.setError" in resp.text
+        assert "editor-error-banner" not in resp.text
+        assert "applyModelLevelHighlights" not in resp.text
 
     async def test_index_html_includes_tools_editor_script(self, client: AsyncClient) -> None:
         # The SPA shell lives at /static/index.html; the prod / route serves it

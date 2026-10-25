@@ -47,3 +47,12 @@ class TestToolsTestButtonAssets:
         # /test elsewhere cannot satisfy this assertion.
         assert "/test'" in body or "'/test" in body
         assert "tool-test-output" in body
+        # M31 F4 L07d: a fixed headline per outcome, chosen from the route's `outcome`
+        # (the client never parses the tool's model-facing string); the raw output sits
+        # under a collapsed "Technical details" disclosure.
+        assert "resp.outcome" in body
+        assert "Returned a result" in body
+        assert "Blocked by this tool's settings" in body
+        assert "Technical details" in body
+        assert "App.ui.status" in body and "App.ui.disclosure" in body
+        assert "App.icon" not in body and "innerHTML" not in body

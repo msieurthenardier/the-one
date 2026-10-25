@@ -357,7 +357,7 @@ def test_danger_zone_dom(engine_page: Page) -> None:
     assert out["iconSize"] == 16
     assert out["label"] == "Delete Provider"
     assert out["notice"] == [
-        "action-blocked-message banner banner-error",
+        "banner banner-error ui-banner action-blocked-message",
         "alert",
         None,
         False,
@@ -405,6 +405,7 @@ def test_danger_zone_custom_label_notice_and_disable(engine_page: Page) -> None:
         == 0
     )
     assert notice.get_attribute("hidden") is None and notice.get_attribute("aria-live") is None
+    assert "ui-banner" in (notice.get_attribute("class") or "").split()
     page.evaluate("window.__zone.setNotice('Used by agent a, b')")
     expect(notice).to_be_visible()
     expect(notice).to_have_text("Used by agent a, b")
@@ -463,7 +464,7 @@ def test_danger_zone_actions_render_in_order_with_icons_and_notice_last(engine_p
     )
     assert out["kids"] == [
         "DIV.section-title danger-zone-title", "BUTTON.btn-muted-destructive delete-btn",
-        "BUTTON.btn-muted-destructive delete-btn", "DIV.action-blocked-message banner banner-error",
+        "BUTTON.btn-muted-destructive delete-btn", "DIV.banner banner-error ui-banner action-blocked-message",
     ]  # fmt: skip
     assert out["tids"] == ["del-agent", "clear-hist"] and out["first"] is True
     assert out["labels"] == ["Delete agent", "Clear history"] and out["icons"] == [16, 16]
@@ -586,3 +587,118 @@ def test_section_description_testid(engine_page: Page) -> None:
         }"""
     )
     assert out == ["sec-desc", None]
+
+
+# ── section layout: 'stack' (M31 F4 L03b) ──────────────────────────────────
+
+SECTION_RHYTHM_JS = """([ancestor, layout, withDesc]) => {
+  const root = document.getElementById('harness-root');
+  const host = document.createElement('div');
+  host.className = ancestor;
+  root.appendChild(host);
+  const fg = (label) => {
+    const g = document.createElement('div'); g.className = 'field-group';
+    const l = document.createElement('label'); l.textContent = label;
+    const i = document.createElement('input'); i.type = 'text';
+    l.appendChild(i); g.appendChild(l); return g;
+  };
+  const first = fg('First'), second = fg('Second');
+  const status = App.ui.status({state: 'idle', text: 'A status line'});
+  const hiddenStatus = App.ui.status({state: 'idle', text: 'Hidden status'});
+  hiddenStatus.el.hidden = true;
+  const btn = App.ui.button({label: 'Go'});
+  const opts = {title: 'Rhythm', children: [first, second, status.el, hiddenStatus.el, btn]};
+  if (withDesc) opts.description = 'Why this section exists';
+  if (layout) opts.layout = layout;
+  const sec = App.ui.section(opts);
+  host.appendChild(sec.el);
+  const r = (n) => n.getBoundingClientRect();
+  const title = sec.el.querySelector('.section-title'), desc = sec.el.querySelector('.section-description');
+  const out0 = withDesc ? {titleToDesc: r(desc).top - r(title).bottom, descToFirst: r(first).top - r(desc).bottom}
+                        : {titleToFirst: r(first).top - r(title).bottom};
+  const margins = (n) => { const cs = getComputedStyle(n); return [cs.marginTop, cs.marginBottom]; };
+  window.__rhythm = {sec, btn, hiddenStatus, first};
+  return {
+    ...out0,
+    firstToSecond: r(second).top - r(first).bottom,
+    secondToStatus: r(status.el).top - r(second).bottom,
+    statusToButton: r(btn).top - r(status.el).bottom,
+    trailing: r(sec.el).bottom - r(btn).bottom,
+    btnWidthLtSection: r(btn).width < r(sec.el).width / 2,
+    hiddenH: r(hiddenStatus.el).height,
+    margins: {title: margins(title), desc: desc ? margins(desc) : null, first: margins(first), second: margins(second)},
+  };
+}"""
+
+
+# Recorded on the default layout before 03b (the default CSS did not change): title to a
+# field 10px, title to description 6px, description to first child 12px, a field group
+# keeps its 12px bottom margin, a status line sits flush on the button (0px), trailing 12px.
+DEFAULT_RHYTHM = {
+    "titleToFirst": 10,
+    "firstToSecond": 12,
+    "secondToStatus": 12,
+    "statusToButton": 0,
+    "trailing": 12,
+}
+
+
+@pytest.mark.parametrize("ancestor", ["area-studio", "area-admin"])
+def test_section_default_layout_is_unchanged(engine_page: Page, ancestor: str) -> None:
+    load_harness(engine_page)
+    plain = engine_page.evaluate(SECTION_RHYTHM_JS, [ancestor, None, False])
+    for key, want in DEFAULT_RHYTHM.items():
+        assert plain[key] == want, (key, plain)
+    assert plain["margins"]["title"] == ["0px", "10px"]
+    assert plain["margins"]["first"] == ["0px", "12px"]
+    withdesc = engine_page.evaluate(SECTION_RHYTHM_JS, [ancestor, None, True])
+    assert withdesc["titleToDesc"] == 6 and withdesc["descToFirst"] == 12
+    assert withdesc["margins"]["desc"] == ["-4px", "12px"]
+    cls = engine_page.evaluate("() => window.__rhythm.sec.el.className")
+    assert "editor-section--stack" not in cls
+
+
+@pytest.mark.parametrize("ancestor", ["area-studio", "area-admin"])
+def test_section_stack_keeps_todays_distances_and_adds_the_token_gap(
+    engine_page: Page, ancestor: str
+) -> None:
+    load_harness(engine_page)
+    plain = engine_page.evaluate(SECTION_RHYTHM_JS, [ancestor, "stack", False])
+    assert plain["titleToFirst"] == 10  # as the default layout
+    assert plain["firstToSecond"] == 12  # a field group adds no margin on top of the gap
+    assert plain["secondToStatus"] == 12
+    assert plain["statusToButton"] == 12  # the token gap (--space-3) where the default has 0
+    assert plain["trailing"] == DEFAULT_RHYTHM["trailing"]
+    assert plain["hiddenH"] == 0  # a hidden child takes no space (and no gap)
+    assert plain["btnWidthLtSection"] is True  # a button keeps its natural width
+    assert plain["margins"]["first"] == ["0px", "0px"]
+    withdesc = engine_page.evaluate(SECTION_RHYTHM_JS, [ancestor, "stack", True])
+    assert withdesc["titleToDesc"] == 6
+    assert withdesc["descToFirst"] == 12
+    gap = engine_page.evaluate(
+        "() => [getComputedStyle(window.__rhythm.sec.el).rowGap, getComputedStyle(document.documentElement).getPropertyValue('--space-3').trim()]"
+    )
+    assert gap[0] == "12px" and gap[1] in ("12px", "0.75rem")
+    cls = engine_page.evaluate("() => window.__rhythm.sec.el.className")
+    assert "editor-section--stack" in cls
+
+
+def test_section_stack_trailing_field_group_keeps_its_margin(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const g = document.createElement('div'); g.className = 'field-group';
+          const s = App.ui.section({title: 'T', layout: 'stack', children: [g]});
+          document.getElementById('harness-root').appendChild(s.el);
+          return getComputedStyle(g).marginBottom;
+        }"""
+    )
+    assert out == "12px"
+
+
+def test_section_rejects_an_unknown_layout(engine_page: Page) -> None:
+    load_harness(engine_page)
+    msg = engine_page.evaluate(
+        "() => { try { App.ui.section({title: 'x', layout: 'grid'}); return ''; } catch (e) { return e.message; } }"
+    )
+    assert "layout" in msg

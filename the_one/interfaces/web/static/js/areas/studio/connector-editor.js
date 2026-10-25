@@ -428,17 +428,39 @@
       frag.appendChild(App.ui.section({
         title: 'Pairing',
         description: 'The peer DMs the bot, you generate a code, and the peer replies with it within 10 minutes.',
+        layout: 'stack',
         children: [pairingBtn, pairingResultEl]
       }).el);
 
+      // The stack gap needs the result wrapper hidden while every child is hidden, or
+      // an empty wrapper would still take a gap under the button.
+      function syncPairingVisibility() {
+        pairingResultEl.hidden = Array.prototype.every.call(
+          pairingResultEl.children, function (c) { return c.hidden; }
+        );
+      }
+      syncPairingVisibility();
+
+      // "Expires Oct 23, 2026, 8:57 AM" in the operator zone, the ISO value in the
+      // title (squawk 0245, DD14). One-shot: the code is short-lived.
+      function pairingExpiryEl(iso) {
+        var span = util.el('span', {
+          className: 'connector-pairing-expiry', text: 'Expires ' + App.time.formatDateTime(iso)
+        });
+        span.title = String(iso);
+        return span;
+      }
+
       function clearPairingResult() {
         pairingResultEl.replaceChildren(pairingStatus.el);
+        syncPairingVisibility();
       }
       pairingBtn.addEventListener('click', function () {
         var mine = ++pairingSeq;
         clearPairingResult();
         pairingStatus.el.hidden = false;
         pairingStatus.set('pending', 'Generating…');
+        syncPairingVisibility();
         fetch('/api/connectors/' + encodeURIComponent(cfg.id) + '/pairing-code', { method: 'POST' })
           .then(function (r) {
             if (!r.ok) throw new Error('pairing-code request failed: HTTP ' + r.status);
@@ -453,16 +475,16 @@
                 value: result.code, label: 'Pairing code', testid: 'connector-pairing-code',
                 copyTestid: 'connector-pairing-copy-btn', buttonLabel: 'Copy pairing code'
               }).el,
-              util.el('span', {
-                className: 'connector-pairing-expiry', text: 'Expires ' + result.expires_at
-              })
+              pairingExpiryEl(result.expires_at)
             );
+            syncPairingVisibility();
           })
           .catch(function (err) {
             if (!current() || mine !== pairingSeq) return;
             clearPairingResult();
             pairingStatus.el.hidden = false;
             pairingStatus.set('danger', err.message || String(err));
+            syncPairingVisibility();
           });
       });
     }
@@ -495,7 +517,7 @@
         label: 'Run doctor', testid: 'connector-doctor-btn', className: 'doctor-btn'
       });
       frag.appendChild(App.ui.section({
-        title: 'Diagnostics', children: [doctorBtn, doctorStatus.el]
+        title: 'Diagnostics', layout: 'stack', children: [doctorBtn, doctorStatus.el]
       }).el);
 
       // Only the latest response is applied: doctorSeq guards the result line (the

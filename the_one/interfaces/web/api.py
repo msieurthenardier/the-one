@@ -18,9 +18,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import aiosqlite
 import httpx
 import httpx2
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, StrictBool, ValidationError
@@ -50,6 +51,7 @@ from the_one.db._rules import (
 )
 from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
+from the_one.db.encryption_corpora import count_items_with_secrets, gather_corpora
 from the_one.db.models import (
     ChatSession,
     Connector,
@@ -75,14 +77,12 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     SQLiteAgentStore,
     ToolConfigRepository,
-    _decrypt_overrides_column,
-    _decrypt_secrets_blob,
     _encrypt_overrides_column,
     _encrypt_secrets_blob,
 )
 from the_one.embeddings import get_embedding_backend
 from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
-from the_one.encryption import Encryptor, get_encryptor
+from the_one.encryption import Encryptor, get_encryptor, next_key_path
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.knowledge.extractors import ExtractionError, extractor_for
 from the_one.knowledge.indexer import MAX_FILE_BYTES
@@ -518,6 +518,59 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
     return schema
 
 
+def _hidden_field_names(tool_cls: type, config_cls: type) -> set[str]:
+    """Config fields the tool's ``config_fields`` leaves out of its editor
+    (M31 F4 L05a, B6). Empty when ``config_fields`` is ``None`` (all shown)."""
+    shown = getattr(tool_cls, "config_fields", None)
+    if shown is None:
+        return set()
+    return set(config_cls.model_fields) - set(shown)
+
+
+def _filter_schema_to_config_fields(schema: dict[str, Any], tool_cls: type) -> dict[str, Any]:
+    """Drop the properties a tool does not read from the served schema (and
+    from ``required``). Display-only: storage and validation still accept
+    every field. Mutates ``schema`` and returns it."""
+    hidden = _hidden_field_names(tool_cls, tool_cls.Config)
+    if not hidden:
+        return schema
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        schema["properties"] = {k: v for k, v in props.items() if k not in hidden}
+    if "required" in schema:
+        kept = [k for k in schema["required"] if k not in hidden]
+        if kept:
+            schema["required"] = kept
+        else:
+            del schema["required"]
+    return schema
+
+
+def _merge_hidden_fields(
+    config_cls: type,
+    tool_cls: type,
+    incoming: Any,
+    stored: dict[str, Any],
+) -> Any:
+    """The body a tools PUT validates: ``incoming`` with every hidden field
+    (see ``Tool.config_fields``) replaced by its stored value.
+
+    A hidden field is not shown, so the form cannot have meant to change it and
+    the stored value always wins over an incoming one. A hidden field with no
+    stored value is left out (the Config default applies). ``stored`` is the
+    saved config merged with the decrypted secrets. A non-dict ``incoming`` is
+    returned unchanged (validation rejects it).
+    """
+    hidden = _hidden_field_names(tool_cls, config_cls)
+    if not hidden or not isinstance(incoming, dict):
+        return incoming
+    merged = {k: v for k, v in incoming.items() if k not in hidden}
+    for field in hidden:
+        if field in stored:
+            merged[field] = stored[field]
+    return merged
+
+
 # ── Client config ─────────────────────────────────────────────────────────
 
 
@@ -572,6 +625,7 @@ async def list_tool_configs() -> list[dict[str, Any]]:
             {
                 "name": name,
                 "description": cls.description,
+                "summary": cls.summary,
                 "enabled": row.enabled if row else True,
                 "config": row.config if row else {},
             }
@@ -604,9 +658,11 @@ async def get_tool_config(name: str) -> dict[str, Any]:
         if field in config:
             config[field] = _mask_secret_value(config[field])
     schema = _enrich_schema_with_markers(cls.Config.model_json_schema(), cls.Config)
+    schema = _filter_schema_to_config_fields(schema, cls)
     return {
         "name": name,
         "description": cls.description,
+        "summary": cls.summary,
         "enabled": enabled,
         "config": config,
         "schema": schema,
@@ -623,6 +679,11 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     REPLACES the saved config wholesale (REST PUT convention). The
     L3 form always submits the full Config state, so REPLACE matches
     its actual behaviour. To wipe to defaults, send `{"config": {}}`.
+
+    The replace covers the fields the tool SHOWS. A field the tool's
+    `config_fields` hides (M31 F4 L05a) keeps its stored value: a PUT, or a
+    `{"config": {}}` reset, never changes it, and an incoming value for it is
+    ignored (`_merge_hidden_fields`).
 
     Top-level keys are preserved when omitted: PUT `{"enabled": true}`
     (no `config` key) updates only `enabled` and leaves `config`
@@ -656,8 +717,25 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
 
     # `config` — REPLACE when present (validate body), preserve when omitted.
     if "config" in data:
+        stored = {**current_config, **current_secrets}
+        merged = _merge_hidden_fields(cls.Config, cls, data["config"], stored)
         try:
-            validated = cls.Config.model_validate(data["config"])
+            try:
+                validated = cls.Config.model_validate(merged)
+            except ValidationError:
+                # A stored value for a hidden field may no longer validate (a
+                # constraint tightened since it was saved). Retry without the
+                # stored hidden values so the Config defaults apply; if that
+                # also fails the operator's visible edit is at fault.
+                fallback = _merge_hidden_fields(cls.Config, cls, data["config"], {})
+                if fallback == merged:
+                    raise
+                validated = cls.Config.model_validate(fallback)
+                logger.warning(
+                    "tool %r: a stored value for a hidden setting no longer validated; "
+                    "using the default",
+                    name,
+                )
         except ValidationError as e:
             # `e.errors()` may carry a raw exception in `ctx['error']` (Pydantic
             # v2 model-validator path) which is NOT JSON-serializable. Pass
@@ -710,13 +788,32 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     }
 
 
+def _test_outcome(output: str) -> str:
+    """Classify a tool's Test result for the editor (M31 F4 L07d), so the browser never
+    parses the model-facing string. A tool reports a policy refusal as
+    ``[error] [constraint] ...`` (``ConstraintError`` in ``tools/base.py``) and any other
+    failure as ``[error] ...``; anything else is a normal result.
+
+    ``ok``      the tool returned a result.
+    ``blocked`` the operator's own settings refused the request.
+    ``failed``  the request failed (network, upstream, timeout, bad response).
+    """
+    if output.startswith("[error] [constraint]"):
+        return "blocked"
+    if output.startswith("[error]"):
+        return "failed"
+    return "ok"
+
+
 @router.post("/tools/configs/{name}/test")
 async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
     """Run a connection test against the named tool's currently-saved
     Config (Decision 5). Only `web_search` and `fetch_url` are
     testable. Tool-side failures (constraint refusals, network
     errors) come through as `[error] [constraint] ...` strings in
-    `output` — not HTTP 5xx — so the operator sees the agent's view.
+    `output` — not HTTP 5xx — so the operator sees the agent's view. The response
+    also carries `outcome` (`ok` | `blocked` | `failed`), computed here from that
+    prefix (M31 F4 L07d) so clients never parse the string.
 
     Named-tool isolation: `BuiltinToolProvider.get_tools` builds
     `cross_configs[Config]` by walking `_TOOL_CLASSES` in declared
@@ -791,7 +888,7 @@ async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
     start = time.perf_counter()
     output = await tool.execute(**fixture_kwargs)
     elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-    return {"output": output, "elapsed_ms": elapsed_ms}
+    return {"output": output, "elapsed_ms": elapsed_ms, "outcome": _test_outcome(output)}
 
 
 # ── Agents ────────────────────────────────────────────────────────────────
@@ -6077,6 +6174,49 @@ async def ollama_library_size(model: str = "") -> dict[str, Any]:
 # ── Encryption ───────────────────────────────────────────────────────────
 
 
+# app_metadata key holding the UTC ISO time of the last key rotation (B12).
+ENCRYPTION_LAST_ROTATED_KEY = "encryption_last_rotated_at"
+
+
+@router.get("/encryption/status")
+async def encryption_status() -> dict[str, Any]:
+    """Read-only facts for the Encryption page (M31 F4 L08b, B12).
+
+    ``last_rotated_at`` is the UTC ISO time the rotate route last committed a
+    rotation on this install (``None`` before the first). ``credential_count``
+    is the number of items holding at least one non-empty secret across the
+    seven encrypted corpora: one per provider, MCP source, connector, agent,
+    tool config and external credential (a provider with an API key and a
+    secrets blob counts once). It is computed by decrypting in-process
+    (``the_one.db.encryption_corpora``); nothing decrypted leaves it.
+    ``key_file_pending`` is true while a rotated key is staged but not yet
+    promoted to the key file (the ``.next`` sidecar exists), so a staged
+    rotation keeps its warning across a reload. When the key is supplied by the
+    environment (``encryptor.key_path`` is ``None``) the corpora are not read and
+    ``credential_count`` is reported as 0, not as a real count. No secret material
+    is returned.
+    """
+    encryptor = get_encryptor(settings.data_dir)
+    conn = await get_connection()
+    last_rotated_at: str | None = None
+    try:
+        last_rotated_at = await AppMetadataRepository(conn).get(ENCRYPTION_LAST_ROTATED_KEY)
+    except aiosqlite.OperationalError:
+        pass
+    count = 0
+    if encryptor.key_path is not None:
+        corpora = await gather_corpora(conn, encryptor, strict=False)
+        count = count_items_with_secrets(corpora)
+    pending = encryptor.pending_key is not None or (
+        encryptor.key_path is not None and next_key_path(encryptor.key_path).exists()
+    )
+    return {
+        "last_rotated_at": last_rotated_at,
+        "credential_count": count,
+        "key_file_pending": pending,
+    }
+
+
 @router.post("/encryption/rotate")
 async def rotate_encryption_key() -> dict[str, str]:
     """Rotate the encryption key with a crash-safe two-phase sidecar handoff.
@@ -6134,112 +6274,23 @@ async def rotate_encryption_key() -> dict[str, str]:
     #    prevents that for the write below by holding the write lock across
     #    it (Squawk 0051; see Flight 2 DD-13 and the corrected comment at
     #    schema.py's v8 migration block for the measured rule).
-    async with conn.execute(
-        "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
-    ) as cur:
-        rows = await cur.fetchall()
-    decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
-
-    # Fourth surface (M19 F01): llm_providers.secrets — the anthropic-plan
-    # OAuth token blob. Tolerant decrypt mirrors the MCP path below: rows
-    # migrated by v33 carry the plaintext '{}' column default, which Fernet
-    # rejects with InvalidToken; treat as empty and let rotation normalize
-    # them to proper ciphertext. JSON decode errors are NOT swallowed.
-    async with conn.execute("SELECT id, secrets FROM llm_providers") as cur:
-        provider_secret_rows = await cur.fetchall()
-    decrypted_provider_secrets: list[tuple[str, dict[str, Any]]] = []
-    for row in provider_secret_rows:
-        ciphertext = row["secrets"]
-        if not ciphertext:
-            prov_secrets_dict: dict[str, Any] = {}
-        else:
-            try:
-                plaintext = encryptor.decrypt(ciphertext)
-                prov_secrets_dict = json.loads(plaintext)
-            except InvalidToken:
-                prov_secrets_dict = {}
-        decrypted_provider_secrets.append((row["id"], prov_secrets_dict))
-
-    async with conn.execute("SELECT id, secrets FROM mcp_sources") as cur:
-        mcp_rows = await cur.fetchall()
-
-    # Tolerant decrypt mirrors MCPSourceRepository._ciphertext_to_secrets at
-    # repositories.py:258-280 — pre-L2-write rows or v10-migration-residue
-    # rows carry the column default '{}' (plaintext) which Fernet rejects
-    # with InvalidToken. Treat those as empty secrets and let rotation
-    # incidentally normalize them to proper ciphertext for {}. JSON decode
-    # errors are NOT swallowed — they indicate real corruption.
-    decrypted_mcps: list[tuple[str, dict[str, Any]]] = []
-    for row in mcp_rows:
-        ciphertext = row["secrets"]
-        if not ciphertext:
-            secrets_dict: dict[str, Any] = {}
-        else:
-            try:
-                plaintext = encryptor.decrypt(ciphertext)
-                secrets_dict = json.loads(plaintext)
-            except InvalidToken:
-                secrets_dict = {}
-        decrypted_mcps.append((row["id"], secrets_dict))
-
-    async with conn.execute("SELECT id, secrets FROM connectors") as cur:
-        connector_rows = await cur.fetchall()
-
-    # Tolerant decrypt mirrors the MCP path above. Pre-rotation connector
-    # rows created through ConnectorRepository will already be
-    # encrypted; tolerant decrypt only matters if a future migration adds
-    # the column to pre-existing rows with the plaintext '{}' default.
-    # JSON decode errors are NOT swallowed — they indicate real corruption.
-    decrypted_connectors: list[tuple[str, dict[str, Any]]] = []
-    for row in connector_rows:
-        ciphertext = row["secrets"]
-        if not ciphertext:
-            conn_secrets_dict: dict[str, Any] = {}
-        else:
-            try:
-                plaintext = encryptor.decrypt(ciphertext)
-                conn_secrets_dict = json.loads(plaintext)
-            except InvalidToken:
-                conn_secrets_dict = {}
-        decrypted_connectors.append((row["id"], conn_secrets_dict))
-
-    async with conn.execute("SELECT name, tool_overrides, mcp_overrides FROM agents") as cur:
-        agent_rows = await cur.fetchall()
-
-    # Fifth surface (M21 F01 L01 / flight-log Decision D1): agents.tool_overrides
-    # / agents.mcp_overrides. Decode via the store's own tolerant helper
-    # (NOT the MCP/connector/provider inline pattern above) — legacy
-    # plaintext here is real operator data (e.g. {"shell": {"timeout": 30}}),
-    # not a '{}' migration-residue default, so InvalidToken must fall
-    # through to the plaintext value rather than {} (see
-    # _decrypt_overrides_column's docstring). `None` (NULL column) stays
-    # `None` — never written back as an encrypted "null".
-    decrypted_agents: list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]] = []
-    for row in agent_rows:
-        tool_overrides = _decrypt_overrides_column(encryptor, row["tool_overrides"])
-        mcp_overrides = _decrypt_overrides_column(encryptor, row["mcp_overrides"])
-        decrypted_agents.append((row["name"], tool_overrides, mcp_overrides))
-
-    # Sixth surface (flight-log Decision D1): tool_configs.secrets. Tolerant
-    # decrypt via the shared helper — same '{}' migration-residue pattern
-    # as mcp_sources/connectors above (ToolConfigRepository._ciphertext_to_secrets
-    # delegates to the same helper).
-    async with conn.execute("SELECT name, secrets FROM tool_configs") as cur:
-        tool_config_rows = await cur.fetchall()
-    decrypted_tool_configs: list[tuple[str, dict[str, Any]]] = [
-        (row["name"], _decrypt_secrets_blob(encryptor, row["secrets"])) for row in tool_config_rows
-    ]
-
-    # Seventh surface (flight-log Decision D1): agent_external_credentials.secret.
-    # STRICT decrypt — unlike the tolerant corpora above, an ext_ credential
-    # row is never migration residue, so a decrypt failure here is real
-    # corruption and must abort the rotation before any write (mirrors the
-    # api_key strict decrypt at the top of this function).
-    async with conn.execute("SELECT identifier, secret FROM agent_external_credentials") as cur:
-        ext_credential_rows = await cur.fetchall()
-    decrypted_ext_credentials: list[tuple[str, str]] = [
-        (row["identifier"], encryptor.decrypt(row["secret"])) for row in ext_credential_rows
-    ]
+    #    The seven corpora are gathered by the helper the status route shares
+    #    (``the_one.db.encryption_corpora``), so the two cannot drift. Strict
+    #    mode keeps this route's decrypt policy: the provider ``api_key`` and the
+    #    external-credential ``secret`` decrypt strictly (an ``InvalidToken``
+    #    aborts before any write); the ``secrets`` blobs of providers, MCP
+    #    sources, connectors and tool configs tolerate the plaintext ``'{}'``
+    #    migration-residue default and are normalized to ciphertext as a
+    #    side-effect; the agents' override columns keep legacy plaintext as real
+    #    operator data and ``NULL`` stays ``NULL``; JSON decode errors surface.
+    corpora = await gather_corpora(conn, encryptor, strict=True)
+    decrypted = corpora.api_keys
+    decrypted_provider_secrets = corpora.provider_secrets
+    decrypted_mcps = corpora.mcps
+    decrypted_connectors = corpora.connectors
+    decrypted_agents = corpora.agents
+    decrypted_tool_configs = corpora.tool_configs
+    decrypted_ext_credentials = corpora.ext_credentials
 
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
@@ -6338,6 +6389,16 @@ async def rotate_encryption_key() -> dict[str, str]:
                     "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
                     (ct, identifier),
                 )
+            # B12 (M31 F4 L08b): record when the key last changed, in the SAME
+            # transaction as the re-encryption (it commits and rolls back with
+            # it). Raw SQL: AppMetadataRepository.set opens its own
+            # write_transaction, and nesting raises. A "staged" outcome still
+            # stores the time (the commit happened under the new key).
+            await conn.execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (ENCRYPTION_LAST_ROTATED_KEY, now_iso()),
+            )
     except BaseException:
         # BaseException (not Exception): write_transaction's guard
         # (the_one/db/_write_lock.py:73) rolls back on BaseException, so a

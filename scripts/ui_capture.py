@@ -22,6 +22,13 @@ aborts loopback requests with ``ERR_NETWORK_CHANGED``.
 
     THE_ONE_TEST_NETNS=1 .venv/bin/python scripts/ui_capture.py --out DIR
     .venv/bin/python scripts/ui_capture.py --list
+    .venv/bin/python scripts/ui_capture.py --keep-running   # seed, print, leave it up
+
+``--keep-running`` (M31 F4 L01) starts the scratch instance, seeds it with the same
+realistic data the captures use, prints its URL, port, data dir, PID and credential file,
+and exits WITHOUT stopping the instance (the HAT reuses that seed; stop it by the printed
+PID). It is the same instance under the same safety refusals, and it never re-runs in a
+network namespace (a browser outside it could not reach the server).
 """
 
 from __future__ import annotations
@@ -51,7 +58,18 @@ FORBIDDEN_PORTS = {
     8485: "the Flight Director's preview instance",
 }
 NETNS_SENTINEL = "THE_ONE_UI_CAPTURE_IN_NETNS"
-VIEWPORT = {"width": 1440, "height": 900}
+VIEWPORT = {"width": 1280, "height": 900}  # the first of SIZES (kept for the manifest)
+# Every surface is captured at both widths (M31 F4): file names end --<theme>--<width>.
+SIZES: dict[int, dict[str, int]] = {
+    1280: {"width": 1280, "height": 900},
+    1024: {"width": 1024, "height": 768},
+}
+# The scratch server's own system zone (tzlocal reads TZ), pinned so system mode is
+# the same on every host. The browser zone is pinned per surface (Surface.tz).
+SERVER_TZ = "America/Chicago"
+# The operator zone the seed saves (zone mode); the default browser zone matches it so
+# only the surfaces that mean to show the mismatch hint show it.
+SEED_ZONE = "UTC"
 THEMES = ("light", "dark")
 FIXED_NOW = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
 # The server stamps a plan token with the real clock; the capture rewrites the
@@ -220,6 +238,10 @@ class Surface:
     shot: str | None = None  # CSS selector of an element to shoot instead of the viewport
     stubs: tuple[str, ...] = ("models",)
     skipped: str | None = None
+    tz: str = "UTC"  # the browser's time zone for this surface
+    # Undoes server-side state the surface changed (called with base, token, ids after
+    # EVERY theme/width capture, so the next one starts clean).
+    restore: Callable[[str, str, dict[str, str]], None] | None = None
 
 
 def _ollama_stubs(page) -> None:
@@ -305,35 +327,79 @@ def _flash_after_save(ctx: Ctx) -> None:
 
 # ── Library surfaces (Mission 31 Flight 3, DD2) ──────────────────────────────
 
-# Run-to-run text is masked before the screenshot: indexed-at times, search scores,
-# the watch state and the pairing code and expiry. A MutationObserver re-applies the
-# masks after the knowledge poll repaints.
-MASK_JS = """
+# MASK RULE (M31 F4 L01): a run-to-run value is replaced by a FIXED value of the SAME
+# SHAPE, never by a label. A timestamp stays a timestamp in its real format (an ISO
+# string stays an ISO string, a "Mar 1, 3:04 PM" stays that form), a duration keeps its
+# unit, a score keeps its digit count, a pairing code keeps its length and character
+# class. Replacing a whole element's text with a label ("Indexed (time masked)") hid the
+# exact text the operator later objected to (Flight 3 debrief). Matching is done per text
+# node inside known containers, so child structure is untouched; the observer re-applies
+# the masks after a poll repaints. The run id inside the scratch folder path is pinned.
+MASK_JS = r"""
 () => {
-  const SETS = [
-    ['.kb-item-indexed-at', 'Indexed (time masked)'],
-    ['.kb-folder-indexed-at', 'Last checked (time masked)'],
-    ['.kb-folder-watch, [data-testid="kb-folder-watch"]', 'watch: watching'],
-    ['.kb-search-hit-score, [data-testid="kb-search-hit-score"]', 'score 0.000'],
-    ['[data-testid="connector-pairing-code"]', 'AAAA-BBBB'],
-    ['.connector-pairing-expiry', 'Expires (time masked)'],
+  const MON = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+  const TIME_RULES = [
+    [/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?/g,
+      (m, frac, zone) => '2026-03-01T12:00:00' + (frac ? '.' + '0'.repeat(frac.length - 1) : '')
+        + (zone || '')],
+    [/\b(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, [A-Z][a-z]+ \d{1,2}, \d{4}/g,
+      () => 'Sunday, March 1, 2026'],
+    [/\d{4}-\d{2}-\d{2}(?!T)/g, () => '2026-03-01'],
+    [new RegExp('\\b(' + MON + ') \\d{1,2}(, \\d{4})?', 'g'),
+      (m, mon, yr) => 'Mar 1' + (yr ? ', 2026' : '')],
+    [/(?<![\dT+:-])\b\d{1,2}:\d{2}(:\d{2})?( ?[AP]M)?/g,
+      // The meridiem is pinned too ("PM", the spacing kept): the real one flips with the
+      // time of day the capture runs, which read as a difference between two runs.
+      (m, sec, ap) => '12:00' + (sec ? ':00' : '') + (ap ? (/^ /.test(ap) ? ' ' : '') + 'PM' : '')],
+    [/\b\d+(\.\d+)?( ?ms)\b/g,
+      (m, frac, unit) => (frac ? '120.5' : '120') + unit],
   ];
+  const DIGITS = [/\d/g, () => '0'];
+  const TIME = [
+    '.kb-item-indexed-at', '.kb-folder-indexed-at', '[data-testid="kb-item-indexed-at"]',
+    '.connector-pairing-expiry', '[data-testid="connector-pairing-expiry"]',
+    '[data-testid^="date-time-preview"]', '[data-testid="date-time-status"]',
+  ].join(', ');
+  const SCORE = '.kb-search-hit-score, [data-testid="kb-search-hit-score"]';
+  const CODE = '[data-testid="connector-pairing-code"]';
+  const HEX = '0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d';
   // The run id sits in the scratch folder path: pin everything up to library-docs.
   const PATHS = '.kb-folder-path, [data-testid="kb-folder-path"], '
     + '.kb-search-hit-path, [data-testid="kb-search-hit-path"], '
     + '[data-testid="kb-panel-file-path"], .kb-item-path, [data-testid="kb-item-path"], '
     + '[data-testid="kb-item-full-path"]';
+  const maskText = (str, rules) => {
+    let out = str;
+    for (const [re, fn] of rules) out = out.replace(re, fn);
+    return out;
+  };
+  const eachText = (sel, rules) => {
+    document.querySelectorAll(sel).forEach((n) => {
+      if (n.tagName === 'INPUT') {
+        const v = maskText(n.value, rules);
+        if (v !== n.value) n.value = v;
+        return;
+      }
+      const w = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+      let t;
+      while ((t = w.nextNode())) {
+        const v = maskText(t.nodeValue, rules);
+        if (v !== t.nodeValue) t.nodeValue = v;
+      }
+    });
+  };
   const apply = () => {
     document.querySelectorAll(PATHS).forEach((n) => {
       const t = n.textContent.replace(
         new RegExp('/[^ ]*?/library-docs'), '/home/capture/home/library-docs');
       if (t !== n.textContent) n.textContent = t;
     });
-    for (const [sel, text] of SETS) {
-      document.querySelectorAll(sel).forEach((n) => {
-        if (n.textContent !== text) n.textContent = text;
-      });
-    }
+    eachText(TIME, TIME_RULES);
+    eachText(SCORE, [DIGITS]);
+    // The derived tool name carries the knowledge base's random 8-hex id.
+    eachText('[data-testid^="agent-knowledge-row-"]',
+      [[/(?<=_)[0-9a-f]{8}(?=__)/g, () => '1e6d8d9b']]);
+    eachText(CODE, [[new RegExp('[0-9a-f]+', 'g'), (m) => HEX.slice(0, m.length)]]);
   };
   if (window.__captureMask) window.__captureMask.disconnect();
   window.__captureMask = new MutationObserver(apply);
@@ -352,6 +418,34 @@ LIBRARY_FILES = {
     "sub/readme.txt": "A nested file, so the folder lists a relative path.\n",
 }
 LIBRARY_QUERY = "pelican"
+
+
+# Capture-only stylesheet (never product CSS): a blinking caret, a fading overlay scrollbar
+# and any transition or animation make two captures of the same page differ by a few pixels.
+DETERMINISM_CSS = (
+    "*, *::before, *::after { caret-color: transparent !important; "
+    "transition: none !important; animation: none !important; "
+    "scrollbar-width: none !important; } "
+    "*::-webkit-scrollbar { display: none !important; }"
+)
+# Software raster with grayscale text: GPU/LCD raster rounding made rounded-corner and text
+# edges differ by a pixel level or two between runs.
+CHROMIUM_DETERMINISM_ARGS = [
+    "--disable-gpu",
+    "--disable-lcd-text",
+    "--font-render-hinting=none",
+    "--disable-font-subpixel-positioning",
+    "--force-color-profile=srgb",
+    "--num-raster-threads=1",
+    "--disable-partial-raster",
+]
+DETERMINISM_JS = (
+    "(function () { function add() { if (document.getElementById('capture-determinism')) return; "
+    "var s = document.createElement('style'); s.id = 'capture-determinism'; "
+    "s.textContent = %s; (document.head || document.documentElement).appendChild(s); } "
+    "try { add(); } catch (e) {} "
+    "document.addEventListener('DOMContentLoaded', add); })();" % json.dumps(DETERMINISM_CSS)
+)
 
 
 def _mask(page) -> None:
@@ -445,6 +539,188 @@ def _connector_edit(ctx: Ctx) -> None:
     page.locator('[data-testid="connector-pairing-code"]').wait_for(timeout=15000)
     _mask(page)
     page.locator('[data-testid="connector-pairing-result"]').scroll_into_view_if_needed()
+
+
+# ── Settings surfaces (Mission 31 Flight 4, DD2) ─────────────────────────────
+
+READ_FILE_ALLOWLIST = (
+    "/home/capture/workspaces/project-archive/documentation/reference"
+    "/yearly/2026/quarter-one/drafts/a"
+)
+assert len(READ_FILE_ALLOWLIST) == 97
+READ_FILE_SIZE_CAP = 262_144  # "256KB", not the 1MB default
+# Disabled globally in the seed so the Built-in tools grid shows off tiles.
+GLOBALLY_DISABLED_TOOLS = ("grep", "python_exec")
+SEED_KNOWLEDGE_SETTINGS = {
+    "chunking": {"size_chars": 1800, "overlap_chars": 300},
+    "monitoring": {"watch_enabled": False, "reconcile_interval_seconds": 900},
+}
+# The stubbed Test results (a real fetch cannot succeed under netns). Durations are
+# fixed; the page prints them as "(142 ms)".
+STUB_TEST_REFUSED = {
+    "output": "[error] [constraint] host 'example.com' is not in the fetch allowlist",
+    "elapsed_ms": 3.0,
+    "outcome": "blocked",
+}
+STUB_TEST_OK = {
+    "output": "<!doctype html><html><head><title>Example Domain</title></head>"
+    "<body><h1>Example Domain</h1><p>This domain is for use in documentation.</p>"
+    "</body></html>",
+    "elapsed_ms": 142.0,
+    "outcome": "ok",
+}
+
+
+def _put_time_settings(base: str, token: str, mode: str, zone: str | None = SEED_ZONE) -> None:
+    _api(base, token, "PUT", "/api/time-settings", {"mode": mode, "zone": zone})
+
+
+def _restore_zone_mode(base: str, token: str, ids: dict[str, str]) -> None:
+    _put_time_settings(base, token, "zone")
+
+
+def _restore_knowledge_settings(base: str, token: str, ids: dict[str, str]) -> None:
+    _api(base, token, "PUT", "/api/knowledge-settings", SEED_KNOWLEDGE_SETTINGS)
+
+
+def _datetime_system(ctx: Ctx) -> None:
+    _put_time_settings(ctx.base_url, ctx.token, "system")
+    ctx.page.reload()
+    ctx.page.locator('[data-testid="date-time-mode-system"]').wait_for(timeout=15000)
+    ctx.page.locator('[data-testid="date-time-preview-clock"]:not(:empty)').wait_for(timeout=15000)
+    _mask(ctx.page)
+
+
+def _datetime_ready(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="date-time-zone-row"]').first.wait_for(timeout=15000)
+    ctx.page.locator('[data-testid="date-time-preview-clock"]:not(:empty)').wait_for(timeout=15000)
+    _mask(ctx.page)
+
+
+def _datetime_search(ctx: Ctx) -> None:
+    page = ctx.page
+    _datetime_ready(ctx)
+    page.locator('[data-testid="date-time-search"]').fill("ber")
+    page.wait_for_timeout(600)
+    page.locator('[data-testid="date-time-zone-row"]').first.wait_for(timeout=10000)
+    _mask(page)
+
+
+def _prompts_ready(ctx: Ctx) -> None:
+    page = ctx.page
+    page.wait_for_function(
+        "() => { const e = document.querySelector('[data-testid=\"date-prompt-content\"]');"
+        " return e && e.textContent.trim() && !/loading|failed/i.test(e.textContent); }",
+        timeout=15000,
+    )
+    page.locator('[data-testid^="platform-section-"]').first.wait_for(timeout=15000)
+
+
+def _encryption_armed(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="rotate-key-btn"]').click()
+    ctx.page.locator('[data-testid="rotate-key-btn"].confirm-delete').wait_for(timeout=5000)
+
+
+def _encryption_staged(ctx: Ctx) -> None:
+    page = ctx.page
+    # The real rotation re-encrypts every stored secret: never run it. Stub the route.
+    page.route(
+        "**/api/encryption/rotate",
+        lambda r: r.fulfill(
+            json={"status": "rotated", "key_file": "staged", "providers": "8"},
+        ),
+    )
+    btn = page.locator('[data-testid="rotate-key-btn"]')
+    btn.click()
+    page.locator('[data-testid="rotate-key-btn"].confirm-delete').wait_for(timeout=5000)
+    btn.click()
+    page.locator('[data-testid="rotate-result"][data-state="warning"]').wait_for(timeout=10000)
+
+
+def _tools_tab(tab: str):
+    def prepare(ctx: Ctx) -> None:
+        ctx.page.locator(f'[data-testid="tab-{tab}"]').click()
+        ctx.page.locator(f'#tools-panel-{tab} [data-testid="tool-card"]').first.wait_for(
+            state="visible", timeout=10000
+        )
+
+    return prepare
+
+
+def _tool_editor_ready(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="save-tool-btn"]').wait_for(timeout=15000)
+    ctx.page.wait_for_timeout(300)
+
+
+def _tool_read_file(ctx: Ctx) -> None:
+    _admin_tool_chips(ctx)
+
+
+def _tool_fetch_url_error(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-field="redirect_cap"]').fill("-3")
+    page.locator('[data-testid="save-tool-btn"]').click()
+    page.locator(
+        '[data-field="redirect_cap"][aria-invalid="true"], '
+        ".tools-editor-field .field-error:not([hidden])"
+    ).first.wait_for(timeout=10000)
+
+
+def _tool_test(payload: dict):
+    def prepare(ctx: Ctx) -> None:
+        page = ctx.page
+        page.route(
+            "**/api/tools/configs/fetch_url/test",
+            lambda r: r.fulfill(json=payload),
+        )
+        page.locator('[data-testid="test-tool-btn"]').click()
+        page.locator(
+            '[data-testid="test-result"][data-state="success"], '
+            '[data-testid="test-result"][data-state="warning"], '
+            ".test-result .test-result-ok, .test-result .test-result-fail"
+        ).first.wait_for(timeout=10000)
+        page.locator('[data-testid="test-tool-btn"]').scroll_into_view_if_needed()
+
+    return prepare
+
+
+def _tool_web_search_searxng(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+    page.locator('[data-field="searxng_base_url"]').wait_for(state="visible", timeout=5000)
+
+
+KS_SIZE = '[data-testid="knowledge-size-chars-input"]'
+KS_OVERLAP = '[data-testid="knowledge-overlap-chars-input"]'
+KS_INTERVAL = '[data-testid="knowledge-reconcile-interval-input"]'
+
+
+def _knowledge_ready(ctx: Ctx) -> None:
+    ctx.page.wait_for_function(
+        "() => { const i = document.querySelector('[data-testid=knowledge-size-chars-input]');"
+        " return i && i.value !== ''; }",
+        timeout=15000,
+    )
+
+
+def _knowledge_invalid(ctx: Ctx) -> None:
+    page = ctx.page
+    _knowledge_ready(ctx)
+    page.locator(KS_SIZE).fill("50")
+    page.locator(KS_OVERLAP).fill("5000")
+    page.locator(KS_INTERVAL).fill("2")
+    page.locator(KS_INTERVAL).press("Tab")
+    page.locator('[data-testid="knowledge-size-chars-error"]').wait_for(timeout=5000)
+
+
+def _knowledge_saved(ctx: Ctx) -> None:
+    page = ctx.page
+    _knowledge_ready(ctx)
+    page.locator(KS_SIZE).fill("2000")
+    page.locator(KS_OVERLAP).fill("200")
+    page.locator(KS_INTERVAL).fill("600")
+    page.locator('[data-testid="knowledge-settings-save-btn"]').click()
+    page.locator('[data-testid="knowledge-settings-flash"] .ui-status').wait_for(timeout=10000)
 
 
 SURFACES: list[Surface] = []
@@ -659,6 +935,169 @@ SURFACES += [
 ]
 
 
+def _settings(name, hash_, ready, description, **kw) -> Surface:
+    return Surface(name, hash_, ready, description, **kw)
+
+
+SURFACES += [
+    _settings(
+        "settings-appearance",
+        "#settings/appearance",
+        '[data-testid="theme-picker"]',
+        "Settings > Appearance",
+    ),
+    _settings(
+        "settings-datetime-system",
+        "#settings/date-and-time",
+        '[data-testid="date-time-mode-system"]',
+        "Date and time, system mode (browser zone = server system zone)",
+        prepare=_datetime_system,
+        tz=SERVER_TZ,
+        restore=_restore_zone_mode,
+    ),
+    _settings(
+        "settings-datetime-zone",
+        "#settings/date-and-time",
+        '[data-testid="date-time-zone-row"]',
+        "Date and time, zone mode with the zone list showing",
+        prepare=_datetime_ready,
+    ),
+    _settings(
+        "settings-datetime-search",
+        "#settings/date-and-time",
+        '[data-testid="date-time-search"]',
+        "Date and time, a search with results",
+        prepare=_datetime_search,
+    ),
+    _settings(
+        "settings-datetime-mismatch",
+        "#settings/date-and-time",
+        '[data-testid="date-time-mismatch"]:not([hidden])',
+        "Date and time, the mismatch hint (browser zone differs from the effective zone)",
+        prepare=_datetime_ready,
+        tz="Europe/Paris",
+    ),
+    _settings(
+        "settings-prompts",
+        "#settings/prompts",
+        '[data-testid="platform-sections"]',
+        "Settings > Prompts, full page",
+        prepare=_prompts_ready,
+    ),
+    _settings(
+        "settings-encryption",
+        "#settings/encryption",
+        '[data-testid="rotate-key-btn"]',
+        "Settings > Encryption, default",
+    ),
+    _settings(
+        "settings-encryption-armed",
+        "#settings/encryption",
+        '[data-testid="rotate-key-btn"]',
+        "Settings > Encryption, Rotate armed (first click)",
+        prepare=_encryption_armed,
+    ),
+    _settings(
+        "settings-encryption-staged",
+        "#settings/encryption",
+        '[data-testid="rotate-key-btn"]',
+        "Settings > Encryption, the staged-key warning (rotation route stubbed)",
+        prepare=_encryption_staged,
+    ),
+    _settings(
+        "settings-tools-filesystem",
+        "#settings/tools",
+        '[data-testid="tab-filesystem"]',
+        "Built-in tools grid, Filesystem tab (grep disabled globally)",
+        prepare=_tools_tab("filesystem"),
+    ),
+    _settings(
+        "settings-tools-execution",
+        "#settings/tools",
+        '[data-testid="tab-execution"]',
+        "Built-in tools grid, Execution tab (python_exec disabled globally)",
+        prepare=_tools_tab("execution"),
+    ),
+    _settings(
+        "settings-tool-read-file",
+        "#settings/tools/read_file",
+        ".chip-list-editor .chip",
+        "read_file editor: 97-character allowlist path, 256KB read size, default denylist",
+        prepare=_tool_editor_ready,
+    ),
+    _settings(
+        "settings-tool-delete-file",
+        "#settings/tools/delete_file",
+        '[data-testid="save-tool-btn"]',
+        "delete_file editor (the shared Filesystem fields)",
+        prepare=_tool_editor_ready,
+    ),
+    _settings(
+        "settings-tool-shell",
+        "#settings/tools/shell",
+        '[data-testid="save-tool-btn"]',
+        "shell editor",
+        prepare=_tool_editor_ready,
+    ),
+    _settings(
+        "settings-tool-fetch-url-error",
+        "#settings/tools/fetch_url",
+        '[data-field="redirect_cap"]',
+        "fetch_url editor with a validation error showing (redirect cap -3)",
+        prepare=_tool_fetch_url_error,
+    ),
+    _settings(
+        "settings-tool-fetch-url-refused",
+        "#settings/tools/fetch_url",
+        '[data-testid="test-tool-btn"]',
+        "fetch_url, Test connection refused (stubbed)",
+        prepare=_tool_test(STUB_TEST_REFUSED),
+    ),
+    _settings(
+        "settings-tool-fetch-url-ok",
+        "#settings/tools/fetch_url",
+        '[data-testid="test-tool-btn"]',
+        "fetch_url, Test connection ok (stubbed)",
+        prepare=_tool_test(STUB_TEST_OK),
+    ),
+    _settings(
+        "settings-tool-web-search",
+        "#settings/tools/web_search",
+        '[data-field="search_backend"]',
+        "web_search with SearXNG selected (the show_if reveal)",
+        prepare=_tool_web_search_searxng,
+    ),
+    _settings(
+        "settings-tool-current-time",
+        "#settings/tools/current_time",
+        '[data-testid="editor-breadcrumb-link"]',
+        "current_time editor (no configuration)",
+    ),
+    _settings(
+        "settings-knowledge-default",
+        "#settings/knowledge-indexing",
+        KS_SIZE,
+        "Knowledge indexing, seeded non-default values",
+        prepare=_knowledge_ready,
+    ),
+    _settings(
+        "settings-knowledge-invalid",
+        "#settings/knowledge-indexing",
+        KS_SIZE,
+        "Knowledge indexing, field errors showing",
+        prepare=_knowledge_invalid,
+    ),
+    _settings(
+        "settings-knowledge-saved",
+        "#settings/knowledge-indexing",
+        KS_SIZE,
+        "Knowledge indexing, after a Save",
+        prepare=_knowledge_saved,
+        restore=_restore_knowledge_settings,
+    ),
+]
+
+
 def print_table() -> None:
     for s in SURFACES:
         tail = f"  SKIPPED: {s.skipped}" if s.skipped else ""
@@ -709,7 +1148,7 @@ def _api(base: str, token: str, method: str, path: str, body: dict | None = None
         raise CaptureError(f"{method} {path} -> {exc.code}: {exc.read()[:300]!r}") from exc
 
 
-def start_instance(port: int, data_dir: Path, cwd: Path, log: Path):
+def start_instance(port: int, data_dir: Path, cwd: Path, log: Path, detach: bool = False):
     data_dir.mkdir(parents=True)
     cwd.mkdir(parents=True, exist_ok=True)
     token = write_credential(data_dir)
@@ -720,6 +1159,7 @@ def start_instance(port: int, data_dir: Path, cwd: Path, log: Path):
     env["THE_ONE_DEV_MODE"] = "true"
     # The stub connector type (Library surfaces, M31 F3): this scratch instance only.
     env["THE_ONE_STUB_TEST_ENDPOINT"] = "1"
+    env["TZ"] = SERVER_TZ  # pins the server's system zone (tzlocal) for system mode
     env["THE_ONE_OLLAMA_LIBRARY_TEST_JSON"] = json.dumps(OLLAMA_CATALOG)
     logf = open(log, "wb")  # noqa: SIM115 - closed by the caller via proc lifetime
     proc = subprocess.Popen(
@@ -739,6 +1179,7 @@ def start_instance(port: int, data_dir: Path, cwd: Path, log: Path):
         cwd=cwd,
         stdout=logf,
         stderr=subprocess.STDOUT,
+        start_new_session=detach,  # --keep-running: survives this script and its tty
     )
     base = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + 40
@@ -790,6 +1231,7 @@ def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str
     seed_tabs_agent(base, token, ids)
     if files_root is not None:
         seed_library(base, token, ids, files_root)
+    seed_settings(base, token)
     return ids
 
 
@@ -912,6 +1354,28 @@ def seed_library(base: str, token: str, ids: dict[str, str], files_root: Path) -
     )["id"]
 
 
+def seed_settings(base: str, token: str) -> None:
+    """Operator settings a real install would have (Flight 4 DD2): the time zone in zone
+    mode, tools configured and two disabled globally, non-default Knowledge indexing."""
+    _put_time_settings(base, token, "zone")
+    _api(
+        base,
+        token,
+        "PUT",
+        "/api/tools/configs/read_file",
+        {
+            "enabled": True,
+            "config": {
+                "path_allowlist": ["~", READ_FILE_ALLOWLIST],
+                "read_size_cap_bytes": READ_FILE_SIZE_CAP,
+            },
+        },
+    )
+    for name in GLOBALLY_DISABLED_TOOLS:
+        _api(base, token, "PUT", f"/api/tools/configs/{name}", {"enabled": False})
+    _api(base, token, "PUT", "/api/knowledge-settings", SEED_KNOWLEDGE_SETTINGS)
+
+
 # ── Capture ──────────────────────────────────────────────────────────────────
 
 
@@ -932,11 +1396,20 @@ def _patch_token_rows(route) -> None:
 
 
 def capture_one(
-    browser, base: str, token: str, ids: dict[str, str], s: Surface, theme: str, out: Path
+    browser,
+    base: str,
+    token: str,
+    ids: dict[str, str],
+    s: Surface,
+    theme: str,
+    out: Path,
+    width: int = 1280,
 ):
+    viewport = SIZES[width]
     context = browser.new_context(
-        viewport=VIEWPORT,
-        timezone_id="UTC",
+        viewport=viewport,
+        reduced_motion="reduce",
+        timezone_id=s.tz,
         locale="en-US",
         color_scheme=theme,
         device_scale_factor=1,
@@ -945,6 +1418,7 @@ def capture_one(
         context.add_init_script(
             "try { localStorage.setItem('theme-preference', %s); } catch (e) {}" % json.dumps(theme)
         )
+        context.add_init_script(DETERMINISM_JS)
         context.route("https://claude.ai/**", lambda r: r.abort())
         # A handoff per context (single-use), through the context's request API.
         r = context.request.post(
@@ -978,9 +1452,10 @@ def capture_one(
             raise CaptureError(f"{s.name}: the page is the unauthenticated state")
         if s.prepare:
             s.prepare(Ctx(page, base, ids, theme, token))
+        _mask(page)  # every surface: run-to-run values pinned in their own shape
         page.evaluate("document.fonts.ready")
         page.wait_for_timeout(500)  # transitions settle; the flash is visible for 5 s
-        target = out / f"{s.name}--{theme}.png"
+        target = out / f"{s.name}--{theme}--{width}.png"
         if s.shot:
             page.locator(s.shot).first.screenshot(path=str(target), animations="disabled")
         else:
@@ -988,18 +1463,21 @@ def capture_one(
             # grow it by the largest hidden overflow, then shoot the whole page.
             excess = page.evaluate(
                 "() => Math.max(0, ...Array.from(document.querySelectorAll('*')).filter("
-                "e => e.scrollHeight > e.clientHeight + 1 && /(auto|scroll)/.test("
+                "e => !e.closest('[role=listbox]') && e.scrollHeight > e.clientHeight + 1"
+                " && /(auto|scroll)/.test("
                 "getComputedStyle(e).overflowY)).map(e => e.scrollHeight - e.clientHeight))"
             )
             if excess:
                 page.set_viewport_size(
-                    {"width": VIEWPORT["width"], "height": VIEWPORT["height"] + excess}
+                    {"width": viewport["width"], "height": viewport["height"] + excess}
                 )
                 page.wait_for_timeout(300)
             page.screenshot(path=str(target), animations="disabled", full_page=True)
         return target
     finally:
         context.close()
+        if s.restore is not None:
+            s.restore(base, token, ids)
         if s.name == "flash-after-save":  # undo the rename so the next theme starts clean
             name, fields = FLASH_PROVIDER
             _api(
@@ -1033,6 +1511,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--list", action="store_true", help="print the surface table and exit")
     p.add_argument("--keep", action="store_true", help="keep the scratch data tree")
     p.add_argument("--force", action="store_true", help="allow a non-empty --out")
+    p.add_argument(
+        "--widths",
+        default=",".join(str(w) for w in SIZES),
+        help="comma-separated viewport widths to capture (default: %(default)s)",
+    )
+    p.add_argument(
+        "--keep-running",
+        action="store_true",
+        help="start and seed the scratch instance, print its URL/port/data dir/PID, and exit "
+        "leaving it running (no --out needed; the HAT reuses the seed)",
+    )
     return p.parse_args(argv)
 
 
@@ -1068,14 +1557,44 @@ def _git(*args: str) -> str:
         return ""
 
 
+def keep_running(port: int, scratch: Path) -> int:
+    """Start and seed the scratch instance, print how to reach it, leave it running.
+
+    The server is detached into its own session so it outlives this script. It is not
+    run in a network namespace (a browser outside it could not reach the server), and
+    the scratch tree is kept. Stop it by the printed PID only."""
+    data_dir = scratch / "data"
+    base, proc, token = start_instance(
+        port, data_dir, scratch / "cwd", scratch / "serve.log", detach=True
+    )
+    try:
+        seed(base, token, scratch / "home")
+    except BaseException:
+        stop_instance(proc)
+        raise
+    print(f"URL:        {base}/")
+    print(f"port:       {port}")
+    print(f"data dir:   {data_dir}")
+    print(f"PID:        {proc.pid}")
+    print(f"credential: {data_dir / 'api-credential'}")
+    print(f"log:        {scratch / 'serve.log'}")
+    print(f"stop with:  kill {proc.pid}")
+    return 0
+
+
 def run(argv: list[str]) -> int:
     args = parse_args(argv)
     if args.list:
         print_table()
         return 0
-    if not args.out:
+    if args.keep_running and args.out:
+        raise CaptureError("--keep-running takes no --out (it captures nothing)")
+    if not args.keep_running and not args.out:
         raise CaptureError("--out DIR is required")
-    out = Path(args.out).expanduser().resolve()
+    widths = [int(w) for w in args.widths.split(",") if w.strip()]
+    if unknown_w := [w for w in widths if w not in SIZES]:
+        raise CaptureError(f"unknown width(s) {unknown_w}; known: {sorted(SIZES)}")
+    out = Path(args.out).expanduser().resolve() if args.out else None
     # Refusals that need nothing started come before the namespace re-run.
     port = pick_port()
     run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
@@ -1084,11 +1603,13 @@ def run(argv: list[str]) -> int:
     check_capture_safety(
         port,
         data_dir,
-        out,
+        out if out is not None else scratch,
         default_data_dir(),
         collect_env_data_dirs(dict(os.environ), REPO_ROOT),
         REPO_ROOT,
     )
+    if args.keep_running:
+        return keep_running(port, scratch)
     if out.exists() and any(out.iterdir()) and not args.force:
         raise CaptureError(f"--out {out} is not empty; pass --force to write into it")
     maybe_reexec_in_netns(argv)
@@ -1109,21 +1630,30 @@ def run(argv: list[str]) -> int:
         base, proc, token = start_instance(port, data_dir, scratch / "cwd", scratch / "serve.log")
         ids = seed(base, token, scratch / "home")
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            browser = pw.chromium.launch(args=CHROMIUM_DETERMINISM_ARGS)
             try:
                 for s in todo:
                     if s.skipped:
                         continue
                     for theme in THEMES:
-                        try:
-                            path = capture_one(browser, base, token, ids, s, theme, out)
-                            captured.append(path.name)
-                            print(f"captured {path.name}")
-                        except Exception as exc:  # keep going; report at the end
-                            failed.append(
-                                {"surface": s.name, "theme": theme, "error": str(exc)[:300]}
-                            )
-                            print(f"FAILED {s.name}--{theme}: {str(exc)[:200]}", file=sys.stderr)
+                        for width in widths:
+                            try:
+                                path = capture_one(browser, base, token, ids, s, theme, out, width)
+                                captured.append(path.name)
+                                print(f"captured {path.name}")
+                            except Exception as exc:  # keep going; report at the end
+                                failed.append(
+                                    {
+                                        "surface": s.name,
+                                        "theme": theme,
+                                        "width": width,
+                                        "error": str(exc)[:300],
+                                    }
+                                )
+                                print(
+                                    f"FAILED {s.name}--{theme}--{width}: {str(exc)[:200]}",
+                                    file=sys.stderr,
+                                )
             finally:
                 browser.close()
     finally:
@@ -1136,10 +1666,12 @@ def run(argv: list[str]) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git("rev-parse", "HEAD"),
         "git_status": _git("status", "--short").splitlines(),
-        "viewport": VIEWPORT,
+        "viewports": {str(w): SIZES[w] for w in widths},
+        "server_time_zone": SERVER_TZ,
+        "seed_operator_zone": SEED_ZONE,
         "full_page": True,
         "themes": list(THEMES),
-        "time_zone": "UTC",
+        "browser_time_zone": {x.name: x.tz for x in todo if x.tz != "UTC"} | {"default": "UTC"},
         "locale": "en-US",
         "fixed_clock": FIXED_NOW.isoformat(),
         "captured": captured,

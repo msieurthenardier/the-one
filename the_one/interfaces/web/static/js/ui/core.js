@@ -118,6 +118,79 @@
     };
   };
 
+  // middleEllipsis(value, budget) -> string (M31 F4 L04e). A value of at most `budget`
+  //   characters comes back unchanged; a longer one keeps its first
+  //   round((budget - 1) * 0.6) and last (budget - 1 - head) characters around one
+  //   "…", so the result is exactly `budget` characters long (40 gives 23 + "…" + 16).
+  //   A budget below 1 is treated as 1 (the lone "…").
+  //   Counts UTF-16 units (no surrogate-pair handling: the values are host names,
+  //   paths and tool names). A pure helper, not a control.
+  App.ui.util.middleEllipsis = function (value, budget) {
+    var s = String(value === null || value === undefined ? '' : value);
+    if (!(budget >= 1)) budget = 1;
+    if (s.length <= budget) return s;
+    var head = Math.round((budget - 1) * 0.6);
+    var tail = budget - 1 - head;
+    return s.slice(0, head) + '\u2026' + (tail > 0 ? s.slice(s.length - tail) : '');
+  };
+
+  // latest() -> {next() -> token, isCurrent(token), invalidate()} (M31 F4 L03a).
+  //   "Latest request wins": next() makes every earlier token stale; invalidate()
+  //   makes every token stale (a teardown). Tokens are opaque; two helpers are
+  //   independent. A helper, not a control.
+  App.ui.util.latest = function () {
+    var counter = 0;
+    var current = 0;
+    return {
+      next: function () {
+        counter += 1;
+        current = counter;
+        return { id: counter };
+      },
+      isCurrent: function (token) {
+        return !!token && token.id === current;
+      },
+      invalidate: function () {
+        current = 0;
+      }
+    };
+  };
+
+  // syncChildren(parent, nodes, {after}) (M31 F4 L03b). Makes the element children of
+  //   `parent` that follow `opts.after` (or all of them, without an anchor) exactly
+  //   `nodes`, in order, touching only what is wrong: a child not in `nodes` is removed
+  //   first, then a node is inserted only when it is not already at its position. A node
+  //   already in place is never re-inserted (moving an attached node blurs a focused
+  //   descendant). Siblings up to and including the anchor are untouched. Element-only.
+  //   Throws on a non-element, a duplicate, an anchor outside `parent`, or a node that
+  //   sits before the anchor. The caller keeps its own `.filter(Boolean)`.
+  App.ui.util.syncChildren = function (parent, nodes, opts) {
+    var after = (opts && opts.after) || null;
+    var kids = parent.children;
+    var start = 0;
+    var i;
+    if (after) {
+      var at = Array.prototype.indexOf.call(kids, after);
+      if (at === -1) throw new Error('App.ui.util.syncChildren: the anchor is not a child of parent');
+      start = at + 1;
+    }
+    for (i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (!n || n.nodeType !== 1) throw new Error('App.ui.util.syncChildren: nodes must be elements');
+      if (nodes.indexOf(n) !== i) throw new Error('App.ui.util.syncChildren: duplicate node');
+      if (n.parentNode === parent && Array.prototype.indexOf.call(kids, n) < start) {
+        throw new Error('App.ui.util.syncChildren: a node sits before the anchor');
+      }
+    }
+    for (i = kids.length - 1; i >= start; i--) {
+      if (nodes.indexOf(kids[i]) === -1) parent.removeChild(kids[i]);
+    }
+    for (i = 0; i < nodes.length; i++) {
+      var cur = kids[start + i];
+      if (cur !== nodes[i]) parent.insertBefore(nodes[i], cur || null);
+    }
+  };
+
   // uid(prefix) - a monotonic, page-unique id: ui-<prefix>-<n>.
   App.ui.util.uid = function (prefix) {
     uidCounter += 1;

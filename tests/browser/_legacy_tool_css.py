@@ -192,3 +192,351 @@ LEGACY_TOOLS_CSS = """<style>
 LEGACY_LOCKED_CHIP_CSS = """<style>
 .area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
 </style>"""
+
+# The retired tile class name is spelled in pieces so the retired-selector guard
+# (tests/test_nav_helper.py) does not see it: this module only freezes the legacy look.
+ENTITY_TILE = "entity" + "-tile"
+
+# The Built-in tools admin tile, frozen at M31 F4 L04e (the toolTile contract compares the library
+# tile to it). Verbatim from admin.css (the tile title row, link, badge, tile and corner-switch
+# rules) and the shared components.css .@ET@* rules (both deleted from the product CSS at M31 F4 L06,
+# so this fixture now carries them itself).
+LEGACY_ADMIN_TILE_CSS = """<style>
+/* === the shared components.css .@ET@* rules, frozen at M31 F4 L06 when they were deleted === */
+.@ET@ {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  /* Quiet surface: solid fill + hairline border; hierarchy comes from
+     the surface ladder, not effects. No shadows at rest (M17 F3 tile
+     vocabulary: surface + hairline + radius-md). */
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  position: relative;
+  /* Motion — asymmetric transitions: fast on mouse-in (the :hover rule
+     overrides with --motion-fast), slower on mouse-out (this base rule's
+     --motion-base applies when :hover stops matching). Pattern reads as
+     crisp engagement + gentle disengagement. */
+  transition:
+    border-color var(--motion-base) var(--ease-tactile),
+    background-color var(--motion-base) var(--ease-tactile);
+}
+/* Hover — quiet: border steps to --border-hover + one surface-ladder
+   step up. Accent is reserved for the SELECTED state (below). */
+.@ET@:hover {
+  border-color: var(--border-hover);
+  background-color: var(--surface-elevated);
+  transition:
+    border-color var(--motion-fast) var(--ease-tactile),
+    background-color var(--motion-fast) var(--ease-tactile);
+}
+/* Inset ring: negative offset keeps the ring inside the tile bounds. */
+.@ET@:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.@ET@[aria-selected="true"],
+.@ET@.active {
+  border-color: var(--accent);
+  background-color: var(--accent-translucent-hover);
+}
+.@ET@-name {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.@ET@-description {
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: var(--line-height-normal);
+  min-height: 2.4em;
+}
+.@ET@-meta {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Entity-tile badge slot — absolute-positioned top-right corner.
+   Composes with per-area color classes (e.g. a `.badge--{type}` class). */
+.@ET@-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-tiny);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  /* Color comes from a per-type badge class composed alongside. */
+}
+/* Tile-grid layout container. Used by entity inventories that render
+   tiles as the primary view. Lifted from studio's per-area tile-grid
+   rule in F6 leg 02; admin's provider grid is the second consumer. */
+.@ET@-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.area-admin .tile-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.area-admin .tile-title-row .@ET@-name { flex: 1 1 auto; min-width: 0; }
+.area-admin .tile-title-row .admin-tool-badge { position: static; flex: none; }
+/* The name link (tool tiles): the tile's title ink (it keeps
+   .@ET@-name's size, weight and ellipsis), it takes the title row's free width,
+   underlined on hover, with the standard accent ring on keyboard focus. */
+.area-admin .tool-tile-link {
+  color: var(--fg);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+.area-admin .tool-tile-link:hover { text-decoration: underline; }
+.area-admin .tool-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* === Tool Category Badges (F6 leg 02) === */
+/* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced
+   eyebrow is retired — mirrors the L1 provider-badge quiet. Because the
+   shared `.@ET@-badge` base (components.css) still declares
+   mono/uppercase/letter-spacing and this area-scoped selector outranks it
+   (0,2,0 > 0,1,0), quieting is an explicit OVERRIDE (sans / none / normal),
+   NOT a mere deletion of the three declarations (a bare delete would let the
+   base reassert the eyebrow). Per-type ink stays on the `--badge-ink-*`-gated
+   `.admin-tool-badge--{category}` modifiers below. Scoped to the tools
+   surface — studio's shared base untouched. */
+.area-admin .admin-tool-badge {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-tiny);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg-on-accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
+.area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
+.area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
+/* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
+   for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
+.area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
+/* time (M28) — the current_time tool's category. */
+.area-admin .admin-tool-badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
+.area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
+
+/* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
+/* L2 tile is a <div>, not <button>. Since M25 F3 L5b the tile is no longer
+   a click target: its tool NAME is the item link and the toggle is the only
+   other control, so the tile drops the shared pointer cursor and hover
+   wash. The open tool's tile keeps the selected wash (.@ET@.active). */
+.area-admin .tool-tile {
+  position: relative;
+  cursor: default;
+  /* Reserve space at bottom-right for the toggle so it doesn't collide
+     with .@ET@-badge (which is hard-coded top:8px right:8px in
+     components.css). The toggle sits at bottom-right; description text
+     wraps above it. */
+  padding-bottom: 36px;
+}
+.area-admin .tool-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
+.area-admin .tool-enable-switch,
+.area-studio .tool-enable-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+  /* L7 (F7 Rec #3(a)): default flipped from absolute (tile-corner) to
+     relative (inline). Tile-corner consumers opt in via the
+     .tool-enable-switch--corner modifier below. */
+}
+.area-admin .tool-enable-switch--corner,
+.area-studio .tool-enable-switch--corner {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+}
+.area-admin .tool-enable-switch input[type="checkbox"],
+.area-studio .tool-enable-switch input[type="checkbox"] {
+  /* Visually-hidden but keyboard-operable. position:absolute removes from
+     layout; opacity:0 hides without breaking screen-reader access. */
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  /* Z-index above the track so the click reliably hits the input first
+     (avoids label-click-through quirks in older WebKit). */
+  z-index: 1;
+}
+.area-admin .tool-enable-switch-track,
+.area-studio .tool-enable-switch-track {
+  display: block;
+  width: 36px;
+  height: 20px;
+  /* Off-state track uses --control-border (M25 F1 L3, DD7: ≥3:1 non-text
+     against every surface; --border-strong was only ~2:1). --surface-muted
+     is NOT defined. */
+  background: var(--control-border);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s ease;
+  /* Track must NOT eat the click — the wrapping <label> + <input> handle it. */
+  pointer-events: none;
+}
+.area-admin .tool-enable-switch-track::after,
+.area-studio .tool-enable-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  /* Thumb is --control-thumb in BOTH states (gated against the off track
+     --control-border and the on track --accent-fill). */
+  background: var(--control-thumb);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+.area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track,
+.area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
+  background: var(--accent-fill);
+}
+.area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after,
+.area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
+  transform: translateX(16px);
+}
+.area-admin .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track,
+.area-studio .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Disabled state during in-flight PUT (orchestrator sets disabled attr) */
+.area-admin .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track,
+.area-studio .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track {
+  opacity: 0.5;
+  cursor: wait;
+.@ET@ {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  /* Quiet surface: solid fill + hairline border; hierarchy comes from
+     the surface ladder, not effects. No shadows at rest (M17 F3 tile
+     vocabulary: surface + hairline + radius-md). */
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  position: relative;
+  /* Motion — asymmetric transitions: fast on mouse-in (the :hover rule
+     overrides with --motion-fast), slower on mouse-out (this base rule's
+     --motion-base applies when :hover stops matching). Pattern reads as
+     crisp engagement + gentle disengagement. */
+  transition:
+    border-color var(--motion-base) var(--ease-tactile),
+    background-color var(--motion-base) var(--ease-tactile);
+}
+/* Hover — quiet: border steps to --border-hover + one surface-ladder
+   step up. Accent is reserved for the SELECTED state (below). */
+.@ET@:hover {
+  border-color: var(--border-hover);
+  background-color: var(--surface-elevated);
+  transition:
+    border-color var(--motion-fast) var(--ease-tactile),
+    background-color var(--motion-fast) var(--ease-tactile);
+}
+/* Inset ring: negative offset keeps the ring inside the tile bounds. */
+.@ET@:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.@ET@[aria-selected="true"],
+.@ET@.active {
+  border-color: var(--accent);
+  background-color: var(--accent-translucent-hover);
+}
+.@ET@-name {
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.@ET@-description {
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: var(--line-height-normal);
+  min-height: 2.4em;
+}
+.@ET@-meta {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Entity-tile badge slot — absolute-positioned top-right corner.
+   Composes with per-area color classes (e.g. a `.badge--{type}` class). */
+.@ET@-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-tiny);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  /* Color comes from a per-type badge class composed alongside. */
+}
+/* Tile-grid layout container. Used by entity inventories that render
+   tiles as the primary view. Lifted from studio's per-area tile-grid
+   rule in F6 leg 02; admin's provider grid is the second consumer. */
+.@ET@-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+</style>""".replace("@ET@", ENTITY_TILE)

@@ -40,3 +40,15 @@ class TestToolsFormHelpersAssets:
         resp = await client.get("/static/js/areas/admin/tools-form-helpers.js")
         assert resp.status_code == 200
         assert "App.adminFormHelpers" in resp.text
+        # M31 F4 L07b: only the string-built chip list the MCP editor still mounts is left.
+        for kept in ("renderChipListEditor", "wireChipListEditor", "readChipListValue"):
+            assert kept in resp.text
+        for gone in (
+            "renderField",
+            "renderFieldErrors",
+            "clearFieldErrors",
+            "clearFieldErrorA11y",
+            "humanizeValidationMsg",
+            "readFieldValue",
+        ):
+            assert gone + ":" not in resp.text and "function " + gone not in resp.text

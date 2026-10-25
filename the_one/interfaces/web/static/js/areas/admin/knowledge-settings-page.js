@@ -3,311 +3,447 @@
   window.App = window.App || {};
   window.App.admin = window.App.admin || {};
 
-  // Administration → Knowledge panel (M24 F06 L04, DD-7 / L4-D1..D6).
+  // Settings > Knowledge indexing (M24 F06 L04, DD-7; rebuilt on the control library in
+  // M31 F4 L10, flight DD6 and DD8 14-18).
   //
-  // Four sections: chunking + monitoring are editable (one form, one
-  // explicit Save — L4-D4); embedding + vector store are read-only, each
-  // with the reason stated on screen rather than a disabled input (L4-D1).
-  // Client-side bounds mirror the server's exactly (L4-D3): size_chars
-  // 200-2000, reconcile_interval_seconds 10-86400, and overlap_chars at
-  // most floor(size_chars / 2) — the overlap check re-evaluates whenever
-  // size_chars changes, not only on overlap edits.
+  // The page is an App.ui.editorShell page variant (Cancel and Save top right, the
+  // unsaved caption, busy and dirty from the shell) over four App.ui.sections: Chunking
+  // and Monitoring are editable (one form, one explicit Save), Embedding and Vector store
+  // are read-only facts with the reason stated on screen. Client-side bounds mirror the
+  // server's exactly: size_chars 200-2000, reconcile_interval_seconds 10-86400, and
+  // overlap_chars at most floor(size_chars / 2), re-checked whenever either changes.
   //
-  // Modelled on system-page.js: one static single-string-literal innerHTML
-  // for the chrome (exempt from the dynamic-sink freeze), then a fetch that
-  // fills values in via textContent/.value, mirroring the
-  // `.admin-system-section` / `.section-title admin-section-title` /
-  // `.admin-system-text` vocabulary that page established.
+  // The save model (DD8-15 to DD8-18): the baseline is whatever the server last returned
+  // ({chunking, monitoring}); the fields are never overwritten by a response, so text typed
+  // during the request stays dirty against the new baseline. Save is busy through the shell
+  // while the PUT is out (the fields stay live, one PUT at a time). The "Saved." line has
+  // one timer, cleared by every attempt and on teardown. A 422 maps onto its field through
+  // App.api.fieldErrors, an unnamed one onto the shell's error text. Focus returns through
+  // App.focusAfter. The page returns {destroy()}: a late response from a torn-down page is
+  // ignored (App.ui.util.latest).
 
   var CHUNK_SIZE_MIN = 200;
   var CHUNK_SIZE_MAX = 2000;
   var RECONCILE_MIN = 10;
   var RECONCILE_MAX = 86400;
+  var SAVED_MS = 3000;
+  var LOAD_ERROR = { testid: 'knowledge-settings-load-error' };
+  var SAVE_ERROR = { testid: 'knowledge-settings-error' };
+  var FIELD_NAMES = ['size_chars', 'overlap_chars', 'reconcile_interval_seconds'];
 
-  function renderKnowledgeSettingsPage(container, callbacks) {
-    callbacks = callbacks || {};
-    var onDirtyChange = callbacks.onDirtyChange || function () {};
+  var BACKEND_LABELS = { local: 'Local (bundled)', usearch: 'USearch' };
+  var DTYPE_LABELS = { f16: '16-bit float', f32: '32-bit float', f64: '64-bit float' };
 
-    container.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">Knowledge indexing</h1>' +
-      '</div>' +
-      '<div class="admin-form" data-testid="knowledge-settings-panel">' +
-        '<div class="banner banner-error" role="alert" hidden data-testid="knowledge-settings-load-error">' +
-          "Couldn't load knowledge settings — showing nothing so as not to save defaults over your stored values. Reload to try again." +
-        '</div>' +
-        '<div class="admin-system-section" data-testid="knowledge-settings-chunking-section">' +
-          '<div class="section-title admin-section-title">Chunking</div>' +
-          '<p class="admin-system-text" data-testid="knowledge-chunking-note">' +
-            'Applies to future indexing only — existing chunks are never re-chunked in place. ' +
-            'The corpus stays mixed until affected items are re-indexed.' +
-          '</p>' +
-          '<div class="field-group">' +
-            '<label for="ks-size-chars">Chunk size (characters)</label>' +
-            '<input class="field-input" id="ks-size-chars" type="number" min="' + CHUNK_SIZE_MIN + '" max="' + CHUNK_SIZE_MAX + '" step="1" data-testid="knowledge-size-chars-input" />' +
-            '<div class="field-hint">' + CHUNK_SIZE_MIN + '–' + CHUNK_SIZE_MAX + ' characters.</div>' +
-            '<div class="field-error" id="field-error-size-chars" hidden data-testid="knowledge-size-chars-error"></div>' +
-          '</div>' +
-          '<div class="field-group">' +
-            '<label for="ks-overlap-chars">Chunk overlap (characters)</label>' +
-            '<input class="field-input" id="ks-overlap-chars" type="number" min="0" step="1" data-testid="knowledge-overlap-chars-input" />' +
-            '<div class="field-hint" data-testid="knowledge-overlap-hint">At most half the chunk size.</div>' +
-            '<div class="field-error" id="field-error-overlap-chars" hidden data-testid="knowledge-overlap-chars-error"></div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="admin-system-section" data-testid="knowledge-settings-monitoring-section">' +
-          '<div class="section-title admin-section-title">Monitoring</div>' +
-          '<p class="admin-system-text" data-testid="knowledge-monitoring-note">' +
-            'Applies immediately — the watcher on/off switch and the reconciliation interval take effect on this save, not on the next indexing pass.' +
-          '</p>' +
-          '<div class="field-row admin-pf-row">' +
-            '<label for="ks-watch-enabled">Watch registered folders for changes</label>' +
-            '<label class="tool-enable-switch">' +
-              '<input class="field-input" id="ks-watch-enabled" type="checkbox" data-testid="knowledge-watch-enabled-toggle" />' +
-              '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
-            '</label>' +
-          '</div>' +
-          '<div class="field-group">' +
-            '<label for="ks-reconcile-interval">Reconciliation interval (seconds)</label>' +
-            '<input class="field-input" id="ks-reconcile-interval" type="number" min="' + RECONCILE_MIN + '" max="' + RECONCILE_MAX + '" step="1" data-testid="knowledge-reconcile-interval-input" />' +
-            '<div class="field-hint">' + RECONCILE_MIN + '–' + RECONCILE_MAX + ' seconds.</div>' +
-            '<div class="field-error" id="field-error-reconcile-interval" hidden data-testid="knowledge-reconcile-interval-error"></div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="admin-system-flash" aria-live="polite" data-testid="knowledge-settings-flash"></div>' +
-        '<button class="btn-filled-primary" type="button" data-testid="knowledge-settings-save-btn" disabled>Save</button>' +
-        '<div class="admin-system-section" data-testid="knowledge-settings-embedding-section">' +
-          '<div class="section-title admin-section-title">Embedding</div>' +
-          '<p class="admin-system-text" data-testid="knowledge-embedding-readonly-reason">' +
-            'Read-only: the embedding model is pinned to the bundled local model in this release. ' +
-            'Changing it would invalidate every stored vector, and there is no operator path to change it.' +
-          '</p>' +
-          '<div class="admin-kv-row"><span class="admin-kv-key">Backend</span><span class="admin-kv-value" data-testid="knowledge-embedding-backend">—</span></div>' +
-          '<div class="admin-kv-row"><span class="admin-kv-key">Model</span><span class="admin-kv-value" data-testid="knowledge-embedding-model">—</span></div>' +
-          '<div class="admin-kv-row"><span class="admin-kv-key">Dimensions</span><span class="admin-kv-value" data-testid="knowledge-embedding-dim">—</span></div>' +
-        '</div>' +
-        '<div class="admin-system-section" data-testid="knowledge-settings-vector-store-section">' +
-          '<div class="section-title admin-section-title">Vector Store</div>' +
-          '<p class="admin-system-text" data-testid="knowledge-vector-store-readonly-reason">' +
-            'Read-only: this record is written by the app when it builds the index, not chosen by the operator.' +
-          '</p>' +
-          '<div class="admin-kv-row"><span class="admin-kv-key">Backend</span><span class="admin-kv-value" data-testid="knowledge-vector-store-backend">—</span></div>' +
-          '<div class="admin-kv-row"><span class="admin-kv-key">Data type</span><span class="admin-kv-value" data-testid="knowledge-vector-store-dtype">—</span></div>' +
-        '</div>' +
-      '</div>';
+  var HINT_SIZE = CHUNK_SIZE_MIN + ' to ' + CHUNK_SIZE_MAX + ' characters.';
+  var HINT_OVERLAP = 'At most half the chunk size.';
+  var HINT_INTERVAL = '10 seconds to 24 hours';
 
-    wireKnowledgeSettings(container, onDirtyChange);
+  function plural(n, word) {
+    return n + ' ' + word + (n === 1 ? '' : 's');
   }
 
-  function wireKnowledgeSettings(container, onDirtyChange) {
-    var sizeInput = container.querySelector('#ks-size-chars');
-    var overlapInput = container.querySelector('#ks-overlap-chars');
-    var watchToggle = container.querySelector('#ks-watch-enabled');
-    var intervalInput = container.querySelector('#ks-reconcile-interval');
-    var saveBtn = container.querySelector('[data-testid="knowledge-settings-save-btn"]');
-    var flashEl = container.querySelector('[data-testid="knowledge-settings-flash"]');
-    var loadErrorEl = container.querySelector('[data-testid="knowledge-settings-load-error"]');
-    var sizeErrEl = container.querySelector('#field-error-size-chars');
-    var overlapErrEl = container.querySelector('#field-error-overlap-chars');
-    var intervalErrEl = container.querySelector('#field-error-reconcile-interval');
+  // Seconds as words: 900 -> "15 minutes", 90 -> "1 minute 30 seconds".
+  function humanSeconds(total) {
+    var parts = [];
+    var rest = total;
+    var units = [['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]];
+    for (var i = 0; i < units.length; i++) {
+      var n = Math.floor(rest / units[i][1]);
+      if (n > 0) parts.push(plural(n, units[i][0]));
+      rest -= n * units[i][1];
+    }
+    return parts.join(' ');
+  }
 
-    // null until the first successful GET — recomputeDirty() no-ops while
-    // null so a load failure can never read as "clean, safe to save
-    // defaults over the stored values" (Edge Case in the leg artifact).
+  function label(map, value) {
+    if (value === undefined || value === null) return '—';
+    return Object.prototype.hasOwnProperty.call(map, value) ? map[value] : String(value);
+  }
+
+  function renderKnowledgeSettingsPage(container, callbacks) {
+    var App = window.App;
+    var el = App.ui.util.el;
+    callbacks = callbacks || {};
+    var onDirtyChange = callbacks.onDirtyChange || function () {};
+    var gen = App.ui.util.latest();
+
+    // null until the first successful GET: nothing is dirty and Save never enables while
+    // null, so a load failure can never read as "clean, safe to save defaults over the
+    // stored values".
     var baseline = null;
     var dirty = false;
+    var saving = false;
+    var destroyed = false;
+    var savedTimer = null;
+    var serverErrors = {};
 
-    function setFieldError(errEl, inputEl, message) {
-      if (message) {
-        errEl.textContent = message;
-        errEl.hidden = false;
-        inputEl.classList.add('is-invalid');
-        inputEl.setAttribute('aria-describedby', errEl.id);
+    // ── Shell ──────────────────────────────────────────────────────────
+
+    var shell = App.ui.editorShell({
+      variant: 'page',
+      title: 'Knowledge indexing',
+      subtitle: 'Choose how your knowledge bases are split into chunks and kept up to date. ' +
+        'The embedding model and the vector store are set by the app.',
+      subtitleTestid: 'knowledge-settings-intro',
+      errorRole: 'alert',
+      actions: {
+        cancel: { testid: 'knowledge-settings-cancel-btn', onClick: cancel },
+        save: { testid: 'knowledge-settings-save-btn', onClick: save }
+      }
+    });
+    var errorEl = shell.errorEl;
+
+    function showShellError(text, loadFailed) {
+      shell.setError(text || null);
+      if (!errorEl) return;
+      if (text) {
+        errorEl.setAttribute('data-testid', (loadFailed ? LOAD_ERROR : SAVE_ERROR).testid);
       } else {
-        errEl.textContent = '';
-        errEl.hidden = true;
-        inputEl.classList.remove('is-invalid');
-        inputEl.removeAttribute('aria-describedby');
+        errorEl.removeAttribute('data-testid');
       }
     }
 
-    function validateSizeChars() {
-      var v = parseInt(sizeInput.value, 10);
-      if (isNaN(v) || v < CHUNK_SIZE_MIN || v > CHUNK_SIZE_MAX) {
-        setFieldError(sizeErrEl, sizeInput, 'Chunk size must be between ' + CHUNK_SIZE_MIN + ' and ' + CHUNK_SIZE_MAX + '.');
-        return false;
+    // The "Saved." line: a persistent polite region holding one App.ui.status that is
+    // inserted when there is something to say and removed when there is not.
+    var savedRegion = el('div', { role: 'status' });
+    savedRegion.setAttribute('data-testid', 'knowledge-settings-flash');
+    function clearSaved() {
+      if (savedTimer) {
+        clearTimeout(savedTimer);
+        savedTimer = null;
       }
-      setFieldError(sizeErrEl, sizeInput, null);
-      return true;
+      savedRegion.textContent = '';
+    }
+    function showSaved() {
+      clearSaved();
+      savedRegion.appendChild(App.ui.status({ state: 'success', text: 'Saved.', live: 'off' }).el);
+      savedTimer = setTimeout(function () {
+        savedTimer = null;
+        if (savedRegion.isConnected) savedRegion.textContent = '';
+      }, SAVED_MS);
     }
 
-    // Cross-field per L4-D3: the overlap bound is floor(size_chars / 2),
-    // re-evaluated here on every call regardless of which input changed —
-    // called from BOTH the size and the overlap input listeners (AC-6).
-    function validateOverlapChars(sizeValid) {
-      var v = parseInt(overlapInput.value, 10);
-      if (isNaN(v) || v < 0) {
-        setFieldError(overlapErrEl, overlapInput, 'Chunk overlap must be 0 or greater.');
-        return false;
+    // ── Fields ─────────────────────────────────────────────────────────
+
+    var sizeInput = App.ui.textInput({
+      type: 'number', min: CHUNK_SIZE_MIN, max: CHUNK_SIZE_MAX, step: 1, width: 'short',
+      testid: 'knowledge-size-chars-input'
+    });
+    var overlapInput = App.ui.textInput({
+      type: 'number', min: 0, step: 1, width: 'short',
+      testid: 'knowledge-overlap-chars-input'
+    });
+    var intervalInput = App.ui.textInput({
+      type: 'number', min: RECONCILE_MIN, max: RECONCILE_MAX, step: 1, width: 'short',
+      testid: 'knowledge-reconcile-interval-input'
+    });
+    var echoEl = el('span', { className: 'knowledge-interval-echo' });
+    echoEl.setAttribute('data-testid', 'knowledge-reconcile-interval-echo');
+    var intervalRow = el('div', { className: 'knowledge-interval-row' }, [intervalInput, echoEl]);
+
+    var sizeField = App.ui.field({
+      label: 'Chunk size (characters)', control: sizeInput, hint: HINT_SIZE,
+      errorTestid: 'knowledge-size-chars-error'
+    });
+    var overlapField = App.ui.field({
+      label: 'Chunk overlap (characters)', control: overlapInput, hint: HINT_OVERLAP,
+      hintTestid: 'knowledge-overlap-hint', errorTestid: 'knowledge-overlap-chars-error'
+    });
+    var intervalField = App.ui.field({
+      label: 'Reconciliation interval (seconds)', control: intervalInput, host: intervalRow,
+      hint: HINT_INTERVAL, errorTestid: 'knowledge-reconcile-interval-error'
+    });
+
+    var watchToggle = App.ui.toggle({
+      label: 'Watch registered folders for changes',
+      testid: 'knowledge-watch-enabled-toggle',
+      onChange: function () { revalidate(); }
+    });
+    var watchInput = watchToggle.control;
+
+    // ── Read-only facts ────────────────────────────────────────────────
+
+    var embeddingFacts = App.ui.facts({ rows: embeddingRows(null) });
+    var vectorFacts = App.ui.facts({ rows: vectorRows(null) });
+
+    function embeddingRows(e) {
+      e = e || {};
+      return [
+        { label: 'Backend', value: label(BACKEND_LABELS, e.backend),
+          valueTestid: 'knowledge-embedding-backend' },
+        { label: 'Model', value: label({}, e.model_id), valueTestid: 'knowledge-embedding-model' },
+        { label: 'Dimensions', value: label({}, e.dim), valueTestid: 'knowledge-embedding-dim' }
+      ];
+    }
+    function vectorRows(v) {
+      v = v || {};
+      return [
+        { label: 'Backend', value: label(BACKEND_LABELS, v.backend),
+          valueTestid: 'knowledge-vector-store-backend' },
+        { label: 'Data type', value: label(DTYPE_LABELS, v.dtype),
+          valueTestid: 'knowledge-vector-store-dtype' }
+      ];
+    }
+
+    // ── Validation ─────────────────────────────────────────────────────
+
+    function intOf(input) {
+      var v = parseInt(input.value, 10);
+      return isNaN(v) ? null : v;
+    }
+
+    // Each check returns an error text or null. The overlap is checked against its own
+    // limit, floor(size / 2), even while the size itself is invalid: the size typed so far
+    // counts when it is a number, and the saved size stands in when it is blank.
+    function sizeError() {
+      var v = intOf(sizeInput);
+      if (v === null || v < CHUNK_SIZE_MIN || v > CHUNK_SIZE_MAX) {
+        return 'Chunk size must be between ' + CHUNK_SIZE_MIN + ' and ' + CHUNK_SIZE_MAX + '.';
       }
-      if (sizeValid) {
-        var sizeVal = parseInt(sizeInput.value, 10);
-        var maxOverlap = Math.floor(sizeVal / 2);
-        if (v > maxOverlap) {
-          setFieldError(overlapErrEl, overlapInput, 'Chunk overlap must not exceed ' + maxOverlap + ' (half the chunk size, rounded down).');
-          return false;
+      return null;
+    }
+    function overlapError() {
+      var v = intOf(overlapInput);
+      if (v === null || v < 0) return 'Chunk overlap must be 0 or greater.';
+      var size = intOf(sizeInput);
+      if (size === null && baseline) size = baseline.size_chars;
+      if (size !== null) {
+        var max = Math.floor(size / 2);
+        if (v > max) {
+          return 'Chunk overlap must not exceed ' + max + ' (half the chunk size, rounded down).';
         }
       }
-      setFieldError(overlapErrEl, overlapInput, null);
-      return true;
+      return null;
     }
-
-    function validateInterval() {
-      var v = parseInt(intervalInput.value, 10);
-      if (isNaN(v) || v < RECONCILE_MIN || v > RECONCILE_MAX) {
-        setFieldError(intervalErrEl, intervalInput, 'Reconciliation interval must be between ' + RECONCILE_MIN + ' and ' + RECONCILE_MAX + '.');
-        return false;
+    function intervalError() {
+      var v = intOf(intervalInput);
+      if (v === null || v < RECONCILE_MIN || v > RECONCILE_MAX) {
+        return 'Reconciliation interval must be between ' + RECONCILE_MIN + ' and ' +
+          RECONCILE_MAX + '.';
       }
-      setFieldError(intervalErrEl, intervalInput, null);
-      return true;
+      return null;
     }
 
-    function validateAll() {
-      var sizeValid = validateSizeChars();
-      var overlapValid = validateOverlapChars(sizeValid);
-      var intervalValid = validateInterval();
-      return sizeValid && overlapValid && intervalValid;
+    // The error replaces the hint while it shows (A21), and the hint comes back with it.
+    function paintField(field, hint, name, clientError) {
+      var text = clientError || serverErrors[name] || null;
+      field.setError(text);
+      field.setHint(text ? null : hint);
     }
 
-    function currentSnapshot() {
+    function paintEcho() {
+      var v = intOf(intervalInput);
+      echoEl.textContent = (v !== null && v >= RECONCILE_MIN && v <= RECONCILE_MAX)
+        ? humanSeconds(v) : '';
+    }
+
+    function snapshot() {
       return {
         size_chars: sizeInput.value,
         overlap_chars: overlapInput.value,
-        watch_enabled: watchToggle.checked,
+        watch_enabled: watchInput.checked,
         reconcile_interval_seconds: intervalInput.value
       };
     }
 
-    function setDirtyState(d) {
-      if (dirty === d) return;
-      dirty = d;
-      onDirtyChange(dirty);
-    }
-
-    function recomputeDirty() {
-      if (!baseline) return;
-      var cur = currentSnapshot();
-      var isDirty = cur.size_chars !== baseline.size_chars ||
-        cur.overlap_chars !== baseline.overlap_chars ||
+    function isDirty() {
+      if (!baseline) return false;
+      var cur = snapshot();
+      return cur.size_chars !== String(baseline.size_chars) ||
+        cur.overlap_chars !== String(baseline.overlap_chars) ||
         cur.watch_enabled !== baseline.watch_enabled ||
-        cur.reconcile_interval_seconds !== baseline.reconcile_interval_seconds;
-      setDirtyState(isDirty);
+        cur.reconcile_interval_seconds !== String(baseline.reconcile_interval_seconds);
     }
 
-    function revalidateAndUpdate() {
-      var valid = validateAll();
-      recomputeDirty();
-      saveBtn.disabled = !dirty || !valid;
-    }
-
-    sizeInput.addEventListener('input', revalidateAndUpdate);
-    overlapInput.addEventListener('input', revalidateAndUpdate);
-    intervalInput.addEventListener('input', revalidateAndUpdate);
-    watchToggle.addEventListener('change', revalidateAndUpdate);
-
-    function formatDetail(detail) {
-      if (typeof detail === 'string') return detail;
-      if (Array.isArray(detail)) {
-        var msgs = [];
-        for (var i = 0; i < detail.length; i++) {
-          var d = detail[i];
-          msgs.push(d && d.msg ? d.msg : JSON.stringify(d));
-        }
-        return msgs.join('; ');
+    // One pass: validate, paint, then drive the shell and the leave guard. Save is enabled
+    // only for a dirty, valid form that is not already saving (the shell holds the busy
+    // state; validity is layered over it here).
+    function revalidate() {
+      var e1 = sizeError();
+      var e2 = overlapError();
+      var e3 = intervalError();
+      paintField(sizeField, HINT_SIZE, 'size_chars', e1);
+      paintField(overlapField, HINT_OVERLAP, 'overlap_chars', e2);
+      paintField(intervalField, HINT_INTERVAL, 'reconcile_interval_seconds', e3);
+      paintEcho();
+      var nowDirty = isDirty();
+      if (nowDirty !== dirty) {
+        dirty = nowDirty;
+        onDirtyChange(dirty);
       }
-      return 'Save failed.';
+      shell.setDirty(dirty);
+      shell.setBusy(saving);
+      var valid = !e1 && !e2 && !e3 && !Object.keys(serverErrors).length;
+      if (!valid) shell.saveButton.disabled = true;
+      return !e1 && !e2 && !e3;
     }
 
-    function applyLoadedSettings(data) {
+    function onInput(name) {
+      return function () {
+        delete serverErrors[name];
+        showShellError(null);
+        revalidate();
+      };
+    }
+    sizeInput.addEventListener('input', onInput('size_chars'));
+    overlapInput.addEventListener('input', onInput('overlap_chars'));
+    intervalInput.addEventListener('input', onInput('reconcile_interval_seconds'));
+
+    // ── Loading and the baseline ───────────────────────────────────────
+
+    function setBaseline(data) {
       var chunking = data.chunking || {};
       var monitoring = data.monitoring || {};
-      var embedding = data.embedding || {};
-      var vectorStore = data.vector_store || {};
-
-      sizeInput.value = chunking.size_chars;
-      overlapInput.value = chunking.overlap_chars;
-      watchToggle.checked = !!monitoring.watch_enabled;
-      intervalInput.value = monitoring.reconcile_interval_seconds;
-
-      setText('knowledge-embedding-backend', embedding.backend);
-      setText('knowledge-embedding-model', embedding.model_id);
-      setText('knowledge-embedding-dim', embedding.dim);
-      setText('knowledge-vector-store-backend', vectorStore.backend);
-      setText('knowledge-vector-store-dtype', vectorStore.dtype);
-
-      baseline = currentSnapshot();
-      revalidateAndUpdate();
+      baseline = {
+        size_chars: chunking.size_chars,
+        overlap_chars: chunking.overlap_chars,
+        watch_enabled: !!monitoring.watch_enabled,
+        reconcile_interval_seconds: monitoring.reconcile_interval_seconds
+      };
+      embeddingFacts.set(embeddingRows(data.embedding));
+      vectorFacts.set(vectorRows(data.vector_store));
     }
 
-    function setText(testid, value) {
-      var el = container.querySelector('[data-testid="' + testid + '"]');
-      if (!el) return;
-      el.textContent = (value === undefined || value === null) ? '—' : String(value);
+    // Fields take the baseline (the first load and Cancel only; a Save response never
+    // touches them).
+    function fillFromBaseline() {
+      sizeInput.value = baseline.size_chars;
+      overlapInput.value = baseline.overlap_chars;
+      intervalInput.value = baseline.reconcile_interval_seconds;
+      watchToggle.setChecked(baseline.watch_enabled);
     }
 
-    function showFlash(text, cls) {
-      flashEl.textContent = text;
-      flashEl.className = 'admin-system-flash' + (cls ? ' ' + cls : '');
+    function cancel() {
+      if (!baseline || saving) return;
+      var focus = App.focusAfter.begin(shell.cancelButton);
+      serverErrors = {};
+      showShellError(null);
+      clearSaved();
+      fillFromBaseline();
+      revalidate();
+      App.focusAfter.restore(focus, shell.titleEl);
     }
 
-    saveBtn.addEventListener('click', function () {
-      if (!validateAll()) return;
-      saveBtn.disabled = true;
-      showFlash('', '');
+    // ── Save ───────────────────────────────────────────────────────────
+
+    function save() {
+      if (saving || !baseline || !revalidate()) return;
+      saving = true;
+      serverErrors = {};
+      clearSaved();
+      showShellError(null);
+      var focus = App.focusAfter.begin(shell.saveButton);
+      var token = gen.next();
       var payload = {
-        chunking: {
-          size_chars: parseInt(sizeInput.value, 10),
-          overlap_chars: parseInt(overlapInput.value, 10)
-        },
+        chunking: { size_chars: intOf(sizeInput), overlap_chars: intOf(overlapInput) },
         monitoring: {
-          watch_enabled: watchToggle.checked,
-          reconcile_interval_seconds: parseInt(intervalInput.value, 10)
+          watch_enabled: watchInput.checked,
+          reconcile_interval_seconds: intOf(intervalInput)
         }
       };
-      fetch('/api/knowledge-settings', {
+      revalidate();
+      function settle() {
+        saving = false;
+        revalidate();
+        // The Save button is disabled when nothing is left to save; the page title then
+        // takes the focus the click had.
+        App.focusAfter.restore(focus, function () {
+          return shell.saveButton.disabled ? shell.titleEl : shell.saveButton;
+        });
+      }
+      App.api.fetchJson('/api/knowledge-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }).then(function (r) {
-        if (!r.ok) {
-          return r.json().then(function (e) {
-            throw new Error(formatDetail(e && e.detail));
-          });
-        }
-        return r.json();
       }).then(function (data) {
-        applyLoadedSettings(data);
-        showFlash('Saved.', 'success');
-        setTimeout(function () { showFlash('', ''); }, 3000);
+        if (!gen.isCurrent(token)) return;
+        setBaseline(data);
+        showSaved();
+        settle();
       }).catch(function (err) {
-        showFlash('Error: ' + err.message, 'error');
-        revalidateAndUpdate();
+        if (!gen.isCurrent(token)) return;
+        var mapped = App.api.fieldErrors(err, FIELD_NAMES);
+        FIELD_NAMES.forEach(function (name) {
+          if (mapped.fields[name]) serverErrors[name] = mapped.fields[name];
+        });
+        showShellError(mapped.text || (Object.keys(mapped.fields).length ? '' : 'Save failed.'),
+          false);
+        settle();
       });
+    }
+
+    function load() {
+      var token = gen.next();
+      App.api.fetchJson('/api/knowledge-settings').then(function (data) {
+        if (!gen.isCurrent(token)) return;
+        setBaseline(data);
+        fillFromBaseline();
+        revalidate();
+      }).catch(function () {
+        if (!gen.isCurrent(token)) return;
+        showShellError("Couldn't load the knowledge settings. Reload to try again.",
+          true);
+        [sizeInput, overlapInput, intervalInput, watchInput].forEach(function (input) {
+          input.disabled = true;
+        });
+      });
+    }
+
+    // ── Layout ─────────────────────────────────────────────────────────
+
+    var chunking = App.ui.section({
+      title: 'Chunking', titleTag: 'h2', layout: 'stack', inset: 'none',
+      testid: 'knowledge-settings-chunking-section',
+      description: 'Changes apply to files indexed from now on. Files already indexed keep ' +
+        'their current chunks until they are re-indexed.',
+      descriptionTestid: 'knowledge-chunking-note',
+      children: [sizeField.el, overlapField.el]
+    });
+    var monitoring = App.ui.section({
+      title: 'Monitoring', titleTag: 'h2', layout: 'stack', inset: 'none',
+      testid: 'knowledge-settings-monitoring-section',
+      description: 'Changes take effect as soon as you save, not at the next indexing pass.',
+      descriptionTestid: 'knowledge-monitoring-note',
+      children: [watchToggle.el, intervalField.el]
+    });
+    var embedding = App.ui.section({
+      title: 'Embedding', titleTag: 'h2', layout: 'stack', inset: 'none',
+      testid: 'knowledge-settings-embedding-section',
+      description: 'Fixed in this release: the app uses one built-in embedding model. ' +
+        'Changing it would make every stored vector unusable.',
+      descriptionTestid: 'knowledge-embedding-readonly-reason',
+      children: [embeddingFacts.el]
+    });
+    var vectorStore = App.ui.section({
+      title: 'Vector store', titleTag: 'h2', layout: 'stack', inset: 'none',
+      testid: 'knowledge-settings-vector-store-section',
+      description: 'Set by the app when it builds the index. It isn’t something you can change.',
+      descriptionTestid: 'knowledge-vector-store-readonly-reason',
+      children: [vectorFacts.el]
     });
 
-    loadErrorEl.hidden = true;
-    fetch('/api/knowledge-settings')
-      .then(function (r) {
-        if (!r.ok) throw new Error('load failed');
-        return r.json();
-      })
-      .then(function (data) {
-        applyLoadedSettings(data);
-      })
-      .catch(function () {
-        loadErrorEl.hidden = false;
-        saveBtn.disabled = true;
-      });
+    container.textContent = '';
+    container.appendChild(shell.el);
+    var body = el('div', { className: 'admin-form' }, [
+      savedRegion, chunking.el, monitoring.el, embedding.el, vectorStore.el
+    ]);
+    body.setAttribute('data-testid', 'knowledge-settings-panel');
+    container.appendChild(body);
+
+    shell.setDirty(false);
+    load();
+
+    return {
+      // Teardown only: every in-flight response is ignored from here and the "Saved."
+      // timer is cleared. Never touches the leave guard's flag.
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        gen.invalidate();
+        clearSaved();
+        App.focusAfter.cancel();
+      }
+    };
   }
 
   window.App.admin.renderKnowledgeSettingsPage = renderKnowledgeSettingsPage;

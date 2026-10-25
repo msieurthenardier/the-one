@@ -26,6 +26,25 @@
   //   onPick(item): Enter on the active option, or a click on an option.
   //   testid (the root), inputTestid (the input), rowTestid (every row
   //     without its own test id).
+  //   describedBy: an id or a node; sets aria-describedby on the input.
+  //   inline (M31 F4 L04d, DD4): the embedded variant (root also carries
+  //     .ui-search-list--inline) for a list that sits in a page, not a modal:
+  //     the listbox height is capped, the description is mono, an unfocused
+  //     list paints no active row (the first option is always active after a
+  //     refresh and would otherwise read as chosen) and these options apply:
+  //       keepScroll: remembers the query and the active item id; a refresh()
+  //         with an unchanged query restores scrollTop and re-activates the
+  //         previous active id if it still exists, without scrolling; a
+  //         changed query resets scrollTop to 0 and activates the first
+  //         option.
+  //       scrollActive: 'center' (default) | 'nearest' | 'none', how a
+  //         programmatic activation (setActive) scrolls; arrow keys always
+  //         use 'nearest'.
+  //       item.selected (true/false): the chosen mark, built inside the
+  //         variant (the caller's lead is ignored for such an item): an
+  //         aria-hidden lead holding a check icon, or empty (a fixed-width
+  //         spacer) on the other rows, plus a visually hidden " (selected)"
+  //         inside the selected option's label, so its accessible name says so.
   //
   // ARIA (the APG combobox with a listbox popup that is always shown): the
   // input is role=combobox with aria-autocomplete=list, aria-expanded=true,
@@ -89,17 +108,39 @@
     var status = util.el('div', { className: 'visually-hidden' });
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
-    var root = util.el('div', { className: 'ui-search-list' }, [field.el, listbox, empty, status]);
+    var root = util.el('div', {
+      className: 'ui-search-list' + (opts.inline ? ' ui-search-list--inline' : '')
+    }, [field.el, listbox, empty, status]);
+    if (opts.describedBy) {
+      var db = opts.describedBy;
+      if (db.nodeType) {
+        if (!db.id) db.id = util.uid('sl-desc');
+        db = db.id;
+      }
+      input.setAttribute('aria-describedby', String(db));
+    }
+    var keepScroll = !!(opts.inline && opts.keepScroll);
+    var defaultScroll = opts.inline ? (opts.scrollActive || 'center') : 'nearest';
+    var lastQuery = null;
+    var lastActiveId = null;
+    var rendered = false;
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
 
     function buildOption(item) {
       var row = util.el('div', { className: 'ui-search-list-row', role: 'option', id: util.uid('sl-opt') });
-      if (item.lead) {
+      var markSelected = opts.inline && item.selected !== undefined && item.selected !== null;
+      var labelEl = util.el('span', { className: 'ui-search-list-label', text: String(item.label) });
+      if (markSelected) {
+        var mark = util.el('span', { className: 'ui-search-list-lead', 'aria-hidden': 'true' });
+        if (item.selected) {
+          mark.appendChild(util.icon('check'));
+          labelEl.appendChild(util.el('span', { className: 'visually-hidden', text: ' (selected)' }));
+        }
+        row.appendChild(mark);
+      } else if (item.lead) {
         row.appendChild(util.el('span', { className: 'ui-search-list-lead', 'aria-hidden': 'true' }, [item.lead]));
       }
-      var text = util.el('span', { className: 'ui-search-list-text' }, [
-        util.el('span', { className: 'ui-search-list-label', text: String(item.label) })
-      ]);
+      var text = util.el('span', { className: 'ui-search-list-text' }, [labelEl]);
       if (item.description) {
         text.appendChild(util.el('span', { className: 'ui-search-list-description', text: String(item.description) }));
       }
@@ -123,13 +164,17 @@
     // Keep the active option visible inside the listbox, never scrolling an
     // ancestor (scrollIntoView would).  The first option of a group brings
     // its caption into view with it.
-    function scrollActiveIntoView() {
-      if (activeIndex < 0 || listbox.hidden) return;
+    function scrollActiveIntoView(mode) {
+      if (activeIndex < 0 || listbox.hidden || mode === 'none') return;
       var entry = flat[activeIndex];
       var box = listbox.getBoundingClientRect();
       var viewTop = box.top + listbox.clientTop;
       var viewBottom = viewTop + listbox.clientHeight;
       var rowBox = entry.el.getBoundingClientRect();
+      if (mode === 'center') {
+        listbox.scrollTop += (rowBox.top + rowBox.height / 2) - (viewTop + listbox.clientHeight / 2);
+        return;
+      }
       var top = entry.first && entry.caption ? entry.caption.getBoundingClientRect().top : rowBox.top;
       if (top < viewTop) {
         listbox.scrollTop -= viewTop - top;
@@ -138,6 +183,7 @@
       }
     }
 
+    // scroll: false/undefined (none), true ('nearest') or a mode string.
     function setActiveIndex(index, scroll) {
       if (activeIndex >= 0 && flat[activeIndex] && index !== activeIndex) {
         flat[activeIndex].el.removeAttribute('aria-selected');
@@ -148,9 +194,10 @@
         input.removeAttribute('aria-activedescendant');
         return;
       }
+      lastActiveId = flat[index].item.id;
       flat[index].el.setAttribute('aria-selected', 'true');
       input.setAttribute('aria-activedescendant', flat[index].el.id);
-      if (scroll) scrollActiveIntoView();
+      if (scroll) scrollActiveIntoView(scroll === true ? 'nearest' : scroll);
     }
 
     // Validate source's groups BEFORE any DOM is touched, so a bad item
@@ -176,6 +223,8 @@
     function render() {
       var query = input.value;
       var groups = validate(opts.source(query) || []);
+      var priorTop = listbox.scrollTop;
+      var restoreId = keepScroll && rendered && query === lastQuery ? lastActiveId : null;
       listbox.textContent = '';
       flat = [];
       activeIndex = -1;
@@ -218,7 +267,19 @@
       if (!none && query.trim()) statusText = flat.length === 1 ? '1 result' : flat.length + ' results';
       if (status.textContent !== statusText) status.textContent = statusText;
       listbox.scrollTop = 0;
-      setActiveIndex(none ? -1 : 0, false);
+      var startIndex = none ? -1 : 0;
+      if (restoreId !== null && restoreId !== undefined) {
+        for (var r = 0; r < flat.length; r++) {
+          if (flat[r].item.id === restoreId) {
+            startIndex = r;
+            listbox.scrollTop = priorTop;
+            break;
+          }
+        }
+      }
+      setActiveIndex(startIndex, false);
+      lastQuery = query;
+      rendered = true;
     }
 
     function pick(index) {
@@ -286,10 +347,13 @@
 
     // Activate the first option whose item id is `id` (an unknown id is a
     // no-op) and scroll it into view inside the listbox.
-    function setActive(id) {
+    // opts.scroll: 'center' | 'nearest' | 'none' (default: the list's
+    // scrollActive for the inline variant, 'nearest' otherwise).
+    function setActive(id, o) {
+      var mode = (o && o.scroll) || defaultScroll;
       for (var i = 0; i < flat.length; i++) {
         if (flat[i].item.id === id) {
-          setActiveIndex(i, true);
+          setActiveIndex(i, mode);
           return;
         }
       }

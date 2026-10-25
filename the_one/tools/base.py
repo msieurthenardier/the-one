@@ -62,6 +62,20 @@ class Tool(ABC):
     # constraint fields.
     Config: type[BaseModel] = _EmptyConfig
 
+    # M31 F4 L05a: operator-facing text, served only by the tools-config routes
+    # (``GET /api/tools/configs[/{name}]``) and NEVER part of ``to_schema()``, so
+    # the model does not see it.
+    #
+    # ``summary``: one short plain sentence (at most about 80 characters).
+    #
+    # ``config_fields``: the Config fields that apply to this tool, or ``None``
+    # for all of them. A tool that shares a Config with tools it does not
+    # resemble lists only the fields it reads. DISPLAY-ONLY: the Config still
+    # accepts every field, a stored value for an unlisted field is kept (a PUT
+    # never resets it) and still applies at resolve time.
+    summary: str = ""
+    config_fields: tuple[str, ...] | None = None
+
     # F4 Decision 7: tools may declare other Configs they consult at execute
     # time (e.g. ShellTool consults `FilesystemConfig` for cwd validation so
     # `cd /etc && cat passwd` is denied for an agent denied

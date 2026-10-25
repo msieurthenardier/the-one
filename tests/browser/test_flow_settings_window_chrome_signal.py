@@ -46,7 +46,7 @@ def _record(page: Page, status: int = 200) -> list[Any]:
 
 
 def _pref(page: Page, pref: str) -> None:
-    page.locator(f'.admin-theme-option[data-theme-pref="{pref}"]').click()
+    page.locator(f'[data-testid="theme-option-{pref}"]').click()
 
 
 def _wait_count(page: Page, bodies: list[Any], n: int, timeout: float = 5.0) -> None:
@@ -62,7 +62,7 @@ def test_webview_posts_once_per_resolved_theme_change(app_clean: str, page: Page
     page.add_init_script(_STUB_WEBVIEW)
     bodies = _record(page)
     _nav.goto(page, app_clean, "settings/appearance")
-    expect(page.locator('.admin-theme-option[data-theme-pref="auto"]')).to_be_visible()
+    expect(page.locator('[data-testid="theme-option-auto"]')).to_be_visible()
 
     _wait_count(page, bodies, 1)
     assert bodies == [{"theme": "light"}]  # Auto, emulated no-preference -> light
@@ -105,7 +105,7 @@ def test_rapid_changes_coalesce_to_the_latest(app_clean: str, page: Page) -> Non
 def test_pywebview_injected_after_load_posts_on_ready(app_clean: str, page: Page) -> None:
     bodies = _record(page)
     _nav.goto(page, app_clean, "settings/appearance")
-    expect(page.locator('.admin-theme-option[data-theme-pref="auto"]')).to_be_visible()
+    expect(page.locator('[data-testid="theme-option-auto"]')).to_be_visible()
     page.wait_for_timeout(300)
     assert bodies == []  # no gate yet
 
@@ -122,7 +122,7 @@ def test_pywebview_injected_after_load_posts_on_ready(app_clean: str, page: Page
 def test_plain_browser_never_posts(app_clean: str, page: Page) -> None:
     bodies = _record(page)
     _nav.goto(page, app_clean, "settings/appearance")
-    expect(page.locator('.admin-theme-option[data-theme-pref="auto"]')).to_be_visible()
+    expect(page.locator('[data-testid="theme-option-auto"]')).to_be_visible()
     _pref(page, "dark")
     _pref(page, "light")
     _pref(page, "auto")

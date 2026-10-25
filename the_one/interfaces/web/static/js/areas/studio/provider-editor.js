@@ -216,13 +216,9 @@
     // The state node is replaced per state; the error line is built once, outside
     // it, so an error shown after a re-render is not lost.
     h.planState = util.el('div', { className: 'plan-signin-state' });
-    h.planErr = util.el('div', {
-      className: 'plan-signin-error banner banner-error',
-      'data-testid': 'plan-signin-error',
-      role: 'status',
-      'aria-live': 'polite',
-      hidden: true
-    });
+    h.planErrBanner = App.ui.banner({ tone: 'error', role: 'status', hidden: true,
+      className: 'plan-signin-error', testid: 'plan-signin-error' });
+    h.planErr = h.planErrBanner.el;
     h.planBody = util.el('div', { className: 'plan-signin-body' }, [h.planState, h.planErr]);
     h.planSection = App.ui.section({
       title: 'Anthropic Account', className: 'admin-pf-plan-signin', children: [h.planBody]
@@ -343,11 +339,15 @@
     // onCreateSuccess (optional) fires only on a successful CREATE and BEFORE
     // onSaveSuccess, so the pendingAutoSignInId handoff is in place when the
     // create-to-edit re-render mounts the new editor.
+    var saving = false; // the plan sign-in button is outside the shell's busy state
+    function busy(v) { saving = v; h.shell.setBusy(v); }
     function performSave(onCreateSuccess) {
+      if (saving) return;
       h.shell.setError('');
       var payload = collectFormData(h, callbacks, originalMaskedApiKey, isEdit, provider, h.shell.setError);
       if (!payload) return; // validation failed; collectFormData wrote the error
       var saveTok = App.focusAfter.begin(h.shell.saveButton);
+      busy(true); // squawk 0236; a create stays busy: the remount replaces the shell
       var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
       var method = isEdit ? 'PUT' : 'POST';
       // fetchJson flattens a 422 detail list to "field: message" (squawk 0112).
@@ -381,6 +381,7 @@
             renderTokenExpiry(h.expiryHost, expiryRow, updated.type);
             snapshot = getFormSnapshot(h);
             checkDirty();
+            busy(false);
             App.focusAfter.restore(saveTok, h.shell.titleEl);
           }
         })
@@ -388,6 +389,7 @@
           // Keep the trace for DevTools; log the error only, never the payload.
           console.error('provider save failed', err);
           h.shell.setError(err.message || String(err));
+          busy(false);
           App.focusAfter.defer(null);
           App.focusAfter.restore(saveTok, h.shell.saveButton);
         });
@@ -583,13 +585,11 @@
     }
 
     function showError(msg) {
-      h.planErr.textContent = msg;
-      h.planErr.hidden = false;
+      h.planErrBanner.set(msg); h.planErrBanner.show();
     }
 
     function clearError() {
-      h.planErr.textContent = '';
-      h.planErr.hidden = true;
+      h.planErrBanner.set(''); h.planErrBanner.hide();
     }
 
     function readErrorResponse(r, fallback) {

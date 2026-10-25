@@ -38,10 +38,17 @@
     });
   }
 
+  // variant: 'default' | 'page' (M31 F4 L04a). The page variant builds the
+  //   header with App.ui.pageHeader (div.page-header.ui-page-header; the
+  //   h1.page-title also carries editor-title and tabindex -1) and puts the
+  //   actions cluster in its actions slot; subtitle becomes the header intro.
+  //   It takes no breadcrumb and titleLevel 2 (both throw). inset: 'none' drops
+  //   the header's horizontal padding (editor-header--flush).
   // App.ui.editorShell(opts) -> controller {el, titleEl, focusTitle(),
   // setTitle(text), setSubtitle(text|null), setDirty(bool), setBusy(bool),
-  // setError(text|null), setSaveLabel(text), cancelButton, saveButton,
-  // testButton}.
+  // setError(text|null), setSaveLabel(text), errorEl (the span.editor-error, for a
+  // testid; M31 F4 L10), cancelButton, saveButton, testButton}. subtitleTestid puts a
+  // testid on the subtitle (or page intro) paragraph.
   //   breadcrumb: {label, href, trail} ("Library" + " / Model providers") or
   //     {lead, label, href} ("Settings / " + the link); lead/trail are text.
   //   title (required), titleLevel (1 default, or 2): hN.editor-title with
@@ -70,19 +77,44 @@
     var actions = opts.actions || {};
     if (!actions.save) throw new Error('App.ui.editorShell: actions.save is required');
     var level = opts.titleLevel === 2 ? 2 : 1;
+    var variant = opts.variant === undefined ? 'default' : opts.variant;
+    if (variant !== 'default' && variant !== 'page') {
+      throw new Error('App.ui.editorShell: unknown variant "' + variant + '"');
+    }
+    if (opts.inset !== undefined && opts.inset !== 'none') {
+      throw new Error('App.ui.editorShell: unknown inset "' + opts.inset + '"');
+    }
+    var isPage = variant === 'page';
+    if (isPage && opts.breadcrumb) {
+      throw new Error('App.ui.editorShell: a page variant takes no breadcrumb');
+    }
+    if (isPage && opts.titleLevel === 2) {
+      throw new Error('App.ui.editorShell: a page variant title is always an h1');
+    }
 
-    var titleEl = util.el('h' + level, {
-      className: 'editor-title',
-      tabindex: '-1',
-      text: opts.title
-    });
-    var textCol = util.el('div', { className: 'editor-header-text' });
-    if (opts.breadcrumb) textCol.appendChild(buildBreadcrumb(opts.breadcrumb));
-    textCol.appendChild(titleEl);
-    if (opts.afterTitle) textCol.appendChild(opts.afterTitle);
+    // The default variant builds its header text column now; the page variant
+    // composes pageHeader below, once the actions cluster exists.
+    var titleEl = null;
+    var textCol = null;
+    var pageHdr = null;
     var subtitleEl = null;
+    if (!isPage) {
+      titleEl = util.el('h' + level, {
+        className: 'editor-title',
+        tabindex: '-1',
+        text: opts.title
+      });
+      textCol = util.el('div', { className: 'editor-header-text' });
+      if (opts.breadcrumb) textCol.appendChild(buildBreadcrumb(opts.breadcrumb));
+      textCol.appendChild(titleEl);
+      if (opts.afterTitle) textCol.appendChild(opts.afterTitle);
+    }
 
     function setSubtitle(text) {
+      if (isPage) {
+        pageHdr.setIntro(text);
+        return;
+      }
       if (text === null || text === undefined || text === '') {
         if (subtitleEl && subtitleEl.parentNode) subtitleEl.parentNode.removeChild(subtitleEl);
         subtitleEl = null;
@@ -90,10 +122,11 @@
         subtitleEl.textContent = text;
       } else {
         subtitleEl = util.el('p', { className: 'editor-subtitle', text: text });
+        if (opts.subtitleTestid) subtitleEl.setAttribute('data-testid', opts.subtitleTestid);
         textCol.appendChild(subtitleEl);
       }
     }
-    setSubtitle(opts.subtitle);
+    if (!isPage) setSubtitle(opts.subtitle);
 
     var unsaved = util.el('span', {
       className: 'editor-unsaved',
@@ -131,8 +164,27 @@
     }
     cluster.appendChild(errorEl);
 
-    var header = util.el('div', { className: 'editor-header' }, [textCol, cluster]);
-    if (opts.testid) header.setAttribute('data-testid', opts.testid);
+    var header;
+    if (isPage) {
+      // The h1 also carries editor-title (App.focusAfter and the editor
+      // selectors target it); tabindex -1 comes from pageHeader.
+      pageHdr = App.ui.pageHeader({
+        title: opts.title,
+        intro: opts.subtitle,
+        introTestid: opts.subtitleTestid,
+        testid: opts.testid,
+        titleClassName: 'editor-title',
+        actions: cluster
+      });
+      titleEl = pageHdr.titleEl;
+      if (opts.afterTitle) pageHdr.titleEl.parentNode.insertBefore(
+        opts.afterTitle, pageHdr.titleEl.nextSibling);
+      header = pageHdr.el;
+    } else {
+      header = util.el('div', { className: 'editor-header' }, [textCol, cluster]);
+      if (opts.testid) header.setAttribute('data-testid', opts.testid);
+    }
+    if (opts.inset === 'none') header.classList.add('editor-header--flush');
 
     var dirty = false;
     var busy = false;
@@ -150,6 +202,7 @@
     return {
       el: header,
       titleEl: titleEl,
+      errorEl: errorEl,
       cancelButton: cancelButton,
       saveButton: saveButton,
       testButton: testButton,
@@ -181,7 +234,16 @@
   // App.ui.section(opts) -> {el, body, setTitle(text)}.
   //   title, titleTag ('div' default, 'h2' or 'h3'), description, descriptionTestid
   //   (on the p.section-description), testid,
-  //   className (appended to editor-section), children (nodes).
+  //   className (appended to editor-section), children (nodes), layout ('stack'
+  //   opts in to a flex column with a --space-3 gap between the title, the
+  //   description and the children, so a consumer needs no sibling-margin rule;
+  //   the default layout is unchanged, M31 F4 L03b), inset ('none' removes the
+  //   section's horizontal padding through editor-section--flush, L04a).
+  //   info ({text, label}, M31 F4 L04b): the title is followed by an
+  //   App.ui.infoButton (description text, label) and then the eyebrow rule, all in
+  //   a div.ui-section-title-row; the title keeps its tag and class, its own rule
+  //   is suppressed inside the row, and the row draws the rule after the button.
+  //   Without a title, info throws.
   //   div.editor-section holds the .section-title, an optional
   //   p.section-description, then the children; body is the element children
   //   append to (the section itself).
@@ -192,14 +254,32 @@
     if (tag !== 'div' && tag !== 'h2' && tag !== 'h3') {
       throw new Error('App.ui.section: unknown titleTag "' + tag + '"');
     }
+    if (opts.layout !== undefined && opts.layout !== 'stack') {
+      throw new Error('App.ui.section: unknown layout "' + opts.layout + '"');
+    }
+    if (opts.inset !== undefined && opts.inset !== 'none') {
+      throw new Error('App.ui.section: unknown inset "' + opts.inset + '"');
+    }
     var root = util.el('div', {
-      className: 'editor-section' + (opts.className ? ' ' + opts.className : '')
+      className: 'editor-section' + (opts.layout === 'stack' ? ' editor-section--stack' : '') +
+        (opts.inset === 'none' ? ' editor-section--flush' : '') +
+        (opts.className ? ' ' + opts.className : '')
     });
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
+    if (opts.info && !opts.title) throw new Error('App.ui.section: info needs a title');
     var titleEl = null;
     if (opts.title) {
       titleEl = util.el(tag, { className: 'section-title', text: opts.title });
-      root.appendChild(titleEl);
+      if (opts.info) {
+        var infoBtn = App.ui.infoButton({
+          description: opts.info.text,
+          label: opts.info.label || opts.title,
+          testid: opts.info.testid
+        });
+        root.appendChild(util.el('div', { className: 'ui-section-title-row' }, [titleEl, infoBtn.el]));
+      } else {
+        root.appendChild(titleEl);
+      }
     }
     if (opts.description) {
       var descEl = util.el('p', { className: 'section-description', text: opts.description });
@@ -231,8 +311,9 @@
   //   div.editor-section.danger-zone holds div.section-title.danger-zone-title,
   //   then one button.btn-muted-destructive.delete-btn per action (a 16px icon,
   //   trash by default, then span[data-confirm-title] with the label, so the
-  //   confirm title swap leaves the icon alone). With notice, a hidden banner
-  //   follows the last button as its sibling. A click runs App.ui.confirm on
+  //   confirm title swap leaves the icon alone). With notice, an App.ui.banner
+  //   (tone error, live 'alert': role=alert, rendered while empty) follows the
+  //   last button as its sibling. A click runs App.ui.confirm on
   //   the button. button is the first button; setDisabled(value) applies to
   //   every button, setDisabled(value, index) to the one at index.
   App.ui.dangerZone = function (opts) {
@@ -278,12 +359,13 @@
       root.appendChild(b);
     }
     var notice = null;
+    var noticeBanner = null;
     if (opts.notice) {
-      notice = util.el('div', {
-        className: 'action-blocked-message banner banner-error',
-        'data-testid': opts.notice.testid,
-        role: 'alert'
+      noticeBanner = App.ui.banner({
+        tone: 'error', live: 'alert', className: 'action-blocked-message',
+        testid: opts.notice.testid
       });
+      notice = noticeBanner.el;
       root.appendChild(notice);
     }
     return {
@@ -292,11 +374,7 @@
       buttons: buttons,
       setNotice: function (text) {
         if (!notice) return;
-        if (text === null || text === undefined || text === '') {
-          notice.textContent = '';
-        } else {
-          notice.textContent = text;
-        }
+        noticeBanner.set(text === null || text === undefined ? '' : text);
       },
       setDisabled: function (value, index) {
         if (index === undefined || index === null) {

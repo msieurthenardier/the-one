@@ -367,6 +367,35 @@ def test_row_delete_arms_with_the_library_style_then_commits(
     expect(row(page, "beta:2b").get_by_role("button", name="Load")).to_be_focused()
 
 
+@pytest.mark.browser
+def test_removing_an_earlier_row_does_not_blur_a_later_focused_row(
+    page: Page, ollama: Ollama, patch_app: dict[str, str]
+) -> None:
+    """M31 F4 L03b: reconciling by `syncChildren` moves no row that is already in place.
+
+    The old `placeNodes` re-inserted every later row when an earlier one was removed, which
+    blurs a focused later row (the Ollama re-focus workaround then masked it). A `blur`
+    listener on the later row's button records the truth.
+    """
+    open_ollama(page, patch_app)
+    ollama.hold_actions = True
+    row(page, "alpha:1b").get_by_role("button", name="Delete").click()
+    row(page, "alpha:1b").get_by_role("button", name="Confirm delete?").click()
+    wait_until(page, lambda: len(ollama.held_actions) == 1)
+
+    beta_load = row(page, "beta:2b").get_by_role("button", name="Load")
+    beta_load.focus()
+    expect(beta_load).to_be_focused()
+    beta_load.evaluate(
+        "(b) => { window.__blurs = 0; b.addEventListener('blur', () => { window.__blurs += 1; }); }"
+    )
+
+    ollama.release_actions()  # alpha is deleted server-side, the panel refreshes
+    expect(row(page, "alpha:1b")).to_have_count(0)
+    expect(beta_load).to_be_focused()
+    assert page.evaluate("() => window.__blurs") == 0
+
+
 # ── Pull success shows the new model ──────────────────────────────────────
 
 
