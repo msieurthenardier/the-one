@@ -1,6 +1,6 @@
 # Flight: Settings on the library
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
@@ -530,7 +530,7 @@ The order Flights 1-3 proved: groundwork, restructure, patterns and controls, su
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged
 - [x] Tests passing
 - [x] Documentation updated
 

@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-25
 **Flight**: [Settings on the library](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-10-23 to 2026-10-24.
 - 2026-10-23: planning, the squawk 0248 hotfix (#304), and legs 01 to 04f.
 - 2026-10-24: legs 05a to 11, the flight review, the HAT, two merges of `main` and the landing.
