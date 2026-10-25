@@ -94,6 +94,12 @@ def test_iscc_step_is_powershell_with_exit_code_checks():
     assert "Test-Path" in run
     assert "/DAppVersion=" in run and "//" not in run.replace("://", "")
     assert "6.1" in run or "$minor -lt 1" in run
+    # the version gate must not fail on an unreadable version (image reports 0.0.0.0)
+    assert "Inno version: unknown" in run
+    assert "0(\\.0)*" in run, "0.0.0.0 must be treated as unknown"
+    assert "M32_ISCC_VERSION" in run
+    gate = run[run.index("if ($found) {\n  $parts"):]
+    assert gate.index("-lt 6") < gate.index("exit 1"), "failure must sit inside the parsed-version guard"
 
 
 def test_probe_bounds_itself_to_the_job_start():
@@ -116,3 +122,14 @@ def test_final_step_reads_the_summary_with_anchored_fail():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "grep -q '^FAIL'" in text
     assert "== probe done" in text
+
+
+def test_iscc_env_export_is_single_line_and_match_comes_from_return():
+    steps = _doc(WORKFLOW)["jobs"]["build"]["steps"]
+    run = next(s for s in steps if s.get("id") == "iscc")["run"]
+    line = next(x for x in run.splitlines() if "M32_ISCC_VERSION=" in x and "GITHUB_ENV" in x)
+    assert '"M32_ISCC_VERSION=$isccVer"' in line
+    assert "$attempts" not in line
+    assert "$script:found = Test-Ver $raw" in run
+    assert run.count("$Matches") == 2, "$Matches only inside Test-Ver"
+    assert "-replace '\\s+', ' '" in run

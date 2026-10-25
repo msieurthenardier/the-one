@@ -181,7 +181,7 @@ jobs:
       # N = today's the-one.iss, N+1 = the quit variant, N+2 = the Restart Manager variant. Each
       # build has its own output dir, so the names cannot collide. PowerShell, not Git Bash, so
       # /O and /D reach ISCC as written (no MSYS path mangling). The quit variant needs
-      # ExecAsOriginalUser, which is Inno Setup 6.1 or newer: below that the step fails clearly.
+      # ExecAsOriginalUser, which is Inno Setup 6.1 or newer: below that the step fails clearly when the version can be read (an unreadable one continues).
       - name: Build the three installers (ISCC)
         id: iscc
         shell: pwsh
@@ -199,13 +199,63 @@ jobs:
             $iscc = $cands | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
           }
           if (-not $iscc) { Write-Host 'ISCC.exe not found after install'; exit 1 }
-          $fv = (Get-Item -LiteralPath $iscc).VersionInfo.FileVersion
-          Write-Host "ISCC: $iscc version $fv"
-          $parts = ($fv -split '[^0-9]+') | Where-Object { $_ -ne '' }
-          $major = [int]$parts[0]; $minor = [int]$parts[1]
-          if (($major -lt 6) -or ($major -eq 6 -and $minor -lt 1)) {
-            Write-Host "Inno Setup $fv is older than 6.1: ExecAsOriginalUser (the quit variant) is unavailable. Failing."
-            exit 1
+          # Best-effort version: the image's ISCC.exe can report FileVersion 0.0.0.0, so try several
+          # sources and log each raw result. A version counts only if it parses and is not 0.0.0.0.
+          $attempts = New-Object System.Collections.Generic.List[string]
+          $found = $null
+          # Returns the matched version string, or $null (unparsed or all zeros). Callers use the
+          # return value, never $Matches (which lives in this function's scope only).
+          function Test-Ver([string]$v) {
+            if ($v -and ($v -match '\d+\.\d+(\.\d+)*')) {
+              $m = $Matches[0]
+              if ($m -notmatch '^0(\.0)*$') { return $m }
+            }
+            return $null
+          }
+          function Try-Ver([string]$label, [scriptblock]$get) {
+            $raw = ''
+            try { $raw = [string](& $get) } catch { $raw = "error: $($_.Exception.Message)" }
+            $raw = ($raw -replace '\s+', ' ').Trim()
+            if ($raw.Length -gt 200) { $raw = $raw.Substring(0, 200) }
+            $script:attempts.Add("${label}=[$raw]")
+            Write-Host "Inno version attempt ${label}: [$raw]"
+            if (-not $script:found) { $script:found = Test-Ver $raw }
+          }
+          $vi = (Get-Item -LiteralPath $iscc).VersionInfo
+          Try-Ver 'ISCC.exe ProductVersion' { $vi.ProductVersion }
+          Try-Ver 'ISCC.exe FileVersion' { $vi.FileVersion }
+          $dll = Join-Path (Split-Path -Parent $iscc) 'ISCmplr.dll'
+          if (Test-Path -LiteralPath $dll) {
+            $dvi = (Get-Item -LiteralPath $dll).VersionInfo
+            Try-Ver 'ISCmplr.dll FileVersion' { $dvi.FileVersion }
+            Try-Ver 'ISCmplr.dll ProductVersion' { $dvi.ProductVersion }
+          } else { $attempts.Add('ISCmplr.dll=[absent]') }
+          foreach ($rk in @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1')) {
+            Try-Ver "registry $rk DisplayVersion" { (Get-ItemProperty -LiteralPath $rk -ErrorAction Stop).DisplayVersion }
+          }
+          # ISCC prints a banner for /?; a non-zero exit or stderr output must not throw here.
+          Try-Ver 'ISCC /? banner' {
+            $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+            try { (& $iscc '/?' 2>&1 | Select-Object -First 8 | Out-String) } finally { $ErrorActionPreference = $old }
+          }
+          if ($found) { $isccVer = $found } else { $isccVer = 'unknown' }
+          if ($isccVer -eq 'unknown') {
+            Write-Host "Inno version: unknown ($($attempts -join '; '))"
+          } else {
+            Write-Host "Inno version: $isccVer ($($attempts -join '; '))"
+          }
+          # GITHUB_ENV takes one NAME=value line: write only the resolved value, never the attempts.
+          "M32_ISCC_VERSION=$isccVer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # Fail ONLY on a positively parsed version below 6.1. An unknown version continues: the
+          # quit variant's own compile is then the loud check, because ExecAsOriginalUser is a
+          # compile error on Inno older than 6.1.
+          if ($found) {
+            $parts = $found -split '\.'
+            $major = [int]$parts[0]; $minor = [int]$parts[1]
+            if (($major -lt 6) -or ($major -eq 6 -and $minor -lt 1)) {
+              Write-Host "Inno Setup $found is older than 6.1: ExecAsOriginalUser (the quit variant) is unavailable. Failing."
+              exit 1
+            }
           }
           "M32_ISCC=$($iscc -replace '\\', '/')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           function Build-Installer([string]$Iss, [string]$Version, [string]$OutDir) {

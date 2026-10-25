@@ -410,8 +410,8 @@ function Write-Header {
     $h.Add("== windows: $([Environment]::OSVersion.VersionString) UBR=$ubr")
     $iscc = 'not found'
     if ($IsccPath -and (Test-Path -LiteralPath $IsccPath)) {
-        try { $iscc = (Get-Item -LiteralPath $IsccPath).VersionInfo.FileVersion } catch { }
-        try { $first = (& $IsccPath '/?' 2>&1 | Select-Object -First 1 | Out-String).Trim(); $iscc = "$iscc ($first)" } catch { }
+        # The workflow resolves the version best-effort (FileVersion can read 0.0.0.0) and exports it.
+        if ($env:M32_ISCC_VERSION) { $iscc = $env:M32_ISCC_VERSION } else { $iscc = 'unknown (M32_ISCC_VERSION not set)' }
     }
     $h.Add("== iscc: $iscc")
     $lua = ''; $consent = ''
