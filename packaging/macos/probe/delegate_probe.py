@@ -22,6 +22,7 @@ ran first: a "terminate" line means path T, ``webview.start`` returning with non
 """
 
 import os
+import re
 import sys
 import threading
 import time
@@ -94,56 +95,109 @@ def main(argv):
         log("willTerminate: applicationWillTerminate_ (AppKit reached its exit)")
 
     base = BrowserView.AppDelegate
+    proto_name = "NSApplicationDelegate"
+    sel_term = "applicationShouldTerminate:"
+    sel_reopen = "applicationShouldHandleReopen:hasVisibleWindows:"
+    sel_will = "applicationWillTerminate:"
+
+    def protocol_signature(selector):
+        """The protocol's type encoding for an instance method, read from the runtime (or None)."""
+        try:
+            proto = objc.protocolNamed(proto_name)
+        except Exception as exc:  # noqa: BLE001
+            log("protocol %s lookup failed: %r" % (proto_name, exc))
+            return None
+        want = selector.encode() if isinstance(selector, str) else selector
+        try:
+            desc = proto.descriptionForInstanceMethod_(want)
+            if desc:
+                return desc[1] if isinstance(desc, tuple) else desc.get("type")
+        except Exception as exc:  # noqa: BLE001
+            log("protocol descriptionForInstanceMethod_ failed: %r" % (exc,))
+        try:
+            for item in proto.instanceMethods():
+                name = item.get("selector") if hasattr(item, "get") else None
+                if name == want:
+                    return item.get("typestr")
+        except Exception as exc:  # noqa: BLE001
+            log("protocol instanceMethods failed: %r" % (exc,))
+        return None
+
+    def inherited_signature(selector):
+        """Signature from the superclass's own method, else the protocol's, else None."""
+        py_name = selector.replace(":", "_")
+        existing = getattr(base, py_name, None)
+        got = getattr(existing, "signature", None)
+        if got:
+            return got, "superclass"
+        got = protocol_signature(selector)
+        if got:
+            if isinstance(got, str):
+                got = got.encode()
+            got = re.sub(rb"[0-9]+", b"", got)  # drop the frame offsets a protocol may carry
+            return got, "protocol"
+        return None, "none"
+
+    sig_term, src_term = inherited_signature(sel_term)
+    sig_reopen, src_reopen = inherited_signature(sel_reopen)
+    sig_will, src_will = inherited_signature(sel_will)
+    if sig_reopen is None:
+        # last resort, still from the runtime's own type constants rather than a literal string
+        sig_reopen = objc._C_NSBOOL + objc._C_ID + objc._C_SEL + objc._C_ID + objc._C_NSBOOL
+        src_reopen = "objc type constants (BOOL return, id, BOOL)"
+    log(
+        "resolved signatures: terminate=%r (%s) reopen=%r (%s) willTerminate=%r (%s)"
+        % (sig_term, src_term, sig_reopen, src_reopen, sig_will, src_will)
+    )
+
+    def logged(label, sel):
+        log("signature %s=%s" % (label, sig(sel)))
+
     route = "none (stock delegate)"
     try:
 
         class M32ProbeAppDelegate(base):
-            applicationShouldTerminate_ = objc.selector(  # noqa: N815
-                should_terminate, selector=b"applicationShouldTerminate:", signature=b"Q@:@"
-            )
-
-            def applicationShouldHandleReopen_hasVisibleWindows_(self, app, flag):
-                return should_reopen(self, app, flag)
+            # no explicit signature: PyObjC takes the inherited prototype
+            def applicationShouldTerminate_(self, app):
+                return should_terminate(self, app)
 
             def applicationWillTerminate_(self, note):
                 return will_terminate(self, note)
 
-        log(
-            "signature subclass applicationShouldTerminate_=%s"
-            % sig(M32ProbeAppDelegate.applicationShouldTerminate_)
+            # not defined by pywebview's delegate: pass the protocol's own type encoding
+            applicationShouldHandleReopen_hasVisibleWindows_ = objc.selector(  # noqa: N815
+                should_reopen, selector=sel_reopen.encode(), signature=sig_reopen
+            )
+
+        logged(
+            "subclass applicationShouldTerminate_", M32ProbeAppDelegate.applicationShouldTerminate_
+        )
+        logged("subclass applicationWillTerminate_", M32ProbeAppDelegate.applicationWillTerminate_)
+        logged(
+            "subclass applicationShouldHandleReopen_hasVisibleWindows_",
+            M32ProbeAppDelegate.applicationShouldHandleReopen_hasVisibleWindows_,
         )
         BrowserView.AppDelegate = M32ProbeAppDelegate
         route = "subclass"
     except Exception:  # noqa: BLE001
         log("route subclass failed:\n%s" % traceback.format_exc())
         try:
-            objc.classAddMethods(
-                base,
-                [
-                    objc.selector(
-                        should_terminate,
-                        selector=b"applicationShouldTerminate:",
-                        signature=b"Q@:@",
-                    ),
-                    objc.selector(
-                        should_reopen,
-                        selector=b"applicationShouldHandleReopen:hasVisibleWindows:",
-                        signature=b"c@:@c",
-                    ),
-                    objc.selector(
-                        will_terminate,
-                        selector=b"applicationWillTerminate:",
-                        signature=b"v@:@",
-                    ),
-                ],
-            )
+            adds = [
+                objc.selector(should_terminate, selector=sel_term.encode(), signature=sig_term)
+                if sig_term
+                else None,
+                objc.selector(should_reopen, selector=sel_reopen.encode(), signature=sig_reopen),
+                objc.selector(will_terminate, selector=sel_will.encode(), signature=sig_will)
+                if sig_will
+                else None,
+            ]
+            if adds[0] is None:
+                raise RuntimeError("no applicationShouldTerminate: signature from the runtime")
+            objc.classAddMethods(base, [a for a in adds if a is not None])
             route = "classAddMethods"
         except Exception:  # noqa: BLE001
             log("route classAddMethods failed:\n%s" % traceback.format_exc())
-    log(
-        "signature superclass applicationShouldTerminate_=%s"
-        % sig(base.applicationShouldTerminate_)
-    )
+    logged("superclass applicationShouldTerminate_", base.applicationShouldTerminate_)
     log("route: %s" % route)
     log(
         "pywebview=%s pyobjc=%s"
@@ -151,6 +205,10 @@ def main(argv):
     )
 
     if mode == "--selftest":
+        if route == "none (stock delegate)":
+            log("selftest FAILED: no delegate route installed (exit 3)")
+            print("selftest FAILED route=%s" % route)
+            return 3
         log("selftest ok route=%s" % route)
         print("selftest ok route=%s" % route)
         return 0
@@ -164,19 +222,25 @@ def main(argv):
     )
     window = webview.create_window("M32 Probe", url=html, width=640, height=400)
 
+    def log_delegate(where):
+        try:
+            log(
+                "NSApp.delegate().className() at %s = %s"
+                % (where, AppKit.NSApp.delegate().className())
+            )
+        except Exception as exc:  # noqa: BLE001
+            log("NSApp.delegate read failed at %s: %r" % (where, exc))
+
     def on_shown():
         log("window shown event")
+        log_delegate("shown")
 
     def on_loaded():
         log(
             "window loaded event (first paint of the data URL: %.3f s after process start)"
             % (time.monotonic() - START)
         )
-        try:
-            delegate = AppKit.NSApp.delegate()
-            log("NSApp.delegate class=%s" % delegate.className())
-        except Exception as exc:  # noqa: BLE001
-            log("NSApp.delegate read failed: %r" % (exc,))
+        log_delegate("loaded")
 
     def on_closed():
         log("window closed event")

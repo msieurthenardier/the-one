@@ -1,6 +1,6 @@
 # Leg: macos-probe-run
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective

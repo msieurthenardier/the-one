@@ -199,7 +199,7 @@ Every behaviour the runner can reach is proven on the hosted runner; everything 
 **DD8 — One app id, and the macOS recipe reads `product.toml` (operator: unify)**:
 - **`packaging/product.toml`** gains:
   - a top-level `app_id = "ai.gleepglorp.GleepGlorpAI"`;
-  - a `[macos]` section: `bundle_name = "GleepGlorp AI"`, `bundle_executable = "the-one"`, `dmg_file_stem = "GleepGlorp_AI"`, `min_os = "11.0"`, `bundle_category = "public.app-category.productivity"`.
+  - a `[macos]` section: `bundle_name = "GleepGlorp AI"`, `bundle_executable = "the-one"`, `dmg_file_stem = "GleepGlorp_AI"`, `min_os = "14.0"` *(was "11.0"; operator, 2026-10-25, after leg 3 found the bundled numpy's arm64 extensions require macOS 14)*, `bundle_category = "public.app-category.productivity"`.
 - **`render.load()` rejects a key that appears twice:** in two sections, or in a section and at the top level. It flattens every section into one namespace, so a `[macos] executable` would silently overwrite `[linux] executable`. The macOS keys carry distinct names, and a unit test pins the rejection.
 - **`[linux] metainfo_id` is removed.** Linux's templates read `app_id`, so there is one source of truth.
 - **Linux reads `app_id` for its AppStream id.** The value is unchanged, so no Linux output changes; a unit test compares a rendered metainfo file before and after.
@@ -275,7 +275,7 @@ Every behaviour the runner can reach is proven on the hosted runner; everything 
 - **Uploads:**
   - the logs directory (7 days);
   - the `.dmg` as an artifact (7 days), so the contributor check (Flight 4) and the HAT have something to download. This is the release vehicle while Mission 31 forbids a release.
-- **Budget, 4 dispatches:**
+- **Budget, 4 dispatches** *(raised to 5 by the operator, 2026-10-25, for a re-probe after leg 3's delegate premise came back unanswered; see the flight log)*:
   - 1: the premise probe (leg 3);
   - 2-3: the built recipe and the lifecycle check, with one retry (leg 7). N and N+1 are two freezes in the same job, about 40 s each at Flight 1's measure;
   - 1 spare. A fifth needs the operator.

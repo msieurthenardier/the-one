@@ -1,6 +1,6 @@
 # Leg: macos-runtime-seam
 
-**Status**: ready
+**Status**: landed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -74,12 +74,12 @@ Make the frozen runtime safe and complete on a stock Mac:
 - **Docs:** `the_one/agents.md` (the frozen-seam section gains the darwin login-shell `PATH`, the stub rule, the per-entry walk, the `doctor` lines) and `CLAUDE.md`'s Frozen-runtime seam paragraph (one additive sentence). Both are additive; Mission 31 is still active.
 
 ## Acceptance Criteria
-- [ ] **AC1:** every behaviour under Outputs is implemented and unit-tested as listed. The tests run on Linux with no AppKit, no real `xcode-select` and no real user shell (fakes and `tmp_path` scripts only).
-- [ ] **AC2:** Linux and Windows unchanged, except the `PATH` walk and the additive static entries. The existing env, interpreter and doctor tests pass unmodified, except where a test pinned first-hit-only behaviour. Such a test is renamed and inverted, never deleted (state which, or state that none was). The resolver's darwin message still satisfies `test_platform_interpreter.py`'s "install python"/"THE_ONE_PYTHON" assertions; pin the new text in a new test.
-- [ ] **AC3:** `make test-unit` passes with the expected 12 skips; `ruff check`/`ruff format --check` are clean.
-- [ ] **AC4:** `the-one doctor` on this Linux dev host (non-frozen, scratch data dir, port ≥ 8490) prints the same gate lines and `sandbox:`/`tray:` lines as before, and no `path:` line. Its output is quoted in the flight log.
-- [ ] **AC5:** a **mandatory** regression test in `tests/test_packaging_score.py` feeds a sample frozen-darwin `doctor` output to `score_doctor` and asserts a pass. The output has the `desktop shell: OK — Cocoa backend present` line, `window chrome`'s "skipped (not Windows)", and the `sandbox:`, `tray: dock` and `path: login shell` advisory lines. `score.py` itself needs no change: it keys on no pystray text, and `GATE_RE` ignores advisory lines.
-- [ ] **AC6:** hygiene: no 8484/8485, the operator data dir unchanged, only recorded pids killed, no files outside this leg's set (beyond the flight log section).
+- [x] **AC1:** every behaviour under Outputs is implemented and unit-tested as listed. The tests run on Linux with no AppKit, no real `xcode-select` and no real user shell (fakes and `tmp_path` scripts only).
+- [x] **AC2:** Linux and Windows unchanged, except the `PATH` walk and the additive static entries. The existing env, interpreter and doctor tests pass unmodified, except where a test pinned first-hit-only behaviour. Such a test is renamed and inverted, never deleted (state which, or state that none was). The resolver's darwin message still satisfies `test_platform_interpreter.py`'s "install python"/"THE_ONE_PYTHON" assertions; pin the new text in a new test.
+- [x] **AC3:** `make test-unit` passes with the expected 12 skips; `ruff check`/`ruff format --check` are clean.
+- [x] **AC4:** `the-one doctor` on this Linux dev host (non-frozen, scratch data dir, port ≥ 8490) prints the same gate lines and `sandbox:`/`tray:` lines as before, and no `path:` line. Its output is quoted in the flight log.
+- [x] **AC5:** a **mandatory** regression test in `tests/test_packaging_score.py` feeds a sample frozen-darwin `doctor` output to `score_doctor` and asserts a pass. The output has the `desktop shell: OK — Cocoa backend present` line, `window chrome`'s "skipped (not Windows)", and the `sandbox:`, `tray: dock` and `path: login shell` advisory lines. `score.py` itself needs no change: it keys on no pystray text, and `GATE_RE` ignores advisory lines.
+- [x] **AC6:** hygiene: no 8484/8485, the operator data dir unchanged, only recorded pids killed, no files outside this leg's set (beyond the flight log section).
 
 ## Verification Steps
 - The test names for each listed behaviour; `make test-unit` summary; the ruff lines.

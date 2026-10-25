@@ -177,14 +177,16 @@ jobs:
           exit "$rc"
 
       # observations only: the step never fails the job, so the upload below always runs
+      # runs even when the selftest step above failed (a route failure must still yield P1/P4/P8
+      # evidence); the selftest step stays red, so the job reads red
       - name: Premise probe
-        if: ${{ inputs.mode == 'probe' }}
+        if: ${{ !cancelled() && inputs.mode == 'probe' }}
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 23
         run: |
           mkdir -p "$M32_LOGS/probe"
           rc=0
-          perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 1170 \
+          perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 1290 \
             bash packaging/macos/probe/probe.sh "$M32_APP" "$M32_PROBE_APP" ai.gleepglorp.the-one "$M32_LOGS/probe" \
             > "$M32_LOGS/probe-step.log" 2>&1 || rc=$?
           echo "probe.sh rc=$rc"

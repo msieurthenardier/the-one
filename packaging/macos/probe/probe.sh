@@ -32,10 +32,10 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 # ---- bounds (seconds) -------------------------------------------------------------------
 T_OPEN=20; T_SHOT=10; T_OSA=15; T_LSAPP=10; T_SPCTL=20; T_LOG=25; T_QUIT=15
-T_DITTO=60; T_SIGN=40; T_SMALL=10
+T_DITTO=60; T_SIGN=40; T_SMALL=10; T_LNP=8
 # premise caps (the table in README.md; the sum is the worst case)
-CAP_P7=20; CAP_OTOOL=70; CAP_P8=110; CAP_P1=220; CAP_P4=100
-CAP_P2=100; CAP_P3=140; CAP_P9=50; CAP_P5=80; CAP_P6=100
+CAP_P7=20; CAP_OTOOL=70; CAP_P8=120; CAP_P1=260; CAP_P4=110
+CAP_P2=110; CAP_P3=180; CAP_P9=60; CAP_P5=80; CAP_P6=100
 
 tl() { local n="$1"; shift; perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- "$n" "$@"; }
 now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
@@ -184,6 +184,95 @@ gate_wait() { # $1 = seconds (polled every 0.25 s); rest = command that succeeds
   return 1
 }
 
+# ---- the local-network prompt (leg 3b) ---------------------------------------------------------------
+# A "would like to find and connect to devices on your local network" alert is owned by a system
+# agent, not by the app. This reads the alert's owner, window name, texts and buttons through System
+# Events (one bounded call), and, when $2 is 1, presses Allow (else Don't Allow). Records only.
+# Sets LNP_NOTE ("none seen" or the owner/texts/pressed button) and LNP_SEEN (1 when any alert
+# window of those agents exists). The output file is "<tag>-lnp.txt".
+lnp_check() { # $1 = tag  $2 = 1 to dismiss
+  local f="$PDIR/$1-lnp.txt" click=false
+  [ "${2:-0}" = 1 ] && click=true
+  runrc "$f" "$T_LNP" osascript \
+    -e "set doClick to $click" \
+    -e 'set out to ""' \
+    -e 'tell application "System Events"' \
+    -e 'repeat with pn in {"UserNotificationCenter", "CoreServicesUIAgent", "SecurityAgent", "NotificationCenter", "universalaccessd"}' \
+    -e 'if exists process pn then' \
+    -e 'tell process pn' \
+    -e 'repeat with w in windows' \
+    -e 'set tx to ""' \
+    -e 'set bn to ""' \
+    -e 'try' \
+    -e 'repeat with t in (static texts of w)' \
+    -e 'set tx to tx & (value of t as text) & " / "' \
+    -e 'end repeat' \
+    -e 'end try' \
+    -e 'try' \
+    -e 'repeat with b in (buttons of w)' \
+    -e 'set bn to bn & (name of b as text) & ","' \
+    -e 'end repeat' \
+    -e 'end try' \
+    -e 'set pressed to "none"' \
+    -e 'if doClick then' \
+    -e 'try' \
+    -e 'perform action "AXPress" of (first button of w whose name is "Allow")' \
+    -e 'set pressed to "Allow"' \
+    -e 'on error' \
+    -e 'try' \
+    -e 'perform action "AXPress" of (first button of w whose name begins with "Don")' \
+    -e 'set pressed to "Dont Allow"' \
+    -e 'end try' \
+    -e 'end try' \
+    -e 'end if' \
+    -e 'set out to out & pn & " | " & (name of w as text) & " | " & tx & " | buttons " & bn & " | pressed " & pressed & linefeed' \
+    -e 'end repeat' \
+    -e 'end tell' \
+    -e 'end if' \
+    -e 'end repeat' \
+    -e 'end tell' \
+    -e 'return out'
+  LNP_SEEN=0
+  if [ "$RC" = 0 ] && grep -v '^rc=' "$f" | grep -q '|'; then LNP_SEEN=1; fi
+  if [ "$LNP_SEEN" = 1 ]; then
+    LNP_NOTE="$(grep -v '^rc=' "$f" | tr '\n' ';' | cut -c1-300)"
+  else
+    LNP_NOTE="none seen ($(rcnote "$RC" "$f"))"
+  fi
+}
+window_state() { # $1 = pid: "windows=N visible=B frontmost=B pos=x,y size=wxh" through System Events
+  local f="$PDIR/window-state-$$-$RANDOM.txt"
+  runrc "$f" "$T_OSA" osascript \
+    -e 'tell application "System Events"' \
+    -e "set p to first process whose unix id is $1" \
+    -e 'set r to "windows=" & (count of windows of p) & " visible=" & (visible of p) & " frontmost=" & (frontmost of p)' \
+    -e 'try' \
+    -e 'set {x, y} to position of window 1 of p' \
+    -e 'set {w, h} to size of window 1 of p' \
+    -e 'set r to r & " pos=" & x & "," & y & " size=" & w & "x" & h' \
+    -e 'end try' \
+    -e 'return r' \
+    -e 'end tell'
+  WS_NOTE="$(grep -v '^rc=' "$f" | head -1 | cut -c1-140)"
+  [ -n "$WS_NOTE" ] || WS_NOTE="unreadable ($(rcnote "$RC" "$f"))"
+  rm -f "$f"
+}
+focus_click() { # $1 = pid: raise the app and click the centre of its first window; sets FC_NOTE
+  local f="$PDIR/focus-click-$$-$RANDOM.txt"
+  runrc "$f" "$T_OSA" osascript \
+    -e 'tell application "System Events"' \
+    -e "set p to first process whose unix id is $1" \
+    -e 'set frontmost of p to true' \
+    -e 'delay 0.5' \
+    -e 'set {x, y} to position of window 1 of p' \
+    -e 'set {w, h} to size of window 1 of p' \
+    -e 'click at {x + (w div 2), y + (h div 2)}' \
+    -e 'return "clicked " & (x + (w div 2)) & "," & (y + (h div 2))' \
+    -e 'end tell'
+  FC_NOTE="$(grep -v '^rc=' "$f" | head -1 | cut -c1-100) $(rcnote "$RC" "$f")"
+  rm -f "$f"
+}
+
 # ---- launching ----------------------------------------------------------------------
 PDIR="$OUT"
 prod_live() { curl -fsS -m 2 "$BASE/api/live" > /dev/null 2>&1; }
@@ -201,6 +290,7 @@ launch_product() { # $1 = tag; rest = extra open args. Sets LP_PID, LP_RC, LP_T0
   fi
   LP_UP=1
   if [ -n "$LP_PID" ]; then gate_wait 40 launch_up && LP_UP=0; fi
+  [ "${LNP_SKIP:-0}" = 1 ] || lnp_check "$tag" 1
   return "$LP_UP"
 }
 launch_up() { alive "$LP_PID" && prod_live; }
@@ -226,6 +316,7 @@ launch_probe() { # $1 = tag; $2 = mode (wait|destroy); rest = extra open args (b
   fi
   LB_UP=1
   if [ -n "$LB_PID" ]; then gate_wait 20 probe_up && LB_UP=0; fi
+  [ "${LNP_SKIP:-0}" = 1 ] || lnp_check "$tag" 1
   return "$LB_UP"
 }
 probe_up() { alive "$LB_PID" && grep -q 'webview.start begin' "$PROBE_LOG" 2>/dev/null; }
@@ -352,10 +443,19 @@ quit_product() { # quits the tracked product LP_PID with `the-one quit`; sets QP
 p1() {
   local d="$OUT/P1" which
   mkdir -p "$d"; PDIR="$d"
+  LNP_SKIP=1 # the series marks must not be delayed; the prompt is read after them
   for which in cold warm; do
     if [ "$which" = cold ]; then rm -rf "$DATA_DIR"; fi
     if launch_product "$which"; then
-      series "$which" "$LP_T0" 45 1 1 3 5 10 20 30
+      series "$which" "$LP_T0" 45 1 1 2 3 5 10 20 30
+      if [ "$which" = cold ]; then
+        # PLN: read the alert (owner, texts, buttons) and screenshot it BEFORE dismissing it
+        shot "$d/pln.png"
+        lnp_check pln-read 0
+        row PLN "after the product's first launch: alert windows $LNP_NOTE; screenshot ${SHOT_BYTES}B (pln.png)"
+        lnp_check pln-dismiss 1
+        row PLN "dismissal attempt: $LNP_NOTE"
+      fi
       quit_product "$which"
       row P1 "$which: up (pid $LP_PID); first /api/live=200 at $(first_live "$d/$which-series.tsv"); marks: $(awk -F'\t' '{printf "+%s %s %s; ", $1, $4, ($5 ~ /^live=200/ ? "live" : "not-live")}' "$d/$which-series.tsv"); $QP_NOTE; stderr lines: $(wc -l < "$d/$which.stderr" | tr -d ' ')"
     else
@@ -365,8 +465,9 @@ p1() {
     quiesce "P1/$which"
   done
   if launch_probe control wait; then
-    series control "$LB_T0" 20 0 1 3 5 10
+    series control "$LB_T0" 20 0 1 2 3 5 10
     sleep_s 1
+    lnp_check control 1
     save_probe_log control
     row P1 "control (probe data-URL window, no server): up (pid $LB_PID); $(awk -F'\t' '{printf "+%s %sB; ", $1, $4}' "$d/control-series.tsv"); $(grep -o 'window loaded event[^)]*)' "$d/control-probe.log" | head -1)"
   else
@@ -451,7 +552,7 @@ keystroke() { # $1 = key  $2 = out file; sets KS_RC
   KS_RC="$RC"
 }
 p3() {
-  local d="$OUT/P3" fn s0 s1 wr qr
+  local d="$OUT/P3" fn s0 s1 wr qr ws0 ws1
   mkdir -p "$d"; PDIR="$d"
   # product: Cmd-W then Cmd-Q on one launch (the window hides to the tray; the app stays)
   if launch_product product; then
@@ -474,11 +575,15 @@ p3() {
   if launch_probe probe-w wait; then
     runrc "$d/probe-w-open-a.txt" "$T_OPEN" open -a "$PROBE_APP"
     sleep_s 2
-    fn="$(front_note "$LB_PID")"; shot "$d/probe-w-before.png"
+    # focus first: raise the probe and click inside its window, then record its state
+    focus_click "$LB_PID"; sleep_s 1
+    fn="$(front_note "$LB_PID")"; window_state "$LB_PID"; ws0="$WS_NOTE"; shot "$d/probe-w-before.png"
     keystroke w "$d/probe-w.txt"; wr="$KS_RC"
+    sleep_s 2
+    if alive "$LB_PID"; then window_state "$LB_PID"; ws1="$WS_NOTE"; else ws1="process gone"; fi
     wait_exit "$LB_PID" 8 || true
     shot "$d/probe-w-after.png"; save_probe_log probe-w
-    row P3 "probe Cmd-W (route $(probe_route "$d/probe-w-probe.log")): $fn; keystroke $(rcnote "$wr" "$d/probe-w.txt"); exited=$(if [ -n "$WE_SECS" ]; then echo "yes after ${WE_SECS}s"; else echo no; fi); path=$(probe_path "$d/probe-w-probe.log"); shots before/after ${SHOT_BYTES}B"
+    row P3 "probe Cmd-W after a click in the window ($FC_NOTE): $fn; state before: $ws0; keystroke $(rcnote "$wr" "$d/probe-w.txt"); state 2 s after: $ws1; exited=$(if [ -n "$WE_SECS" ]; then echo "yes after ${WE_SECS}s"; else echo no; fi); path=$(probe_path "$d/probe-w-probe.log"); route $(probe_route "$d/probe-w-probe.log"); shots before/after ${SHOT_BYTES}B"
   else
     row P3 "probe Cmd-W: not up (open $(rcnote "$LB_RC" "$d/probe-w.open"), pid=${LB_PID:-none})"
   fi
