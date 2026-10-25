@@ -98,8 +98,10 @@ def test_iscc_step_is_powershell_with_exit_code_checks():
     assert "Inno version: unknown" in run
     assert "0(\\.0)*" in run, "0.0.0.0 must be treated as unknown"
     assert "M32_ISCC_VERSION" in run
-    gate = run[run.index("if ($found) {\n  $parts"):]
-    assert gate.index("-lt 6") < gate.index("exit 1"), "failure must sit inside the parsed-version guard"
+    gate = run[run.index("if ($found) {\n  $parts") :]
+    assert gate.index("-lt 6") < gate.index("exit 1"), (
+        "failure must sit inside the parsed-version guard"
+    )
 
 
 def test_probe_bounds_itself_to_the_job_start():
@@ -133,3 +135,26 @@ def test_iscc_env_export_is_single_line_and_match_comes_from_return():
     assert "$script:found = Test-Ver $raw" in run
     assert run.count("$Matches") == 2, "$Matches only inside Test-Ver"
     assert "-replace '\\s+', ' '" in run
+
+
+def test_probe_has_selftest_and_the_workflow_runs_it_before_the_build():
+    text = PROBE.read_text(encoding="utf-8")
+    assert "[switch]$SelfTest" in text
+    assert "function Invoke-SelfTest" in text
+    steps = _doc(WORKFLOW)["jobs"]["build"]["steps"]
+    names = [s.get("name") for s in steps]
+    assert "Probe self test" in names
+    step = steps[names.index("Probe self test")]
+    assert step["shell"] == "pwsh"
+    assert "probe.ps1 -SelfTest" in step["run"] and "$LASTEXITCODE" in step["run"]
+    assert names.index("Probe self test") < names.index("Install GUI freeze deps + PyInstaller")
+    assert names.index("Probe self test") < names.index("Build the three installers (ISCC)")
+
+
+def test_probe_main_section_does_not_shadow_script_variables():
+    # `$rows` at script scope IS `$script:Rows` (names are case-insensitive): dispatch 2 was lost
+    # to that. The real guard is the AST check inside `probe.ps1 -SelfTest`; this is a cheap pin.
+    text = PROBE.read_text(encoding="utf-8")
+    main = text[text.index("# Main\n") :]
+    assert not re.search(r"^\s*\$rows\b", main, re.M | re.I)
+    assert "$mPlan" in main

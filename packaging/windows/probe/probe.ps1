@@ -13,18 +13,34 @@
 #   * only pids this script recorded are ever killed (the runner is ephemeral, but the rule holds).
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Logs,
-    [Parameter(Mandatory = $true)][string]$VersionN,
-    [Parameter(Mandatory = $true)][string]$VersionQ,
-    [Parameter(Mandatory = $true)][string]$VersionR,
-    [Parameter(Mandatory = $true)][string]$InstallerN,
-    [Parameter(Mandatory = $true)][string]$InstallerQ,
-    [Parameter(Mandatory = $true)][string]$InstallerR,
+    [string]$Logs = '',
+    [string]$VersionN = '',
+    [string]$VersionQ = '',
+    [string]$VersionR = '',
+    [string]$InstallerN = '',
+    [string]$InstallerQ = '',
+    [string]$InstallerR = '',
     [string]$IsccPath = '',
     [string]$PythonVersion = '',
     [string]$PyInstallerVersion = '',
-    [int]$GlobalSeconds = 2100
+    [int]$GlobalSeconds = 2100,
+    # -SelfTest exercises the bookkeeping, the summary writer, the bound arithmetic and the log
+    # reader with no Windows-only API (it runs on Linux pwsh); see Invoke-SelfTest below.
+    [switch]$SelfTest
 )
+
+# Script-scope names are case-insensitive: a top-level `$rows` IS `$script:Rows`. Dispatch 2 was
+# lost to exactly that. Main-section variables use the `m` prefix; Invoke-SelfTest checks the AST.
+
+if (-not $SelfTest) {
+    foreach ($req in @('Logs', 'VersionN', 'VersionQ', 'VersionR', 'InstallerN', 'InstallerQ', 'InstallerR')) {
+        if (-not (Get-Variable -Name $req -ValueOnly)) { throw "probe.ps1: -$req is required (or pass -SelfTest)" }
+    }
+}
+else {
+    if (-not $Logs) { $Logs = Join-Path ([System.IO.Path]::GetTempPath()) ("m32-probe-selftest-" + [guid]::NewGuid().ToString('N')) }
+    foreach ($nm in @('VersionN', 'VersionQ', 'VersionR')) { if (-not (Get-Variable -Name $nm -ValueOnly)) { Set-Variable -Name $nm -Value '0.0.0.selftest' } }
+}
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
@@ -40,11 +56,14 @@ $script:LogPath = Join-Path $script:Out 'probe.log'
 # Paths step) + 45 minutes, so the probe always ends well before the 60-minute job cap and the
 # summary, the log upload and the fail step still run. effective = min(GlobalSeconds, remaining).
 $script:JobBoundSeconds = 2700
-if ($env:M32_T0 -match '^\d+$') {
-    $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $remaining = [int]([long]$env:M32_T0 + $script:JobBoundSeconds - $nowEpoch)
-    if ($remaining -lt $GlobalSeconds) { $GlobalSeconds = [Math]::Max($remaining, 0) }
+function Get-EffectiveGlobalSeconds([int]$Requested, [string]$T0, [long]$NowEpoch) {
+    if ($T0 -match '^\d+$') {
+        $left = [int]([long]$T0 + $script:JobBoundSeconds - $NowEpoch)
+        if ($left -lt $Requested) { return [Math]::Max($left, 0) }
+    }
+    return $Requested
 }
+$GlobalSeconds = Get-EffectiveGlobalSeconds $GlobalSeconds $env:M32_T0 ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
 $script:Deadline = (Get-Date).AddSeconds($GlobalSeconds)
 $script:Completed = $false
 $script:AbortReason = ''
@@ -56,8 +75,13 @@ $script:RowOrder = @('W6', 'W1', 'W2', 'W5', 'W4', 'W3')
 $script:Rows = [ordered]@{}
 foreach ($id in $script:RowOrder) { $script:Rows[$id] = "FAIL $id not-run" }
 $script:Pids = New-Object System.Collections.Generic.HashSet[int]
-$script:InstallDir = Join-Path $env:ProgramFiles 'GleepGlorp AI'
-$script:DataDir = Join-Path $env:LOCALAPPDATA 'the-one'
+# The fake directories exist only so -SelfTest can load on Linux; on Windows a missing variable is a hard error.
+$mOnWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+if ($mOnWindows -and -not $SelfTest -and -not ($env:ProgramFiles -and $env:LOCALAPPDATA)) { throw 'probe.ps1: ProgramFiles or LOCALAPPDATA is not set' }
+$mProgramFiles = if ($env:ProgramFiles) { $env:ProgramFiles } elseif ($mOnWindows) { throw 'ProgramFiles is not set' } else { Join-Path $script:Out 'fake-programfiles' }
+$mLocalAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } elseif ($mOnWindows) { throw 'LOCALAPPDATA is not set' } else { Join-Path $script:Out 'fake-localappdata' }
+$script:InstallDir = Join-Path $mProgramFiles 'GleepGlorp AI'
+$script:DataDir = Join-Path $mLocalAppData 'the-one'
 $script:AppLog = Join-Path $script:DataDir 'logs\the-one-app.log'
 $script:CredPath = Join-Path $script:DataDir 'api-credential'
 $script:UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{CAEEFB46-2698-4048-AD9F-0120D0B7174A}_is1'
@@ -73,7 +97,12 @@ function Write-Summary {
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($h in $script:Header) { $lines.Add($h) }
     $lines.Add('')
-    foreach ($id in $script:RowOrder) { $lines.Add([string]$script:Rows[$id]) }
+    foreach ($rid in $script:RowOrder) {
+        $rv = ''
+        if ($script:Rows -is [System.Collections.IDictionary] -and $script:Rows.Contains($rid)) { $rv = [string]$script:Rows[$rid] }
+        if (-not $rv) { $rv = "FAIL $rid not-run (the row table lost this row)" }
+        $lines.Add($rv)
+    }
     foreach ($i in $script:Infos) { $lines.Add($i) }
     if ($script:Completed) { $lines.Add('== probe done') }
     elseif ($script:Done) { $lines.Add("== probe aborted: $($script:AbortReason)") }
@@ -137,6 +166,7 @@ function Save-Evidence([string]$Tag) {
 # ---------------------------------------------------------------------------------------------
 # Native helpers: windows, screenshots
 # ---------------------------------------------------------------------------------------------
+if (-not $SelfTest) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -167,6 +197,7 @@ public static class M32Win {
 '@
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+}
 
 # every top-level window: objects with Hwnd, ProcId, Visible, Class, Title
 function Get-AllWindows {
@@ -406,7 +437,7 @@ function Write-Header {
     $h.Add('== windows premise probe (Mission 32 Flight 4, leg 1)')
     $h.Add("== image: ImageOS=$($env:ImageOS) ImageVersion=$($env:ImageVersion)")
     $ubr = ''
-    try { $ubr = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR } catch { }
+    try { $ubr = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).UBR } catch { }
     $h.Add("== windows: $([Environment]::OSVersion.VersionString) UBR=$ubr")
     $iscc = 'not found'
     if ($IsccPath -and (Test-Path -LiteralPath $IsccPath)) {
@@ -416,14 +447,16 @@ function Write-Header {
     $h.Add("== iscc: $iscc")
     $lua = ''; $consent = ''
     try {
-        $pol = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+        $pol = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction Stop
         $lua = $pol.EnableLUA; $consent = $pol.ConsentPromptBehaviorAdmin
     } catch { }
     $h.Add("== uac: EnableLUA=$lua ConsentPromptBehaviorAdmin=$consent")
     $elevated = $false
     try { $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
     $h.Add("== elevated: $elevated")
-    $h.Add("== whoami: $((& whoami 2>&1 | Out-String).Trim())")
+    $who = ''
+    try { $who = (& whoami 2>&1 | Out-String).Trim() } catch { }
+    $h.Add("== whoami: $who")
     $h.Add("== python: $PythonVersion   pyinstaller: $PyInstallerVersion")
     $h.Add("== versions: N=$VersionN  N+1 (quit variant)=$VersionQ  N+2 (RM variant)=$VersionR")
     $h.Add("== drain evidence: uvicorn 'Finished server process [<pid>]' in new bytes of the-one-app.log; watcher resolution 250 ms; global bound ${GlobalSeconds}s")
@@ -652,7 +685,7 @@ function Test-RowW4 {
     if (-not $ev.ContainsKey('drain')) { $fails.Add("no 'Finished server process [$pidB]' line in the new app-log bytes: the app was not drained") }
     elseif ($ev.ContainsKey('first-copy') -and $ev['drain'] -gt $ev['first-copy']) { $fails.Add('the drain line was first seen after the first file copy') }
     if ($r.TimedOut -or $r.ExitCode -ne 0) { $fails.Add("the installer did not finish cleanly (exit $($r.ExitCode), timedOut=$($r.TimedOut))") }
-    Add-Info 'W4' "elevation: runneradmin with UAC off (field-only, DD2); DisplayVersion after=$(Get-InstalledVersion) (want $VersionQ)"
+    Add-Info 'W4' "elevation: the runner is an elevated admin (see the header's uac line: EnableLUA=1 with ConsentPromptBehaviorAdmin=0 means UAC is on but admins elevate silently, so a standard-user or prompting-admin field case is not covered; DD2 is field-only); DisplayVersion after=$(Get-InstalledVersion) (want $VersionQ)"
     if ($fails.Count -eq 0) { Set-Row 'W4' 'PASS' "quit call, poll present then gone, nothing left, then KillRunning, then the first copy; drain line for pid $pidB seen before the first copy; control quit --wait drained too" }
     else { Set-Row 'W4' 'FAIL' ($fails -join '; ') }
 }
@@ -702,11 +735,191 @@ function Test-FinalUninstall {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Self test (Linux pwsh, no Windows-only API): bookkeeping, summary writer, bound arithmetic,
+# log reader, wait helper, and the scope-collision AST check.
+# ---------------------------------------------------------------------------------------------
+function Reset-ProbeState {
+    $script:Header = New-Object System.Collections.Generic.List[string]
+    $script:Infos = New-Object System.Collections.Generic.List[string]
+    $script:Rows = [ordered]@{}
+    foreach ($rid in $script:RowOrder) { $script:Rows[$rid] = "FAIL $rid not-run" }
+    $script:Completed = $false
+    $script:Done = $false
+    $script:AbortReason = ''
+}
+
+function Invoke-SelfTest {
+    $script:SelfFails = New-Object System.Collections.Generic.List[string]
+    function Assert-That([bool]$Cond, [string]$What) {
+        if ($Cond) { Write-Host "ok   $What" } else { Write-Host "FAIL $What"; $script:SelfFails.Add($What) }
+    }
+    function Assert-Throws([scriptblock]$Fn, [string]$Pattern, [string]$What) {
+        $msg = $null
+        try { & $Fn } catch { $msg = $_.Exception.Message }
+        Assert-That ($null -ne $msg -and $msg -match $Pattern) "$What (threw: $msg)"
+    }
+    function Read-Summary { return @(Get-Content -LiteralPath $script:SummaryPath) }
+
+    # 1. the AST check: no script-scope variable may be re-assigned under another case at top level
+    $tokens = $null; $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$tokens, [ref]$errs)
+    Assert-That (-not ($errs -and $errs.Count -gt 0)) 'probe.ps1 parses clean'
+    $scoped = @{}
+    foreach ($v in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+        if ($v.VariablePath.IsScript) { $scoped[($v.VariablePath.UserPath -replace '^(?i)script:', '').ToLowerInvariant()] = $true }
+    }
+    $collide = New-Object System.Collections.Generic.List[string]
+    foreach ($v in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+        $inFn = $false
+        for ($a = $v.Parent; $null -ne $a; $a = $a.Parent) { if ($a -is [System.Management.Automation.Language.FunctionDefinitionAst]) { $inFn = $true; break } }
+        if ($inFn) { continue }
+        if ($v.VariablePath.IsScript -or $v.VariablePath.IsGlobal -or $v.VariablePath.UserPath.Contains(':')) { continue }
+        if ($scoped.ContainsKey($v.VariablePath.UserPath.ToLowerInvariant())) { $collide.Add("`$$($v.VariablePath.UserPath) at line $($v.Extent.StartLineNumber)") }
+    }
+    Assert-That ($collide.Count -eq 0) "no top-level variable shares a name with a `$script: variable ($($collide -join ', '))"
+
+    # 2. seeding and the summary writer
+    Reset-ProbeState
+    Write-Header
+    $sum = Read-Summary
+    Assert-That (@($sum | Where-Object { $_ -like 'FAIL * not-run' }).Count -eq 6) 'header write: all six seeded rows show FAIL not-run'
+    Assert-That (@($sum | Where-Object { $_ -eq '' }).Count -eq 1) 'header write: exactly one blank separator line'
+    Assert-That ($sum[0] -like '== windows premise probe*') 'header first line'
+    Assert-That (($sum -join "`n") -notmatch 'probe done|probe aborted') 'running summary has neither done nor aborted'
+
+    # 3. Set-Row, Add-Info, unknown id, bad status
+    Set-Row 'W1' 'PASS' 'window visible'
+    Assert-That ((Read-Summary) -contains 'PASS W1 window visible') 'Set-Row PASS lands in the summary'
+    Set-Row 'W3' 'INFO' 'rm variant'
+    Assert-That ((Read-Summary) -contains 'INFO W3 rm variant') 'Set-Row INFO lands in the summary'
+    foreach ($rid in $script:RowOrder) { Add-Info $rid "note for $rid" }
+    $sum = Read-Summary
+    foreach ($rid in $script:RowOrder) { Assert-That ($sum -contains "INFO $rid note for $rid") "Add-Info for $rid" }
+    Assert-Throws { Add-Info 'W9' 'x' } "unknown row id 'W9'" 'Add-Info rejects an unknown id'
+    Assert-Throws { Set-Row 'W9' 'PASS' 'x' } "unknown row id 'W9'" 'Set-Row rejects an unknown id'
+    Assert-Throws { Set-Row 'W1' 'MAYBE' 'x' } "bad status" 'Set-Row rejects a bad status'
+    Assert-That (@($sum | Where-Object { $_ -like 'FAIL * not-run' }).Count -eq 4) 'two set, four still not-run'
+    # the row order in the file is the seeded order
+    $rowLines = @($sum | Where-Object { $_ -match '^(PASS|FAIL|INFO) W\d (?!note)' })
+    Assert-That (($rowLines | ForEach-Object { $_.Split(' ')[1] }) -join ',' -eq 'W6,W1,W2,W5,W4,W3') 'rows are written in the declared order'
+
+    # 4. the catch-path logic used by Main: a row that threw keeps a FAIL with the reason
+    Reset-ProbeState
+    $row = @{ Id = 'W2' }
+    if ($script:Rows[$row.Id] -like '* not-run') { Set-Row $row.Id 'FAIL' 'not-run (the row threw: boom)' }
+    Assert-That ((Read-Summary) -contains 'FAIL W2 not-run (the row threw: boom)') 'a threw row records its reason'
+
+    # 5. the abort path: every seeded row still shows, and the message carries function and line
+    Reset-ProbeState
+    Write-Header
+    try { Set-Row 'W7' 'PASS' 'x' } catch { $script:AbortReason = Get-AbortText $_ }
+    $script:Done = $true
+    Write-Summary
+    $sum = Read-Summary
+    Assert-That (@($sum | Where-Object { $_ -like 'FAIL * not-run' }).Count -eq 6) 'abort path: all six rows still show FAIL not-run'
+    $abortLine = @($sum | Where-Object { $_ -like '== probe aborted:*' })
+    Assert-That ($abortLine.Count -eq 1) 'abort path: one aborted line'
+    Assert-That ($abortLine[0] -match "Set-Row: unknown row id 'W7'" -and $abortLine[0] -match 'probe\.ps1' -and $abortLine[0] -match 'line:?\s*\d+|:\d+') "abort message names the failure and the line ($($abortLine[0]))"
+    Assert-That (($sum -join "`n") -notmatch 'probe done') 'abort path: no done line'
+
+    # 6. the normal path
+    Reset-ProbeState
+    Write-Header
+    foreach ($rid in $script:RowOrder) { Set-Row $rid 'PASS' "ok $rid" }
+    $script:Completed = $true; $script:Done = $true
+    Write-Summary
+    $sum = Read-Summary
+    Assert-That ($sum[-1] -eq '== probe done') 'normal path: last line is == probe done'
+    Assert-That (@($sum | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) 'normal path: no FAIL line'
+    Assert-That (@($sum | Where-Object { $_ -like 'PASS *' }).Count -eq 6) 'normal path: six PASS rows'
+
+    # 7. a corrupted row table still produces six row lines
+    Reset-ProbeState
+    $script:Rows = @(1, 2, 3)
+    Write-Summary
+    Assert-That (@(Read-Summary | Where-Object { $_ -like 'FAIL * not-run*' }).Count -eq 6) 'a lost row table still writes six FAIL rows'
+    Reset-ProbeState
+
+    # 8. the global bound, with a fake M32_T0
+    $now = [long]1000000
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 ([string]($now - 100)) $now) -eq 2100) 'bound: early in the job keeps the requested 2100'
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 ([string]($now - 1000)) $now) -eq 1700) 'bound: 1000 s in leaves 1700'
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 ([string]($now - 2700)) $now) -eq 0) 'bound: at 45 min leaves 0'
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 ([string]($now - 3000)) $now) -eq 0) 'bound: past 45 min clamps to 0'
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 '' $now) -eq 2100) 'bound: no M32_T0 keeps the request'
+    Assert-That ((Get-EffectiveGlobalSeconds 2100 'abc' $now) -eq 2100) 'bound: a non-numeric M32_T0 keeps the request'
+    Assert-That ((Get-EffectiveGlobalSeconds 600 ([string]($now - 1000)) $now) -eq 600) 'bound: a smaller request wins'
+
+    # 9. the new-bytes log reader and Get-KeyLines
+    $tmp = Join-Path $script:Out 'selftest-app.log'
+    Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+    Assert-That ((Get-FileLen $tmp) -eq 0) 'Get-FileLen of a missing file is 0'
+    Assert-That ((Read-NewBytes $tmp 0).Text -eq '') 'Read-NewBytes of a missing file is empty'
+    [System.IO.File]::WriteAllText($tmp, "line one`nline two`n")
+    $r1 = Read-NewBytes $tmp 0
+    Assert-That ($r1.Text -eq "line one`nline two`n" -and $r1.Offset -eq 18) 'Read-NewBytes reads everything from offset 0'
+    $writer = [System.IO.File]::Open($tmp, 'Append', 'Write', 'ReadWrite')   # held open, like the app's logger
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes("Finished server process [4242]`n")
+        $writer.Write($bytes, 0, $bytes.Length); $writer.Flush()
+        $r2 = Read-NewBytes $tmp $r1.Offset
+        Assert-That ($r2.Text -eq "Finished server process [4242]`n") 'Read-NewBytes returns only the bytes added after the offset (file held open)'
+        Assert-That ($r2.Text -match 'Finished server process \[4242\]') 'the drain pattern matches the new bytes'
+        Assert-That ((Get-FileLen $tmp) -eq $r2.Offset) 'Get-FileLen agrees with the new offset (file held open)'
+        $r3 = Read-NewBytes $tmp $r2.Offset
+        Assert-That ($r3.Text -eq '' -and $r3.Offset -eq $r2.Offset) 'no new bytes reads empty and keeps the offset'
+    } finally { $writer.Dispose() }
+    [System.IO.File]::WriteAllText($tmp, "new`n")   # rotated: shorter than the offset
+    $r4 = Read-NewBytes $tmp 999
+    Assert-That ($r4.Text -eq "new`n") 'an offset past the end (rotation) restarts from 0'
+    $kl = Get-KeyLines "a`r`nquit-poll: present`r`nb`r`nquit-poll: gone" 'quit-poll'
+    Assert-That ($kl.Count -eq 2 -and $kl[0] -eq '2: quit-poll: present') 'Get-KeyLines numbers lines and handles CRLF'
+
+    # 10. Wait-Until
+    Assert-That (Wait-Until { $true } 2 50 'always') 'Wait-Until returns true at once'
+    $t0 = Get-Date
+    Assert-That (-not (Wait-Until { $false } 1 100 'never')) 'Wait-Until returns false on timeout'
+    Assert-That (((Get-Date) - $t0).TotalSeconds -lt 5) 'Wait-Until timeout is bounded'
+    Assert-That (-not (Wait-Until { throw 'x' } 1 100 'throws')) 'Wait-Until treats a throwing condition as false'
+    $script:Deadline = (Get-Date).AddSeconds(-1)
+    Assert-That (-not (Wait-Until { $false } 30 100 'past the global bound')) 'Wait-Until stops at the global bound'
+    $script:Deadline = (Get-Date).AddSeconds(60)
+
+    # 11. Save-Text and the log writer
+    Save-Text 'selftest.txt' 'hello'
+    Assert-That ((Get-Content -LiteralPath (Join-Path $script:Out 'selftest.txt')) -eq 'hello') 'Save-Text writes'
+    Assert-That ((Get-Content -LiteralPath $script:LogPath -Raw) -match 'ROW PASS W6 ok W6') 'the log has the ROW lines'
+
+    Write-Host ''
+    if ($script:SelfFails.Count -gt 0) {
+        Write-Host "SELFTEST FAILED ($($script:SelfFails.Count)):"
+        $script:SelfFails | ForEach-Object { Write-Host "  $_" }
+        return $false
+    }
+    Write-Host 'SELFTEST PASSED'
+    return $true
+}
+
+# one-line abort text: message, then the function/line from PositionMessage, newlines folded
+function Get-AbortText($ErrRec) {
+    $pos = ''
+    try { $pos = [string]$ErrRec.InvocationInfo.PositionMessage } catch { }
+    $t = "$($ErrRec.Exception.Message) | $pos"
+    return (($t -replace '\s*[\r\n]+\s*', ' | ').Trim())
+}
+
+# ---------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------
+if ($SelfTest) {
+    $selfOk = $false
+    try { $selfOk = Invoke-SelfTest } catch { Write-Host "SELFTEST CRASHED: $($_.Exception.Message) $($_.InvocationInfo.PositionMessage)" }
+    if ($selfOk) { exit 0 } else { exit 1 }
+}
+
 try {
     Write-Header
-    $rows = @(
+    $mPlan = @(
         @{ Id = 'W6'; Fn = { Test-RowW6 } },
         @{ Id = 'W1'; Fn = { Test-RowW1 } },
         @{ Id = 'W2'; Fn = { Test-RowW2 } },
@@ -714,22 +927,25 @@ try {
         @{ Id = 'W4'; Fn = { Test-RowW4 } },
         @{ Id = 'W3'; Fn = { Test-RowW3 } }
     )
-    foreach ($row in $rows) {
-        if (Test-PastDeadline) { Write-Log "global bound reached; $($row.Id) stays not-run"; continue }
-        try { & $row.Fn }
+    foreach ($mRow in $mPlan) {
+        if (Test-PastDeadline) { Write-Log "global bound reached; $($mRow.Id) stays not-run"; continue }
+        try { & $mRow.Fn }
         catch {
-            Write-Log "row $($row.Id) threw: $($_.Exception.Message)"
-            Add-Info $row.Id "harness exception: $($_.Exception.Message) at $($_.InvocationInfo.PositionMessage)"
-            # a row that threw before it recorded a result keeps its not-run FAIL; say why
-            if ($script:Rows[$row.Id] -like '* not-run') { Set-Row $row.Id 'FAIL' "not-run (the row threw: $($_.Exception.Message))" }
+            $why = Get-AbortText $_
+            Write-Log "row $($mRow.Id) threw: $why"
+            # the bookkeeping below must never take the whole probe down
+            try { Add-Info $mRow.Id "harness exception: $why" } catch { Write-Log "Add-Info failed: $($_.Exception.Message)" }
+            try {
+                if ($script:Rows[$mRow.Id] -like '* not-run') { Set-Row $mRow.Id 'FAIL' "not-run (the row threw: $($_.Exception.Message))" }
+            } catch { Write-Log "Set-Row failed: $($_.Exception.Message)" }
         }
     }
-    if (-not (Test-PastDeadline)) { try { Test-FinalUninstall } catch { Write-Log "final uninstall threw: $($_.Exception.Message)" } }
+    if (-not (Test-PastDeadline)) { try { Test-FinalUninstall } catch { Write-Log "final uninstall threw: $(Get-AbortText $_)" } }
     else { Write-Log 'global bound reached; the final uninstall was skipped' }
     $script:Completed = $true
 }
 catch {
-    $script:AbortReason = "$($_.Exception.Message)"
+    $script:AbortReason = Get-AbortText $_
     Write-Log "probe aborted: $($script:AbortReason)"
     throw
 }
@@ -739,5 +955,5 @@ finally {
     try { if (Test-Path $script:AppLog) { Copy-Item -LiteralPath $script:AppLog -Destination (Join-Path $script:Out 'the-one-app.log') -Force } } catch { }
     $script:Done = $true
     if (-not $script:Completed -and -not $script:AbortReason) { $script:AbortReason = 'ended before the normal completion path' }
-    Write-Summary
+    try { Write-Summary } catch { Write-Log "final Write-Summary failed: $(Get-AbortText $_)" }
 }

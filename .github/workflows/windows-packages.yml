@@ -137,6 +137,16 @@ jobs:
           }
           Write-Host "probe.ps1 parses clean ($($tokens.Count) tokens)"
 
+      # The same rehearsal run on Linux before dispatch: the row bookkeeping, the summary writer
+      # (seed, set, add-info, abort, done), the global-bound arithmetic, the new-bytes log reader
+      # and a scope-collision check. No Windows-only API. Fails the job before any build minute.
+      - name: Probe self test
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          & ./packaging/windows/probe/probe.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { Write-Host "probe.ps1 -SelfTest failed (exit $LASTEXITCODE)"; exit 1 }
+
       - name: Versions (N, N+1, N+2)
         timeout-minutes: 2
         env:
