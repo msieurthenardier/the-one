@@ -515,3 +515,61 @@ def all_agents_connector_bound(monkeypatch):
         return _EveryAgent()
 
     monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", _all)
+
+
+@pytest.fixture
+def stub_desktop_host(monkeypatch):
+    """Stub the Linux desktop-host probes (M32 F2 L02, AC0).
+
+    Tests that run ``_boot``/``DesktopSession.run`` or ``run_doctor`` must never
+    open a real D-Bus connection or X display, or spawn notify-send/gdbus.
+    Apply with ``pytestmark = pytest.mark.usefixtures("stub_desktop_host")``;
+    a test that wants its own behaviour monkeypatches the same attribute after.
+    """
+    from the_one.interfaces.desktop import host, shell
+
+    monkeypatch.setattr(host, "detect_tray", lambda backend: ("indicator", "stubbed"))
+    monkeypatch.setattr(host, "choose_pystray_backend", lambda: None)
+    monkeypatch.setattr(host, "host_has_desktop_gtk", lambda: True)
+    monkeypatch.setattr(host, "send_notification", lambda summary, body: None)
+    monkeypatch.setattr(shell, "_tray_mode", None, raising=False)
+
+
+# ── Operator-port guard (M32 F2 L05) ─────────────────────────────────────────
+# Ports 8484 (the operator's running app) and 8485 (the Flight Director's
+# preview instance) must never be reached by a unit test: the desktop shell's
+# focus / quit / takeover paths POST to a running instance, and a test that
+# forgets to stub them would act on the real one. Every httpx request passes
+# through ``Client.send`` / ``AsyncClient.send``, so refusing there covers
+# ``httpx.get/post``, ``Client`` and ``AsyncClient`` alike. In-process
+# ``TestClient`` requests go to ``testserver`` and are unaffected.
+_OPERATOR_PORTS = frozenset({8484, 8485})
+
+
+def _refuse_operator_port(request) -> None:
+    if request.url.port in _OPERATOR_PORTS:
+        raise AssertionError(
+            f"a unit test reached the operator's port: {request.method} {request.url.port}. "
+            "Stub the call (the shell's _running_version/_request_quit seams, httpx.post...) "
+            "or use a free port."
+        )
+
+
+@pytest.fixture(autouse=True)
+def _never_reach_operator_ports(monkeypatch):
+    import httpx
+
+    real_send = httpx.Client.send
+    real_async_send = httpx.AsyncClient.send
+
+    def guarded_send(self, request, *args, **kwargs):
+        _refuse_operator_port(request)
+        return real_send(self, request, *args, **kwargs)
+
+    async def guarded_async_send(self, request, *args, **kwargs):
+        _refuse_operator_port(request)
+        return await real_async_send(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "send", guarded_send)
+    monkeypatch.setattr(httpx.AsyncClient, "send", guarded_async_send)
+    yield

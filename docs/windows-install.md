@@ -63,7 +63,8 @@ to close the window:
 - The window hides — the app **keeps running** in the system tray.
 - The first time this happens you will see a notification:
 
-  > **"GleepGlorp AI is still running in the system tray — Quit from the tray menu to exit"**
+  > **GleepGlorp AI is still running**
+  > It's in the tray. Click its icon to show it or quit.
 
 - To bring the window back, click the GleepGlorp AI icon in the system tray and
   choose **Show**.

@@ -8,9 +8,11 @@ Do NOT import webview at the module top level.
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -702,7 +704,10 @@ def test_run_case_b_posts_focus_and_returns_without_window(
 
     expected_url = f"http://{settings.host}:{settings.port}/api/window/focus"
 
-    with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
+    with (
+        patch.object(launcher_module, "_select_port", return_value=(settings.port, True)),
+        patch.object(launcher_module, "_running_version", return_value=None),
+    ):
         with patch.object(httpx, "post") as mock_post:
             with patch("uvicorn.Server") as mock_server_cls:
                 with patch.object(handoff_store, "mint_handoff_credential") as mock_mint:
@@ -797,7 +802,10 @@ def test_run_case_b_is_ours_posts_focus_and_returns_no_browser(
     from the_one.config import settings
     from the_one.interfaces.web import handoff_store
 
-    with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
+    with (
+        patch.object(launcher_module, "_select_port", return_value=(settings.port, True)),
+        patch.object(launcher_module, "_running_version", return_value=None),
+    ):
         with patch.object(httpx, "post") as mock_post:
             with patch("uvicorn.Server") as mock_server_cls:
                 with patch.object(webbrowser_mod, "open") as mock_open:
@@ -1293,19 +1301,17 @@ def test_deregister_in_on_closing_allow_destroy_returns(monkeypatch: pytest.Monk
     assert events == []
 
 
-def test_deregister_in_close_to_tray_no_tray_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_to_tray_without_icon_is_inert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The old ``_icon is None`` -> destroy() branch is gone (M32 F2 L05)."""
     import the_one.interfaces.desktop.shell as shell_mod
 
-    events: list[str] = []
-    monkeypatch.setattr(shell_mod.chrome, "deregister", lambda: events.append("deregister"))
     win = MagicMock()
-    win.destroy.side_effect = lambda: events.append("destroy")
     monkeypatch.setattr(shell_mod, "_desktop_window", win)
-    monkeypatch.setattr(shell_mod, "_really_quit", False)
     sess = shell_mod.DesktopSession()
     sess._icon = None
     assert sess._close_to_tray() is False
-    assert events == ["deregister", "destroy"]
+    win.destroy.assert_not_called()
+    win.hide.assert_not_called()
 
 
 def test_set_window_theme_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1344,3 +1350,537 @@ def test_splash_html_is_themed(
         assert "#0f1117" not in html and "#6b7280" not in html and "#1e2130" not in html
     # The default keeps today's no-argument callers working (dark).
     assert "#101114" in launcher_module._splash_html()
+
+
+# ── M32 F2 L02: _webview_available shares the host predicate (AC7) ───────────
+
+
+@pytest.mark.parametrize("host_gtk", [True, False])
+@pytest.mark.parametrize("webkit_ok", [True, False])
+def test_webview_available_requires_host_gtk_and_typelib(
+    monkeypatch: pytest.MonkeyPatch, host_gtk: bool, webkit_ok: bool
+) -> None:
+    import types
+
+    import the_one.interfaces.desktop.host as host_mod
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(host_mod, "host_has_desktop_gtk", lambda: host_gtk)
+    fake_gi = types.ModuleType("gi")
+
+    def require_version(ns, ver):
+        if not webkit_ok:
+            raise ValueError("no typelib")
+
+    fake_gi.require_version = require_version
+    monkeypatch.setitem(sys.modules, "gi", fake_gi)
+    assert launcher_module._webview_available() is (host_gtk and webkit_ok)
+
+
+# ── M32 F2 L02: the no-WebKit browser notice (AC6) ────────────────────────────
+
+
+def _run_fallback(monkeypatch: pytest.MonkeyPatch, platform: str, piece, events: list) -> None:
+    import signal as signal_mod
+    import webbrowser as webbrowser_mod
+
+    import the_one.interfaces.desktop.host as host_mod
+    import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
+
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(host_mod, "missing_desktop_piece", lambda: piece)
+    monkeypatch.setattr(
+        host_mod,
+        "send_notification",
+        lambda summary, body: events.append(("notify", summary, body)),
+    )
+    with (
+        patch.object(launcher_module, "_select_port", return_value=(settings.port, False)),
+        patch.object(launcher_module, "_webview_available", return_value=False),
+        patch.object(launcher_module, "_graceful_shutdown"),
+        patch.object(launcher_module, "_wait_until_serving"),
+        patch("the_one.interfaces.web.app.app", MagicMock()),
+        patch("uvicorn.Server", return_value=MagicMock()),
+        patch("threading.Thread", return_value=MagicMock()),
+        patch.object(webbrowser_mod, "open", side_effect=lambda u: events.append(("open", u))),
+        patch.object(signal_mod, "signal"),
+    ):
+        launcher_module.run_desktop()
+
+
+@pytest.mark.parametrize(
+    "piece,needle",
+    [
+        ("webkit", "gir1.2-webkit2-4.1"),
+        ("gtk", "no GTK 3 window libraries"),
+        ("gi", "PyGObject (gi)"),
+    ],
+)
+def test_fallback_notifies_before_opening_browser(
+    monkeypatch: pytest.MonkeyPatch, piece: str, needle: str
+) -> None:
+    events: list = []
+    _run_fallback(monkeypatch, "linux", piece, events)
+    kinds = [e[0] for e in events]
+    assert kinds == ["notify", "open"]
+    assert events[0][1] == "GleepGlorp AI"
+    assert "opened in your browser" in events[0][2] and needle in events[0][2]
+
+
+def test_fallback_on_win32_sends_no_notification(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list = []
+    _run_fallback(monkeypatch, "win32", None, events)
+    assert [e[0] for e in events] == ["open"]
+
+
+pytestmark = pytest.mark.usefixtures("stub_desktop_host")
+
+
+# ── M32 F2 L05 phase A: close states, markers, imports, quit, boot race ──────
+
+
+@pytest.fixture()
+def shell_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Any):
+    """The real shell module with lifecycle globals reset and a scratch data dir."""
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    monkeypatch.setattr(shell_mod.settings, "data_dir", tmp_path)
+    for name, value in (
+        ("_really_quit", False),
+        ("_desktop_window", None),
+        ("_tray_mode", None),
+        ("_session", None),
+        ("_tracked_visible", None),
+        ("_booting", False),
+        ("_quit_requested", False),
+        ("_browser_server", None),
+    ):
+        monkeypatch.setattr(shell_mod, name, value)
+    monkeypatch.setattr(shell_mod, "_is_gtk_backend", lambda: False)
+    return shell_mod
+
+
+def _notes(monkeypatch: pytest.MonkeyPatch) -> list:
+    import the_one.interfaces.desktop.host as host_mod
+
+    calls: list = []
+    monkeypatch.setattr(host_mod, "send_notification", lambda s, b: calls.append((s, b)))
+    return calls
+
+
+def test_none_mode_close_hides_and_notices_once(shell_state, monkeypatch, tmp_path) -> None:
+    calls = _notes(monkeypatch)
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    monkeypatch.setattr(shell_state, "_desktop_window", win)
+    monkeypatch.setattr(shell_state, "_tray_mode", "none")
+    sess = shell_state.DesktopSession()
+    assert sess._on_closing() is False  # cancel the destroy
+    win.hide.assert_called_once()
+    win.destroy.assert_not_called()
+    assert shell_state._tracked_visible is False
+    assert len(calls) == 1
+    assert calls[0][0] == "GleepGlorp AI is still running"
+    assert calls[0][1] == "Open it again to show it, or right-click its icon to quit."
+    assert len(calls[0][1]) <= 60
+    assert (tmp_path / ".no_tray_notice_shown").exists()
+    assert not (tmp_path / ".close_to_tray_notice_shown").exists()
+    # a second close hides again without a second notice
+    assert sess._on_closing() is False
+    assert win.hide.call_count == 2 and len(calls) == 1
+
+
+def test_none_mode_hide_failure_allows_destroy(shell_state, monkeypatch) -> None:
+    calls = _notes(monkeypatch)
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    win.hide.side_effect = RuntimeError("gone")
+    monkeypatch.setattr(shell_state, "_desktop_window", win)
+    monkeypatch.setattr(shell_state, "_tray_mode", "none")
+    assert shell_state.DesktopSession()._on_closing() is True
+    assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["failed", None])
+def test_failed_or_undecided_tray_allows_destroy(shell_state, monkeypatch, mode) -> None:
+    calls = _notes(monkeypatch)
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    monkeypatch.setattr(shell_state, "_desktop_window", win)
+    monkeypatch.setattr(shell_state, "_tray_mode", mode)
+    assert shell_state.DesktopSession()._on_closing() is True
+    win.hide.assert_not_called()
+    assert calls == []
+
+
+def test_really_quit_allows_destroy_in_none_mode(shell_state, monkeypatch) -> None:
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    monkeypatch.setattr(shell_state, "_desktop_window", win)
+    monkeypatch.setattr(shell_state, "_tray_mode", "none")
+    monkeypatch.setattr(shell_state, "_really_quit", True)
+    assert shell_state.DesktopSession()._on_closing() is True
+    win.hide.assert_not_called()
+
+
+def test_notice_markers_are_separate(monkeypatch, tmp_path) -> None:
+    from the_one.config import settings
+    from the_one.interfaces.desktop import notice
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "fresh")
+    assert not notice.no_tray_notice_shown() and not notice.notice_shown()
+    notice.mark_no_tray_notice_shown()  # creates the data dir
+    assert notice.no_tray_notice_shown() and not notice.notice_shown()
+    notice.mark_notice_shown()
+    assert (tmp_path / "fresh" / ".no_tray_notice_shown").exists()
+    assert (tmp_path / "fresh" / ".close_to_tray_notice_shown").exists()
+
+
+def test_notification_never_blocks_the_close(shell_state, monkeypatch) -> None:
+    """The real send_notification returns at once (daemon thread), even if gio hangs."""
+    import time
+
+    import the_one.interfaces.desktop.host as host_mod
+
+    release = threading.Event()
+    monkeypatch.setattr(host_mod, "_notify_via_gio", lambda s, b: release.wait(10))
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    monkeypatch.setattr(shell_state, "_desktop_window", win)
+    monkeypatch.setattr(shell_state, "_tray_mode", "none")
+    t0 = time.monotonic()
+    try:
+        assert shell_state.DesktopSession()._on_closing() is False
+        assert time.monotonic() - t0 < 1.0
+    finally:
+        release.set()
+
+
+def test_close_path_functions_have_no_imports() -> None:
+    """DD12: a .deb upgrade replaces the bundle under a running process, so the
+    close and quit path must not import anything lazily."""
+    import ast
+    import inspect
+
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    tree = ast.parse(inspect.getsource(shell_mod))
+    wanted = {
+        "_on_closing",
+        "_no_tray_hide",
+        "_save_current_geometry",
+        "quit_desktop",
+        "window_state",
+        "_close_to_tray",
+    }
+    seen = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+            seen.add(node.name)
+            bad = [n for n in ast.walk(node) if isinstance(n, (ast.Import, ast.ImportFrom))]
+            assert not bad, f"{node.name} contains an import"
+    assert seen == wanted
+
+
+def test_pystray_not_imported_by_shell_module_import() -> None:
+    import subprocess
+
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import sys; import the_one.interfaces.desktop.shell; "
+            "print('pystray' in sys.modules, 'webview' in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])},
+    )
+    assert out.stdout.strip().endswith("False False"), out.stderr[-500:]
+
+
+def test_closing_registered_before_tray_decision(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import the_one.interfaces.desktop.host as host_mod
+
+    order: list[str] = []
+
+    class _Closing:
+        def __iadd__(self, handler):
+            order.append("closing-registered")
+            return self
+
+    def _pre_boot(ns) -> None:
+        ns.main.events.closing = _Closing()
+        monkeypatch.setattr(
+            host_mod,
+            "detect_tray",
+            lambda backend: (order.append("tray-decided"), ("none", "x"))[1],
+        )
+
+    _boot_harness(webview_mock, tmp_path, monkeypatch, pre_boot=_pre_boot)
+    assert order[:2] == ["closing-registered", "tray-decided"]
+
+
+# quit_desktop: one case per state ---------------------------------------------
+
+
+def test_quit_desktop_window_runs_quit_outside_the_lock(shell_state, monkeypatch) -> None:
+    held: list[bool] = []
+    sess = MagicMock()
+    sess._icon = "icon"
+    sess._on_quit.side_effect = lambda icon: held.append(shell_state._window_lock.locked())
+    monkeypatch.setattr(shell_state, "_session", sess)
+    monkeypatch.setattr(shell_state, "_desktop_window", MagicMock())
+    assert shell_state.quit_desktop() == "window"
+    sess._on_quit.assert_called_once_with("icon")
+    assert held == [False]
+
+
+def test_quit_desktop_repeat_does_not_destroy_again(shell_state, monkeypatch) -> None:
+    sess = MagicMock()
+    monkeypatch.setattr(shell_state, "_session", sess)
+    monkeypatch.setattr(shell_state, "_desktop_window", MagicMock())
+    monkeypatch.setattr(shell_state, "_really_quit", True)
+    assert shell_state.quit_desktop() == "window"
+    sess._on_quit.assert_not_called()
+
+
+def test_quit_desktop_window_quit_raising_returns_none(shell_state, monkeypatch) -> None:
+    sess = MagicMock()
+    sess._on_quit.side_effect = RuntimeError("boom")
+    monkeypatch.setattr(shell_state, "_session", sess)
+    monkeypatch.setattr(shell_state, "_desktop_window", MagicMock())
+    assert shell_state.quit_desktop() is None
+
+
+def test_quit_desktop_booting_records_the_request(shell_state, monkeypatch) -> None:
+    monkeypatch.setattr(shell_state, "_session", MagicMock())
+    monkeypatch.setattr(shell_state, "_booting", True)
+    assert shell_state.quit_desktop() == "booting"
+    assert shell_state._quit_requested is True
+    assert shell_state.quit_desktop() == "booting"  # idempotent
+
+
+def test_quit_desktop_browser_drains_the_server(shell_state, monkeypatch) -> None:
+    server = MagicMock()
+    server.should_exit = False
+    monkeypatch.setattr(shell_state, "_session", MagicMock())
+    monkeypatch.setattr(shell_state, "_browser_server", server)
+    assert shell_state.quit_desktop() == "browser"
+    assert server.should_exit is True
+
+
+def test_quit_desktop_serve_is_none(shell_state) -> None:
+    assert shell_state.quit_desktop() is None
+    assert shell_state._quit_requested is False
+
+
+def test_mode_values(shell_state, monkeypatch) -> None:
+    assert shell_state.window_state()["mode"] == "serve"
+    monkeypatch.setattr(shell_state, "_session", MagicMock())
+    assert shell_state.window_state()["mode"] is None
+    monkeypatch.setattr(shell_state, "_booting", True)
+    assert shell_state.window_state()["mode"] == "booting"
+    monkeypatch.setattr(shell_state, "_booting", False)
+    monkeypatch.setattr(shell_state, "_browser_server", MagicMock())
+    assert shell_state.window_state()["mode"] == "browser"
+    monkeypatch.setattr(shell_state, "_desktop_window", MagicMock())
+    assert shell_state.window_state()["mode"] == "window"
+    monkeypatch.setattr(shell_state, "_really_quit", True)
+    assert shell_state.window_state()["mode"] == "quitting"
+    monkeypatch.setattr(shell_state, "_session", None)
+    assert shell_state.window_state()["mode"] == "serve"
+
+
+# The boot race: a quit at each _boot checkpoint ---------------------------------
+
+
+def _quit_at(checkpoint: str, webview_mock, tmp_path, monkeypatch):
+    """Run _boot with a booting quit arriving at ``checkpoint``."""
+    import the_one.interfaces.desktop.host as host_mod
+
+    def _quit_now(*_a, **_k):
+        shell = sys.modules["the_one.interfaces.desktop.shell"]
+        shell._booting = True
+        assert shell.quit_desktop() == "booting"
+        shell._booting = False
+
+    class _Loaded(_EventCapture):
+        def __iadd__(self, handler):
+            if checkpoint == "before-show":
+                _quit_now()
+            return super().__iadd__(handler)
+
+    def _pre_boot(ns) -> None:
+        if checkpoint == "after-splash":
+            ns.splash.events.shown.wait.side_effect = _quit_now
+        elif checkpoint == "after-server":
+            ns.launcher._wait_until_serving.side_effect = _quit_now
+        elif checkpoint == "before-show":
+            ns.main.events.loaded = _Loaded()
+        elif checkpoint == "step-6":
+            monkeypatch.setattr(
+                host_mod, "detect_tray", lambda backend: (_quit_now(), ("indicator", "x"))[1]
+            )
+
+    return _boot_harness(webview_mock, tmp_path, monkeypatch, pre_boot=_pre_boot)
+
+
+@pytest.mark.parametrize("checkpoint", ["after-splash", "after-server", "before-show", "step-6"])
+def test_boot_race_quit_is_honoured(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, checkpoint: str
+) -> None:
+    ns = _quit_at(checkpoint, webview_mock, tmp_path, monkeypatch)
+    shell = ns.launcher
+    assert shell._really_quit is True
+    ns.splash.destroy.assert_called_once()
+    if checkpoint in ("after-splash", "after-server"):
+        ns.main.show.assert_not_called()
+        ns.main.destroy.assert_not_called()  # never created
+        webview_mock.create_window.assert_called_once()
+    else:
+        ns.main.destroy.assert_called_once()
+    if checkpoint == "step-6":
+        # the window was published, then the quit ran right after the lock
+        assert shell._desktop_window is ns.main
+    else:
+        assert shell._desktop_window is None
+    assert shell._window_lock.locked() is False
+
+
+def test_boot_without_quit_publishes_and_clears_booting(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch)
+    assert ns.launcher._desktop_window is ns.main
+    assert ns.launcher._booting is False and ns.launcher._really_quit is False
+    ns.main.destroy.assert_not_called()
+
+
+def test_booting_set_before_server_start_and_cleared_after_run(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict = {}
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    def _server(*a, **k):
+        seen["booting_at_server"] = shell_mod._booting
+        return MagicMock()
+
+    monkeypatch.setattr(shell_mod.settings, "data_dir", tmp_path)
+    webview_mock.create_window.side_effect = [_make_splash_mock()]
+    with (
+        patch.object(shell_mod, "_select_port", return_value=(8486, False)),
+        patch.object(shell_mod, "_webview_available", return_value=True),
+        patch.object(shell_mod, "_graceful_shutdown"),
+        patch("the_one.interfaces.web.app.app", MagicMock()),
+        patch("uvicorn.Server", side_effect=_server),
+        patch("threading.Thread", return_value=MagicMock()),
+    ):
+        shell_mod.run_desktop()
+    assert seen["booting_at_server"] is True
+    assert shell_mod._booting is False  # run()'s finally
+
+
+def test_missing_pywebview_clears_booting(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    monkeypatch.setitem(sys.modules, "webview", None)  # import raises ImportError
+    monkeypatch.setattr(shell_mod.settings, "data_dir", tmp_path)
+    with (
+        patch.object(shell_mod, "_select_port", return_value=(8486, False)),
+        patch.object(shell_mod, "_webview_available", return_value=True),
+        patch.object(shell_mod, "_graceful_shutdown"),
+        patch("the_one.interfaces.web.app.app", MagicMock()),
+        patch("uvicorn.Server", return_value=MagicMock()),
+        patch("threading.Thread", return_value=MagicMock()),
+        pytest.raises(SystemExit),
+    ):
+        shell_mod.run_desktop()
+    assert shell_mod._booting is False
+
+
+def test_boot_error_clears_booting(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _pre_boot(ns) -> None:
+        ns.launcher._booting = True
+        ns.launcher._wait_until_serving.side_effect = RuntimeError("no server")
+
+    ns = _boot_harness(
+        webview_mock, tmp_path, monkeypatch, pre_boot=_pre_boot, expect_raises=RuntimeError
+    )
+    assert ns.launcher._booting is False
+
+
+# The browser-fallback branch ----------------------------------------------------
+
+
+def test_browser_branch_records_server_and_honours_a_quit_during_the_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import webbrowser as webbrowser_mod
+
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    opened: list = []
+    seen: dict = {}
+    server = MagicMock()
+    server.should_exit = False
+
+    def _wait(host, port, timeout=15.0):
+        seen["mode"] = shell_mod.window_state()["mode"]
+        seen["state"] = shell_mod.quit_desktop()  # the quit arrives mid-wait
+        raise RuntimeError("server did not become ready")  # the drain made it fail
+
+    monkeypatch.setattr(webbrowser_mod, "open", lambda u: opened.append(u))
+    with (
+        patch.object(shell_mod, "_select_port", return_value=(8486, False)),
+        patch.object(shell_mod, "_webview_available", return_value=False),
+        patch.object(shell_mod, "_graceful_shutdown"),
+        patch.object(shell_mod, "_wait_until_serving", side_effect=_wait),
+        patch("the_one.interfaces.web.app.app", MagicMock()),
+        patch("uvicorn.Server", return_value=server),
+        patch("threading.Thread", return_value=MagicMock()),
+    ):
+        shell_mod.run_desktop()
+    assert seen == {"mode": "browser", "state": "browser"}
+    assert opened == []
+    assert server.should_exit is True
+    assert shell_mod._browser_server is None  # cleared by run()'s finally
+
+
+def test_browser_branch_entry_honours_a_quit_recorded_while_booting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import webbrowser as webbrowser_mod
+
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    opened: list = []
+    monkeypatch.setattr(webbrowser_mod, "open", lambda u: opened.append(u))
+    wait = MagicMock()
+
+    def _server(*a, **k):
+        # a quit arrives while the server is being created (booting)
+        assert shell_mod.quit_desktop() == "booting"
+        return MagicMock()
+
+    with (
+        patch.object(shell_mod, "_select_port", return_value=(8486, False)),
+        patch.object(shell_mod, "_webview_available", return_value=False),
+        patch.object(shell_mod, "_graceful_shutdown"),
+        patch.object(shell_mod, "_wait_until_serving", wait),
+        patch("the_one.interfaces.web.app.app", MagicMock()),
+        patch("uvicorn.Server", side_effect=_server),
+        patch("threading.Thread", return_value=MagicMock()),
+    ):
+        shell_mod.run_desktop()
+    wait.assert_not_called()
+    assert opened == []

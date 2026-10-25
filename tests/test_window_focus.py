@@ -145,7 +145,10 @@ def test_run_desktop_is_ours_posts_focus_url_and_returns() -> None:
     sys.modules["webview"] = webview_mock
 
     try:
-        with patch.object(shell_mod, "_select_port", return_value=(8484, True)):
+        with (
+            patch.object(shell_mod, "_select_port", return_value=(8484, True)),
+            patch.object(shell_mod, "_running_version", return_value=None),
+        ):
             with patch.object(httpx, "post") as mock_post:
                 with patch("uvicorn.Server") as mock_server_cls:
                     shell_mod.run_desktop()
@@ -183,7 +186,10 @@ def test_run_desktop_is_ours_returns_cleanly_when_post_raises() -> None:
     sys.modules["webview"] = webview_mock
 
     try:
-        with patch.object(shell_mod, "_select_port", return_value=(8484, True)):
+        with (
+            patch.object(shell_mod, "_select_port", return_value=(8484, True)),
+            patch.object(shell_mod, "_running_version", return_value=None),
+        ):
             with patch.object(httpx, "post", side_effect=httpx.ConnectError("refused")):
                 with patch("uvicorn.Server") as mock_server_cls:
                     # Must not raise
@@ -195,3 +201,78 @@ def test_run_desktop_is_ours_returns_cleanly_when_post_raises() -> None:
 
     finally:
         sys.modules.pop("webview", None)
+
+
+# ── activation token (M32 F2 L05 phase B) ─────────────────────────────────────
+
+
+def test_focus_route_accepts_token_body_and_no_body() -> None:
+    from the_one.interfaces.web.app import app
+
+    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True) as fw:
+        with TestClient(app, headers=auth_headers()) as client:
+            assert client.post("/api/window/focus").status_code == 200
+            fw.assert_called_once_with()
+            fw.reset_mock()
+            r = client.post("/api/window/focus", json={"activation_token": "tok123"})
+            assert r.status_code == 200
+            fw.assert_called_once_with("tok123")
+            fw.reset_mock()
+            assert client.post("/api/window/focus", json={}).status_code == 200
+            fw.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "token", ["has space", "x" * 257, "tab\there", "ctl\x01x", "nl\nx", "caf\u00e9"]
+)
+def test_focus_route_rejects_bad_token(token: str) -> None:
+    from the_one.interfaces.web.app import app
+
+    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True) as fw:
+        with TestClient(app, headers=auth_headers()) as client:
+            r = client.post("/api/window/focus", json={"activation_token": token})
+    assert r.status_code == 422
+    fw.assert_not_called()
+
+
+def test_focus_window_gtk_token_one_idle_set_startup_id_deiconify_present() -> None:
+    import types
+
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    idles: list = []
+    gtkmod = types.SimpleNamespace(glib=types.SimpleNamespace(idle_add=idles.append))
+    window = MagicMock()
+    calls: list[str] = []
+    window.native.set_startup_id.side_effect = lambda t: calls.append(f"sid:{t}")
+    window.native.deiconify.side_effect = lambda: calls.append("deiconify")
+    window.native.present.side_effect = lambda: calls.append("present")
+    with (
+        patch.object(shell_mod, "_desktop_window", window),
+        patch.object(shell_mod, "_is_gtk_backend", return_value=True),
+        patch.dict(
+            sys.modules,
+            {"webview.platforms.gtk": gtkmod, "webview.platforms": MagicMock(gtk=gtkmod)},
+        ),
+    ):
+        assert shell_mod.focus_window("TOKEN123") is True
+        assert len(idles) == 1  # exactly one idle, nothing else queued
+        window.show.assert_not_called()
+        window.restore.assert_not_called()
+        assert calls == []  # nothing ran before the idle
+        assert idles[0]() is False
+    assert calls == ["sid:TOKEN123", "deiconify", "present"]
+    assert window.hidden is False
+
+
+def test_focus_window_no_token_uses_plain_path() -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    window = MagicMock()
+    with (
+        patch.object(shell_mod, "_desktop_window", window),
+        patch.object(shell_mod, "_is_gtk_backend", return_value=True),
+    ):
+        assert shell_mod.focus_window() is True
+    window.show.assert_called_once()
+    window.restore.assert_called_once()

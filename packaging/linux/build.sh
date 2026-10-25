@@ -1,68 +1,99 @@
 #!/usr/bin/env bash
-# Build GleepGlorp AI for Linux with PyInstaller: stage, freeze, wrap as AppImage and .deb.
-# Spike prototype (Mission 32 Flight 1, candidate A); not wired into CI.
+# Build GleepGlorp AI for Linux: stage on the host, render the packaging templates, then freeze
+# and wrap (AppImage and .deb) inside the pinned build container (Mission 32 Flight 2, DD2, DD6).
 #
-#   packaging/linux/build.sh <version> [--no-excludes]      e.g. 0.11.8 or 0.11.9.dev1
+#   packaging/linux/build.sh [--version X] [--no-excludes]
 #
-# Environment (all outside the repo, under $HOME):
-#   M32_BUILD     build root (default $HOME/the-one-m32-build)
-# Expects, under $M32_BUILD: venv-pyi/ (see README "Build environment") and
-# tools/appimagetool-*/ + tools/type2-runtime-*/ (pinned; checksums in README).
+# The version defaults to __version__ in the_one/__init__.py (via packaging/render.py);
+# --version X (e.g. 0.11.9.dev1) overrides it for a test build. The old positional form,
+# `build.sh 0.11.8 [--no-excludes]`, still works with a warning.
+#
+# Environment:
+#   M32_BUILD      build root, outside the repo (default $HOME/the-one-m32-build/f2)
+#   M32_FROM_HEAD  "1" = stage `git archive HEAD` instead of the working tree
+#
+# Staging, rendering and `uv export` run on the host, not in the container: the checkout may be
+# a git worktree whose .git file points outside the mounted tree. The container gets the staged
+# copy (with the rendered files in rendered/), packaging/ (read-only; the spec loads
+# ../windows/frozen_entry.py) and an output dir.
 set -euo pipefail
 
-VERSION="${1:?usage: build.sh <version> [--no-excludes]}"
-NO_EXCLUDES="${2:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-M32_BUILD="${M32_BUILD:-$HOME/the-one-m32-build}"
-APPIMAGETOOL="$M32_BUILD/tools/appimagetool-1.9.1/appimagetool-x86_64.AppImage"
-RUNTIME="$M32_BUILD/tools/type2-runtime-20251108/runtime-x86_64"
-PYI="$M32_BUILD/venv-pyi/bin/pyinstaller"
 
-DEB_VERSION="${VERSION/.dev/~dev}"   # PEP 440 0.11.9.dev1 -> Debian 0.11.9~dev1 (sorts below 0.11.9)
-WORK="$M32_BUILD/linux-$VERSION"
-PKGS="$M32_BUILD/packages"
+VERSION="" NO_EXCLUDES="" POSITIONAL=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --version) VERSION="${2:?build.sh: --version needs a value}"; shift 2 ;;
+        --version=*) VERSION="${1#--version=}"; shift ;;
+        --no-excludes) NO_EXCLUDES=--no-excludes; shift ;;
+        -*) echo "build.sh: unknown option $1" >&2; exit 2 ;;
+        *)
+            if [ -n "$POSITIONAL" ]; then echo "build.sh: more than one positional version" >&2; exit 2; fi
+            POSITIONAL="$1"; shift ;;
+    esac
+done
+if [ -n "$POSITIONAL" ]; then
+    if [ -n "$VERSION" ]; then
+        echo "build.sh: --version and a positional version together" >&2; exit 2
+    fi
+    echo "build.sh: a positional version is deprecated; use --version X" >&2
+    VERSION="$POSITIONAL"
+fi
+
+M32_BUILD="${M32_BUILD:-$HOME/the-one-m32-build/f2}"
+IMAGE=m32/linux-build:f2
+CTX="$M32_BUILD/ctx"
+RENDER=(python3 "$REPO/packaging/render.py" --repo "$REPO")
+
+if [ -z "$VERSION" ]; then
+    VERSION="$("${RENDER[@]}" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+fi
 STAGE="$M32_BUILD/stage-linux-$VERSION"
-APPIMAGE="$PKGS/GleepGlorp_AI-$VERSION-x86_64.AppImage"
-DEB="$PKGS/gleepglorp-ai_${DEB_VERSION}_amd64.deb"
+# A rebuild of the same tree renders the same files: the release date is the last commit's.
+SOURCE_DATE_EPOCH="$(git -C "$REPO" log -1 --format=%ct)"
+export SOURCE_DATE_EPOCH
 
-rm -rf "$WORK"; mkdir -p "$WORK" "$PKGS"
+mkdir -p "$M32_BUILD" "$CTX"
+
 echo "== stage $VERSION"
-python3 "$REPO/packaging/spike/stage.py" --version "$VERSION" --candidate linux --out "$M32_BUILD"
+if [ "${M32_FROM_HEAD:-}" = 1 ]; then
+    SRC="$M32_BUILD/src-head"
+    rm -rf "$SRC"; mkdir -p "$SRC"
+    git -C "$REPO" archive HEAD the_one | tar -x -C "$SRC"
+    echo "staging from HEAD $(git -C "$REPO" rev-parse --short HEAD)"
+    export M32_SOURCE="$SRC"
+fi
+python3 "$REPO/packaging/stage.py" --version "$VERSION" --target linux --out "$M32_BUILD"
 
-echo "== freeze $VERSION ($("$M32_BUILD/venv-pyi/bin/python" --version))"
-if [ "$NO_EXCLUDES" = "--no-excludes" ]; then export M32_NO_EXCLUDES=1; fi
-M32_STAGE="$STAGE" "$PYI" --noconfirm --clean --distpath "$WORK/dist" --workpath "$WORK/work" \
-    "$HERE/the-one.spec" > "$WORK/pyinstaller.log" 2>&1
-BUNDLE="$WORK/dist/the-one"
-test -x "$BUNDLE/the-one"
-SIZE_KB="$(du -sk "$BUNDLE" | cut -f1)"
+echo "== render"
+R="$STAGE/rendered"
+mkdir -p "$R"
+rnd() {   # rnd <template> <output> [--set K=V ...]
+    local tpl="$1" out="$2"; shift 2
+    "${RENDER[@]}" --template "$HERE/$tpl" --set "version=$VERSION" "$@" > "$R/$out"
+}
+rnd build.env.in build.env
+rnd AppRun.in AppRun
+rnd control.in control
+rnd deb.desktop.in deb.desktop
+rnd metainfo.xml.in metainfo.xml
+# the AppImage's own entry: kept with its runtime placeholders for AppRun to fill ...
+rnd appimage.desktop.in integration.desktop.in
+# ... and the AppDir root copy (what appimagetool validates): paths as AppRun sees them
+rnd appimage.desktop.in appimage-root.desktop --set APPIMAGE_EXEC=AppRun --set APPIMAGE_PATH=AppRun \
+    --set ICON_PATH="$("${RENDER[@]}" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["desktop_id"])')"
 
-echo "== AppImage"
-APPDIR="$WORK/AppDir"
-mkdir -p "$APPDIR/usr/lib" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
-cp -a "$BUNDLE" "$APPDIR/usr/lib/gleepglorp-ai"
-cp "$HERE/AppRun" "$APPDIR/AppRun"; chmod 755 "$APPDIR/AppRun"
-sed 's|@EXEC@|AppRun app|' "$HERE/gleepglorp-ai.desktop.in" > "$APPDIR/gleepglorp-ai.desktop"
-cp "$STAGE/icon-512.png" "$APPDIR/gleepglorp-ai.png"
-cp "$STAGE/icon-512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/gleepglorp-ai.png"
-ln -sf gleepglorp-ai.png "$APPDIR/.DirIcon"
-rm -f "$APPIMAGE"
-ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run --runtime-file "$RUNTIME" \
-    "$APPDIR" "$APPIMAGE" > "$WORK/appimagetool.log" 2>&1
+echo "== build image"
+(cd "$REPO" && uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms \
+    --format requirements-txt > "$CTX/requirements-closure.txt")
+docker build -q -f "$HERE/build.Dockerfile" -t "$IMAGE" "$CTX" > /dev/null
+echo "image: $IMAGE $(docker image inspect --format '{{.Id}}' "$IMAGE")"
 
-echo "== deb"
-ROOT="$WORK/debroot"
-mkdir -p "$ROOT/opt" "$ROOT/usr/bin" "$ROOT/usr/share/applications" \
-    "$ROOT/usr/share/icons/hicolor/512x512/apps" "$ROOT/DEBIAN"
-cp -a "$BUNDLE" "$ROOT/opt/gleepglorp-ai"
-ln -s /opt/gleepglorp-ai/the-one "$ROOT/usr/bin/the-one"
-sed 's|@EXEC@|the-one app|' "$HERE/gleepglorp-ai.desktop.in" > "$ROOT/usr/share/applications/gleepglorp-ai.desktop"
-cp "$STAGE/icon-512.png" "$ROOT/usr/share/icons/hicolor/512x512/apps/gleepglorp-ai.png"
-sed -e "s|@DEB_VERSION@|$DEB_VERSION|" -e "s|@INSTALLED_SIZE@|$SIZE_KB|" "$HERE/control.in" > "$ROOT/DEBIAN/control"
-find "$ROOT" -type d -exec chmod 755 {} +
-rm -f "$DEB"
-dpkg-deb --root-owner-group -Zzstd -z9 --build "$ROOT" "$DEB" > "$WORK/dpkg-deb.log" 2>&1
+echo "== build $VERSION in the container"
+docker run --rm --name "m32-build-${VERSION//[^A-Za-z0-9_.-]/_}" -u "$(id -u):$(id -g)" \
+    -v "$REPO/packaging:/packaging:ro" -v "$STAGE:/stage:ro" -v "$M32_BUILD:/out" \
+    "$IMAGE" /packaging/linux/build-inner.sh ${NO_EXCLUDES:+"$NO_EXCLUDES"} \
+    2>&1 | tee "$M32_BUILD/build-$VERSION.log"
 
-echo "== done"
-ls -l "$APPIMAGE" "$DEB"
+echo "packages: $M32_BUILD/packages"

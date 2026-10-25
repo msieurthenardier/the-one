@@ -12,7 +12,7 @@ collection contract as ../linux/the-one.spec (which borrowed it from
 * ``BUNDLE`` wraps the one-dir ``COLLECT`` as ``GleepGlorp AI.app``.
 
 Environment:
-    M32_STAGE   the staged copy of the_one/ (packaging/spike/stage.py output). REQUIRED.
+    M32_STAGE   the staged copy of the_one/ (packaging/stage.py output). REQUIRED.
     M32_ICNS    path to the .icns for the bundle (build.sh generates it). Optional.
 
 Like the Linux spec, this never puts the repo root on sys.path: only the staged copy is

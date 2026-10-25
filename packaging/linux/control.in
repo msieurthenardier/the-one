@@ -1,11 +1,11 @@
-Package: gleepglorp-ai
+Package: @PACKAGE@
 Version: @DEB_VERSION@
 Architecture: amd64
-Maintainer: GleepGlorp AI <noreply@invalid>
+Maintainer: @MAINTAINER@
 Installed-Size: @INSTALLED_SIZE@
 Section: utils
 Priority: optional
+Homepage: @HOMEPAGE@
 Depends: python3, libwebkit2gtk-4.1-0 | libwebkit2gtk-4.1-0t64, gir1.2-webkit2-4.1, gir1.2-gtk-3.0, libgirepository-2.0-0 | libgirepository-2.0-0t64, gir1.2-ayatanaappindicator3-0.1, libstdc++6, libgcc-s1
-Description: GleepGlorp AI, a personal LLM-powered agent
- Frozen build (PyInstaller) that uses the desktop's own GTK 3 and WebKitGTK 4.1.
- Spike prototype for Mission 32 Flight 1; not a release.
+Description: @SUMMARY@
+ @DESCRIPTION@

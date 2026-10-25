@@ -1,9 +1,24 @@
 name: linux-packages
 
-# Stub for the default branch (Mission 32 Flight 2, DD10). GitHub validates `workflow_dispatch`
-# inputs against the default branch's copy of a workflow, so this file carries the same `on:`
-# block as the flight branch's. The real steps live on the flight branch; dispatch with
-#   gh workflow run linux-packages.yml --ref flight/02-linux-packages
+# Mission 32 Flight 2 (Linux packages), DD10: builds the .deb and the AppImage in the pinned
+# build container (packaging/linux/build.sh) on a hosted Ubuntu 24.04 runner, then runs the
+# container gate suite (packaging/linux/checks/gates.sh) for both formats on the bare Ubuntu
+# 26.04 and Debian 13 images under a private Xvfb: strict `doctor` pinned and unpinned, gates 2
+# and 4, on the .deb gate 3 (the window) and single instance, and (on the AppImage) the browser fallback of DD14. The upgrade check needs two
+# versions, so it is reported N/A here and is proven locally and in the VMs.
+#
+# Publishes nothing and reads no repository secrets; artifacts: the two packages (3 days) and the logs and
+# evidence (7 days). Dispatch-only, so it never runs on a push, PR or tag:
+#
+#   gh workflow run linux-packages.yml --ref flight/02-linux-packages [-f version=0.11.9.dev12]
+#
+# (GitHub offers a manual run only for a workflow file that exists on the default branch; a
+# `.github/`-only stub with the same `on:` block lands on main first, and --ref then runs the
+# flight branch's copy.) `workflow_call` is the entry point Flight 4's release workflow uses.
+#
+# Cost: Linux minutes bill at 1x. Caps, in layers: a timeout on every job and step, a
+# concurrency group that never cancels a running build and never lets two run at once, and no
+# retries beyond one bounded loop around the image build. A run is about 12 + 4 x 6 minutes.
 on:
   workflow_dispatch:
     inputs:
@@ -23,11 +38,244 @@ on:
 permissions:
   contents: read
 
+# explicit bash is `bash --noprofile --norc -eo pipefail {0}`: a failing command before a `| tee` fails the step
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: linux-packages
+  cancel-in-progress: false
+
 jobs:
-  stub:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.paths.outputs.version }}
     steps:
-      - name: Stub
-        timeout-minutes: 1
-        run: echo "the real steps live on the flight branch; dispatch with --ref"
+      # the last commit's date is the packages' release date: full history is not needed for that,
+      # but a full clone keeps `git log -1` identical to a local build
+      - uses: actions/checkout@v5
+        timeout-minutes: 5
+        with:
+          fetch-depth: 0
+
+      # the runner context is not available in a job-level env, so the paths are set here
+      - name: Paths and version
+        id: paths
+        timeout-minutes: 2
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          V="$INPUT_VERSION"
+          if [ -z "$V" ]; then
+            V="$(python3 packaging/render.py --repo . --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          fi
+          case "$V" in
+            *[!A-Za-z0-9.+~-]* | "") echo "bad version: $V"; exit 1 ;;
+          esac
+          {
+            echo "M32_BUILD=$RUNNER_TEMP/m32-build"
+            echo "M32_LOGS=$RUNNER_TEMP/m32-logs"
+            echo "V=$V"
+          } >> "$GITHUB_ENV"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/m32-build" "$RUNNER_TEMP/m32-logs"
+          echo "building version $V"
+
+      - name: Runner evidence
+        timeout-minutes: 2
+        run: |
+          {
+            echo "== lsb_release"; lsb_release -a 2>&1
+            echo "== docker version"; docker version 2>&1
+            echo "== disk"; df -h / "$RUNNER_TEMP" 2>&1
+            echo "== cpu/mem"; nproc; free -g
+          } 2>&1 | tee "$M32_LOGS/runner.txt"
+
+      # the same uv as the macOS probe and the Windows CI: `uv export --frozen` must give the
+      # same closure everywhere
+      - uses: actions/setup-python@v6
+        timeout-minutes: 5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        timeout-minutes: 5
+        run: |
+          python3 -m pip install --disable-pip-version-check uv==0.10.0
+          uv --version | tee -a "$M32_LOGS/runner.txt"
+
+      - name: Build the packages
+        timeout-minutes: 30
+        run: bash packaging/linux/build.sh --version "$V" 2>&1 | tee "$M32_LOGS/build.log"
+
+      - name: Record the audit and checksums
+        timeout-minutes: 2
+        run: |
+          {
+            echo "version: $V"
+            echo "commit: $(git rev-parse HEAD)"
+            grep -E '^audit: ' "$M32_LOGS/build.log" || echo "audit: line MISSING"
+            ( cd "$M32_BUILD/packages" && sha256sum -- * )
+          } | tee "$M32_LOGS/SUMMARY.txt"
+          {
+            echo "### build $V"
+            echo '```'
+            cat "$M32_LOGS/SUMMARY.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -Eq '^audit: .*: PASS$' "$M32_LOGS/SUMMARY.txt" || { echo "the bundle audit did not PASS"; exit 1; }
+          n="$(find "$M32_BUILD/packages" -maxdepth 1 -type f \( -name "*${V/.dev/~dev}*.deb" -o -name "*$V*.AppImage" \) | wc -l)"
+          [ "$n" -eq 2 ] || { echo "expected 2 packages for $V, found $n"; ls -l "$M32_BUILD/packages"; exit 1; }
+
+      - name: Upload the packages
+        if: ${{ always() }}
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: ${{ runner.temp }}/m32-build/packages
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Upload the logs
+        if: ${{ always() }}
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages-build-logs
+          path: ${{ runner.temp }}/m32-logs
+          retention-days: 7
+          if-no-files-found: warn
+
+  checks:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        distro: [ubuntu-26.04, debian-13]
+        format: [deb, appimage]
+    steps:
+      - uses: actions/checkout@v5
+        timeout-minutes: 5
+
+      - name: Paths
+        timeout-minutes: 2
+        env:
+          BUILD_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            echo "V=$BUILD_VERSION"
+            echo "M32_PKGS=$RUNNER_TEMP/m32-packages"
+            echo "M32_EVIDENCE=$RUNNER_TEMP/m32-evidence"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/m32-packages" "$RUNNER_TEMP/m32-evidence"
+
+      - uses: actions/download-artifact@v4
+        timeout-minutes: 5
+        with:
+          name: linux-packages
+          path: ${{ runner.temp }}/m32-packages
+
+      # the bare image: the distro plus python3 only (and the harness-only tools), no desktop
+      - name: Build the bare image
+        timeout-minutes: 10
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: |
+          d=packaging/linux/checks/images
+          for attempt in 1 2; do
+            if docker build --target bare -t "m32/$DISTRO:bare" -f "$d/$DISTRO.Dockerfile" "$d"; then break; fi
+            [ "$attempt" -lt 2 ] || { echo "image build failed twice"; exit 1; }
+            echo "image build failed; retrying once"; sleep 10
+          done
+
+      - name: Run the gates
+        timeout-minutes: 12
+        env:
+          DISTRO: ${{ matrix.distro }}
+          FORMAT: ${{ matrix.format }}
+        run: |
+          mkdir -p "$M32_EVIDENCE/A"
+          bash packaging/linux/checks/gates.sh A "$FORMAT" "$DISTRO" bare \
+            --n "$V" --display xvfb --pkgdir "$M32_PKGS" --evidence "$M32_EVIDENCE" \
+            | tee "$M32_EVIDENCE/score-line.txt"
+
+      - name: Upload the evidence
+        if: ${{ always() }}
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ matrix.format }}-${{ matrix.distro }}
+          path: ${{ runner.temp }}/m32-evidence
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed cell reads as a red job without blocking the evidence upload.
+      - name: Fail on a failed or missing score
+        if: ${{ always() }}
+        timeout-minutes: 2
+        env:
+          DISTRO: ${{ matrix.distro }}
+          FORMAT: ${{ matrix.format }}
+        run: |
+          ev="$M32_EVIDENCE/A/$FORMAT/$DISTRO-bare"
+          line="$M32_EVIDENCE/score-line.txt"
+          [ -f "$ev/score.json" ] || { echo "score.json missing: the cell did not complete"; exit 1; }
+          [ -s "$line" ] || { echo "score line missing"; exit 1; }
+          cat "$line"
+          if grep -q '=FAIL' "$line"; then echo "FAIL in the score line"; exit 1; fi
+          for g in G1p G1u G2 G4; do
+            grep -q "$g=PASS" "$line" || { echo "$g is not PASS"; exit 1; }
+          done
+          # G3 (the window) runs on the .deb cells only; the bare AppImage has no host GTK (N/A)
+          if [ "$FORMAT" = deb ]; then
+            grep -q "G3=PASS" "$line" || { echo "G3 is not PASS"; exit 1; }
+            grep -q "single=PASS" "$line" || { echo "single is not PASS"; exit 1; }
+          fi
+
+  summary:
+    needs: [build, checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        timeout-minutes: 5
+        with:
+          pattern: evidence-*
+          path: ${{ runner.temp }}/m32-all
+        continue-on-error: true
+
+      - name: Collect the score lines
+        timeout-minutes: 2
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          rc=0
+          n=0
+          lines="$RUNNER_TEMP/score-lines.txt"
+          : > "$lines"
+          for f in "$RUNNER_TEMP"/m32-all/*/score-line.txt; do
+            [ -f "$f" ] || continue
+            n=$((n + 1))
+            cat "$f" >> "$lines"
+            if grep -q '=FAIL' "$f"; then rc=1; fi
+          done
+          {
+            echo "### linux-packages"
+            echo "build: $BUILD_RESULT, checks: $CHECKS_RESULT"
+            echo '```'
+            cat "$lines"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$BUILD_RESULT" = success ] || rc=1
+          [ "$CHECKS_RESULT" = success ] || rc=1
+          if [ "$n" -ne 4 ]; then echo "expected 4 score lines, found $n"; rc=1; fi
+          exit "$rc"

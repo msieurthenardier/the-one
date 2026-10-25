@@ -104,7 +104,7 @@ _(none yet)_
   - One hosted macOS run per serious candidate, building a `doctor`-only bundle, retires the arm64 wheel and frozen-seam risks before Flight 3 depends on them.
   - Price the Windows side of each option: the in-place upgrade from the current Inno Setup install, `pywinpty`, WebView2, the tray and Restart Manager.
   - Output: a recorded decision (one tool, or a named hybrid) with its evidence. No shipped packages.
-- [ ] **Flight 2: Linux packages.**
+- [x] **Flight 2: Linux packages.** *(Landed 2026-10-24: AppImage + `.deb` from one pinned container and one metadata source; 44/44 fresh-VM behavior test on Ubuntu 26.04 and Debian 13; on Ubuntu, `.deb` upgrade and removal through `apt`, with the AppImage recommended first.)*
   - The AppImage and `.deb` on the chosen recipe, built locally during development and on a GitHub-hosted runner on a release tag or a manual run.
   - One source of product metadata, the data-dir invariant, the frozen-seam adjustments for the bundle layout, and the sandbox fallback made visible.
   - Fresh-VM install, upgrade and uninstall checks on Ubuntu 26.04 and Debian 13, and the Linux install guide.
@@ -115,5 +115,6 @@ _(none yet)_
   - The macOS install guide with the Gatekeeper approval steps, and the written contributor checklist.
 - [ ] **Flight 4: Windows on the chosen recipe, and one release path.**
   - Windows moves to the chosen recipe, or keeps PyInstaller and Inno with shared metadata if Flight 1 chose a hybrid. Prove in-place upgrade from the current install and the existing Windows checks, without breaking the per-push Concourse build.
+  - Make `pyproject.toml`'s version dynamic (`the_one.__version__`), after Mission 31 merges: Flight 2 pins the two equal with a test and leaves the `uv.lock` change here (Flight 2 DD6).
   - Wire the tag-triggered release to publish all four packages behind the dependency audit, dry-run it through a manual run while Mission 31 is active, and update README and CLAUDE.md.
   - Mission close: the contributors' end-to-end check on real Macs.

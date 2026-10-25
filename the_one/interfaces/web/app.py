@@ -19,7 +19,7 @@ from typing import Any, AsyncIterator, Literal, NamedTuple
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import the_one.retention as retention
 from the_one import __version__
@@ -2864,13 +2864,60 @@ async def mint_session_handoff(
     return {"url": f"{base_url}/?{HANDOFF_QUERY_PARAM}={token}"}
 
 
+class WindowFocusBody(BaseModel):
+    """Optional body of ``POST /api/window/focus`` (all fields optional)."""
+
+    # The launching desktop's XDG_ACTIVATION_TOKEN / DESKTOP_STARTUP_ID: opaque,
+    # used only to raise our window, and only a short prefix is ever logged.
+    activation_token: str | None = Field(default=None, max_length=256, pattern=r"^[\x21-\x7e]*$")
+
+
 @app.post("/api/window/focus")
-async def window_focus() -> dict[str, Any]:
+def window_focus(body: WindowFocusBody | None = None) -> dict[str, Any]:
     # Lazy import: the web app must stay importable without the GUI stack
     # (serve mode, CI). The desktop module pulls pywebview only when present.
     from the_one.interfaces.desktop.shell import focus_window
 
-    return {"focused": focus_window()}
+    token = body.activation_token if body is not None else None
+    return {"focused": focus_window(token) if token else focus_window()}
+
+
+@app.get("/api/window/state")
+def window_state_get() -> dict[str, Any]:
+    """The desktop window's state, visibility read from GTK itself (M32 F2 L03)."""
+    try:
+        from the_one.interfaces.desktop.shell import window_state
+
+        return window_state()
+    except Exception:
+        logger.warning("window_state: raised", exc_info=True)
+        # The shell could not be read: no desktop session is reachable from here,
+        # which is the same rule as ``mode: "serve"`` (``_session is None``).
+        return {
+            "desktop": False,
+            "mode": "serve",
+            "visible": None,
+            "mapped": None,
+            "pid": os.getpid(),
+        }
+
+
+@app.post("/api/window/quit")
+def window_quit() -> dict[str, Any]:
+    """Quit the desktop session (M32 F2 L03, L05).
+
+    ``state`` is what was quit: ``"window"``, ``"booting"`` (the quit is honoured
+    at the boot's next checkpoint), ``"browser"`` (the fallback server drains), or
+    null (a bare ``serve``: nothing to quit). ``quit`` is true for the first three.
+    """
+    try:
+        from the_one.interfaces.desktop.shell import quit_desktop
+
+        state = quit_desktop()
+    except Exception:
+        logger.warning("window_quit: raised", exc_info=True)
+        state = None
+    return {"quit": state is not None, "pid": os.getpid(), "state": state}
 
 
 class WindowChromeBody(BaseModel):
