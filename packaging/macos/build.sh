@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build GleepGlorp AI for macOS with PyInstaller, sign ad hoc, make a .dmg and run the checks.
 # Spike prototype (Mission 32 Flight 1, candidate A). Meant for the hosted macos-15 runner
-# (packaging-probe-macos.yml); every step is rehearsable with `bash -n`.
+# (macos-packages.yml); every step is rehearsable with `bash -n`.
 #
 #   packaging/macos/build.sh <version>           e.g. 0.11.8
 #
@@ -60,16 +60,27 @@ if [ "$RC" != 0 ] || [ ! -x "$APP/Contents/MacOS/the-one" ]; then tail -60 "$LOG
 echo "== A: ad-hoc sign"
 codesign --force --deep -s - "$APP" > "$LOG/codesign-sign.log" 2>&1; echo "codesign sign rc=$?"
 
-echo "== A: dmg"
-# hdiutil can fail on a busy runner: one retry, both attempts logged, never fatal
-for attempt in 1 2; do
-    tl 300 hdiutil create -volname "GleepGlorp AI" -srcfolder "$APP" -ov -format UDZO "$DMG" \
-        > "$LOG/hdiutil-$attempt.log" 2>&1; HRC=$?
-    echo "hdiutil attempt $attempt rc=$HRC"
-    [ "$HRC" = 0 ] && break
-done
-{ ls -l "$DMG" 2>&1; hdiutil verify "$DMG" 2>&1 | tail -3; } > "$LOG/dmg.txt" 2>&1 || true
-cat "$LOG/dmg.txt"
+if [ "${M32_SKIP_CHECKS:-0}" = 1 ]; then
+    echo "== A: dmg skipped (M32_SKIP_CHECKS=1, probe mode: saves 1-3 minutes and a hang risk)"
+else
+    echo "== A: dmg"
+    # hdiutil can fail on a busy runner: one retry, both attempts logged, never fatal
+    for attempt in 1 2; do
+        tl 300 hdiutil create -volname "GleepGlorp AI" -srcfolder "$APP" -ov -format UDZO "$DMG" \
+            > "$LOG/hdiutil-$attempt.log" 2>&1; HRC=$?
+        echo "hdiutil attempt $attempt rc=$HRC"
+        [ "$HRC" = 0 ] && break
+    done
+    { ls -l "$DMG" 2>&1; hdiutil verify "$DMG" 2>&1 | tail -3; } > "$LOG/dmg.txt" 2>&1 || true
+    cat "$LOG/dmg.txt"
+fi
 
+# M32_SKIP_CHECKS=1 skips checks.sh entirely (the probe mode of macos-packages.yml, Mission 32
+# Flight 3 leg 2): its doctor/serve/gate-4 runs would create the default data dir and a
+# credential before the probe's first-launch premise (P1), and the skip saves about 5 minutes.
+if [ "${M32_SKIP_CHECKS:-0}" = 1 ]; then
+    echo "== A: checks skipped (M32_SKIP_CHECKS=1)"
+    exit 0
+fi
 echo "== A: checks"
 bash "$REPO/packaging/macos/checks.sh" A "$APP" "$APP/Contents/MacOS/the-one" "$M32_LOGS"

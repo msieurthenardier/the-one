@@ -1,6 +1,6 @@
 # Flight: macOS app
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
@@ -428,7 +428,7 @@ Verified against the working tree at `e21d219`:
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [ ] `shell-split` — split `shell.py` into takeover, window-control and session-state modules, with tests re-pointed and a guard; no behaviour change, proven by the unit tier, the browser lanes and the Linux GTK smoke (DD1)
-- [ ] `macos-probe-prepare` — the `macos-packages.yml` stub PR, the probe job for P1-P9 (the product `.app` plus a minimal probe `.app`), the first-paint series and the report-only `otool` read, rehearsed by execution on Linux (DD9-DD11)
+- [x] `macos-probe-prepare` — the `macos-packages.yml` stub PR, the probe job for P1-P9 (the product `.app` plus a minimal probe `.app`), the first-paint series and the report-only `otool` read, rehearsed by execution on Linux (DD9-DD11)
 - [ ] `macos-probe-run` — one dispatch, the evidence read, the apparatus settled (Accessibility, or the test seam), the first-paint cause classified
 - [ ] `macos-dock-mode` — the dock mode, reopen, both quit paths (terminate with `NSTerminateLater`; stop with `begin_quit` and the geometry save), `boot_stopped`, `activate` on the main thread, App Nap, the native visibility read, the pywebview canary, the desktop test seam if leg 3 needs it, and any shell first-paint fix with its Linux VM check (DD2-DD5, DD9, DD11)
 - [ ] `macos-runtime-seam` — the interpreter `PATH` walk and the Command Line Tools stub, the login-shell `PATH`, the static additions, and every `doctor` change (the `PATH` source, the runtime list, `tray: dock`, the darwin `desktop shell` gate) (DD2, DD6, DD7)

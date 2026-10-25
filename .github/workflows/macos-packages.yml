@@ -1,0 +1,229 @@
+name: macos-packages
+
+# Mission 32 Flight 3 (macOS app), DD10. Builds GleepGlorp AI for macOS on a hosted Apple Silicon
+# runner (packaging/macos/build.sh, PyInstaller, ad-hoc signed) and runs it on the runner's GUI
+# session. Publishes nothing and reads no repository secret. Dispatch-only, so it never runs on
+# a push, PR or tag:
+#
+#   gh workflow run macos-packages.yml --ref flight/03-macos-app [-f mode=probe] [-f version=0.11.9.dev12]
+#
+# (GitHub offers a manual run only for a workflow file that exists on the default branch, and
+# validates the dispatch inputs against that copy: a `.github/`-only stub with the same `on:` block
+# lands on main first, and --ref then runs the flight branch's copy. So the `on:` block below is
+# FROZEN for the whole flight: adding an input needs another stub PR.) `workflow_call` is the entry
+# point the release workflow uses.
+#
+# Modes:
+#   probe      builds the product .app (checks skipped: M32_SKIP_CHECKS=1, so the default data dir and
+#              credential do not exist before the premise probe's first launch), freezes the
+#              minimal probe .app (packaging/macos/probe), proves it imports with --selftest, then
+#              runs packaging/macos/probe/probe.sh, which records observations (P1-P9, otool) and
+#              writes $M32_LOGS/probe/SUMMARY.txt. No .app or .dmg is uploaded.
+#   full       today's Flight 1 build and checks (doctor, serve, gate 4), unchanged. Leg 6 replaces it.
+#   lifecycle  reserved for the N and N+1 lifecycle check; it runs the same steps as full until then.
+#
+# Cost: macOS minutes bill at 10x on a private repo, so the run caps itself in layers: the job
+# timeout, a timeout on every step, a concurrency group that never cancels a running build and never
+# lets two run at once, and a hard bound on every probe call and premise (see packaging/macos/probe/README.md).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: choice
+        options:
+          - full
+          - lifecycle
+          - probe
+        default: full
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: string
+        required: false
+        default: full
+
+permissions:
+  contents: read
+
+# explicit bash is `bash --noprofile --norc -eo pipefail {0}`: a failing command before a `| tee` fails the step
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: macos-packages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # pinned, not macos-latest: Apple Silicon (arm64) on macOS 15
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        timeout-minutes: 5
+
+      # the runner context is not available in a job-level env, so the paths are set here
+      - name: Paths
+        timeout-minutes: 2
+        run: |
+          {
+            echo "M32_BUILD=$RUNNER_TEMP/m32-build"
+            echo "M32_LOGS=$RUNNER_TEMP/m32-build/logs"
+            echo "M32_REQUIREMENTS=$RUNNER_TEMP/m32-build/requirements-closure.txt"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/m32-build/logs"
+
+      - name: Runner evidence
+        timeout-minutes: 3
+        run: |
+          {
+            echo "== mode: ${{ inputs.mode }}"
+            echo "== sw_vers"; sw_vers
+            echo "== uname -m"; uname -m
+            echo "== /usr/bin/python3 (the Xcode command-line-tools python on this image)"
+            /usr/bin/python3 --version 2>&1 || true
+            echo "== xcodebuild"; xcodebuild -version 2>&1 || true
+            echo "== disk"; df -h /System/Volumes/Data 2>&1 | tail -2
+            echo "== cpu/mem"; sysctl -n hw.ncpu hw.memsize
+            echo "== /Applications writable: $(test -w /Applications && echo yes || echo no)"
+          } 2>&1 | tee "$M32_LOGS/runner.txt"
+
+      - uses: actions/setup-python@v6
+        timeout-minutes: 5
+        with:
+          python-version: "3.11"
+
+      - name: Python and tool versions
+        timeout-minutes: 2
+        run: |
+          {
+            python3 --version; python3 -m pip --version
+            echo "which python3: $(command -v python3)"
+          } 2>&1 | tee -a "$M32_LOGS/runner.txt"
+
+      # The same hash-pinned closure the Windows CI and the release pip-audit use, exported once;
+      # the build installs it with --no-deps --require-hashes.
+      - name: Export the pinned dependency closure
+        timeout-minutes: 8
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          python3 -m pip install --disable-pip-version-check uv==0.10.0
+          uv --version | tee -a "$M32_LOGS/runner.txt"
+          uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms \
+            --format requirements-txt > "$M32_REQUIREMENTS"
+          wc -l "$M32_REQUIREMENTS"
+          VERSION="$VERSION_INPUT"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(python3 -c 'import re,pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("the_one/__init__.py").read_text(), re.M).group(1))')"
+          fi
+          echo "M32_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "M32_APP=$RUNNER_TEMP/m32-build/macos-$VERSION/dist/GleepGlorp AI.app" >> "$GITHUB_ENV"
+          echo "M32_PROBE_APP=$RUNNER_TEMP/m32-build/probe/dist/M32 Probe.app" >> "$GITHUB_ENV"
+          echo "building version $VERSION"
+
+      # ---- full and lifecycle: today's build and checks, unchanged ----------------------------
+      - name: Build and check (PyInstaller)
+        if: ${{ inputs.mode != 'probe' }}
+        continue-on-error: true
+        timeout-minutes: 20
+        run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
+
+      # ---- probe: the product .app, no checks -------------------------------------------------
+      - name: Build the product app (probe mode, checks skipped)
+        if: ${{ inputs.mode == 'probe' }}
+        timeout-minutes: 20
+        env:
+          M32_SKIP_CHECKS: "1"
+        run: bash packaging/macos/build.sh "$M32_VERSION" 2>&1 | tee "$M32_LOGS/A-step.log"; exit "${PIPESTATUS[0]}"
+
+      - name: Freeze the probe app
+        if: ${{ inputs.mode == 'probe' }}
+        timeout-minutes: 10
+        run: |
+          "$M32_BUILD/venv-pyi/bin/pyinstaller" --noconfirm --clean \
+            --distpath "$M32_BUILD/probe/dist" --workpath "$M32_BUILD/probe/work" \
+            packaging/macos/probe/probe.spec > "$M32_LOGS/probe-pyinstaller.log" 2>&1 \
+            || { tail -60 "$M32_LOGS/probe-pyinstaller.log"; exit 1; }
+          codesign --force --deep -s - "$M32_PROBE_APP"
+          test -x "$M32_PROBE_APP/Contents/MacOS/m32-probe"
+
+      # a missing hidden import shows here as a clear step failure, not as a dead probe mid-run
+      - name: Probe app selftest
+        if: ${{ inputs.mode == 'probe' }}
+        timeout-minutes: 3
+        run: |
+          rm -f "$HOME/Library/Logs/m32-probe/probe.log"
+          rc=0
+          perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 60 \
+            "$M32_PROBE_APP/Contents/MacOS/m32-probe" --selftest > "$M32_LOGS/probe-selftest.txt" 2>&1 || rc=$?
+          echo "selftest rc=$rc"
+          cat "$M32_LOGS/probe-selftest.txt"
+          echo "-- probe.log"; cat "$HOME/Library/Logs/m32-probe/probe.log" 2>&1 || true
+          rm -f "$HOME/Library/Logs/m32-probe/probe.log"
+          exit "$rc"
+
+      # observations only: the step never fails the job, so the upload below always runs
+      - name: Premise probe
+        if: ${{ inputs.mode == 'probe' }}
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          mkdir -p "$M32_LOGS/probe"
+          rc=0
+          perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 1170 \
+            bash packaging/macos/probe/probe.sh "$M32_APP" "$M32_PROBE_APP" ai.gleepglorp.the-one "$M32_LOGS/probe" \
+            > "$M32_LOGS/probe-step.log" 2>&1 || rc=$?
+          echo "probe.sh rc=$rc"
+          cat "$M32_LOGS/probe/SUMMARY.txt" 2>&1 || true
+          exit 0
+
+      - name: Summary
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          for f in "$M32_LOGS"/A/SUMMARY.txt "$M32_LOGS"/probe/SUMMARY.txt; do
+            [ -f "$f" ] || continue
+            echo "### $(basename "$(dirname "$f")")" >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          du -sh "$M32_LOGS" || true
+
+      # Logs, listings, evidence and screenshots only. Never a bundle, .app or .dmg.
+      - name: Upload logs and evidence
+        if: ${{ always() }}
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages-logs
+          path: ${{ runner.temp }}/m32-build/logs
+          retention-days: 7
+          if-no-files-found: warn
+
+      # Last, so a failed build reads as a red job without ever blocking the log upload.
+      - name: Fail on a failed or missing result
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          rc=0
+          if [ "${{ inputs.mode }}" = probe ]; then
+            [ -f "$M32_LOGS/probe/SUMMARY.txt" ] || { echo "probe: SUMMARY missing"; rc=1; }
+          else
+            f="$M32_LOGS/A/SUMMARY.txt"
+            if [ ! -f "$f" ]; then echo "build: SUMMARY missing"; rc=1
+            elif grep -q 'FAIL' "$f"; then echo "build: FAIL in SUMMARY"; rc=1; fi
+          fi
+          exit "$rc"

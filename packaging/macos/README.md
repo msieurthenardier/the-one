@@ -2,7 +2,7 @@
 
 **Flight 1 winner (Mission 32): the starting point for Flight 3 (macOS). Still a prototype, not wired into CI; ad-hoc signed; publishes nothing.**
 It freezes GleepGlorp AI with PyInstaller on Python 3.11 into `GleepGlorp AI.app` and a `.dmg`.
-It is built and checked by the dispatch-only workflow `.github/workflows/packaging-probe-macos.yml`
+It is built and checked by the dispatch-only workflow `.github/workflows/macos-packages.yml`
 on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator's machine.
 
 ## Files
@@ -40,3 +40,9 @@ on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator'
   unlike Linux's `.deb`, where bare `the-one` is the terminal chat.
 - Linux rehearsal: `py_compile`, and the spec runs through Analysis against a staged copy on Linux
   (its `BUNDLE` is a no-op there). The macOS-only parts are first exercised by the hosted run.
+
+## Probe mode
+
+`.github/workflows/macos-packages.yml` with `-f mode=probe` builds this app with `M32_SKIP_CHECKS=1` (skips
+`checks.sh`, so the default data dir and credential do not exist before the first-launch premise), freezes the
+minimal probe app and runs `probe/probe.sh`. See `probe/README.md`.
