@@ -450,7 +450,7 @@
 - **Run `40228973240` (dispatch 5 of 5, lifecycle, `e70dcfc`): green, and the P1 fix is verified.** `A` 13 PASS; lifecycle 13 PASS in 71 s. L1 logged `macos: main window shown after page load (1.6s)` (and 1.2 s on the next launch), so WKWebView does load in a never-ordered-in window. At +1 s the state is `visible=null` and only the frameless splash is on screen: no empty main window in front of it.
   - **Leftover, for the debrief:** at +1 s the splash's card is drawn but its logo and text have not painted yet (no fade-in in its CSS; most likely the splash's own WKWebView start). The user sees a blank branded card for about 1.5 s before the app. That is better than the framed empty window, so it is not chased (the budget is spent).
   - About 40 billed min; **the flight total is about 230 billed minutes, 5 of 5 dispatches.** The review page was updated with the after-fix screenshots.
-- **Flight landed (2026-10-25).** All legs `completed`; status `landed`; Flight 3 checked off in the mission. The PR is opened ready for review. The debrief (`/mission-control:flight-debrief`) is next.
+- **Flight landed (2026-10-25).** All legs `completed`; status `landed`; Flight 3 checked off in the mission. PR #313 is opened ready for review. It conflicted only on the #312 stub (add/add of `macos-packages.yml`); the merge `6c90961` keeps the branch's file, and the `on:` blocks are identical. lint and pip-audit pass; MERGEABLE CLEAN. The debrief (`/mission-control:flight-debrief`) is next.
 
 ## Leg Progress
 
