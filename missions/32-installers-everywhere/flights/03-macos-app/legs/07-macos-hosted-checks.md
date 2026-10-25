@@ -1,6 +1,6 @@
 # Leg: macos-hosted-checks
 
-**Status**: landed
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective

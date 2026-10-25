@@ -1,6 +1,6 @@
 # Leg: macos-hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -20,9 +20,9 @@ The operator reviews what the hosted Mac runner saw (there is no Mac to walk), a
 3. Verify the P1 fix on dispatch 5 (`mode=lifecycle`): L1's new row PASS, the +1 s screenshot showing the splash or a painted page, and every other row still PASS.
 
 ## Acceptance Criteria
-- [ ] Every finding has a recorded disposition.
-- [ ] The P1 fix is reviewed, committed, and verified by a green lifecycle run.
-- [ ] The docs reflect the decisions (the `xattr` warning).
+- [x] Every finding has a recorded disposition.
+- [x] The P1 fix is reviewed, committed, and verified by a green lifecycle run.
+- [x] The docs reflect the decisions (the `xattr` warning).
 
 ---
 

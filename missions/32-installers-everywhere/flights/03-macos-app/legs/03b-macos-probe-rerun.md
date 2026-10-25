@@ -1,6 +1,6 @@
 # Leg: macos-probe-rerun
 
-**Status**: landed
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -30,9 +30,9 @@ Fix the probe so its delegate premises can actually be observed, re-run it on th
 - **Rehearsal:** re-run leg 2's three Linux scenarios with the shims, plus a fourth in which the fake selftest reports route `none` (the selftest step fails, the probe still runs, the upload still happens).
 
 ## Acceptance Criteria
-- [ ] **AC1:** the probe changes as listed. `ruff`, `py_compile`, `shellcheck`, `bash -n` (bash 3.2 syntax) and `actionlint` (if the workflow changed) are clean. The four rehearsals pass and are recorded.
-- [ ] **AC2:** the Flight Director commits the probe changes plus the artifacts, pushes, and dispatches `mode=probe` (run id recorded).
-- [ ] **AC3:** the evidence is downloaded to `$HOME/the-one-m32-evidence/f3/leg3b/`, and a `### macos-probe-rerun` flight-log section answers:
+- [x] **AC1:** the probe changes as listed. `ruff`, `py_compile`, `shellcheck`, `bash -n` (bash 3.2 syntax) and `actionlint` (if the workflow changed) are clean. The four rehearsals pass and are recorded.
+- [x] **AC2:** the Flight Director commits the probe changes plus the artifacts, pushes, and dispatches `mode=probe` (run id recorded).
+- [x] **AC3:** the evidence is downloaded to `$HOME/the-one-m32-evidence/f3/leg3b/`, and a `### macos-probe-rerun` flight-log section answers:
   - the route that installed, with both signatures as logged;
   - whether `NSTerminateLater` plus the deferred reply terminated the probe (quit Apple event, and Cmd-Q keystroke);
   - whether `applicationShouldTerminate:` was logged for Cmd-Q (path T, observed directly);

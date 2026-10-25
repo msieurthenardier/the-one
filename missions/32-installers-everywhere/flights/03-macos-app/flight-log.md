@@ -3,7 +3,35 @@
 **Flight**: [macOS app](flight.md)
 
 ## Summary
-Planning.
+**Landed 2026-10-25.** Nine legs completed: eight planned, plus `macos-probe-rerun`, added after leg 3's delegate premise came back unanswered.
+
+**Delivered:**
+- **`shell.py` split** into takeover, window-control and session-state modules, with a guard against test patches that miss.
+- **The macOS Dock mode:**
+  - close hides the window, and the Dock or `open -a` reopens it through a subclass of pywebview's app delegate;
+  - every quit drains the server first (`NSTerminateLater` plus a worker; a stop path for a Cmd-Q the web view handles);
+  - focus runs on the main thread, App Nap is held off;
+  - the main window waits for its page;
+  - a canary test pins the pywebview 5.4 Cocoa facts.
+- **The frozen runtime on macOS:** the Command Line Tools stub is never run; the `PATH` walk; the login-shell `PATH`; `doctor`'s `tray: dock`, `path:` and Cocoa gate.
+- **The recipe:**
+  - `product.toml` with one app id (Linux output unchanged), macOS 14 minimum, the Info.plist, an ad-hoc signed drag-to-Applications `.dmg`, an enforcing audit, the Finder-launch log file;
+  - `macos-packages.yml` modes `full`/`lifecycle`/`probe`;
+  - `lifecycle.sh` driving the installed app;
+  - a premise probe.
+- **Docs:** `docs/macos-install.md`, `docs/macos-contributor-check.md`, the README, `CLAUDE.md` and `agents.md`; the `macos-app-install` behavior test drafted for Flight 4's contributor run.
+
+**Hosted proof:** lifecycle runs `40214604211` and `40228973240`, both 13/13 checks and 13/13 lifecycle steps. Five of 5 macOS dispatches were used (the operator raised the cap from 4), about 230 billed minutes.
+
+**Gates:**
+- `make test-unit` 7404 passed, 12 skipped (after the P1 fix);
+- every browser lane passed (`PARALLEL_RESULT rc=0 total=2137s`, `--parallel 2` beside Mission 31);
+- ruff clean;
+- the Linux GTK smoke passed after legs 1, 4 and the P1 fix.
+
+**Operator decisions:**
+- Dock only; the split as leg 1; up to 4 runs, then 5; one app id; macOS 14+; kill the Flight 2 `dbus-daemon`s;
+- at the HAT: P1 fix now, P2 → squawk 0260, keep the `xattr` tip with a warning, accept the second Dock icon.
 
 ---
 
@@ -418,6 +446,11 @@ Planning.
   - **Decisions:** P1 "Fix now"; P2 "Squawk it" → **squawk 0260** (the seed lists retired `claude-3-5-haiku-20241022`, so the coverage guard blocks every catalog refresh: more than a cosmetic warning); `xattr` "Keep with a warning"; the second Dock icon "Accept".
   - **Correction, logged:** the Flight Director first described P1 as "the splash drawn with a title bar". The evidence (`visible=true` at +1 s, the window title and size) shows it is the main window, shown before its page painted, covering the splash. The page was corrected. The decision's intent is unchanged.
   - The P1 fix (darwin: show on `loaded`, with a bounded fallback) is a look-and-feel FIX on one surface. It is verified by **dispatch 5 of 5** after review.
+
+- **Run `40228973240` (dispatch 5 of 5, lifecycle, `e70dcfc`): green, and the P1 fix is verified.** `A` 13 PASS; lifecycle 13 PASS in 71 s. L1 logged `macos: main window shown after page load (1.6s)` (and 1.2 s on the next launch), so WKWebView does load in a never-ordered-in window. At +1 s the state is `visible=null` and only the frameless splash is on screen: no empty main window in front of it.
+  - **Leftover, for the debrief:** at +1 s the splash's card is drawn but its logo and text have not painted yet (no fade-in in its CSS; most likely the splash's own WKWebView start). The user sees a blank branded card for about 1.5 s before the app. That is better than the framed empty window, so it is not chased (the budget is spent).
+  - About 40 billed min; **the flight total is about 230 billed minutes, 5 of 5 dispatches.** The review page was updated with the after-fix screenshots.
+- **Flight landed (2026-10-25).** All legs `completed`; status `landed`; Flight 3 checked off in the mission. The PR is opened ready for review. The debrief (`/mission-control:flight-debrief`) is next.
 
 ## Leg Progress
 

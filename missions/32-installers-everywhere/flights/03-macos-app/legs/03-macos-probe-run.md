@@ -1,6 +1,6 @@
 # Leg: macos-probe-run
 
-**Status**: landed
+**Status**: completed
 **Flight**: [macOS app](../flight.md)
 
 ## Objective
@@ -31,10 +31,10 @@ Read the evidence of probe run `40203877635` and settle, with citations to that 
 - Any change these decisions force on legs 4-7 is noted for the Flight Director, who re-designs those legs. This leg edits no other artifact.
 
 ## Acceptance Criteria
-- [ ] The artifact is downloaded, and its sha256 list is recorded in the evidence dir.
-- [ ] The flight-log section has a row for every premise and all nine decisions, each citing an evidence file.
-- [ ] Every divert criterion is explicitly evaluated (triggered or not).
-- [ ] Nothing in the repo changed except the flight log (and this leg's status).
+- [x] The artifact is downloaded, and its sha256 list is recorded in the evidence dir.
+- [x] The flight-log section has a row for every premise and all nine decisions, each citing an evidence file.
+- [x] Every divert criterion is explicitly evaluated (triggered or not).
+- [x] Nothing in the repo changed except the flight log (and this leg's status).
 
 ## Verification Steps
 - `ls` of the evidence dir; the flight-log section read against `SUMMARY.txt`.
