@@ -1,38 +1,38 @@
 # Flight: Windows on shared metadata, and one release
 
-**Status**: in-flight
+**Status**: completed
 **Mission**: [GleepGlorp AI installs like an app on Windows, macOS and Linux](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **One packaging source of truth, built within the CI budget** (the Windows half, and the whole of it).
+- [x] **One packaging source of truth, built within the CI budget** (the Windows half, and the whole of it).
   - The Windows installer and the frozen Windows app read their product name, publisher, URL, version, app GUID and file names from `packaging/product.toml` through `packaging/render.py`, and freeze from `packaging/stage.py`'s staged copy, like Linux and macOS (DD3).
   - A version bump is one edit in `the_one/__init__.py`, and `pyproject.toml` reads its version from there (DD6).
   - The Concourse per-push Windows build keeps working, proven before merge with `fly execute` (DD4).
   - macOS and Linux still build on hosted runners only on a tag or a manual run.
-- [ ] **A release ships all three.**
+- [x] **A release ships all three.**
   - A `v*` tag runs `release.yml`. The release-closure `pip-audit` runs first, and the three platform jobs need it (DD7).
   - The release publishes four packages to one GitHub release: the Windows installer, the macOS `.dmg`, the AppImage and the `.deb`.
   - A manual dry run of the same workflow, which publishes nothing, is green before the tag (DD8).
   - The real release is `v0.12.0`, cut in this flight with the operator's go (the amended charters, DD11).
-- [ ] **Windows does not regress.**
+- [x] **Windows does not regress.**
   - On a hosted `windows-2022` runner, the installed app passes `doctor`, the windowed launcher, close-to-tray, single-instance focus, `the-one quit`, the title-bar state and the version check (DD5).
   - The operator upgrades their own install and confirms it (DD11).
-- [ ] **Upgrades keep the user's data** (Windows).
+- [x] **Upgrades keep the user's data** (Windows).
   - Installing over a running app quits it gracefully, with the server's shutdown drain, before files are replaced. Anything older or hung falls back to today's force path (DD2).
   - The upgrade from the released v0.11.8 installer is rehearsed on the runner (DD5).
   - Chats, agents, providers, secrets and the credential survive.
   - Uninstalling leaves the data, and the guide says where it lives.
-- [ ] **The window behaves like a native app on each platform** (no regressions from the boot-policy refactor, DD1).
+- [x] **The window behaves like a native app on each platform** (no regressions from the boot-policy refactor, DD1).
   - Windows: proven on the hosted lifecycle run.
   - Linux: the GTK smoke.
   - macOS: a standalone `lifecycle` run at the end of leg 2, and again inside the dry run.
-- [ ] **macOS install, without an Apple developer account** (the contributor half).
+- [ ] **macOS install, without an Apple developer account** (the contributor half). *(Carried at landing, operator 2026-10-26: "Land now, carry it". No real-Mac report yet; squawk 0261 is deferred on it, and the report becomes the `macos-app-install` run log when it arrives.)*
   - Contributors with real Macs run `macos-app-install` from `docs/macos-contributor-check.md` against the release's `.dmg`.
   - Their report becomes the behavior test's run log (DD10).
-- [ ] **Install guides for every platform.**
+- [x] **Install guides for every platform.**
   - `docs/windows-install.md` covers the graceful upgrade and the data location.
   - README "Install" points every platform at the release page.
-- [ ] **Existing gates pass.** Unit, browser (every lane) and lint. Packaging code stays out of `the_one/` imports.
+- [x] **Existing gates pass.** Unit, browser (every lane) and lint. Packaging code stays out of `the_one/` imports.
 
 ---
 
@@ -59,7 +59,7 @@
 - [x] **Checking the Concourse Windows task before merge?** → `fly execute` on the Windows worker; the operator logs `fly` in (DD4).
 - [x] **The gate for landing?** → The real `v0.12.0` release and its field checks (operator: "the real v release is the gate"). The operator confirms before the flight closes (DD11).
 - [x] **How does the Windows freeze carry a dev or N+1 version?** → Through `stage.py`, as on Linux and macOS (DD3). This came from the Architect's review.
-- [ ] **A two-step field upgrade on Windows** (v0.11.8 → the dry run's `0.12.0.dev1` installer → `v0.12.0`), so the graceful path meets a real UAC prompt in this flight → proposed in DD11; the operator's answer is needed at plan approval.
+- [x] **A two-step field upgrade on Windows** (v0.11.8 → the dry run's `0.12.0.dev1` installer → `v0.12.0`), so the graceful path meets a real UAC prompt in this flight → proposed in DD11; the operator's answer is needed at plan approval. **Resolved (operator, leg 6):** one step instead ("yolo it"): v0.11.8 → `v0.12.0` directly, no backup. The real UAC prompt met the graceful path on 0.12.0 → `v0.12.1`.
 
 ### Design Decisions
 

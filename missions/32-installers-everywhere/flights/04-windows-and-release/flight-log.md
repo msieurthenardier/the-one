@@ -676,3 +676,16 @@ Branch `flight/04-v0.12.1` off `main` `2983df1`. Fix for the field defect (the v
   - **Quit timing:** setup `quit-call` 13:02:36.438 → returned RC=0 13:02:42.778 (6.3 s), `nothing left before KillRunning`, first copy 13:02:43.184. L7 the same shape (quit-call → first copy 6.8 s). Uninstall (L9) 6.4 s.
   - **Limit:** the runner is elevated with `ConsentPromptBehaviorAdmin=0`, so no real UAC prompt and no original-user/elevated split; the operator's field upgrade covers that.
   - Evidence: `$HOME/the-one-m32-evidence/f4/leg6/run-40325945656/`.
+
+### v0.12.1 released (2026-10-26)
+- PR #325 merged by the operator as `43bbd55`. "merged, bump and release": the bump was already in the PR; `scripts/release_check.py --event push --ref refs/tags/v0.12.1` printed `0.12.1` locally on `origin/main`; tag `v0.12.1` (annotated) on `43bbd55`, pushed.
+- **Release run `40328839364`:** all green. audit 21 s, version 11 s, windows/build 4m17s, macos/build 1m37s (build + `checks.sh`, the same shape as v0.12.0's 1m39s), linux/build 2m46s, the four linux checks 1m30s-4m54s, publish 51 s.
+- https://github.com/msieurthenardier/the-one/releases/tag/v0.12.1, "v0.12.1 — A responsive Windows installer", not a draft or a prerelease: `the-one-setup-0.12.1.exe` 138,736,600, `GleepGlorp_AI-0.12.1-arm64.dmg` 122,351,318, `GleepGlorp_AI-0.12.1-x86_64.AppImage` 144,558,584, `gleepglorp-ai_0.12.1_amd64.deb` 141,633,068, `SHA256SUMS`. Downloaded and `sha256sum -c` OK ×4 (`$HOME/the-one-m32-evidence/f4/leg6/release-v0.12.1/`).
+- Budgets at close: hosted macOS 4 of 4 (leg 2, the dry run, v0.12.0, v0.12.1); hosted Windows lifecycle 6 (the 5th and 6th approved by the operator).
+- **Waiting on:** the operator's 0.12.0 → 0.12.1 interactive upgrade (UAC prompt, clean quit, a responsive wizard, Finish closes) and the remaining field checks; the contributors' macOS check (squawk 0261). The macOS N+1 for contributors is now the v0.12.1 `.dmg`, or v0.12.0's, both fine as N+1 over the dry run's `0.12.0.dev1`.
+
+### Landing (2026-10-26)
+- **The operator's field report:** the 0.12.0 → 0.12.1 upgrade "worked fine"; the startup logo, data intact, tray, second-launch focus and title-bar tint were "all fine". Leg 6 AC2 met (with the one-step field upgrade the operator chose).
+- **macOS contributor check:** no report yet. The operator chose "Land now, carry it": AC3 accepted as outstanding, squawk 0261 `deferred` with the contributors' report as its trigger.
+- **Leg 6 `completed`; flight `landed`;** Flight 4 checked off in `mission.md`. Open squawks carried: 0261 (deferred), 0264, 0265. The release artifacts and this landing go in the follow-up PR from `flight/04-leg6-close`.
+- **Docs check (Phase 3):** v0.12.1 added no command, endpoint or setting. `docs/windows-install.md` names the setup log (#325); CLAUDE.md's "Release (M32 F4)" stays accurate.

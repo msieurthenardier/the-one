@@ -1,6 +1,6 @@
 # Leg: release-and-field-check
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -31,7 +31,13 @@ Ship `v0.12.0` from `main` through `release.yml`. Then close the field checks: t
 8. **Landing:** when the operator confirms, the flight is marked `landed` and the mission's Flight 4 is checked off. This leg's artifacts go in a follow-up PR.
 
 ## Acceptance Criteria
-- [ ] **AC1:** `v0.12.0`, or its last patch, is published by `release.yml` from `main`, with the four packages plus `SHA256SUMS`. The run id is in the flight log.
-- [ ] **AC2:** the operator reports the two-step Windows upgrade done, with data intact, and the field checks as they found them.
-- [ ] **AC3:** a contributor's real-Mac report is recorded as the `macos-app-install` run log, or the operator accepts its absence or failures as known issues.
-- [ ] **AC4:** the operator confirms the flight.
+- [x] **AC1:** `v0.12.0`, or its last patch, is published by `release.yml` from `main`, with the four packages plus `SHA256SUMS`. The run id is in the flight log.
+- [x] **AC2:** the operator reports the two-step Windows upgrade done, with data intact, and the field checks as they found them.
+- [x] **AC3:** a contributor's real-Mac report is recorded as the `macos-app-install` run log, or the operator accepts its absence or failures as known issues.
+- [x] **AC4:** the operator confirms the flight.
+
+## Outcome
+- **AC1:** `v0.12.0` (run `40269216641`) and its patch `v0.12.1` (run `40328839364`), both from `main` with four packages plus `SHA256SUMS`, verified.
+- **AC2:** the operator upgraded in one step instead of two (v0.11.8 → `v0.12.0`, no backup, their call). The v0.12.0 wizard froze (the install itself worked), fixed in `v0.12.1` (PR #325, hosted L1-L11 PASS); 0.12.0 → 0.12.1 "worked fine", and the startup logo, data, tray, single instance and tint were "all fine".
+- **AC3:** no real-Mac report yet; the operator accepted landing with it outstanding (squawk 0261 deferred on it).
+- **AC4:** the operator confirmed landing (2026-10-26).
