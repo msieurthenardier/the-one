@@ -667,3 +667,12 @@ Branch `flight/04-v0.12.1` off `main` `2983df1`. Fix for the field defect (the v
     4. The PR, the merge, then tag `v0.12.1` with the operator's go.
     5. The operator upgrades 0.12.0 → 0.12.1 interactively: a graceful quit under a real UAC prompt, and a responsive wizard.
     6. The contributors' macOS check, still open.
+
+### Resumed (2026-10-26 morning)
+- **Local compile, `fly execute`** (one-off, head `be31aea`, 12:39:51-12:52:27Z, 12m36s): exit 0. ISCC 6.7.1 `Successful compile (103.297 sec)`; `doctor` `RESULT: PASS`; `the-one-setup-0.12.1.exe` 138,628,896 bytes (kept in evidence, not run or published). Logs: `$HOME/the-one-m32-evidence/f4/leg6/fly-0121-run2/`.
+- **Hosted Windows run `40325945656`** (`release.yml`, `--ref flight/04-v0.12.1`, `version=0.12.1.dev1`, `platforms=windows`, `windows_mode=lifecycle`; head `be31aea`, push verified before a separate dispatch command). `audit` and `version` success, `windows / build` success in 10m13s, macOS/Linux/`publish` skipped. Hosted Windows lifecycle runs: 6 (the one approved for v0.12.1).
+  - **L1-L11 all PASS** (N=0.12.1.dev1, N+1=0.12.1.dev2, old 0.11.8). Run order L1-L8, L10, L11, L9.
+  - **L11 (interactive wizard):** clicks Next@1s, Install@1s, Finish@19s; every `WM_NULL` probe answered, slowest 355 ms (the v0.12.0 freeze would fail this); wizard closed and installer exited 1207 ms after Finish, exit 0; Setup log `Setup Log 2026-10-26 #001.txt` in `%TEMP%`; the ticked Launch box started 0.12.1.dev2; marker kept.
+  - **Quit timing:** setup `quit-call` 13:02:36.438 → returned RC=0 13:02:42.778 (6.3 s), `nothing left before KillRunning`, first copy 13:02:43.184. L7 the same shape (quit-call → first copy 6.8 s). Uninstall (L9) 6.4 s.
+  - **Limit:** the runner is elevated with `ConsentPromptBehaviorAdmin=0`, so no real UAC prompt and no original-user/elevated split; the operator's field upgrade covers that.
+  - Evidence: `$HOME/the-one-m32-evidence/f4/leg6/run-40325945656/`.
