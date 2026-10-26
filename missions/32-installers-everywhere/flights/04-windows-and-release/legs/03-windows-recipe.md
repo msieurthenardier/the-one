@@ -82,7 +82,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - `app_guid` is `CAEEFB46-2698-4048-AD9F-0120D0B7174A`, and a test pins that value.
   - Linux and macOS renders are byte-identical before and after. Show it: render every existing template at a fixed version and `SOURCE_DATE_EPOCH`, on the base and the leg, and diff.
 - [ ] **AC2: `render.py --out FILE`.** It writes UTF-8 with LF line endings and no BOM, the same text the stdout path writes. Its errors return 1 like today's. Tests cover it, including an `.iss.in` render. The Linux and macOS build scripts keep stdout.
-- [ ] **AC3: the rendered include.** `product.iss.in` renders every `#define` the `.iss` needs (name, version, publisher, URL, dir name, exe names, setup stem, the GUID).
+- [ ] **AC3: the rendered include.** `product.iss.in` renders every `#define` the `.iss` needs (name, version, publisher, URL, dir name, exe names, setup stem). The GUID is not a `#define`: the `AppId` line stays literal and a test checks it.
   - `the-one.iss` `#include`s it. The `#ifndef AppVersion` fallback and any `/DAppVersion` use are gone, so the include is the only version source, and a missing `product.iss` is an ISCC error.
   - The effective `[Setup]` lines (`AppName`, `AppVersion`, `AppVerName`, `DefaultDirName`, `DefaultGroupName`, `OutputBaseFilename`) and the `[Icons]` names, after preprocessing, are identical to today's for the same version.
   - **The `AppId` line stays literal in `the-one.iss`** (`AppId={{CAEEFB46-2698-4048-AD9F-0120D0B7174A}}`) and never goes through the preprocessor: a test-side expander cannot prove how ISPP treats `{{` next to `{#`. A test pins that the literal line equals `AppId={{` + `app_guid` + `}}` from `product.toml`.
