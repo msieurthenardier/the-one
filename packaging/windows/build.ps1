@@ -44,7 +44,7 @@ $script:MinInnoMajor = 6
 $script:MinInnoMinor = 1
 
 # What strict `doctor` must print, by name: the exit code alone cannot see a probe silently
-# dropped from run_doctor's gate list. (windows-installer.yml's list, plus the desktop shell and
+# dropped from run_doctor's gate list. (the retired windows-installer.yml's list, plus the desktop shell and
 # the child-spawn seam.)
 function Get-DoctorNeedles {
     return @(

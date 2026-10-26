@@ -1719,7 +1719,7 @@ The app runs host-native at `localhost:8484` via `the-one serve` (started by `ma
 **Consumers of the exit code + stdout** — the report format is a contract, not incidental logging:
 - `the_one/main.py`'s `cli_entry()` `doctor` branch: `sys.exit(run_doctor())`.
 - `tests/test_doctor.py`: asserts `code == 0`/`!= 0` and greps specific `"{name}: OK"`/`"{name}: FAIL"` substrings out of the captured stream.
-- `.github/workflows/windows-installer.yml` and `ci/tasks/windows-installer-build.yml`: both run the frozen `the-one.exe doctor`, capture stdout to a file, and `grep -q`/PowerShell-match the exact same per-gate `"{name}: OK"` strings (`child spawn`, `desktop shell`, `usearch`, `fts5`, `embedding model`, `file watcher`, `window chrome`, `time zones`, `mcp sdk`) plus `RESULT: PASS`. Renaming a probe's `name` breaks these greps silently — they are not exercised by `make test-unit`.
+- `packaging/windows/build.ps1` (called by `windows-packages.yml` and `ci/tasks/windows-installer-build.yml`): runs the frozen `the-one.exe doctor`, captures stdout to a file, and PowerShell-matches the exact same per-gate `"{name}: OK"` strings (`child spawn`, `desktop shell`, `usearch`, `fts5`, `embedding model`, `file watcher`, `window chrome`, `time zones`, `mcp sdk`) plus `RESULT: PASS`. Renaming a probe's `name` breaks these greps silently — they are not exercised by `make test-unit`.
 
 **The eleven gates**, in the order `run_doctor` runs and prints them:
 

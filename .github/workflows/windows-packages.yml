@@ -68,7 +68,7 @@ on:
 permissions:
   contents: read
 
-# the same shell as windows-installer.yml (Git Bash: `bash --noprofile --norc -eo pipefail {0}`);
+# the same shell as the retired windows-installer.yml (Git Bash: `bash --noprofile --norc -eo pipefail {0}`);
 # steps that need PowerShell say `shell: pwsh`
 defaults:
   run:

@@ -213,7 +213,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - uninstalling while running.
 
   Edits are additive. No guide text may claim more than the runner proved: the Windows 11 tint and the UAC prompt are field-checked (DD11).
-- [ ] **AC15 (the Flight Director, outward):**
+- [x] **AC15 (the Flight Director, outward):**
   - **Run 1 of 4 Windows lifecycle dispatches:** `gh workflow run windows-packages.yml --ref flight/04-windows-and-release -f mode=lifecycle`.
   - All L1-L9 rows PASS, and the `windows-installer` artifact is uploaded.
   - Fixes for red rows follow the Flight 3 rule (product defect, harness defect or runner limit), within the remaining three dispatches.

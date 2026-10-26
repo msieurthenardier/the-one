@@ -435,3 +435,74 @@ Hosted-side code only; nothing dispatched, nothing committed. Leg status `landed
 - Blocking: the lifecycle verdict's anchored greps now strip CR first (`tr -d '\r' < "$S" | grep -q ...`, both the done line and `^FAIL`), and `Write-Summary` writes LF with no BOM through `[IO.File]::WriteAllText`. `lib.ps1 -SelfTest` asserts the written summary has no CR; `test_lifecycle_step_and_verdict` asserts every anchored grep in the verdict strips CR. Audit of the other PowerShell-written files: build.env is parsed in pwsh (`Get-Content`/`Split`), the ISCC line is read with `Select-String` (no end anchor), doctor output is only copied; no other bash grep reads them.
 - `the-one.iss`: comment citing leg 1's order evidence (probe run 40246340174, W3 /LOG line 14 `rm-variant: PrepareToInstall ran` before line 21 `Shutting down applications using our files`; W4's quit drained the app before Restart Manager); the poll now compares Cardinal values only (`Elapsed`/`Limit`); a comment records that the quit call is made only when `{app}\the-one.exe` exists while the poll and `KillRunning` run either way (behaviour kept, harmless; deviation from the AC11 wording noted).
 - `docs/windows-install.md`: the different-elevating-account caveat added to "Uninstalling while the app is running".
+- **Leg 3, Windows lifecycle dispatch 1 (`40259389810`): lost** in the frozen-serve smoke, before the lifecycle ran (about 5 min). `smoke.py info` got HTTP 401 for 60 s. A Developer is diagnosing it with a local rehearsal. Hosted Windows lifecycle runs used: 1 of 4.
+- **The local compile of phase 3b's `.iss`** on the Concourse worker (`fly execute`, before the review's Cardinal edit) succeeded: ISCC 6.7.1 compiled `ExecAsOriginalUser` in setup code and `Exec` in uninstall code; `doctor` `RESULT: PASS`; `the-one-setup-0.11.8.exe` 138,501,706 bytes (discarded). Note: it started in a gap between Mission 31's browser slices, and Mission 31 then started another slice while the Windows build ran on the worker (a different machine context).
+- **Phase 3b committed** at `7ecc171`, after two review cycles (Reviewer, Haiku; cycle 1 blocked on the CRLF summary vs `grep '…$'`, fixed). The leg 3b Developer kept re-sending "waiting on its own background work" with nothing running; the Flight Director checked and stopped it (TaskStop). This is a recurrence of Flight 3's methodology observation 3.
+- **Leg 4 (`release-workflow`) is tiered high-risk.** Its design review (Developer, Sonnet) returned approve with changes.
+  - High: squawk 0260's premise (25 of 77 seed pairs are gone upstream, not 1), and dependents of `windows-installer.yml` the leg missed.
+  - Medium: `gh release view` misses drafts; the shared concurrency group can drop a pending tag run; the gate must branch on the event; the `audit` uv must be pinned; `render` must be loaded by path.
+  - Low: Linux artifact retention; `platforms` validation; the verification commands.
+  - **Operator decision on 0260 (2026-10-26),** after the implications were laid out: "seed as floor for now, get the updated list, then log an issue". The guard becomes a merge with the seed as a floor, the seed is refreshed for v0.12.0, and GitHub issue **#316** records dynamic Claude windows from the Models API's `max_input_tokens` (Anthropic's `ModelInfo` carries it; OpenAI's `Model` does not).
+  - The Flight Director's other calls: a concurrency group per event; the gate takes `--event`; `audit` pinned to uv 0.10.0; `pr-lint.yml` left as is, noted; the stale mentions are cleaned up; both package artifacts kept 14 days.
+  - All applied to the leg; no second cycle.
+
+
+### Leg 3: Lifecycle dispatch 1 lost: smoke 401
+
+Run 40259389810 (hosted Windows, lifecycle mode), about 5 minutes: failed in "Frozen serve and single-instance probe" with `FAIL: frozen serve did not answer /api/info 200 within 60 s (HTTP 401)`; the frozen serve log shows 60 `GET /api/info 401`, no "credential file does not exist" warning.
+
+Root cause: `packaging/windows/smoke.py` `info()` built the header as `f"Bearer {get_credential()}"`. `LocalApiCredential.__str__` returns the redacted repr (`the_one/api_credential.py`, `__repr__`/`__str__`: `LocalApiCredential(identifier=..., secret=<redacted>)`), so the bearer never parsed and the gate answered 401. The old `windows-installer.yml` used `get_credential().encode()`. Not a data-dir, cwd, PYTHONPATH, cache or race problem: serve mode never creates a credential (`main.py` `serve` only runs uvicorn; only the probe's `get_credential()` does) and the gate reads the file per request (`lookup_credential`, stat-guarded).
+
+Fix: `smoke.py` has `bearer_header(credential)` using `.encode()`; the port comes from `settings.port` (THE_ONE_PORT honoured, 8484 on the runner); on failure both probes print the port, data dir, whether `api-credential` exists, its `loc_<id>` prefix only, and the last HTTP status plus the first 200 bytes of the body. The probe still creates the credential (serve cannot), as the old workflow did. Tests: `tests/test_windows_smoke.py` (wire form not the redacted repr, a source pin against the f-string, no secret in the diagnostic, port from settings).
+
+Local rehearsal (scratch data dir under `$HOME/the-one-m32-scratch/f4-smoke`, source `the-one serve` on THE_ONE_PORT=8491 stopped by its recorded PID, scratch removed):
+```
+ok: frozen serve answers /api/info 200, version 0.11.8      rc=0
+ok: _select_port -> (8491, True)                            rc=0
+```
+Failure path (nothing on 8492):
+```
+FAIL: frozen serve did not answer /api/info 200 within 60 s (ConnectTimeout('timed out'))
+port 8492; data dir .../f4-smoke/data; credential file .../data/api-credential exists=True; id loc_b2f2badac2d672cc
+```
+- **The smoke fix was committed** at `44b5627`, after review (Reviewer, Sonnet, because it touches the credential: `[HANDOFF:confirmed]`; no secret-leak path).
+- **A Flight Director error, recorded:** the first commit attempt failed (an untracked test file was named as a pathspec), but the chained command still ran `gh workflow run`. Run `40260891145` started on the old head `7ecc171` and was cancelled after 24 s, before any build. It is counted against the operator's 4 hosted Windows lifecycle runs: it was a dispatch, even though nothing ran. The corrected dispatch is `40260950171` on `44b5627` (run 3 of 4).
+
+
+### release-workflow (leg 4), phase 4a
+Local only; nothing committed, pushed or dispatched. Leg status `in-flight`; 4b (AC9-AC14) not started. `__version__` is still 0.11.8.
+
+**AC1: the dynamic version.** `pyproject.toml`: `version = "0.11.8"` became `dynamic = ["version"]`, plus `[tool.setuptools.dynamic] version = {attr = "the_one.__version__"}`. `uv lock` with **uv 0.10.0** printed `Updated the-one v0.11.8 -> (dynamic)`. The whole `uv.lock` diff is one line: the `version = "0.11.8"` line left the `the-one` entry (`source = { editable = "." }` stays). `revision = 3` unchanged. Scratch venv `pip install -e . --no-deps`: `importlib.metadata.version("the-one")` = `0.11.8` = `__version__`. Test renamed (not deleted) to `test_pyproject_version_is_dynamic_from_dunder`.
+
+**AC2: the lane checks** (in a scratch copy of the repo; the worktree's `.venv` untouched).
+- uv 0.10.0: `uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt` rc 0, 1757 lines, **byte-identical** to the export from the pre-change lock/pyproject.
+- uv 0.9.30 (`uvx --from uv==0.9.30`): `uv lock --check` rc 0 (146 packages); `uv sync --locked --dry-run --extra all-llms --extra dev` rc 0; the same export is also byte-identical to the baseline.
+- Unpinned lanes, reasoned: `build.ps1` (`pip install uv`, then `uv export --frozen`), `windows_test_copy.py` (`pip install uv`, `uv export`) and `windows-installer-build.yml` get the newest uv on PyPI today; `--frozen` never rewrites or checks the lock, and the export is the same text. `pr-lint.yml`'s bare `uv export` (no `--frozen`) would re-resolve in memory if a newer uv judged the lock stale; it is left as it is, so it keeps checking the lock (DD6). **Known gap, recorded not changed:** `pr-lint.yml` installs an unpinned uv and a lock written by 0.10.0 could in future read as outdated to a much newer uv; the signal would be a visible pr-lint failure, not a silent drift.
+
+**AC3, AC4, AC7.** `scripts/release_check.py` (stdlib; loads `packaging/render.py` by path; `--event/--ref/--input-version/--platforms/--repo/--main-ref`; the tag path is `push` AND a `refs/tags/v` ref; a `workflow_dispatch` on a tag ref is a dry run, tested; ancestor check by `git merge-base --is-ancestor HEAD origin/main`, tested through a tmp git repo). `scripts/release_assets.py` (exact four names from `render.load`: `the-one-setup-V.exe`, `GleepGlorp_AI-V-arm64.dmg`, `GleepGlorp_AI-V-x86_64.AppImage`, `gleepglorp-ai_<deb_version>_amd64.deb`; refuses missing, duplicate and extra package files; writes `SHA256SUMS`). `.github/workflows/release.yml` per AC4 (jobs audit, version, windows, linux, macos, publish; draft detection by `gh release list --limit 200 --json tagName,isDraft,name`, never `gh release view`; branches logged; checks before create; `--clobber`). `packaging/release/release.stub.yml` (same dispatch block byte for byte, one no-op job). Tests: `tests/test_release_check.py` (33), `tests/test_release_workflow.py` (18).
+
+**AC5: retirements.** `windows-installer.yml` and `packaging-probe-windows.yml` deleted (`git rm`). `test_release_notes.py` now reads `release.yml`'s "Publish the GitHub release" step. `test_packaging_locked_closure.py`: rule 1 lists `build.ps1` only (both markers); a new test requires `release.yml`'s `audit` export to carry the extras and `--frozen`. `test_windows_build_recipe.py` `EXEMPT` emptied. Comment-only edits: `pyproject.toml` (two), `windows-packages.yml` (~71), `build.ps1` (~47), `pr-lint.yml` (one comment), `ci/README.md` (6, 29, 92, 121), `the_one/agents.md` (~1722, also reworded to name `build.ps1`), `packaging/windows/README.md` (the release paragraph, "push no v* tag" note dropped), `docs/releases/README.md` line 14 (one-sentence repoint; 4b rewrites the section).
+Final `git grep -n "windows-installer.yml\|packaging-probe-windows"` outside `missions/`, `squawks/`, `maintenance/`: all deliberate and historical: `windows-packages.yml:71` and `build.ps1:47` ("the retired windows-installer.yml's ..."), `packaging/windows/README.md:224` (the retirement note), `tests/test_packaging_locked_closure.py:4` (docstring history), `tests/test_windows_build_recipe.py:191` (comment on the emptied EXEMPT). (`ci/windows-installer.pipeline.yml` and `windows-installer-build.yml` are different, live files.)
+
+**AC6.** `macos-packages.yml` `macos-dmg` and `linux-packages.yml` `linux-packages` retention 7/3 -> 14 days (plus matching comments); `git diff` of both files shows only those lines, no `on:` hunk.
+
+**AC8.** `make test-unit` (quiet host after waiting about 3 minutes for another session's `contracts-controls` lane to end): `7595 passed, 12 skipped, 2987 deselected` in 337 s. `ruff check` and `ruff format --check` clean. Targeted: 154 passed across the seven touched/new test files.
+
+**For the Flight Director.** Nothing outward was done. The stub PR copies `packaging/release/release.stub.yml` to `.github/workflows/release.yml`. The `version` job passes `--platforms` only on a dispatch. `smoke.py` and `tests/test_windows_smoke.py` were not touched.
+
+#### Leg 3 result: Windows lifecycle run `40260950171` (head `44b5627`, 2026-10-26 02:48-03:00 UTC, about 11 min)
+- **Header:** `win22` `20261022.344.1`, build 20348 UBR 5761, ISCC 6.7.1, `EnableLUA=1`/`ConsentPromptBehaviorAdmin=0`, elevated `runneradmin`, Python 3.11.9, PyInstaller 6.22.3, screen 1024x768 at DPI 96. N=`0.11.8`, N+1=`0.11.9.dev1`, old release `0.11.8`.
+- **All nine rows PASS, and `== lifecycle done`:**
+  - L1: v0.11.8 → N, exit 0, the old pid gone, same `{app}`, one uninstall entry, one shortcut set, marker kept.
+  - L2: install and launch; `doctor` passes.
+  - L3: `/api/window/chrome` answers 200.
+  - L4: close to tray: natively hidden, the route `visible:false`, pid alive.
+  - L5: one pid on a second launch.
+  - L6: geometry 944x648 at 40,30, restored exactly.
+  - L7: the graceful upgrade, in order quit-call → present → drain → exit → `KillRunning` → gone → nothing-left → first copy (the drain for N's pid came before the copy); N+1 answers `0.11.9.dev1`; `DisplayVersion` is N+1; marker kept.
+  - L8: `quit --wait` drains.
+  - L9: uninstall while running: `uninstall quit-call: Exec …`, present → gone, drained; `{app}` and the `}}_is1` key gone; the data dir and marker kept.
+- **A gap:** with an empty `version`, N equalled `__version__` (0.11.8), the same number as the old release. L1 proves the identity, the single entry, the shortcuts and the data, but not a version change across the old-to-new upgrade. The dry run (`version=0.12.0.dev1`) closes it.
+- **Hosted Windows lifecycle runs:** 3 of 4 used (`40259389810` lost to the smoke 401; `40260891145` cancelled at 24 s, the Flight Director's error; `40260950171` green). 1 spare left.
+- **Leg 3 is landed.**
+

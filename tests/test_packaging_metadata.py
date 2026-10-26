@@ -79,10 +79,13 @@ def test_data_slug_matches_config():
     )
 
 
-def test_pyproject_version_matches_dunder_version():
+def test_pyproject_version_is_dynamic_from_dunder():
     with open(REPO / "pyproject.toml", "rb") as fh:
-        project = tomllib.load(fh)["project"]
-    assert project["version"] == the_one.__version__
+        data = tomllib.load(fh)
+    project = data["project"]
+    assert "version" not in project, "the version lives only in the_one/__init__.py"
+    assert project["dynamic"] == ["version"]
+    assert data["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "the_one.__version__"}
     assert render.load(REPO)["version"] == the_one.__version__
 
 

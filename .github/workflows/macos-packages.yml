@@ -17,7 +17,7 @@ name: macos-packages
 # Modes:
 #   full       build N, then packaging/macos/checks.sh as its own step (strict doctor, gate 2, serve,
 #              gate 4, the signature, the bundle audit (enforcing), the .dmg layout), then
-#              upload the .dmg (7 days) and the logs.
+#              upload the .dmg (14 days) and the logs.
 #   lifecycle  full, then build N+1 (the version from `render.py --next-version`, the build venv
 #              reused, no .dmg) and packaging/macos/lifecycle.sh: install N in /Applications, then
 #              launch, close, reopen, second launch, geometry, the three quits, upgrade to N+1 with
@@ -352,7 +352,7 @@ jobs:
           if-no-files-found: warn
 
       # The N .dmg (ad-hoc signed, not notarized): a contributor downloads it from the run page
-      # for seven days. Never the .app, and never the N+1 build.
+      # for fourteen days (and a failed release publish can be re-run within that window). Never the .app, and never the N+1 build.
       - name: Upload the .dmg
         if: ${{ !cancelled() && inputs.mode != 'probe' && env.M32_DMG != '' }}
         timeout-minutes: 2
@@ -360,7 +360,7 @@ jobs:
         with:
           name: macos-dmg
           path: ${{ env.M32_DMG }}
-          retention-days: 7
+          retention-days: 14
           if-no-files-found: warn
 
       # Last, so a failed build reads as a red job without ever blocking the log upload. The FAIL

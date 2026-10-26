@@ -11,7 +11,7 @@ One file per release, named for its tag: `vX.Y.Z.md`.
 
 ## How it is used
 
-The release PR adds `docs/releases/vX.Y.Z.md` alongside the version bump. When the tag is pushed, the "Publish GitHub Release with installer" step in `.github/workflows/windows-installer.yml` splits the file with `scripts/release_notes.py`:
+The release PR adds `docs/releases/vX.Y.Z.md` alongside the version bump. When the tag is pushed, the "Publish the GitHub release" step of the `publish` job in `.github/workflows/release.yml` splits the file with `scripts/release_notes.py`:
 
 - If the release does not exist, it is created with the file's title and body.
 - If the release exists and still has the generic `vX.Y.Z — Windows installer` title, its title and body are replaced from the file.

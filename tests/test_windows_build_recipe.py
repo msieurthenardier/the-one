@@ -188,9 +188,7 @@ def test_pipeline_minio_step_still_matches_the_installer_name():
 
 # ---- the other consumers of the spec and the .iss (AC8b) -------------------------------------
 
-EXEMPT = {
-    REPO / ".github" / "workflows" / "windows-installer.yml",  # deleted in leg 4, broken by design
-}
+EXEMPT: set[Path] = set()  # windows-installer.yml was deleted in Flight 4 leg 4
 SUFFIXES = {".yml", ".yaml", ".sh", ".ps1", ".py", ".iss"}
 
 

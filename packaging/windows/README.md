@@ -215,16 +215,14 @@ Two places build the frozen installer; both run the same freeze + packaged-smoke
   polls the branch, builds on a `platform: windows` worker, and publishes the `.exe`
   to a local minio bucket. This is the day-to-day build — it runs on every push, with
   no GitHub artifact-storage quota.
-- **GitHub Actions (release only).** The `build-windows-installer` job in
-  [`.github/workflows/windows-installer.yml`](../../.github/workflows/windows-installer.yml)
-  runs **only on a version tag** (`v*` pushed to `main`, e.g. `git tag v0.2.0 && git
-  push origin v0.2.0`). Routine PRs/pushes do **not** trigger it — they run the unit
-  CI in `test.yml`. (Flight 8 evolves this into the full release pipeline that
-  publishes a GitHub Release asset.)
-
-> **Mission 32 Flight 4, until leg 4:** `windows-installer.yml` still runs the old unstaged
-> recipe (an editable install and a bare `the-one.spec` freeze), which the staged spec and `.iss`
-> now refuse, so it is broken by design and leg 4 deletes it. **Push no `v*` tag before then.**
+- **GitHub Actions (release only).** The `windows` job of
+  [`.github/workflows/release.yml`](../../.github/workflows/release.yml) runs
+  [`windows-packages.yml`](../../.github/workflows/windows-packages.yml) (which calls `build.ps1`)
+  **only on a version tag** (`v*` pushed to `main`) or a dry-run dispatch. Routine PRs/pushes do
+  **not** trigger it — they run the unit CI in `test.yml`. The `publish` job then attaches the
+  installer to the GitHub release with the Linux and macOS packages. (Mission 32 Flight 4 retired
+  `windows-installer.yml`; its smoke moved into `windows-packages.yml`, its publish into
+  `release.yml`.)
 
 ## Quitting a running app: install and uninstall (Mission 32 Flight 4, DD2)
 
