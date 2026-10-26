@@ -5,7 +5,7 @@ name: windows-packages
 # session. Publishes nothing and reads no repository secret. Dispatch-only (plus workflow_call, the
 # entry point the release workflow uses), so it never runs on a push, PR or tag:
 #
-#   gh workflow run windows-packages.yml --ref flight/04-windows-and-release -f mode=probe [-f version=0.11.9.dev3]
+#   gh workflow run windows-packages.yml --ref flight/04-windows-and-release -f mode=lifecycle [-f version=0.11.9.dev3]
 #
 # (GitHub offers a manual run only for a workflow file that exists on the default branch, and
 # validates the dispatch inputs against that copy: a `.github/`-only stub with the same `on:` block
@@ -14,18 +14,14 @@ name: windows-packages
 # needs another stub PR. `workflow_call` has no outputs: callers find artifacts by name.)
 #
 # Modes:
-#   probe      the Flight 4 premise probe (this leg): builds N (the version input, or, when empty,
-#              render.py --next-version of the_one/__init__.py's version, so N never equals a
-#              released version), then the two variant installers at N+1 (the quit variant) and N+2
-#              (the Restart Manager variant), and runs packaging/windows/probe/probe.ps1, which
-#              answers premises W1-W6 and writes probe/SUMMARY.txt. Uses today's UNSTAGED build
-#              recipe (the same install-and-freeze steps as windows-installer.yml) and stays that
-#              way once full/lifecycle move to the staged build.
+#   probe      RETIRED after leg 1 (run 40246340174): the product .iss and spec are staged now, so
+#              the probe's unstaged build recipe no longer exists. The mode exits 1 at once. The
+#              probe's own files (packaging/windows/probe/) are kept as the record.
 #   full       lands in leg 3b (exits 1 until then)
 #   lifecycle  lands in leg 3b (exits 1 until then)
 #
-# The job reads red when a build step failed, when probe/SUMMARY.txt is missing or lacks its
-# "== probe done" line, or when any line of it starts with FAIL.
+# Leg 3a (phase a) removed the probe's build and probe steps with the recipe they used; leg 3b
+# adds the staged build (packaging/windows/build.ps1) and the lifecycle driver in their place.
 #
 # Cost: Windows minutes bill at 2x on a private repo; the run caps itself in layers (job timeout 60
 # minutes, a timeout on every step, a concurrency group that never cancels a running build, and a
@@ -91,7 +87,7 @@ jobs:
           MODE: ${{ inputs.mode }}
         run: |
           case "$MODE" in
-            probe) ;;
+            probe) echo "mode 'probe' is retired after leg 1 (run 40246340174); the product .iss/spec are staged now"; exit 1 ;;
             full | lifecycle) echo "mode '$MODE' lands in leg 3b"; exit 1 ;;
             *) echo "unknown mode '$MODE' (full, lifecycle or probe)"; exit 1 ;;
           esac
@@ -117,212 +113,6 @@ jobs:
             echo "== whoami"; whoami
           } 2>&1 | tee "$M32_LOGS/runner.txt"
 
-      - uses: actions/setup-python@v6
-        timeout-minutes: 3
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      # A syntax error in probe.ps1 costs a minute here, not the dispatch.
-      - name: Parse probe.ps1
-        shell: pwsh
-        timeout-minutes: 2
-        run: |
-          $errs = $null
-          $tokens = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'packaging/windows/probe/probe.ps1').Path, [ref]$tokens, [ref]$errs) | Out-Null
-          if ($errs -and $errs.Count -gt 0) {
-            $errs | ForEach-Object { Write-Host ("probe.ps1:{0}:{1} {2}" -f $_.Extent.StartLineNumber, $_.Extent.StartColumnNumber, $_.Message) }
-            exit 1
-          }
-          Write-Host "probe.ps1 parses clean ($($tokens.Count) tokens)"
-
-      # The same rehearsal run on Linux before dispatch: the row bookkeeping, the summary writer
-      # (seed, set, add-info, abort, done), the global-bound arithmetic, the new-bytes log reader
-      # and a scope-collision check. No Windows-only API. Fails the job before any build minute.
-      - name: Probe self test
-        shell: pwsh
-        timeout-minutes: 3
-        run: |
-          & ./packaging/windows/probe/probe.ps1 -SelfTest
-          if ($LASTEXITCODE -ne 0) { Write-Host "probe.ps1 -SelfTest failed (exit $LASTEXITCODE)"; exit 1 }
-
-      - name: Versions (N, N+1, N+2)
-        timeout-minutes: 2
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
-        run: |
-          VERSION="$VERSION_INPUT"
-          if [ -z "$VERSION" ]; then
-            BASE="$(python -c 'import re,pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("the_one/__init__.py").read_text(), re.M).group(1))')"
-            # a released version's next dev version, so N never equals the released one
-            VERSION="$(python packaging/render.py --next-version "$BASE")"
-          fi
-          V1="$(python packaging/render.py --next-version "$VERSION")"
-          V2="$(python packaging/render.py --next-version "$V1")"
-          {
-            echo "M32_VERSION=$VERSION"
-            echo "M32_VERSION_Q=$V1"
-            echo "M32_VERSION_R=$V2"
-          } >> "$GITHUB_ENV"
-          echo "N=$VERSION  N+1 (quit variant)=$V1  N+2 (Restart Manager variant)=$V2" | tee -a "$M32_LOGS/runner.txt"
-
-      # Today's unstaged recipe, verbatim from windows-installer.yml: the locked closure with
-      # --no-deps (see that file for why), the project editable with --no-deps, PyInstaller.
-      - name: Install GUI freeze deps + PyInstaller
-        timeout-minutes: 12
-        run: |
-          pip install uv
-          uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
-          pip install -r release-requirements.txt --no-deps
-          pip install -e . --no-deps
-          pip install pyinstaller
-
-      - name: Build frozen one-dir (PyInstaller)
-        id: freeze
-        timeout-minutes: 15
-        run: |
-          set -eo pipefail
-          pyinstaller --noconfirm packaging/windows/the-one.spec 2>&1 | tee "$M32_LOGS/pyinstaller.log"
-          test -f dist/the-one/the-one.exe
-          test -f dist/the-one/the-one-app.exe
-
-      # The three installers share one frozen one-dir and differ in AppVersion and in the .iss:
-      # N = today's the-one.iss, N+1 = the quit variant, N+2 = the Restart Manager variant. Each
-      # build has its own output dir, so the names cannot collide. PowerShell, not Git Bash, so
-      # /O and /D reach ISCC as written (no MSYS path mangling). The quit variant needs
-      # ExecAsOriginalUser, which is Inno Setup 6.1 or newer: below that the step fails clearly when the version can be read (an unreadable one continues).
-      - name: Build the three installers (ISCC)
-        id: iscc
-        shell: pwsh
-        timeout-minutes: 15
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $cands = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe")
-          $iscc = $cands | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $iscc) {
-            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
-            if ($cmd) { $iscc = $cmd.Source }
-          }
-          if (-not $iscc) {
-            choco install innosetup -y --no-progress
-            $iscc = $cands | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          }
-          if (-not $iscc) { Write-Host 'ISCC.exe not found after install'; exit 1 }
-          # Best-effort version: the image's ISCC.exe can report FileVersion 0.0.0.0, so try several
-          # sources and log each raw result. A version counts only if it parses and is not 0.0.0.0.
-          $attempts = New-Object System.Collections.Generic.List[string]
-          $found = $null
-          # Returns the matched version string, or $null (unparsed or all zeros). Callers use the
-          # return value, never $Matches (which lives in this function's scope only).
-          function Test-Ver([string]$v) {
-            if ($v -and ($v -match '\d+\.\d+(\.\d+)*')) {
-              $m = $Matches[0]
-              if ($m -notmatch '^0(\.0)*$') { return $m }
-            }
-            return $null
-          }
-          function Try-Ver([string]$label, [scriptblock]$get) {
-            $raw = ''
-            try { $raw = [string](& $get) } catch { $raw = "error: $($_.Exception.Message)" }
-            $raw = ($raw -replace '\s+', ' ').Trim()
-            if ($raw.Length -gt 200) { $raw = $raw.Substring(0, 200) }
-            $script:attempts.Add("${label}=[$raw]")
-            Write-Host "Inno version attempt ${label}: [$raw]"
-            if (-not $script:found) { $script:found = Test-Ver $raw }
-          }
-          $vi = (Get-Item -LiteralPath $iscc).VersionInfo
-          Try-Ver 'ISCC.exe ProductVersion' { $vi.ProductVersion }
-          Try-Ver 'ISCC.exe FileVersion' { $vi.FileVersion }
-          $dll = Join-Path (Split-Path -Parent $iscc) 'ISCmplr.dll'
-          if (Test-Path -LiteralPath $dll) {
-            $dvi = (Get-Item -LiteralPath $dll).VersionInfo
-            Try-Ver 'ISCmplr.dll FileVersion' { $dvi.FileVersion }
-            Try-Ver 'ISCmplr.dll ProductVersion' { $dvi.ProductVersion }
-          } else { $attempts.Add('ISCmplr.dll=[absent]') }
-          foreach ($rk in @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1')) {
-            Try-Ver "registry $rk DisplayVersion" { (Get-ItemProperty -LiteralPath $rk -ErrorAction Stop).DisplayVersion }
-          }
-          # ISCC prints a banner for /?; a non-zero exit or stderr output must not throw here.
-          Try-Ver 'ISCC /? banner' {
-            $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-            try { (& $iscc '/?' 2>&1 | Select-Object -First 8 | Out-String) } finally { $ErrorActionPreference = $old }
-          }
-          if ($found) { $isccVer = $found } else { $isccVer = 'unknown' }
-          if ($isccVer -eq 'unknown') {
-            Write-Host "Inno version: unknown ($($attempts -join '; '))"
-          } else {
-            Write-Host "Inno version: $isccVer ($($attempts -join '; '))"
-          }
-          # GITHUB_ENV takes one NAME=value line: write only the resolved value, never the attempts.
-          "M32_ISCC_VERSION=$isccVer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          # Fail ONLY on a positively parsed version below 6.1. An unknown version continues: the
-          # quit variant's own compile is then the loud check, because ExecAsOriginalUser is a
-          # compile error on Inno older than 6.1.
-          if ($found) {
-            $parts = $found -split '\.'
-            $major = [int]$parts[0]; $minor = [int]$parts[1]
-            if (($major -lt 6) -or ($major -eq 6 -and $minor -lt 1)) {
-              Write-Host "Inno Setup $found is older than 6.1: ExecAsOriginalUser (the quit variant) is unavailable. Failing."
-              exit 1
-            }
-          }
-          "M32_ISCC=$($iscc -replace '\\', '/')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          function Build-Installer([string]$Iss, [string]$Version, [string]$OutDir) {
-            New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-            & $iscc "/DAppVersion=$Version" "/O$OutDir" $Iss 2>&1 | Tee-Object -FilePath "$env:M32_LOGS/iscc.log" -Append
-            if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed for $Iss (exit $LASTEXITCODE)"; exit 1 }
-            $expected = "$OutDir/the-one-setup-$Version.exe"
-            if (-not (Test-Path -LiteralPath $expected)) { Write-Host "missing output $expected"; exit 1 }
-          }
-          Build-Installer 'packaging/windows/the-one.iss' $env:M32_VERSION "$env:M32_INSTALLERS/n"
-          Build-Installer 'packaging/windows/probe/the-one-probe-quit.iss' $env:M32_VERSION_Q "$env:M32_INSTALLERS/q"
-          Build-Installer 'packaging/windows/probe/the-one-probe-rm.iss' $env:M32_VERSION_R "$env:M32_INSTALLERS/r"
-          Get-ChildItem "$env:M32_INSTALLERS" -Recurse -File | ForEach-Object { Write-Host ("{0,12} {1}" -f $_.Length, $_.FullName) }
-
-      # Observations and PASS/FAIL rows. The step never fails: the final check reads the FAIL rows,
-      # so the upload below always runs.
-      # Budget arithmetic (job cap 60 min): probe.ps1 bounds itself to min(-GlobalSeconds 2100,
-      # M32_T0 + 45 min - now). M32_T0 is set in the second step, at most ~4 min after the job
-      # started (checkout 3 min cap plus job setup), so the probe ends by job start + ~49 min at the
-      # very latest, leaving >= 11 min for the cleanup it runs, the Summary (1), the upload (3) and
-      # the fail step (1). The step timeout below is only a hang backstop for the script's own
-      # bounded waits; it is set to 42 min, the most the script could use from a 0-minute start.
-      # Earlier steps' caps sum to more than 60 min in theory but not in practice, and the script's
-      # job-relative bound, not this timeout, is what protects the post-probe steps.
-      - name: Premise probe
-        id: probe
-        if: ${{ !cancelled() && steps.iscc.outcome == 'success' }}
-        continue-on-error: true
-        shell: pwsh
-        timeout-minutes: 42
-        run: |
-          New-Item -ItemType Directory -Force -Path "$env:M32_LOGS/probe" | Out-Null
-          $pyi = (python -m PyInstaller --version 2>&1 | Out-String).Trim()
-          $py = (python --version 2>&1 | Out-String).Trim()
-          & ./packaging/windows/probe/probe.ps1 `
-            -Logs $env:M32_LOGS `
-            -VersionN $env:M32_VERSION -VersionQ $env:M32_VERSION_Q -VersionR $env:M32_VERSION_R `
-            -InstallerN "$env:M32_INSTALLERS/n/the-one-setup-$($env:M32_VERSION).exe" `
-            -InstallerQ "$env:M32_INSTALLERS/q/the-one-setup-$($env:M32_VERSION_Q).exe" `
-            -InstallerR "$env:M32_INSTALLERS/r/the-one-setup-$($env:M32_VERSION_R).exe" `
-            -IsccPath $env:M32_ISCC -PythonVersion $py -PyInstallerVersion $pyi `
-            -GlobalSeconds 2100 *>&1 | Tee-Object -FilePath "$env:M32_LOGS/probe-step.log"
-          Write-Host "probe.ps1 finished"
-          if (Test-Path "$env:M32_LOGS/probe/SUMMARY.txt") { Get-Content "$env:M32_LOGS/probe/SUMMARY.txt" }
-          exit 0
-
-      - name: Summary
-        if: ${{ always() }}
-        timeout-minutes: 1
-        run: |
-          f="$M32_LOGS/probe/SUMMARY.txt"
-          if [ -f "$f" ]; then
-            echo "### probe" >> "$GITHUB_STEP_SUMMARY"
-            { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          du -sh "$M32_LOGS" || true
-
       # Logs, Inno /LOG files, app logs, screenshots, doctor output, tasklist snapshots and
       # registry dumps. No installer or build output is uploaded.
       - name: Upload logs and evidence
@@ -334,23 +124,3 @@ jobs:
           path: ${{ runner.temp }}/m32-build/logs
           retention-days: 7
           if-no-files-found: warn
-
-      # Last, so a failed build reads as a red job without ever blocking the log upload. The FAIL
-      # match is anchored: evidence text that contains the word never trips it.
-      - name: Fail on a failed or missing result
-        if: ${{ always() }}
-        timeout-minutes: 1
-        env:
-          FREEZE_OUTCOME: ${{ steps.freeze.outcome }}
-          ISCC_OUTCOME: ${{ steps.iscc.outcome }}
-          PROBE_OUTCOME: ${{ steps.probe.outcome }}
-        run: |
-          rc=0
-          [ "$FREEZE_OUTCOME" = success ] || { echo "freeze: did not succeed ($FREEZE_OUTCOME)"; rc=1; }
-          [ "$ISCC_OUTCOME" = success ] || { echo "iscc: did not succeed ($ISCC_OUTCOME)"; rc=1; }
-          [ "$PROBE_OUTCOME" = success ] || { echo "probe: step did not succeed ($PROBE_OUTCOME)"; rc=1; }
-          f="$M32_LOGS/probe/SUMMARY.txt"
-          if [ ! -f "$f" ]; then echo "probe: SUMMARY missing"; rc=1
-          elif ! grep -q '^== probe done' "$f"; then echo "probe: no '== probe done' line (the probe did not finish)"; rc=1
-          elif grep -q '^FAIL' "$f"; then echo "probe: FAIL in SUMMARY"; grep '^FAIL' "$f"; rc=1; fi
-          exit "$rc"

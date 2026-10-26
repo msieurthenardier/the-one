@@ -58,9 +58,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Rule 1 — artifact-producing entry points that MUST carry the locked-closure
-# sequence.
+# sequence. Since Mission 32 Flight 4 the Windows recipe is packaging/windows/build.ps1, which
+# the Concourse task and windows-packages.yml both call; the task no longer carries the sequence
+# itself (it is not listed: it only calls the recipe, which is).
 LOCKED_CLOSURE_REQUIRED = [
-    "ci/tasks/windows-installer-build.yml",
+    "packaging/windows/build.ps1",
     ".github/workflows/windows-installer.yml",
 ]
 

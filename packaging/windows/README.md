@@ -27,37 +27,69 @@ freeze cannot be produced on Linux or WSL2 — it must run on a native Windows
 host (or the `windows-2022` CI runner). On this repo's dev host (Linux/WSL2) the
 spec is authored and statically validated via `py_compile` only.
 
-## Prerequisites (native Windows)
+## The recipe: `build.ps1` (Mission 32 Flight 4)
 
-- Windows 10/11 (or a `windows-2022` runner)
-- Python 3.11
-- The GUI + LLM extras **and** PyInstaller:
-
-```powershell
-pip install -e ".[gui,all-llms]"
-pip install pyinstaller
-```
-
-> **The `[gui]` extra is required.** Without it, `pywebview` (and its transitive
-> `pythonnet`) are absent and the spec's pywebview collection import-fails at
-> build time. The existing `windows` CI job installs only `.[all-llms,dev]`
-> (no `[gui]`) — the freeze job (Leg 4) must install `.[gui,all-llms]` +
-> `pyinstaller`.
-
-## Build
-
-From the repo root:
+[`build.ps1`](./build.ps1) is the one Windows recipe. The Concourse task
+(`ci/tasks/windows-installer-build.yml`, every push) and the GitHub workflow
+(`.github/workflows/windows-packages.yml`) both call it, so both build the same way:
 
 ```powershell
-pyinstaller --noconfirm packaging/windows/the-one.spec
+packaging\windows\build.ps1 -Out C:\m32-build [-Version 0.11.9.dev1] [-Python C:\Python311\python.exe] [-ReuseVenv]
+packaging\windows\build.ps1 -SelfTest        # argument handling, path checks, needle list; no Windows API
 ```
+
+It does, in order, and throws on the first failure (`$LASTEXITCODE` is checked after every native call):
+
+1. creates a fresh build venv under `-Out` (`-ReuseVenv` keeps one for an N+1 build);
+2. installs the **locked closure** (`uv export --frozen ... --extra gui --extra all-llms`, then
+   `pip install --require-hashes --no-deps`), never a fresh resolve (squawks 0009, 0015);
+3. installs `pyinstaller==6.22.3` and records the `pyinstaller-hooks-contrib` version it pulled;
+4. stages the source with `packaging/stage.py --target windows` into `<Out>\stage-windows-<V>`;
+5. deletes, then renders, `packaging\windows\product.iss` from `product.iss.in` at version `<V>`
+   (`render.py --set version=<V> --out ...`);
+6. freezes with `M32_STAGE` set, into `<Out>\work-<V>` and `<Out>\dist-<V>`, so an N+1 build never
+   clobbers N;
+7. runs the frozen `the-one.exe doctor` and requires, by name, `usearch`, `fts5`, `embedding model`,
+   `file watcher`, `window chrome`, `time zones`, `mcp sdk`, `desktop shell` and `child spawn` to read `OK`;
+8. runs ISCC (`/DDistDir=<Out>\dist-<V> /O<Out>\installer-<V>`; Inno Setup 6.1 or newer when the
+   version can be read) and writes `<Out>\build-<V>.env` (`VERSION`, `SETUP_EXE`, `DIST`).
+
+Output: `<Out>\installer-<V>\the-one-setup-<V>.exe`. `-Version` empty means the `__version__` in
+`the_one/__init__.py`. `-Out` must be **outside the repo**; the only file the build writes into the
+repo is the rendered, gitignored `packaging\windows\product.iss`.
+
+**The project is never installed** (no editable install). The spec requires `M32_STAGE` and puts only
+the staged copy (and `packaging/`, for `import render`) on `sys.path`, as the macOS spec does, so the
+bundle carries the staged version and nothing else. Nothing in `the_one/` reads its own distribution
+metadata (`importlib.metadata.version("the-one")`; `diagnostics.py` reads only `mcp` and `httpcore2`),
+so skipping the install is safe.
+
+The product names (`install_dir_name`, `setup_file_stem`, `cli_executable`, `gui_executable`,
+`publisher`) and the app GUID come from the `[windows]` section of `packaging/product.toml`. The
+spec reads the two exe names through `render.load`; the installer reads the rest from the rendered
+`product.iss`. The `AppId` line in `the-one.iss` stays **literal** (a test pins it to `app_guid`),
+because it is the upgrade and uninstall identity of every shipped install.
+
+## Building by hand (native Windows)
+
+Only needed when iterating on the spec; prefer `build.ps1`. After a stage and a locked-closure install
+(what `build.ps1` does), freeze from the repo root with the stage set:
+
+```powershell
+python packaging/stage.py --version 0.11.9.dev1 --target windows --out C:\m32-build
+$env:M32_STAGE = "C:\m32-build\stage-windows-0.11.9.dev1"
+pyinstaller --noconfirm --clean --workpath C:\m32-build\work --distpath C:\m32-build\dist packaging/windows/the-one.spec
+```
+
+> **The `[gui]` extra is required** in the build environment. Without it, `pywebview` (and its
+> transitive `pythonnet`) are absent and the spec's pywebview collection import-fails at build time.
 
 ## Output
 
 A one-dir bundle (DD1 — **not** one-file) containing **two exes**:
 
 ```
-dist/the-one/
+<Out>\dist-<V>\the-one\
   the-one.exe        # CLI (console=True): chat|serve|app|version|doctor|rotate-api-credential  — no shortcut
   the-one-app.exe    # windowed launcher (console=False): always runs `app` — Start-menu shortcut
   ...                # collected binaries, the_one/interfaces/web/static/**, deps
@@ -68,10 +100,10 @@ dist/the-one/
 - `the-one-app.exe` is the windowed launcher: `console=False`, no console window, hard-wired
   to run `app`. The Inno Setup `[Icons]` block creates the Start-menu (and optional desktop)
   shortcut pointing at `the-one-app.exe`, not `the-one.exe`.
-- Smoke-check after building: `dist\the-one\the-one.exe doctor` (the frozen-runtime
-  diagnostic) and `dist\the-one\the-one.exe version`.
+- Smoke-check after building: `<dist>\the-one\the-one.exe doctor` (the frozen-runtime
+  diagnostic; `build.ps1` runs it) and `<dist>\the-one\the-one.exe version`.
 
-`dist/the-one/` is also the input the Leg 3 Inno Setup script points at.
+The one-dir is also the input the Inno Setup script packages (`/DDistDir=<dist>`).
 
 ## Installer — Inno Setup (`the-one.iss`)
 
@@ -96,33 +128,35 @@ removes `{app}` and both shortcuts.
 WSL2. The `.iss` is authored and statically reviewed on the dev host; the actual
 installer `.exe` is built by **Leg 4's CI on `windows-2022`** (which pins
 **Inno Setup ≥6.3** so the `ArchitecturesAllowed=x64compatible` token compiles),
-after that job has built the one-dir the installer consumes.
+after that job has built the one-dir the installer consumes. (`build.ps1` checks the Inno version
+when it can read it and refuses one older than 6.1; an unreadable version, such as the `0.0.0.0` the
+hosted image reports, continues and the compile is the check.)
 
 ### Build
 
-`iscc` needs the one-dir present at `dist/the-one/` first
-(`pyinstaller --noconfirm packaging/windows/the-one.spec`). Then, from the repo
-root:
+`build.ps1` does this (step 5 and 8 above). By hand, after a freeze, from the repo root: render the
+include for the version you are building, then compile.
 
 ```powershell
-iscc packaging\windows\the-one.iss
+python packaging/render.py --repo . --template packaging/windows/product.iss.in --set version=1.2.3 --out packaging/windows/product.iss
+iscc /DDistDir=C:\m32-build\dist /OC:\m32-build\installer packaging\windows\the-one.iss
 ```
 
-The version defaults to `0.2.0` (a `#define AppVersion`, guarded by `#ifndef`).
-CI overrides it with the live `the_one.__version__`:
-
-```powershell
-iscc /DAppVersion=1.2.3 packaging\windows\the-one.iss
-```
+`the-one.iss` `#include`s `product.iss`, the only source of the version, the product name and the exe
+names: there is no `AppVersion` define on the command line and no fallback, so a missing
+`product.iss` is an ISCC error. `DistDir` is also required (`#error` when undefined). ISPP looks for
+the include in the `.iss`'s own directory first, which is why `product.iss` is rendered there
+(gitignored, deleted and re-rendered on every build).
 
 ### Output
 
 ```
-packaging\windows\Output\the-one-setup-<version>.exe
+<output-dir>\the-one-setup-<version>.exe
 ```
 
-e.g. `packaging\windows\Output\the-one-setup-0.2.0.exe` — the double-click
-installer artifact (Leg 4's CI uploads it from `packaging/windows/Output/`).
+e.g. `C:\m32-build\installer-0.11.8\the-one-setup-0.11.8.exe` (the stem is `setup_file_stem` in
+`product.toml`). The Concourse task copies it to `installer/` for the MinIO step, which matches
+`the-one-setup-*.exe`.
 
 ### Installer icon
 
@@ -173,7 +207,10 @@ secret) by uncommenting the inert `SignTool=` / `SignedUninstaller` hook in
 
 Two places build the frozen installer; both run the same freeze + packaged-smoke:
 
-- **Local Concourse (primary, unlimited).** A pipeline in the `the-one` Concourse
+- **Local Concourse (primary, unlimited).** The task runs `build.ps1` with `-Out` set to `build/`, a
+  sibling of `repo`, and then copies the installer to `installer/`; it logs the ISCC version and
+  whether `git` is on `PATH` (the staging step needs no git, so a `fly execute` upload whose `.git`
+  gitlink points at nothing still builds). A pipeline in the `the-one` Concourse
   team (`ci/windows-installer.pipeline.yml` + `ci/tasks/windows-installer-build.yml`)
   polls the branch, builds on a `platform: windows` worker, and publishes the `.exe`
   to a local minio bucket. This is the day-to-day build — it runs on every push, with
@@ -184,6 +221,10 @@ Two places build the frozen installer; both run the same freeze + packaged-smoke
   push origin v0.2.0`). Routine PRs/pushes do **not** trigger it — they run the unit
   CI in `test.yml`. (Flight 8 evolves this into the full release pipeline that
   publishes a GitHub Release asset.)
+
+> **Mission 32 Flight 4, until leg 4:** `windows-installer.yml` still runs the old unstaged
+> recipe (an editable install and a bare `the-one.spec` freeze), which the staged spec and `.iss`
+> now refuse, so it is broken by design and leg 4 deletes it. **Push no `v*` tag before then.**
 
 ## CI packaged-smoke (the freeze proof)
 
@@ -229,7 +270,8 @@ freeze on every push in the meantime.
 
 - **One-dir, not one-file** (DD1): one-file is forbidden — it hurts the DD2
   child-spawn fix and triggers Windows AV heuristics.
-- **Version**: the spec names the bundle from `the_one.__version__` (`0.2.0`).
+- **Version**: the spec names the bundle from the *staged* `the_one.__version__` (`stage.py` writes
+  the version being built, so an N+1 build is named N+1).
   The stale `pyproject.toml` `version = "0.1.0"` is a known discrepancy left for
   a future maintenance reconcile — do not rely on the pyproject string here.
 - **PyNaCl / Discord voice**: the nacl exclusion existed only for discord.py's

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -291,3 +293,226 @@ def test_metainfo_id_is_app_id():
     assert "<id>ai.gleepglorp.GleepGlorpAI</id>" in out
     assert "METAINFO_ID" not in (LINUX / "build.env.in").read_text(encoding="utf-8")
     assert "METAINFO_ID" not in (LINUX / "build-inner.sh").read_text(encoding="utf-8")
+
+
+# ---- the Windows recipe's metadata (Mission 32 Flight 4, leg 3) ----------------------------
+
+WIN = REPO / "packaging" / "windows"
+APP_GUID = "CAEEFB46-2698-4048-AD9F-0120D0B7174A"
+WINDOWS_KEYS = [
+    "app_guid",
+    "install_dir_name",
+    "setup_file_stem",
+    "cli_executable",
+    "gui_executable",
+    "publisher",
+]
+
+
+def test_windows_keys_present_and_guid_pinned():
+    values = render.load(REPO)
+    for key in WINDOWS_KEYS:
+        assert values[key], key
+    # The upgrade/uninstall identity of every shipped install. NEVER change it.
+    assert values["app_guid"] == APP_GUID
+    assert values["setup_file_stem"] == "the-one-setup"
+    assert (values["cli_executable"], values["gui_executable"]) == ("the-one", "the-one-app")
+    assert values["install_dir_name"] == "GleepGlorp AI"
+
+
+def test_appid_line_is_literal_and_equals_the_guid():
+    iss = (WIN / "the-one.iss").read_text(encoding="utf-8")
+    lines = [ln for ln in iss.splitlines() if ln.startswith("AppId=")]
+    assert lines == ["AppId={{" + render.load(REPO)["app_guid"] + "}}"], lines
+    # the line never goes through the preprocessor
+    assert "{#" not in lines[0]
+    assert "app_guid" not in (WIN / "product.iss.in").read_text(encoding="utf-8").lower()
+
+
+def test_the_effective_appid_is_one_brace_pair_short_of_the_registry_key():
+    # Inno reads "{{" as an escaped "{", so the effective AppId is "{GUID}}" (leg 1, W6); the
+    # uninstall key therefore ends "}}_is1". The literal line above must stay as it ships.
+    line = "AppId={{" + APP_GUID + "}}"
+    effective = line.split("=", 1)[1].replace("{{", "{")
+    assert effective == "{" + APP_GUID + "}}"
+
+
+def test_out_writes_the_same_text_as_stdout(tmp_path, capsys):
+    tpl = tmp_path / "x.txt.in"
+    tpl.write_text("name=@DISPLAY_NAME@\r\nv=@VERSION@\n", encoding="utf-8")
+    out = tmp_path / "x.txt"
+    assert render.main(["--repo", str(REPO), "--template", str(tpl), "--set", "version=1.2.3"]) == 0
+    stdout = capsys.readouterr().out
+    assert (
+        render.main(
+            [
+                "--repo",
+                str(REPO),
+                "--template",
+                str(tpl),
+                "--set",
+                "version=1.2.3",
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == ""
+    raw = out.read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf"), "no BOM"
+    assert b"\r" not in raw, "LF line endings only"
+    assert raw.decode("utf-8") == stdout.replace("\r\n", "\n")
+    assert raw == b"name=GleepGlorp AI\nv=1.2.3\n"
+
+
+def test_out_errors_return_one(tmp_path, capsys):
+    tpl = tmp_path / "bad.in"
+    tpl.write_text("@NO_SUCH_KEY@", encoding="utf-8")
+    out = tmp_path / "bad.out"
+    assert render.main(["--repo", str(REPO), "--template", str(tpl), "--out", str(out)]) == 1
+    assert "unreplaced placeholder" in capsys.readouterr().err
+    assert not out.exists()
+    missing = tmp_path / "gone" / "x.out"
+    ok_tpl = tmp_path / "ok.in"
+    ok_tpl.write_text("x", encoding="utf-8")
+    assert render.main(["--repo", str(REPO), "--template", str(ok_tpl), "--out", str(missing)]) == 1
+
+
+def test_out_needs_a_template():
+    with pytest.raises(SystemExit):
+        render.main(["--repo", str(REPO), "--json", "--out", "x"])
+
+
+def test_iss_templates_double_quotes_and_refuse_newlines():
+    assert render.render('#define A "@NAME@"', {"name": 'say "hi"'}, iss=True) == (
+        '#define A "say ""hi"""'
+    )
+    # the other modes leave quotes alone
+    assert render.render("@NAME@", {"name": '"'}) == '"'
+    with pytest.raises(render.RenderError, match="newline"):
+        render.render('#define A "@NAME@"', {"name": "a\nb"}, iss=True)
+    with pytest.raises(render.RenderError, match="newline"):
+        render.render('#define A "@NAME@"', {"name": "a\rb"}, iss=True)
+
+
+def test_iss_in_render_goes_through_main_with_escaping(tmp_path):
+    # the template name decides the mode: *.iss.in escapes, a plain *.in does not
+    tpl = tmp_path / "t.iss.in"
+    tpl.write_text('#define N "@DISPLAY_NAME@"\n', encoding="utf-8")
+    out = tmp_path / "t.iss"
+    assert render.main(["--repo", str(REPO), "--template", str(tpl), "--out", str(out)]) == 0
+    assert out.read_text(encoding="utf-8") == '#define N "GleepGlorp AI"\n'
+
+
+def _expand(text: str, defines: dict[str, str]) -> str:
+    """A tiny test-side ISPP: substitute ``{#Name}`` from the defines."""
+    return re.sub(r"\{#(\w+)\}", lambda m: defines[m.group(1)], text)
+
+
+def _parse_defines(include: str) -> dict[str, str]:
+    out = {}
+    for line in include.splitlines():
+        m = re.match(r'^#define (\w+) "((?:[^"]|"")*)"$', line)
+        if m:
+            out[m.group(1)] = m.group(2).replace('""', '"')
+    return out
+
+
+def _section(iss: str, name: str) -> list[str]:
+    lines, on = [], False
+    for line in iss.splitlines():
+        if line.startswith("["):
+            on = line.strip() == f"[{name}]"
+            continue
+        if on and line.strip() and not line.startswith(";"):
+            lines.append(line)
+    return lines
+
+
+def test_the_rendered_include_reproduces_todays_effective_installer_lines(tmp_path):
+    version = "0.11.9.dev1"
+    values = render.load(REPO, {"version": version})
+    include = render.render((WIN / "product.iss.in").read_text(encoding="utf-8"), values, iss=True)
+    defines = _parse_defines(include)
+    defines["DistDir"] = "C:\\b\\dist"
+    iss = (WIN / "the-one.iss").read_text(encoding="utf-8")
+    setup = [_expand(ln, defines) for ln in _section(iss, "Setup")]
+    # today's values (the 0.11.8 .iss), written here by hand: not a generated golden file
+    for want in (
+        "AppName=GleepGlorp AI",
+        f"AppVersion={version}",
+        f"AppVerName=GleepGlorp AI {version}",
+        "DefaultDirName={autopf}\\GleepGlorp AI",
+        "DefaultGroupName=GleepGlorp AI",
+        f"OutputBaseFilename=the-one-setup-{version}",
+    ):
+        assert want in setup, want
+    icons = [_expand(ln, defines) for ln in _section(iss, "Icons")]
+    assert icons == [
+        'Name: "{group}\\GleepGlorp AI"; Filename: "{app}\\the-one-app.exe"; '
+        'IconFilename: "{app}\\the-one.ico"',
+        'Name: "{group}\\Uninstall GleepGlorp AI"; Filename: "{uninstallexe}"',
+        'Name: "{autodesktop}\\GleepGlorp AI"; Filename: "{app}\\the-one-app.exe"; '
+        'IconFilename: "{app}\\the-one.ico"; Tasks: desktopicon',
+    ]
+    files = [_expand(ln, defines) for ln in _section(iss, "Files")]
+    assert files[0] == (
+        'Source: "C:\\b\\dist\\the-one\\*"; DestDir: "{app}"; '
+        "Flags: recursesubdirs createallsubdirs ignoreversion"
+    )
+    run = [_expand(ln, defines) for ln in _section(iss, "Run")]
+    assert run == [
+        'Filename: "{app}\\the-one-app.exe"; Description: "Launch GleepGlorp AI"; '
+        "Flags: nowait postinstall skipifsilent"
+    ]
+    # every {#Name} the .iss uses is defined by the include, plus DistDir from the command line
+    used = set(
+        re.findall(
+            r"\{#(\w+)\}", "\n".join(ln for ln in iss.splitlines() if not ln.startswith(";"))
+        )
+    )
+    assert used <= set(defines), used - set(defines)
+
+
+def test_iss_has_no_version_fallback_and_requires_distdir():
+    iss = (WIN / "the-one.iss").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in iss.splitlines() if not ln.startswith(";"))
+    assert "#ifndef AppVersion" not in code and 'AppVersion "0.2.0"' not in code
+    assert '#include "product.iss"' in code
+    assert re.search(r"#ifndef DistDir\s+#error", code)
+    assert "/DAppVersion" not in code
+
+
+def test_product_iss_is_gitignored():
+    ignore = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "packaging/windows/product.iss" in ignore
+
+
+def test_render_and_stage_agree_on_the_version(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "packaging_stage_v", REPO / "packaging" / "stage.py"
+    )
+    stage_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stage_mod)
+    version = render.load(REPO)["version"]
+    src = tmp_path / "src"
+    (src / "the_one").mkdir(parents=True)
+    (src / "the_one" / "__init__.py").write_text(
+        (REPO / "the_one" / "__init__.py").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    icon = src / stage_mod.ICON
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(b"png")
+    env = {**os.environ, "M32_SOURCE": str(src)}
+    for ver in (version, "0.11.9.dev1"):
+        r = subprocess.run(
+            [sys.executable, str(REPO / "packaging" / "stage.py"), "--version", ver,
+             "--target", "windows", "--out", str(tmp_path / "out")],
+            env=env, capture_output=True, text=True,
+        )  # fmt: skip
+        assert r.returncode == 0, r.stderr
+        staged = tmp_path / "out" / f"stage-windows-{ver}"
+        # the version render.py would read from the staged tree is the version asked for
+        assert render.read_version(staged) == ver
+        assert render.load(REPO, {"version": ver})["version"] == ver

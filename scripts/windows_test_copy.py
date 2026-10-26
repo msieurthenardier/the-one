@@ -81,7 +81,7 @@ ENV_PREFIXES = ("WEBVIEW2_", "THE_ONE_")
 # Names the sync never deletes (build products and the editable install).
 SYNC_PROTECTED_PARTS = ("dist", "build", "__pycache__")
 SYNC_PROTECTED_SUFFIXES = (".egg-info",)
-# The dependency-closure commands, pinned to ci/tasks/windows-installer-build.yml
+# The dependency-closure commands, pinned to packaging/windows/build.ps1
 # by tests/test_windows_test_copy.py (squawk 0124). Argument tails after
 # ``python -m uv export`` / ``python -m pip install``.
 CLOSURE_UV_EXPORT_ARGS = (
@@ -2279,6 +2279,33 @@ def op_build_venv(a: dict) -> dict:
     return {"venv": "built", "times": times}
 
 
+def freeze_plan(root: str, vpy: str, version: str) -> dict:
+    """The staged freeze (Mission 32 Flight 4): stage first, then freeze with ``M32_STAGE`` set.
+
+    The spec requires ``M32_STAGE`` (it never puts the repo root on sys.path), so a bare
+    PyInstaller run of ``packaging/windows/the-one.spec`` exits. Pure: returns the stage
+    command, the freeze command and the freeze environment additions.
+    """
+    src = root + "\\src"
+    stage_parent = root + "\\stage"
+    stage_dir = stage_parent + "\\stage-windows-" + version
+    return {
+        "stage_cmd": [
+            vpy,
+            src + "\\packaging\\stage.py",
+            "--version",
+            version,
+            "--target",
+            "windows",
+            "--out",
+            stage_parent,
+        ],
+        "freeze_cmd": [vpy, "-m", "PyInstaller", "--noconfirm", "packaging/windows/the-one.spec"],
+        "env": {"M32_STAGE": stage_dir},
+        "stage_dir": stage_dir,
+    }
+
+
 def op_freeze(a: dict) -> dict:
     root = a["root"]
     _require_ok_root(root)
@@ -2286,6 +2313,12 @@ def op_freeze(a: dict) -> dict:
     vpy = venv_python(root)
     if not os.path.isfile(vpy):
         raise HelperError("no venv: run `setup` first")
+    init = local_path(src + "\\the_one\\__init__.py")
+    with open(init, encoding="utf-8") as fh:
+        m = re.search(r'(?m)^__version__\s*=\s*"([^"]*)"\s*$', fh.read())
+    if not m:
+        raise HelperError("no __version__ in the copied the_one/__init__.py")
+    plan = freeze_plan(root, vpy, a.get("version") or m.group(1))
     env = _build_env(root)
     times = {}
     log = "freeze.log"
@@ -2297,13 +2330,13 @@ def op_freeze(a: dict) -> dict:
         env,
         "pip install pyinstaller",
     )
+    times["stage"] = _run_logged(
+        root, log, plan["stage_cmd"], src, env, "stage.py --target windows"
+    )
+    freeze_env = dict(env)
+    freeze_env.update(plan["env"])
     times["pyinstaller"] = _run_logged(
-        root,
-        log,
-        [vpy, "-m", "PyInstaller", "--noconfirm", "packaging/windows/the-one.spec"],
-        src,
-        env,
-        "PyInstaller",
+        root, log, plan["freeze_cmd"], src, freeze_env, "PyInstaller"
     )
     exes = {
         n: os.path.isfile(local_path(frozen_dir(root) + "\\" + n))

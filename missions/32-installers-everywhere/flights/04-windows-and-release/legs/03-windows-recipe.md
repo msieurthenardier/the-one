@@ -1,6 +1,6 @@
 # Leg: windows-recipe
 
-**Status**: ready
+**Status**: in-flight
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -78,11 +78,11 @@ The installer quits a running app gracefully, with a force fallback, on both ins
 ## Acceptance Criteria
 
 ### Phase 3a
-- [ ] **AC1: `[windows]` in `product.toml`.** The keys are `app_guid`, `install_dir_name`, `setup_file_stem`, `cli_executable`, `gui_executable` and `publisher`. Add others only if the `.iss` needs them, and none may clash with an existing key in another section (`render.load` rejects duplicates).
+- [x] **AC1: `[windows]` in `product.toml`.** The keys are `app_guid`, `install_dir_name`, `setup_file_stem`, `cli_executable`, `gui_executable` and `publisher`. Add others only if the `.iss` needs them, and none may clash with an existing key in another section (`render.load` rejects duplicates).
   - `app_guid` is `CAEEFB46-2698-4048-AD9F-0120D0B7174A`, and a test pins that value.
   - Linux and macOS renders are byte-identical before and after. Show it: render every existing template at a fixed version and `SOURCE_DATE_EPOCH`, on the base and the leg, and diff.
-- [ ] **AC2: `render.py --out FILE`.** It writes UTF-8 with LF line endings and no BOM, the same text the stdout path writes. Its errors return 1 like today's. Tests cover it, including an `.iss.in` render. The Linux and macOS build scripts keep stdout.
-- [ ] **AC3: the rendered include.** `product.iss.in` renders every `#define` the `.iss` needs (name, version, publisher, URL, dir name, exe names, setup stem). The GUID is not a `#define`: the `AppId` line stays literal and a test checks it.
+- [x] **AC2: `render.py --out FILE`.** It writes UTF-8 with LF line endings and no BOM, the same text the stdout path writes. Its errors return 1 like today's. Tests cover it, including an `.iss.in` render. The Linux and macOS build scripts keep stdout.
+- [x] **AC3: the rendered include.** `product.iss.in` renders every `#define` the `.iss` needs (name, version, publisher, URL, dir name, exe names, setup stem). The GUID is not a `#define`: the `AppId` line stays literal and a test checks it.
   - `the-one.iss` `#include`s it. The `#ifndef AppVersion` fallback and any `/DAppVersion` use are gone, so the include is the only version source, and a missing `product.iss` is an ISCC error.
   - The effective `[Setup]` lines (`AppName`, `AppVersion`, `AppVerName`, `DefaultDirName`, `DefaultGroupName`, `OutputBaseFilename`) and the `[Icons]` names, after preprocessing, are identical to today's for the same version.
   - **The `AppId` line stays literal in `the-one.iss`** (`AppId={{CAEEFB46-2698-4048-AD9F-0120D0B7174A}}`) and never goes through the preprocessor: a test-side expander cannot prove how ISPP treats `{{` next to `{#`. A test pins that the literal line equals `AppId={{` + `app_guid` + `}}` from `product.toml`.
@@ -90,7 +90,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - **The dist path:** `[Files] Source:` uses `{#DistDir}\the-one\*`, with `#ifndef DistDir` → `#error`, and `build.ps1` passes `/DDistDir=…`. A missing value is a clear ISCC error.
   - **The rendered file:** `product.iss` stays at `packaging/windows/product.iss`, gitignored. ISPP searches the including file's directory first, so `build.ps1` deletes it and re-renders it on every build, and no `/I` copy is used.
   - A test proves this without ISCC. It renders the include, substitutes the `#define`s into the `.iss`'s `{#Name}` uses with a small test-side expander, and compares against a checked-in expectation of today's effective lines. That expectation is today's values written in the test, not a generated golden file.
-- [ ] **AC4: the staged spec.**
+- [x] **AC4: the staged spec.**
   - Insert `_STAGE` at the front of `sys.path` **before** any `collect_*` call, as the macOS spec does, so `collect_data_files("the_one")` reads the staged copy. `Analysis(["frozen_entry.py"])`, `icon=` and the other `SPECPATH`-relative paths keep resolving from `packaging/windows/`.
   - `tests/test_packaging_winpty_spec.py` (it reads the spec text) must keep passing.
   - Dropping `pip install -e .` is safe because nothing in `the_one/` reads its own distribution metadata (no `importlib.metadata.version("the-one")`; `diagnostics.py` reads only `mcp` and `httpcore2`). Re-grep and record this.
@@ -100,13 +100,13 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - Everything else (the hidden imports, `collect_*`, datas, icon, console flags) is unchanged.
   - `py_compile` passes.
   - A test asserts the spec never inserts the repo root, and reads both names from `render`.
-- [ ] **AC5: `stage.py` without git.**
+- [x] **AC5: `stage.py` without git.**
   - `--target windows` works.
   - The fallback triggers on **any** failure of `git rev-parse --show-toplevel`: a non-zero exit (for example a worktree's `.git` gitlink pointing at a path that does not exist on the worker, which is what `fly execute` uploads), or `FileNotFoundError` (no git). The outside-the-repo check then uses `REPO.resolve()`, and git is required only when `packaging/<target>/patches/*.diff` exist.
   - Tests cover: no git on `PATH`; a `.git` file pointing at a missing path; a real repo.
   - Tests cover both paths, plus refusing an `--out` inside the repo.
   - The Linux and macOS behaviour is unchanged (their tests pass).
-- [ ] **AC6: `build.ps1`, the one recipe.** It takes `-Version` (empty: `__version__`), `-Out` (the parent of the stage and build directories, which must be outside the repo) and `-Python`. It then:
+- [x] **AC6: `build.ps1`, the one recipe.** It takes `-Version` (empty: `__version__`), `-Out` (the parent of the stage and build directories, which must be outside the repo) and `-Python`. It then:
   1. creates or reuses a build venv under `-Out`;
   2. exports the locked closure with `uv export --frozen …` and the same extras as today, and installs it `--no-deps` with hashes;
   3. installs `pyinstaller==6.22.3` (what Windows probe run 3 shipped and the macOS build pins), with the hooks-contrib version recorded;
@@ -125,23 +125,23 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - throw on any failure;
   - pass `-SelfTest` (argument handling, path validation, the version resolution and the needle list, with no Windows API) in the local pwsh container;
   - be ASCII.
-- [ ] **AC7: the Concourse task.**
+- [x] **AC7: the Concourse task.**
   - `ci/tasks/windows-installer-build.yml` provisions Python 3.11 and Inno (as today) and calls `build.ps1` with `-Out` set to a directory inside the task's own working directory, a sibling of `repo` such as `build`. It then copies the installer to `installer/`.
   - It records the ISCC version and whether `git` is on `PATH` (`Get-Command git`).
   - `ci/windows-installer.pipeline.yml`'s MinIO step still matches `the-one-setup-*.exe`.
   - `tests/test_packaging_locked_closure.py` passes, with `build.ps1` added to rule 1.
-- [ ] **AC8: the `fly execute` proof.** First re-check `fly -t the-one status`, then confirm the Windows worker is `running` (`fly -t the-one workers`) and that no local test gate is running. Then run `fly -t the-one execute -c ci/tasks/windows-installer-build.yml -i repo=. -o installer=<scratch dir under $HOME/the-one-m32-evidence/f4/leg3/fly>` from the worktree, once.
+- [x] **AC8: the `fly execute` proof.** First re-check `fly -t the-one status`, then confirm the Windows worker is `running` (`fly -t the-one workers`) and that no local test gate is running. Then run `fly -t the-one execute -c ci/tasks/windows-installer-build.yml -i repo=. -o installer=<scratch dir under $HOME/the-one-m32-evidence/f4/leg3/fly>` from the worktree, once.
   - It succeeds, and the output holds `the-one-setup-<V>.exe`, with `V` = `__version__` (0.11.8) unless the task passes a version.
   - The task log shows strict `doctor` passing with every needle, the ISCC version and git's presence. Save the log to the evidence dir.
   - The installer is not run or published, and the output dir is deleted after its name and size are recorded.
   - If `fly` needs a login, stop and hand back `[BLOCKED:fly-login]`.
   - Before running it, check what `fly execute -i repo=.` will upload: `.venv`, `evals/.cache` and `evals/runs` must be gitignored. Record the upload size.
-- [ ] **AC8b: the other consumers of the spec and `.iss`.**
+- [x] **AC8b: the other consumers of the spec and `.iss`.**
   - **`windows-packages.yml` `mode=probe` is retired.** It exits 1 with "retired after leg 1 (run 40246340174); the product .iss/spec are staged now". `tests/test_windows_packages_workflow.py` is updated (the `/DAppVersion` pin goes; a retired-probe pin comes in), and the `on:` block is unchanged.
   - **`scripts/windows_test_copy.py::op_freeze`** moves to the staged recipe: it runs `stage.py --target windows` into its own out dir and freezes with `M32_STAGE`. Its existing tests pass, and a new one asserts it sets `M32_STAGE`.
   - **`.github/workflows/windows-installer.yml`** is left as is, broken by design until leg 4 deletes it. No tag may be pushed before leg 4, which the flight log records.
   - **A guard test** fails if any file under `ci/`, `.github/`, `scripts/` or `packaging/` (excluding `packaging/windows/probe/` and `windows-installer.yml`) passes `/DAppVersion` or runs `the-one.spec` without `M32_STAGE`.
-- [ ] **AC9: the Windows `PATH`-walk tests** (the Flight 3 debrief's item). These are Linux-run unit tests: frozen, `sys.platform` patched to `win32`, and a real `;`-separated `PATH` with `os.pathsep` patched, in the existing `test_windows_alias_shadowing_walks_to_the_real_python` style. They cover only cases not already in `tests/test_platform_interpreter.py` (about lines 86-120) and `tests/test_macos_runtime_seam.py`:
+- [x] **AC9: the Windows `PATH`-walk tests** (the Flight 3 debrief's item). These are Linux-run unit tests: frozen, `sys.platform` patched to `win32`, and a real `;`-separated `PATH` with `os.pathsep` patched, in the existing `test_windows_alias_shadowing_walks_to_the_real_python` style. They cover only cases not already in `tests/test_platform_interpreter.py` (about lines 86-120) and `tests/test_macos_runtime_seam.py`:
   - `PATH` order across several real interpreters (the first wins);
   - an alias first, then a real one later in `PATH`;
   - a `PATH` entry that is a file, missing, or empty;
@@ -149,7 +149,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - no interpreter at all, giving the actionable error text.
 
   List the cases that turned out to be already covered, and skip them. No new skips.
-- [ ] **AC10:** `make test-unit` passes (12 skips) and ruff is clean. Run it only on a quiet host. If another session's browser lanes are running, wait up to 30 minutes, then stop and report rather than run beside them.
+- [x] **AC10:** `make test-unit` passes (12 skips) and ruff is clean. Run it only on a quiet host. If another session's browser lanes are running, wait up to 30 minutes, then stop and report rather than run beside them.
 
 ### Phase 3b
 - [ ] **AC11: graceful quit in the product `.iss`.** `[Code]` holds DD2's sequence, from leg 1's `the-one-probe-quit.iss` `QuitThenKill` (the `M32Tick`/`M32Sleep` externals, `ExecAsOriginalUser(... 'quit --wait', ewNoWait)`, the poll that logs `present` and `gone` with a 90 s bound, a last `tasklist` check, then `KillRunning`). It is called:
