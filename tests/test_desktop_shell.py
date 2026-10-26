@@ -1750,6 +1750,33 @@ def test_boot_race_quit_is_honoured(
     assert state.lock.locked() is False
 
 
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_quit_after_publish_before_page_loaded_destroys_the_splash(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    """Release dry run 40263206440 (L8/L9): a quit that arrives after the window is
+    published but before its page's ``loaded`` fired destroyed only the main window.
+    ``loaded`` never fires for a destroyed window, so the splash stayed alive,
+    ``webview.start`` never returned and the server never drained."""
+    sessions: list = []
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    launcher_run = launcher_module.DesktopSession.run
+
+    def _capturing_run(self):
+        sessions.append(self)
+        return launcher_run(self)
+
+    monkeypatch.setattr(launcher_module.DesktopSession, "run", _capturing_run)
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, platform=platform)
+    assert state.desktop_window is ns.main and ns.loaded.is_set_value is False
+    ns.splash.destroy.assert_not_called()  # the page has not loaded: the splash is up
+    state.session = sessions[0]  # run() cleared it when the mocked start returned
+    assert window_control.quit_desktop() == "window"
+    ns.main.destroy.assert_called_once()
+    ns.splash.destroy.assert_called_once()  # else webview.start() never returns
+
+
 def test_boot_without_quit_publishes_and_clears_booting(
     webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

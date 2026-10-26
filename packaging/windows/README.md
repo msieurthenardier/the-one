@@ -253,7 +253,7 @@ An app older than this version (v0.11.8 has no `quit` command) is closed by the 
 
 ```
 gh workflow run windows-packages.yml --ref <branch> -f mode=full       # build N, frozen smoke, upload the installer
-gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L9
+gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L10
 ```
 
 Both build through `build.ps1`. `lifecycle` also builds N+1 (`render.py --next-version`, `-ReuseVenv`,
@@ -273,6 +273,7 @@ line is present and no row line starts with `FAIL`.
 | L6 | moved and resized window, `quit --wait`, relaunch: the native rectangle is within 16 px of `window-state.json` after the app's own clamps |
 | L7 | N+1 over a running N: quit, `present`, `gone`, nothing left, `KillRunning`, first copy, in that order, N drained first |
 | L8 | `quit --wait` exits 0, with the drain line and no process left |
+| L10 | `quit --wait` sent as soon as `/api/live` answers, while the window is still booting: exit 0 within the bound, the drain line, no process left (runs before L9) |
 | L9 | silent uninstall while the app runs: the same quit sequence in the `/LOG`, `{app}` and the key gone, data dir and marker kept |
 
 What the runner cannot prove, and the guide does not claim: the Windows 11 tinted title bar (the

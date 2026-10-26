@@ -349,6 +349,10 @@ class DesktopSession:
     def __init__(self) -> None:
         self._icon = None  # pystray icon reference (only this session owns it)
         self._window = None  # pywebview Window — set in run() after create_window
+        # run()'s idempotent splash teardown, bound once the splash exists. A quit
+        # that destroys the main window before its ``loaded`` fires must also close
+        # the splash, or ``webview.start`` never returns and the server never drains.
+        self._destroy_splash = None
 
     # ── geometry helper ───────────────────────────────────────────────────────
 
@@ -552,6 +556,10 @@ class DesktopSession:
             if not window_control._is_gtk_backend():  # on GTK, closing saves it (main thread)
                 self._save_current_geometry(state.desktop_window)
             state.desktop_window.destroy()
+        # ``loaded`` never fires for a destroyed window, so its handler will not close
+        # the splash: do it here (idempotent; a no-op on macOS once a quit is under way).
+        if self._destroy_splash is not None:
+            self._destroy_splash()
 
     # ── main run sequence ─────────────────────────────────────────────────────
 
@@ -765,6 +773,8 @@ class DesktopSession:
                         splash.destroy()
                     except Exception:
                         log.debug("splash.destroy() raised (already gone)", exc_info=True)
+
+                self._destroy_splash = _destroy_splash
 
                 # macOS (squawk 0261): the splash is created hidden (pywebview 5.4
                 # cocoa.py first_show sets `shown` even for a hidden window, so the

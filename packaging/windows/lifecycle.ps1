@@ -2,7 +2,7 @@
 #
 # Build-time tooling, run only by .github/workflows/windows-packages.yml (mode=lifecycle) on an
 # ephemeral hosted windows-2022 runner, after build.ps1 has built version N and N+1. Never
-# imported by the_one/. Writes <Logs>\lifecycle\SUMMARY.txt with rows L1-L9:
+# imported by the_one/. Writes <Logs>\lifecycle\SUMMARY.txt with rows L1-L10:
 #
 #   L1 old-to-new        v0.11.8 release installer, then N over it (one entry, same {app}, data kept)
 #   L2 install & launch  shortcut, doctor from {app}, window natively visible
@@ -13,6 +13,8 @@
 #   L7 graceful upgrade  N+1 over a running N: quit, poll, KillRunning, then the first copy
 #   L8 quit              `the-one.exe quit --wait`
 #   L9 uninstall running uninstall while the app runs: the same quit sequence, data kept
+#   L10 quit during boot `quit --wait` as soon as /api/live answers: must still drain and exit
+#                        (run before L9, which removes the install; see Get-RowPlan)
 #
 # Shared helpers (rows, summary, bounded waits, native windows, installers) are in lib.ps1, copied
 # from the frozen probe. Every row is seeded "FAIL <id> not-run" and replaced only by the code that
@@ -44,7 +46,7 @@ $ProgressPreference = 'SilentlyContinue'
 $script:OldVersion = '0.11.8'
 $script:MarkerAgent = 'lifecycle-marker'
 $script:MarkerFileName = 'lifecycle-marker.txt'
-$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9')
+$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L9')
 $script:Tolerance = 16
 
 # ---------------------------------------------------------------------------------------------
@@ -95,8 +97,20 @@ function Get-AppPidByName {
 
 function Wait-MainWindowVisible([int]$TimeoutSec, [string]$What) {
     $script:LastWin = $null
+    $script:LastGeo = $null
     $ok = Wait-Until { $w = Get-MainWindow; if ($w -and $w.Visible) { $script:LastWin = $w; return $true } else { return $false } } $TimeoutSec 500 $What
     return $(if ($ok) { $script:LastWin } else { $null })
+}
+
+# The normal-case precondition for a quit: the main window natively visible, the route reporting
+# visible:true, then a short settle so the page has loaded (a quit during boot is row L10's job).
+# Returns the window, or $null (logged) when it never got there.
+function Wait-AppReady([int]$TimeoutSec, [string]$What) {
+    $w = Wait-MainWindowVisible $TimeoutSec $What
+    if (-not $w) { return $null }
+    $null = Wait-Until { (Get-RouteVisible).Visible -eq $true } 30 500 "$What route visible:true"
+    Start-Sleep -Seconds 6
+    return $w
 }
 
 function Test-MarkerAgent {
@@ -314,7 +328,10 @@ function Test-RowL6 {
     $w2 = Wait-MainWindowVisible 60 'L6 relaunch visible main window'
     if (-not $w2) { $fails.Add('no visible main window after the relaunch'); Set-Row 'L6' 'FAIL' ($fails -join '; '); return }
     Start-Sleep -Milliseconds 2000
-    $actual = Get-WindowGeometry $w2.Hwnd
+    $actual = $null
+    $null = Wait-Until { $mw = Get-MainWindow; if ($mw -and $mw.Visible) { $script:LastGeo = Get-WindowGeometry $mw.Hwnd; return ($null -ne $script:LastGeo) } else { return $false } } 30 500 'L6 relaunch native rect'
+    $actual = $script:LastGeo
+    if ($null -eq $actual) { $fails.Add('the relaunched main window has no native rectangle after 30 s'); Set-Row 'L6' 'FAIL' ($fails -join '; '); return }
     $expected = Get-ExpectedGeometry $saved $areas.Union
     Add-Info 'L6' "relaunch: native rect $(Format-Geometry $actual); expected after the app's clamps (window_state.py: floor 640x360, clamp to the screen union) $(Format-Geometry $expected); tolerance +-$($script:Tolerance)"
     if (-not (Test-GeometryClose $expected $actual $script:Tolerance)) { $fails.Add("the relaunched rect $(Format-Geometry $actual) is not within $($script:Tolerance) px of $(Format-Geometry $expected)") }
@@ -368,6 +385,8 @@ function Test-RowL8 {
     $fails = New-Object System.Collections.Generic.List[string]
     $appPid = Get-AppPidByName
     if (-not $appPid) { Set-Row 'L8' 'FAIL' 'precondition: the app is not running'; return }
+    $ready = Wait-AppReady 60 'L8 ready'
+    if (-not $ready) { Set-Row 'L8' 'FAIL' 'precondition: the main window is not natively visible'; return }
     $off = Get-FileLen $script:AppLog
     $q = Invoke-QuitCli 'L8'
     $gone = Wait-Until { @(Get-AppPids).Count -eq 0 } 20 250 'L8 processes gone'
@@ -379,12 +398,31 @@ function Test-RowL8 {
     else { Set-Row 'L8' 'FAIL' ($fails -join '; ') }
 }
 
+function Test-RowL10 {
+    Write-Log '=== L10: quit during boot'
+    $fails = New-Object System.Collections.Generic.List[string]
+    Stop-App 'L10-pre'
+    $appPid = Start-App 'L10'
+    if (-not $appPid) { Set-Row 'L10' 'FAIL' 'precondition: the app did not start'; return }
+    # no ready wait: the quit goes in as soon as /api/live answers, while the window is still booting
+    $off = $script:LogOffset
+    $q = Invoke-QuitCli 'L10'
+    $gone = Wait-Until { @(Get-AppPids).Count -eq 0 } 20 250 'L10 processes gone'
+    $drained = Wait-Until { (Read-NewBytes $script:AppLog $off).Text -match "Finished server process \[$appPid\]" } 10 250 'L10 drain line'
+    if (-not $q.Finished -or $q.ExitCode -ne 0) { $fails.Add("quit --wait during boot did not exit 0 within the bound (finished=$($q.Finished), exit=$($q.ExitCode))") }
+    if (-not $drained) { $fails.Add("no 'Finished server process [$appPid]' line after the quit during boot") }
+    if (-not $gone) { $fails.Add("processes left: $((@(Get-AppPids)) -join ',')") }
+    if ($fails.Count -eq 0) { Set-Row 'L10' 'PASS' "quit --wait during boot exit 0, drain line for pid $appPid, no process left" }
+    else { Set-Row 'L10' 'FAIL' ($fails -join '; ') }
+}
+
 function Test-RowL9 {
     Write-Log '=== L9: uninstall while running'
     $fails = New-Object System.Collections.Generic.List[string]
     Stop-App 'L9-pre'
     $appPid = Start-App 'L9'
     if (-not $appPid) { Set-Row 'L9' 'FAIL' 'precondition: the app did not start'; return }
+    if (-not (Wait-AppReady 60 'L9 ready')) { Set-Row 'L9' 'FAIL' 'precondition: the main window is not natively visible'; return }
     $appOff = $script:LogOffset
     $unins = Join-Path $script:InstallDir 'unins000.exe'
     if (-not (Test-Path -LiteralPath $unins)) { Set-Row 'L9' 'FAIL' "$unins does not exist"; return }
@@ -435,6 +473,8 @@ function Get-RowPlan {
         @{ Id = 'L6'; Fn = { Test-RowL6 } },
         @{ Id = 'L7'; Fn = { Test-RowL7 } },
         @{ Id = 'L8'; Fn = { Test-RowL8 } },
+        # L10 runs before L9: the uninstall removes the install every other row needs
+        @{ Id = 'L10'; Fn = { Test-RowL10 } },
         @{ Id = 'L9'; Fn = { Test-RowL9 } }
     )
 }
@@ -476,7 +516,7 @@ function Invoke-SelfTest {
 
     # this file's own contract
     Initialize-Lib $scratch 'lifecycle' $script:RowIds 600
-    & $check (($script:RowIds -join ',') -eq 'L1,L2,L3,L4,L5,L6,L7,L8,L9') 'the rows are L1 to L9 in order'
+    & $check (($script:RowIds -join ',') -eq 'L1,L2,L3,L4,L5,L6,L7,L8,L10,L9') 'the rows are L1 to L8, L10, L9 in run order'
     & $check (((Get-RowPlan | ForEach-Object { $_.Id }) -join ',') -eq ($script:RowIds -join ',')) 'the plan runs every row once, in order'
     foreach ($e in (Get-RowPlan)) {
         & $check ($null -ne (Get-Command "Test-Row$($e.Id)" -ErrorAction SilentlyContinue)) "a function Test-Row$($e.Id) exists"
@@ -486,7 +526,7 @@ function Invoke-SelfTest {
     $script:Header = New-Object System.Collections.Generic.List[string]
     Write-Header
     $s = @(Get-Content -LiteralPath $script:SummaryPath)
-    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 9) 'the header write leaves nine rows FAIL not-run'
+    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 10) 'the header write leaves ten rows FAIL not-run'
     & $check ($s[0] -like '== windows installer lifecycle*') 'header first line'
     & $check (($s -join "`n") -notmatch 'lifecycle done|lifecycle aborted') 'a running summary has neither done nor aborted'
 
@@ -523,7 +563,7 @@ function Invoke-SelfTest {
     $s = @(Get-Content -LiteralPath $script:SummaryPath)
     $ab = @($s | Where-Object { $_ -like '== lifecycle aborted:*' })
     & $check ($ab.Count -eq 1 -and $ab[0] -match "unknown row id 'L99'") 'abort path: one aborted line naming the failure'
-    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 9) 'abort path: all nine rows still show FAIL not-run'
+    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 10) 'abort path: all ten rows still show FAIL not-run'
     & $check (($s -join "`n") -notmatch 'lifecycle done') 'abort path: no done line'
 
     Remove-Item -Recurse -Force -LiteralPath $scratch -ErrorAction SilentlyContinue

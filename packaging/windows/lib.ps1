@@ -165,6 +165,7 @@ function Test-LogOrder([string]$Text, [string[]]$Regexes) {
 
 # Geometry hashtables: X, Y, W, H. True when every value differs by at most $Tol pixels.
 function Test-GeometryClose($Expected, $Actual, [int]$Tol) {
+    if ($null -eq $Expected -or $null -eq $Actual) { return $false }
     foreach ($k in @('X', 'Y', 'W', 'H')) {
         if ($null -eq $Expected[$k] -or $null -eq $Actual[$k]) { return $false }
         if ([Math]::Abs([int]$Expected[$k] - [int]$Actual[$k]) -gt $Tol) { return $false }
@@ -370,7 +371,8 @@ function Get-AppWindows {
 
 # the main window: owned by an app pid, titled GleepGlorp AI (visible or not); a visible one wins
 function Get-MainWindow {
-    $w = @(Get-AppWindows | Where-Object { $_.Title -like 'GleepGlorp AI*' })
+    # not the launch splash ("GleepGlorp AI - starting"): it is visible first and goes away
+    $w = @(Get-AppWindows | Where-Object { $_.Title -like 'GleepGlorp AI*' -and $_.Title -notlike '*starting*' })
     if ($w.Count -eq 0) { return $null }
     $vis = @($w | Where-Object { $_.Visible })
     if ($vis.Count -gt 0) { return $vis[0] }

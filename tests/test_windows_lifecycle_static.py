@@ -115,10 +115,11 @@ def test_uninstall_hook_runs_before_files_are_removed():
 
 
 def test_lifecycle_rows_and_done_marker():
-    for rid in ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"):
+    for rid in ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"):
         assert f"function Test-Row{rid}" in LIFECYCLE
         assert f"Id = '{rid}'" in LIFECYCLE
-    assert "$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9')" in LIFECYCLE
+    row_ids = "$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L9')"
+    assert row_ids in LIFECYCLE
     # seeded not-run and the done marker only on the normal path
     assert '"FAIL $id not-run"' in LIB
     assert '"== $($script:Title) done"' in LIB
