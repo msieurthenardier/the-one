@@ -506,3 +506,29 @@ Final `git grep -n "windows-installer.yml\|packaging-probe-windows"` outside `mi
 - **Hosted Windows lifecycle runs:** 3 of 4 used (`40259389810` lost to the smoke 401; `40260891145` cancelled at 24 s, the Flight Director's error; `40260950171` green). 1 spare left.
 - **Leg 3 is landed.**
 
+- **Phase 4a committed** at `0aae53f`, after review (Reviewer, Sonnet, because `release.yml` carries `contents: write`: `[HANDOFF:confirmed]`; no expression injection; publish gating sound). The 4a Developer also re-sent "waiting on background work" with nothing of its own running, and was stopped.
+- **The operator's go (2026-10-26):**
+  - The release stub PR: "Yes, open and merge". PR #317 adds only the dispatch-only `release.yml` (no tag trigger, no publish job).
+  - The dry run uses `windows_mode=lifecycle` ("Lifecycle, uses the last run"). It is the 4th and last hosted Windows lifecycle run, and it proves the old-to-new upgrade across a real version change (v0.11.8 → 0.12.0.dev1). Its macOS `lifecycle` is macOS run 2 of 4. A red Windows row then needs the operator's go for any re-run.
+
+
+### release-workflow (leg 4), phase 4b
+Local only; nothing committed, pushed or dispatched. `__version__` still 0.11.8. Leg status `landed`; AC9-AC14 met.
+
+**AC9, squawk 0260 (the operator's "seed as floor" decision).**
+- `refresh_catalog_cache` now merges: the fetched catalog (plus the OpenAI floor) is written with every seed pair it lacks added from the seed, and the fetched value wins where both have a pair. The zero-model guard refuses the write (WARNING, `False`) only when the fetch projected no models for a provider the seed covers, checked on the bare projection before `apply_floor` (which would otherwise make OpenAI always look covered). One INFO line reports the floored count; a normal launch logs no warning.
+- **Premise correction:** the leg said `scripts/refresh_model_catalog.py` already keeps seed pairs as a floor. It did not (only the OpenAI floor table and "never shrink a fetched window"). A first live run removed all 25 retired pairs. The script now has `merge_existing_seed`, which keeps every pair the fetch lacks; the docstring's "seed is the floor" is now true. Covered by `test_refresh_script_keeps_existing_seed_pairs`.
+- **Seed refresh, live from models.dev, 2026-10-25** (`generated_at`): anthropic 25 -> 31 (6 added, 0 changed, 0 removed), openai 52 -> 63 (11 added, 0 changed, 0 removed); the 25 retired pairs (14 anthropic, 11 openai) kept by the floor. Added: `claude-fable-5-1`, `claude-haiku-5-5`, `claude-opus-5`, `claude-opus-5-5`, `claude-sonnet-5`, `claude-sonnet-5-5` (all 1,000,000) and eleven openai ids (`gpt-5.6*`, `gpt-6*`, `gpt-6.1-sol`, `gpt-daybreak-*`, `gpt-realtime-2.1`). No upstream dump committed; the seed JSON is the regenerated product data file.
+- `the-one doctor`: `model catalog: OK - seed resolves claude-sonnet-4-6 -> 1000000`.
+- Tests: `test_missing_seed_pair_is_kept_from_the_seed` (renamed and inverted, also asserts no WARNING and one INFO line), `test_fetched_value_overrides_the_seed`, `test_provider_with_zero_fetched_models_is_refused`; `test_existing_cache_intact_after_zero_model_refusal` and the class renamed `TestSeedFloorMerge`. `pytest tests/test_model_catalog*.py tests/test_doctor.py`: 152 passed.
+- Squawk 0260: corrective action (incl. why the prune plan was replaced), verification, status `in-progress`, disposition naming #316. `mission.md` Known Issues (it held "(none yet)", so no recurrence note was there to replace; flight.md line 278 holds the original note) now has a line naming #316.
+
+**AC10, squawk 0262.** `the_one/agents.md` "Desktop test-patch rule and the pywebview/PyObjC upgrade checklist" (end of "macOS packaging (M32 F3)"), one sentence in `CLAUDE.md`'s macOS paragraph, squawk `in-progress`.
+
+**AC11, docs.** `docs/releases/README.md` "How it is used" rewritten for `release.yml`; `ci/README.md` gained the `build.ps1`/release-path note (its other `release.yml` mentions were done in 4a; the `fly execute` line is unchanged); `README.md` "Install" now has a table of the four asset names and the three guides; `CLAUDE.md` gained "Release (M32 F4)" and a Windows packaging sentence; `the_one/agents.md` gained "Release workflow (M32 F4)" and "Windows packaging (M32 F4)" (build.ps1, staged spec, the literal `}}_is1` AppId identity, the quit sequence, `lifecycle.ps1`). All additive, in their own sections.
+
+**AC12, contributor check (DD10).** `docs/macos-contributor-check.md`: N is the dry run's `0.12.0.dev1` `.dmg` (an Actions artifact zip, GitHub sign-in needed), N+1 is the `v0.12.0` release `.dmg`, step 9 marked deferred to the first patch release, a splash observation added to step 3, new steps 11 (zsh+nvm `PATH`), 12 (logout while running), 13 (quit during boot), Remove renumbered 14. `tests/behavior/macos-app-install.md` updated to match (rows 3, 9, 11-14); status `draft`, Last Run `never`.
+
+**AC13, DRAFT `docs/releases/v0.12.0.md`** for the operator to approve in leg 6: title "v0.12.0 — GleepGlorp AI on macOS and Linux"; Added (macOS app, Linux packages, SHA256SUMS), Changed (Windows upgrade closes the app cleanly), Fixed (Windows hidden-window state, macOS empty window, the model catalog), Notes (one-time forced close from v0.11.8 on Windows, macOS unsigned approval and quit before replacing, data locations unchanged). It parses with `scripts/release_notes.py` and passes `test_release_file_parses`. The operator's wording approval is leg 6's.
+
+**AC14.** `make test-unit` (host quiet: load 1.0, no other test process): `7599 passed, 12 skipped, 2987 deselected` in 339 s. `ruff check` and `ruff format --check` over `the_one/ tests/ scripts/ evals/ packaging/`: clean.

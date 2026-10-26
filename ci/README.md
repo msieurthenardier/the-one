@@ -177,6 +177,8 @@ pip` through the PyInstaller freeze now also checks `$LASTEXITCODE`, since Power
 to native-executable exit codes — that gap is how build 606657's failed install went
 unnoticed in the first place.
 
+The task builds through `packaging/windows/build.ps1`, the same recipe the GitHub `windows-packages.yml` workflow calls (so both build the same way); the task only supplies the `-Out` directory and copies the installer to `installer/` for the MinIO step. A release is a separate path: `.github/workflows/release.yml` (a `v*` tag, or a dry-run dispatch) builds all three platforms and publishes the GitHub release; Concourse does not publish releases.
+
 ### 3. On-demand installer build
 
 To trigger an installer build manually (e.g. from a branch after a standalone

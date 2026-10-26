@@ -15,21 +15,22 @@ Terminal output.
 
 **What this does to your Mac:** it installs GleepGlorp AI in `/Applications`, creates
 `~/Library/Application Support/the-one/` and `~/Library/Logs/GleepGlorp AI/`, and listens on
-`127.0.0.1:8484` (only your own Mac). Step 11 removes the app; it leaves the data folder unless
+`127.0.0.1:8484` (only your own Mac). Step 14 removes the app; it leaves the data folder unless
 you ask to delete that too. It touches nothing else. **Never send the contents of
 `api-credential`**; the commands below print only its harmless `loc_<id>` prefix.
 
 ## Get the builds
 
-You need three `.dmg` files, versions N, N+1 and N+2, from a dispatched run of the repository's
-`macos-packages.yml` workflow (mode `lifecycle` or `full`): open the run on GitHub, **Artifacts**,
-**`macos-dmg`**. The person running the check will tell you which run and give you the sha256
-for each file. Download them **with Safari** (or your usual browser) from the artifact page, not
-by copying them with `scp` or AirDrop, so macOS marks them as downloaded. That mark is what
-triggers Gatekeeper, and it is part of what we check. An artifact is a zip containing the
-`.dmg`; unzip it first.
+You need two `.dmg` files, an older build **N** and the release **N+1**:
+
+- **N** is the release rehearsal's build, version `0.12.0.dev1`. It is not a release, so it is not on the releases page. It is the `macos-dmg` artifact of a manually dispatched `release.yml` run (the person running the check will give you the run's link). Open the run on GitHub (you must be signed in to GitHub to download an artifact), scroll to **Artifacts**, and download **`macos-dmg`**: it arrives as a **zip** containing the `.dmg`, so unzip it.
+- **N+1** is the real **`v0.12.0`** release: download `GleepGlorp_AI-0.12.0-arm64.dmg` from the [releases page](https://github.com/msieurthenardier/the-one/releases).
+
+Download both **with Safari** (or your usual browser), not by copying them with `scp` or AirDrop, so macOS marks them as downloaded. That mark is what triggers Gatekeeper, and it is part of what we check. The release page also lists `SHA256SUMS`; for the artifact, the person running the check will give you the sha256.
 
 Check each file: `shasum -a 256 ~/Downloads/GleepGlorp_AI-*-arm64.dmg`.
+
+The check's old step 9 ("replace while running", N+1 to N+2) needs a third build and waits for the first patch release; it is marked below.
 
 ## Commands to paste
 
@@ -61,7 +62,7 @@ curl -s -H "Authorization: Bearer $CRED" http://127.0.0.1:8484/api/agents; echo
 **Ollama**, accept the defaults and save (nothing needs to be running); then **Agents › New**,
 name it `mac-check-agent`, pick that provider, type any model name, and choose **Create**.
 
-**Doctor** (step 10):
+**Doctor** (steps 10 and 11):
 
 ```bash
 "/Applications/GleepGlorp AI.app/Contents/MacOS/the-one" doctor
@@ -91,6 +92,10 @@ Click **Done**, then **System Settings › Privacy & Security**, scroll to **Sec
 [macos-install.md](macos-install.md) section 3.)
 **Expect:** within 30 seconds a GleepGlorp AI window shows the Chats start page ("Hello."), the
 Dock shows the brand icon, and no second Gatekeeper prompt appears later.
+**Also record (the first launch after approving):** does a small "GleepGlorp AI starting" splash
+window appear at all before the main window, and if it does, is its logo and text painted or is it
+an empty dark card? (A splash showing nothing is a known defect we are trying to fix; "no splash
+at all" is also worth knowing. Look closely, it may last only a second or two.)
 *Screenshots:* the Privacy & Security screen showing **Open Anyway** (or whatever is there
 instead), the confirm dialog, and the running app with the Dock visible. Run the **State**
 command and paste its output.
@@ -127,7 +132,11 @@ app (approve it again if macOS asks, as in step 3).
 and **Agents** lists `mac-check-agent`.
 *Screenshots:* the replace prompt; the app. Paste both outputs.
 
-### 9. Replace while running (N+1 to N+2)
+### 9. Replace while running (N+1 to N+2) — skip for now
+> **Not part of the first check.** It needs a third build, N+2, which does not exist until the
+> first patch release after `v0.12.0`. Skip this step and write "deferred" in your report; do it
+> when that release is out.
+
 With N+1 **running**, download N+2 and drag it over the app in Applications **without quitting**.
 Then open it from Applications. This step records what happens; the install guide says not to do
 it, because the running copy can crash when its bundle is swapped.
@@ -144,7 +153,31 @@ Python 3 installed it may instead fail only the `python interpreter` check with 
 you to install Python 3; that is also acceptable, and worth noting.
 *Paste* the whole output.
 
-### 11. Remove
+### 11. Your own shell's PATH (zsh and nvm)
+This checks that the app finds the tools you installed yourself. Skip it, and say so, if you do not
+use nvm. In a Terminal where `node` is the nvm one (`which node` prints a path under
+`~/.nvm`), run the **Doctor** command again, then also open the app from the Dock and ask
+**State**.
+**Expect:** the `path:` line of `doctor` reads `login shell` and the directory of your nvm `node`
+appears in it (for example `~/.nvm/versions/node/v22.x/bin`); `doctor` lists `node` as found.
+*Paste* the `path:` and `node` lines, and `which node`.
+
+### 12. Log out while the app runs
+With the app running, log out of your Mac account (Apple menu › Log Out) and log back in.
+**Expect:** the log-out is not held up by GleepGlorp AI (no "GleepGlorp AI is preventing log out"
+dialog that needs a click, or at worst one that clears itself within a few seconds). After you log
+back in, run **Alive?**: it should print nothing, because the app quit with the session, and then
+open the app again from Applications: it opens normally and **Agents** lists your agent.
+*Note* anything that delayed or blocked the log-out, and paste the last 30 lines of the log.
+
+### 13. Quit while it is starting
+Open the app from Applications and, within two seconds, before the main window appears, press
+**Cmd-Q** (or right-click the Dock icon and choose **Quit**). Wait 15 seconds.
+**Expect:** the app quits without a "quit unexpectedly" dialog and no window is left behind;
+**Alive?** prints nothing. Then open it again: it starts normally.
+*Note* if the quit was ignored until the window appeared, and how long it took.
+
+### 14. Remove
 Quit the app. Drag **GleepGlorp AI** from Applications to the Trash. Then list the data folder:
 
 ```bash
@@ -159,7 +192,7 @@ ls "$HOME/Library/Application Support/the-one/"
 ## What to send back
 
 - The macOS version and chip (`sw_vers`; Apple menu › About This Mac).
-- The three sha256 values and which run the files came from.
+- The sha256 values and which run the files came from (the rehearsal run for N, the release for N+1).
 - For each numbered step: pass or fail, the screenshots listed, pasted output, and any surprise.
 - The last 50 lines of `~/Library/Logs/GleepGlorp AI/app.log`
   (`tail -n 50 ~/Library/Logs/GleepGlorp\ AI/app.log`), if anything went wrong.

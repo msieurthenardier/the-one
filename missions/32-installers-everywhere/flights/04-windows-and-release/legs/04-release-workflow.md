@@ -1,6 +1,6 @@
 # Leg: release-workflow
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -145,7 +145,7 @@ The version comes from one place. Squawks 0260 and 0262 are fixed. The docs and 
 - [x] **AC8:** `make test-unit` passes (12 skips), only on a quiet host. Otherwise report it and do not run. Ruff is clean.
 
 ### Phase 4b
-- [ ] **AC9: squawk 0260, "seed as a floor" (the operator's decision, 2026-10-26).**
+- [x] **AC9: squawk 0260, "seed as a floor" (the operator's decision, 2026-10-26).**
   - **Why the squawk's original fix is not used:** the design review ran the live fetch. 25 of the 77 seed pairs are gone upstream: 14 anthropic, all 200k, and 11 openai, seven of them 400k. Pruning them would lose those windows, and the problem would come back. The operator chose instead to make the refresh treat the seed as a floor, the way `scripts/refresh_model_catalog.py` already does. This is a small, approved design change that goes beyond the squawk's original scope; record it in the squawk.
   - **The change, in `the_one/llm/model_catalog.py::refresh_catalog_cache`:** the all-or-nothing seed-coverage guard becomes a merge.
     - The projected catalog is written with every seed pair it lacks added from the seed, and the fetched values win where both have a pair.
@@ -162,13 +162,13 @@ The version comes from one place. Squawks 0260 and 0262 are fixed. The docs and 
   - **The seed refresh for v0.12.0:** run `scripts/refresh_model_catalog.py` (read it first for its usage) once at leg time, live from this host, and commit the regenerated `the_one/llm/data/model_catalog.json`. The script keeps existing seed pairs as a floor. Record the date and the counts (pairs added and changed per provider) in the flight log and the squawk. Check that `the-one doctor`'s catalog gate still resolves its probe model (`the_one/diagnostics.py`, the bundled-seed probe).
   - **The longer-term fix is logged as GitHub issue #316:** dynamic Claude windows from the Models API's `max_input_tokens`. Name it in the squawk's disposition and in the mission's Known Issues line, replacing the recurrence note.
   - **Squawk record:** the corrective action and verification go in the squawk, with status `in-progress`. The Flight Director marks it `completed` at the commit.
-- [ ] **AC10: squawk 0262.** An additive paragraph in `the_one/agents.md` (the desktop launcher or macOS packaging section). It names:
+- [x] **AC10: squawk 0262.** An additive paragraph in `the_one/agents.md` (the desktop launcher or macOS packaging section). It names:
   - `tests/test_desktop_split_guard.py` and the rule "patch a name in the module that defines it; state lives on `session_state.state`; platform decisions live on `boot_policy` (Flight 4)";
   - the pywebview/PyObjC upgrade checklist: `tests/test_pywebview_cocoa_canary.py` green, **and** `gh workflow run macos-packages.yml --ref <branch> -f mode=lifecycle`;
   - that macOS CI is hosted-only and dispatch-limited.
 
   Plus one sentence in `CLAUDE.md`'s macOS packaging paragraph pointing to it. The squawk is updated as in AC9.
-- [ ] **AC11: the docs.**
+- [x] **AC11: the docs.**
   - **`docs/releases/README.md`:** "How it is used" now describes `release.yml` (audit → version → three builds → publish, drafts first, `SHA256SUMS`).
   - **`ci/README.md`:** the topology table and text, with `release.yml` as the `v*` path; the Concourse task builds through `build.ps1`; the `fly execute` line kept.
   - **`README.md` "Install":** every platform points at the GitHub release page, with the asset names, and links to the three install guides. Source install unchanged.
@@ -177,13 +177,13 @@ The version comes from one place. Squawks 0260 and 0262 are fixed. The docs and 
     - the Windows packaging (M15 F5) paragraph gains one sentence on `build.ps1` and the `[windows]` section.
   - **`the_one/agents.md`:** an additive "Release workflow (M32 F4)" section, and a "Windows packaging" update (`build.ps1`, the staged spec, the `}}_is1` identity, the graceful quit sequence, `lifecycle.ps1`).
   - All edits are additive and in their own sections.
-- [ ] **AC12: the contributor check (DD10).** `docs/macos-contributor-check.md` and `tests/behavior/macos-app-install.md` are updated so that:
+- [x] **AC12: the contributor check (DD10).** `docs/macos-contributor-check.md` and `tests/behavior/macos-app-install.md` are updated so that:
   - N is the dry run's `0.12.0.dev1` `.dmg`: an Actions artifact, sign-in needed, downloaded as a zip; say how to find it;
   - N+1 is the `v0.12.0` release `.dmg`;
   - step 9's N+2 waits for the first patch release, with a note;
   - the added checks are: a real zsh with nvm on `PATH` (does `doctor`'s `path:` line show the nvm node?), logout while the app runs, a quit during boot, and whether a splash appears at all on first launch (squawk 0261's open verification);
   - the spec stays `draft`, with "Last Run: never".
-- [ ] **AC13: a draft `docs/releases/v0.12.0.md`.** It follows `docs/releases/README.md`'s format: the title `# v0.12.0 — GleepGlorp AI on macOS and Linux`, or similar. Its body covers:
+- [x] **AC13: a draft `docs/releases/v0.12.0.md`.** It follows `docs/releases/README.md`'s format: the title `# v0.12.0 — GleepGlorp AI on macOS and Linux`, or similar. Its body covers:
   - the new macOS `.dmg` and Linux AppImage and `.deb` (with the guides);
   - the Windows installer now quitting the app cleanly on upgrade;
   - the window behaviour fixes;
@@ -191,7 +191,7 @@ The version comes from one place. Squawks 0260 and 0262 are fixed. The docs and 
   - Notes: from v0.11.8, Windows closes the running app once by force; macOS unsigned approval; data locations unchanged.
 
   It is marked draft in the flight log; the operator approves its text in leg 6.
-- [ ] **AC14:** `make test-unit` passes (12 skips) on a quiet host, and ruff is clean.
+- [x] **AC14:** `make test-unit` passes (12 skips) on a quiet host, and ruff is clean.
 
 ## Verification Steps
 - AC1-AC8:

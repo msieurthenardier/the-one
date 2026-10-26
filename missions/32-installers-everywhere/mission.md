@@ -94,7 +94,7 @@ Someone on macOS or Linux can download GleepGlorp AI, install it the way they in
 - ~~**Release vehicle during Mission 31:** build artifacts on a dispatched run, or a draft or pre-release on GitHub?~~ **Resolved (Flight 4 planning, operator):** a manual dry run that publishes nothing, then a regular `v0.12.0` release. Contributors download from the release page.
 
 ## Known Issues
-_(none yet)_
+- The bundled model catalog is a static seed floor: models upstream retires keep their last recorded window, and Claude windows are not read live. The longer-term fix (dynamic Claude windows from the Models API's `max_input_tokens`) is GitHub issue #316. Squawk 0260 made the refresh merge the seed as a floor.
 
 ## Flights
 

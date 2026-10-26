@@ -19,6 +19,10 @@ Floor / no-regression rule
     (returns a smaller value), the existing seed value is preferred.  The seed
     is the floor; the script never shrinks a window.
 
+Seed pairs upstream no longer lists
+    Every pair already in the seed that the fetch lacks is kept at its recorded
+    window (squawk 0260), so a retired model never loses its window.
+
 When to re-run
     Any time the seed needs refreshing against the upstream dataset.  The output
     is idempotent when models.dev returns the same data — only ``generated_at``
@@ -87,6 +91,27 @@ def write_catalog(
     out_path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def merge_existing_seed(providers: dict[str, dict[str, int]], seed_path: Path) -> int:
+    """Add every pair of the seed at ``seed_path`` that ``providers`` lacks.
+
+    Returns the number of pairs added.  A missing or unreadable seed adds none.
+    """
+    try:
+        existing = json.loads(seed_path.read_text(encoding="utf-8")).get("providers", {})
+    except (OSError, ValueError):
+        return 0
+    added = 0
+    for provider, models in existing.items():
+        if not isinstance(models, dict):
+            continue
+        section = providers.setdefault(provider, {})
+        for model, window in models.items():
+            if model not in section and isinstance(window, int):
+                section[model] = window
+                added += 1
+    return added
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument(
@@ -117,6 +142,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Apply no-regression floor for OpenAI.
     providers = apply_floor(providers, _OPENAI_FLOOR, "openai")
+
+    # The existing seed is a floor too (squawk 0260): a pair upstream no longer
+    # lists keeps its recorded window, and a fetched value wins where both have one.
+    kept = merge_existing_seed(providers, args.out)
+    if kept:
+        print(f"Kept {kept} existing seed pair(s) upstream no longer lists")
 
     write_catalog(providers, args.out, source=source)
 
