@@ -408,7 +408,8 @@
           App.store.invalidate('agents');
           // A late Delete drops the row but never closes the open item.
           if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-          App.ui.flash('MCP server deleted', { container: container });
+          // The page, not the editor: the success callback discards the editor and its container.
+          App.ui.flash('MCP server deleted');
           if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
         })
         .catch(function (err) {

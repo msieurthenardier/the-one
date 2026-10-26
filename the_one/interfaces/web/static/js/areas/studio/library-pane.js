@@ -255,8 +255,9 @@
         }];
       }
       if (group.id === 'mcp') {
-        // Local (stdio) or Remote (streamable-http), the neutral `unknown` badge kind.
-        item.badges = [{ text: row.type === 'stdio' ? 'Local' : 'Remote', kind: 'unknown' }];
+        // Local (stdio) or Remote (streamable-http), own badge kinds.
+        var isLocal = row.type === 'stdio';
+        item.badges = [{ text: isLocal ? 'Local' : 'Remote', kind: isLocal ? 'local' : 'remote' }];
       }
       return item;
     }

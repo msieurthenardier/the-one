@@ -587,6 +587,15 @@ def test_mcp_error_headline_follows_the_transport(app_clean: str, page: Page) ->
             [_OPERATOR_ERROR, transport],
         )
         assert got["headline"] == want, (transport, got)
+    # The probe's class-less transport failure (api.py `_probe_auth_posture`, HAT) reads as a
+    # connection failure, not the catch-all, and keeps its raw text as the detail.
+    for transport, want in (("streamable-http", http), (None, http), ("stdio", stdio)):
+        got = page.evaluate(
+            "([raw, t]) => window.App.mcpErrorMessage(raw, t ? {transport: t} : undefined)",
+            ["connection probe failed", transport],
+        )
+        assert got["headline"] == want, (transport, got)
+        assert got["detail"] == "connection probe failed"
     slow = page.evaluate(
         "() => window.App.mcpErrorMessage('MCPConnectionError: server did not respond within 30 s')"
     )

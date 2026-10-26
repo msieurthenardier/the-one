@@ -121,7 +121,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - Builds the banner and page-header controls, a `searchList` inline variant, and the Built-in tools tile. The library switch replaces the legacy iOS switch (operator, 2026-10-22).
   - Retires `App.tabs` and `js/tabs.js` (last consumer `tools-grid.js`).
   - Fixes the Settings defects found in Flight 3's planning survey: the tile toggle's name, the Enabled row's double negative, unlinked Knowledge indexing hints, the Encryption flash timer race.
-- [ ] Flight 5: **The MCP server editor on the library.** The largest and riskiest editor gets its own flight, with no other surface in it. It has 18 string sinks and 105 reuse uses at Flight 2's close, chip and key-value editors mounted after string markup, OAuth popup polling, live connection and protocol status, and masked secrets. It adds the masked column to the key-value table and retires the `tools-form-helpers.js` chip-list string path and the `.tool-enable-switch` rules.
+- [x] Flight 5: **The MCP server editor on the library.** The largest and riskiest editor gets its own flight, with no other surface in it. It has 18 string sinks and 105 reuse uses at Flight 2's close, chip and key-value editors mounted after string markup, OAuth popup polling, live connection and protocol status, and masked secrets. It adds the masked column to the key-value table and retires the `tools-form-helpers.js` chip-list string path and the `.tool-enable-switch` rules.
 - [ ] Flight 6: **Chats, and closing every count to zero.**
   - Build the chat controls with update handles (composer, message bubble, thinking indicator, trace, telemetry) and migrate the chat surfaces.
   - Split `chat.js`.

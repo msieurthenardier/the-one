@@ -142,7 +142,7 @@ A testid that cannot survive the library control (for example `mcp-kv-tbody` ins
 | 24 | 06 | MCP editor | Plain type and command choices: "Local program (stdio)", "Remote server (HTTP)", "Choose how it connects", "Python package (uvx)", … | B3 |
 | 25 | 06 | MCP editor | Long chip values: middle ellipsis, full value on hover and in the accessible name | B4 |
 | 26 | 04/07 | MCP editor | A stored secret shows no eye and "Stored. Type a new value to replace it."; focus selects it, so typing replaces it | B5, defect 14 |
-| 27 | 11 | Library list | MCP rows show a state ("Sign-in needed", "Couldn't connect", "{n} tools", "Not connected") and a Local or Remote badge | B6 |
+| 27 | 11 | Library list | MCP rows show a state ("Sign-in needed", "Couldn't connect", "{n} tools", "Not connected") and a Local or Remote badge (HAT: Local and Remote get their own badge hues, operator 2026-10-26) | B6 |
 | 28 | 05 | Provider, connector, knowledge and MCP editors | Sentence-case danger buttons ("Delete provider", …) and "Confirm delete?"; the agent editor's "Delete agent" too (operator yes, 2026-10-25; done in leg 11) | B7 |
 | 29 | 10 | MCP editor | Delete and Reset errors show as the editor error, not a toast | DD4 |
 | 30 | 08b | MCP editor | Reset patches in place: unsaved edits and focus are kept (no remount) | defect 6 |
@@ -744,3 +744,53 @@ Counts: both new tests fail on the unfixed tree and pass after; `--lane mcp` 230
 - **Leg 12 is `completed`**, with all criteria met.
   - FD commit plan: one checkpoint commit (B6) for leg 12, squawk 0203's sign-off and the behavior-test run log.
   - After that, the flight HAT with the operator, then flight landing and the PR.
+- **Leg 12 checkpoint committed** as `e4c553a` (local).
+- **HAT leg designed:** `legs/13-flight-hat.md`, 13 steps from the ledger.
+  - It runs on a seeded scratch instance, `http://127.0.0.1:54432/` (PID 2351453; fixtures 2351479, 2351481, 2351483), with two disposables.
+  - Seed adjustment: a body-less Test was re-run on five servers, because the seed's `{}`-body Tests never record `last_check`.
+  - The FD dry-ran steps 1-10 by Playwright. Step 11 needs the operator's real OAuth server.
+- **HAT step 1** (Library list, row 27): pass (operator).
+- **HAT step 2** (stdio editor, rows 3-6, 10, 14, 22-25, 34): pass. **HAT finding (operator):** the Local and Remote badges are both grey with dark ink and hard to read. The FD classed it as a look-and-feel fix on one surface, ridden inline. The operator chose two new dedicated hues (`--badge-local` / `--badge-remote`), and a Developer (Sonnet) was spawned.
+- **HAT step 3** (env vars and secrets, rows 11, 13, 26, 35): pass.
+- **HAT step 4** (server facts and tools, Docs search; rows 7, 8, 15, 16): pass. **HAT finding (operator):** the Sensitive info toggletip's bubble text is all caps, because it inherits `text-transform: uppercase` from `.ui-kv-head th`. The fix is a reset in the toggletip bubble's own rule. Because it is a library-level change, it gets a design check of every toggletip in an uppercase context first (the multi-surface trigger). It was folded into the badge Developer's pass.
+- **HAT step 5:** the operator found no "then try again" on Always fails. **Not a defect, an FD step-text error.** The stdio headline (A18) is "The server's command didn't start or stopped. Open Technical details for its output." (`js/mcp-error.js`); "then try again" belongs to the HTTP connection and timeout headlines. The leg step text was corrected, and Team calendar's Test was added. **HAT finding (operator):** in a Headers row with a stored secret, the hint makes the row taller and the Key, switch and trash are centred, so the inputs don't line up; the stored value box is also wider than a plain one. The operator chose "top-align, keep the hint". It is a `keyValueTable` library fix with a design check of every consumer, folded into the same Developer pass.
+- **HAT step 5, Team calendar (dead port):** it shows "Couldn't load this server's tools." (raw: `connection probe failed`). This predates the flight (Mission 29's probe "error" verdict carries no exception-class prefix, so `App.mcpErrorMessage` falls to its catch-all). **FD call: a wording fix inside A18's scope**, mapped to the HTTP connection headline. It touches the shared module (editor and agent MCPs tab), so it gets a quick consumer check, folded into the same Developer pass as the fourth HAT fix.
+- **HAT step 5** (failures, rows 7, 9, 18): pass. The Team calendar wording waits on fix 4. **HAT step 6** (Forget patches in place, row 30): pass.
+- **HAT step 7** (create and errors, rows 2, 17): pass.
+- **HAT step 8** (delete, row 28): the arming worked and the row went, but there was **no "MCP server deleted" toast**. Cause: the flash is appended to the editor's container, which the delete's route to the Library root tears down. This predates the flight; `main` and `provider-editor.js` do the same. **FD call: a fix**, flashing to the page when the action closes the item. It spans two editors, so it gets a quick check, folded into the same Developer pass as the fifth HAT fix. Step 8 is otherwise a pass; the toast will be re-checked.
+- **HAT step 9** (agent MCPs tab, rows 18, 20, 21, 28): pass.
+- **HAT step 10** (other editors' danger buttons, row 28): pass.
+- **HAT step 11** (sign-in, rows 7 (Reset), 19, 31, 27): **deferred by the operator** (no OAuth server used). Per the leg's edge case, these rows rest on their browser tests. Recorded for the debrief.
+
+### HAT fix pass (Developer, inline)
+
+1. **Local / Remote badge hues.** New `--badge-local` #6f93a8 (slate blue, ink #101114, 5.77:1) and `--badge-remote` #4338ca (deep indigo, ink #ffffff, 7.90:1), theme-stable so identical in light and dark. Tokens in both `tokens.css` blocks, `.badge--local` / `.badge--remote` in `components.css`, kinds added to `App.ui.badge`'s `BADGE_KINDS` allowlist (`js/ui/feedback.js`), `library-pane.js` uses them. Contrast audit pairs, `tests/browser/design_tokens.py` mirror, catalogue row and the library-list pin (now asserts `badge--local` / `badge--remote` follows the type) updated; the badge-kinds contract count 16 to 18.
+2. **Toggletip bubble in uppercase containers.** Design check, every place a toggletip mounts: the kv table header (`.ui-kv-head th`, uppercase, 1px tracking, bold, mono; the reported case), the editor shell section eyebrow (`js/ui/editor.js` ~336, `.section-title`, uppercase 0.08em), `field` labels with `info` (`.field-group-label`, not uppercase), and `choice.js` checkbox/toggle rows (not uppercase). Fix in the bubble's own rule (`.ui-info-bubble`): `text-transform: none; letter-spacing: normal; font-weight: 400; font-family: sans`. Contract test in `test_ui_info_contract.py` (both engines).
+3. **keyValueTable alignment and width.** Consumers: MCP editor Headers / Environment variables (`mcp-env-headers.js`: text key, secret value, toggle column; fixed layout) and the connector channel map (`connector-editor.js`: two text columns, no secret or toggle). Top alignment is right for both. Cells are `vertical-align: top`; the toggle and remove controls sit in a new owned `.ui-kv-center` box with an input-height invisible strut (`::before`), so a hint or error under the value never shifts them. In a fixed-layout table a plain text input fills its column (`width: 100%`), matching the secret box. Contract test (both engines): row with stored secret + plain row, same top, centred switch and remove, equal value widths. The legacy-parity test now allows `top`.
+4. **`connection probe failed` headline.** `mcp-error.js` maps a class-less `connection probe failed` to the connection headline (stdio keeps its own). Both hosts (editor Test / status and the agent MCPs tab) share `App.mcpErrorMessage`. Other class-less raw errors to the client: none found with the same transport meaning. Test case added to `test_studio_mcps_tab.py`.
+5. **Delete toasts lost with the editor.** `MCP server deleted` and `Provider deleted` now flash to the page (no `container`). Tests assert the toast is visible after the route lands on the Library root (the MCP one confirmed failing on the unfixed tree). Same pattern noticed, not fixed: the MCP / connector `created` flashes target a container the create remount replaces (not close-then-route); worth a check at the next HAT.
+
+Test counts: static guards 395 passed; library lane 103 passed; contracts-controls 962 passed, 4 skipped; info + kv contracts 150 passed; provider editor + MCPs tab 64 passed; `test_flow_studio_mcp_editor.py` 178 passed. Not run: `make gate`.
+- **HAT re-check of fixes 1-5** (badges, toggletip case, kv row alignment and equal widths, Team calendar's HTTP headline, the delete toast on "HAT disposable - delete me 2"): all pass (operator). **Step 12, dark:** pass (operator: "dark mode looks good too").
+- **HAT step 12, 1024 width:** pass. **Step 13, captures:** approved by the operator, on leg 12's compare table and the HAT walk; the after set was not re-taken. The captures stay local in `~/.cache/the-one-ui-capture/` and are never committed. **The HAT passed**, with step 11 deferred. The HAT instance and its three fixtures were stopped by PID, and the HAT and behavior-test scratch dirs were removed. Because the HAT changed code, leg 12's close checks re-run next: review, then a quiet `make gate`.
+- **HAT fixes, accessibility review** (Sonnet, code-only): `[HANDOFF:confirmed]`, with no defects. Badge inks pass: 5.77:1 and 7.90:1. Info only, for the debrief: the Remote badge against the dark row surface is 2.24:1. That is non-text contrast, not required for a text badge whose label carries the meaning.
+- **HAT fixes, code review** (Haiku): `[HANDOFF:confirmed]`, no blocking issues. Guards 377 passed, ruff clean, kv contract 116 passed. Non-blocking notes: (A) the created and saved flashes still target a container the create remount replaces (`mcp-server-editor.js:299, :319`, `connector-editor.js:679`, several in `provider-editor.js`), a squawk candidate, the same class as fix 5; (B) leg 13's status and boxes are to be updated at landing; (C) the bubble font-family check is loose but acceptable.
+- **Gate after the HAT fixes: FAILED at the unit tier** (7663 passed, 2 failed, 15 skipped; browser lanes not reached). (1) `provider-editor.js` at 897 lines against its shrink-only 896 ceiling, from fix 5's added comment line. (2) `test_ui_badge_kinds.py` pins 16 kinds, now 18 after fix 1. Both are HAT-fix regressions the fix pass missed: it ran no `make test-unit`. A Developer was spawned to fix both without raising the allowance. The gate re-runs after.
+- Gate fix (post leg 13 HAT): provider-editor.js flash comment made trailing (897 -> 896 lines, allowance untouched); test_badge_kind_count pin 16 -> 18 (local, remote). Unit tier: 7665 passed, 15 skipped, 0 failed; ruff check and format clean.
+- **Gate re-run after the two fixes: GREEN.**
+  - Unit: 7665 passed, 15 skipped.
+  - Browser: `PARALLEL_RESULT rc=0 total=1581s lanes=13 failed=-`, no lane over budget. Among them: `mcp` 507/630, `routing` 526/600, `library` 342/420, `contracts-overlay` 173/270.
+- **Leg 13 (`flight-hat`) is `completed`.**
+  - Checked in the flight spec: legs 12 and 13, the checkpoints and the completion checklist ("Code merged" waits for the PR).
+  - The flight is `landed`, and Flight 5 is checked off in the mission.
+- **Carried to the debrief:**
+  - **Squawk candidates:**
+    1. The created and saved flashes are lost on a remount (MCP, connector and provider editors), the same class as HAT fix 5.
+    2. The kv row's remove button keeps the saved key's name after an unsaved key rename.
+    3. The rename hint stays after saving an empty value under a renamed sensitive key.
+    4. An empty sensitive value is stored as `""` silently (a product question).
+  - **Splitting `test_flow_studio_mcp_editor.py`** (4916 lines; the `mcp` lane holds only it).
+  - **The Remote badge against the dark row surface,** 2.24:1 (info only).
+  - **HAT step 11 deferred.**
+  - **Behavior-spec quality notes** (step 6 bundles two actions; step 2's row order; `[a11y]` clauses need an a11y snapshot in Observables).
+  - **The HAT fix pass ran no `make test-unit`,** which cost one gate cycle.

@@ -1176,11 +1176,13 @@ _TOKEN_BADGE_KINDS = (
     "connectors",
     "execution",
     "filesystem",
+    "local",
     "mock",
     "ollama",
     "openai",
     "openai-compatible",
     "openrouter",
+    "remote",
     "time",
     "unknown",
     "web",
@@ -1336,6 +1338,9 @@ _BADGE_INK_PAIRS = (
     ("connectors", "badge_connectors", "badge_ink_connectors"),
     # time (M28) — Built-in tools grid category badge.
     ("time", "badge_time", "badge_ink_time"),
+    # local / remote (M31 F5 HAT) — Library MCP row transport badges.
+    ("local", "badge_local", "badge_ink_local"),
+    ("remote", "badge_remote", "badge_ink_remote"),
 )
 
 

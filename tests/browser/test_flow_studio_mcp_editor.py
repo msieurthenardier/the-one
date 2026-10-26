@@ -195,6 +195,10 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
     # Land on the section root; the row is gone.
     expect(_lists.library_start(page)).to_be_visible(timeout=5000)
     _nav.expect_route(page, "library")
+    # HAT: the toast outlives the closed editor (it is flashed to the page, not the editor).
+    expect(page.locator(".app-flash").filter(has_text="MCP server deleted")).to_be_visible(
+        timeout=3000
+    )
     expect(page.locator('[data-testid="mcp-source-card"]')).to_have_count(0)
     assert _list_sources(app_clean) == []
 

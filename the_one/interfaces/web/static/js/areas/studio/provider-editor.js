@@ -477,7 +477,7 @@
         .then(function (r) {
           if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
           App.store.invalidate('providers');
-          App.ui.flash('Provider deleted', { container: container });
+          App.ui.flash('Provider deleted'); // the page, not the editor: the success callback discards it
           if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
         })
         .catch(function (err) {

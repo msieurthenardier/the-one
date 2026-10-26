@@ -1,6 +1,6 @@
 # Flight: The MCP server editor on the library
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
@@ -340,14 +340,14 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
 
 ### Checkpoints
 - [x] The MCP surfaces are in the capture tool, the before set is taken, the MOVES rule is in, and `chats` is re-measured.
-- [ ] The editor is split into modules with no behaviour change; full gate green.
+- [x] The editor is split into modules with no behaviour change; full gate green.
 - [x] The editor has a teardown, async writes are keyed on identity, and one consent poll at most; defects 1, 2, 6 and 8 fixed.
 - [x] The masked column and the shell's error line are in the library, contract-tested in both engines; the channel map is unchanged.
 - [x] The server records the last connection check without losing any other `_cache` key, and the editor and the Library list read one derived state.
 - [x] The fields, the env and headers, the connection status and sign-in, and the server info are on the library; `tools-form-helpers.js` and the legacy switch are gone.
 - [x] The controller is on `editorShell` with patch-in-place Save and Cancel; zero sinks and zero allowance rows in the MCP files; under 800 lines.
-- [ ] The list rows and the MCPs tab items are in; docs, budgets and the after set are done; full gate green; the new behavior spec passes.
-- [ ] HAT passed, and the close checks re-run after any HAT code change.
+- [x] The list rows and the MCPs tab items are in; docs, budgets and the after set are done; full gate green; the new behavior spec passes.
+- [x] HAT passed, and the close checks re-run after any HAT code change.
 
 ### Adaptation Criteria
 
@@ -421,13 +421,13 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - zero sinks and zero allowance rows in every MCP file; the `MOVES` entries retired; the line-guard entry removed;
   - `list-and-detail.md` step 13 amended.
 - [x] `list-rows-and-mcps-tab` (11): the Library list's MCP state and badge from `App.usage.mcpState` (B6), with a test that each seeded server's row and editor status name the same state; A20 and A21 in the agent editor. Lanes: `mcp`, `agents`.
-- [ ] `mcp-close` (12):
+- [x] `mcp-close` (12):
   - the alias recount into the mission's Known Issues; the unused-selector report;
   - the catalogue rows (the secret input, "Legacy toggle 1" removed, the editor header, the chip list, `keyValueTable`); `agents.md` (the invalidation map's new paths, the MCP editor contract, the `last_check` note, the masked column);
   - CLAUDE.md: the control-library paragraph's flight-by-flight detail moves to `agents.md` (Flight 4 debrief, Recommendation 8), and the "eleven lanes" wording fixed;
   - squawk 0203's documentation; `jump-to-palette.md` checked; the stale `tool-enable-switch`, `tools-form-helpers` and `adminFormHelpers` mentions fixed (the list under Verification);
   - the lane re-budget (quiet host); the after set and its compare (DD8); the full gate; the behavior spec run.
-- [ ] `flight-hat` *(the operator wants one per flight, at the end)*:
+- [x] `flight-hat` *(the operator wants one per flight, at the end)*:
   - the operator walks the MCP editor in every seeded state, the agent MCPs tab, the Library list, and the provider, connector and knowledge editors (A1, B7), in both themes;
   - the steps come from the ledger, and the FD dry-runs each one on the seeded instance; destructive steps (Delete, Reset) use their own disposable, clearly named servers;
   - at least one step covers state the operator isn't looking at: a sign-in completed in the popup while the editor is closed, then reopened;
@@ -438,10 +438,10 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - **Guards:**

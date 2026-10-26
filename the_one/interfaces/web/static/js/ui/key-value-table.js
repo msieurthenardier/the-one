@@ -361,7 +361,7 @@
         });
         row.toggles[column.key] = tg;
         row.inputs[column.key] = tg.control;
-        td.appendChild(tg.el);
+        td.appendChild(util.el('div', { className: 'ui-kv-center' }, [tg.el]));
       } else {
         if (type === 'secret') td.classList.add('ui-kv-secret');
         td.appendChild(buildValueControl(column, row));
@@ -427,7 +427,7 @@
         className: 'ui-kv-remove',
         testid: opts.removeTestid
       });
-      td.appendChild(row.remove);
+      td.appendChild(util.el('div', { className: 'ui-kv-center' }, [row.remove]));
       tr.appendChild(td);
       row.tr = tr;
       return row;

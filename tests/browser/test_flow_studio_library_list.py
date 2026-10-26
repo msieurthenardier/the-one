@@ -317,14 +317,15 @@ def _mcp_row(page: Page, name: str):
 
 def test_mcp_rows_show_state_and_badge(app_clean: str, page: Page) -> None:
     """Every state's meta and the Local / Remote badge; an errored or signed-out
-    row hides a cached tool count (FD decision); the badge is the neutral kind."""
+    row hides a cached tool count (FD decision); the badge kind follows the type (local / remote)."""
     _seed_states(app_clean)
     _ready(page, app_clean, "library")
     for name, (_kw, meta, badge, _state) in MCP_STATES.items():
         row = _mcp_row(page, name)
         expect(row.locator(".ui-list-pane-meta")).to_have_text(f"{meta} · 0 agents", timeout=8000)
         expect(row.locator(".badge")).to_have_text(badge)
-        expect(row.locator(".badge")).to_have_class(re.compile(r"\bbadge--unknown\b"))
+        kind = "local" if badge == "Local" else "remote"
+        expect(row.locator(".badge")).to_have_class(re.compile(rf"\bbadge--{kind}\b"))
         if meta in ("Couldn't connect", "Sign-in needed"):
             assert "tool" not in row.locator(".ui-list-pane-meta").inner_text()
     # The meta and the badge are part of the row's accessible name.

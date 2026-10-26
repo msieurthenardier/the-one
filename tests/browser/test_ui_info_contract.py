@@ -396,3 +396,28 @@ def test_toggletip_flips_above_near_the_viewport_bottom(engine_page: Page) -> No
     box = bubble.bounding_box()
     vh = page.evaluate("() => window.innerHeight")
     assert box["y"] + box["height"] <= vh + 1
+
+
+def test_bubble_typography_is_self_contained(engine_page: Page) -> None:
+    """HAT (M31 F5): a toggletip inside an uppercase, letter-spaced container (a kv table header,
+    a section eyebrow) must not inherit that: the bubble's own rule resets it."""
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const host = document.createElement('div');
+          host.style.cssText = 'text-transform: uppercase; letter-spacing: 3px; font-weight: 700; font-family: monospace';
+          const i = App.ui.infoButton({description: 'Mixed case description', label: 'Sensitive'});
+          host.appendChild(i.el);
+          document.getElementById('harness-root').appendChild(host);
+          i.button.click();
+          const b = i.el.querySelector('.ui-info-bubble');
+          const cs = getComputedStyle(b);
+          return {open: !!b, tt: cs.textTransform, ls: cs.letterSpacing, fw: cs.fontWeight, ff: cs.fontFamily};
+        }"""
+    )
+    assert out["open"] is True
+    assert out["tt"] == "none"
+    assert out["ls"] in ("normal", "0px")
+    assert out["fw"] == "400"
+    assert "monospace" not in out["ff"].split(",")[0]

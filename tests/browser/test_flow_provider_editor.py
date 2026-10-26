@@ -269,6 +269,10 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
     _nav.expect_route(page, "library")
     expect(_lists.library_start(page)).to_be_visible()
+    # HAT: the toast outlives the closed editor (it is flashed to the page, not the editor).
+    expect(page.locator(".app-flash").filter(has_text="Provider deleted")).to_be_visible(
+        timeout=3000
+    )
     expect(page.locator('[data-testid="library-add-btn"]')).to_be_focused()
 
 

@@ -14,6 +14,9 @@
     var stdio = !!(opts && opts.transport === 'stdio');
     var text = (raw === null || raw === undefined) ? '' : String(raw);
     var cls = (/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(text) || [])[1] || '';
+    // The connection probe's transport failure (api.py `_probe_auth_posture`, verdict "error")
+    // has no class prefix; it means the same as an MCPConnectionError.
+    if (!cls && /^\s*connection probe failed\b/.test(text)) cls = 'MCPConnectionError';
     var headline;
     if (/^(fetchMcpSourceTools: HTTP|Server error)\b/.test(text.trim())) {
       headline = "The app couldn't check this server (the request failed).";

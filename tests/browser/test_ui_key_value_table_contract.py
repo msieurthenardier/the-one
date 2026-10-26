@@ -323,7 +323,10 @@ def test_look_and_size_parity_with_legacy_mcp_table(engine_page: Page, theme: st
         )
     )
     assert out["th"][0] == out["th"][1]
-    assert out["td"][0] == out["td"][1]
+    # Padding matches the legacy table; vertical-align is `top` now (HAT, M31 F5: the cells of a
+    # row share one top line, the legacy table centred them).
+    assert out["td"][0][:4] == out["td"][1][:4]
+    assert out["td"][1][4] == "top"
     assert out["rm"][0] == out["rm"][1], out["rm"]
     assert out["svg"][0] == out["svg"][1] == ["16px", "16px"]
     assert abs(out["rowH"][0] - out["rowH"][1]) < 0.6, out["rowH"]
@@ -943,3 +946,42 @@ def test_fixed_table_stays_within_a_narrow_host(engine_page: Page) -> None:
     assert out[0] is True and out[2] == "fixed" and out[1] <= 420
     p.evaluate("() => window.__kv.setValues([])")  # an empty table keeps its colgroup widths
     assert p.evaluate("() => window.__kv.el.querySelectorAll('colgroup > col').length") == 4
+
+
+def test_row_cells_share_one_top_and_value_widths_match(engine_page: Page) -> None:
+    """HAT (M31 F5): with a stored-secret row (its hint makes the cell taller) and a plain row,
+    every control in a row sits on the key input's top line (the switch and remove are centred on
+    an input-height box), and the stored value box is as wide as a plain value input."""
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const kv = App.ui.keyValueTable({
+            label: 'Headers', testid: 'kv', keyColumn: 'key',
+            columns: [
+              {key: 'key', label: 'Key', placeholder: 'KEY'},
+              {key: 'value', label: 'Value', placeholder: 'value', type: 'secret', maskedBy: 'sensitive', storedKey: '_m'},
+              {key: 'sensitive', label: 'Sensitive', type: 'toggle', ariaLabel: 'Sensitive'}],
+            rows: [{key: 'plain', value: 'v', sensitive: false},
+                   {key: 'stored', value: '********', _m: '********', sensitive: true}]});
+          document.getElementById('harness-root').appendChild(kv.el);
+          const top = (e) => e.getBoundingClientRect().top;
+          const rows = [...kv.el.querySelectorAll('tr.ui-kv-row')].map((tr) => {
+            const ins = tr.querySelectorAll('input.ui-kv-input');
+            const k = ins[0], v = ins[1];
+            const sw = tr.querySelector('.ui-toggle input, [role=switch]');
+            const rm = tr.querySelector('.ui-kv-remove');
+            const mid = (e) => e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2;
+            return {kTop: top(k), vTop: top(v), kMid: mid(k), swMid: mid(sw), rmMid: mid(rm),
+                    vW: v.getBoundingClientRect().width, hint: !!tr.querySelector('.ui-secret-hint:not(:empty)')};
+          });
+          return rows;
+        }"""
+    )
+    assert len(out) == 2
+    for r in out:
+        assert abs(r["vTop"] - r["kTop"]) <= 1, r
+        assert abs(r["swMid"] - r["kMid"]) <= 1.5, r
+        assert abs(r["rmMid"] - r["kMid"]) <= 1.5, r
+    assert out[1]["hint"] is True
+    assert abs(out[0]["vW"] - out[1]["vW"]) <= 1, out

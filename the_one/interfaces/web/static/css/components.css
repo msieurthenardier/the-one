@@ -313,8 +313,14 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-popover);
+    font-family: var(--font-family-sans);
     font-size: var(--font-size-body-sm);
+    font-weight: 400;
     line-height: var(--line-height-normal);
+    /* Self-contained typography: the bubble sits inside whatever the trigger sits in
+       (an uppercase table header, a section eyebrow), and must never inherit that. */
+    text-transform: none;
+    letter-spacing: normal;
     text-align: left;
     white-space: normal;
   }
@@ -1931,11 +1937,13 @@
   .badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
   .badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
   .badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
+  .badge--local { background: var(--badge-local); color: var(--badge-ink-local); }
   .badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
   .badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
   .badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
   .badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
   .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
+  .badge--remote { background: var(--badge-remote); color: var(--badge-ink-remote); }
   .badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
   .badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
@@ -2461,7 +2469,25 @@
     color: var(--fg-secondary);
     border-bottom: 1px solid var(--border);
   }
-  .ui-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
+  .ui-kv-table tbody td { padding: 4px 8px; vertical-align: top; }
+  /* Every cell of a row shares one top line. The toggle and remove controls sit in a box the
+     height of an input (the ::before strut is an input-sized, invisible line box) and are
+     centred in it, so a hint or error under the value input never shifts them. */
+  .ui-kv-center { display: flex; align-items: center; }
+  .ui-kv-toggle .ui-kv-center { justify-content: center; }
+  .ui-kv-center::before {
+    content: "\200b";
+    box-sizing: content-box;
+    width: 0;
+    padding: 8px 0;
+    border: 1px solid transparent;
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    line-height: normal;
+    visibility: hidden;
+  }
+  /* In a fixed-layout table a plain text input fills its column like the secret box does. */
+  .ui-kv-table--fixed .ui-kv-cell > .ui-kv-input { width: 100%; box-sizing: border-box; }
   .ui-kv-input--mono { font-family: var(--font-family-mono); }
   .ui-kv-error { margin-top: 2px; font-size: var(--font-size-caption); color: var(--status-danger); }
   .ui-kv .ui-kv-remove,
