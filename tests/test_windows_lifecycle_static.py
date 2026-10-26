@@ -52,40 +52,60 @@ def test_both_hooks_are_present_and_call_the_quit_sequence():
 def test_setup_uses_execasoriginaluser_and_uninstall_uses_exec():
     setup = _proc("QuitThenKillSetup")
     assert "ExecAsOriginalUser(Exe, 'quit --wait'" in setup
-    assert "ewNoWait" in setup
+    assert "ewWaitUntilTerminated" in setup and "ewNoWait" not in setup
     uninstall = _proc("QuitThenKillUninstall")
     # ExecAsOriginalUser is a setup-only function: it must never appear in uninstall-time code
     assert "ExecAsOriginalUser" not in uninstall
     assert "Exec(Exe, 'quit --wait'" in uninstall
-    assert "ewNoWait" in uninstall
-    for shared in ("PollThenKill", "AppsRunning", "ImageRunning", "KillRunning"):
+    assert "ewWaitUntilTerminated" in uninstall and "ewNoWait" not in uninstall
+    for shared in ("CheckThenKill", "AppsRunning", "ImageRunning", "KillRunning"):
         assert "ExecAsOriginalUser" not in _proc(shared)
 
 
-def test_kill_running_is_always_reached_and_the_poll_is_bounded():
+def test_kill_running_is_always_reached_and_the_ui_thread_is_never_blocked():
     for name in ("QuitThenKillSetup", "QuitThenKillUninstall"):
-        assert "PollThenKill(" in _proc(name), f"{name} must end in the shared poll-then-kill"
-    poll = _proc("PollThenKill")
-    # no early exit between the poll and the force path
-    assert "Exit;" not in poll and "Exit(" not in poll
-    assert "Limit := 90000" in poll and "Elapsed < Limit" in poll
-    assert poll.rstrip().endswith("end;")
-    assert poll.index("KillRunning;") > poll.index("while Present")
-    assert "M32Tick" in poll and "M32Sleep(1000)" in poll
-    assert re.search(
-        r"function M32Tick: Cardinal;\s*external 'GetTickCount@kernel32.dll stdcall';", _code()
-    )
-    assert re.search(
-        r"procedure M32Sleep\(Ms: Cardinal\);\s*external 'Sleep@kernel32.dll stdcall';", _code()
-    )
+        assert "CheckThenKill(" in _proc(name), f"{name} must end in the shared check-then-kill"
+    check = _proc("CheckThenKill")
+    # no early exit between the check and the force path
+    assert "Exit;" not in check and "Exit(" not in check
+    assert check.rstrip().endswith("end;")
+    assert "KillRunning;" in check
+    # v0.12.1: the v0.12.0 wizard froze because the UI thread slept and polled for up to 90 s.
+    # Nothing in [Code] may sleep, loop on a clock or import them again.
+    code = "\n".join(ln for ln in _code().splitlines() if not ln.lstrip().startswith("//"))
+    for banned in ("Sleep", "GetTickCount", "M32Sleep", "M32Tick", "while ", "Limit :="):
+        assert banned not in code, banned
+    assert "external '" not in code
+    # the quit call is the one wait, so Inno keeps pumping messages (the wizard stays responsive)
+    assert _proc("QuitThenKillSetup").count("ewWaitUntilTerminated") == 1
+
+
+def test_setup_logging_is_on():
+    setup = ISS[: ISS.index("\n[Code]")]
+    assert re.search(r"^SetupLogging=yes$", setup, re.M)
+
+
+def test_lifecycle_has_the_interactive_wizard_row():
+    assert "function Test-RowL11" in LIFECYCLE
+    body = LIFECYCLE[LIFECYCLE.index("function Test-RowL11") :]
+    body = body[: body.index("function Test-RowL9")]
+    body = "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("#"))
+    assert (
+        "/VERYSILENT" not in body and "/LOG" not in body
+    )  # the wizard is shown; the TEMP log is the proof
+    for needle in ("TWizardForm", "Responsive(", "0x00F5", "Setup Log *.txt", "Get-WizardWindow"):
+        assert needle in body or needle in LIB, needle
+    assert "SMTO" in LIB or "0x0002" in LIB
+    ids = re.search(r"\$script:RowIds = @\(([^)]*)\)", LIFECYCLE).group(1)
+    assert ids.replace("'", "").replace(" ", "") == "L1,L2,L3,L4,L5,L6,L7,L8,L10,L11,L9"
 
 
 def test_log_lines_the_lifecycle_rows_read_are_emitted():
     # the format is '<tag> quit-poll: ...' with tag 'setup' or 'uninstall' (Log(Tag + ' quit-...'))
-    poll = _proc("PollThenKill")
+    poll = _proc("CheckThenKill")
     for frag in (
         "' quit-poll: present (iteration 0)'",
-        "' quit-poll: gone (iteration '",
+        "' quit-poll: gone (iteration 0)'",
         "' quit-poll: nothing left before KillRunning'",
         "' quit-killrunning: calling KillRunning'",
     ):
@@ -115,10 +135,12 @@ def test_uninstall_hook_runs_before_files_are_removed():
 
 
 def test_lifecycle_rows_and_done_marker():
-    for rid in ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"):
+    for rid in ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11"):
         assert f"function Test-Row{rid}" in LIFECYCLE
         assert f"Id = '{rid}'" in LIFECYCLE
-    row_ids = "$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L9')"
+    row_ids = (
+        "$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L11', 'L9')"
+    )
     assert row_ids in LIFECYCLE
     # seeded not-run and the done marker only on the normal path
     assert '"FAIL $id not-run"' in LIB

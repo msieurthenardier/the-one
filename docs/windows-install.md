@@ -117,6 +117,8 @@ cd "C:\Program Files\GleepGlorp AI"
 
 ## Troubleshooting / advanced
 
+**Setup log.** Every install and upgrade writes `Setup Log <date> #<number>.txt` to your temporary folder (open `%TEMP%` in Explorer). If an installer step misbehaves, that file shows what it did, including how it closed the running app.
+
 ### Where is my data stored?
 
 GleepGlorp AI stores its database, agent configuration, and settings in:

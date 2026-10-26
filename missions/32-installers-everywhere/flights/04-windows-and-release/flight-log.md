@@ -604,3 +604,52 @@ The splash embedded the 1024 px logo as a data URI (2,328,661 characters), over 
 - Tag gate: `release_check.py --event push --ref refs/tags/v0.12.0` passes the grammar and equality parts and fails only on "not an ancestor of origin/main" (expected until the merge); `v0.12.1` is refused on equality. `render.load` for 0.12.0: deb_version 0.12.0, bundle_short_version 0.12.0, bundle_version 0.12.9999.
 - Checks: packaging/release/takeover/workflow tests and the other version-touching tests pass; ruff check and format --check clean.
 - **The version bump was reviewed by the Flight Director:** a one-line diff to `the_one/__init__.py`, where nothing else moves with the version. A full reviewer spawn was judged unnecessary. Legs 1-5 are marked `completed`; leg 6 (the release and the field checks) is next.
+- **The operator's Windows field upgrade plan (2026-10-26):** "im going to yolo it and wait for the installer and just run it". One step, v0.11.8 → v0.12.0, with no backup (the operator's call, after the risks were explained). This exercises the force path (v0.11.8 has no quit command). The graceful path under a real UAC prompt is therefore first field-checked at the next upgrade (v0.12.0 → v0.12.x), as DD11 anticipated.
+
+### release-and-field-check (leg 6)
+- **The PR:** flight PR #324 was merged by the operator as `2983df1` (lint and pip-audit green, mergeable clean; the stub conflicts were resolved by keeping the branch's workflows, in merge `85bcb9c`).
+- **The tag (operator: "Go, tag v0.12.0"):** the annotated `v0.12.0` on `2983df1`, pushed 2026-10-26.
+- **Release run `40269216641`** (push `v0.12.0`, 04:28:04-04:36:44 UTC, about 8m40s): `version`, `audit`, `windows / build`, `macos / build` (macOS run 3 of 4), `linux / build`, four Linux checks, `linux / summary` and **`publish`**, all success.
+- **The release** https://github.com/msieurthenardier/the-one/releases/tag/v0.12.0 is "v0.12.0 — GleepGlorp AI on macOS and Linux", `draft=false`, `prerelease=false`. Its assets:
+  - `the-one-setup-0.12.0.exe` (138,736,535 bytes);
+  - `GleepGlorp_AI-0.12.0-arm64.dmg` (122,346,058);
+  - `GleepGlorp_AI-0.12.0-x86_64.AppImage` (144,562,680);
+  - `gleepglorp-ai_0.12.0_amd64.deb` (141,632,762);
+  - `SHA256SUMS` (388).
+- **Squawk 0265 logged** (the artifact actions target Node.js 20; the operator saw the warnings in the release run). Deferred.
+- **`SHA256SUMS` verified** against a fresh `gh release download v0.12.0`: OK ×4 (the download was deleted afterwards).
+- **`SHA256SUMS`, field note:** none.
+- **The operator's Windows field upgrade** (one step, v0.11.8 → v0.12.0, interactive, real UAC):
+  - **The install succeeded:** "I killed it and opened gleepglorp fine and its the new version". The old app was closed by force, as expected for v0.11.8. The "Preparing to install" step took about 90 s (the quit poll ran its full bound, because v0.11.8 has no quit).
+  - **The defect:** the wizard's screens stalled throughout, and at the Finish page the window took no input at all ("i cant interact with the installer window at all").
+  - **Task Manager** showed no "Not responding" status. The processes were the normal elevated-Inno tree: the original exe, its unelevated `.tmp` spawn helper, the elevated exe with `/SPAWNWND`/`/FIRSTWND`, and the wizard `.tmp`. Neither `the-one-app.exe` nor `the-one.exe` was running. The operator ended setup and started the app from the Start menu.
+  - **Why the tests missed it:** every hosted test was silent, so the interactive wizard was never exercised.
+  - **Leading hypothesis (unproven):** `[Code]`'s quit step blocks the wizard's UI thread, with a 90 s `Exec(tasklist)`/`Sleep` loop after `ExecAsOriginalUser`, and may leave the form's input disabled.
+- **v0.12.1 (operator: "yes implement the fix"):**
+  - the quit step no longer blocks the wizard: `ExecAsOriginalUser(... ewWaitUntilTerminated)`, which pumps messages, then one check, then `KillRunning`, with no sleep loop;
+  - `SetupLogging=yes`, so field installs leave a log;
+  - a new lifecycle row that drives the wizard interactively (UI Automation) and fails on an unresponsive window or a Finish that does not close.
+  - The operator's yes covers the one hosted Windows run this costs.
+  - The work is on branch `flight/04-v0.12.1`, off `main` `2983df1`.
+
+
+## v0.12.1 patch (leg 6)
+
+Branch `flight/04-v0.12.1` off `main` `2983df1`. Fix for the field defect (the v0.12.0 wizard froze during an interactive upgrade; Finish took no input).
+
+- **`packaging/windows/the-one.iss`**
+  - The quit step no longer blocks the UI thread. Setup: `ExecAsOriginalUser(... 'quit --wait' ... ewWaitUntilTerminated)`; uninstall: `Exec(... ewWaitUntilTerminated)`. Inno pumps messages during that wait, and the CLI's own bounds (5 s POST + 75 s wait) bound it.
+  - Then ONE check (`CheckThenKill`, was `PollThenKill`) and `KillRunning` at once. `M32Sleep`, `M32Tick` and the 90 s tasklist loop are deleted; no `external` import remains.
+  - Log prefixes are kept (`quit-call:`, `quit-poll: present (iteration 0)`, `gone (iteration 0)`, `nothing left`/`something left`, `quit-killrunning: calling`), emitted in the same order, so L7/L9 parse unchanged. The pre-quit state is read before the call and logged after it.
+  - `SetupLogging=yes` (a `Setup Log YYYY-MM-DD #NNN.txt` in `%TEMP%` for every install). `CloseApplications=force` / `RestartApplications=no` stay. No wizard status label (skipped: untestable here, a compile risk).
+- **New row L11 interactive upgrade** (`lifecycle.ps1`, run order `... L8, L10, L11, L9`; `lib.ps1` gains `EnumChildWindows`/`IsWindowEnabled`/`SendMessageTimeout`, `M32Win.Responsive`/`Children`, `Get-WizardWindow`/`Get-ChildControls`/`Get-WizardButtons`).
+  - It starts N+1 over a freshly launched app with only `/NORESTART` (no `/VERYSILENT`, no `/LOG`), finds the `TWizardForm`, and presses Finish > Install > Next buttons (`TNewButton`, caption minus `&<>`) with an async `PostMessage(BM_CLICK)`.
+  - Every 0.5 s pass probes the form with `WM_NULL` + `SMTO_ABORTIFHUNG` (5 s): a miss fails the row.
+  - A click must change the page signature within 15 s.
+  - After Finish: wizard gone and installer exited within 30 s (exit 0).
+  - Also asserted: drain line for the recorded app pid; a `Setup Log *.txt` newer than the start in `%TEMP%` whose lines run quit-call, nothing left, KillRunning, first copy in order; the Finish page's ticked Launch box starts the new version (else started and noted INFO); `/api/info` version, DisplayVersion, marker kept.
+  - Bounds: 360 s loop, 30 s exit; only recorded pids are killed (the installer pid if it hangs).
+  - Seeded FAIL not-run; the self-test counts are 11.
+- Version 0.12.1 (`the_one/__init__.py`); `docs/releases/v0.12.1.md` (pending operator approval of the text); `docs/windows-install.md` names the setup log; `packaging/windows/README.md` gains the L11 row.
+- **Verified locally:** pwsh container self-tests for `lib.ps1` and `lifecycle.ps1` pass (ParseFile 0 errors, no collisions or undefined commands, ASCII); the six packaging/workflow/release test files pass (147); ruff clean. The `.iss` cannot be compiled here, and the Windows UI Automation parts (child enumeration, button captions, `BM_CLICK` on `TNewButton`) are unproven until the hosted run. Unknowns: whether the elevated respawn changes the wizard process (found by class, any pid), and whether `TNewButton` text reads via `WM_GETTEXT` (the row logs the controls it sees).
+- **v0.12.1 patch review** (Reviewer, Sonnet, because the change runs in an elevated installer): `[HANDOFF:confirmed]`. Non-blocking: the Finish-page freeze is not proven to share the stall's cause (L11 will show it); an explicit `runasoriginaluser` on `[Run]` is optional; L11's 'frozen' check could race a just-closed wizard.
