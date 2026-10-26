@@ -4638,11 +4638,14 @@ def _render_oauth_callback_page(
 ) -> str:
     """Render the loopback callback page in the studio visual idiom.
 
-    The page is a self-contained HTML document served only to the popup
-    window opened by the OAuth modal. It links the same studio CSS the
-    SPA uses (``/static/css/...``) so the operator perceives continuity
-    with the rest of GleepGlorp AI — violet-accent design system, Geist
-    Sans / Geist Mono typography, quiet mono-uppercase eyebrow.
+    The page is a self-contained HTML document served to the window the OAuth
+    flow opened, which is the system browser on the desktop app: it has no
+    session cookie, so every ``/static/`` request it made returned 401 and the
+    page rendered unstyled (squawk 0214). It therefore links nothing under
+    ``/static/``: its styles are inline, with an explicit minimal subset of the
+    design tokens (pinned to ``tokens.css`` and ``fonts.css`` by
+    ``tests/test_oauth_callback_page_static.py``), light by default and dark under
+    ``prefers-color-scheme``, in the system font stack.
 
     Args:
         status: One of ``"success"``, ``"failed"``, ``"expired"``.
@@ -4666,11 +4669,8 @@ def _render_oauth_callback_page(
             render an error+retry (failed/expired/cancel) — leading to
             the M08 F4 L3 popup loop on Cloudflare-class auth failures.
 
-    The CSS is intentionally inlined for the page-specific layout
-    (centered card, eyebrow, big heading, hint footer). Theme tokens,
-    fonts, and the data-theme attribute come from the shared studio
-    stylesheets so the page automatically follows the operator's
-    dark/light/auto preference resolved by ``theme.js``.
+    The page follows the browser's light or dark preference; an explicit in-app
+    theme choice is not available here (the page cannot read it without a session).
     """
     auto_close_script = (
         "<script>setTimeout(function () { try { window.close(); } "
@@ -4705,14 +4705,38 @@ def _render_oauth_callback_page(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{heading}</title>
-<style>@layer tokens, base, components, areas, utilities;</style>
-<script src="/static/js/theme.js"></script>
-<link rel="stylesheet" href="/static/css/fonts.css">
-<link rel="stylesheet" href="/static/css/tokens.css">
 <style>
+  :root {{
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --surface: #fafafa;
+    --border: #e4e4e7;
+    --fg: #18181b;
+    --fg-secondary: #52525b;
+    --fg-muted: #65656e;
+    --radius-lg: 12px;
+    --shadow-popover: 0 4px 12px rgb(0 0 0 / 0.10);
+    --font-size-h1: 18px;
+    --font-size-body: 13px;
+    --font-size-tiny: 10px;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --line-height-tight: 1.2;
+    --line-height-normal: 1.5;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --bg: #101114;
+      --surface: #17181c;
+      --border: #26272c;
+      --fg: #ededf0;
+      --fg-secondary: #adafb7;
+      --fg-muted: #8f9199;
+    }}
+  }}
   html, body {{ margin: 0; padding: 0; height: 100%; }}
   body {{
-    font-family: var(--font-family-sans);
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--fg);
     display: flex;
@@ -4728,12 +4752,12 @@ def _render_oauth_callback_page(
     padding: 32px 36px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-popover);
     text-align: left;
   }}
   .oauth-callback-eyebrow {{
-    font-family: var(--font-family-mono);
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     font-size: var(--font-size-tiny);
     font-weight: var(--font-weight-bold);
     text-transform: uppercase;
@@ -4742,7 +4766,6 @@ def _render_oauth_callback_page(
     margin: 0 0 16px;
   }}
   .oauth-callback-heading {{
-    font-family: var(--font-family-sans);
     font-size: var(--font-size-h1);
     font-weight: var(--font-weight-semibold);
     color: var(--fg);
@@ -4759,10 +4782,12 @@ def _render_oauth_callback_page(
 </style>
 </head>
 <body>
-<main class="oauth-callback-card" role="status" aria-live="polite">
+<main class="oauth-callback-card">
   <p class="oauth-callback-eyebrow">gleepglorp ai — oauth</p>
   <h1 class="oauth-callback-heading">{heading}</h1>
-  <p class="oauth-callback-detail">{detail_html}</p>
+  <div role="status">
+    <p class="oauth-callback-detail">{detail_html}</p>
+  </div>
 </main>
 {post_message_script}
 {auto_close_script}

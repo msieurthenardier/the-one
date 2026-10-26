@@ -415,7 +415,9 @@
           setNote(entry, authNotice(source));
         } else {
           // The existing rows stay; the error shows above them, replacing any previous one.
-          var errEl = window.App.buildMcpError(err && err.message ? err.message : String(err));
+          var errEl = window.App.buildMcpError(err && err.message ? err.message : String(err), {
+            transport: source.type === 'stdio' ? 'stdio' : 'http'
+          });
           errEl.setAttribute('data-testid', 'mcp-tools-error-' + source.id);
           setNote(entry, errEl);
         }

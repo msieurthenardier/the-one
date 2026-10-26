@@ -36,6 +36,10 @@
   //   - no message received (the postMessage was blocked, or the user
   //     never finished) → keep polling for the token to CONSENT_WAIT_MS,
   //     then render "Sign-in timed out" + retry button. NO re-POST.
+  // One text for the Test button's hold, the first status text and the popup-closed
+  // text (A19): the operator is waiting for the same thing in all three.
+  var WAITING_TEXT = 'Waiting for sign-in\u2026';
+
   function launchConsentPopup(args) {
     // The free variables of the old closure inside handleTestConnection, passed
     // in explicitly: the status panel, the source id, the caller's `settle`, and
@@ -71,12 +75,12 @@
     statusEl.appendChild(textEl);
     statusEl.appendChild(retryEl);
     statusEl.appendChild(blockEl);
-    blockEl.appendChild(App.consentLink.build(consentUrl, {
+    blockEl.appendChild(App.ui.consentLink.build(consentUrl, {
       surface: 'mcp',
       sourceName: (document.getElementById('mf-name') || {}).value || '',
     }));
     if (focusWasInStatus) {
-      var landing = App.consentLink.focusTarget(blockEl);
+      var landing = App.ui.consentLink.focusTarget(blockEl);
       if (landing) landing.focus();
     }
 
@@ -97,7 +101,7 @@
     // returns null (it hands the URL to the system browser), and a real
     // popup blocker leaves the link block as the way in. Either way keep
     // waiting for the token. Every use of the handle below is null-guarded.
-    var popup = App.consentLink.isSafeUrl(consentUrl)
+    var popup = App.ui.consentLink.isSafeUrl(consentUrl)
       ? window.open(consentUrl, 'mcp-oauth-consent', features) : null;
     function popupClosed() {
       try { return !!popup && popup.closed; } catch (e) { return false; }
@@ -170,13 +174,9 @@
       msg.className = 'mcp-tools-error';
       msg.textContent = headerText + ' ';
       retryEl.appendChild(msg);
-      var retryBtn = document.createElement('button');
-      retryBtn.type = 'button';
-      retryBtn.className = 'btn-outlined-primary';
-      retryBtn.setAttribute('data-testid', 'mcp-consent-btn');
-      retryBtn.textContent = 'Sign in';
-      retryBtn.addEventListener('click', function () {
-        launchConsentPopup(args);
+      var retryBtn = App.ui.button({
+        label: 'Sign in', testid: 'mcp-consent-btn',
+        onClick: function () { launchConsentPopup(args); }
       });
       retryEl.appendChild(retryBtn);
       if (focusWasInBlock) retryBtn.focus();
@@ -211,7 +211,7 @@
     // The live region (textEl) is in the DOM empty; its first text goes in on
     // the next tick so assistive tech sees the change rather than a new node.
     textTimer = setTimeout(function () {
-      if (state === 'POLLING' && !textEl.textContent) textEl.textContent = 'Awaiting sign-in…';
+      if (state === 'POLLING' && !textEl.textContent) textEl.textContent = WAITING_TEXT;
     }, 0);
 
     pollTimer = setInterval(function () {
@@ -219,7 +219,7 @@
 
       // A popup that closed while we still wait only changes the wording:
       // the token can still land through the link.
-      if (popupClosed()) textEl.textContent = 'Finalizing sign-in…';
+      if (popupClosed()) textEl.textContent = WAITING_TEXT;
 
       pollAttempts++;
 

@@ -17,8 +17,8 @@
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
 //              onListStale, onMounted }
 // Returns a controller {destroy, setBusy, setError, runTest} (M31 F5 L03) and
-// reports it through callbacks.onMounted on every mount, Reset's re-mount
-// included. A destroyed mount skips its DOM writes and mount-bound callbacks but
+// reports it through callbacks.onMounted on every mount (Reset and Forget patch in place
+// since M31 F5 L08b and no longer re-mount). A destroyed mount skips its DOM writes and mount-bound callbacks but
 // still invalidates the store and calls onListStale for a server change that
 // already happened (mcp-editor-lifecycle.js).
 // M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
@@ -36,17 +36,11 @@
 
   var mcpEditor = window.App.studio.mcpEditor;
   var STDIO_CUSTOM_SENTINEL = mcpEditor.shared.STDIO_CUSTOM_SENTINEL;
-  var renderToolsListHtml = mcpEditor.serverInfo.renderToolsListHtml;
-  var renderServerInfoSection = mcpEditor.serverInfo.renderServerInfoSection;
-  var cacheHasServerInfo = mcpEditor.serverInfo.cacheHasServerInfo;
-  var syncServerInfoSection = mcpEditor.serverInfo.syncServerInfoSection;
+  var serverInfoModule = mcpEditor.serverInfo;
   var connectionFields = mcpEditor.connectionFields;
   var sandboxFields = mcpEditor.sandboxFields;
   var envHeadersFields = mcpEditor.envHeaders;
-  var renderConnectionActions = mcpEditor.connectionStatus.renderConnectionActions;
-  var wireResetButton = mcpEditor.connectionStatus.wireResetButton;
-  var syncResetButtonVisibility = mcpEditor.connectionStatus.syncResetButtonVisibility;
-  var handleTestConnection = mcpEditor.connectionStatus.handleTestConnection;
+  var connectionStatus = mcpEditor.connectionStatus;
   var createMount = mcpEditor.lifecycle.createMount;
 
   // ── Public entry point ──────────────────────────────────────────────
@@ -98,96 +92,26 @@
     html += '<div class="section-title">Connection</div>';
     // The fields are DOM-built by connectionFields (M31 F5 L06); a host holds their place.
     html += '<div class="mcp-connection-host"></div>';
-    // F9 L1: Refresh-connection button (renamed from "Test connection")
-    // lives at the bottom of the Connection section in edit-mode for
-    // streamable-http sources. The result panel renders into the Tools
-    // section below. The data-testid hook stays "mcp-test-connection"
-    // so existing browser-test selectors keep working — it's an
-    // implementation handle, not a label.
-    //
-    // F9 L1 (vibing follow-up): Reset connection button paired with
-    // Refresh in the same row. Reset is reversible (just re-OAuth) — it
-    // belongs next to Refresh as a secondary connection action, not in
-    // Danger Zone. Visible only when the source carries OAuth state
-    // (gated by `hasOAuthState`); hidden for stdio and unauth'd
-    // streamable-http. Uses the same `btn-outlined-primary` cosmetic as
-    // Refresh so the pair reads as grouped connection controls.
-    //
-    // F9 L1 (vibing polish): "Last updated" label lives inside the
-    // same flex row as Refresh/Reset, pushed to the far end via
-    // `margin-left: auto`. Low-emphasis (--fg-secondary, body-sm) so it
-    // reads as informational, not actionable. Hidden until a successful
-    // refresh seeds source.config._cache.last_updated. Placed AFTER the
-    // buttons in source order so syncResetButtonVisibility can insert
-    // Reset between Refresh and the label without re-shuffling.
-    // F9 L2 D1: Refresh-connection button now renders for BOTH streamable-http
-    // AND stdio sources. Stdio's backend dispatch (api.py /test/connect) is a
-    // straight transient-client lifecycle — no OAuth, no popup. The Reset
-    // button is gated by hasOAuthState() which already returns false for stdio,
-    // so the existing OAuth-state-dependent UI hides itself for stdio without
-    // additional changes here.
-    html += renderConnectionActions(source);
+    // M31 F5 L08b: the status line, its result area and Reset / Forget are built by
+    // connectionStatus.create and replace this host after the markup is in place (edit
+    // mode of an HTTP or stdio source). Test is the header button, added below.
+    var hasConnection = !isCreate && source &&
+      (source.type === 'streamable-http' || source.type === 'stdio');
+    if (hasConnection) html += '<div class="mcp-connection-status-host"></div>';
     html += '</div>';
 
     // ── Sandbox section (stdio only) ──────────────────────────────────
     html += '<div class="mcp-sandbox-host"></div>';
 
-    // ── Tools section (edit only, streamable-http + stdio) ────────────
-    // Populated by handleTestConnection after a successful refresh. Empty
-    // state until first refresh runs. Verbose tool descriptions (e.g.
-    // Cloudflare API MCP) get a collapsible <details> per tool so the
-    // section stays scannable.
-    //
-    // F9 L1: Tools section moved ABOVE the Custom Headers section per
-    // operator feedback — connection diagnostics belong nearer the
-    // Connection block, headers are configuration that lives further down.
-    //
-    // F9 L1 (vibing): if the backend persisted a tools cache to
-    // source.config._cache after a previous successful refresh, render
-    // it on initial mount so the operator sees the tools list without
-    // having to click Refresh first. Cache is updated server-side on
-    // every successful /test/connect.
-    //
-    // F9 L1 (vibing polish): the "Last updated" timestamp moved up to
-    // the connection-actions row (next to Refresh/Reset) so it sits
-    // visually with the controls that drive its value. The label is
-    // rendered above; this section now contains only the connection
-    // status banner + the tool list.
-    //
-    // F9 L2 D1: Tools section renders for stdio sources too so the
-    // post-test render path (capability flags + collapsible schemas)
-    // shares the same code path with streamable-http.
-    if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
-      var cache = (source.config && source.config._cache) || null;
-      // F4 L3 (M08): Server section — surfaces server-declared identity
-      // (serverInfo: title / name / version / websiteUrl / icons), the
-      // negotiated protocol version, the server's free-form instructions
-      // prose, declared capabilities, and any `_meta` extras. Rendered
-      // above Tools when any of these are available in the cache.
-      if (cacheHasServerInfo(cache)) {
-        html += renderServerInfoSection(cache);
-      }
-      html += '<div class="editor-section mcp-tools-section">';
-      html += '<div class="section-title">Tools</div>';
-      if (cache && Array.isArray(cache.tools)) {
-        // F4 L7 (M08): LED + "Connected." moved up to the connection-actions
-        // row. The status banner here keeps the tool-count line + the
-        // `mcp-test-status` data-testid that browser tests assert against.
-        var statusInner = (
-          'Server exposes <strong>' + cache.tools.length + '</strong> tool' +
-          (cache.tools.length === 1 ? '' : 's') + '.'
-        );
-        html += '<div class="mcp-tools-status" data-testid="mcp-test-status">' + statusInner + '</div>';
-        html += '<div class="mcp-tools-list" data-testid="mcp-tools-list">' +
-                renderToolsListHtml(cache.tools) +
-                '</div>';
-      } else {
-        html += '<div class="mcp-tools-status" data-testid="mcp-test-status">';
-        html += 'Click <strong>Refresh connection</strong> above to discover the tools this server exposes.';
-        html += '</div>';
-        html += '<div class="mcp-tools-list" data-testid="mcp-tools-list" hidden></div>';
-      }
-      html += '</div>';
+    // ── Server and Tools sections (edit only, streamable-http + stdio) ──
+    // DOM-built by serverInfo.create (M31 F5 L09) and placed over these hosts: the Server
+    // section (identity, protocol, offers, instructions, metadata; hidden while the cache
+    // has nothing to show) above Tools. The cached tools render on mount; a successful
+    // Test reconciles them, Reset and Forget empty them (connectionStatus). The Test
+    // result line is not here: it sits at the end of the Connection section (A8).
+    if (hasConnection) {
+      html += '<div class="mcp-info-host"></div>';
+      html += '<div class="mcp-tools-host"></div>';
     }
 
     // ── Environment / Headers section ─────────────────────────────────
@@ -265,10 +189,39 @@
     mount.onDestroy(connection.destroy);
     mount.onDestroy(sandbox.destroy);
     mount.onDestroy(envHeaders.destroy);
-    handles.testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
-    var api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount, function (fn) {
-      checkDirtyFn = fn;
-    });
+    // Test (B2): edit mode only, in the header cluster before Cancel, as the provider
+    // editor has it. Leg 10 moves it to editorShell's actions.test (setTestState).
+    // The controller's current source, replaced by the response of a Save in leg 10.
+    var current = source;
+    var connStatus = null;
+    var api = null;
+    var serverInfo = null;
+    if (hasConnection) {
+      serverInfo = serverInfoModule.create({ cache: (source.config && source.config._cache) || null });
+      var infoHost = container.querySelector('.mcp-info-host');
+      infoHost.parentNode.replaceChild(serverInfo.serverEl, infoHost);
+      var toolsHost = container.querySelector('.mcp-tools-host');
+      toolsHost.parentNode.replaceChild(serverInfo.toolsEl, toolsHost);
+      mount.onDestroy(serverInfo.destroy);
+      var testBtn = App.ui.button({
+        label: 'Test', icon: 'play', variant: 'secondary', testid: 'mcp-test-connection'
+      });
+      var cancelEl = container.querySelector('.cancel-btn');
+      cancelEl.parentNode.insertBefore(testBtn, cancelEl);
+      handles.testBtn = testBtn;
+      connStatus = connectionStatus.create({
+        container: container, mount: mount, callbacks: callbacks, testBtn: testBtn,
+        serverInfo: serverInfo,
+        getSource: function () { return current; },
+        // wireEditorEvents' setError and the title lookup, bound once it exists.
+        setError: function (msg) { if (api) api.setError(msg); },
+        titleEl: function () { return api ? api.titleEl() : null; }
+      });
+      var statusHost = container.querySelector('.mcp-connection-status-host');
+      statusHost.parentNode.replaceChild(connStatus.el, statusHost);
+    }
+    api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount, connStatus,
+      function (fn) { checkDirtyFn = fn; });
     var controller = {
       destroy: mount.destroy, setBusy: api.setBusy, setError: api.setError, runTest: api.runTest
     };
@@ -289,7 +242,7 @@
 
   // ── Event wiring ────────────────────────────────────────────────────
 
-  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount, bindDirty) {
+  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount, connStatus, bindDirty) {
     var container = handles.container;
     var isEdit = !!source;
     var snapshot = getFormSnapshot(handles);
@@ -449,60 +402,33 @@
       });
     }
 
-    // ── Test Connection (edit only, streamable-http only) ─────────────
+    // ── Test (edit only) ──────────────────────────────────────────────
     var testBtn = handles.testBtn;
     var runTest = function () {};
     if (testBtn) {
-      // F9 L1 (vibing follow-up): after a successful /test/connect (Phase A
-      // ok OR Phase 2 ok after OAuth popup), refetch the source so the
-      // OAuth-state-dependent UI (the Reset button) reflects the post-flow
-      // truth, by targeted DOM mutation that keeps in-flight edits intact.
-      function onTestConnectSuccess() {
-        // handleTestConnection invalidated 'mcp-sources' just before calling
-        // this (the connect rewrote config._cache): the list reloads.
-        if (callbacks.onListStale) callbacks.onListStale();
-        if (!mount.alive()) return;
-        fetch('/api/mcp-sources/' + encodeURIComponent(source.id))
-          .then(function (r) { return r && r.ok ? r.json() : null; })
-          .then(function (refreshed) {
-            if (!refreshed || !mount.alive()) return;
-            source.oauth_active = !!refreshed.oauth_active;
-            syncResetButtonVisibility(container, source, mcpTypes, callbacks, mount);
-            // Squawk 0102: the refresh just rewrote config._cache server-side
-            // (serverInfo, capabilities, instructions, ...) — repaint the
-            // Server section from it. source.config._cache is deliberately
-            // NOT overwritten in memory: hasOAuthState's cache-presence
-            // fallback reads it, so syncing it would change Reset-button
-            // visibility on later refreshes (outside this squawk's scope).
-            syncServerInfoSection(container,
-              (refreshed.config && refreshed.config._cache) || null);
-          })
-          .catch(function () { /* best-effort; UI stays consistent on next mount */ });
-      }
       // The one entry for a Test click and the glue's auto-run after create
-      // ({autoRun: true}: the Save click's user gesture is gone, so
-      // handleTestConnection must NOT open the OAuth popup; there is no keyboard
-      // user behind it, so no focus token and the create's parked restore stands).
-      // A defined no-op while Test is disabled or a sign-in session is live.
+      // ({autoRun: true}: the Save click's user gesture is gone, so the flow must NOT
+      // open the OAuth popup; there is no keyboard user behind it, so no focus token and
+      // the create's parked restore stands). A defined no-op while Test is disabled or a
+      // sign-in session is live.
       runTest = function (opts) {
         if (!mount.alive() || testBtn.disabled || mount.sessionActive()) return;
         var autoRun = !!(opts && opts.autoRun);
-        // Leg 08a (DD6): the dirty check comes first. A clean form posts NO body, so
-        // the server tests (and records) the saved server and collectFormData, which
-        // validates and writes .editor-error, is not called at all. A dirty form
-        // sends its values, as before; validation failures give null form data, so
-        // that Test falls back to the persisted state. The server never records a
-        // body-ful Test as the saved server's last check.
+        // Leg 08a (DD6): the dirty check comes first. A clean form posts NO body, so the
+        // server tests (and records) the saved server and collectFormData is not called.
+        // A dirty form sends its values (the server never records a body-ful Test); a
+        // form that cannot be sent (defect 9) says why in the result area and sends
+        // nothing: a body-less fallback would record against the saved server.
         var formDirty = (getFormSnapshot(handles) !== snapshot) || handles.envHeaders.isDirty();
-        var formData = formDirty ? collectFormData(handles, source, true) : null;
-        handleTestConnection(source.id, container, testBtn, formData,
-          onTestConnectSuccess, {
-            noAutoPopup: autoRun, mount: mount,
-            // Fired once for an error / auth_required outcome (an ok goes through
-            // onTestConnectSuccess, which calls it): the list's record changed.
-            onListStale: callbacks.onListStale,
-            focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
-          });
+        var form = null;
+        if (formDirty) {
+          form = collectFormData(handles, source, true, { silent: true });
+          if (form.error) { connStatus.showInvalid(form.error); return; }
+        }
+        connStatus.runTest(form, {
+          noAutoPopup: autoRun,
+          focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
+        });
       };
       testBtn.addEventListener('click', function () { runTest({}); });
     }
@@ -532,15 +458,19 @@
       });
     }
 
-    // ── Reset connection (edit only): clears tokens + DCR + tools cache
-    // server-side and re-mounts from the response (connection-status.js).
-    if (isEdit) {
-      wireResetButton(container, source, mcpTypes, callbacks, mount);
-    }
-
     return {
-      setBusy: function (b) { busy = !!b; applyButtons(); },
+      setBusy: function (b) {
+        busy = !!b;
+        handles.busy = busy;
+        applyButtons();
+        // Test is blocked while a Save is in flight (DD4); a running Test or a sign-in
+        // session keeps it disabled on its own.
+        if (testBtn && !(connStatus && connStatus.isTesting()) && !mount.sessionActive()) {
+          testBtn.disabled = busy;
+        }
+      },
       setError: setError,
+      titleEl: titleEl,
       runTest: function (opts) { runTest(opts); }
     };
   }
@@ -567,22 +497,24 @@
 
   // ── Payload assembly ────────────────────────────────────────────────
 
-  function collectFormData(handles, source, isEdit) {
+  // opts.silent (M31 F5 L08b, defect 9): a form that cannot be sent returns {error}
+  // and writes nothing into the editor error (a Test shows it in its result area);
+  // without it, the message goes to the editor error and the result is null.
+  function collectFormData(handles, source, isEdit, opts) {
     var container = handles.container;
+    var silent = !!(opts && opts.silent);
     /* Routes by `type` (NOT by visible-field set). A type-change
        immediately followed by Save emits the type-correct payload. */
-    var errorEl = container.querySelector('.editor-error');
+    var errorEl = silent ? null : container.querySelector('.editor-error');
+    var fail = function (message) {
+      if (errorEl) errorEl.textContent = message;
+      return silent ? { error: message } : null;
+    };
     var fv = handles.connectionFields.values();
     var name = fv.name.trim();
-    if (!name) {
-      if (errorEl) errorEl.textContent = 'Name is required.';
-      return null;
-    }
+    if (!name) return fail('Name is required.');
     var type = fv.type;
-    if (!type) {
-      if (errorEl) errorEl.textContent = 'Type is required.';
-      return null;
-    }
+    if (!type) return fail('Type is required.');
 
     var config = {};
     var secrets = {};
@@ -611,10 +543,7 @@
       } else if (runtimeValue) {
         command = runtimeValue;
       }
-      if (!command) {
-        if (errorEl) errorEl.textContent = 'Command is required for stdio servers.';
-        return null;
-      }
+      if (!command) return fail('Command is required for stdio servers.');
       config.command = command;
       var cwd = fv.cwd.trim();
       if (cwd) config.cwd = cwd;
@@ -629,16 +558,12 @@
       config.sandbox = { network_allowed: sv.networkAllowed, writable_paths: sv.writablePaths };
     } else if (type === 'streamable-http') {
       var urlValue = fv.url.trim();
-      if (!urlValue) {
-        if (errorEl) errorEl.textContent = 'URL is required for streamable-http servers.';
-        return null;
-      }
+      if (!urlValue) return fail('URL is required for streamable-http servers.');
       config.url = urlValue;
       config.headers = {};
       handles.lastPartition = handles.envHeaders.partition(config.headers, secrets);
     } else {
-      if (errorEl) errorEl.textContent = 'Unsupported transport type: ' + type;
-      return null;
+      return fail('Unsupported transport type: ' + type);
     }
 
     return { name: name, type: type, config: config, secrets: secrets };

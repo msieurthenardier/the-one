@@ -570,6 +570,70 @@ def test_mcp_error_message_helper_headlines(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
+def test_mcp_error_headline_follows_the_transport(app_clean: str, page: Page) -> None:
+    """A18 (leg 08b): the generic connection failure has one headline per transport, and
+    "did not respond" ends "then try again." (the editor's Test and the tab's refresh)."""
+    _nav.goto(page, app_clean, "agents")
+    page.wait_for_function("window.App && window.App.mcpErrorMessage")
+    stdio = "The server's command didn't start or stopped. Open Technical details for its output."
+    http = (
+        "Couldn't connect to this server. Check that it's running and that its address and "
+        "headers are right, then try again."
+    )
+    for transport, want in (("stdio", stdio), ("streamable-http", http), (None, http)):
+        got = page.evaluate(
+            "([raw, t]) => window.App.mcpErrorMessage(raw, t ? {transport: t} : undefined)",
+            [_OPERATOR_ERROR, transport],
+        )
+        assert got["headline"] == want, (transport, got)
+    slow = page.evaluate(
+        "() => window.App.mcpErrorMessage('MCPConnectionError: server did not respond within 30 s')"
+    )
+    assert (
+        slow["headline"]
+        == "The server didn't respond in time. Check that it's running, then try again."
+    )
+    # No other wording still tells the operator to "Refresh" a button that is now Test.
+    assert "Refresh" not in http + stdio + slow["headline"]
+
+
+@pytest.mark.browser
+def test_mcp_error_text_is_one_size_in_the_tab_and_the_editor(app_clean: str, page: Page) -> None:
+    """A18: the same error block reads at one size in both hosts (body-sm)."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "a18-size-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(app_clean, "a18-size-agent", {"description": "test"})
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": _OPERATOR_ERROR}),
+        ),
+    )
+    probe = "el => parseFloat(getComputedStyle(el).fontSize)"
+    _navigate_to_agent_mcps_tab(page, app_clean, "a18-size-agent")
+    _expand_source_tile(page, sid)
+    tab_err = page.locator(f'[data-testid="mcp-tools-error-{sid}"]')
+    expect(tab_err).to_be_visible(timeout=4000)
+    tab_size = tab_err.evaluate(probe)
+
+    _nav.goto(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    editor_err = page.locator('[data-testid="mcp-connection-error"]')
+    expect(editor_err).to_be_visible(timeout=8000)
+    assert editor_err.evaluate(probe) == tab_size == 12.0
+
+
+@pytest.mark.browser
 def test_mcps_tab_error_shows_plain_headline_and_details(app_clean: str, page: Page) -> None:
     sid = _seed_mcp_source(
         app_clean,

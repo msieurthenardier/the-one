@@ -1,6 +1,6 @@
 # Leg: server-info-and-tools
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The MCP server editor on the library](../flight.md)
 
 ## Objective

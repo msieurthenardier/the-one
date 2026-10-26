@@ -413,6 +413,7 @@ RETIRED_SELECTORS = (
     "ui-demo-drawer-toggle-",
     "ui-demo-modal",
     "entity-tile",
+    "mcp-tools-last-updated",
     "section-nav-item",
     "back-agent-btn",
     "back-knowledge-btn",

@@ -2486,9 +2486,8 @@
   .ui-kv .ui-kv-remove svg { width: 16px; height: 16px; display: block; }
 
   /* === App.ui.disclosure (M31 F3 L03a, flight DD4) ===
-     Owned by the control. bordered copies the folder-panel / .mcp-tool-item look
-     (studio.css keeps its .mcp-tool-* rules as intentional duplicates for the MCP
-     editor and the knowledge panels); plain copies the retired advanced-disclosure
+     Owned by the control. bordered is the folder-panel / MCP tool-tile look (the
+     MCP editor's tools list and the knowledge panels use it); plain copies the retired advanced-disclosure
      look minus its margin (the caller owns spacing). */
   .ui-disclosure--bordered {
     background-color: var(--surface);

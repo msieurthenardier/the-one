@@ -344,7 +344,7 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
 - [x] The editor has a teardown, async writes are keyed on identity, and one consent poll at most; defects 1, 2, 6 and 8 fixed.
 - [x] The masked column and the shell's error line are in the library, contract-tested in both engines; the channel map is unchanged.
 - [ ] The server records the last connection check without losing any other `_cache` key, and the editor and the Library list read one derived state.
-- [ ] The fields, the env and headers, the connection status and sign-in, and the server info are on the library; `tools-form-helpers.js` and the legacy switch are gone.
+- [x] The fields, the env and headers, the connection status and sign-in, and the server info are on the library; `tools-form-helpers.js` and the legacy switch are gone.
 - [ ] The controller is on `editorShell` with patch-in-place Save and Cancel; zero sinks and zero allowance rows in the MCP files; under 800 lines.
 - [ ] The list rows and the MCPs tab items are in; docs, budgets and the after set are done; full gate green; the new behavior spec passes.
 - [ ] HAT passed, and the close checks re-run after any HAT code change.
@@ -404,7 +404,7 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - `App.usage.mcpState` with unit-level browser tests;
   - the client invalidates `mcp-sources` on every outcome (the editor, plus `onListStale`; `agent-data.js`), with the `INVALIDATION_ROWS` pin updated.
   - Lanes: the unit tier, `mcp`, `agents`, `routing` (`test_store_library.py`).
-- [ ] `connection-status-and-sign-in` (08b), **tier high (OAuth, focus, popup gesture rules)**:
+- [x] `connection-status-and-sign-in` (08b), **tier high (OAuth, focus, popup gesture rules)**:
   - Test in the header (B2), edit mode only;
   - the status line at the end of Connection, on `App.ui.status`, reading `App.usage.mcpState` (A6, A8, A9, survey 0.2), with the DD14 clock wording (defect 13);
   - the identity-guarded refetch after every Test outcome, the poll, Reset and Forget, copying `_cache`, `oauth_active` and `has_access_token` into the controller's source (DD6);
@@ -412,7 +412,7 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - the consent block on `App.ui.consentLink` (no alias), with A19's wording; A18's stdio headline and one size in both hosts (`js/mcp-error.js`, `.mcp-tools-error`);
   - defects 9 and 10 (part); squawks 0216 and 0214 (the callback page styled with no `/static/` dependency, a unit test).
   - It keeps the popup rules: open synchronously on the click, never auto-popup on the auto-run path, a `null` from `window.open` is not a failure, the same-origin `message` check, the 120 s ceiling, and `isSafeUrl`.
-- [ ] `server-info-and-tools` (09): the Server section and tools list DOM-built on `section`, `disclosure`, `codeBlock` and `facts` (A15, A16, with the protocol kept as a fact per B10), reconciled in place (squawk 0102's repaint kept); `App.safeUrl` fail-closed kept (squawk 0010); the `.mcp-tool-*` and `.mcp-server-*` CSS deleted (DD11).
+- [x] `server-info-and-tools` (09): the Server section and tools list DOM-built on `section`, `disclosure`, `codeBlock` and `facts` (A15, A16, with the protocol kept as a fact per B10), reconciled in place (squawk 0102's repaint kept); `App.safeUrl` fail-closed kept (squawk 0010); the `.mcp-tool-*` and `.mcp-server-*` CSS deleted (DD11).
 - [ ] `editor-controller` (10), **tier high (the save model)**:
   - `editorShell`, `section` and `dangerZone`, with B1's section order;
   - patch-in-place Save and Cancel from the handles; the `source` replaced from the response (defect 3); `setBusy` on Create and Save (defect 5);

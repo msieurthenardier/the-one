@@ -108,12 +108,12 @@ def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Pag
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    # The Refresh connection row is left-aligned with the editor's stacked
-    # fields (HAT: it was indented by the legacy .field-row label gutter).
-    refresh_box = page.locator('[data-testid="mcp-test-connection"]').bounding_box()
+    # The connection status row is left-aligned with the editor's stacked fields
+    # (HAT: it was indented by the legacy .field-row label gutter).
+    status_box = page.locator('[data-testid="mcp-connection-status"]').bounding_box()
     name_box = page.locator('[data-field="name"]').bounding_box()
-    assert refresh_box is not None and name_box is not None
-    assert abs(refresh_box["x"] - name_box["x"]) <= 2, (refresh_box, name_box)
+    assert status_box is not None and name_box is not None
+    assert abs(status_box["x"] - name_box["x"]) <= 2, (status_box, name_box)
 
     # Sensitive env var pre-fills with the masked tail (***...alue).
     kv_value = page.get_by_label("Value, row 1", exact=True)
@@ -795,12 +795,12 @@ def test_headers_section_lands_below_tools_section(app_clean: str, page: Page) -
     in DOM order (F9 L1 reorder)."""
     sid = _seed_mcp_source(app_clean, _http_source("section-order-source"))
     _open_source(page, app_clean, sid)
-    tools_title = page.locator(".editor-section.mcp-tools-section .section-title")
+    tools_title = page.locator('[data-testid="mcp-tools-section"] .section-title')
     expect(tools_title).to_have_text("Tools")
     expect(_kv_title(page)).to_have_text("Headers")
     same_order = page.evaluate(
         "() => {"
-        "  var t = document.querySelector('.editor-section.mcp-tools-section .section-title');"
+        "  var t = document.querySelector('[data-testid=\"mcp-tools-section\"] .section-title');"
         "  var h = document.querySelector('[data-testid=\"mcp-env-headers-section\"] .section-title');"
         "  if (!t || !h) return false;"
         "  return !!(t.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);"
@@ -833,8 +833,8 @@ def test_kv_type_switch_moves_the_rows(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_cached_tools_render_on_initial_mount(app_clean: str, page: Page) -> None:
     """A streamable-http source with config._cache populated renders the
-    Tools section pre-populated WITHOUT clicking Refresh, plus a "Last
-    updated" relative-time line.
+    Tools section pre-populated WITHOUT clicking Test, and the status line reads
+    "Connected · checked {clock time}" (M31 F5 L08b; it replaced "Last updated").
 
     Seed via the API including a `_cache` block (POST does not strip it).
     """
@@ -870,26 +870,23 @@ def test_cached_tools_render_on_initial_mount(app_clean: str, page: Page) -> Non
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Tools list rendered without clicking Refresh.
-    tool_items = page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')
+    tool_items = page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
     expect(tool_items).to_have_count(2)
-    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text("Server exposes")
-
-    # "Last updated" line visible with relative-time format.
-    last_updated = page.locator('[data-testid="mcp-tools-last-updated"]')
-    expect(last_updated).to_be_visible()
-    expect(last_updated).to_contain_text("Last updated:")
-    # F9 L1 (vibing polish): the label lives inside the connection-actions
-    # row (next to Refresh/Reset), not above the Tools list. Locking that
-    # placement here so future re-renders keep it associated with the
-    # controls that drive its value.
-    nested = page.locator('.mcp-connection-actions [data-testid="mcp-tools-last-updated"]')
-    expect(nested).to_have_count(1)
+    # The "Server exposes N tools." line is gone: the result area is hidden and the status
+    # line says Connected (a legacy cache without last_check falls back to last_updated).
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_be_hidden()
+    status = page.locator('[data-testid="mcp-connection-status"]')
+    expect(status).to_have_text(re.compile(r"^Connected · checked \d{1,2}:\d{2} (AM|PM)$"))
+    expect(status.locator('[data-testid="mcp-connection-led"]')).to_have_count(1)
+    expect(
+        page.locator(".mcp-connection-status-row [data-testid='mcp-connection-status']")
+    ).to_have_count(1)
 
 
 @pytest.mark.browser
 def test_last_updated_renders_relative_time_format(app_clean: str, page: Page) -> None:
-    """The "Last updated" line uses coarse relative-time strings (just now,
-    N minutes ago, N hours ago) — not absolute timestamps."""
+    """The status line shows the clock time the cache was written (DD14: local 12-hour
+    through App.time.formatClock), not a relative "N minutes ago" (ledger row 6)."""
     sid = _seed_mcp_source(
         app_clean,
         {
@@ -911,12 +908,11 @@ def test_last_updated_renders_relative_time_format(app_clean: str, page: Page) -
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    last_updated = page.locator('[data-testid="mcp-tools-last-updated"]')
-    expect(last_updated).to_be_visible()
-    text = last_updated.inner_text()
-    # Coarse format: "Last updated: 7 minutes ago" (or similar).
-    assert "Last updated:" in text
-    assert "minute" in text or "minutes" in text, text
+    text = page.locator('[data-testid="mcp-connection-status"]').inner_text()
+    assert re.fullmatch(
+        r"Connected · checked (?:[A-Z][a-z]{2} \d{1,2}, \d{4}, )?\d{1,2}:\d{2} (AM|PM)", text
+    ), text
+    assert "ago" not in text and "Last updated" not in text
 
 
 # ── Squawk 0010: server_info websiteUrl / icon src scheme allow-list ──────
@@ -960,11 +956,11 @@ def test_server_info_website_and_icon_reject_unsafe_schemes(app_clean: str, page
 
     # Icon: hostile src never reaches an <img> element — dropped entirely,
     # not rendered with a neutered/placeholder src.
-    expect(section.locator("img.mcp-server-icon")).to_have_count(0)
+    expect(section.locator('[data-testid="mcp-server-icon"]')).to_have_count(0)
 
     # websiteUrl: no <a> element carries the hostile scheme; the raw string
     # still renders as inert text.
-    website = section.locator(".mcp-server-website")
+    website = section.locator('[data-testid="mcp-server-website"]')
     expect(website).to_be_visible()
     expect(website.locator("a")).to_have_count(0)
     expect(website).to_contain_text("javascript:alert(document.cookie)")
@@ -1001,11 +997,11 @@ def test_server_info_website_and_icon_allow_https(app_clean: str, page: Page) ->
     section = page.locator('[data-testid="mcp-server-info-section"]')
     expect(section).to_be_visible()
 
-    icon = section.locator("img.mcp-server-icon")
+    icon = section.locator('[data-testid="mcp-server-icon"]')
     expect(icon).to_have_count(1)
     expect(icon).to_have_attribute("src", "https://example.com/icon.png")
 
-    link = section.locator(".mcp-server-website a")
+    link = section.locator('[data-testid="mcp-server-website"] a')
     expect(link).to_have_count(1)
     expect(link).to_have_attribute("href", "https://example.com/about")
 
@@ -1070,21 +1066,25 @@ def test_server_info_section_repaints_after_refresh(app_clean: str, page: Page) 
     refresh_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(refresh_btn).to_be_visible(timeout=8000)
     section = page.locator('[data-testid="mcp-server-info-section"]')
-    expect(section).to_have_count(0)
+    expect(section).to_be_hidden()
 
-    # First refresh: section is inserted, above the Tools section.
+    # First refresh: the section shows, directly above the Tools section.
     refresh_btn.click()
-    expect(section).to_have_count(1, timeout=4000)
-    expect(section.locator(".mcp-server-version-line")).to_contain_text("v0.3.0")
-    expect(page.locator(".mcp-server-info-section + .mcp-tools-section")).to_have_count(1)
+    expect(section).to_be_visible(timeout=4000)
+    expect(section.locator('[data-testid="mcp-server-version"]')).to_contain_text("0.3.0")
+    expect(
+        page.locator('[data-testid="mcp-server-info-section"] + [data-testid="mcp-tools-section"]')
+    ).to_have_count(1)
 
     # The server is upgraded; refresh again without leaving the editor.
     reported["version"] = "0.5.0"
     expect(refresh_btn).not_to_be_disabled(timeout=4000)
     refresh_btn.click()
-    expect(section.locator(".mcp-server-version-line")).to_contain_text("v0.5.0", timeout=4000)
+    expect(section.locator('[data-testid="mcp-server-version"]')).to_contain_text(
+        "0.5.0", timeout=4000
+    )
     expect(section).to_have_count(1)
-    expect(section.locator(".mcp-server-version-line")).not_to_contain_text("0.3.0")
+    expect(section.locator('[data-testid="mcp-server-version"]')).not_to_contain_text("0.3.0")
 
 
 @pytest.mark.browser
@@ -1145,9 +1145,9 @@ def test_reset_button_visible_for_streamable_http_with_oauth(app_clean: str, pag
 @pytest.mark.browser
 def test_reset_button_two_step_confirmation(app_clean: str, page: Page) -> None:
     """First click on Reset arms the confirm-delete state (label flips,
-    `confirm-delete` class is added); second click commits the DELETE
-    and re-renders the editor with the Tools section back to empty-state
-    and the Reset button hidden."""
+    `confirm-delete` class is added); second click commits the DELETE and patches
+    the editor in place: the Tools section back to its empty state and the Reset
+    button hidden."""
     sid = _seed_mcp_source(
         app_clean,
         {
@@ -1172,20 +1172,24 @@ def test_reset_button_two_step_confirmation(app_clean: str, page: Page) -> None:
     expect(reset_btn).to_be_visible(timeout=8000)
 
     # Pre-click: cached tools render.
-    expect(page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')).to_have_count(1)
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1)
 
     # First click arms.
     reset_btn.click()
-    expect(reset_btn).to_have_text(re.compile(r"Confirm Reset\?", re.IGNORECASE))
+    expect(reset_btn).to_have_text("Reset connection?")
     expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
     # Second click commits.
     reset_btn.click()
 
-    # After re-render: Reset button is gone (no more OAuth state) and the
-    # Tools section collapsed to its empty-state placeholder.
-    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0, timeout=5000)
-    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text("Click", timeout=5000)
+    # After the patch: Reset is hidden (no more OAuth state) and the Tools section
+    # collapsed to its empty-state hint.
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')).to_have_count(
+        0, timeout=5000
+    )
+    expect(page.locator(".mcp-tools-empty")).to_contain_text("Press Test", timeout=5000)
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
 
 
@@ -1194,7 +1198,7 @@ def test_reset_mcp_connection_confirm_lapse_is_visually_distinct(
     app_clean: str, page: Page
 ) -> None:
     """Mission 24 Flight 7 confirm-lapse leg, AC-4: the connection Reset
-    confirm (`mcp-server-editor.js:1321`) is distinguishable on screen from
+    confirm (`mcp-connection-status.js`) is distinguishable on screen from
     one that was never armed, past the real 3s `revertMs` — and, since
     reverting here does NOT navigate away, the reverted control is still
     reachable to observe."""
@@ -1242,8 +1246,8 @@ def test_reset_button_renders_in_connection_block_not_danger_zone(
     among destructive actions.
 
     Asserted invariants:
-    - Reset button is a descendant of `.mcp-connection-actions` (the
-      flex group that pairs it with Refresh).
+    - Reset button is a descendant of `.mcp-connection-status-row` (the
+      flex group that pairs it with the status line).
     - Reset button is NOT a descendant of `.editor-section.danger-zone`.
     - Refresh button precedes Reset button in document order (visual
       hierarchy: primary → secondary).
@@ -1265,7 +1269,7 @@ def test_reset_button_renders_in_connection_block_not_danger_zone(
 
     # Reset is inside the connection-actions cluster.
     expect(
-        page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
+        page.locator('.mcp-connection-status-row [data-testid="reset-mcp-connection-btn"]')
     ).to_have_count(1)
 
     # Reset is NOT inside the Danger Zone block.
@@ -1289,9 +1293,8 @@ def test_reset_button_renders_in_connection_block_not_danger_zone(
 
 @pytest.mark.browser
 def test_reset_button_two_step_confirmation_in_connection_block(app_clean: str, page: Page) -> None:
-    """The two-step confirmation flow on the Reset button is unchanged
-    after the placement move: first click flips the label to "Confirm
-    Reset?" and adds the `confirm-delete` class; second click commits."""
+    """The two-step confirmation flow on the Reset button: first click flips the label to
+    "Reset connection?" and adds the `confirm-delete` class; second click commits."""
     sid = _seed_mcp_source(
         app_clean,
         {
@@ -1305,17 +1308,19 @@ def test_reset_button_two_step_confirmation_in_connection_block(app_clean: str, 
         },
     )
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
-    reset_btn = page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
+    reset_btn = page.locator('.mcp-connection-status-row [data-testid="reset-mcp-connection-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
 
     # First click arms.
     reset_btn.click()
-    expect(reset_btn).to_have_text(re.compile(r"Confirm Reset\?", re.IGNORECASE))
+    expect(reset_btn).to_have_text("Reset connection?")
     expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
 
-    # Second click commits → re-render with no OAuth state, button hides.
+    # Second click commits → patched with no OAuth state, button hides.
     reset_btn.click()
-    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0, timeout=5000)
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')).to_have_count(
+        0, timeout=5000
+    )
 
 
 @pytest.mark.browser
@@ -1410,7 +1415,7 @@ def test_reset_button_reappears_after_post_oauth_refresh(app_clean: str, page: P
     # After the success callback's GET resolves, the Reset button appears
     # without requiring a page reload.
     expect(
-        page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
+        page.locator('.mcp-connection-status-row [data-testid="reset-mcp-connection-btn"]')
     ).to_be_visible(timeout=4000)
 
 
@@ -1466,8 +1471,10 @@ def test_create_streamable_http_auto_runs_refresh(app_clean: str, page: Page) ->
     # Auto-run Refresh fires immediately: tools list populates without
     # operator clicking Refresh.
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=8000)
-    expect(page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')).to_have_count(1)
-    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text("Server exposes")
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1)
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -1571,7 +1578,7 @@ def test_create_streamable_http_auto_run_error_renders_inline(app_clean: str, pa
 
 @pytest.mark.browser
 def test_create_stdio_does_not_attempt_auto_run(app_clean: str, page: Page) -> None:
-    """F9 L2 D1: stdio sources DO expose the Refresh button now (post-D1),
+    """F9 L2 D1: stdio sources DO expose the Test button now (post-D1),
     but the auto-run-on-create code path remains streamable-http-only per
     studio.js's gate. After save, the editor enters edit mode showing the
     Refresh button + empty Tools section, but the status panel still
@@ -1591,13 +1598,11 @@ def test_create_stdio_does_not_attempt_auto_run(app_clean: str, page: Page) -> N
     # Editor enters edit mode; Refresh button + Tools section render (D1).
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-test-connection"]')).to_have_count(1)
-    expect(page.locator(".editor-section.mcp-tools-section")).to_have_count(1)
-    # Auto-run did NOT fire for stdio: status panel still shows the
-    # empty-state prompt asking the operator to click Refresh manually.
-    status_panel = page.locator('[data-testid="mcp-test-status"]')
-    expect(status_panel).to_be_visible()
-    expect(status_panel).to_contain_text("Click")
-    expect(status_panel).to_contain_text("Refresh connection")
+    expect(page.locator('[data-testid="mcp-tools-section"]')).to_have_count(1)
+    # Auto-run did NOT fire for stdio: the result area is still hidden, the Tools
+    # section still carries the hint asking the operator to press Test.
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_be_hidden()
+    expect(page.locator(".mcp-tools-empty")).to_contain_text("Press Test")
     # Tools list stays hidden (no auto-run populated it).
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
 
@@ -1994,8 +1999,9 @@ def test_library_editor_connection_error_plain_headline(app_clean: str, page: Pa
     expect(err).to_be_visible(timeout=4000)
     expect(err).to_contain_text("Couldn't connect to this server.")
     expect(status_panel).not_to_contain_text("✗ Error")
-    # WCAG 4.1.3: the error is announced when it is inserted.
-    expect(err).to_have_attribute("role", "alert")
+    # WCAG 4.1.3: the status line announces the failure; the result area's block
+    # carries no second (assertive) live role.
+    assert err.get_attribute("role") is None
     assert err.locator("details").evaluate("el => el.open") is False
     expect(err.locator("summary")).to_have_text("Technical details")
     expect(err.locator('[data-testid="mcp-error-raw"]')).not_to_be_visible()
@@ -2082,12 +2088,15 @@ def test_null_popup_shows_link_block_keeps_polling_and_lists_tools(
     expect(anchor).to_have_attribute("rel", "noopener noreferrer")
     status = page.locator('[data-testid="mcp-test-status"]')
     expect(status).not_to_contain_text("Popup blocked")
-    expect(status).to_contain_text("Awaiting sign-in")
+    expect(status).to_contain_text("Waiting for sign-in")
     assert page.evaluate("() => window.__opens") == [_CONSENT_URL]
 
     state["token"] = True
-    expect(status).to_contain_text("Server exposes", timeout=10000)
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1, timeout=10000)
     expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_have_count(0)
+    expect(status).to_be_hidden()
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible()
     assert state["connects"] == 2
 
@@ -2112,7 +2121,7 @@ def test_status_live_region_exists_empty_before_its_first_text(app_clean: str, p
     )
     page.locator('[data-testid="mcp-test-connection"]').click()
     status = page.locator('[data-testid="mcp-test-status"]')
-    expect(status).to_contain_text("Awaiting sign-in", timeout=8000)
+    expect(status).to_contain_text("Waiting for sign-in", timeout=8000)
     seen = page.evaluate("() => window.__seen")
     assert seen and seen[0] == {"role": "status", "text": ""}
 
@@ -2131,9 +2140,9 @@ def test_success_after_sign_in_moves_focus_from_the_block_to_refresh(
     anchor.focus()
     expect(anchor).to_be_focused()
     state["token"] = True
-    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
-        "Server exposes", timeout=10000
-    )
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1, timeout=10000)
     expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_focused()
 
 
@@ -2150,7 +2159,7 @@ def test_link_block_survives_status_text_and_popup_closing(app_clean: str, page:
     status = page.locator('[data-testid="mcp-test-status"]')
     expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible(timeout=8000)
     page.evaluate("() => { window.__p.closed = true; }")
-    expect(status).to_contain_text("Finalizing sign-in", timeout=8000)
+    expect(status).to_contain_text("Waiting for sign-in", timeout=8000)
     # The status text changed; the block is still there, and polling goes on
     # well past the old 3s popup-close grace window.
     expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible()
@@ -2159,7 +2168,9 @@ def test_link_block_survives_status_text_and_popup_closing(app_clean: str, page:
     assert state["polls"] > polls + 2
     expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible()
     state["token"] = True
-    expect(status).to_contain_text("Server exposes", timeout=10000)
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1, timeout=10000)
 
 
 @pytest.mark.browser
@@ -2414,8 +2425,8 @@ def test_late_delete_never_closes_the_next_editor(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_late_test_connection_never_paints_the_next_editor(app_clean: str, page: Page) -> None:
-    """Defect 1 (Test): A's connect answers after B opened. B's LED, "Last updated",
-    Server section and Reset presence are unchanged, and no Reset carries A's name."""
+    """Defect 1 (Test): A's connect answers after B opened. B's status line, Server section
+    and Reset presence are unchanged, and no Reset carries A's name."""
     a = _seed_http(app_clean, "late-test-a")
     _seed_http(app_clean, "late-test-b")
     real_a = _get_source(app_clean, a)
@@ -2444,10 +2455,11 @@ def test_late_test_connection_never_paints_the_next_editor(app_clean: str, page:
     expect(page.locator(".editor-title")).to_have_text("late-test-b", timeout=8000)
     probe = """() => ({
       led: (document.querySelector('[data-testid="mcp-connection-led"]') || {}).className,
-      state: (document.querySelector('[data-testid="mcp-connection-led"]') || {}).dataset
-        && document.querySelector('[data-testid="mcp-connection-led"]').dataset.state,
-      updated: (document.querySelector('[data-testid="mcp-tools-last-updated"]') || {}).hidden,
-      server: document.querySelectorAll('.mcp-server-info, [data-testid="mcp-server-info"]').length,
+      state: (document.querySelector('[data-testid="mcp-connection-status"]') || {}).dataset
+        && document.querySelector('[data-testid="mcp-connection-status"]').dataset.state,
+      line: (document.querySelector('[data-testid="mcp-connection-status"]') || {}).textContent,
+      area: (document.querySelector('[data-testid="mcp-test-status"]') || {}).hidden,
+      server: document.querySelectorAll('[data-testid="mcp-server-info-section"]:not([hidden])').length,
       reset: document.querySelectorAll('[data-testid="reset-mcp-connection-btn"]').length,
     })"""
     before = page.evaluate(probe)
@@ -2520,8 +2532,9 @@ def test_leaving_the_editor_stops_the_sign_in_poll(app_clean: str, page: Page, l
 
 @pytest.mark.browser
 def test_reset_leaves_the_editor_clean_and_focused(app_clean: str, page: Page) -> None:
-    """Defect 6 (this leg's part): Reset re-mounts a clean editor, reports it, keeps
-    focus off body, and hands the glue the new controller."""
+    """Defect 6 (leg 08b): Reset patches the SAME editor in place (no re-mount), keeps the
+    operator's unsaved edit and its caption, keeps focus off body, and the mount still
+    owns its poll."""
     sid = _seed_http(
         app_clean,
         "reset-clean",
@@ -2538,19 +2551,23 @@ def test_reset_leaves_the_editor_clean_and_focused(app_clean: str, page: Page) -
 
     reset_btn.click()
     reset_btn.click()
-    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0, timeout=8000)
-    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
-
-    assert page.evaluate("() => App.nav.isDirty()") is False
-    assert page.evaluate("() => !!" + _ED) is True
-    assert page.evaluate("() => " + _ED + " !== window.__ed0") is True
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')).to_have_count(
+        0, timeout=8000
+    )
+    # In place: the edit and its caption survive, and the controller is the same one.
+    expect(page.locator('[data-field="name"]')).to_have_value("reset-clean-edited")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    assert page.evaluate("() => App.nav.isDirty()") is True
+    assert page.evaluate("() => " + _ED + " === window.__ed0") is True
     active = page.evaluate(
         "() => { const a = document.activeElement; return a && a !== document.body "
         "? (a.dataset.testid || a.className) : null; }"
     )
     assert active in ("mcp-test-connection", "editor-title"), active
 
-    # The new mount owns its poll: leaving stops it.
+    # The mount owns its poll: leaving stops it. Revert the edit so leaving is clean.
+    page.locator('[data-field="name"]').fill("reset-clean")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
     _stub_poll_routes(page)
     _start_poll(page, sid)
     _lists.close_item(page)
@@ -2646,9 +2663,9 @@ def test_auto_run_after_create_fires_once_for_http_and_never_for_stdio(
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
     if expected:
-        expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
-            "Server exposes", timeout=8000
-        )
+        expect(
+            page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+        ).to_have_count(1, timeout=8000)
     _yield_macrotasks(page)
     n = page.evaluate("() => window.__reqs.filter(r => /\\/test\\/connect$/.test(r.p)).length")
     assert n == expected
@@ -3568,3 +3585,767 @@ def test_every_test_outcome_refetches_the_mcp_list(app_clean: str, page: Page, r
             break
         page.wait_for_timeout(100)
     assert lists, "the MCP list was not refetched after the Test outcome"
+
+
+# ─── M31 F5 L08b: connection status, Test in the header, Reset and Forget ──
+#
+# Written first (DD4, DD6, DD7; ledger rows 6-9, 18, 19, 23, 30). The status line
+# reads App.usage.mcpState, so the editor and the Library list name one state.
+
+_STATUS = '[data-testid="mcp-connection-status"]'
+_RESULT = '[data-testid="mcp-test-status"]'
+_UNREACHABLE = "http://127.0.0.1:9/mcp"
+
+
+def _cache(tools: bool = True, **extra) -> dict:  # noqa: ANN003
+    cache: dict = {"last_updated": __import__("time").time() - 30, **extra}
+    if tools:
+        cache["tools"] = [{"name": "echo", "description": "", "input_schema": {}}]
+        cache["capabilities"] = {"tools": {}}
+    return cache
+
+
+def _seed_state(base_url: str, name: str, **kw) -> str:  # noqa: ANN003
+    url = kw.pop("url", "https://example.com/mcp")
+    return _seed_mcp_source(
+        base_url,
+        {
+            "name": name,
+            "type": "streamable-http",
+            "config": {"url": url, **({"_cache": kw["cache"]} if "cache" in kw else {})},
+            "secrets": kw.get("secrets", {}),
+        },
+    )
+
+
+_OAUTH_SECRETS = {"access_token": "tok", "dcr_credentials": {"client_id": "cid"}}
+_CLOCK = re.compile(r"\d{1,2}:\d{2} (AM|PM)")
+
+
+def _open(page: Page, base: str, sid: str) -> None:
+    _nav.goto_settled(page, base, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    ("label", "kw", "state"),
+    [
+        ("connected", {"cache": "tools"}, "connected"),
+        ("none", {}, "none"),
+        ("error", {"cache": "error"}, "error"),
+        ("signin", {"secrets": {"dcr_credentials": {"client_id": "cid"}}}, "signin"),
+    ],
+)
+def test_status_line_equals_mcp_state_for_each_seeded_state(
+    app_clean: str, page: Page, label: str, kw: dict, state: str
+) -> None:
+    """Derived relationship: the editor's status line and App.usage.mcpState agree,
+    and the line's words come from App.usage.mcpStateLabel."""
+    if kw.get("cache") == "tools":
+        kw = {**kw, "cache": _cache(last_check={"status": "ok", "at": __import__("time").time()})}
+    elif kw.get("cache") == "error":
+        kw = {
+            **kw,
+            "cache": _cache(
+                tools=False, last_check={"status": "error", "at": __import__("time").time()}
+            ),
+        }
+    sid = _seed_state(app_clean, f"state-{label}", **kw)
+    _open(page, app_clean, sid)
+    line = page.locator(_STATUS)
+    expect(line).to_have_count(1)
+    got = page.evaluate(
+        """async (id) => {
+          const src = await (await fetch('/api/mcp-sources/' + id)).json();
+          const s = App.usage.mcpState(src);
+          return {state: s.state, label: App.usage.mcpStateLabel(s.state)};
+        }""",
+        sid,
+    )
+    assert got["state"] == state
+    expect(line).to_have_attribute("data-mcp-state", state)
+    expect(line).to_contain_text(got["label"])
+    # The LED is decorative: the words carry the state (defect 11).
+    expect(page.locator('[data-testid="mcp-connection-led"]')).to_have_attribute(
+        "aria-hidden", "true"
+    )
+    if state == "connected":
+        expect(line).to_have_text(re.compile(r"Connected · checked \d{1,2}:\d{2} (AM|PM)"))
+        expect(line).to_have_attribute("data-state", "success")
+
+
+@pytest.mark.browser
+def test_failed_test_keeps_last_connected_and_survives_reopen(app_clean: str, page: Page) -> None:
+    """A9: a failed Test on a connected server reads "Couldn't connect · last connected
+    {time}", also after reopening the editor."""
+    sid = _seed_state(
+        app_clean,
+        "a9-source",
+        url=_UNREACHABLE,
+        cache=_cache(last_check={"status": "ok", "at": __import__("time").time() - 30}),
+    )
+    _open(page, app_clean, sid)
+    line = page.locator(_STATUS)
+    expect(line).to_contain_text("Connected")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(line).to_have_text(
+        re.compile(r"Couldn't connect · last connected \d{1,2}:\d{2} (AM|PM)"), timeout=15000
+    )
+    expect(page.locator('[data-testid="mcp-connection-error"]')).to_be_visible()
+    _nav.goto_settled(page, app_clean, "library")
+    _open(page, app_clean, sid)
+    expect(page.locator(_STATUS)).to_have_text(
+        re.compile(r"Couldn't connect · last connected \d{1,2}:\d{2} (AM|PM)")
+    )
+
+
+@pytest.mark.browser
+def test_test_is_in_the_header_in_edit_mode_only_and_refresh_is_gone(
+    app_clean: str, page: Page
+) -> None:
+    """B2: Test sits in the header cluster before Cancel; there is no Refresh."""
+    sid = _seed_state(app_clean, "b2-source")
+    _open(page, app_clean, sid)
+    test_btn = page.locator('.editor-header .form-actions [data-testid="mcp-test-connection"]')
+    expect(test_btn).to_have_count(1)
+    expect(test_btn).to_have_text("Test")
+    precedes = page.evaluate(
+        "() => { const t = document.querySelector('[data-testid=\"mcp-test-connection\"]');"
+        " return t.nextElementSibling === document.querySelector('.cancel-btn'); }"
+    )
+    assert precedes
+    expect(page.get_by_text("Refresh connection")).to_have_count(0)
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_result_area_follows_the_status_line_and_is_hidden_at_rest(
+    app_clean: str, page: Page
+) -> None:
+    """A8: the result area is in the Connection section, directly after the status row,
+    hidden at rest and after a success; Tools has no result line and no count line."""
+    sid = _seed_state(app_clean, "a8-source")
+    _open(page, app_clean, sid)
+    layout = page.evaluate(
+        """() => {
+          const line = document.querySelector('[data-testid="mcp-connection-status"]');
+          const area = document.querySelector('[data-testid="mcp-test-status"]');
+          const sec = area.closest('.editor-section');
+          return {
+            next: line.parentElement.nextElementSibling === area,
+            section: sec.querySelector('.section-title').textContent,
+            hidden: area.hidden,
+            toolsHasArea: !!document.querySelector('[data-testid="mcp-tools-section"] [data-testid="mcp-test-status"]'),
+          };
+        }"""
+    )
+    assert layout == {"next": True, "section": "Connection", "hidden": True, "toolsHasArea": False}
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(_OK_TOOLS)
+        ),
+    )
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(len(_OK_TOOLS["tools"]), timeout=8000)
+    expect(page.locator(_RESULT)).to_be_hidden()
+    expect(page.get_by_text("Server exposes")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_tools_list_is_not_cleared_when_a_test_starts(app_clean: str, page: Page) -> None:
+    """A9 (tools): a Test that is still running leaves the cached tools list in place."""
+    sid = _seed_state(app_clean, "keep-tools", cache=_cache())
+    _install_counter(page)
+    held = _hold_requests(page, re.compile(rf".*/api/mcp-sources/{sid}/test/connect$"), "POST")
+    _open(page, app_clean, sid)
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    _wait_held(page, held, "POST", f"/api/mcp-sources/{sid}/test/connect")
+    expect(page.locator(_RESULT)).to_have_text("Testing connection…")
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1)
+    held[0].fulfill(
+        status=200,
+        content_type="application/json",
+        body=json.dumps({"status": "error", "error": "x"}),
+    )
+    expect(page.locator('[data-testid="mcp-connection-error"]')).to_be_visible()
+    expect(
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    ).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_dirty_form_test_leaves_the_line_on_the_saved_record(app_clean: str, page: Page) -> None:
+    """A Test on unsaved changes is labelled in the result area and records nothing."""
+    sid = _seed_state(app_clean, "dirty-note")
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": "MCPConnectionError: refused"}),
+        ),
+    )
+    _open(page, app_clean, sid)
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+    page.locator('[data-field="url"]').fill("https://example.com/other")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator(_RESULT)).to_contain_text("Tested with your unsaved changes.")
+    expect(page.locator('[data-testid="mcp-connection-error"]')).to_be_visible()
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+
+
+@pytest.mark.browser
+def test_invalid_dirty_form_test_makes_no_request_and_leaves_the_editor_error(
+    app_clean: str, page: Page
+) -> None:
+    """Defect 9: a dirty form that cannot be sent shows its message in the result area,
+    sends no request, and never writes the editor error."""
+    sid = _seed_state(app_clean, "defect-9")
+    _install_counter(page)
+    _open(page, app_clean, sid)
+    page.locator('[data-field="url"]').fill("")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator(_RESULT)).to_contain_text("URL is required", timeout=4000)
+    _yield_macrotasks(page)
+    assert _count(page, "POST", f"/api/mcp-sources/{sid}/test/connect") == 0
+    expect(page.locator(".editor-error")).to_have_text("")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).not_to_be_disabled()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    ("kind", "headline"),
+    [
+        (
+            "stdio",
+            "The server's command didn't start or stopped. Open Technical details for its output.",
+        ),
+        (
+            "streamable-http",
+            "Couldn't connect to this server. Check that it's running and that its address and "
+            "headers are right, then try again.",
+        ),
+    ],
+)
+def test_connection_error_headline_follows_the_transport(
+    app_clean: str, page: Page, kind: str, headline: str
+) -> None:
+    """A18: one headline per transport."""
+    sid = (
+        _seed_stdio(app_clean, "a18-stdio")
+        if kind == "stdio"
+        else _seed_http(app_clean, "a18-http")
+    )
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": "MCPConnectionError: Connection closed"}),
+        ),
+    )
+    _open(page, app_clean, sid)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator(".mcp-error-headline")).to_have_text(headline, timeout=8000)
+
+
+@pytest.mark.browser
+def test_reset_and_forget_predicates(app_clean: str, page: Page) -> None:
+    """A7: Reset only when signed in; Forget for a cached HTTP server without a sign-in;
+    neither for stdio; a cached non-OAuth server shows Forget and not Reset."""
+    cases = {
+        "oauth": _seed_state(app_clean, "p-oauth", secrets=_OAUTH_SECRETS, cache=_cache()),
+        "cached": _seed_state(app_clean, "p-cached", cache=_cache()),
+        "posture": _seed_state(
+            app_clean, "p-posture", cache=_cache(tools=False, auth_posture={"kind": "no_auth"})
+        ),
+        "bare": _seed_state(app_clean, "p-bare"),
+        "stdio": _seed_stdio(app_clean, "p-stdio"),
+    }
+    want = {
+        "oauth": (1, 0),
+        "cached": (0, 1),
+        "posture": (0, 1),
+        "bare": (0, 0),
+        "stdio": (0, 0),
+    }
+    for key, sid in cases.items():
+        _nav.goto_settled(page, app_clean, "library")
+        _open(page, app_clean, sid)
+        reset = page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')
+        forget = page.locator('[data-testid="forget-mcp-connection-btn"]:not([hidden])')
+        assert (reset.count(), forget.count()) == want[key], key
+
+
+@pytest.mark.browser
+def test_reset_patches_in_place_and_keeps_edits(app_clean: str, page: Page) -> None:
+    """Defect 6 / A7: Reset arms as "Reset connection?", then clears the connection
+    without a remount: the dirty field and the caption survive, the Tools list empties
+    with the new hint, and focus lands on Test."""
+    sid = _seed_state(app_clean, "reset-inplace", secrets=_OAUTH_SECRETS, cache=_cache())
+    _open(page, app_clean, sid)
+    reset = page.locator('[data-testid="reset-mcp-connection-btn"]')
+    page.locator('[data-field="name"]').fill("renamed-unsaved")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    page.evaluate("() => { document.querySelector('.editor-title').__marker = 1; }")
+    reset.click()
+    expect(reset).to_have_text("Reset connection?")
+    reset.click()
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')).to_have_count(
+        0, timeout=8000
+    )
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+    assert page.evaluate("() => document.querySelector('.editor-title').__marker") == 1
+    expect(page.locator('[data-field="name"]')).to_have_value("renamed-unsaved")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+    expect(page.locator('[data-testid="mcp-tools-section"]')).to_contain_text(
+        "Press Test to load this server's tools."
+    )
+    expect(page.locator(".editor-error")).to_have_text("")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_focused()
+
+
+@pytest.mark.browser
+def test_forget_tools_list_patches_in_place(app_clean: str, page: Page) -> None:
+    sid = _seed_state(app_clean, "forget-inplace", cache=_cache(auth_posture={"kind": "no_auth"}))
+    _open(page, app_clean, sid)
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    expect(forget).to_have_text("Forget tools list")
+    page.locator('[data-field="url"]').fill("https://example.com/unsaved")
+    page.evaluate("() => { document.querySelector('.editor-title').__marker = 1; }")
+    forget.click()
+    expect(forget).to_have_text("Forget tools list?")
+    forget.click()
+    expect(forget).to_be_hidden(timeout=8000)
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+    assert page.evaluate("() => document.querySelector('.editor-title').__marker") == 1
+    expect(page.locator('[data-field="url"]')).to_have_value("https://example.com/unsaved")
+    stored = _get_source(app_clean, sid)
+    assert "_cache" not in stored["config"]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("which", ["reset", "forget"])
+def test_sign_in_session_holds_test_and_the_connection_buttons(
+    app_clean: str, page: Page, which: str
+) -> None:
+    """DD4: during a consent session Test reads "Waiting for sign-in…" and is disabled,
+    Reset and Forget are disabled, and Save stays live on a dirty form."""
+    if which == "reset":
+        sid = _seed_state(
+            app_clean,
+            "hold-reset",
+            secrets={"dcr_credentials": {"client_id": "cid"}},
+            cache=_cache(),
+        )
+    else:
+        sid = _seed_state(app_clean, "hold-forget", cache=_cache(auth_posture={"kind": "no_auth"}))
+    state = _stub_signin_routes(page, app_clean, sid)
+    _open(page, app_clean, sid)
+    _fake_open(page)
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    page.locator('[data-field="name"]').fill(f"hold-{which}-edited")
+    test_btn.click()
+    expect(page.locator('[data-testid="mcp-consent-link-url"]')).to_be_visible(timeout=8000)
+    expect(test_btn).to_have_text("Waiting for sign-in…")
+    expect(test_btn).to_be_disabled()
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_enabled()
+    button = page.locator(f'[data-testid="{which}-mcp-connection-btn"]')
+    expect(button).to_be_disabled()
+    expect(page.locator(_RESULT)).to_contain_text("Waiting for sign-in…")
+    state["token"] = True
+    expect(test_btn).to_have_text("Test", timeout=10000)
+    expect(test_btn).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_leaving_the_editor_during_a_session_restores_nothing_stale(
+    app_clean: str, page: Page
+) -> None:
+    """A cancelled session (the failed message) restores Test's label and state."""
+    sid = _seed_oauth_source(app_clean, "hold-cancel")
+    _stub_signin_routes(page, app_clean, sid)
+    _open_editor(page, app_clean, sid)
+    _fake_open(page)
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    test_btn.click()
+    expect(test_btn).to_have_text("Waiting for sign-in…", timeout=8000)
+    page.evaluate(
+        "() => window.postMessage({type: 'mcp-oauth-result', status: 'failed',"
+        " description: 'denied'}, window.location.origin)"
+    )
+    expect(test_btn).to_have_text("Test", timeout=8000)
+    expect(test_btn).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_clean_test_sets_the_line_from_the_outcome(app_clean: str, page: Page) -> None:
+    """A clean Test sets the line optimistically and the refetch confirms it."""
+    sid = _seed_state(app_clean, "optimistic")
+    real = _get_source(app_clean, sid)
+    served = {"cache": None}
+
+    def handle_get(route):
+        if route.request.method != "GET":
+            return route.fallback()
+        body = json.loads(json.dumps(real))
+        if served["cache"]:
+            body["config"]["_cache"] = served["cache"]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route(re.compile(rf".*/api/mcp-sources/{re.escape(sid)}$"), handle_get)
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: (
+            served.update(
+                cache=_cache(last_check={"status": "ok", "at": __import__("time").time()})
+            ),
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(_OK_TOOLS)),
+        ),
+    )
+    _open(page, app_clean, sid)
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator(_STATUS)).to_have_text(
+        re.compile(r"Connected · checked \d{1,2}:\d{2} (AM|PM)"), timeout=8000
+    )
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected")
+
+
+# ── M31 F5 L09: the Server section and the tools list on the library ─────────
+
+_SRV = '[data-testid="mcp-server-info-section"]'
+_TOOL = '[data-testid="mcp-tool-item"]'
+_LONG_DESC = "Fetches a resource and returns the body. " * 4  # 164 chars, over the 100 cut
+
+
+def _info_cache(**extra) -> dict:  # noqa: ANN003
+    cache = {
+        "server_info": {"name": "sonos", "title": "Sonos MCP", "version": "1.4.2"},
+        "protocol_version": "2026-07-28",
+        "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
+        "tools": [
+            {"name": "short", "description": "Plays a song.", "input_schema": {}},
+            {
+                "name": "long",
+                "description": _LONG_DESC,
+                "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}},
+            },
+            {"name": "bare", "description": "", "input_schema": {}},
+        ],
+        "last_updated": __import__("time").time() - 30,
+    }
+    cache.update(extra)
+    return cache
+
+
+def _open_with_cache(page: Page, base: str, cache: dict, name: str = "info-src") -> str:
+    sid = _seed_state(base, name, cache=cache)
+    _open_source(page, base, sid)
+    return sid
+
+
+@pytest.mark.browser
+def test_server_facts_rows_and_order(app_clean: str, page: Page) -> None:
+    """A16 (with B10): Version, Protocol, Offers, Website as facts, in that order; Offers
+    capitalised; the protocol kept as a fact."""
+    cache = _info_cache()
+    cache["server_info"]["websiteUrl"] = "https://example.com/about"
+    _open_with_cache(page, app_clean, cache)
+    section = page.locator(_SRV)
+    expect(section).to_be_visible()
+    expect(section.locator(".section-title")).to_have_text("Server")
+    expect(section.locator('[data-testid="mcp-server-title"]')).to_have_text("Sonos MCP")
+    expect(section.locator('[data-testid="mcp-server-subtitle"]')).to_have_text("sonos")
+    labels = section.locator(".ui-facts-label").all_inner_texts()
+    assert labels == ["Version", "Protocol", "Offers", "Website"], labels
+    expect(section.locator('[data-testid="mcp-server-version"] dd')).to_have_text("1.4.2")
+    expect(section.locator('[data-testid="mcp-server-protocol"] dd')).to_have_text("2026-07-28")
+    expect(section.locator('[data-testid="mcp-server-offers"] dd')).to_have_text(
+        "Tools, Resources, Prompts"
+    )
+    assert "▸" not in section.inner_text()
+    # No old "v1.4.2 · protocol" line, no "Server supports:" prose.
+    expect(section).not_to_contain_text("Server supports")
+    expect(section).not_to_contain_text("·")
+
+
+@pytest.mark.browser
+def test_server_facts_degenerate_inputs(app_clean: str, page: Page) -> None:
+    """No version, no website, empty capabilities, no instructions, no metadata: only the
+    rows with values show; an empty capabilities object reads 'Nothing announced'."""
+    cache = {"server_info": {"name": "bare"}, "capabilities": {}, "tools": []}
+    _open_with_cache(page, app_clean, cache, "bare-info")
+    section = page.locator(_SRV)
+    expect(section).to_be_visible()
+    labels = section.locator(".ui-facts-label").all_inner_texts()
+    assert labels == ["Offers"], labels
+    expect(section.locator('[data-testid="mcp-server-offers"] dd')).to_have_text(
+        "Nothing announced"
+    )
+    expect(section.locator('[data-testid="mcp-server-title"]')).to_have_text("bare")
+    expect(section.locator('[data-testid="mcp-server-subtitle"]')).to_be_hidden()
+    expect(section.locator('[data-testid="mcp-server-instructions"]')).to_be_hidden()
+    expect(section.locator('[data-testid="mcp-server-meta"]')).to_be_hidden()
+    expect(section.locator('[data-testid="mcp-server-icon"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_server_instructions_and_meta_are_disclosures(app_clean: str, page: Page) -> None:
+    """A15: Instructions is a disclosure (no chevron text), its body keeps line breaks and is
+    text only; Metadata holds the JSON in a code block."""
+    cache = _info_cache(
+        instructions="Line one\nLine <b>two</b>\n\nLine four",
+        meta={"vendor": "acme"},
+    )
+    _open_with_cache(page, app_clean, cache, "instr-info")
+    ins = page.locator('[data-testid="mcp-server-instructions"]')
+    expect(ins).to_be_visible()
+    assert ins.evaluate("el => el.tagName") == "DETAILS"
+    assert ins.evaluate("el => el.open") is False
+    expect(ins.locator("summary")).to_have_text("Instructions")
+    ins.locator("summary").click()
+    body = ins.locator('[data-testid="mcp-server-instructions-text"]')
+    expect(body).to_be_visible()
+    assert body.evaluate("el => el.textContent") == "Line one\nLine <b>two</b>\n\nLine four"
+    assert body.evaluate("el => getComputedStyle(el).whiteSpace") == "pre-wrap"
+    assert body.evaluate("el => el.querySelectorAll('b').length") == 0
+    meta = page.locator('[data-testid="mcp-server-meta"]')
+    meta.locator("summary").click()
+    expect(meta.locator('[data-testid="mcp-server-meta-content"]')).to_have_text(
+        json.dumps({"vendor": "acme"}, indent=2)
+    )
+    # Instructions is not styled as a section eyebrow: not uppercase, not a section title.
+    assert ins.locator("summary").evaluate("el => getComputedStyle(el).textTransform") == "none"
+
+
+@pytest.mark.browser
+def test_tool_summary_description_once_and_sublabels(app_clean: str, page: Page) -> None:
+    """A15: no chevron glyph in a tool's accessible name; the short description sits in the
+    summary once and the body repeats it only when the full text is longer; sub-labels read
+    'Description' and 'Input schema' in the field-label style."""
+    _open_with_cache(page, app_clean, _info_cache(), "tool-info")
+    items = page.locator(f'[data-testid="mcp-tools-list"] {_TOOL}')
+    expect(items).to_have_count(3)
+    short, long_, bare = items.nth(0), items.nth(1), items.nth(2)
+    for it in (short, long_, bare):
+        name = it.locator("summary").evaluate(
+            "el => document.getElementById(el.getAttribute('aria-labelledby').split(' ')[0]).textContent"
+        )
+        assert "▸" not in name
+    # Short description: in the summary, once; the body holds no Description label.
+    expect(short.locator("summary")).to_contain_text("Plays a song.")
+    short.locator("summary").click()
+    assert short.locator(".mcp-info-label", has_text="Description").count() == 0
+    assert short.inner_text().count("Plays a song.") == 1
+    expect(short.locator(".mcp-info-label", has_text="Input schema")).to_be_visible()
+    expect(short).to_contain_text("No input schema.")
+    # Long description: cut in the summary, the full text in the body.
+    long_.locator("summary").click()
+    summary_text = long_.locator("summary").inner_text()
+    assert "…" in summary_text and _LONG_DESC.strip() not in summary_text
+    expect(long_.locator('[data-testid="mcp-tool-description"]')).to_have_text(_LONG_DESC.strip())
+    expect(long_.locator('[data-testid="mcp-tool-schema"]')).to_be_visible()
+    # No description at all: the body says so.
+    bare.locator("summary").click()
+    expect(bare).to_contain_text("No description provided.")
+    # The sub-labels match a field label (size, weight).
+    label = long_.locator(".mcp-info-label").first
+    got = label.evaluate(
+        "el => { const s = getComputedStyle(el); return [s.fontSize, s.fontWeight, s.textTransform]; }"
+    )
+    ref = page.locator('[data-field="name"]').evaluate(
+        """el => { const l = el.closest('.field-group').querySelector('label');
+        const s = getComputedStyle(l); return [s.fontSize, s.fontWeight, s.textTransform]; }"""
+    )
+    assert got == ref, (got, ref)
+
+
+@pytest.mark.browser
+def test_tool_names_and_descriptions_are_text_only(app_clean: str, page: Page) -> None:
+    """Server-supplied tool text never becomes markup."""
+    cache = _info_cache(
+        tools=[
+            {
+                "name": "<img src=x onerror=window.__pwned=1>",
+                "description": "<script>window.__pwned=1</script>\nsecond line " + "x" * 120,
+                "input_schema": {"title": "<b>t</b>"},
+            }
+        ],
+    )
+    _open_with_cache(page, app_clean, cache, "xss-info")
+    item = page.locator(_TOOL)
+    expect(item).to_have_count(1)
+    item.locator("summary").click()
+    assert page.evaluate("() => window.__pwned") is None
+    assert item.evaluate("el => el.querySelectorAll('img, script, b').length") == 0
+    expect(item.locator("summary .ui-disclosure-text")).to_have_text(
+        "<img src=x onerror=window.__pwned=1>"
+    )
+
+
+@pytest.mark.browser
+def test_server_section_rejects_unsafe_website_and_icon_text_only(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0010 on the library: javascript: URLs never become href/src, and the rejected
+    website still shows as inert text."""
+    cache = _info_cache()
+    cache["server_info"]["websiteUrl"] = "javascript:alert(1)"
+    cache["server_info"]["icons"] = [{"src": "data:text/html,x", "mimeType": "image/png"}]
+    _open_with_cache(page, app_clean, cache, "unsafe-info")
+    section = page.locator(_SRV)
+    expect(section.locator('[data-testid="mcp-server-icon"]')).to_have_count(0)
+    expect(section.locator('[data-testid="mcp-server-website"] a')).to_have_count(0)
+    expect(section.locator('[data-testid="mcp-server-website"]')).to_contain_text(
+        "javascript:alert(1)"
+    )
+
+
+@pytest.mark.browser
+def test_test_updates_server_section_in_place_and_keeps_open_state(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0102 without replacing the node: after a Test the Server section and an open
+    Instructions disclosure and an open tool panel are the same elements, still open."""
+    cache = _info_cache(instructions="Be kind.")
+    sid = _open_with_cache(page, app_clean, cache, "inplace-info")
+    real = _get_source(app_clean, sid)
+    reported = {"version": "1.4.2"}
+
+    def handle_get(route):
+        if route.request.method != "GET":
+            return route.fallback()
+        body = json.loads(json.dumps(real))
+        fresh = _info_cache(instructions="Be kind.")
+        fresh["server_info"]["version"] = reported["version"]
+        body["config"]["_cache"] = fresh
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route(re.compile(rf".*/api/mcp-sources/{re.escape(sid)}$"), handle_get)
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "tools": cache["tools"], "capabilities": {}}),
+        ),
+    )
+    page.locator('[data-testid="mcp-server-instructions"] summary').click()
+    page.locator(_TOOL).nth(1).locator("summary").click()
+    page.evaluate(
+        """() => {
+          window.__srv = document.querySelector('[data-testid="mcp-server-info-section"]');
+          window.__ins = document.querySelector('[data-testid="mcp-server-instructions"]');
+          window.__tool = document.querySelectorAll('[data-testid="mcp-tool-item"]')[1];
+        }"""
+    )
+    reported["version"] = "1.5.0"
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator('[data-testid="mcp-server-version"] dd')).to_have_text(
+        "1.5.0", timeout=6000
+    )
+    same = page.evaluate(
+        """() => ({
+          srv: window.__srv === document.querySelector('[data-testid="mcp-server-info-section"]'),
+          ins: window.__ins === document.querySelector('[data-testid="mcp-server-instructions"]'),
+          insOpen: window.__ins.open,
+          tool: window.__tool === document.querySelectorAll('[data-testid="mcp-tool-item"]')[1],
+          toolOpen: window.__tool.open,
+        })"""
+    )
+    assert same == {"srv": True, "ins": True, "insOpen": True, "tool": True, "toolOpen": True}
+
+
+@pytest.mark.browser
+def test_forget_hides_server_section_and_tools_show_hint(app_clean: str, page: Page) -> None:
+    """Reset or Forget empties the tools list (the hint returns) and hides the Server section."""
+    sid = _open_with_cache(page, app_clean, _info_cache(), "forget-info")
+    assert sid
+    expect(page.locator(_SRV)).to_be_visible()
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    forget.click()
+    forget.click()
+    expect(page.locator(_SRV)).to_be_hidden(timeout=6000)
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+    expect(page.locator('[data-testid="mcp-tools-section"]')).to_contain_text(
+        "Press Test to load this server's tools."
+    )
+
+
+# ── Batch B4 review fixes ────────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_malformed_cached_tools_render_without_error(app_clean: str, page: Page) -> None:
+    """A cache with a numeric description, a null entry and an object description
+    still renders the Tools list (null entries are skipped, descriptions coerced)."""
+    cache = _cache(tools=False)
+    cache["tools"] = [
+        {"name": "num", "description": 12345, "input_schema": {}},
+        None,
+        {"name": "obj", "description": {"a": 1}, "input_schema": {}},
+        {"name": "ok", "description": "fine", "input_schema": {}},
+    ]
+    cache["capabilities"] = {"tools": {}}
+    sid = _seed_state(app_clean, "malformed-tools", cache=cache)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    _open(page, app_clean, sid)
+    items = page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
+    expect(items).to_have_count(3)
+    expect(items.nth(0)).to_contain_text("12345")
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_test_result_uses_one_persistent_live_region(app_clean: str, page: Page) -> None:
+    """WCAG 4.1.3: the announcer node is created at mount, kept across a Test (same
+    element), holds the transient text, and a failed Test's error block carries no
+    assertive role."""
+    sid = _seed_state(app_clean, "live-region")
+    _install_counter(page)
+    held = _hold_requests(page, re.compile(rf".*/api/mcp-sources/{sid}/test/connect$"), "POST")
+    _open(page, app_clean, sid)
+    live = '[data-testid="mcp-test-live"]'
+    expect(page.locator(live)).to_have_attribute("role", "status")
+    page.evaluate(f"() => {{ document.querySelector('{live}').__ident = 7; }}")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    _wait_held(page, held, "POST", f"/api/mcp-sources/{sid}/test/connect")
+    expect(page.locator(live)).to_have_text("Testing connection…")
+    held[0].fulfill(
+        status=200,
+        content_type="application/json",
+        body=json.dumps({"status": "error", "error": "MCPConnectionError: refused"}),
+    )
+    err = page.locator('[data-testid="mcp-connection-error"]')
+    expect(err).to_be_visible()
+    assert page.evaluate(f"() => document.querySelector('{live}').__ident") == 7
+    assert err.get_attribute("role") is None
+    expect(page.locator('[role="alert"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_build_mcp_error_live_option(app_clean: str, page: Page) -> None:
+    """buildMcpError keeps role=alert by default; live 'status' and 'none' are honoured."""
+    sid = _seed_state(app_clean, "live-opt")
+    _open(page, app_clean, sid)
+    roles = page.evaluate(
+        """() => ['alert', 'status', 'none', undefined].map(function (l) {
+          var o = l === undefined ? {} : { live: l };
+          return window.App.buildMcpError('MCPConnectionError: x', o).getAttribute('role');
+        })"""
+    )
+    assert roles == ["alert", "status", None, "alert"]

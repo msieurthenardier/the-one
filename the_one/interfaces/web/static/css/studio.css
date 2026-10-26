@@ -103,140 +103,30 @@
   .area-studio .tools-categories-list .loading { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
 
   /* === MCP source-editor: Test connection + Tools section (F6.5 L3+L4) === */
-  .area-studio .mcp-test-row { margin-top: 8px; }
-  /* F9 L1 (vibing follow-up): Reset connection button paired next to
-     Refresh in the Connection block (moved out of Danger Zone). The
-     flex container groups them inline with a small gap so they read as
-     a single "connection actions" cluster. */
-  .area-studio .mcp-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  /* F9 L1 (vibing polish): "Last updated" label relocated from above the
-     Tools list into the connection-actions row. `margin-left: auto`
-     pushes it to the far end of the flex container so Refresh + Reset
-     stay grouped on the left and the timestamp anchors to the right.
-     Low-emphasis tone (--fg-secondary, body-sm) keeps it informational. */
-  .area-studio .mcp-connection-actions .mcp-tools-last-updated {
-    margin-left: auto;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-  .area-studio .mcp-tools-status { font-size: var(--font-size-body); color: var(--fg-secondary); margin-bottom: 12px; }
-  /* F4 L7: LED lives in the connection-actions row, adjacent to Refresh
-     connection. Vertically center against the buttons (which are taller). */
-  .area-studio .mcp-connection-actions .indicator-led { align-self: center; margin-left: 4px; }
-  .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; }
+  /* M31 F5 L08b: the Connection section's tail: the status line (App.ui.status) with
+     Reset connection / Forget tools list beside it, then the Test result area directly
+     after the row. The area is empty and hidden at rest and after a success. */
+  .area-studio .mcp-connection-state { margin-top: var(--space-3); }
+  .area-studio .mcp-connection-status-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .area-studio .mcp-test-result { margin-top: var(--space-2); font-size: var(--font-size-body); color: var(--fg-secondary); }
+  .area-studio .mcp-test-note { margin: 6px 0 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+  .area-studio .mcp-tools-empty { margin: 0 0 12px; font-size: var(--font-size-body); color: var(--fg-secondary); }
+  .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; font-size: var(--font-size-body-sm); }
   .area-studio .mcp-error-details { margin-top: 6px; font-weight: 400; color: var(--fg-secondary); font-size: var(--font-size-body-sm); }
   .area-studio .mcp-error-details > summary { cursor: pointer; }
   .area-studio .mcp-error-raw { margin: 6px 0 0; padding: 8px; font-family: var(--font-family-mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; max-width: 100%; }
   .area-studio .mcp-tools-list { display: flex; flex-direction: column; gap: 6px; }
-  /* Mission 08 F4 L3 — Tools list on the MCP source-editor page restructured
-     to match the agent-editor MCPs tab tile pattern. Each tool = a <details>
-     element styled as a tile. Summary: name + " — preview…" (single line,
-     100-char ellipsis) + chevron on the right. Body: full description with
-     line breaks + input schema collapsible. */
-  /* consumers: the `.mcp-tool-*` vocabulary below (24 class names in
-     total) is read by SIX source files, not just this one:
-     `css/studio.css` (this file, the definitions), `areas/studio.js`,
-     `studio/tools-tab.js`, `studio/mcps-tab.js`,
-     `studio/mcp-server-info.js` — its original consumers, styling the
-     MCP source-editor's own tool tiles — AND `studio/knowledge-folders.js` and
-     `studio/knowledge-rows.js`, a LATER, cross-page borrow:
-     `buildFolderPanel` (folder panels, in folders) and
-     `buildIndividualFilesPanel` (in rows) ("Individual files", "Other items" before the
-     M31 F3 HAT) each independently set
-     `details.className = 'mcp-tool-item'` to get this tile's look for the
-     Knowledge section, a surface the MCP editor knows nothing about. Four
-     browser test files assert against this vocabulary across the `studio`
-     and `shared` lanes. DD-11 (Flight 7, Mission Close) recorded this
-     borrow deliberately rather than renaming: the actual vocabulary turned
-     out to be 24 class names, not the three "trio" the rename was
-     originally scoped against, and a partial rename would leave more
-     idioms behind than it removed. This note exists so the borrow is
-     never invisible again — see DD-11 and the Flight 6 debrief's
-     Recommendation 6 (`the_one/agents.md`) for the fuller rationale; the
-     rename itself belongs to a future component-layer mission (issue
-     #207), never to a change made in passing here. */
-  .area-studio .mcp-tool-item {
-    /* Quiet tile echoing `.entity-tile` / `.mcp-source-tile`: solid
-       surface + hairline border. Hover gains accent border. Open state
-       has no special bg; the expanded body's dashed top-border is the
-       visual cue. */
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition: border-color var(--motion-fast);
-  }
-  .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
-  .area-studio .mcp-tool-summary {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    cursor: pointer;
-    user-select: none;
-    list-style: none;
-    font-size: var(--font-size-body-sm);
-  }
-  .area-studio .mcp-tool-summary::-webkit-details-marker { display: none; }
-  .area-studio .mcp-tool-summary .mcp-tool-summary-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .area-studio .mcp-tool-summary .mcp-tool-name {
-    font-family: var(--font-family-mono, monospace);
-    font-weight: 600;
-    color: var(--fg);
-  }
-  .area-studio .mcp-tool-summary .mcp-tool-summary-desc {
-    color: var(--fg-secondary);
-    font-size: var(--font-size-caption);
-  }
-  .area-studio .mcp-tool-summary .mcp-tool-chevron {
-    display: inline-block;
-    transition: transform var(--motion-fast);
-    color: var(--fg-tertiary);
-    flex-shrink: 0;
-  }
-  .area-studio .mcp-tool-item[open] .mcp-tool-chevron { transform: rotate(90deg); }
-  .area-studio .mcp-tool-summary:hover .mcp-tool-chevron { color: var(--accent); }
-  .area-studio .mcp-tool-body {
-    padding: 8px 12px 10px;
-    border-top: 1px dashed var(--border);
-  }
-  .area-studio .mcp-tool-full-description {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    line-height: var(--line-height-normal);
-    word-break: break-word;
-    margin-bottom: 8px;
-  }
-  .area-studio .mcp-tool-full-description.mcp-tool-description-empty {
-    font-style: italic;
-    opacity: 0.7;
-  }
-  /* The old `.mcp-tool-description` rule (with `padding: ... 32px` for
-     alignment under the tool name in the prior layout) is retired here.
-     The agent-editor MCPs tab uses `.mcp-tool-text .mcp-tool-description`
-     (scoped via parent class) and is unaffected. */
-
-  /* F8 L2: Capability flags */
-  .area-studio .mcp-capability-flags { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-top: 4px; }
-  .area-studio .mcp-capability-flags-empty { font-style: italic; opacity: 0.7; }
-
-  /* F4 L3 (M08): Server-info section on the MCP source editor — surfaces
-     serverInfo (title/name/version/websiteUrl/icons), protocol version,
-     instructions, capabilities, and _meta extras. Inherits the default
-     `.editor-section` vertical padding + sibling-divider rule from
-     components.css; no tile chrome — information flows on the page. */
-  .area-studio .mcp-server-identity {
+  /* === MCP source-editor: Server section and tools list (M31 F5 L09) ===
+     Built from library controls (section, facts, disclosure, codeBlock) by
+     js/areas/studio/mcp-server-info.js. Only the identity row, the text blocks and the
+     tool-summary arrangement are owned here. The disclosure's bordered look and the
+     chevron come from the control (components.css). */
+  .area-studio .mcp-info-identity {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 8px;
   }
-  .area-studio .mcp-server-icon {
+  .area-studio .mcp-info-icon {
     width: 48px;
     height: 48px;
     border-radius: 8px;
@@ -244,110 +134,60 @@
     background: var(--surface-elevated);
     flex-shrink: 0;
   }
-  .area-studio .mcp-server-identity-text { min-width: 0; flex: 1; }
-  .area-studio .mcp-server-title {
+  .area-studio .mcp-info-identity-text { min-width: 0; flex: 1; }
+  .area-studio .mcp-info-title {
     font-size: var(--font-size-h3, var(--font-size-h2));
     font-weight: 600;
     color: var(--fg);
     line-height: 1.2;
+    overflow-wrap: anywhere;
   }
-  .area-studio .mcp-server-name-subtitle {
-    font-family: var(--font-family-mono, monospace);
+  .area-studio .mcp-info-subtitle {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
     margin-top: 2px;
+    overflow-wrap: anywhere;
   }
-  .area-studio .mcp-server-version-line {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    margin-top: 4px;
-  }
-  .area-studio .mcp-server-website {
-    font-size: var(--font-size-body-sm);
-    margin-top: 4px;
-    word-break: break-all;
-  }
-  .area-studio .mcp-server-website a {
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .area-studio .mcp-server-website a:hover { text-decoration: underline; }
-  .area-studio .mcp-server-info-section .mcp-capability-flags { margin-top: 8px; }
-
-  /* Instructions collapsible — Cloudflare-class servers ship long prose. */
-  .area-studio .mcp-server-instructions,
-  .area-studio .mcp-server-meta {
-    margin-top: 10px;
-    border-top: 1px dashed var(--border);
-    padding-top: 8px;
-  }
-  .area-studio .mcp-server-instructions-summary,
-  .area-studio .mcp-server-meta-summary {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-    list-style: none;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-  .area-studio .mcp-server-instructions-summary::-webkit-details-marker,
-  .area-studio .mcp-server-meta-summary::-webkit-details-marker { display: none; }
-  .area-studio .mcp-server-instructions-label,
-  .area-studio .mcp-server-meta-label {
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
-    font-size: var(--font-size-caption);
-    color: var(--fg-tertiary, var(--fg-muted));
-    flex: 1;
-  }
-  .area-studio .mcp-server-instructions-chevron,
-  .area-studio .mcp-server-meta-chevron {
-    transition: transform var(--motion-fast);
-    color: var(--fg-tertiary, var(--fg-muted));
-  }
-  .area-studio .mcp-server-instructions[open] .mcp-server-instructions-chevron,
-  .area-studio .mcp-server-meta[open] .mcp-server-meta-chevron { transform: rotate(90deg); }
-  .area-studio .mcp-server-instructions-summary:hover .mcp-server-instructions-chevron,
-  .area-studio .mcp-server-meta-summary:hover .mcp-server-meta-chevron { color: var(--accent); }
-  .area-studio .mcp-server-instructions-body {
-    margin-top: 8px;
+  .area-studio .mcp-info-instructions {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
     font-size: var(--font-size-body-sm);
     color: var(--fg);
     line-height: var(--line-height-normal);
-    word-break: break-word;
+    padding-top: 8px;
   }
-  .area-studio .mcp-server-meta-content {
-    margin-top: 8px;
+  /* A tool's summary: the name (monospace, semibold) then the short description, one line. */
+  .area-studio .mcp-info-tool > summary > span:first-child {
+    flex: 0 1 auto;
     font-family: var(--font-family-mono, monospace);
-    font-size: var(--font-size-body-sm);
-    background: var(--surface-elevated);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 8px;
-    overflow-x: auto;
-    max-height: 300px;
-    overflow-y: auto;
-    white-space: pre;
-  }
-
-  /* F4 L3: Per-tool tile body — Prompt + Input Schema rendered as two
-     labeled sections (no nested collapsible). Both visible when the tile
-     is expanded. */
-  .area-studio .mcp-tool-section { margin-bottom: 10px; }
-  .area-studio .mcp-tool-section:last-child { margin-bottom: 0; }
-  .area-studio .mcp-tool-section-label {
-    font-size: var(--font-size-caption);
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-tertiary, var(--fg-muted));
+    color: var(--fg);
+  }
+  .area-studio .mcp-info-tool-desc {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .area-studio .mcp-info-field + .mcp-info-field { margin-top: 10px; }
+  /* The body's sub-labels read like a field label. */
+  .area-studio .mcp-info-label {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-secondary);
     margin-bottom: 4px;
   }
-  .area-studio .mcp-tool-schema-content { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 0; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; word-break: normal; }
-  .area-studio .mcp-tool-schema-empty { font-size: var(--font-size-body-sm); font-style: italic; opacity: 0.7; color: var(--fg-secondary); }
+  .area-studio .mcp-info-text {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: var(--line-height-normal);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .area-studio .mcp-info-empty { font-style: italic; opacity: 0.7; }
 
   /* === Agent-editor MCPs tab — MCP source TILE ============================
      Each MCP source on the agent-editor MCPs tab renders as a tile echoing
@@ -390,11 +230,6 @@
   }
   /* Per-tool checkbox treatment lifted to .checkbox-primary in components.css (Mission 08 F2 L2). */
 
-  /* Refresh-connection button (F9 L1 rename of "Test connection"): the
-     refresh icon sits inline before the label, matching the icon-then-text
-     pattern used by .test-provider-btn (▶ Test) and back-btn (← Back). */
-  .area-studio .mcp-refresh-connection-btn { display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .mcp-refresh-connection-btn svg { width: 14px; height: 14px; }
   /* F9 L1 (vibing polish): source-level Delete button in the Danger
      Zone gets a trash glyph on the LEFT of the label, mirroring the
      Refresh button's icon-then-text idiom. SVG inherits `currentColor`
@@ -461,7 +296,7 @@
   }
 
   /* Section/group subheadings — mirrors the mono-uppercase idiom used
-     elsewhere in studio (e.g. .mcp-tool-section-label, kv-table headers).
+     elsewhere in studio (e.g. kv-table headers).
      Used for "Restore to an earlier value" (HAT fix #3) and, smaller, for
      the per-field restore subgroups (HAT fix #8). */
   .area-studio .self-configuration-subheading {

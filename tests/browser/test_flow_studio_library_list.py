@@ -1333,13 +1333,15 @@ def test_mcp_save_create_keeps_the_editor_and_its_connect_state(
     _wait_item_route(page, "mcp")
     expect(page.locator(ANNOUNCER)).to_have_text("Library — MCP servers — fresh-http")
     _lists.expect_selected(page, "library/mcp", "fresh-http")
+    # M31 F5 L08b: a success hides the result area (the status line says Connected and
+    # Tools lists the tools), so the tools list is the state; the area is still marked.
     state = (
-        page.locator('[data-testid="mcp-test-status"]')
+        page.locator('[data-testid="mcp-tools-list"] [data-testid="mcp-tool-item"]')
         if connect == "tools"
         else page.locator('[data-testid="mcp-consent-btn"]')
     )
     if connect == "tools":
-        expect(state).to_contain_text("Server exposes 2 tools", timeout=8000)
+        expect(state).to_have_count(2, timeout=8000)
     else:
         expect(state).to_be_visible(timeout=8000)
     header = ".studio-section-content .editor-header"
@@ -1350,7 +1352,7 @@ def test_mcp_save_create_keeps_the_editor_and_its_connect_state(
     page.wait_for_timeout(300)
     assert [_mark_of(page, header), _mark_of(page, status)] == ["kept", "kept"]
     if connect == "tools":
-        expect(state).to_contain_text("Server exposes 2 tools")
+        expect(state).to_have_count(2)
         expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible()
     else:
         expect(state).to_be_visible()

@@ -8,9 +8,13 @@
 //                  It does NOT call App.focusAfter.cancel() (global: it would wipe
 //                  the create -> edit restore the glue flushes); it aborts no request
 //   setSession(s)  one consent session per mount: cancels the previous one, stores
-//                  the new one and disables Test until the session ends
-//   endSession(s)  called by a session as it finalizes or is cancelled; re-enables Test
+//                  the new one and holds Test: disabled and labelled "Waiting for
+//                  sign-in…" until the session ends (M31 F5 L08b, DD4)
+//   endSession(s)  called by a session as it finalizes or is cancelled; gives Test its
+//                  label and state back, also when the mount was destroyed meanwhile
 //   sessionActive() whether a session is live
+//   onSessionChange(fn)  fn(active) after every hold and release (Reset and Forget
+//                  follow it)
 //   onDestroy(fn)  registers a disposer run once by destroy (the field modules' destroy)
 //   handles        the per-mount object the form helpers read (container, testBtn)
 // A session is {cancel(), isDone()}; cancel() never closes the popup.
@@ -20,11 +24,38 @@
   window.App.studio = window.App.studio || {};
   window.App.studio.mcpEditor = window.App.studio.mcpEditor || {};
 
+  var WAITING_LABEL = 'Waiting for sign-in\u2026';
+
+  // The button's visible text node(s), replaced; the icon element is kept.
+  function labelOf(btn) {
+    var text = '';
+    for (var i = 0; i < btn.childNodes.length; i++) {
+      if (btn.childNodes[i].nodeType === 3) text += btn.childNodes[i].nodeValue;
+    }
+    return text;
+  }
+  function setLabel(btn, text) {
+    var nodes = [];
+    for (var i = 0; i < btn.childNodes.length; i++) {
+      if (btn.childNodes[i].nodeType === 3) nodes.push(btn.childNodes[i]);
+    }
+    for (var j = 1; j < nodes.length; j++) btn.removeChild(nodes[j]);
+    if (nodes.length) nodes[0].nodeValue = text;
+    else btn.appendChild(document.createTextNode(text));
+  }
+
   function createMount() {
     var dead = false;
     var session = null;
     var disposers = [];
+    var listeners = [];
+    var heldLabel = null;
     var mount = { handles: {} };
+
+    function notify() {
+      var active = !!(session && !session.isDone());
+      for (var i = 0; i < listeners.length; i++) listeners[i](active);
+    }
 
     mount.alive = function () { return !dead; };
     mount.ifAlive = function (fn) {
@@ -38,12 +69,23 @@
       var previous = session;
       session = s;
       if (previous && previous !== s) previous.cancel();
-      if (!dead && mount.handles.testBtn) mount.handles.testBtn.disabled = true;
+      var btn = mount.handles.testBtn;
+      if (!dead && btn) {
+        if (heldLabel === null) heldLabel = labelOf(btn);
+        setLabel(btn, WAITING_LABEL);
+        btn.disabled = true;
+      }
+      if (!dead) notify();
     };
     mount.endSession = function (s) {
       if (session !== s) return;
-      if (!dead && mount.handles.testBtn) mount.handles.testBtn.disabled = false;
+      var btn = mount.handles.testBtn;
+      if (btn && heldLabel !== null) setLabel(btn, heldLabel);
+      heldLabel = null;
+      if (!dead && btn) btn.disabled = false;
+      if (!dead) notify();
     };
+    mount.onSessionChange = function (fn) { listeners.push(fn); };
     mount.onDestroy = function (fn) { disposers.push(fn); };
     mount.destroy = function () {
       if (dead) return;

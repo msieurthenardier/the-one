@@ -62,7 +62,7 @@
     open.target = '_blank';
     open.rel = 'noopener noreferrer';
     var helpText = opts.help === undefined
-      ? "Finish signing in in the browser window. This page updates when you're done."
+      ? "Complete the sign-in in your browser. This page updates when you're done."
       : opts.help;
     if (helpText) open.setAttribute('aria-describedby', helpId);
     open.appendChild(document.createTextNode('Open sign-in page'));

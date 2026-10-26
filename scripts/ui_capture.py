@@ -1217,11 +1217,11 @@ def _mcp_save_error(ctx: Ctx) -> None:
 
 
 def _mcp_reset_armed(ctx: Ctx) -> None:
-    btn = ctx.page.locator('[data-testid="reset-mcp-connection-btn"]')
-    btn.click()
-    ctx.page.locator('[data-testid="reset-mcp-connection-btn"].confirm-delete').wait_for(
-        timeout=5000
-    )
+    # Since M31 F5 L08b a connected server without a sign-in (the seeded Docs search) is
+    # offered "Forget tools list" instead of "Reset connection", which needs a sign-in.
+    shown = '[data-testid$="-mcp-connection-btn"]:not([hidden])'
+    ctx.page.locator(shown).click()
+    ctx.page.locator(shown + ".confirm-delete").wait_for(timeout=5000)
 
 
 def _mcp_danger_armed(ctx: Ctx) -> None:
@@ -1429,7 +1429,7 @@ SURFACES += [
     _mcp(
         "mcp-edit-reset-armed",
         "#library/mcp/{mcp_http}",
-        "MCP editor, Docs search: Reset connection armed (first click)",
+        "MCP editor, Docs search: Forget tools list armed (first click; Reset needs a sign-in)",
         prepare=_mcp_reset_armed,
     ),
     _mcp(

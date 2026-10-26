@@ -233,6 +233,26 @@ A testid that cannot survive the library control (for example `mcp-kv-tbody` ins
 - **Docs:** `agents.md` "MCP error translation" gains "The last connection check from Studio". `CLAUDE.md` unchanged (no new route).
 - **Runs:** unit 15 in the new file; related MCP/OAuth unit files 73 passed; `make test-unit` 7233 passed, 12 skipped (includes `test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_store_static`); lanes `mcp` 167 (was 164, +3), `agents` 161, `library` 51, `routing` 186 (was 184, +2); `contracts-controls` not run (nothing under `js/ui/` touched). ruff check and format clean. Guard totals unchanged (no new HTML sinks or ownership rows).
 
+### Leg 08b: connection-status-and-sign-in (landed, 2026-10-25)
+- **Tests first** (high-risk leg: sign-in, focus, a callback page). 19 new browser tests in `test_flow_studio_mcp_editor.py` (the status line against `App.usage.mcpState` for each seeded state, A9 with a reopen, Test in the header, A8 placement, the Tools list kept when a Test starts, a dirty Test's note, defect 9, A18 per transport, the Reset and Forget predicates, both patching in place, the session hold for Reset and Forget, label restore after a failed sign-in, the optimistic line) and `tests/test_oauth_callback_page_static.py` (4 tests) were run on the leg 08a tree (HEAD 66193d0) before any product change: **all 19 browser tests failed** (no `mcp-connection-status` element, Test still the old Refresh button in the Connection section, the result area inside Tools and visible at rest, `hasOAuthState` still true on a cache, no Forget button, no hold label, `address and key` headline) and **the first callback test failed** (the page linked three `/static/` assets; `-x` stopped the file there, and all four pass on the new tree). After the change: 19 of 19 and 4 of 4 pass, with no assertion weakened.
+- **Client:**
+  - `mcp-connection-status.js` is rewritten as `create({container, mount, callbacks, getSource, testBtn, setError, titleEl})` (362 to 438 lines): the `App.ui.status` line (`mcp-connection-status`, LED `mcp-connection-led` decorative, `data-state` the LED state, `data-mcp-state` `mcpState`'s state; words from `App.usage.mcpStateLabel`; clock through `App.time.formatClock`, with the date when not today), the result area (`mcp-test-status`, inside the Connection section directly after the status row, hidden at rest and after a success, no role of its own: the transient text is an inner `role=status` span and the error block keeps its `role=alert`), Reset and Forget (built once on first need through `App.ui.button` plus a `span[data-confirm-title]`, confirmed through `App.ui.confirm` with the server name as `announceName`, then only `hidden` toggled), the identity-guarded refetch after every outcome through `getSource()` and `App.ui.util.latest()`, and the Test flow. The Tools list is not cleared when a Test starts; Reset and Forget empty it and show "Press Test to load this server's tools.".
+  - `hasOAuthState` is exactly `streamable-http && oauth_active === true` (no `_cache` fallback); `formatTimeAgo` and the managed-key list are deleted from `mcp-editor-shared.js`.
+  - `mcp-editor-lifecycle.js`: `setSession` holds Test (disabled, "Waiting for sign-in…" replacing the label's text node, the icon kept); `endSession` restores the label (also on a destroyed mount) and state; `onSessionChange(fn)` lets Reset and Forget follow (disabled during a session). One text, "Waiting for sign-in…", for the Test label, the first status text and the popup-closed text.
+  - `mcp-oauth-consent.js` is on `App.ui.consentLink.build/focusTarget/isSafeUrl` (no alias); its retry "Sign in" is an `App.ui.button`. Popup rules unchanged: `window.open` still runs synchronously where the manual path reaches it, no auto-popup on the auto-run path, a `null` return is not a failure, `isSafeUrl` gates it, the same-origin check and the 120 s ceiling stay.
+  - `mcp-server-editor.js` (648 to 579 lines): Test is an `App.ui.button` (`play`) inserted before Cancel, edit mode only; no Refresh; `collectFormData(..., {silent: true})` returns `{error}` and writes nothing (defect 9: the message goes to the result area and no request is sent); `setBusy` also blocks Test.
+  - `mcp-error.js`: `mcpErrorMessage(raw, {transport})` and `buildMcpError(raw, {transport})` (A18); `mcps-tab.js` passes the source's type; `.mcp-tools-error` gets `font-size: var(--font-size-body-sm)` (12 px in both hosts, tested). `ui/consent-link.js`: "Complete the sign-in in your browser. This page updates when you're done." (A19; chat shows it too).
+  - CSS: dead `.mcp-test-row`, `.mcp-connection-actions`, `.mcp-tools-last-updated`, `.mcp-refresh-connection-btn` and `.mcp-tools-status` removed, `.mcp-connection-state`, `.mcp-connection-status-row`, `.mcp-test-result`, `.mcp-test-note` and `.mcp-tools-empty` added. `scripts/unused_selectors.py studio.css`: `unused (0)`, `dynamic (0)`.
+- **Server:** only squawk 0214: `_render_oauth_callback_page` links nothing under `/static/`; inline styles with an explicit token subset (light, plus a `prefers-color-scheme: dark` override; the system font stack; `--radius-lg` where the old `--panel-radius` named a token that never existed), pinned to `tokens.css` and `fonts.css` by the unit test.
+- **Squawks:** 0214 and 0216 are `completed` (corrective action, verification; the Disposition sections removed). 0216's two racing assertions in `test_mcp_test_connection_button.py` now hold the response with `page.route` until "Testing connection…" is asserted. Both squawks' Sign-Off verdict and commit read `pending` until the batch review and commit.
+- **Retargets (none deleted):** `test_flow_studio_mcp_editor.py` ("Server exposes" to the Tools list or the status line, "Last updated" to the status line's clock, "Refresh connection" to the header Test, "Confirm Reset?" to "Reset connection?", "Awaiting" and "Finalizing sign-in" to "Waiting for sign-in", the late-Test probe to the status line, the Reset test now asserts the same controller and the kept edit instead of a re-mount), `test_mcp_test_connection_button.py`, `test_flow_studio_library_list.py` (the save-create tools state), `test_ui_copy_contract.py` (A19), `test_studio_mcps_tab.py` (two new tests: A18 per transport, one size in both hosts), `test_store_static.py` (the connect and Reset windows now in the status module; the Reset row ends at the identity check), `test_nav_helper.py` (`mcp-tools-last-updated` retired), `docs/ui-testid-registry.md` (added `mcp-connection-status`, `forget-mcp-connection-btn`; rows rewritten; one retired row).
+- **Guards:** ownership 56 rows / 86 uses (`MOVES` 10) to **47 rows / 70 uses (`MOVES` 2)**; sinks 14 to **8** (`mcp-connection-status.js` 7 to 1, only the Tools-list line left, leg 09's; the "Server exposes" snippet and its move deleted); `mcp-server-editor.js` 579 lines; no new use. No stale move entry.
+- **Lanes:** `mcp` 186 passed (was 167), `library` 51, `agents` 163 (was 161), `contracts-controls` with `THE_ONE_REQUIRE_WEBKIT=1` 954 passed, 4 skipped (as before); by file `test_oauth_modal_flow.py`, `test_flow_oauth_callback_cross_site.py`, `test_flow_studio_library_focus.py`, `test_mcp_test_connection_button.py`, `test_studio_mcps_tab.py` all pass; static guards, 471 passed (guards, ownership, size, consent-link, store, nav helper, emitted classes, tokens, a11y, inventory); `make test-unit` 7242 passed, 12 skipped (was 7238); ruff check and format clean. One first run of `mcp` showed 16 failures, all in tests this leg retargets (the lane had loaded the old file); they pass retargeted.
+- **Captures** (`~/.cache/the-one-ui-capture/m31-f5-l08b`, 23 surfaces both themes, compared with `m31-f5-l07` through PIL `ImageChops`): unchanged (pixel-identical) 14: the three `mcp-create-*` forms in every size and theme (12) and `mcp-library-list` (2). `agent-mcps` (4 images) is new in the tool and has no leg 07 counterpart. Changed, all on the ledger: `mcp-edit-http` (1024, 1280), `-http-open`, `-legacy`, `-rejected`, `-signin`, `-signin-after-create`, `-stdio` (1024, 1280), `-stdio-failed`, `-dirty`, `-save-error`, `-danger-armed`, `-reset-armed` (now Forget armed): rows 6 (the status line), 7 (Reset only when signed in; Forget for the cached Docs search), 8 (the result area and the missing "Server exposes" line), 9 (stdio-failed reads "Couldn't connect"), 19 ("Waiting for sign-in…" and the new link help text in `-signin`), 23 (the header Test with its play icon); `agent-mcps-full` (both themes): row 18 (stdio headline, "headers", 12 px; 31 px shorter). I looked at `mcp-edit-http` light, `mcp-edit-stdio-failed` light, `mcp-edit-signin` dark, `mcp-edit-reset-armed` light and `agent-mcps-full` light: each matches its row, with no change outside the ledger. The `mcp-edit-signin` line reads "Not connected" because that capture stubs the connect, so the refetch (the real server) overrides the optimistic "Sign-in needed"; a real auth_required records `last_check`. `scripts/ui_capture.py`: `mcp-edit-reset-armed` now arms whichever of Reset or Forget is shown (its description says Forget).
+- **Ledger status (leg 08b):** rows 6, 7, 8, 9, 18, 19, 23, 30 and 31 visible, match. Row 8 note: the "Server exposes N tools." line is gone. Row 30: Reset and Forget patch in place (tested: marker on the title survives, the dirty field and caption are kept, focus lands on Test). Row 31: the callback page is styled with no session (unit-tested, not looked at in a system browser). **No visible change outside the ledger rows.**
+- **Deviations from the spec, with reasons:** (1) the dirty-form Test that succeeds shows "Connected. Tested with your unsaved changes." in the result area (the spec says the area is hidden after a success, but a dirty Test leaves the line on the saved record, so a silent success would give no answer); the word comes from `mcpStateLabel`. (2) `announceName` for the two armed buttons is the server's name ("Press {name} again to reset connection."), because the button's own label would repeat the action. (3) `App.ui.status` marks the LED decorative, so the derived-relationship test asserts the line's text and `data-mcp-state`, not an LED name (the spec's own "LED is decorative" paragraph prevails over its test bullet). (4) The Tools hint has no testid (a class, `mcp-tools-empty`), so no registry row. (5) The `Reset`/`Forget` buttons are not disabled while a Test is merely in flight, only during a consent session, as specified.
+- **Squawk candidate for the debrief:** the capture `mcp-edit-signin` stub artifact above (a stubbed connect never records `last_check`); and the ownership file's `START_ROWS` still lists rows that no longer exist (harmless, shrink-only).
+
 ## Decisions
 
 *(none yet)*
@@ -406,3 +426,114 @@ A testid that cannot survive the library control (for example `mcp-kv-tbody` ins
   3. **The untracked `env.sh`** at the repo root is never committed (standing rule).
 - **Batch B3 fix (review item 1, stale `last_check`/`auth_posture` after a PUT that changes the server):** five tests added to `tests/test_mcp_last_check.py` first; on the unfixed tree 4 failed (URL change, type change, forged `_cache` after a URL change, emptied-cache) and 1 passed (name-only and headers-only keep both). After the fix in `update_mcp_source` the file is 20 passed; the 7 files that exercise the route are 282 passed; `make test-unit` is 7238 passed, 12 skipped.
 - **Batch B3 fix re-review** (Sonnet, scoped): `[HANDOFF:confirmed]`, with no issues. It ran 222 tests over the four route files. Legs 06, 07 and 08a are `completed`. The checkpoint "the editor and the Library list read one derived state" stays open until leg 11.
+- **Checkpoint B3 committed** as `66193d0` (local).
+- **Batch B4 = legs 08b and 09**, run one after the other (both touch the controller and the connection-status module). Leg 08b's Developer was spawned.
+- **Leg 08b landed** (FD reading of the report):
+  - **Fails-first:** 19 new browser tests and the first of 4 callback-page unit tests failed on `66193d0`; all pass after, with no assertion weakened. Squawk 0216's two racing assertions are held with `page.route`.
+  - **Lanes:** `mcp` 186, `library` 51, `agents` 163, `contracts-controls` 954 (4 skipped), plus 5 files by name; static guards 471; unit 7242 passed, 12 skipped.
+  - **Guards:** ownership 56 / 86 → 47 rows / 70 uses (`MOVES` 10 → 2); sinks 14 → 8; the controller 648 → 579 lines.
+  - **Squawks 0214 and 0216** are `completed`; their sign-off and commit are filled in at checkpoint B4.
+  - **The FD looked at two captures** (`mcp-edit-http` light, `mcp-edit-stdio-failed` dark):
+    - the header Test (row 23);
+    - "Connected · checked …" with "Forget tools list" beside it (rows 6 and 7);
+    - no "Server exposes" line (row 8);
+    - "Couldn't connect" with the A18 stdio headline and Technical details (rows 9 and 18);
+    - "Press Test to load this server's tools." after a failure.
+
+    The capture's line shows a date because the capture fixes the browser clock at 2026-03-01 while the seed-time Test records the real time, so "not today" is correct. That text differs run to run; the compare treats it as expected.
+  - **Accepted deviations:**
+    1. **A dirty Test that succeeds** shows "Connected. Tested with your unsaved changes." in the result area. Otherwise the line, which reads the saved record, would give no answer. This is a new visible string outside the survey, flagged for the HAT walk.
+    2. **The armed Reset and Forget** announce the server's name.
+    3. **The LED is decorative.** The spec's own paragraph prevails, and the tests assert the text and `data-mcp-state`.
+    4. **The Tools hint** has a class and no testid.
+    5. **Reset and Forget** are disabled only during a consent session, as specced.
+    6. **The 0214 callback card** uses `--radius-lg`, because `--panel-radius` never existed.
+  - **Not checked:** the callback page was never viewed in a real browser. It is added to the HAT walk.
+- **Leg 09's Developer was spawned** (tier low, batch B4).
+- **Leg 09 landed** (server-info-and-tools, Developer):
+  - **Citation drift:** the spec's `mcp-connection-status.js` description was stale: 08b had already rewritten it as `create(...)` with the Tools-list sink in `showTools`/`emptyTools`; the Server and Tools strings were in `mcp-server-editor.js`, not the status module. `studio.css` ranges had moved (`:119-338` was the whole family).
+  - **Fails-first:** 12 new or retargeted browser tests failed on the 08b tree (14 failed, 3 passed in the selected set, all for missing testids or the old shape); all pass after. `test_capability_flags_render...` was retargeted to the Offers row. No test deleted or weakened.
+  - **Built:** `mcp-server-info.js` is now `serverInfo.create({cache})` returning `{serverEl, toolsEl, update, setTools, destroy}`: `App.ui.section` x2, `facts` (Version, Protocol, Offers, Website), plain `disclosure` for Instructions and Metadata (`codeBlock`), a bordered `disclosure` per tool reconciled by name through `syncChildren` (open panels persist). Server section is always mounted in edit mode and `hidden` when the cache has nothing to show. The status module calls `setTools`/`update`; the editor mounts the two sections over hosts and registers `destroy`.
+  - **Deviations:** (1) a tool's body shows "Description" when the text is longer than the cut, has a line break, or is empty ("No description provided."); otherwise the summary meta carries it once. (2) New owned CSS classes `mcp-info-*` (identity row, text blocks, tool summary arrangement, field-label-style sub-labels); the `.mcp-tool-*`, `.mcp-server-*` and `.mcp-capability-flags*` rules are deleted. (3) `summaryTextTestid` is not scanned by the registry guard, so the tool name has no testid (tests use the summary text span). (4) The Instructions/Metadata plain disclosures keep the native marker (the plain variant has no chevron option). (5) The old `mcp-tool-*` look is frozen as `LEGACY_MCP_TOOL_CSS` in `tests/browser/_legacy_tool_css.py` for `test_ui_disclosure_contract.py`.
+  - **Guards:** sinks 8 -> 6 (`mcp-server-info.js` and `mcp-connection-status.js` rows gone; `SINK_MOVES`/`SNIPPET_MOVES` emptied); ownership rows/uses: `mcp-server-info.js` rows gone, editor `editor-section` and `section-title` 3 -> 2 each, `TOTAL_USES` editor-section 5 -> 3, section-title 4 -> 2, `MOVES` emptied.
+  - **Lanes:** `mcp` 194 (after two test fixes), `library` 51 (one retarget re-run), `agents` 163, disclosure contract + new tests in both engines 33, static guards 465, `make test-unit` 7242 passed, 12 skipped. Every `mcp-*.js` at most 573 lines.
+  - **Captures** (`m31-f5-l09` vs `m31-f5-l08b`): changed surfaces `mcp-edit-http`, `mcp-edit-http-open`, `mcp-edit-legacy`, `mcp-edit-stdio` (page height +9px: the server section only) differ in the Server and Tools regions (rows 15 and 16); `mcp-edit-signin` and `mcp-library-list` are identical. Looked at `mcp-edit-http-open` light before and after: facts rows, Instructions disclosure, tools as name + short description with Description/Input schema sub-labels; no other region changed.
+
+- **Leg 09 landed** (FD reading of the report):
+  - **Fails-first:** 14 of 17 selected tests failed on the 08b tree (the new testids and DOM shape); no test was deleted or weakened. No library or server change was needed, so the low tier held.
+  - **Guards:** sinks 8 → 6; `MOVES`, `SINK_MOVES` and `SNIPPET_MOVES` are all empty; every `mcp-*.js` is 573 lines or fewer.
+  - **Gap:** `mcp` (192 passed, 2 failed) and `library` (50, 1 failed) had test-side failures, fixed and passed in isolation, but neither lane was re-run end to end. **The batch B4 Reviewer is asked to run both lanes in full before confirming.**
+  - **The FD looked at `mcp-edit-http-open` light 1280:**
+    - the Server facts read Version, Protocol, Offers, Website (row 16);
+    - Instructions is an open disclosure;
+    - the tools are bordered disclosures with "Description" only for the long one, then "Input schema" in a code block (row 15).
+
+    Each matches its row.
+  - **Accepted deviations:**
+    1. "Description" appears only when the text is long, multi-line or empty (the summary carries a short one once, per A15).
+    2. The new owned classes are `mcp-info-*`.
+    3. The tool name has no testid.
+    4. The plain disclosures keep the native marker.
+    5. The Server section is hidden, not absent, when empty.
+- **Batch B4 (legs 08b, 09) end.** A Reviewer (Sonnet: OAuth sign-in, the callback page, untrusted server text) and an Accessibility Reviewer were spawned in parallel over the diff since `66193d0`.
+- **Batch B4 Accessibility Reviewer:** `[HANDOFF:confirmed]`, with no blocking issue. It reviewed the code only. FD calls on its non-blocking notes:
+  1. **A failed Test may be announced twice** (the status line, plus the `role=alert` error). **Fix in batch B4:** the result area's error does not re-announce what the status line says.
+  2. **"Testing connection…" and the authorization prompt** are inserted into a live region that is already populated, so they may not be read. **Fix in batch B4:** one persistent live region in the result area.
+  3. **The section titles are `div`s, not headings.** Accepted for this flight: it is the app-wide `section` default (every editor), so changing two MCP sections alone would be inconsistent. Carried to the mission debrief as an app-wide candidate (`titleTag` everywhere).
+  4. **A tool's long summary name** (the name plus the description). Accepted: it is the A15 layout the operator approved.
+  5. **`<main role="status">` on the callback page** overrides the landmark. **Fix in batch B4:** the live region goes on an inner element.
+- **Leg 10 designed** (`legs/10-editor-controller.md`). **Tier high** (the save model, a shared-control consumer, the guard tables). Its FD decisions:
+  - **A4's subtitle** is "{type label} · {command or URL}", falling back to the raw type for a legacy row.
+  - **Type's error wording** is "Choose how it connects.", to match the create placeholder.
+  - **A new testid,** `mcp-editor-subtitle`.
+
+  Its design review was spawned while the batch B4 code Reviewer runs. The review is read-only, and B4's fixes touch only `mcp-connection-status.js` and `api.py`.
+- **Leg 10 design review, cycle 1:** approve with changes, applied in place.
+  - **The highs:**
+    - Test had three writers of its disabled state, and the shell's `apply()` would re-enable Test mid-Test. Now there is one `syncTestHold()`.
+    - There was no per-field baseline. FD decision, option b: a pure `baselineFrom(source)` on the two field modules.
+    - `test_store_static.py`'s anchors.
+  - **The rest:** the tests that read the old copy, the exact guard entries (read the start-record semantics first), the shell gaps, and `collectFormData` returning `{error, fields}`.
+  - Cycle 2 was spawned, because the changes are substantive.
+- **Leg 10 design review, cycle 2:** approve with changes (2 medium, 3 low; no high). Applied in place:
+  - `baselineFrom` goes through the controls' normalisation;
+  - the store anchors are two rows, create and edit;
+  - one `onSessionChange` registration and the creation order;
+  - the destroyed-mount label test is retargeted by name.
+
+  Status `ready`; no third cycle.
+- **Batch B4 Reviewer** (Sonnet, security focus): `[HANDOFF:confirmed]`, with no blocking issue.
+  - **It ran:** the full `mcp` lane (194 passed) and `library` lane (51 passed), which closes leg 09's gap, plus unit 7242 passed, 12 skipped.
+  - **Security checks, all clean:**
+    - the popup gesture and `isSafeUrl`;
+    - one poll, with an idempotent cancel;
+    - the callback page escapes its query text and links no static asset;
+    - leg 09's untrusted text goes through `textContent` and `App.safeUrl`, failing closed.
+  - **Its non-blocking items, both fixed in this batch:**
+    1. **A malformed tool** (a non-string description, or a null tool) can throw in `mcp-server-info.js` `setTools`/`fillBody`. Fix: coerce with `String()` and skip null entries.
+    2. **`runDelete`** reads `getSource().id` without a null guard. Fix: add one.
+  - **Batch B4 fix pass:** these two plus the accessibility items 1, 2 and 5. A Developer was spawned.
+
+## Batch B4 review fixes
+
+Fixes after the flight review of legs 08b and 09. Tests were written first and run
+against the pre-fix source (fixes temporarily reverted), then the fixes restored.
+
+| # | Fix | Test | Fails first? |
+|---|---|---|---|
+| 1 | `mcp-server-info.js` `setTools`/`fillBody` skip null/non-object tools and coerce `name`/`description` with `String()` (null/undefined description = empty) | `test_malformed_cached_tools_render_without_error` (numeric description, null entry, object description) | yes |
+| 2 | `mcp-connection-status.js` `runDelete` returns with no request when there is no source id; the post-response check is null-safe | covered by the existing Reset/Forget tests (no fails-first: the guard is defensive, no reachable path on the unfixed tree) | n/a |
+| 3 | `buildMcpError(raw, {live})`: `'alert'` (default, unchanged for the agent MCPs tab and chat), `'status'`, `'none'`; the editor's result area passes `'none'` so the status line is the one announcement | `test_build_mcp_error_live_option` (all values and the default); `test_test_result_uses_one_persistent_live_region` (no `role=alert` in the result area); `test_library_editor_connection_error_plain_headline` assertion changed from `role=alert` to no role | yes |
+| 4 | One persistent polite live region (`div.visually-hidden[role=status][data-testid=mcp-test-live]`) created at mount after the hidden-at-rest `mcp-test-status` area (so `display:none` never removes it); `showText` and the sign-in prompt set its text; `clearArea` empties it; the visible text nodes lost their per-message `role=status` | `test_test_result_uses_one_persistent_live_region` (same element before/after a Test, holds "Testing connection…") | yes |
+| 5 | OAuth callback page: `<main>` is plain; the message sits in an inner `<div role="status">` | `test_main_landmark_is_plain_and_message_is_an_inner_status` in `tests/test_oauth_callback_page_static.py` | yes |
+
+Counts: the new tests fail 3/3 browser and 1/1 static on the pre-fix source, pass after.
+`--lane mcp`: 197 tests, 196 passed and 1 failed (the plain-headline assertion above, updated and re-run green).
+`--lane library`: 51 passed. `--lane agents` (touched `mcp-error.js`): 163 passed. `test_oauth_modal_flow.py` + `test_flow_oauth_callback_cross_site.py`: 19 passed.
+Static guards (ui_guards, token_definitions, design_tokens_a11y, ui_ownership, ui_emitted_classes, oauth_callback_page_static, nav_helper): 448 passed after registering `mcp-test-live` in `docs/ui-testid-registry.md`.
+`make test-unit`: first run 7241 passed, 12 skipped, 2 failed (`tests/test_store_static.py`, which pins the exact text of the Reset guard line); the pin and the line were updated to `!getSource() ||` and the file re-run green (51 with ui_guards). The Reset/Forget browser tests were re-run after that edit.
+- **Batch B4 fix re-review** (Sonnet, scoped): `[HANDOFF:confirmed]`. It ran unit (7243 passed, 12 skipped) and the `mcp` lane (197 passed). The store pin was re-anchored on the null-safe guard line and still asserts the same order. Its accepted nits:
+  - the unreachable no-id early return leaves the armed button un-reverted;
+  - the hidden live region may keep "Testing connection…" until the next clear.
+
+  Legs 08b and 09 are `completed`; squawks 0214 and 0216 are signed off. The checkpoint "the fields, env and headers, status and sign-in, and server info are on the library" is met.

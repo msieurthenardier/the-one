@@ -257,24 +257,18 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
     """M25 F3 L4a: a connect success and Reset connection invalidate
     'mcp-sources' and then tell the studio (``onListStale``) to reload the list,
     so the row's tool count follows a Refresh."""
-    # M31 F5 L02: onTestConnectSuccess stays in the controller; the Reset window
-    # moved with wireResetButton to mcp-connection-status.js.
-    src = _src("areas/studio/mcp-server-editor.js")
-    connect = _window(src, "function onTestConnectSuccess()", "fetch(")
-    assert "callbacks.onListStale()" in connect
+    # M31 F5 L08b: the Test flow and Reset / Forget live in mcp-connection-status.js; the
+    # controller no longer has a success hook (every outcome tells the studio itself).
     status = _src("areas/studio/mcp-connection-status.js")
-    # Leg 08a: an error / auth_required outcome (a recorded last_check) invalidates
-    # and tells the studio once, through opts.onListStale, before the torn-down return.
-    outcome = _window(status, "var live = mount.alive();", "if (data.status === 'ok') {")
-    assert outcome.index("App.store.invalidate('mcp-sources')") < outcome.index(
-        "opts.onListStale()"
+    # Leg 08a/08b: EVERY outcome (an error / auth_required Test recorded last_check)
+    # invalidates and tells the studio once, before the torn-down return.
+    outcome = _window(status, "App.store.invalidate('mcp-sources');", "if (data.status === 'ok') {")
+    assert outcome.index("callbacks.onListStale()") < outcome.index("if (!mount.alive()) return;")
+    reset = _window(
+        status,
+        "'/connection', { method: 'DELETE' })",
+        "if (!mount.alive() || !getSource() || getSource().id !== id) return;",
     )
-    assert outcome.index("opts.onListStale()") < outcome.index(
-        "if (!live && data.status !== 'ok') return;"
-    )
-    assert "data.status !== 'ok' && opts" in outcome
-    assert "onListStale: callbacks.onListStale" in src
-    reset = _window(status, "'/connection', { method: 'DELETE' })", "return fetch(")
     assert reset.index("App.store.invalidate('mcp-sources')") < reset.index(
         "callbacks.onListStale()"
     )
@@ -340,10 +334,10 @@ INVALIDATION_ROWS = (
         "callbacks.onDeleteSuccess()",
         ("mcp-sources", "agents"),
     ),
-    (  # MCP source: connection delete (Reset)
+    (  # MCP source: connection delete (Reset and Forget; M31 F5 L08b: patched in place)
         "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/connection', { method: 'DELETE' })",
-        "return fetch(",
+        "if (!mount.alive() || !getSource() || getSource().id !== id) return;",
         ("mcp-sources", "agents"),
     ),
     (  # MCP source: Refresh tools / test-connect success (writes config._cache)
@@ -351,7 +345,7 @@ INVALIDATION_ROWS = (
         "'/test/connect', fetchOpts)",
         # Leg 08a: the end anchor sits BEFORE the ok check, so this pins the
         # every-outcome invalidation (error / auth_required record last_check).
-        "if (!live && data.status !== 'ok') return;",
+        "if (data.status === 'ok') {",
         ("mcp-sources",),
     ),
     (  # MCP source: the agent editor's tools load (also /test/connect; agent-data now)

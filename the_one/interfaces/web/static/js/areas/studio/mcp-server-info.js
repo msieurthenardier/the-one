@@ -1,13 +1,24 @@
-// App.studio.mcpEditor.serverInfo — the MCP source editor's Server section and
-// tools-list markup (M31 F5 L02, split out of mcp-server-editor.js, moved
-// verbatim).
+// App.studio.mcpEditor.serverInfo — the MCP source editor's Server section and Tools
+// list, DOM-built on the control library and updated in place (M31 F5 L09).
 //
-// Holds: renderToolsListHtml (the collapsible per-tool list), renderCapabilityFlags,
-// renderServerInfoSection (identity, protocol version, instructions, capabilities,
-// _meta), cacheHasServerInfo and syncServerInfoSection (the in-place repaint
-// after a Refresh). String builders plus one targeted DOM repaint.
-// Exposes: renderToolsListHtml, renderCapabilityFlags, renderServerInfoSection,
-// cacheHasServerInfo, syncServerInfoSection.
+// create({cache}) builds, once per mount, two sections and returns
+// {serverEl, toolsEl, update, setTools, destroy}:
+//   serverEl  App.ui.section "Server" (testid mcp-server-info-section), hidden while the
+//             cache has nothing to show: an identity row (icon, title, name subtitle),
+//             App.ui.facts (Version, Protocol, Offers, Website, only the rows with a
+//             value), an Instructions disclosure and a Metadata disclosure holding a
+//             code block.
+//   toolsEl   App.ui.section "Tools" (testid mcp-tools-section) holding the empty hint
+//             and [data-testid=mcp-tools-list], one bordered disclosure per tool.
+// update(cache) repaints the Server section in place (squawk 0102); setTools(tools|null)
+// reconciles the tool list by name, so an open tool panel stays open across a Test that
+// returns the same tools (null = no tools loaded: the hint shows).
+//
+// Everything the server supplied (titles, versions, instructions, tool names and
+// descriptions, schemas, URLs) is untrusted: it is set with textContent only, and the
+// icon and website URLs go through App.safeUrl, which fails closed (squawk 0010): a
+// rejected icon is not rendered, a rejected website is inert text.
+// Exposes: create, cacheHasServerInfo.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -15,254 +26,313 @@
   window.App.studio.mcpEditor = window.App.studio.mcpEditor || {};
 
   var SPEC_CAPABILITY_KEYS = window.App.studio.mcpEditor.shared.SPEC_CAPABILITY_KEYS;
+  var DESC_CUT = 100;
 
-  // F9 L1 (vibing): tools-list HTML extracted from handleTestConnection
-  // so initial-mount cached render and post-refresh render share one
-  // template. `tools` is the same shape both paths produce — array of
-  // {name, description, input_schema}.
-  function renderToolsListHtml(tools) {
-    var escapeHtml = window.App.escapeHtml;
-    var html = '';
-    for (var i = 0; i < tools.length; i++) {
-      var t = tools[i];
-      var desc = t.description || '';
-      var truncated = desc.length > 100 ? desc.slice(0, 100) + '…' : desc;
-
-      // Summary line: `name — preview` (single line, 100-char ellipsis,
-      // matches the agent-editor MCPs tab tile shape). Body reveals the
-      // full description (with line breaks preserved) + the input schema
-      // collapsible. Mission 08 F4 L3.
-      html += '<details class="mcp-tool-item">';
-      html += '<summary class="mcp-tool-summary">';
-      html += '<span class="mcp-tool-summary-text">';
-      html += '<span class="mcp-tool-name">' + escapeHtml(t.name) + '</span>';
-      if (desc) {
-        html += '<span class="mcp-tool-summary-desc"> — ' + escapeHtml(truncated) + '</span>';
-      }
-      html += '</span>';
-      html += '<span class="mcp-tool-chevron">▸</span>';
-      html += '</summary>';
-
-      html += '<div class="mcp-tool-body">';
-
-      // Section 1: Prompt (the tool description; this IS what the LLM sees).
-      html += '<div class="mcp-tool-section">';
-      html += '<div class="mcp-tool-section-label">Prompt</div>';
-      if (desc) {
-        var safeDesc = escapeHtml(desc).replace(/\n/g, '<br>');
-        html += '<div class="mcp-tool-full-description">' + safeDesc + '</div>';
-      } else {
-        html += '<div class="mcp-tool-full-description mcp-tool-description-empty">(no description provided)</div>';
-      }
-      html += '</div>';
-
-      // Section 2: Input Schema (always rendered, even when absent — labeled
-      // section makes the contract visible rather than silently absent).
-      html += '<div class="mcp-tool-section">';
-      html += '<div class="mcp-tool-section-label">Input Schema</div>';
-      if (t.input_schema && Object.keys(t.input_schema).length > 0) {
-        var schemaJson = JSON.stringify(t.input_schema, null, 2);
-        html += '<pre class="mcp-tool-schema-content">' + escapeHtml(schemaJson) + '</pre>';
-      } else {
-        html += '<div class="mcp-tool-schema-empty">(no input schema)</div>';
-      }
-      html += '</div>';
-
-      html += '</div>';
-      html += '</details>';
-    }
-    return html;
-  }
-
-  function renderCapabilityFlags(capabilities) {
-    if (!capabilities) return ''; // capabilities key missing entirely (pre-L1 server, defensive)
-    var present = SPEC_CAPABILITY_KEYS.filter(function (k) {
-      var v = capabilities[k];
-      return v !== null && v !== undefined;
-    });
-    if (present.length === 0) {
-      // Pathological but documented: server announced no capabilities.
-      // Render an explicit message so operators don't see a blank status area.
-      return '<div class="mcp-capability-flags mcp-capability-flags-empty">Server announced no capabilities.</div>';
-    }
-    return (
-      '<div class="mcp-capability-flags">' +
-      'Server supports: <strong>' + present.join(', ') + '</strong>' +
-      '</div>'
-    );
-  }
-
-  // F4 L3 (M08): Render the "Server" section — surfaces everything the
-  // MCP `initialize()` response gave us:
-  //   - serverInfo: title/name/version/websiteUrl/icons
-  //   - negotiated protocol version (cache.protocol_version)
-  //   - instructions (server-supplied usage prose, often long)
-  //   - capabilities (rendered as the same flags line as the Tools status)
-  //   - _meta (free-shape; only displayed when populated)
-  // Defensive on every field — all are spec-optional. Returns '' if the
-  // cache has none of them.
-  function renderServerInfoSection(cache) {
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-    var safeUrl = window.App.safeUrl;
-    if (!cache) return '';
-
-    var info = cache.server_info || {};
-    var title = info.title || info.name || '';
-    var nameSubtitle = (info.title && info.name && info.title !== info.name) ? info.name : '';
-    var version = info.version || '';
-    var websiteUrl = info.websiteUrl || '';
-    var icons = Array.isArray(info.icons) ? info.icons : [];
-    var protocolVersion = cache.protocol_version || '';
-    var instructions = cache.instructions || '';
-    var capabilities = cache.capabilities || null;
-    var meta = cache.meta && typeof cache.meta === 'object' && Object.keys(cache.meta).length > 0
-      ? cache.meta
-      : null;
-
-    // If the cache has none of the renderable fields, skip the section
-    // entirely (caller already gates on the same condition; defensive).
-    if (!title && !version && !websiteUrl && icons.length === 0 &&
-        !protocolVersion && !instructions && !capabilities && !meta) {
-      return '';
-    }
-
-    var html = '';
-    html += '<div class="editor-section mcp-server-info-section" data-testid="mcp-server-info-section">';
-    html += '<div class="section-title">Server</div>';
-
-    // Identity row — icon (if any) + title + version + protocol version badge.
-    // Squawk 0010: icons[0].src is MCP-server-supplied (initialize() response
-    // from a third party) and is fetched by the operator's browser outside
-    // the app's SSRF-guarded transport — route through the fail-closed
-    // http(s)-only allow-list and drop the element entirely on rejection
-    // (never emit a rejected scheme into a live src).
-    var safeIconSrc = (icons.length > 0 && icons[0] && icons[0].src)
-      ? safeUrl(icons[0].src)
-      : null;
-    html += '<div class="mcp-server-identity">';
-    if (safeIconSrc) {
-      // F2 Leg 2 (A.6): icon is decorative — the server title is rendered
-      // alongside (L343-344). Always emit alt="" so SR doesn't announce
-      // the icon MIME type as text content.
-      html += '<img class="mcp-server-icon" src="' + escapeAttr(safeIconSrc) + '"' +
-        ' alt=""' +
-        ' loading="lazy" decoding="async">';
-    }
-    html += '<div class="mcp-server-identity-text">';
-    if (title) {
-      html += '<div class="mcp-server-title">' + escapeHtml(title) + '</div>';
-    }
-    if (nameSubtitle) {
-      html += '<div class="mcp-server-name-subtitle">' + escapeHtml(nameSubtitle) + '</div>';
-    }
-    var versionLineParts = [];
-    if (version) versionLineParts.push('v' + escapeHtml(version));
-    if (protocolVersion) versionLineParts.push('protocol ' + escapeHtml(protocolVersion));
-    if (versionLineParts.length > 0) {
-      html += '<div class="mcp-server-version-line">' + versionLineParts.join(' · ') + '</div>';
-    }
-    if (websiteUrl) {
-      // Squawk 0010: same MCP-server-supplied / fail-closed treatment as the
-      // icon above, applied to the clickable link. On rejection, render the
-      // raw string as inert text (still escaped) rather than dropping the
-      // whole row — the operator can still see what the server claimed, it
-      // just isn't a live href in the app's own origin.
-      var safeWebsiteHref = safeUrl(websiteUrl);
-      if (safeWebsiteHref) {
-        html += '<div class="mcp-server-website">' +
-          '<a href="' + escapeAttr(safeWebsiteHref) + '" target="_blank" rel="noopener noreferrer">' +
-            escapeHtml(websiteUrl) +
-          '</a>' +
-        '</div>';
-      } else {
-        html += '<div class="mcp-server-website">' + escapeHtml(websiteUrl) + '</div>';
-      }
-    }
-    html += '</div>'; // mcp-server-identity-text
-    html += '</div>'; // mcp-server-identity
-
-    // Capabilities — reuse the existing flags renderer for vocabulary parity.
-    if (capabilities) {
-      html += renderCapabilityFlags(capabilities);
-    }
-
-    // Instructions — collapsible since Cloudflare-class servers ship
-    // multi-paragraph guidance. Default closed; renders the prose with
-    // newlines preserved.
-    if (instructions) {
-      html += '<details class="mcp-server-instructions" data-testid="mcp-server-instructions">';
-      html += '<summary class="mcp-server-instructions-summary">' +
-        '<span class="mcp-server-instructions-label">Instructions</span>' +
-        '<span class="mcp-server-instructions-chevron">▸</span>' +
-      '</summary>';
-      html += '<div class="mcp-server-instructions-body">' +
-        escapeHtml(instructions).replace(/\n/g, '<br>') +
-      '</div>';
-      html += '</details>';
-    }
-
-    // _meta — debug/free-shape. Render as collapsible JSON if non-empty.
-    if (meta) {
-      var metaJson = JSON.stringify(meta, null, 2);
-      html += '<details class="mcp-server-meta" data-testid="mcp-server-meta">';
-      html += '<summary class="mcp-server-meta-summary">' +
-        '<span class="mcp-server-meta-label">Metadata</span>' +
-        '<span class="mcp-server-meta-chevron">▸</span>' +
-      '</summary>';
-      html += '<pre class="mcp-server-meta-content">' + escapeHtml(metaJson) + '</pre>';
-      html += '</details>';
-    }
-
-    html += '</div>'; // mcp-server-info-section
-    return html;
-  }
-
-  // Mount-time gate for the Server section — shared with the post-refresh
-  // repaint (syncServerInfoSection) so both paths agree on when it shows.
+  // Mount-time gate for the Server section.
   function cacheHasServerInfo(cache) {
     return !!(cache && (cache.server_info || cache.instructions ||
       cache.capabilities || cache.meta || cache.protocol_version));
   }
 
-  // Squawk 0102: repaint the Server section in place after a successful
-  // Refresh connection. The section was previously rendered only at mount,
-  // so a server that reported a new serverInfo (e.g. an upgraded version)
-  // kept showing the old value until the editor was re-mounted. Targeted
-  // DOM mutation only — replace the existing node, insert it above the
-  // Tools section if this is the first refresh to populate it, or remove
-  // it if the cache no longer qualifies. A full re-render would clobber
-  // dirty form state. The section's only interactive parts are native
-  // <details> elements, so nothing needs re-wiring after replacement.
-  function syncServerInfoSection(container, cache) {
-    var existing = container.querySelector('[data-testid="mcp-server-info-section"]');
-    var html = cacheHasServerInfo(cache) ? renderServerInfoSection(cache) : '';
-    var fresh = null;
-    if (html) {
-      var tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      fresh = tmp.firstElementChild;
-    }
-    if (existing) {
-      if (fresh) {
-        existing.parentNode.replaceChild(fresh, existing);
-      } else {
-        existing.parentNode.removeChild(existing);
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function capitalise(word) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }
+
+  // The fields of the Server section, read defensively: all are spec-optional.
+  function readInfo(cache) {
+    cache = cache || {};
+    var info = cache.server_info || {};
+    var icons = Array.isArray(info.icons) ? info.icons : [];
+    var meta = cache.meta && typeof cache.meta === 'object' && Object.keys(cache.meta).length > 0
+      ? cache.meta : null;
+    return {
+      title: info.title || info.name || '',
+      subtitle: (info.title && info.name && info.title !== info.name) ? info.name : '',
+      version: info.version || '',
+      website: info.websiteUrl || '',
+      iconSrc: (icons[0] && icons[0].src) ? icons[0].src : '',
+      protocol: cache.protocol_version || '',
+      instructions: cache.instructions || '',
+      capabilities: cache.capabilities || null,
+      meta: meta
+    };
+  }
+
+  function hasContent(f) {
+    return !!(f.title || f.version || f.website || f.iconSrc || f.protocol ||
+      f.instructions || f.capabilities || f.meta);
+  }
+
+  function offersText(capabilities) {
+    var present = SPEC_CAPABILITY_KEYS.filter(function (k) {
+      var v = capabilities[k];
+      return v !== null && v !== undefined;
+    });
+    return present.length ? present.map(capitalise).join(', ') : 'Nothing announced';
+  }
+
+  function create(opts) {
+    var destroyed = false;
+
+    // ── The Server section ────────────────────────────────────────────
+
+    var server = App.ui.section({
+      title: 'Server', layout: 'stack', testid: 'mcp-server-info-section'
+    });
+    server.el.hidden = true;
+
+    var identityEl = el('div', 'mcp-info-identity');
+    identityEl.setAttribute('data-testid', 'mcp-server-header');
+    var iconEl = null;
+    var textEl = el('div', 'mcp-info-identity-text');
+    var titleEl = el('div', 'mcp-info-title');
+    titleEl.setAttribute('data-testid', 'mcp-server-title');
+    var subtitleEl = el('div', 'mcp-info-subtitle');
+    subtitleEl.setAttribute('data-testid', 'mcp-server-subtitle');
+    textEl.appendChild(titleEl);
+    textEl.appendChild(subtitleEl);
+    identityEl.appendChild(textEl);
+
+    var facts = App.ui.facts({ testid: 'mcp-server-facts' });
+
+    var insBody = el('div', 'mcp-info-instructions');
+    insBody.setAttribute('data-testid', 'mcp-server-instructions-text');
+    var instructions = App.ui.disclosure({
+      variant: 'plain', summary: 'Instructions', testid: 'mcp-server-instructions'
+    });
+    instructions.body.appendChild(insBody);
+    instructions.el.hidden = true;
+
+    var metaBlock = App.ui.codeBlock({
+      label: 'Metadata', maxHeight: 'short', testid: 'mcp-server-meta-content'
+    });
+    var meta = App.ui.disclosure({
+      variant: 'plain', summary: 'Metadata', testid: 'mcp-server-meta',
+      onToggle: function (open) { if (open) metaBlock.refresh(); }
+    });
+    meta.body.appendChild(metaBlock.el);
+    meta.el.hidden = true;
+
+    server.body.appendChild(identityEl);
+    server.body.appendChild(facts.el);
+    server.body.appendChild(instructions.el);
+    server.body.appendChild(meta.el);
+
+    // The icon is the server's own: an https image, or nothing.
+    function syncIcon(src) {
+      var safe = src ? App.safeUrl(src) : null;
+      if (!safe) {
+        if (iconEl) { iconEl.remove(); iconEl = null; }
+        return;
       }
-      return;
+      if (!iconEl) {
+        iconEl = document.createElement('img');
+        iconEl.className = 'mcp-info-icon';
+        iconEl.setAttribute('alt', '');
+        iconEl.setAttribute('loading', 'lazy');
+        iconEl.setAttribute('decoding', 'async');
+        iconEl.setAttribute('data-testid', 'mcp-server-icon');
+        identityEl.insertBefore(iconEl, textEl);
+      }
+      if (iconEl.getAttribute('src') !== safe) iconEl.setAttribute('src', safe);
     }
-    if (!fresh) return;
-    var toolsSection = container.querySelector('.mcp-tools-section');
-    if (toolsSection && toolsSection.parentNode) {
-      toolsSection.parentNode.insertBefore(fresh, toolsSection);
+
+    function websiteValue(url) {
+      var safe = App.safeUrl(url);
+      if (!safe) return document.createTextNode(url); // inert: what the server claimed
+      var a = document.createElement('a');
+      a.setAttribute('href', safe);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+      a.textContent = url;
+      return a;
     }
+
+    function update(cache) {
+      if (destroyed) return;
+      var f = readInfo(cache);
+      if (!hasContent(f)) {
+        server.el.hidden = true;
+        return;
+      }
+      server.el.hidden = false;
+
+      syncIcon(f.iconSrc);
+      titleEl.textContent = f.title;
+      titleEl.hidden = !f.title;
+      subtitleEl.textContent = f.subtitle;
+      subtitleEl.hidden = !f.subtitle;
+      identityEl.hidden = !f.title && !iconEl;
+
+      var rows = [];
+      if (f.version) {
+        rows.push({ label: 'Version', value: f.version, testid: 'mcp-server-version' });
+      }
+      if (f.protocol) {
+        rows.push({
+          label: 'Protocol', value: f.protocol, mono: true, testid: 'mcp-server-protocol'
+        });
+      }
+      if (f.capabilities) {
+        rows.push({
+          label: 'Offers', value: offersText(f.capabilities), testid: 'mcp-server-offers'
+        });
+      }
+      if (f.website) {
+        rows.push({
+          label: 'Website', value: websiteValue(f.website), testid: 'mcp-server-website'
+        });
+      }
+      facts.set(rows);
+      facts.el.hidden = rows.length === 0;
+
+      insBody.textContent = f.instructions;
+      instructions.el.hidden = !f.instructions;
+
+      if (f.meta) metaBlock.set(JSON.stringify(f.meta, null, 2));
+      meta.el.hidden = !f.meta;
+    }
+
+    // ── The Tools section ─────────────────────────────────────────────
+
+    var tools = App.ui.section({
+      title: 'Tools', layout: 'stack', testid: 'mcp-tools-section'
+    });
+    var hintEl = el('p', 'mcp-tools-empty', "Press Test to load this server's tools.");
+    hintEl.setAttribute('data-testid', 'mcp-tools-empty');
+    var listEl = el('div', 'mcp-tools-list');
+    listEl.setAttribute('data-testid', 'mcp-tools-list');
+    tools.body.appendChild(hintEl);
+    tools.body.appendChild(listEl);
+
+    var entries = {}; // key -> {ctl, descEl, schemaBlock, sig}
+
+    function subLabel(text) {
+      return el('div', 'mcp-info-label', text);
+    }
+
+    // Fill a tool's body; replaces only the children of the disclosure's own body.
+    function fillBody(entry, tool) {
+      var desc = descOf(tool);
+      var body = entry.ctl.body;
+      var nodes = [];
+      var needsDesc = !desc || desc.length > DESC_CUT || desc.indexOf('\n') !== -1;
+      if (needsDesc) {
+        var d = el('div', 'mcp-info-field');
+        d.appendChild(subLabel('Description'));
+        var text = el('div', desc ? 'mcp-info-text' : 'mcp-info-text mcp-info-empty',
+          desc || 'No description provided.');
+        text.setAttribute('data-testid', 'mcp-tool-description');
+        d.appendChild(text);
+        nodes.push(d);
+      }
+      var s = el('div', 'mcp-info-field');
+      s.appendChild(subLabel('Input schema'));
+      entry.schemaBlock = null;
+      if (tool.input_schema && Object.keys(tool.input_schema).length > 0) {
+        entry.schemaBlock = App.ui.codeBlock({
+          text: JSON.stringify(tool.input_schema, null, 2), label: 'Input schema',
+          maxHeight: 'tall', testid: 'mcp-tool-schema'
+        });
+        s.appendChild(entry.schemaBlock.el);
+      } else {
+        s.appendChild(el('div', 'mcp-info-text mcp-info-empty', 'No input schema.'));
+      }
+      nodes.push(s);
+      body.replaceChildren.apply(body, nodes);
+    }
+
+    function descOf(tool) {
+      var d = tool.description;
+      return d === undefined || d === null ? '' : String(d);
+    }
+
+    function shortOf(desc) {
+      return desc.length > DESC_CUT ? desc.slice(0, DESC_CUT) + '…' : desc;
+    }
+
+    function buildEntry(tool) {
+      var entry = { sig: null, schemaBlock: null, metaEl: null, ctl: null };
+      entry.metaEl = el('span', 'mcp-info-tool-desc');
+      entry.ctl = App.ui.disclosure({
+        variant: 'bordered', summary: tool.name, meta: [entry.metaEl],
+        className: 'mcp-info-tool', testid: 'mcp-tool-item',
+        onToggle: function (open) {
+          if (open && entry.schemaBlock) entry.schemaBlock.refresh();
+        }
+      });
+      return entry;
+    }
+
+    function setTools(list) {
+      if (destroyed) return;
+      if (!Array.isArray(list)) {
+        listEl.replaceChildren();
+        entries = {};
+        listEl.hidden = true;
+        hintEl.hidden = false;
+        return;
+      }
+      var seen = {};
+      var next = {};
+      var nodes = [];
+      for (var i = 0; i < list.length; i++) {
+        var tool = list[i];
+        if (!tool || typeof tool !== 'object') continue;
+        var name = String(tool.name === undefined || tool.name === null ? '' : tool.name);
+        seen[name] = (seen[name] || 0) + 1;
+        var key = name + '\u0000' + seen[name];
+        var entry = entries[key] || buildEntry(tool);
+        var desc = descOf(tool);
+        var sig = JSON.stringify([desc, tool.input_schema || null]);
+        if (entry.sig !== sig) {
+          entry.sig = sig;
+          entry.metaEl.textContent = shortOf(desc);
+          entry.metaEl.hidden = !desc;
+          fillBody(entry, tool);
+        }
+        entry.ctl.setSummary(name);
+        next[key] = entry;
+        nodes.push(entry.ctl.el);
+      }
+      Object.keys(entries).forEach(function (k) {
+        if (!next[k]) entries[k].ctl.destroy();
+      });
+      entries = next;
+      App.ui.util.syncChildren(listEl, nodes);
+      listEl.hidden = false;
+      hintEl.hidden = true;
+    }
+
+    var cache = opts && opts.cache;
+    update(cache);
+    setTools(cache && Array.isArray(cache.tools) ? cache.tools : null);
+
+    return {
+      serverEl: server.el,
+      toolsEl: tools.el,
+      update: update,
+      setTools: setTools,
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        Object.keys(entries).forEach(function (k) { entries[k].ctl.destroy(); });
+        instructions.destroy();
+        meta.destroy();
+        entries = {};
+      }
+    };
   }
 
   window.App.studio.mcpEditor.serverInfo = {
-    renderToolsListHtml: renderToolsListHtml,
-    renderCapabilityFlags: renderCapabilityFlags,
-    renderServerInfoSection: renderServerInfoSection,
-    cacheHasServerInfo: cacheHasServerInfo,
-    syncServerInfoSection: syncServerInfoSection
+    create: create,
+    cacheHasServerInfo: cacheHasServerInfo
   };
 })();

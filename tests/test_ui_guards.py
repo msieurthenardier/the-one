@@ -106,18 +106,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/studio/mcp-server-editor.js": [
         "container.innerHTML = html;",
     ],
-    "areas/studio/mcp-server-info.js": [
-        # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
-        # re-emits the same escaped renderServerInfoSection output that the
-        # mount path already sends through the baselined
-        # ``container.innerHTML = html;`` in mcp-server-editor.js — no new data
-        # reaches the DOM.
-        "tmp.innerHTML = html;",
-    ],
-    "areas/studio/mcp-connection-status.js": [
-        "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
-        "listEl.innerHTML = renderToolsListHtml(data.tools);",
-    ],
 }
 
 # ── Exact per-file count of EVERY HTML-string sink (M31 F1 L2, flight DD5) ──
@@ -130,9 +118,7 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/chat.js": 5,
-    "areas/studio/mcp-connection-status.js": 7,
     "areas/studio/mcp-server-editor.js": 1,
-    "areas/studio/mcp-server-info.js": 1,
 }
 
 # ── The move rule for the sink tables (M31 F5 L01, DD2) ─────────────────────
@@ -157,43 +143,14 @@ class SnippetMove(NamedTuple):
 
 # The sum of HTML_SINK_ALLOWANCE, exact: lower it with each removal, never raise it without a
 # flight-log reason.
-SINK_TOTAL = 14
+SINK_TOTAL = 6
 # The files that held an HTML_SINK_ALLOWANCE row / a DYNAMIC_SINK_BASELINE entry at the
 # flight's start. A file key outside these is new and needs SINK_MOVES / SNIPPET_MOVES entries.
 SINK_START_FILES: frozenset[str] = frozenset({"areas/chat.js", "areas/studio/mcp-server-editor.js"})
 SNIPPET_START_FILES: frozenset[str] = frozenset({"areas/studio/mcp-server-editor.js"})
 
-SINK_MOVES: list[SinkMove] = [
-    SinkMove(
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-status.js",
-        7,
-        "M31 F5 L10",
-    ),
-    SinkMove(
-        "areas/studio/mcp-server-editor.js", "areas/studio/mcp-server-info.js", 1, "M31 F5 L10"
-    ),
-]
-SNIPPET_MOVES: list[SnippetMove] = [
-    SnippetMove(
-        "tmp.innerHTML = html;",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-server-info.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-status.js",
-        "M31 F5 L10",
-    ),
-    SnippetMove(
-        "listEl.innerHTML = renderToolsListHtml(data.tools);",
-        "areas/studio/mcp-server-editor.js",
-        "areas/studio/mcp-connection-status.js",
-        "M31 F5 L10",
-    ),
-]
+SINK_MOVES: list[SinkMove] = []
+SNIPPET_MOVES: list[SnippetMove] = []
 
 
 def sink_key_space_errors(paths: list[str]) -> list[str]:

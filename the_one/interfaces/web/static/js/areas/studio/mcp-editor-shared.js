@@ -1,11 +1,10 @@
 // App.studio.mcpEditor.shared — the MCP source editor's shared constants and
 // pure helpers (M31 F5 L02, split out of mcp-server-editor.js, moved verbatim).
 //
-// Holds: the per-key __MASKED__ sentinel, the OAuth-managed secret keys and
-// hasOAuthState (the Reset-connection visibility test), formatTimeAgo, the
-// spec capability keys and the stdio runtime dropdown table with its three
+// Holds: the per-key __MASKED__ sentinel, hasOAuthState (the Reset-connection
+// visibility test), the spec capability keys and the stdio runtime dropdown table with its three
 // lookup helpers. A stateless function namespace: no DOM, no network.
-// Exposes: MASKED_SENTINEL, formatTimeAgo, hasOAuthState, SPEC_CAPABILITY_KEYS,
+// Exposes: MASKED_SENTINEL, hasOAuthState, SPEC_CAPABILITY_KEYS,
 // STDIO_CUSTOM_SENTINEL, STDIO_RUNTIME_OPTIONS, findStdioRuntimeOption,
 // deriveStdioRuntimeSelection, lookupStdioRuntimeHint.
 (function () {
@@ -16,63 +15,13 @@
 
   var MASKED_SENTINEL = '__MASKED__';
 
-  // ── F9 L1 (vibing): OAuth-managed-secret-keys allowlist ─────────────
-  // Mirrors the backend's `OAUTH_MANAGED_SECRET_KEYS` constant in
-  // `the_one/mcp/oauth/storage.py`. Used by the Reset-connection-button
-  // visibility check to detect whether a streamable-http source has any
-  // OAuth state worth resetting. Keep in sync with the backend constant.
-  var OAUTH_MANAGED_SECRET_KEYS = [
-    'access_token',
-    'refresh_token',
-    'token_expires_at',
-    'token_type',
-    'scope',
-    'dcr_credentials',
-  ];
-
-  // ── F9 L1 (vibing): inline relative-time helper ─────────────────────
-  // No existing App.formatTimeAgo helper found in the codebase; this
-  // ~10-LOC inline helper renders a Unix epoch (seconds) as a coarse
-  // relative-time string. If a shared helper later lands in app.js or
-  // utils.js, replace this and remove.
-  function formatTimeAgo(epochSeconds) {
-    if (typeof epochSeconds !== 'number' || !isFinite(epochSeconds)) return '';
-    var diffSec = Math.max(0, Math.floor(Date.now() / 1000 - epochSeconds));
-    if (diffSec < 60) return 'just now';
-    var diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return diffMin + ' minute' + (diffMin === 1 ? '' : 's') + ' ago';
-    var diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return diffHr + ' hour' + (diffHr === 1 ? '' : 's') + ' ago';
-    var diffDay = Math.floor(diffHr / 24);
-    return diffDay + ' day' + (diffDay === 1 ? '' : 's') + ' ago';
-  }
-
-  // True iff the source carries any OAuth-managed secret. The masked
-  // GET response strips these keys entirely (never even masked), so the
-  // canonical signal is the presence of ANY managed-key string in the
-  // returned secrets dict — but since the API strips them, the UI has
-  // no direct read on the OAuth state. Pragmatic substitute: treat the
-  // presence of `_cache` (server-written after a successful authenticated
-  // /test/connect) as a strong-but-imperfect proxy. The endpoint itself
-  // is idempotent on already-clean state, so a Reset click on a source
-  // that has no OAuth state is harmless.
-  //
-  // F9 L1 (vibing) refinement: read the `oauth_active` flag the masked
-  // response can carry (server adds it when any managed key is present).
-  // If absent, fall back to the cache-presence proxy.
+  // True iff a streamable-http source holds a sign-in: the server's own `oauth_active`
+  // flag (the masked GET strips the managed secrets, so this flag is the only signal).
+  // The Reset connection button shows on exactly this (M31 F5 L08b, DD6); there is no
+  // cache-presence fallback, because a failed Test now records `_cache.last_check` and
+  // would have shown Reset on every failed server.
   function hasOAuthState(source) {
-    if (!source || source.type !== 'streamable-http') return false;
-    if (source.oauth_active === true) return true;
-    var secrets = source.secrets || {};
-    for (var i = 0; i < OAUTH_MANAGED_SECRET_KEYS.length; i++) {
-      if (Object.prototype.hasOwnProperty.call(secrets, OAUTH_MANAGED_SECRET_KEYS[i])) {
-        return true;
-      }
-    }
-    // Fallback proxy: a populated _cache implies a successful authed
-    // /test/connect happened in the past. Reset is a no-op on already-
-    // clean OAuth state, so a false-positive here is harmless.
-    return !!(source.config && source.config._cache);
+    return !!(source && source.type === 'streamable-http' && source.oauth_active === true);
   }
 
   // ── F8 L2: Capability flags ─────────────────────────────────────────
@@ -208,7 +157,6 @@
 
   window.App.studio.mcpEditor.shared = {
     MASKED_SENTINEL: MASKED_SENTINEL,
-    formatTimeAgo: formatTimeAgo,
     hasOAuthState: hasOAuthState,
     SPEC_CAPABILITY_KEYS: SPEC_CAPABILITY_KEYS,
     STDIO_CUSTOM_SENTINEL: STDIO_CUSTOM_SENTINEL,

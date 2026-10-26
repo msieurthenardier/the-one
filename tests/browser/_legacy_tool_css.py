@@ -539,3 +539,71 @@ LEGACY_ADMIN_TILE_CSS = """<style>
   align-content: start;
 }
 </style>""".replace("@ET@", ENTITY_TILE)
+
+
+# The MCP editor's old tool-tile rules (M31 F5 L09): deleted from studio.css with the
+# string-built tools list; kept so the bordered disclosure can still be compared with the
+# look it copied (test_ui_disclosure_contract.py).
+LEGACY_MCP_TOOL_CSS = """<style>
+.area-studio .mcp-tool-item {
+  /* Quiet tile echoing the entity tiles: solid
+     surface + hairline border. Hover gains accent border. Open state
+     has no special bg; the expanded body's dashed top-border is the
+     visual cue. */
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--motion-fast);
+}
+.area-studio .mcp-tool-item:hover { border-color: var(--accent); }
+.area-studio .mcp-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-size: var(--font-size-body-sm);
+}
+.area-studio .mcp-tool-summary::-webkit-details-marker { display: none; }
+.area-studio .mcp-tool-summary .mcp-tool-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.area-studio .mcp-tool-summary .mcp-tool-name {
+  font-family: var(--font-family-mono, monospace);
+  font-weight: 600;
+  color: var(--fg);
+}
+.area-studio .mcp-tool-summary .mcp-tool-summary-desc {
+  color: var(--fg-secondary);
+  font-size: var(--font-size-caption);
+}
+.area-studio .mcp-tool-summary .mcp-tool-chevron {
+  display: inline-block;
+  transition: transform var(--motion-fast);
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+}
+.area-studio .mcp-tool-item[open] .mcp-tool-chevron { transform: rotate(90deg); }
+.area-studio .mcp-tool-summary:hover .mcp-tool-chevron { color: var(--accent); }
+.area-studio .mcp-tool-body {
+  padding: 8px 12px 10px;
+  border-top: 1px dashed var(--border);
+}
+.area-studio .mcp-tool-full-description {
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  line-height: var(--line-height-normal);
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+.area-studio .mcp-tool-full-description.mcp-tool-description-empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+</style>"""
