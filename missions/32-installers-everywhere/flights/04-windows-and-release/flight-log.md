@@ -575,3 +575,14 @@ Test: `tests/test_desktop_shell.py::test_quit_after_publish_before_page_loaded_d
 The splash embedded the 1024 px logo as a data URI (2,328,661 characters), over WebView2's ~2 MB `NavigateToString` limit. It now embeds a new 320 px `static/brand/gleepglorp_splash.png` (125 KB), giving 168,825 characters on every platform; the static glob in the three specs already collects it. `_destroy_splash` claims its teardown under a lock (review nit). Unit tests pin the size under 256 KB and the single destroy. Pending: the Windows run's app log must show no `NavigateToString` failure.
 - **Squawk 0263 review** (Reviewer, Haiku): `[HANDOFF:confirmed]`. The new asset was untracked, so it is staged. The Flight Director made the one-line doc fix the reviewer named (`the_one/agents.md` line 70 now names `gleepglorp_splash.png`).
 - **The Flight Director's error, again:** a mismatched check broke the commit chain, but a trailing `;` still dispatched `release.yml` (`40265725036`) on the old head `4caf728`. It was cancelled before any platform job started (windows, linux and macos `skipped`), so no Windows runner was used and the operator's 5th Windows run stands. From here on, a dispatch runs as its own command, after the push is verified.
+- **The 5th Windows run, `40265814405`** (`release.yml`, `platforms=windows`, `windows_mode=lifecycle`, `version=0.12.0.dev1`, head `f185cb2`, 03:47-03:59 UTC, about 11.5 min): **all ten rows PASS.**
+  - L1: v0.11.8 → `0.12.0.dev1`, one entry, marker kept.
+  - L2-L5.
+  - L6: geometry 944x648 at 40,30, restored.
+  - L7: the graceful upgrade to `0.12.0.dev2`.
+  - L8: `quit --wait` drains.
+  - **L10: quit during boot**, exit 0, drained, no process left. This proves `4caf728`'s fix on Windows.
+  - L9: uninstall while running, drained, data kept.
+  - `== lifecycle done`.
+  - **Squawk 0263 verified:** zero `NavigateToString` failures from the new builds; the three matching lines are one trace from pid 1624, the old v0.11.8 app. The squawk is completed.
+  - **Hosted Windows lifecycle runs: 5,** the 5th approved by the operator. macOS: 2 of 4.

@@ -1,10 +1,10 @@
 # Squawk 0263: the Windows launch splash never renders, because its HTML exceeds WebView2's NavigateToString limit
 
-**Status**: in-progress
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-26
-**Completed**: —
+**Completed**: 2026-10-26
 
 ## Report
 On Windows, every desktop launch logs `[pywebview] WebView2 initialization failed with exception: Value does not fall within the expected range. at … ICoreWebView2.NavigateToString(String htmlContent)`.
@@ -27,12 +27,14 @@ Check WebKitGTK and WKWebView, which take the same HTML, for any size effect. Re
 
 ## Verification
 - Done: `tests/test_desktop_shell.py` pins `len(_splash_html(theme))` under 256 KB for both themes with the data URI present, and a concurrent-teardown test shows one `destroy()`.
-- Pending (Flight Director): the Windows run's `the-one-app.log` must show zero `NavigateToString` failures.
+- Done (Flight Director): Windows run `40265814405` (head `f185cb2`): the six launches of the new builds logged zero `NavigateToString` failures. The only three matching lines are one trace from pid 1624, the old v0.11.8 app that L1 installs first.
 - A unit test pins the splash HTML well under 2 MB.
 - A Windows run (the lifecycle or `windows_test_copy.py`) shows no `NavigateToString` failure in `the-one-app.log`, and a capture shows the splash's logo and text.
 
 ## Sign-Off
-*(written at completion)*
+- **Reviewer:** Haiku, `[HANDOFF:confirmed]` (Mission 32 Flight 4, leg 5).
+- **Commit:** `f185cb2`.
+- **Field check:** Windows run `40265814405`.
 
 ## Disposition
 - **Logged** by the Flight Director at Mission 32 Flight 4, leg 5. Its inclusion in v0.12.0 is the operator's call. It is open as routine because the main window still opens normally.
