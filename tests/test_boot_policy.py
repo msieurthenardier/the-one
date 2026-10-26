@@ -30,6 +30,7 @@ TABLE = {
     "webview_assumed_present": (True, False, True, False),
     "first_launch_platform": ("win32", "linux", "darwin", "other"),
     "initial_tray_mode": (None, None, "dock", None),
+    "splash_hidden_until_loaded": (False, False, True, False),
     "splash_border": (True, False, False, False),
     "splash_blocked_in_quit_states": (False, False, True, False),
     "quit_in_boot_stops_without_destroy": (False, False, True, False),

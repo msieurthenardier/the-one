@@ -146,7 +146,7 @@ on:
   - Each build's output dir is set with `/O<dir>`, written `//O<dir>` under Git Bash, as `//D` is today.
   - The Developer shows the `diff`s in the flight log.
 - [x] **AC9:** `make test-unit` passes (expected skips: 12, or 14 under netns) and ruff is clean.
-- [ ] **AC10 (with the Flight Director, outward):**
+- [x] **AC10 (with the Flight Director, outward):**
   - the stub PR is merged to `main`;
   - one `probe` dispatch is run (a second only if the first is lost to a harness defect);
   - its run id, minutes and the full row table are in the flight log;

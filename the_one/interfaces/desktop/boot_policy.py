@@ -47,6 +47,9 @@ class BootPolicy:
     # The tray mode set before the loop starts (None leaves it undecided).
     initial_tray_mode: str | None
     tray: TrayPlan
+    # macOS (squawk 0261): create the splash hidden and show it after its own
+    # ``loaded`` (or a short bound), so its first visible frame is painted.
+    splash_hidden_until_loaded: bool
     # Windows: tint the splash's border before its first show.
     splash_border: bool
     # macOS: the splash must not be destroyed while a terminate drains, after the
@@ -85,6 +88,7 @@ WINDOWS = BootPolicy(
     first_launch_platform="win32",
     initial_tray_mode=None,
     tray=_PLAIN_TRAY,
+    splash_hidden_until_loaded=False,
     splash_border=True,
     splash_blocked_in_quit_states=False,
     quit_in_boot_stops_without_destroy=False,
@@ -107,6 +111,7 @@ LINUX = BootPolicy(
     first_launch_platform="linux",
     initial_tray_mode=None,
     tray=_DETECT_TRAY,
+    splash_hidden_until_loaded=False,
     splash_border=False,
     splash_blocked_in_quit_states=False,
     quit_in_boot_stops_without_destroy=False,
@@ -129,6 +134,7 @@ MACOS = BootPolicy(
     first_launch_platform="darwin",
     initial_tray_mode="dock",
     tray=_NO_TRAY,
+    splash_hidden_until_loaded=True,
     splash_border=False,
     splash_blocked_in_quit_states=True,
     quit_in_boot_stops_without_destroy=True,
@@ -155,6 +161,7 @@ OTHER = BootPolicy(
     first_launch_platform="other",
     initial_tray_mode=None,
     tray=_PLAIN_TRAY,
+    splash_hidden_until_loaded=False,
     splash_border=False,
     splash_blocked_in_quit_states=False,
     quit_in_boot_stops_without_destroy=False,

@@ -303,3 +303,51 @@ Notes: 11 and 12 share one flag (they can never diverge: both record into `state
 **2a green** (uncommitted, awaiting the Flight Director's review): AC1-AC8 done, AC11 unit tier and ruff done for 2a. 2b (AC9-AC10), AC12 and AC13 not started.
 - **The operator's go for probe dispatch 3 (2026-10-25):** "Yes, one more". It comes from the flight's Windows spare, leaving 5 of 8 (4 lifecycle, 1 spare), and runs only after `probe.ps1 -SelfTest` passes in a local pwsh container. Dispatch 2 (`40243446243`) was lost to a probe bookkeeping defect: a case-insensitive name clash between `$rows` and `$script:Rows`. Two of two approved probe runs went to probe-script defects, which a local rehearsal now covers.
 
+#### Leg 1 result: probe dispatch 3 (`40246340174`, head `2641bf6`, 2026-10-25 23:47-23:55 UTC, about 8 min)
+- **Header:** `win22` image `20261022.344.1`; Windows build 20348 UBR 5761; ISCC 6.7.1; `EnableLUA=1` with `ConsentPromptBehaviorAdmin=0`; elevated `runneradmin`; Python 3.11.9; PyInstaller 6.22.3. N/N+1/N+2 = `0.11.9.dev1`/`.dev2`/`.dev3`. The build includes phase 2a (`6411eb3`).
+
+| Row | Result | Classification |
+|---|---|---|
+| W1 window | PASS: native `IsWindowVisible` true (hwnd 458808, "GleepGlorp AI"); screenshot stddev 39.7 | premise holds: the runner shows a WebView2 window |
+| W2 tray | PASS: `Shell_TrayWnd` present, no "System tray unavailable" | premise holds |
+| W5 close to tray | PASS: hidden within 10 s, pid alive. The route reported `visible:false`: phase 2a's `_mark_hidden` fix, seen working on Windows | premise holds |
+| W4 graceful quit from the installer | PASS: order quit-call → poll-present → shutdown → drain (`Finished server process [572]`) → exit → gone → nothing-left → `KillRunning` → first copy; the control `quit --wait` drained too | premise holds without elevation (DD2's design, candidate (a)); elevation stays field-only |
+| W3 Restart Manager alone | INFO: installer exit 5, "Some applications could not be shut down"; the app was not closed and no file was replaced | the RM alone cannot close a tray app: the graceful quit plus `KillRunning` are both needed |
+| W6 v0.11.8 → N | FAIL on one check only: the probe read `DisplayVersion` from `{CAEE…}_is1`. Otherwise: v0.11.8 installed (rc 0), answered 0.11.8 with `/api/window/state` 404; N installed over the running app (rc 0, old pid gone, "RestartManager found no applications"); same `{app}`; one uninstall entry; no duplicate `.lnk`; marker agent survived (GET 200); N's `/api/window/state` 200 | **harness defect**, premise holds |
+| Final uninstall | `{app}` gone, no process left, data dir remains, uninstall key removed | as designed |
+
+- **The finding behind W6's harness defect:** the shipped AppId line is `AppId={{CAEEFB46-2698-4048-AD9F-0120D0B7174A}}`. Inno escapes only the opening brace, so the effective AppId is `{CAEEFB46-…-0120D0B7174A}}` and the uninstall key is `…\Uninstall\{CAEEFB46-2698-4048-AD9F-0120D0B7174A}}_is1`, with **two** closing braces (`uninstall-after-N.txt`, `inno-N.log`: "Creating new uninstall key: …}}_is1").
+  - Every released installer has used this identity.
+  - **Leg 3a must render exactly this AppId line**, and its pin test must assert the rendered line byte for byte. Changing it (for example to a "correct" single closing brace) would orphan every existing install.
+  - Leg 3b's lifecycle reads the `}}_is1` key.
+- **The evidence** is under `$HOME/the-one-m32-evidence/f4/leg1/run-40246340174/`.
+- **AC10:** met. The stub was merged (#315, `6a77155`). The probe dispatches were 3 (two lost to probe-script defects, the third with the operator's go). No `not-run` row is left, and every row is classified. Windows dispatches used: 3 of 8, leaving 5 (lifecycle 4, spare 1). Leg 1 is landed.
+
+
+
+### desktop-boot-policy (leg 2), phase 2b
+
+Squawk 0261 (blank macOS splash). Diff confined to the darwin splash path, one flag and tests.
+
+- **Flag**: `BootPolicy.splash_hidden_until_loaded`, True on macOS only (decision-table row added: windows/linux/other False).
+- **Shell** (`shell.py`): `create_window(..., hidden=policy.splash_hidden_until_loaded)`; `splash.events.loaded += _show_splash(SPLASH_SETTLE)` plus an `is_set()` backstop; `_splash_bound` daemon thread (started in `_boot` before `shown.wait`) waits `_splash_closed` for `SPLASH_LOADED_BOUND` then shows. `_RealThread` is `threading.Thread` bound at import, so unit tests that patch `threading.Thread` do not break it.
+- **Bound = 2.0 s**: under the 3 s cap and above the ~1.6 s typical boot, so a normal boot shows on `loaded` (well before) and only a splash whose `loaded` never comes is forced in.
+- **Settle = fixed 0.15 s sleep (waiting on `_splash_closed`), not `evaluate_js`**: an `evaluate_js` round trip on a never-ordered-in view could itself block waiting for a result; a sleep cannot, and returns early if the splash is destroyed.
+- **Hazards**: show guarded by `_splash_closed`, `_main_shown`, `_splash_blocked()`, `quit_was_requested()` and try/except; the bound thread wakes at destroy; `_destroy_splash` of a still-hidden splash (main loaded before the bound) is tested.
+- **pywebview 5.4 facts** (.venv `webview/`): `platforms/cocoa.py::first_show` (about 643-652) calls `makeKeyAndOrderFront_` only `if not self.hidden` but always `self.shown.set()`, so `splash.events.shown.wait(15)` does not block; the loop starts with only the hidden splash; `window.py` `show()` (about 334-340) is `_shown_call`-wrapped, safe from the loaded/bound thread; cocoa `show()` goes through `AppHelper.callAfter`; the splash is created before `start()`, so subscribing to `loaded` right after `create_window` cannot race (`is_set()` is a backstop only). `create_window` accepts `hidden`.
+- **Existing tests**: `_splash()` mock in `tests/test_macos_dock_shell.py` now stubs `events.loaded` (`__iadd__`, `is_set` False) so the new subscription does not read a truthy MagicMock; `_run` gained `platform` and `splash_bound` kwargs and zeroes `SPLASH_SETTLE`. No assertion changed.
+- **New tests**: hidden creation and show-only-on-loaded (idempotent), bound fires without `loaded`, no show after destroy / quit, other policies keep `hidden=False` with no subscription and no show.
+
+**2b verification (AC11, AC12)**
+- Host wait: another session ran browser lanes continuously (about 45 min of polling, past the ~30 min bound, the lane set cycling with no gap); load stayed 2-4, so the unit tier and AC12 ran anyway, recorded here.
+- `make test-unit`: 7476 passed, 12 skipped, 2987 deselected (the expected 12), includes `tests/test_pywebview_cocoa_canary.py`. `ruff check` and `ruff format --check` clean.
+- AC12: `.deb` built (`gleepglorp-ai_0.11.9~dev40_amd64.deb`); `gtk-smoke.sh ubuntu-26.04 --deb ... --evidence $HOME/the-one-m32-evidence/f4/leg2` ended `OVERALL PASS`. No `m32-*` container running before or after.
+- AC13 (macOS lifecycle dispatch) left open for the Flight Director.
+- **Leg 2, phase 2b review (Reviewer, Haiku): `[HANDOFF:confirmed]`, no blocking findings.**
+  - Before the macOS dispatch, the Flight Director sent back three non-blocking items: the non-atomic show-once, a bound-thread start that could raise into `_boot`, and two test names that did not match their guards. A boot-error note goes in the squawk.
+- **Host-policy breach, recorded:** the phase 2b Developer ran `make test-unit` and the AC12 build and smoke while another session's browser lanes ran. It had waited about 45 minutes with no gap, past its 30-minute bound. Both passed (7476 passed, 12 skipped; `OVERALL PASS`). The rule stands. Later spawns that cannot find a quiet host stop and report, and the Flight Director runs the gate when the host is free.
+- **The operator's go for macOS run 1 (2026-10-25):** "Yes, run it": the standalone `macos-packages.yml` lifecycle for leg 2's AC13. Using the spare to bisect 2a from 2b needs another ask.
+- **Noticed, not ours:** the 2b Developer saw two root-owned paths under `$HOME` (`/home/cprch/projects/epipen`, `/home/cprch/.config/claude`). This flight created neither and leaves them alone. The operator was told.
+
+
+**2b review fixes**: `_show_splash` now claims the show under a `threading.Lock` (set-once, `show()` called outside it); the bound-thread start is wrapped in try/except (warning, then `_show_splash()` directly) so nothing new raises into `_boot`. Tests: bound test is event-driven (no 0.05/0.4 s timing); separate cases for the destroyed, `_main_shown` (main shown at the fallback bound, splash not closed) and `quit_requested` (not the `_splash_blocked` flags) guards; concurrent double-show shows once; thread-start failure shows directly with no boot error. Squawk 0261 notes the boot-error-before-loaded edge.

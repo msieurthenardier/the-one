@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import webbrowser
+from threading import Thread as _RealThread  # unaffected by a patched threading.Thread
 
 import httpx
 import uvicorn
@@ -43,6 +44,21 @@ log = logging.getLogger(__name__)
 # scan, App Translocation) a few; 12 s is generous, yet inside the 15 s server wait and the
 # 25 s splash handler wait, so a page that never reports `loaded` still shows a window.
 MAIN_LOADED_BOUND = 12.0
+# macOS splash (squawk 0261): the splash is created hidden and shown once its own page
+# has loaded. If `loaded` never comes it is shown after this many seconds anyway
+# (a splash that merely appears late beats none; well under the ~1.6 s typical boot
+# the user would otherwise see blank). Then a short settle lets the ordered-out
+# WKWebView paint before it is ordered in (a fixed sleep, not an evaluate_js round
+# trip, which could itself block on a never-shown view).
+SPLASH_LOADED_BOUND = 2.0
+SPLASH_SETTLE = 0.15
+
+
+def _start_daemon(target) -> None:
+    """Start ``target`` on a daemon thread (the real ``Thread``, bound at import, so a
+    test that patches ``threading.Thread`` does not turn it into a mock)."""
+    _RealThread(target=target, daemon=True).start()
+
 
 _TRAY_NOTICE_TITLE = "GleepGlorp AI is still running"
 _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
@@ -706,6 +722,7 @@ class DesktopSession:
                     width=400,
                     height=300,
                     background_color=launch_bg,
+                    hidden=policy.splash_hidden_until_loaded,
                 )
 
                 if policy.splash_border:
@@ -749,6 +766,48 @@ class DesktopSession:
                     except Exception:
                         log.debug("splash.destroy() raised (already gone)", exc_info=True)
 
+                # macOS (squawk 0261): the splash is created hidden (pywebview 5.4
+                # cocoa.py first_show sets `shown` even for a hidden window, so the
+                # `shown.wait(15)` in _boot does not block, and the loop starts with
+                # only this window) and shown here, after its own `loaded` or the
+                # bound. Window.show() is `_shown_call`-wrapped (window.py), so a call
+                # from this handler/timer thread is safe. The splash exists before
+                # start(), so subscribing right here cannot race its `loaded`.
+                _splash_shown = threading.Event()
+                _splash_claim = threading.Lock()
+
+                def _show_splash(settle: float = 0.0) -> None:
+                    if _splash_shown.is_set():
+                        return
+                    if settle and _splash_closed.wait(settle):
+                        return
+                    if (
+                        _splash_closed.is_set()
+                        or _main_shown.is_set()
+                        or _splash_blocked()
+                        or state.quit_was_requested()
+                    ):
+                        return
+                    with _splash_claim:  # set-once: the first caller claims the show
+                        if _splash_shown.is_set():
+                            return
+                        _splash_shown.set()
+                    try:
+                        splash.show()
+                    except Exception:
+                        log.debug("splash.show() raised (already gone)", exc_info=True)
+
+                def _splash_bound() -> None:
+                    # The bound, on a daemon thread started when the loop is up. It wakes
+                    # early (and does nothing) once the splash is destroyed, and the same
+                    # guards as the `loaded` path keep it from touching a gone window.
+                    if not _splash_closed.wait(SPLASH_LOADED_BOUND):
+                        _show_splash()
+
+                if policy.splash_hidden_until_loaded:
+                    splash.events.loaded += lambda: _show_splash(SPLASH_SETTLE)
+                    if splash.events.loaded.is_set():  # backstop; cannot normally fire yet
+                        _show_splash(SPLASH_SETTLE)
                 # ── / Splash setup ───────────────────────────────────────────
 
                 def _boot() -> None:
@@ -801,6 +860,13 @@ class DesktopSession:
                         return True
 
                     try:
+                        if policy.splash_hidden_until_loaded:
+                            try:
+                                _start_daemon(_splash_bound)
+                            except Exception:
+                                # Nothing here may raise into _boot: show the splash now.
+                                log.warning("splash bound thread did not start", exc_info=True)
+                                _show_splash()
                         # Step 1 — ensure splash is shown before any teardown attempt.
                         splash.events.shown.wait(15)
                         if _abort_if_quit():

@@ -1,6 +1,6 @@
 # Squawk 0261: on macOS the splash card shows blank for about 1.5 s
 
-**Status**: open
+**Status**: in-progress
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-25
@@ -14,12 +14,16 @@ On macOS, the frameless 400×300 splash ("GleepGlorp AI — starting") appears a
 - `the_one/interfaces/desktop/shell.py::_splash_html` (the logo as a data URI, the text, a `slide` animation only on the progress bar) and the splash's `webview.create_window(..., html=_splash_html(launch_theme), frameless=True, ...)`.
 
 ## Corrective Action
-*(written at completion)*. Candidates, to measure first:
-- show the splash only after its own `loaded` (as the main window now does), with a short bound;
-- or make the splash's first paint cheaper (a smaller inline logo, or a native-drawn first frame).
+Mission 32 Flight 4, leg 2 phase 2b: a policy flag, `BootPolicy.splash_hidden_until_loaded` (True on macOS only). With it set the splash is created `hidden=True` and ordered in only after its own `loaded` plus a 0.15 s settle (`SPLASH_SETTLE`), or after a 2.0 s bound (`SPLASH_LOADED_BOUND`) if `loaded` never arrives, whichever comes first, once. The show is guarded by `_splash_closed`, `_main_shown`, `_splash_blocked()` and `quit_was_requested()`, with a try/except, so it is inert after a destroy, a quit or a stopped loop. Linux, Windows and Other are unchanged (decision-table test).
 
 ## Verification
 - A hosted `lifecycle` run's L1 +1 s screenshot shows the splash's logo and text (or the painted app), never an empty card; L1 still passes.
+
+Plan:
+1. Unit tests now (`tests/test_macos_dock_shell.py`, `tests/test_boot_policy.py`): hidden creation, show only on `loaded`, the bound firing without `loaded`, no show after destroy or quit, no change on the other policies. Done.
+2. The hosted L1 screenshot at the Flight Director's AC13 dispatch. A blank card matching Flight 3's known-blank data-URL result on the runner (DD11) is inconclusive, not a pass.
+Known edge: if the darwin boot errors before the splash's `loaded` (inside the roughly 2 s window), the splash is never shown; the app terminates anyway, so nothing is lost.
+3. If L1 is inconclusive, the contributors' check on real Macs (DD10) before this is marked completed.
 
 ## Sign-Off
 *(written at completion)*

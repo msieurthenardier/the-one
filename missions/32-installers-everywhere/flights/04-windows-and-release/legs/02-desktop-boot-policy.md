@@ -1,6 +1,6 @@
 # Leg: desktop-boot-policy
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -82,7 +82,7 @@ Then fix squawk 0261 (the blank macOS splash) as a separate phase, 2b. Both are 
 - **Out of scope, stated so AC3 is not misread:** `chrome.py::_native_enabled` (win32) and `takeover.py::_pid_alive` (win32) keep their own `sys.platform` reads. They are Windows-API gates that tests patch directly, so the policy does not cover them.
 
 ### Phase 2b: squawk 0261
-- [ ] **AC9:** 2b is one policy flag, `splash_hidden_until_loaded`, set True on macOS only. With it set, the splash is created `hidden=True` and shown after its own `loaded`, with a short bound (at most 3 s; record the value and why).
+- [x] **AC9:** 2b is one policy flag, `splash_hidden_until_loaded`, set True on macOS only. With it set, the splash is created `hidden=True` and shown after its own `loaded`, with a short bound (at most 3 s; record the value and why).
   - The pywebview 5.4 facts the design rests on (cite them):
     - Cocoa's `first_show` (`webview/platforms/cocoa.py`, about 643-652) sets `shown` even for a hidden window, so `splash.events.shown.wait(15)` does not block;
     - `first_show` starts the loop with only the hidden splash;
@@ -96,14 +96,14 @@ Then fix squawk 0261 (the blank macOS splash) as a separate phase, 2b. Both are 
   - Check that `tests/test_macos_dock_shell.py`'s splash mocks still pass. A new `hidden` kwarg on the darwin path only is a 2b change, and is recorded.
   - If the only correct fix needs a change to the shared boot sequence beyond the darwin splash path, stop 2b, record it, and escalate the squawk. 2a then ships alone.
   - Linux and Windows splash behaviour is unchanged (the decision-table test pins it).
-- [ ] **AC10:** 2b's unit tests cover:
+- [x] **AC10:** 2b's unit tests cover:
   - the splash staying hidden until `loaded` on darwin;
   - the bound firing when `loaded` never comes;
   - no change on the other two policies.
 
 ### Both
-- [ ] **AC11 (2a part done: unit tier + ruff; 2b still to do):** `make test-unit` passes (12 skips expected; read `-rs` if different). Ruff check and format are clean. The pywebview canary (`tests/test_pywebview_cocoa_canary.py`) passes.
-- [ ] **AC12:** after 2b, a fresh `.deb` passes the GTK smoke with `OVERALL PASS`:
+- [x] **AC11:** `make test-unit` passes (12 skips expected; read `-rs` if different). Ruff check and format are clean. The pywebview canary (`tests/test_pywebview_cocoa_canary.py`) passes.
+- [x] **AC12:** after 2b, a fresh `.deb` passes the GTK smoke with `OVERALL PASS`:
   - build: `M32_BUILD=$HOME/the-one-m32-build/f4 packaging/linux/build.sh --version 0.11.9.dev40`;
   - smoke: `packaging/linux/checks/gtk-smoke.sh ubuntu-26.04 --deb <the .deb> --evidence $HOME/the-one-m32-evidence/f4/leg2`;
   - check first that no other `m32-gtk-smoke-*` container is running (`docker ps`);

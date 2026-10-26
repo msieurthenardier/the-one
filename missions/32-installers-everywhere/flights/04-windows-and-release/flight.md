@@ -130,6 +130,7 @@
 **DD3 — Windows reads `product.toml` and freezes from the staged copy (leg 3a)**:
 - **The `[windows]` section in `packaging/product.toml`:**
   - `app_guid`: the frozen `CAEEFB46-2698-4048-AD9F-0120D0B7174A`, pinned to that value by a test. It must never change, or it orphans installs. It is not `app_id`.
+  - *(Leg 1 finding, probe run `40246340174`):* the shipped line `AppId={{CAEEFB46-…-0120D0B7174A}}` gives the effective AppId `{CAEEFB46-…}}`, and the uninstall key `{CAEEFB46-…}}_is1`, with two closing braces. The rendered `.iss` must reproduce that line byte for byte. That is the identity every release has used.
   - `install_dir_name`: `GleepGlorp AI`.
   - `setup_file_stem`: `the-one-setup`. It is kept, so Concourse's MinIO glob `the-one-setup-*.exe` still matches.
   - `cli_executable` and `gui_executable`: `the-one`, `the-one-app`.
