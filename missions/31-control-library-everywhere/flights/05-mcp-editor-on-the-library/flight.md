@@ -1,6 +1,6 @@
 # Flight: The MCP server editor on the library
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria

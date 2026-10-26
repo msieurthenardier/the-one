@@ -794,3 +794,5 @@ Test counts: static guards 395 passed; library lane 103 passed; contracts-contro
   - **HAT step 11 deferred.**
   - **Behavior-spec quality notes** (step 6 bundles two actions; step 2's row order; `[a11y]` clauses need an a11y snapshot in Observables).
   - **The HAT fix pass ran no `make test-unit`,** which cost one gate cycle.
+- **Branch pushed and PR #328 opened** (draft, then marked ready for review on landing). `[COMPLETE:flight]`. Next: `/mission-control:flight-debrief` on this branch, so the debrief joins the PR.
+- **Debrief written** (`flight-debrief.md`), with squawks 0269-0272 logged. The flight is `completed` (operator, 2026-10-26).
