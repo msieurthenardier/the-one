@@ -351,3 +351,26 @@ Squawk 0261 (blank macOS splash). Diff confined to the darwin splash path, one f
 
 
 **2b review fixes**: `_show_splash` now claims the show under a `threading.Lock` (set-once, `show()` called outside it); the bound-thread start is wrapped in try/except (warning, then `_show_splash()` directly) so nothing new raises into `_boot`. Tests: bound test is event-driven (no 0.05/0.4 s timing); separate cases for the destroyed, `_main_shown` (main shown at the fallback bound, splash not closed) and `quit_requested` (not the `_splash_blocked` flags) guards; concurrent double-show shows once; thread-start failure shows directly with no boot error. Squawk 0261 notes the boot-error-before-loaded edge.
+
+#### Leg 2 result: macOS run 1 (`40252285106`, head `ff55a1e`, 2026-10-26 01:03-01:07 UTC, about 4 min)
+- **`A/SUMMARY.txt`:** all PASS (`== A done: 0 hard check(s) failed`): codesign verify, `doctor` 12 gates (`desktop shell: OK — Cocoa backend present`, `tray is dock`, a `path:` line), gate 2, serve, gate 4, the bundle audit (max minos 14.0), and four `.dmg` checks.
+- **`lifecycle/SUMMARY.txt`:** `13 PASS, 0 FAIL`. L0 install; L1 launch; L2 close hides; L3 reopen; L4 second launch focuses; L5 geometry; L6, L7 and L8 the quit paths, each drained in order; L9 upgrade keeps the data and the credential; L10 trash keeps the data; LEND.
+- **Attribution:** with no red row, **phase 2a is proven on macOS**.
+- **2b's L1 screenshot: inconclusive** (the AC13 rule).
+  - At +1 s (`first-paint-+1s.png`) no window shows at all: neither the blank card the squawk reported nor the splash, with `visible=null`.
+  - At +3 s the painted main window shows. `app.log`: "macos: main window shown after page load (1.5s)".
+  - So the main window was ready (1.5 s) before the hidden splash's `loaded` plus its settle, or the 2 s bound, could show it. The splash was skipped by its `_main_shown` guard. The user sees no blank card, and about 1.5 s with no window.
+  - 2b ships. Squawk 0261 stays `in-progress` until the contributors' check on real Macs (DD10). Their check should note whether a splash appears at all on a slower first launch.
+- **macOS runs used:** 1 of 4 (the dry run, the release and the spare remain).
+- **The flight-end unit tier** on the committed legs 1-2 (`ff55a1e`), run by the Flight Director on a quiet host (load 1.08, no other test process): `7479 passed, 12 skipped, 2987 deselected` in 331 s.
+- **Leg 2 is landed.**
+- **Leg 3 (`windows-recipe`) is tiered high-risk** (the installer identity, two build paths, consumers). Its design review (Developer, Sonnet) returned approve with changes; the high issue is three unlisted consumers of the `.iss` and spec. The Flight Director's decisions:
+  - **The probe mode is retired** in 3a: `mode=probe` exits 1 naming run `40246340174`, and the pin test is updated.
+  - **`scripts/windows_test_copy.py::op_freeze`** is moved to the staged recipe in 3a.
+  - **`windows-installer.yml`** stays broken until leg 4 deletes it: **no tag before leg 4**. Tags come only at leg 6.
+  - **The AppId line stays literal** in `the-one.iss`, never through the preprocessor, with a test pinning it to `{{` + `app_guid` + `}}`.
+  - **`product.iss` stays in the repo,** gitignored, deleted and re-rendered by every build.
+  - **Uninstall-time `[Code]` uses `Exec`** where `ExecAsOriginalUser` is not allowed in the uninstaller; the compile proves which.
+  - **PyInstaller is pinned** to 6.22.3, the version probe run 3 shipped.
+  - The rest as the reviewer recommended. Changes applied to the leg; no second cycle.
+

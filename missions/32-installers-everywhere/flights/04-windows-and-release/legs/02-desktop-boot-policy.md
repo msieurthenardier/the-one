@@ -108,7 +108,7 @@ Then fix squawk 0261 (the blank macOS splash) as a separate phase, 2b. Both are 
   - smoke: `packaging/linux/checks/gtk-smoke.sh ubuntu-26.04 --deb <the .deb> --evidence $HOME/the-one-m32-evidence/f4/leg2`;
   - check first that no other `m32-gtk-smoke-*` container is running (`docker ps`);
   - leave no containers and no root-owned files.
-- [ ] **AC13 (the Flight Director, outward):** one standalone `macos-packages.yml` `-f mode=lifecycle` dispatch from the pushed branch, carrying both 2a and 2b (two commits).
+- [x] **AC13 (the Flight Director, outward):** one standalone `macos-packages.yml` `-f mode=lifecycle` dispatch from the pushed branch, carrying both 2a and 2b (two commits).
   - Every `A/SUMMARY.txt` and `lifecycle/SUMMARY.txt` row passes.
   - **L1's +1 s screenshot:**
     - it proves 2b only if it shows the splash's logo and text;
