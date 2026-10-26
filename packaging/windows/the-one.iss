@@ -126,8 +126,144 @@ begin
        SW_HIDE, ewWaitUntilTerminated, RC);
 end;
 
+// --- Mission 32 Flight 4 (DD2): quit the running app gracefully, then force ---------------------
+// KillRunning above is the force path and stays the last step of both sequences. Before it, the
+// installer (and the uninstaller) asks the running app to quit through its own CLI
+// (`the-one.exe quit --wait`, which makes the server drain: sessions closed, MCP children
+// stopped), polls until the processes are gone (bounded at 90 s), and only then force-kills what
+// is left. CloseApplications=force / RestartApplications=no above remain as the backstop: the
+// Restart Manager alone cannot close a tray app (probe W3, run 40246340174: installer exit 5).
+// Every stage logs a line, so /LOG shows the order (the lifecycle rows L7 and L9 read it).
+// Order evidence (leg 1, probe run 40246340174): in W3's /LOG, PrepareToInstall ran (line 14,
+// "rm-variant: PrepareToInstall ran") BEFORE "Shutting down applications using our files"
+// (line 21), so the quit and the poll in PrepareToInstall finish before Restart Manager starts;
+// W4's quit call drained the app before Restart Manager ran.
+// The quit call is made only when {app}\the-one.exe exists; the poll and KillRunning run
+// either way (harmless when nothing is running).
+//
+// tasklist through cmd + find: find exits 0 when the image name is in the list.
+function ImageRunning(const Image: String): Boolean;
+var
+  RC: Integer;
+begin
+  Result := False;
+  if Exec(ExpandConstant('{sys}\cmd.exe'),
+          '/C tasklist /FI "IMAGENAME eq ' + Image + '" /NH | find /I "' + Image + '"',
+          '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    Result := (RC = 0);
+end;
+
+// the-one.exe is watched as well as the-one-app.exe: the quit CLI IS a the-one.exe in {app}, and
+// it holds a file open until it has seen the app go (its own bound is 5 s plus 75 s, below 90 s).
+function AppsRunning: Boolean;
+begin
+  Result := ImageRunning('the-one-app.exe') or ImageRunning('the-one.exe');
+end;
+
+// Declared here under unique names so this compiles whether or not Inno provides them as built-ins.
+// They are plain kernel32 imports, which work in the installer and in the uninstaller.
+function M32Tick: Cardinal;
+external 'GetTickCount@kernel32.dll stdcall';
+
+procedure M32Sleep(Ms: Cardinal);
+external 'Sleep@kernel32.dll stdcall';
+
+// The shared half: poll (bounded), log what is left, then KillRunning, always. Callable from
+// setup and from uninstall code (Exec, Log, FileExists and ExpandConstant are available in both).
+procedure PollThenKill(const Tag: String);
+var
+  I: Integer;
+  Started, Elapsed, Limit: Cardinal;
+  Present: Boolean;
+begin
+  Started := M32Tick;
+  Limit := 90000;
+  Elapsed := 0;
+  I := 0;
+  Present := AppsRunning;
+  if Present then
+    Log(Tag + ' quit-poll: present (iteration 0)')
+  else
+    Log(Tag + ' quit-poll: absent at iteration 0 (nothing was running)');
+  while Present and (Elapsed < Limit) do
+  begin
+    M32Sleep(1000);
+    I := I + 1;
+    Elapsed := M32Tick - Started;
+    Present := AppsRunning;
+  end;
+  if Present then
+    Log(Tag + ' quit-poll: timeout after 90 s, processes still present')
+  else
+    Log(Tag + ' quit-poll: gone (iteration ' + IntToStr(I) + ')');
+  if AppsRunning then
+    Log(Tag + ' quit-poll: something left before KillRunning')
+  else
+    Log(Tag + ' quit-poll: nothing left before KillRunning');
+  Log(Tag + ' quit-killrunning: calling KillRunning');
+  KillRunning;
+  Log(Tag + ' quit-killrunning: done');
+end;
+
+// Install: ExecAsOriginalUser runs the quit CLI as the user who started setup (not the elevated
+// admin token), so `quit` resolves THAT user's data directory and credential. It needs Inno
+// Setup 6.1 or newer (build.ps1 refuses an older parsed ISCC version). It is a setup-only
+// function, so it lives only here and never in the uninstall path.
+procedure QuitThenKillSetup;
+var
+  RC: Integer;
+  Exe: String;
+begin
+  Exe := ExpandConstant('{app}\the-one.exe');
+  if FileExists(Exe) then
+  begin
+    Log('setup quit-call: ExecAsOriginalUser ' + Exe + ' quit --wait');
+    if not ExecAsOriginalUser(Exe, 'quit --wait', '', SW_HIDE, ewNoWait, RC) then
+      Log('setup quit-call: ExecAsOriginalUser returned False, RC=' + IntToStr(RC))
+    else
+      Log('setup quit-call: started');
+  end
+  else
+    Log('setup quit-call: ' + Exe + ' does not exist, nothing to ask (an install without the quit command)');
+  PollThenKill('setup');
+end;
+
+// Uninstall: ExecAsOriginalUser is not available to uninstall-time [Code] (it is a setup-only
+// function in Inno Setup 6), so the uninstaller uses Exec, which runs the quit CLI with the
+// uninstaller's own token: the user who ran the uninstall, elevated (PrivilegesRequired=admin).
+// In the silent-elevation case (an administrator accepting or auto-approving the prompt) that is
+// the same user who installed, so `quit` resolves the same data directory and credential. When
+// the elevating account is a different one from the user running the app, the quit call cannot
+// reach the app: the poll then times out or sees it still running and KillRunning ends it. That
+// case is a field check, not something the hosted runner proves.
+procedure QuitThenKillUninstall;
+var
+  RC: Integer;
+  Exe: String;
+begin
+  Exe := ExpandConstant('{app}\the-one.exe');
+  if FileExists(Exe) then
+  begin
+    Log('uninstall quit-call: Exec ' + Exe + ' quit --wait');
+    if not Exec(Exe, 'quit --wait', '', SW_HIDE, ewNoWait, RC) then
+      Log('uninstall quit-call: Exec returned False, RC=' + IntToStr(RC))
+    else
+      Log('uninstall quit-call: started');
+  end
+  else
+    Log('uninstall quit-call: ' + Exe + ' does not exist, nothing to ask');
+  PollThenKill('uninstall');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  KillRunning;
+  QuitThenKillSetup;
   Result := '';
+end;
+
+// Before the uninstaller removes any file ({app} still holds the exes here).
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    QuitThenKillUninstall;
 end;

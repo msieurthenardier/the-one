@@ -15,9 +15,11 @@ entry point repeating the pattern.
 Rule (plain-text grep — no YAML parsing dependencies)
 ------------------------------------------------------
 1. ALLOWLIST — the two known artifact-producing entry points that actually build
-   and ship the frozen Windows app (`ci/tasks/windows-installer-build.yml` —
-   Concourse, every push — and `.github/workflows/windows-installer.yml` — the
-   GitHub `v*`-tag release path) MUST contain the locked-closure sequence: a
+   and ship the frozen Windows app (`packaging/windows/build.ps1` — the one recipe
+   both Concourse (`ci/tasks/windows-installer-build.yml`, every push) and
+   `.github/workflows/windows-packages.yml` call — and
+   `.github/workflows/windows-installer.yml` — the GitHub `v*`-tag release path,
+   deleted in Mission 32 Flight 4 leg 4) MUST contain the locked-closure sequence: a
    `uv export ... --extra gui ... --extra all-llms ...` line AND a
    `pip install ... --no-deps` line. Losing either marker fails the test — this
    is the exact regression squawk 0015 caught.

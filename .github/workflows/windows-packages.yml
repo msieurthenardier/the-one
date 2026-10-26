@@ -17,15 +17,25 @@ name: windows-packages
 #   probe      RETIRED after leg 1 (run 40246340174): the product .iss and spec are staged now, so
 #              the probe's unstaged build recipe no longer exists. The mode exits 1 at once. The
 #              probe's own files (packaging/windows/probe/) are kept as the record.
-#   full       lands in leg 3b (exits 1 until then)
-#   lifecycle  lands in leg 3b (exits 1 until then)
+#   full       build version N through packaging/windows/build.ps1 (stage, render, freeze, strict
+#              doctor, ISCC), then the frozen `serve` /api/info check (asserting the STAGED
+#              version), the single-instance probe, and the `windows-installer` artifact (N only).
+#   lifecycle  full, plus N+1 (render.py --next-version, built with build.ps1 -ReuseVenv, never
+#              uploaded), then packaging/windows/lifecycle.ps1 (rows L1-L9: old-to-new upgrade
+#              from v0.11.8, install and launch, title bar, close to tray, second launch,
+#              geometry, graceful upgrade over a running app, quit, uninstall while running).
+#              The job fails unless lifecycle/SUMMARY.txt ends with `== lifecycle done` and has no
+#              FAIL line.
 #
-# Leg 3a (phase a) removed the probe's build and probe steps with the recipe they used; leg 3b
-# adds the staged build (packaging/windows/build.ps1) and the lifecycle driver in their place.
+# Before any build minute is spent, build.ps1, lib.ps1 and lifecycle.ps1 run their -SelfTest
+# (leg 1 lost two hosted runs to PowerShell defects a self test catches).
 #
-# Cost: Windows minutes bill at 2x on a private repo; the run caps itself in layers (job timeout 60
-# minutes, a timeout on every step, a concurrency group that never cancels a running build, and a
-# global bound inside probe.ps1 that is below its step's timeout).
+# Cost: Windows minutes bill at 2x on a private repo; the run caps itself in layers. Arithmetic:
+# the job cap is 80 minutes (4800 s). lifecycle.ps1 bounds itself to M32_T0 + 4080 s (68 minutes
+# from the job start, lib.ps1 JobBoundSeconds), leaving 12 minutes for the one row still running
+# (a single installer wait is bounded at 5 minutes), the summary, the log upload and the fail step.
+# A typical run needs about 30 minutes before lifecycle.ps1 and about 20 inside it. Every step has
+# its own timeout, and a concurrency group never cancels a running build.
 on:
   workflow_dispatch:
     inputs:
@@ -72,7 +82,7 @@ jobs:
   build:
     # pinned, not windows-latest
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 80
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -88,17 +98,17 @@ jobs:
         run: |
           case "$MODE" in
             probe) echo "mode 'probe' is retired after leg 1 (run 40246340174); the product .iss/spec are staged now"; exit 1 ;;
-            full | lifecycle) echo "mode '$MODE' lands in leg 3b"; exit 1 ;;
+            full | lifecycle) ;;
             *) echo "unknown mode '$MODE' (full, lifecycle or probe)"; exit 1 ;;
           esac
           T="$(cygpath -m "$RUNNER_TEMP")"
           {
             echo "M32_BUILD=$T/m32-build"
+            echo "M32_OUT=$T/m32-build/out"
             echo "M32_LOGS=$T/m32-build/logs"
-            echo "M32_INSTALLERS=$T/m32-build/installers"
             echo "M32_T0=$(date +%s)"
           } >> "$GITHUB_ENV"
-          mkdir -p "$T/m32-build/logs" "$T/m32-build/installers"
+          mkdir -p "$T/m32-build/out" "$T/m32-build/logs"
 
       - name: Runner evidence
         timeout-minutes: 2
@@ -113,8 +123,122 @@ jobs:
             echo "== whoami"; whoami
           } 2>&1 | tee "$M32_LOGS/runner.txt"
 
+      - uses: actions/setup-python@v6
+        timeout-minutes: 3
+        with:
+          python-version: "3.11"
+
+      # N is the input version, else __version__; N+1 is `render.py --next-version N`.
+      - name: Versions
+        timeout-minutes: 2
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eo pipefail
+          VER="$INPUT_VERSION"
+          if [ -z "$VER" ]; then
+            VER="$(python -c "import pathlib, re; print(re.search(r'^__version__\s*=\s*\"([^\"]*)\"', pathlib.Path('the_one/__init__.py').read_text(), re.M).group(1))")"
+          fi
+          NEXT="$(python packaging/render.py --next-version "$VER")"
+          echo "N=$VER N+1=$NEXT" | tee "$M32_LOGS/versions.txt"
+          {
+            echo "M32_VERSION=$VER"
+            echo "M32_NEXT=$NEXT"
+          } >> "$GITHUB_ENV"
+
+      # The self tests need no Windows API; they are cheap insurance before the build minutes.
+      - name: Self tests (build.ps1, lib.ps1, lifecycle.ps1)
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          & ./packaging/windows/build.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw "build.ps1 -SelfTest failed ($LASTEXITCODE)" }
+          & ./packaging/windows/lib.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw "lib.ps1 -SelfTest failed ($LASTEXITCODE)" }
+          & ./packaging/windows/lifecycle.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw "lifecycle.ps1 -SelfTest failed ($LASTEXITCODE)" }
+
+      # Version N, through the one recipe (the same one the Concourse task calls).
+      - name: Build N
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          & ./packaging/windows/build.ps1 -Version $env:M32_VERSION -Out $env:M32_OUT *>&1 | Tee-Object -FilePath "$env:M32_LOGS/build-N.log"
+          $mEnv = Join-Path $env:M32_OUT "build-$($env:M32_VERSION).env"
+          if (-not (Test-Path -LiteralPath $mEnv)) { throw "no ${mEnv}: the build did not finish" }
+          $mMap = @{}
+          foreach ($mLine in (Get-Content -LiteralPath $mEnv)) { $mKv = $mLine.Split('=', 2); $mMap[$mKv[0]] = $mKv[1] }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "M32_SETUP_N=$($mMap['SETUP_EXE'])"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "M32_DIST_N=$($mMap['DIST'])"
+          $mIscc = Select-String -LiteralPath "$env:M32_LOGS/build-N.log" -Pattern '^ISCC version: (\S+)' | Select-Object -First 1
+          if ($mIscc) { Add-Content -LiteralPath $env:GITHUB_ENV -Value "M32_ISCC_VERSION=$($mIscc.Matches[0].Groups[1].Value)" }
+
+      # The frozen app, run for real: `serve` must answer /api/info with the STAGED version, and
+      # the single-instance decision (_select_port) must see it as ours. The project is not
+      # installed, so the probes run with the build venv's python and PYTHONPATH=<stage dir>.
+      - name: Frozen serve and single-instance probe
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $mVenvPy = Join-Path $env:M32_OUT 'venv/Scripts/python.exe'
+          $mStage = Join-Path $env:M32_OUT "stage-windows-$($env:M32_VERSION)"
+          $env:PYTHONPATH = $mStage
+          $mExe = Join-Path $env:M32_DIST_N 'the-one/the-one.exe'
+          $mServe = Start-Process -FilePath $mExe -ArgumentList 'serve' -PassThru -NoNewWindow -RedirectStandardOutput "$env:M32_LOGS/serve-out.txt" -RedirectStandardError "$env:M32_LOGS/serve-err.txt"
+          Write-Host "frozen serve pid $($mServe.Id)"
+          try {
+            & $mVenvPy ./packaging/windows/smoke.py info $env:M32_VERSION
+            if ($LASTEXITCODE -ne 0) { throw "smoke.py info failed ($LASTEXITCODE)" }
+            & $mVenvPy ./packaging/windows/smoke.py single-instance
+            if ($LASTEXITCODE -ne 0) { throw "smoke.py single-instance failed ($LASTEXITCODE)" }
+          }
+          finally {
+            if (-not $mServe.HasExited) { Stop-Process -Id $mServe.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      # The installer for N only (an N+1 build is never uploaded).
+      - name: Upload the installer
+        timeout-minutes: 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ${{ env.M32_SETUP_N }}
+          retention-days: 14
+          if-no-files-found: error
+
+      # Version N+1 reuses the build venv (-ReuseVenv); per-version stage, work, dist and
+      # installer directories mean it never clobbers N.
+      - name: Build N+1
+        if: ${{ inputs.mode == 'lifecycle' }}
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          & ./packaging/windows/build.ps1 -Version $env:M32_NEXT -Out $env:M32_OUT -ReuseVenv *>&1 | Tee-Object -FilePath "$env:M32_LOGS/build-next.log"
+          $mEnv = Join-Path $env:M32_OUT "build-$($env:M32_NEXT).env"
+          if (-not (Test-Path -LiteralPath $mEnv)) { throw "no ${mEnv}: the N+1 build did not finish" }
+          $mMap = @{}
+          foreach ($mLine in (Get-Content -LiteralPath $mEnv)) { $mKv = $mLine.Split('=', 2); $mMap[$mKv[0]] = $mKv[1] }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "M32_SETUP_NEXT=$($mMap['SETUP_EXE'])"
+
+      # Rows L1-L9. lifecycle.ps1 bounds itself to M32_T0 + 4080 s (see the cost arithmetic above).
+      - name: Installer lifecycle (L1-L9)
+        if: ${{ inputs.mode == 'lifecycle' }}
+        timeout-minutes: 75
+        shell: pwsh
+        run: |
+          $mPyVer = ((& python --version) | Out-String).Trim()
+          $mPiVer = ((& "$env:M32_OUT/venv/Scripts/python.exe" -m pip show pyinstaller) | Select-String '^Version:\s*(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }) | Select-Object -First 1
+          & ./packaging/windows/lifecycle.ps1 -Logs $env:M32_LOGS -VersionN $env:M32_VERSION -VersionNext $env:M32_NEXT -InstallerN $env:M32_SETUP_N -InstallerNext $env:M32_SETUP_NEXT -PythonVersion $mPyVer -PyInstallerVersion $mPiVer
+
+      # Doctor output and build env files, beside the logs.
+      - name: Collect build evidence
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          cp "$M32_OUT"/doctor-*.txt "$M32_OUT"/build-*.env "$M32_LOGS"/ 2>/dev/null || true
+
       # Logs, Inno /LOG files, app logs, screenshots, doctor output, tasklist snapshots and
-      # registry dumps. No installer or build output is uploaded.
+      # registry dumps. The installer is uploaded separately above (N only).
       - name: Upload logs and evidence
         if: ${{ always() }}
         timeout-minutes: 3
@@ -124,3 +248,15 @@ jobs:
           path: ${{ runner.temp }}/m32-build/logs
           retention-days: 7
           if-no-files-found: warn
+
+      # The lifecycle verdict: the done line must be there (the run reached its normal end) and
+      # no row may have failed or stayed not-run.
+      - name: Lifecycle verdict
+        if: ${{ always() && inputs.mode == 'lifecycle' }}
+        timeout-minutes: 2
+        run: |
+          S="$M32_LOGS/lifecycle/SUMMARY.txt"
+          if [ ! -f "$S" ]; then echo "no $S: the lifecycle did not run"; exit 1; fi
+          cat "$S"
+          tr -d '\r' < "$S" | grep -q '^== lifecycle done$' || { echo "the summary has no '== lifecycle done' line"; exit 1; }
+          if tr -d '\r' < "$S" | grep -q '^FAIL'; then echo "at least one row failed"; exit 1; fi

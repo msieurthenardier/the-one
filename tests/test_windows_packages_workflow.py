@@ -68,20 +68,115 @@ def test_permissions_concurrency_and_bounds():
     assert doc["permissions"] == {"contents": "read"}
     assert doc["concurrency"] == {"group": "windows-packages", "cancel-in-progress": False}
     for job in doc["jobs"].values():
-        assert job["timeout-minutes"] <= 60
+        # 80 minutes: lifecycle.ps1 bounds itself to M32_T0 + 4080 s and leaves 12 minutes for the
+        # summary, the upload and the verdict (the arithmetic is in the workflow header and lib.ps1)
+        assert job["timeout-minutes"] <= 90
         assert job["runs-on"] == "windows-2022"
         for step in job["steps"]:
             assert "timeout-minutes" in step, f"step without its own timeout: {step.get('name')}"
 
 
-def test_full_and_lifecycle_are_not_yet_implemented():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "lands in leg 3b" in text
-    paths = next(s for s in _doc(WORKFLOW)["jobs"]["build"]["steps"] if s.get("name") == "Paths")[
-        "run"
-    ]
-    m = re.search(r"full \| lifecycle\)([^;]*;\s*exit 1)", paths)
-    assert m, "full and lifecycle must exit 1 until leg 3b"
+def _steps() -> dict[str, dict]:
+    steps = _doc(WORKFLOW)["jobs"]["build"]["steps"]
+    return {s.get("name") or s["uses"]: s for s in steps}
+
+
+def test_full_and_lifecycle_modes_are_accepted_and_probe_is_not():
+    paths = _steps()["Paths"]["run"]
+    assert re.search(r"^\s*full \| lifecycle\) ;;", paths, re.M), "full and lifecycle must pass"
+    assert "lands in leg 3b" not in WORKFLOW.read_text(encoding="utf-8")
+    assert "unknown mode" in paths
+
+
+def test_job_bound_arithmetic_is_consistent():
+    # the job cap, the lifecycle bound (lib.ps1) and the reserve the header promises
+    job = _doc(WORKFLOW)["jobs"]["build"]
+    lib = (ROOT / "packaging" / "windows" / "lib.ps1").read_text(encoding="utf-8")
+    bound = int(re.search(r"\$script:JobBoundSeconds = (\d+)", lib).group(1))
+    assert job["timeout-minutes"] * 60 - bound >= 11 * 60
+    lifecycle_step = _steps()["Installer lifecycle (L1-L9)"]
+    assert lifecycle_step["timeout-minutes"] * 60 > bound - 30 * 60
+    assert lifecycle_step["timeout-minutes"] < job["timeout-minutes"]
+
+
+def test_build_steps_use_the_one_recipe():
+    steps = _steps()
+    n = steps["Build N"]
+    assert n["shell"] == "pwsh"
+    assert "packaging/windows/build.ps1 -Version $env:M32_VERSION -Out $env:M32_OUT" in n["run"]
+    assert "-ReuseVenv" not in n["run"]
+    nxt = steps["Build N+1"]
+    assert nxt["if"] == "${{ inputs.mode == 'lifecycle' }}"
+    assert "-Version $env:M32_NEXT -Out $env:M32_OUT -ReuseVenv" in nxt["run"]
+    versions = steps["Versions"]["run"]
+    assert "packaging/render.py --next-version" in versions
+    assert "pip install -e" not in WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_frozen_smoke_asserts_the_staged_version_with_the_stage_on_pythonpath():
+    run = _steps()["Frozen serve and single-instance probe"]["run"]
+    assert "$env:PYTHONPATH = $mStage" in run
+    assert "stage-windows-$($env:M32_VERSION)" in run
+    assert "venv/Scripts/python.exe" in run
+    assert "smoke.py info $env:M32_VERSION" in run
+    assert "smoke.py single-instance" in run
+    assert "Stop-Process -Id $mServe.Id" in run, "teardown kills the recorded pid only"
+    assert "taskkill" not in run
+    smoke = (ROOT / "packaging" / "windows" / "smoke.py").read_text(encoding="utf-8")
+    assert '"info"' in smoke and "_select_port" in smoke
+    body = smoke.split('"""', 2)[2]  # past the docstring
+    assert "__version__" not in body, "the staged version is the input, not whatever is imported"
+
+
+def test_installer_artifact_is_n_only_for_fourteen_days():
+    steps = _steps()
+    up = steps["Upload the installer"]
+    assert up["uses"].startswith("actions/upload-artifact@")
+    assert up["with"]["name"] == "windows-installer"
+    assert up["with"]["retention-days"] == 14
+    assert up["with"]["path"] == "${{ env.M32_SETUP_N }}"
+    assert "M32_SETUP_NEXT" not in str(up)
+    logs = steps["Upload logs and evidence"]
+    assert logs["with"]["name"] == "windows-packages-logs"
+    assert logs["if"] == "${{ always() }}"
+    names = list(steps)
+    assert names.index("Upload the installer") < names.index("Build N+1")
+
+
+def test_self_tests_run_before_the_build():
+    steps = list(_steps())
+    run = _steps()["Self tests (build.ps1, lib.ps1, lifecycle.ps1)"]["run"]
+    for script in ("build.ps1", "lib.ps1", "lifecycle.ps1"):
+        assert f"./packaging/windows/{script} -SelfTest" in run
+    assert steps.index("Self tests (build.ps1, lib.ps1, lifecycle.ps1)") < steps.index("Build N")
+
+
+def test_lifecycle_step_and_verdict():
+    steps = _steps()
+    life = steps["Installer lifecycle (L1-L9)"]
+    assert life["if"] == "${{ inputs.mode == 'lifecycle' }}"
+    assert "packaging/windows/lifecycle.ps1" in life["run"]
+    for arg in ("-InstallerN $env:M32_SETUP_N", "-InstallerNext $env:M32_SETUP_NEXT"):
+        assert arg in life["run"]
+    verdict = steps["Lifecycle verdict"]
+    assert "always()" in verdict["if"] and "lifecycle" in verdict["if"]
+    assert "== lifecycle done" in verdict["run"]
+    assert "grep -q '^FAIL'" in verdict["run"]
+    # PowerShell may write CRLF; every anchored grep must strip CR first
+    for line in verdict["run"].splitlines():
+        if "grep -q '^" in line:
+            assert "tr -d '\\r'" in line, line
+    order = list(steps)
+    assert order.index("Upload logs and evidence") < order.index("Lifecycle verdict")
+
+
+def test_uninstall_key_has_two_closing_braces():
+    for path in (ROOT / "packaging" / "windows" / "lib.ps1",):
+        text = path.read_text(encoding="utf-8")
+        assert "{CAEEFB46-2698-4048-AD9F-0120D0B7174A}}_is1" in text
+    assert "{CAEEFB46-2698-4048-AD9F-0120D0B7174A}_is1" not in (
+        ROOT / "packaging" / "windows" / "lib.ps1"
+    ).read_text(encoding="utf-8")
 
 
 def test_probe_bounds_itself_to_the_job_start():

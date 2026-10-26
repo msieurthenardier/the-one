@@ -1,6 +1,6 @@
 # Leg: windows-recipe
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -130,7 +130,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
   - It records the ISCC version and whether `git` is on `PATH` (`Get-Command git`).
   - `ci/windows-installer.pipeline.yml`'s MinIO step still matches `the-one-setup-*.exe`.
   - `tests/test_packaging_locked_closure.py` passes, with `build.ps1` added to rule 1.
-- [x] **AC8: the `fly execute` proof.** First re-check `fly -t the-one status`, then confirm the Windows worker is `running` (`fly -t the-one workers`) and that no local test gate is running. Then run `fly -t the-one execute -c ci/tasks/windows-installer-build.yml -i repo=. -o installer=<scratch dir under $HOME/the-one-m32-evidence/f4/leg3/fly>` from the worktree, once.
+- [x] **AC8: the `fly execute` proof.** (Ticked after two runs: `fly execute` ran twice. Run 1 failed on a task copy-step defect, fixed; run 2 passed.) First re-check `fly -t the-one status`, then confirm the Windows worker is `running` (`fly -t the-one workers`) and that no local test gate is running. Then run `fly -t the-one execute -c ci/tasks/windows-installer-build.yml -i repo=. -o installer=<scratch dir under $HOME/the-one-m32-evidence/f4/leg3/fly>` from the worktree, once.
   - It succeeds, and the output holds `the-one-setup-<V>.exe`, with `V` = `__version__` (0.11.8) unless the task passes a version.
   - The task log shows strict `doctor` passing with every needle, the ISCC version and git's presence. Save the log to the evidence dir.
   - The installer is not run or published, and the output dir is deleted after its name and size are recorded.
@@ -152,21 +152,21 @@ The installer quits a running app gracefully, with a force fallback, on both ins
 - [x] **AC10:** `make test-unit` passes (12 skips) and ruff is clean. Run it only on a quiet host. If another session's browser lanes are running, wait up to 30 minutes, then stop and report rather than run beside them.
 
 ### Phase 3b
-- [ ] **AC11: graceful quit in the product `.iss`.** `[Code]` holds DD2's sequence, from leg 1's `the-one-probe-quit.iss` `QuitThenKill` (the `M32Tick`/`M32Sleep` externals, `ExecAsOriginalUser(... 'quit --wait', ewNoWait)`, the poll that logs `present` and `gone` with a 90 s bound, a last `tasklist` check, then `KillRunning`). It is called:
+- [x] **AC11: graceful quit in the product `.iss`.** `[Code]` holds DD2's sequence, from leg 1's `the-one-probe-quit.iss` `QuitThenKill` (the `M32Tick`/`M32Sleep` externals, `ExecAsOriginalUser(... 'quit --wait', ewNoWait)`, the poll that logs `present` and `gone` with a 90 s bound, a last `tasklist` check, then `KillRunning`). It is called:
   - from `PrepareToInstall`, when `{app}\the-one.exe` exists;
   - from `CurUninstallStepChanged(usUninstall)`, before files are removed.
 
   `CloseApplications=force` and `RestartApplications=no` stay, as the backstop. Comments say why.
   - **The uninstaller's restrictions:** some functions, such as `ExecAsOriginalUser`, are not available in uninstall-time `[Code]`. Check Inno 6's documentation, and if needed use `Exec` there: the uninstaller runs as the installing admin, the same user in the silent-elevation case. The quit CLI resolves that user's own data dir. Record which call each mode uses and why.
   - The externals `M32Tick`/`M32Sleep` and `Log()` must work in both modes. The 3b compile on the runner, and L9's `/LOG`, prove it.
-- [ ] **AC12: `windows-packages.yml` `full`.**
+- [x] **AC12: `windows-packages.yml` `full`.**
   - Builds through `build.ps1`, then:
     - the frozen `serve` `/api/info` check, asserting the **staged** version (the input, or `__version__`);
     - the single-instance probe (`_select_port`), with `the_one` importable from the stage directory through `PYTHONPATH`, since the project is not installed;
     - uploads the installer as `windows-installer` (14 days, N only).
   - The logs go to `windows-packages-logs`, as today.
   - The `on:` block is unchanged (the test pins it). `probe` mode stays retired (AC8b).
-- [ ] **AC13: `windows-packages.yml` `lifecycle`.** `full`, plus N+1 (`render.py --next-version`; built with `build.ps1` reusing the venv, no upload), then `lifecycle.ps1`.
+- [x] **AC13: `windows-packages.yml` `lifecycle`.** `full`, plus N+1 (`render.py --next-version`; built with `build.ps1` reusing the venv, no upload), then `lifecycle.ps1`.
   - `lifecycle.ps1` writes `lifecycle/SUMMARY.txt`:
     - a header like the probe's (the image, the Windows build, ISCC, UAC, elevation, versions);
     - every row seeded `FAIL <id> not-run`;
@@ -206,7 +206,7 @@ The installer quits a running app gracefully, with a force fallback, on both ins
     - pids are recorded, and only recorded pids are killed;
     - its `-SelfTest` covers the summary, the rows and the bookkeeping, plus `lib.ps1`'s non-Windows helpers;
     - both pass in the local pwsh container, and the workflow runs both `-SelfTest`s before the build.
-- [ ] **AC14: `docs/windows-install.md` and `packaging/windows/README.md`.** Update them for:
+- [x] **AC14: `docs/windows-install.md` and `packaging/windows/README.md`.** Update them for:
   - the build (`build.ps1`, how Concourse and GitHub call it);
   - upgrading (no need to quit first; a running app is closed, gracefully from this version on, and a v0.11.8 app is closed by force once);
   - the data location (`%LOCALAPPDATA%\the-one`, kept on uninstall);

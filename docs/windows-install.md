@@ -76,6 +76,23 @@ to close the window:
 
 ---
 
+## Upgrading
+
+Run the new installer over the old one. **You do not need to quit the app first.** If GleepGlorp AI
+is running (even hidden in the tray), the installer closes it for you before replacing any file:
+
+- From this version on, the installer asks the running app to quit through its own `quit` command,
+  so it shuts down cleanly (its server finishes and stops), waits up to
+  90 seconds for it to finish, and only then ends whatever is left.
+- A version older than this one (such as 0.11.8) has no `quit` command, so the installer closes it
+  by force once. Nothing is lost, but the app does not get to shut down cleanly that one time.
+
+The installer keeps the same install folder and the single "GleepGlorp AI" entry in Apps, and your
+data is untouched (see "Where is my data stored?" below). Start the app again from the Start menu
+when the installer finishes.
+
+---
+
 ## Using the command-line interface (CLI)
 
 The installer also ships a CLI tool: **`the-one.exe`** in
@@ -147,3 +164,10 @@ Go to **Settings → Apps** (or **Control Panel → Programs → Programs and Fe
 find **GleepGlorp AI** in the list, and click **Uninstall**. The uninstaller removes
 the application files and shortcuts. Your data in `%LOCALAPPDATA%\the-one` is not
 removed automatically — delete that folder manually if you want a clean slate.
+
+**Uninstalling while the app is running** works the same way: the uninstaller asks the running app
+to quit (cleanly, from this version on), waits up to 90 seconds, ends whatever is left, and then
+removes the files. You do not need to quit the app or the tray icon first. Your data folder is kept.
+The clean quit reaches the app only when the account that approves the administrator prompt is the
+same account that runs the app; if a different administrator account approves it, the app is
+closed by force instead (the files are still removed and your data folder is kept).

@@ -226,6 +226,73 @@ Two places build the frozen installer; both run the same freeze + packaged-smoke
 > recipe (an editable install and a bare `the-one.spec` freeze), which the staged spec and `.iss`
 > now refuse, so it is broken by design and leg 4 deletes it. **Push no `v*` tag before then.**
 
+## Quitting a running app: install and uninstall (Mission 32 Flight 4, DD2)
+
+The close-to-tray shell means a running app is a hidden window plus a server, and the Restart Manager
+alone cannot close it (probe W3: installer exit 5). So `the-one.iss` `[Code]` asks the app to quit
+itself, and force-kills only what is left:
+
+1. **Ask.** `the-one.exe quit --wait` from `{app}`, started without waiting. Setup
+   (`PrepareToInstall` -> `QuitThenKillSetup`) uses `ExecAsOriginalUser`, so the command runs as the
+   user who started setup and resolves *that* user's data directory and credential. The uninstaller
+   (`CurUninstallStepChanged(usUninstall)` -> `QuitThenKillUninstall`) uses `Exec`, because
+   `ExecAsOriginalUser` is a setup-only function in Inno Setup 6; the uninstaller's token is the
+   elevated user who ran it, which is the installing user in the silent-elevation case. When the
+   elevating account differs from the user running the app, the call cannot reach the app and the
+   force step below ends it: that case is a field check, not something the hosted runner proves.
+2. **Poll.** Up to 90 s, until neither `the-one-app.exe` nor `the-one.exe` is running.
+3. **Force.** `KillRunning` (`taskkill /F`) always runs last, so a hung app cannot block the install
+   or the uninstall.
+
+`CloseApplications=force` and `RestartApplications=no` stay as the backstop. Every stage writes a
+`/LOG` line (`setup quit-call`, `quit-poll: present|gone|nothing left`, `quit-killrunning`, with
+`uninstall` in place of `setup` for the uninstaller), which is what the lifecycle rows L7 and L9 read.
+An app older than this version (v0.11.8 has no `quit` command) is closed by the force step once.
+
+## Lifecycle proof: `lifecycle.ps1` and `lib.ps1`
+
+`.github/workflows/windows-packages.yml` has two modes, both dispatch-only:
+
+```
+gh workflow run windows-packages.yml --ref <branch> -f mode=full       # build N, frozen smoke, upload the installer
+gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L9
+```
+
+Both build through `build.ps1`. `lifecycle` also builds N+1 (`render.py --next-version`, `-ReuseVenv`,
+never uploaded) and runs [`lifecycle.ps1`](./lifecycle.ps1), which dot-sources the helpers in
+[`lib.ps1`](./lib.ps1) (copied from the frozen `probe/probe.ps1`). It writes
+`lifecycle/SUMMARY.txt` into the `windows-packages-logs` artifact: every row seeded
+`FAIL <id> not-run`, `== lifecycle done` only on normal completion, and the job fails unless that
+line is present and no row line starts with `FAIL`.
+
+| row | what it proves on the hosted runner |
+|---|---|
+| L1 | the v0.11.8 release installer, then N over it: exit 0, old pid gone, same `{app}`, one uninstall entry (the `{CAEEFB46-...}}_is1` key, two closing braces) at N, no duplicate shortcuts, the marker agent kept, N answers N |
+| L2 | Start-menu shortcut, `doctor` from `{app}`, the window natively visible within 60 s and the route `visible:true` |
+| L3 | `GET /api/window/chrome` answers 200 with a parseable body (DWM results are INFO) |
+| L4 | `WM_CLOSE` hides the window natively, the route reports `visible:false`, the process lives |
+| L5 | a second launch leaves exactly the first app pid and shows the window again |
+| L6 | moved and resized window, `quit --wait`, relaunch: the native rectangle is within 16 px of `window-state.json` after the app's own clamps |
+| L7 | N+1 over a running N: quit, `present`, `gone`, nothing left, `KillRunning`, first copy, in that order, N drained first |
+| L8 | `quit --wait` exits 0, with the drain line and no process left |
+| L9 | silent uninstall while the app runs: the same quit sequence in the `/LOG`, `{app}` and the key gone, data dir and marker kept |
+
+What the runner cannot prove, and the guide does not claim: the Windows 11 tinted title bar (the
+runner is Server 2022 and reports "dark mode only"), the UAC prompt (the runner's administrator
+elevates silently), and a standard-user or other-account upgrade. Those are field checks.
+
+Both `.ps1` files take `-SelfTest` (no Windows API; the workflow runs it before the build, and it
+runs locally in a throwaway `mcr.microsoft.com/powershell` container):
+
+```bash
+docker run --rm --name m32-pwsh-lifecycle -v "$PWD:/repo:ro" mcr.microsoft.com/powershell:latest \
+  pwsh -NoProfile -File /repo/packaging/windows/lifecycle.ps1 -SelfTest
+```
+
+`packaging/windows/smoke.py` holds the two frozen-app probes the workflow runs with the build venv's
+Python and `PYTHONPATH=<stage dir>`: `info <version>` (frozen `serve` answers `/api/info` with the
+staged version) and `single-instance` (`_select_port` sees the frozen instance as ours).
+
 ## CI packaged-smoke (the freeze proof)
 
 The installer build **proves the DD2 child-spawn fix against the real frozen
