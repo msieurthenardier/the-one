@@ -1,3 +1,3 @@
 """GleepGlorp AI: A personal agentic system. (Python package: the_one)"""
 
-__version__ = "0.11.8"
+__version__ = "0.12.0"

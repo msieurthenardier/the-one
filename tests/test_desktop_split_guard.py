@@ -260,7 +260,7 @@ def test_shell_defines_none_of_the_moved_names():
         "_now", "_sleep", "_parse_version", "_is_older", "_auth_headers", "_running_version",
         "_request_quit", "_pid_alive", "_wait_for_exit", "_activation_token", "_post_focus",
         "_takeover", "_select_port", "_TAKEOVER_WAIT_BOUND", "_TAKEOVER_POLL",
-        "_TAKEOVER_NOTICE_AFTER", "_is_gtk_backend", "_on_wayland", "_mark_visible",
+        "_TAKEOVER_NOTICE_AFTER", "_is_gtk_backend", "_on_wayland", "_mark_visible", "_mark_hidden",
         "_show_window", "_gtk_read", "window_visible", "_window_mapped", "_mode",
         "window_state", "quit_desktop", "_gtk_activate", "focus_window", "set_window_theme",
         "_no_tray_hide", "_NO_TRAY_NOTICE_SUMMARY", "_NO_TRAY_NOTICE_BODY", "_clear_booting",
@@ -381,3 +381,143 @@ def test_a_module_that_is_not_shell_is_not_flagged():
         f'    from {SHELL_PACKAGE} import host\n    monkeypatch.setattr(host, "Z", 1)\n'
     )
     assert find_violations(src, ALLOWED) == []
+
+
+# -- the boot-policy guard (Mission 32, Flight 4, leg 2, DD1) -----------------
+#
+# ``shell.py`` and ``window_control.py`` take every per-platform decision from
+# ``BootPolicy`` (``state.policy``). They may not read the platform themselves, and
+# they may not branch on which policy they hold: a branch on identity would put the
+# platform decision back under another name.
+
+POLICY_GUARDED = (
+    REPO / "the_one" / "interfaces" / "desktop" / "shell.py",
+    REPO / "the_one" / "interfaces" / "desktop" / "window_control.py",
+)
+_POLICY_NAMES = {"WINDOWS", "LINUX", "MACOS", "OTHER", "BootPolicy"}
+
+
+def _is_policy_expr(node: ast.AST) -> bool:
+    """True for a name or attribute chain that reads like a policy value."""
+    dotted = _dotted(node) or ""
+    last = dotted.split(".")[-1]
+    return last == "policy" or last in _POLICY_NAMES
+
+
+def find_policy_violations(source: str) -> list[tuple[int, str]]:
+    """``(line, what)`` for each platform read or policy-identity check in ``source``."""
+    tree = ast.parse(source)
+    sys_names: set[str] = set()  # names bound to the sys module
+    os_names: set[str] = set()
+    platform_mods: set[str] = set()  # names bound to the platform module
+    out: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                bound = item.asname or item.name.split(".")[0]
+                if item.name == "sys":
+                    sys_names.add(bound)
+                elif item.name == "os":
+                    os_names.add(bound)
+                elif item.name == "platform":
+                    platform_mods.add(bound)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            for item in node.names:
+                if node.module == "sys" and item.name == "platform":
+                    out.append((node.lineno, "from sys import platform"))
+                elif node.module == "os" and item.name == "name":
+                    out.append((node.lineno, "from os import name"))
+                elif node.module == "platform" or (node.module is None and item.name == "platform"):
+                    out.append((node.lineno, "platform module import"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            base = node.value
+            if isinstance(base, ast.Name):
+                if base.id in sys_names and node.attr == "platform":
+                    out.append((node.lineno, "sys.platform"))
+                elif base.id in os_names and node.attr == "name":
+                    out.append((node.lineno, "os.name"))
+                elif base.id in platform_mods:
+                    out.append((node.lineno, f"platform.{node.attr}"))
+            if node.attr == "name" and _is_policy_expr(node.value):
+                out.append((node.lineno, "policy.name"))
+        elif isinstance(node, ast.Call):
+            func = _dotted(node.func)
+            if func in ("getattr", "hasattr") and len(node.args) >= 2:
+                base, attr = node.args[0], node.args[1]
+                if (
+                    isinstance(base, ast.Name)
+                    and base.id in sys_names
+                    and _is_str(attr, "platform")
+                ):
+                    out.append((node.lineno, "getattr(sys, 'platform')"))
+                if isinstance(base, ast.Name) and base.id in os_names and _is_str(attr, "name"):
+                    out.append((node.lineno, "getattr(os, 'name')"))
+                if _is_str(attr, "name") and _is_policy_expr(base):
+                    out.append((node.lineno, "getattr(policy, 'name')"))
+            elif func == "isinstance" and len(node.args) >= 2:
+                targets = ast.walk(node.args[1])
+                if _is_policy_expr(node.args[0]) or any(
+                    isinstance(t, (ast.Name, ast.Attribute)) and _is_policy_expr(t) for t in targets
+                ):
+                    out.append((node.lineno, "isinstance on a policy"))
+            elif func == "type" and len(node.args) == 1 and _is_policy_expr(node.args[0]):
+                out.append((node.lineno, "type(policy)"))
+        elif isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+            if any(isinstance(op, (ast.Is, ast.IsNot, ast.Eq, ast.NotEq)) for op in node.ops):
+                if sum(1 for o in operands if _is_policy_expr(o)) >= 1 and any(
+                    _dotted(o) and _dotted(o).split(".")[-1] in _POLICY_NAMES for o in operands
+                ):
+                    out.append((node.lineno, "policy identity comparison"))
+    return sorted(set(out))
+
+
+def test_shell_and_window_control_read_no_platform_and_branch_on_no_policy_identity():
+    problems = []
+    for path in POLICY_GUARDED:
+        for line, what in find_policy_violations(path.read_text(encoding="utf-8")):
+            problems.append(f"{path.relative_to(REPO)}:{line}: {what}")
+    assert not problems, (
+        "The desktop shell and window control take platform decisions from "
+        "boot_policy.BootPolicy flags, never from the platform or a policy's identity:\n  "
+        + "\n  ".join(problems)
+    )
+
+
+@pytest.mark.parametrize(
+    ("src", "what"),
+    [
+        ("import sys\nx = sys.platform\n", "sys.platform"),
+        ("import sys as s\nx = s.platform == 'darwin'\n", "sys.platform"),
+        ("from sys import platform\n", "from sys import platform"),
+        ("import sys\nx = getattr(sys, 'platform')\n", "getattr(sys, 'platform')"),
+        ("import os\nx = os.name\n", "os.name"),
+        ("from os import name\n", "from os import name"),
+        ("import platform\nx = platform.system()\n", "platform.system"),
+        ("from platform import system\n", "platform module import"),
+        ("def f(policy):\n    return policy.name == 'macos'\n", "policy.name"),
+        ("def f(self):\n    return state.policy.name\n", "policy.name"),
+        ("def f(policy):\n    return getattr(policy, 'name')\n", "getattr(policy, 'name')"),
+        ("def f(policy):\n    return isinstance(policy, MacPolicy)\n", "isinstance on a policy"),
+        ("def f(policy):\n    return type(policy)\n", "type(policy)"),
+        ("def f(policy):\n    return policy is MACOS\n", "policy identity comparison"),
+        (
+            "def f(policy):\n    return policy == boot_policy.WINDOWS\n",
+            "policy identity comparison",
+        ),
+    ],
+)
+def test_the_policy_guard_catches_each_form(src, what):
+    assert what in [w for _, w in find_policy_violations(src)]
+
+
+def test_the_policy_guard_allows_flag_reads_and_unrelated_names():
+    src = (
+        "import sys\nimport os\n"
+        "def f(policy, state):\n"
+        "    if policy.tray.skip or state.policy.native_visibility:\n"
+        "        return sys.modules.get('webview'), os.getpid(), 'name'\n"
+        "    return isinstance(state, dict), type(state), getattr(state, 'name', None)\n"
+    )
+    assert find_policy_violations(src) == []

@@ -1,10 +1,10 @@
 # Squawk 0262: document the desktop test-patch rule and the pywebview/PyObjC upgrade checklist
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-25
-**Completed**: —
+**Completed**: 2026-10-26
 
 ## Report
 Mission 32 Flight 3 added two safeguards that are only described in its flight log and tests, so a future maintainer will not know they exist:
@@ -18,13 +18,16 @@ Also add: macOS CI is hosted-only and dispatch-limited (no per-push macOS build)
 - The Flight 3 debrief, Documentation and Recommendation 5.
 
 ## Corrective Action
-*(written at completion)*. An additive paragraph in `the_one/agents.md` (the Desktop launcher section or the macOS packaging section) covering 1 and 2 plus the hosted-only note, and one sentence in `CLAUDE.md`'s macOS packaging paragraph pointing to it.
+Applied (Mission 32 Flight 4, leg 4 phase 4b). An additive paragraph in `the_one/agents.md` (the Desktop launcher section or the macOS packaging section) covering 1 and 2 plus the hosted-only note, and one sentence in `CLAUDE.md`'s macOS packaging paragraph pointing to it.
+
+Done: `the_one/agents.md` gained "Desktop test-patch rule and the pywebview/PyObjC upgrade checklist" at the end of "macOS packaging (M32 F3)". It names `tests/test_desktop_split_guard.py` and the rule (patch a name in the module that defines it; state lives on `session_state.state`; platform decisions live on `boot_policy`, Flight 4), the checklist (`tests/test_pywebview_cocoa_canary.py` green **and** `gh workflow run macos-packages.yml --ref <branch> -f mode=lifecycle`, 13 PASS) and that macOS CI is hosted-only and dispatch-limited. `CLAUDE.md`'s macOS packaging paragraph gained one sentence pointing to it.
 
 ## Verification
 - The paragraph exists, names both tests and the `lifecycle` dispatch command, and `make test-unit` still passes (12 skips).
 
 ## Sign-Off
-*(written at completion)*
+- **Reviewer:** Haiku, the Mission 32 Flight 4 leg 4 phase 4b checkpoint: `[HANDOFF:confirmed]`, no blocking issues.
+- **Commit:** the flight/4 leg 4b commit on `flight/04-windows-and-release`. 
 
 ## Disposition
 - **Logged** at Mission 32 Flight 3's debrief, on the operator's decision. Both files are shared with Mission 31, so the edit stays additive.

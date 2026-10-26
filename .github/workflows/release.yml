@@ -1,15 +1,30 @@
 name: release
 
-# Mission 32 Flight 4 (DD7): the `.github/`-only stub for release.yml. GitHub dispatches only a
-# workflow file that exists on the default branch, and validates the dispatch inputs against that
-# copy; so this file lands on main first (copied to .github/workflows/release.yml in its own PR),
-# and `gh workflow run release.yml --ref <branch>` then runs the branch's real copy.
+# Mission 32 Flight 4 (DD6, DD7): the one release workflow. A `v*` tag runs it:
 #
-# Dispatch-only: no `push` trigger, no `publish` job, one no-op job. The `workflow_dispatch`
-# block below equals .github/workflows/release.yml's, byte for byte (tests/test_release_workflow.py
-# pins it). The name and the inputs FREEZE once this reaches main: changing either needs another
-# stub PR. The tag trigger arrives with the flight's merge.
+#   audit (release-closure pip-audit) + version (the gate, scripts/release_check.py)
+#     -> windows / linux / macos (the three reusable *-packages.yml workflows, mode full)
+#     -> publish (one GitHub release: the four packages and SHA256SUMS; draft first, then published)
+#
+# A workflow_dispatch is a DRY RUN: it builds the same packages from a branch and publishes
+# nothing (`publish` only runs on a tag push):
+#
+#   gh workflow run release.yml --ref <branch> -f version=0.12.0.dev1 -f macos_mode=lifecycle -f windows_mode=lifecycle
+#
+# `platforms` re-runs a failed platform alone (comma-separated, no spaces). The dispatch block is
+# FROZEN once its stub (packaging/release/release.stub.yml) reaches main: GitHub dispatches only a
+# workflow that exists on the default branch and validates the inputs against that copy. A test
+# pins this block to the stub's, byte for byte.
+#
+# NO standalone platform dispatch (windows-packages.yml, linux-packages.yml, macos-packages.yml)
+# may run while a release is running: their fixed concurrency groups hold one pending slot each,
+# and a standalone dispatch could displace the release's pending job.
+#
+# Reads no secret beyond github.token (only `publish` raises it to contents: write).
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -33,12 +48,180 @@ on:
         options: [full, lifecycle]
         default: full
 
+# One group per event: a dry-run dispatch can never take a pending tag run's slot.
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref || 'dispatch' }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
-  stub:
+  # Squawk 0107's release-closure audit (pr-lint.yml's extras and flags), with the export frozen
+  # and uv pinned like the three builds, so the audit sees the lock as it stands.
+  audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 15
     steps:
-      - run: echo "stub for release.yml; the real workflow runs from the dispatched ref"
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install uv and pip-audit
+        run: pip install uv==0.10.0 "pip-audit>=2.7"
+      - name: Export release dependency closure (runtime + installer extras)
+        run: uv export --frozen --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+      - name: pip-audit (release closure, fails on findings)
+        run: pip-audit --disable-pip -r release-requirements.txt
+
+  # The version gate: tag path (push + refs/tags/v) or dry-run path (dispatch). Full history, so
+  # the tagged commit can be checked against origin/main.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Check the version
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -eo pipefail
+          args=(--event "$EVENT" --ref "$REF" --input-version "$INPUT_VERSION")
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            args+=(--platforms "$INPUT_PLATFORMS")
+          fi
+          V="$(python scripts/release_check.py "${args[@]}")"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "release version: $V" >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    needs: [audit, version]
+    if: github.event_name == 'push' || contains(format(',{0},', inputs.platforms), ',windows,')
+    uses: ./.github/workflows/windows-packages.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      mode: ${{ inputs.windows_mode || 'full' }}
+
+  linux:
+    needs: [audit, version]
+    if: github.event_name == 'push' || contains(format(',{0},', inputs.platforms), ',linux,')
+    uses: ./.github/workflows/linux-packages.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  macos:
+    needs: [audit, version]
+    if: github.event_name == 'push' || contains(format(',{0},', inputs.platforms), ',macos,')
+    uses: ./.github/workflows/macos-packages.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      mode: ${{ inputs.macos_mode || 'full' }}
+
+  # Tag pushes only. The release is a DRAFT until all five files are uploaded, then published, so
+  # a partial upload is never seen. A re-run reuses the draft (uploads with --clobber, then
+  # publishes); an already published release is never re-titled and only gets --clobber uploads.
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, macos, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts/windows-installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: artifacts/linux-packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: artifacts/macos-dmg
+      - name: Select the four packages and write SHA256SUMS
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -eo pipefail
+          python scripts/release_assets.py --version "$VERSION" --dir artifacts --out release-assets
+          (cd release-assets && sha256sum -c SHA256SUMS)
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONUTF8: "1"
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -eo pipefail
+          [ "$TAG" = "v$VERSION" ] || { echo "tag $TAG does not match version $VERSION"; exit 1; }
+          cd release-assets
+          FILES=(*)
+          [ "${#FILES[@]}" -eq 5 ] || { echo "expected 5 files, found ${#FILES[@]}: ${FILES[*]}"; exit 1; }
+          for f in "${FILES[@]}"; do test -f "$f"; done
+          test -f SHA256SUMS
+          cd ..
+          # Title and notes (squawk 0200): docs/releases/$TAG.md supplies them (first line
+          # "# <title>", the rest the body, split by scripts/release_notes.py). The title goes
+          # through a UTF-8 file, never stdout. A missing file never fails a release, and neither
+          # does a malformed one: the step warns and takes the no-file path.
+          NOTES_SRC="docs/releases/$TAG.md"
+          TITLE=""
+          if [ -f "$NOTES_SRC" ]; then
+            NOTES_BODY="${RUNNER_TEMP:-.}/release-notes-body.md"
+            TITLE_FILE="${RUNNER_TEMP:-.}/release-notes-title.txt"
+            if python scripts/release_notes.py "$NOTES_SRC" --title-out "$TITLE_FILE" --body-out "$NOTES_BODY"; then
+              TITLE=$(tr -d '\r' < "$TITLE_FILE")
+            else
+              echo "::warning::$NOTES_SRC is malformed; falling back to the generic title and generated notes"
+            fi
+          fi
+          # A plain view does not find a draft: list (bounded) and read isDraft.
+          STATE=$(gh release list --limit 200 --json tagName,isDraft,name \
+            --jq "[.[] | select(.tagName == \"$TAG\")] | if length == 0 then \"none\" elif .[0].isDraft then \"draft\" else \"published\" end")
+          echo "release state for $TAG: $STATE"
+          UPLOAD=(release-assets/*)
+          case "$STATE" in
+            none)
+              echo "branch: new draft"
+              if [ -n "$TITLE" ]; then
+                gh release create "$TAG" --draft --title "$TITLE" --notes-file "$NOTES_BODY"
+              else
+                gh release create "$TAG" --draft --title "$TAG" --generate-notes
+              fi
+              gh release upload "$TAG" "${UPLOAD[@]}" --clobber
+              gh release edit "$TAG" --draft=false
+              ;;
+            draft)
+              echo "branch: existing draft"
+              if [ -n "$TITLE" ]; then
+                gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_BODY"
+              fi
+              gh release upload "$TAG" "${UPLOAD[@]}" --clobber
+              gh release edit "$TAG" --draft=false
+              ;;
+            published)
+              echo "branch: existing published release (uploads only; the title and notes are left alone)"
+              gh release upload "$TAG" "${UPLOAD[@]}" --clobber
+              ;;
+            *)
+              echo "unexpected release state: $STATE"
+              exit 1
+              ;;
+          esac

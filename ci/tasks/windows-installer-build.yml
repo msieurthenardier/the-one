@@ -1,6 +1,15 @@
 # Windows installer build task — runs on the Concourse `platform: windows` worker.
 # Consumes the `repo` git input, produces `installer/the-one-setup-<ver>.exe`.
-# Toolchain is provisioned per-run via choco (Python 3.11 to match CI; Inno Setup).
+# Toolchain is provisioned per-run via choco (Python 3.11 to match CI; Inno Setup). The build
+# itself is packaging/windows/build.ps1, the one Windows recipe that GitHub also calls
+# (Mission 32 Flight 4): it stages the source, renders the installer's product.iss from
+# packaging/product.toml, freezes from the staged copy, runs strict `doctor` and builds the
+# installer. Its working files (build venv, stage, PyInstaller work and dist, ISCC output) live
+# in `build/`, a sibling of `repo`, never inside the repo.
+#
+# Squawk 0009 / 0015 (the locked dependency closure, `uv export` then `pip install --no-deps`) and
+# the throwaway per-build venv (build 606657's stale hf_xet) moved into build.ps1 with the rest of
+# the recipe; tests/test_packaging_locked_closure.py now pins them there.
 platform: windows
 
 inputs:
@@ -18,118 +27,28 @@ run:
     - -Command
     - |
       $ErrorActionPreference = "Stop"
-      Write-Host "=== [1/6] provision toolchain (choco: Python 3.11 + Inno Setup) ==="
+      Write-Host "=== [1/4] provision toolchain (choco: Python 3.11 + Inno Setup) ==="
       choco install python311 -y --no-progress
       choco install innosetup -y --no-progress
       $py = "C:\Python311\python.exe"
       if (!(Test-Path $py)) { throw "python311 not at $py" }
       & $py --version
-      Set-Location repo
-      # M24 F02 L06 (AC-15 fix, build 606657): the Concourse Windows worker runs
-      # tasks uncontainerised — `C:\Python311`'s site-packages persist across
-      # builds — so a stray package from an earlier build (or one a future
-      # dependency-closure change drops) can silently ride along into the
-      # freeze. Build 606657 shipped a stale `hf_xet` this way even though
-      # squawk 0049 had excluded it from the closure: it was importable in the
-      # build env, so PyInstaller bundled it regardless of what the lockfile
-      # said. A persistent env can equally mask a MISSING dependency the
-      # closure actually needs. Install the exported closure into a throwaway
-      # per-build venv instead of the persistent base interpreter, so every
-      # build's bundle reflects only what `uv export` says — nothing more,
-      # nothing less.
-      & $py -m venv .buildvenv
-      $py = (Resolve-Path ".buildvenv\Scripts\python.exe").Path
-      if (!(Test-Path $py)) { throw "build venv python not at $py" }
-      & $py --version
-      Write-Host "=== [2/6] pip install deps + pyinstaller ==="
-      # $ErrorActionPreference = "Stop" (set above) only governs PowerShell's own
-      # cmdlets/terminating errors — it does NOT make PowerShell react to a native
-      # executable's (pip.exe, uv.exe, PyInstaller's) exit code. A failed native
-      # command otherwise leaves the script running with whatever partial state it
-      # left behind: build 606657's failed install went unnoticed because the
-      # then-persistent C:\Python311 site-packages masked it, and build 606698's
-      # failed install (into the now-fresh per-build venv) ran all the way through
-      # to a `ModuleNotFoundError` deep inside the freeze before it was caught. Check
-      # $LASTEXITCODE by hand after every native step from here through the freeze.
-      & $py -m pip install --upgrade pip --quiet
-      if ($LASTEXITCODE -ne 0) { throw "pip install --upgrade pip failed ($LASTEXITCODE)" }
-      # Squawk 0009 / Squawk 0015: install the LOCKED closure, not a fresh resolve —
-      # the frozen app must ship the exact tested/pinned dependency set from uv.lock.
-      # A `pip install -e ".[gui,all-llms]"` re-resolves the ranges at build time and
-      # can bundle an untested SDK. Export the same closure the pr-lint workflow
-      # audits (pr-lint.yml:61) and the GitHub release path installs
-      # (windows-installer.yml), install it, then install the project itself
-      # --no-deps. Squawk 0009 fixed the GitHub path only; squawk 0015 ports the
-      # same sequence here so the every-push Concourse gate verifies the closure it
-      # actually ships.
-      & $py -m pip install uv --quiet
-      if ($LASTEXITCODE -ne 0) { throw "pip install uv failed ($LASTEXITCODE)" }
-      & $py -m uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
-      if ($LASTEXITCODE -ne 0) { throw "uv export failed ($LASTEXITCODE)" }
-      if (!(Test-Path "release-requirements.txt") -or ((Get-Item "release-requirements.txt").Length -eq 0)) {
-        throw "release-requirements.txt missing or empty after uv export"
-      }
-      # AC-15 fix (build 606698): a `uv export` closure is already complete and
-      # hash-pinned, so pip has nothing left to resolve. WITHOUT --no-deps, pip
-      # still walks each listed package's own declared (not exported) requirements
-      # — and huggingface-hub's wheel metadata still declares `hf-xet` even though
-      # `[tool.uv] exclude-dependencies` correctly dropped it from THIS closure.
-      # `uv export` always emits hashes, which puts pip in --require-hashes mode,
-      # and that mode refuses to proceed unless every such transitively-discovered
-      # requirement is ALSO pinned in the file — so it aborts the ENTIRE install
-      # rather than installing everything except hf-xet. Build 606698 hit this
-      # against the (correctly) fresh per-build venv and installed nothing at all;
-      # build 606657 hit the identical pip failure earlier, but back then the
-      # still-persistent C:\Python311 site-packages already held a full set of
-      # packages from prior builds, so the freeze silently proceeded off that
-      # stale environment instead — which is how a stale hf_xet.pyd rode along
-      # into that build's bundle despite the closure correctly excluding it.
-      & $py -m pip install -r release-requirements.txt --no-deps --quiet
-      if ($LASTEXITCODE -ne 0) { throw "pip install -r release-requirements.txt failed ($LASTEXITCODE)" }
-      & $py -m pip install -e . --no-deps --quiet
-      if ($LASTEXITCODE -ne 0) { throw "pip install -e . failed ($LASTEXITCODE)" }
-      & $py -m pip install pyinstaller --quiet
-      if ($LASTEXITCODE -ne 0) { throw "pip install pyinstaller failed ($LASTEXITCODE)" }
-      Write-Host "=== [3/6] freeze (pyinstaller one-dir) ==="
-      & $py -m PyInstaller --noconfirm packaging/windows/the-one.spec
-      if ($LASTEXITCODE -ne 0) { throw "PyInstaller freeze failed ($LASTEXITCODE)" }
-      if (!(Test-Path "dist\the-one\the-one.exe")) { throw "freeze produced no exe" }
-      Write-Host "=== [4/6] smoke: frozen doctor (build gate) ==="
-      $doctorLines = & "dist\the-one\the-one.exe" doctor
-      $doctorCode = $LASTEXITCODE
-      $doctorText = [string]($doctorLines | Out-String)
-      Write-Host $doctorText
-      if ($doctorCode -ne 0) { throw "frozen doctor failed ($doctorCode)" }
-      # M24 F01 L01/L02, Flight 2 Leg 2: the exit code alone cannot detect a
-      # probe silently dropped from run_doctor's gates list — the aggregate
-      # would still read RESULT: PASS. Assert the vector-store, fts5,
-      # embedding-model, and file-watcher probe lines BY NAME so this lane,
-      # DD-4's designated apparatus, actually observes them. The embedding
-      # gate additionally proves a DATA tree survived the freeze, and runs
-      # with HF_HUB_OFFLINE=1 so it cannot pass by downloading. The
-      # file-watcher gate (Flight 4 M24 F04 L01, DD-9) additionally proves
-      # the watchfiles Rust extension survived the freeze and answers a real
-      # native change-notification round-trip. The window-chrome gate (M25 F5
-      # L3, DD8) proves the DWM path loads in the packaged build. The
-      # time-zones gate (M28 F1 L1, DD9) proves the tzdata zone files survived
-      # the freeze (Windows has no zone database of its own) and that the date
-      # formatters produce the exact strings the agent is told.
-      # The mcp-sdk gate (M29 F1 L2, DD11) proves the mcp 2.x import closure
-      # (mcp_types, httpx2/httpcore2 with their dist metadata, truststore,
-      # opentelemetry) survived the freeze and a truststore SSL context builds.
-      foreach ($needle in @("usearch: OK", "fts5: OK", "embedding model: OK", "file watcher: OK", "window chrome: OK", "time zones: OK", "mcp sdk: OK")) {
-        if (-not $doctorText.Contains($needle)) {
-          throw "frozen doctor output missing '$needle'"
-        }
-      }
-      Write-Host "=== [5/6] build Inno installer ==="
-      $ver = (& $py -c "import the_one; print(the_one.__version__)").Trim()
-      $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-      if (!(Test-Path $iscc)) { throw "ISCC not at $iscc" }
-      & $iscc "/DAppVersion=$ver" packaging\windows\the-one.iss
-      $exe = "packaging\windows\Output\the-one-setup-$ver.exe"
-      if (!(Test-Path $exe)) { throw "installer not produced: $exe" }
-      Write-Host "=== [6/6] stage artifact for s3 put ==="
-      Copy-Item $exe "..\installer\"
-      Get-ChildItem "..\installer\" | Format-Table Name,Length
-      Write-Host "BUILD OK: the-one-setup-$ver.exe"
+      Write-Host "=== [2/4] environment ==="
+      # Recorded so the log shows what this worker has: the recipe must not need git (a
+      # `fly execute` upload is a worktree whose .git gitlink points at nothing on the worker).
+      $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+      if ($gitCmd) { Write-Host "git on PATH: yes ($($gitCmd.Source))" } else { Write-Host "git on PATH: no" }
+      $taskDir = (Get-Location).Path
+      $buildDir = Join-Path $taskDir "build"
+      $installerDir = Join-Path $taskDir "installer"
+      Write-Host "=== [3/4] build (packaging/windows/build.ps1) ==="
+      & (Join-Path $taskDir "repo\packaging\windows\build.ps1") -Out $buildDir -Python $py
+      # a throw inside the script stops this script under $ErrorActionPreference = Stop; this
+      # catches a script that ended through `exit` with a failure code instead
+      if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "build.ps1 failed ($LASTEXITCODE)" }
+      Write-Host "=== [4/4] stage artifact for s3 put ==="
+      $built = Get-ChildItem -Path $buildDir -Recurse -File -Filter "the-one-setup-*.exe" | Select-Object -First 1
+      if (-not $built) { throw "no installer under $buildDir" }
+      Copy-Item $built.FullName $installerDir
+      Get-ChildItem $installerDir | Format-Table Name,Length
+      Write-Host "BUILD OK: $($built.Name)"

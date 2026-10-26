@@ -9,7 +9,9 @@ leaves the repo untouched. Every target builds from that copy.
 
 Output: ``$M32_BUILD/stage-<target>-<version>/`` (``--out`` overrides the
 parent directory). It holds ``the_one/`` and ``icon-512.png``.
-Stdlib only. Exits non-zero on any problem.
+Stdlib only. Exits non-zero on any problem. Needs no git, except to apply a target's
+``packaging/<target>/patches/*.diff`` on macOS and Windows (``git apply``); the windows target
+has none.
 """
 
 from __future__ import annotations
@@ -33,11 +35,21 @@ def die(msg: str) -> "None":
 
 
 def repo_toplevel() -> Path:
-    r = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=REPO, capture_output=True, text=True
-    )
-    if r.returncode != 0:
-        die(f"git rev-parse failed: {r.stderr.strip()}")
+    """The repo's top level for the outside-the-repo check.
+
+    Asks git; on ANY failure (git missing, a non-zero exit such as a worktree's ``.git``
+    gitlink pointing at a path that does not exist on this host, which is what
+    ``fly execute`` uploads) falls back to the resolved location of this script's repo, so a
+    staging run needs no git. Git is then required only for a target that has patch diffs.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=REPO, capture_output=True, text=True
+        )
+    except OSError:  # FileNotFoundError: no git on PATH
+        return REPO.resolve()
+    if r.returncode != 0 or not r.stdout.strip():
+        return REPO.resolve()
     return Path(r.stdout.strip()).resolve()
 
 
@@ -98,12 +110,15 @@ def main() -> int:
             cmd = ["git", "apply", "-p1", "--verbose", str(diff)]
         else:
             cmd = ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(dest), "-i", str(diff)]
-        r = subprocess.run(
-            cmd,
-            cwd=dest if use_git else None,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            r = subprocess.run(
+                cmd,
+                cwd=dest if use_git else None,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            die(f"cannot apply {diff.name}: {cmd[0]} is not available ({exc})")
         print(r.stdout, end="")
         if r.returncode != 0:
             die(f"patch {diff.name} failed:\n{r.stdout}{r.stderr}")

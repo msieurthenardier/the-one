@@ -1,6 +1,6 @@
 # Product metadata, the one source for every installer (Mission 32, DD6).
 # Read by packaging/render.py. Consumers: the Linux recipe (packaging/linux/, Flight 2),
-# the macOS recipe (packaging/macos/, Flight 3); the Windows recipe (Flight 4) later.
+# the macOS recipe (packaging/macos/, Flight 3); the Windows recipe (packaging/windows/, Flight 4).
 # The version is not here: render.py reads it from the_one/__init__.py.
 
 display_name = "GleepGlorp AI"                       # menu name, window title, package title
@@ -31,3 +31,11 @@ bundle_executable = "the-one"                        # Contents/MacOS/<this>
 dmg_file_stem = "GleepGlorp_AI"                      # GleepGlorp_AI-<version>-arm64.dmg
 min_os = "14.0"                                      # LSMinimumSystemVersion; the bundled numpy's arm64 extensions need macOS 14
 bundle_category = "public.app-category.productivity" # LSApplicationCategoryType
+
+[windows]
+app_guid = "CAEEFB46-2698-4048-AD9F-0120D0B7174A"    # Inno AppId; the upgrade/uninstall identity. FROZEN: never change (a test pins it)
+install_dir_name = "GleepGlorp AI"                   # Program Files\<this>, the Start-menu group
+setup_file_stem = "the-one-setup"                    # the-one-setup-<version>.exe; the release path and the MinIO step match it
+cli_executable = "the-one"                           # the console exe (CLI, doctor); the one-dir folder name (no .exe)
+gui_executable = "the-one-app"                       # the windowed launcher the shortcuts run (no .exe)
+publisher = "GleepGlorp AI"                          # the Inno publisher define

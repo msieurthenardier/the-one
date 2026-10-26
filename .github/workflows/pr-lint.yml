@@ -65,8 +65,8 @@ jobs:
         run: pip install "pip-audit>=2.7"
       - name: Export release dependency closure (runtime + installer extras)
         # --extra gui --extra all-llms: audit the closure the Windows
-        # installer actually ships (windows-installer.yml installs
-        # ".[gui,all-llms]"), not just the base runtime deps — pillow's
+        # installer actually ships (packaging/windows/build.ps1 installs
+        # this locked closure), not just the base runtime deps — pillow's
         # 2026-07-28 advisories were invisible to the base-only export
         # because pillow only enters via the gui extra.
         run: uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt

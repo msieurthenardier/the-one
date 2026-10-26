@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from threading import Thread as _RealThread
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -45,6 +46,8 @@ def seams(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def _splash() -> MagicMock:
     splash = MagicMock()
     splash.events.shown.wait.return_value = True
+    splash.events.loaded.__iadd__.side_effect = lambda handler: splash.events.loaded
+    splash.events.loaded.is_set.return_value = False
     return splash
 
 
@@ -60,11 +63,13 @@ def _run(
     run_boot: bool = False,
     loaded_bound: float = 0.05,
     graceful: Any = None,
+    platform: str = "darwin",
+    splash_bound: float = 5.0,
 ) -> SimpleNamespace:
     import the_one.interfaces.desktop.shell as shell
 
     monkeypatch.setattr(shell.settings, "data_dir", tmp_path)
-    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(chrome, "os_theme", lambda: "dark")
     monkeypatch.setattr(chrome, "register", lambda w, t: None)
     splash, main = _splash(), MagicMock()
@@ -79,6 +84,8 @@ def _run(
     webview_mock.create_window.side_effect = create_effect or [splash, main]
     monkeypatch.setattr(macos_dock, "BOOT_WAIT_BOUND", 0.05)
     monkeypatch.setattr(shell, "MAIN_LOADED_BOUND", loaded_bound)
+    monkeypatch.setattr(shell, "SPLASH_LOADED_BOUND", splash_bound)
+    monkeypatch.setattr(shell, "SPLASH_SETTLE", 0.0)
 
     def _start(*args, **kwargs):
         if start_effect is not None:
@@ -586,3 +593,209 @@ def test_reopen_signature_falls_back_to_type_constants():
 
 def test_a_dock_close_state_route_reports_dock(closing):
     assert window_control.window_state()["tray"] == "dock"
+
+
+# -- squawk 0261: the darwin splash stays hidden until its own `loaded` ----------
+
+
+def _splash_loaded_handler(splash):
+    """The handler subscribed to ``splash.events.loaded`` (``+=`` recorded as a call)."""
+    return splash.events.loaded.__iadd__.call_args.args[0]
+
+
+def test_darwin_splash_is_created_hidden_and_not_shown_before_loaded(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    seen = {}
+    holder = {}
+
+    def _start(*a, **k):  # the loop is "running": the splash exists, hidden
+        splash = holder["ns_splash"]
+        seen["before"] = splash.show.call_count
+        handler = _splash_loaded_handler(splash)
+        handler()  # the splash's own `loaded`
+        seen["after"] = splash.show.call_count
+        handler()  # idempotent
+        seen["again"] = splash.show.call_count
+
+    _run(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        start_effect=_start,
+        create_effect=_capture_splash(holder),
+    )
+    assert webview_mock.create_window.call_args_list[0].kwargs["hidden"] is True
+    assert seen == {"before": 0, "after": 1, "again": 1}
+
+
+def _capture_splash(holder):
+    created = []
+
+    def _make(*a, **k):
+        w = MagicMock()
+        if not created:
+            w = _splash()
+            holder["ns_splash"] = w
+        created.append(w)
+        return w
+
+    return _make
+
+
+def test_darwin_splash_bound_shows_it_when_loaded_never_comes(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    import threading
+
+    shown = threading.Event()
+    reached = []
+
+    def _wait(*a, **k):  # runs in _boot, after the bound thread started
+        reached.append(shown.wait(5))
+
+    holder = {}
+
+    def _make(*a, **k):
+        w = _splash() if "s" not in holder else MagicMock()
+        if "s" not in holder:
+            w.show.side_effect = lambda: shown.set()
+            holder["s"] = w
+        return w
+
+    ns = _run(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        run_boot=True,
+        splash_bound=0.05,
+        wait_effect=_wait,
+        loaded_is_set=False,
+        loaded_bound=0.01,
+        create_effect=_make,
+    )
+    assert reached == [True]  # the bound, not `loaded`, showed it
+    assert holder["s"].show.call_count == 1
+    assert ns.error is None
+
+
+def test_darwin_splash_not_shown_after_it_was_destroyed(webview_mock, tmp_path, monkeypatch, seams):
+    ns = _run(webview_mock, tmp_path, monkeypatch, loaded_is_set=True, run_boot=True)
+    # main loaded first: the splash is destroyed while still hidden, never shown
+    ns.splash.destroy.assert_called_once()
+    ns.splash.show.assert_not_called()
+    _splash_loaded_handler(ns.splash)()  # a late splash `loaded` after the destroy
+    ns.splash.show.assert_not_called()
+
+
+def test_darwin_splash_not_shown_after_the_main_window_is_shown(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    # main's page never reports loaded: it is shown at the fallback bound and the splash
+    # is neither destroyed nor closed, so only the `_main_shown` guard can stop the show
+    ns = _run(
+        webview_mock, tmp_path, monkeypatch, run_boot=True, loaded_is_set=False, loaded_bound=0.01
+    )
+    assert ns.error is None
+    ns.main.show.assert_called()
+    ns.splash.destroy.assert_not_called()
+    _splash_loaded_handler(ns.splash)()
+    ns.splash.show.assert_not_called()
+
+
+def test_darwin_splash_not_shown_once_a_quit_was_requested(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    seen = {}
+
+    def _start(*a, **k):
+        with state.lock:
+            state.quit_requested = True  # only quit_was_requested() sees this
+        seen["blocked_flags"] = (state.terminate_pending, state.really_quit, state.loop_stopped)
+        _splash_loaded_handler(holder["s"])()
+
+    holder = {}
+
+    def _make(*a, **k):
+        if "s" in holder:
+            return MagicMock()
+        holder["s"] = _splash()
+        return holder["s"]
+
+    _run(webview_mock, tmp_path, monkeypatch, start_effect=_start, create_effect=_make)
+    assert seen["blocked_flags"] == (False, False, False)
+    holder["s"].show.assert_not_called()
+
+
+def test_darwin_splash_concurrent_show_attempts_show_once(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    import threading
+    import time
+
+    holder = {}
+
+    def _make(*a, **k):
+        if "s" in holder:
+            return MagicMock()
+        w = holder["s"] = _splash()
+        w.show.side_effect = lambda: time.sleep(0.05)  # widen the race window
+        return w
+
+    def _start(*a, **k):
+        handler = _splash_loaded_handler(holder["s"])
+        barrier = threading.Barrier(2)
+
+        def _go():
+            barrier.wait()
+            handler()
+
+        threads = [_RealThread(target=_go) for _ in range(2)]  # _run patches threading.Thread
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    _run(webview_mock, tmp_path, monkeypatch, start_effect=_start, create_effect=_make)
+    assert holder["s"].show.call_count == 1
+
+
+def test_darwin_bound_thread_start_failure_shows_the_splash_directly(
+    webview_mock, tmp_path, monkeypatch, seams
+):
+    import the_one.interfaces.desktop.shell as shell
+
+    def _boom(target):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(shell, "_start_daemon", _boom)
+    holder = {}
+
+    def _make(*a, **k):
+        if "s" in holder:
+            return MagicMock()
+        holder["s"] = _splash()
+        return holder["s"]
+
+    ns = _run(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        run_boot=True,
+        loaded_is_set=True,
+        create_effect=_make,
+    )
+    assert ns.error is None
+    assert state.boot_stopped.is_set()
+    holder["s"].show.assert_called_once_with()
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux", "freebsd13"])
+def test_other_policies_keep_the_visible_splash(
+    webview_mock, tmp_path, monkeypatch, seams, platform
+):
+    ns = _run(webview_mock, tmp_path, monkeypatch, platform=platform)
+    assert webview_mock.create_window.call_args_list[0].kwargs["hidden"] is False
+    # no loaded subscription, no show: today's behaviour
+    ns.splash.events.loaded.__iadd__.assert_not_called()
+    ns.splash.show.assert_not_called()

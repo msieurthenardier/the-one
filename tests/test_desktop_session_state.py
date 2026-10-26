@@ -26,6 +26,7 @@ def test_defaults():
     assert st.browser_server is None
     assert st.server is None and st.thread is None
     assert st.boot_stopped.is_set() is False
+    assert st._policy is None  # the policy is unset until first read
     assert isinstance(st.lock, type(threading.Lock()))
 
 
@@ -42,6 +43,7 @@ def test_reset_restores_every_field_in_place():
     st.browser_server = object()
     st.server, st.thread = object(), object()
     st.boot_stopped.set()
+    _ = st.policy
     st.reset()
     assert vars(st).keys() == vars(SessionState()).keys()
     assert st.really_quit is False and st.desktop_window is None and st.tray_mode is None
@@ -49,6 +51,7 @@ def test_reset_restores_every_field_in_place():
     assert st.booting is False and st.quit_requested is False and st.browser_server is None
     assert st.server is None and st.thread is None
     assert st.boot_stopped.is_set() is False
+    assert st._policy is None
     # the same lock and event objects: reset never rebinds them
     assert st.lock is lock and st.boot_stopped is event
 

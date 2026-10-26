@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import webbrowser
+from threading import Thread as _RealThread  # unaffected by a patched threading.Thread
 
 import httpx
 import uvicorn
@@ -43,6 +44,21 @@ log = logging.getLogger(__name__)
 # scan, App Translocation) a few; 12 s is generous, yet inside the 15 s server wait and the
 # 25 s splash handler wait, so a page that never reports `loaded` still shows a window.
 MAIN_LOADED_BOUND = 12.0
+# macOS splash (squawk 0261): the splash is created hidden and shown once its own page
+# has loaded. If `loaded` never comes it is shown after this many seconds anyway
+# (a splash that merely appears late beats none; well under the ~1.6 s typical boot
+# the user would otherwise see blank). Then a short settle lets the ordered-out
+# WKWebView paint before it is ordered in (a fixed sleep, not an evaluate_js round
+# trip, which could itself block on a never-shown view).
+SPLASH_LOADED_BOUND = 2.0
+SPLASH_SETTLE = 0.15
+
+
+def _start_daemon(target) -> None:
+    """Start ``target`` on a daemon thread (the real ``Thread``, bound at import, so a
+    test that patches ``threading.Thread`` does not turn it into a mock)."""
+    _RealThread(target=target, daemon=True).start()
+
 
 _TRAY_NOTICE_TITLE = "GleepGlorp AI is still running"
 _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
@@ -54,12 +70,16 @@ _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
 # it is destroyed once the main window's `loaded` event fires.
 # HAT-deferred (Leg 7): visual appearance on real Windows.
 #
-# The brand logo (gleepglorp_med.png) is embedded as a base64 data URI read at
+# The brand logo (gleepglorp_splash.png, 320 px, ~125 KB; regenerate with
+# ``Image.open("gleepglorp_med.png").resize((320, 320), Image.LANCZOS).save(
+# "gleepglorp_splash.png", optimize=True)``) is embedded as a base64 data URI read at
 # runtime from the bundled static asset.  The spec file
 # (packaging/windows/the_one.spec) collects interfaces/web/static/**/* via
-# collect_data_files so gleepglorp_med.png IS in the bundle at
-# static/brand/gleepglorp_med.png.  Resolution uses STATIC_DIR from web.app
-# (a Path(__file__).parent / "static" that resolves under _MEIPASS correctly).
+# collect_data_files so the logo IS in the bundle at
+# static/brand/gleepglorp_splash.png.  It must stay small: WebView2's NavigateToString
+# rejects HTML over ~2 MB (squawk 0263), and the full 1024 px logo overran it.
+# Resolution uses STATIC_DIR
+# from web.app (a Path(__file__).parent / "static" that resolves under _MEIPASS correctly).
 # The import is lazy (inside the builder function) to avoid circular-import risk
 # at module-load time.  If the asset is unreadable for any reason the builder
 # falls back to the text-only HTML and logs a warning — a splash-asset failure
@@ -148,7 +168,7 @@ _SPLASH_TEXT_ONLY = _splash_text_only("dark")
 def _splash_html(theme: str = "dark") -> str:
     """Build the splash HTML, embedding the brand logo as a base64 data URI.
 
-    Reads gleepglorp_med.png from the bundled static directory at runtime and
+    Reads gleepglorp_splash.png from the bundled static directory at runtime and
     inlines it as ``<img src="data:image/png;base64,...">``.  This works both
     in development (filesystem) and in a PyInstaller freeze (_MEIPASS puts the
     collected static tree at the same path relative to web/app.py).
@@ -169,7 +189,7 @@ def _splash_html(theme: str = "dark") -> str:
     try:
         from the_one.interfaces.web.app import STATIC_DIR  # lazy — safe post web.app import
 
-        logo_path = STATIC_DIR / "brand" / "gleepglorp_med.png"
+        logo_path = STATIC_DIR / "brand" / "gleepglorp_splash.png"
         logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         logo_src = f"data:image/png;base64,{logo_b64}"
     except Exception:
@@ -283,7 +303,7 @@ def _webview_available() -> bool:
     Gtk/WebKit2 (importing can init GLib / touch a display / hang on headless).
     Catches ImportError (no gi) and ValueError (typelib absent).
     """
-    if sys.platform in ("win32", "darwin"):
+    if state.policy.webview_assumed_present:
         return True  # WebView2 (Win) / WKWebView (mac) assumed present
     if not desktop_host.host_has_desktop_gtk():
         return False  # same predicate `the-one doctor` uses
@@ -333,6 +353,10 @@ class DesktopSession:
     def __init__(self) -> None:
         self._icon = None  # pystray icon reference (only this session owns it)
         self._window = None  # pywebview Window — set in run() after create_window
+        # run()'s idempotent splash teardown, bound once the splash exists. A quit
+        # that destroys the main window before its ``loaded`` fires must also close
+        # the splash, or ``webview.start`` never returns and the server never drains.
+        self._destroy_splash = None
 
     # ── geometry helper ───────────────────────────────────────────────────────
 
@@ -410,6 +434,7 @@ class DesktopSession:
                 state.desktop_window.hide()
             except Exception:
                 return False
+            window_control._mark_hidden()
         return True
 
     def _on_closing(self) -> bool:
@@ -535,6 +560,10 @@ class DesktopSession:
             if not window_control._is_gtk_backend():  # on GTK, closing saves it (main thread)
                 self._save_current_geometry(state.desktop_window)
             state.desktop_window.destroy()
+        # ``loaded`` never fires for a destroyed window, so its handler will not close
+        # the splash: do it here (idempotent; a no-op on macOS once a quit is under way).
+        if self._destroy_splash is not None:
+            self._destroy_splash()
 
     # ── main run sequence ─────────────────────────────────────────────────────
 
@@ -553,11 +582,14 @@ class DesktopSession:
         # Reset process-local state on each launch (e.g. if run_desktop() is called
         # more than once in tests after a reload).
         state.reset()
+        # Bound once, right after the reset: the _boot thread and its closures use this
+        # binding, so there is no first-read race and no mid-run flip.
+        policy = state.policy
         state.session = self
-        if sys.platform == "darwin":
-            # Dock mode (M32 F3 DD2): set BEFORE webview.start so no tray_mode=None gap
-            # lets _on_closing allow a destroy; pystray is never imported on macOS.
-            state.tray_mode = "dock"
+        if policy.initial_tray_mode is not None:
+            # Dock mode (M32 F3 DD2, macOS): set BEFORE webview.start so no tray_mode=None
+            # gap lets _on_closing allow a destroy; pystray is never imported there.
+            state.tray_mode = policy.initial_tray_mode
         chrome.reset()
 
         host, port = settings.host, settings.port
@@ -671,7 +703,9 @@ class DesktopSession:
                     # First launch: width and height only (no x/y, so WinForms'
                     # CenterScreen places the window).
                     try:
-                        _fw, _fh = first_launch_size(_resolve_screens(), sys.platform)
+                        _fw, _fh = first_launch_size(
+                            _resolve_screens(), policy.first_launch_platform
+                        )
                         _create_kwargs["width"] = _fw
                         _create_kwargs["height"] = _fh
                     except Exception:
@@ -700,9 +734,10 @@ class DesktopSession:
                     width=400,
                     height=300,
                     background_color=launch_bg,
+                    hidden=policy.splash_hidden_until_loaded,
                 )
 
-                if sys.platform == "win32":
+                if policy.splash_border:
                     # before_show is a locked event: it runs on the UI thread inside
                     # create(), before the first Show. The parameter must be named
                     # `window` for pywebview to pass the window.
@@ -716,6 +751,7 @@ class DesktopSession:
                 # (The loaded handler runs on a daemon thread; a plain bool flag
                 # has a TOCTOU window.)
                 _splash_closed = threading.Event()
+                _splash_destroy_claim = threading.Lock()
                 # Set once the main window is visible: the splash stays until then
                 # (a hidden window can finish loading before show()).
                 _main_shown = threading.Event()
@@ -726,7 +762,7 @@ class DesktopSession:
                 _boot_errored = threading.Event()
 
                 def _splash_blocked() -> bool:
-                    return sys.platform == "darwin" and (
+                    return policy.splash_blocked_in_quit_states and (
                         state.terminate_pending
                         or state.really_quit
                         or state.loop_stopped
@@ -735,14 +771,59 @@ class DesktopSession:
 
                 def _destroy_splash() -> None:
                     """Destroy the splash window — idempotent (safe to call twice)."""
-                    if _splash_closed.is_set() or _splash_blocked():
-                        return
-                    _splash_closed.set()
+                    with _splash_destroy_claim:
+                        if _splash_closed.is_set() or _splash_blocked():
+                            return
+                        _splash_closed.set()
                     try:
                         splash.destroy()
                     except Exception:
                         log.debug("splash.destroy() raised (already gone)", exc_info=True)
 
+                self._destroy_splash = _destroy_splash
+
+                # macOS (squawk 0261): the splash is created hidden (pywebview 5.4
+                # cocoa.py first_show sets `shown` even for a hidden window, so the
+                # `shown.wait(15)` in _boot does not block, and the loop starts with
+                # only this window) and shown here, after its own `loaded` or the
+                # bound. Window.show() is `_shown_call`-wrapped (window.py), so a call
+                # from this handler/timer thread is safe. The splash exists before
+                # start(), so subscribing right here cannot race its `loaded`.
+                _splash_shown = threading.Event()
+                _splash_claim = threading.Lock()
+
+                def _show_splash(settle: float = 0.0) -> None:
+                    if _splash_shown.is_set():
+                        return
+                    if settle and _splash_closed.wait(settle):
+                        return
+                    if (
+                        _splash_closed.is_set()
+                        or _main_shown.is_set()
+                        or _splash_blocked()
+                        or state.quit_was_requested()
+                    ):
+                        return
+                    with _splash_claim:  # set-once: the first caller claims the show
+                        if _splash_shown.is_set():
+                            return
+                        _splash_shown.set()
+                    try:
+                        splash.show()
+                    except Exception:
+                        log.debug("splash.show() raised (already gone)", exc_info=True)
+
+                def _splash_bound() -> None:
+                    # The bound, on a daemon thread started when the loop is up. It wakes
+                    # early (and does nothing) once the splash is destroyed, and the same
+                    # guards as the `loaded` path keep it from touching a gone window.
+                    if not _splash_closed.wait(SPLASH_LOADED_BOUND):
+                        _show_splash()
+
+                if policy.splash_hidden_until_loaded:
+                    splash.events.loaded += lambda: _show_splash(SPLASH_SETTLE)
+                    if splash.events.loaded.is_set():  # backstop; cannot normally fire yet
+                        _show_splash(SPLASH_SETTLE)
                 # ── / Splash setup ───────────────────────────────────────────
 
                 def _boot() -> None:
@@ -780,7 +861,7 @@ class DesktopSession:
                         if not state.quit_was_requested():
                             return False
                         _main_shown.set()
-                        if sys.platform == "darwin":
+                        if policy.quit_in_boot_stops_without_destroy:
                             # DD3: stop without publishing; the terminate path (or path S)
                             # owns the exit. Never terminate_/destroy from here.
                             return True
@@ -795,6 +876,13 @@ class DesktopSession:
                         return True
 
                     try:
+                        if policy.splash_hidden_until_loaded:
+                            try:
+                                _start_daemon(_splash_bound)
+                            except Exception:
+                                # Nothing here may raise into _boot: show the splash now.
+                                log.warning("splash bound thread did not start", exc_info=True)
+                                _show_splash()
                         # Step 1 — ensure splash is shown before any teardown attempt.
                         splash.events.shown.wait(15)
                         if _abort_if_quit():
@@ -845,7 +933,7 @@ class DesktopSession:
                         if _abort_if_quit():
                             return
                         chrome.register(main_win, launch_theme)
-                        if sys.platform == "darwin":
+                        if policy.wait_for_page_before_show:
                             # An unpainted main window ordered in front of the splash shows
                             # a dark empty body (HAT P1): keep it hidden until its page has
                             # loaded, so the splash stays visible meanwhile. Bounded.
@@ -876,7 +964,7 @@ class DesktopSession:
                         try:
                             window_control._show_window(main_win)
                         except Exception:
-                            if sys.platform != "win32":
+                            if not policy.native_show_fallback:
                                 log.exception("main window show() raised")
                                 raise
                             log.warning(
@@ -903,9 +991,9 @@ class DesktopSession:
                         # behaviour until the no-tray hide lands, leg 5).
                         try:
                             tray_backend = None
-                            if sys.platform == "darwin":
+                            if policy.tray.skip:
                                 raise _NoTrayError  # dock mode: no tray, pystray not imported
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.detect:
                                 tray_backend = desktop_host.choose_pystray_backend()
                                 mode, reason = desktop_host.detect_tray(tray_backend)
                                 if mode in ("none", "unavailable"):
@@ -925,12 +1013,12 @@ class DesktopSession:
                                     on_show=self._on_show, on_quit=self._on_quit
                                 )
                             self._icon.run_detached()
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.records_tray_mode:
                                 state.tray_mode = mode
                         except _NoTrayError:
                             pass
                         except Exception:
-                            if sys.platform.startswith("linux"):
+                            if policy.tray.records_tray_mode:
                                 state.tray_mode = "failed"
                             log.warning(
                                 "System tray unavailable — close button will exit the app"
@@ -944,7 +1032,7 @@ class DesktopSession:
                         # published window. ``_on_quit`` runs after the lock is released.
                         quit_now = state.publish_window(main_win)
                         self._window = main_win
-                        if quit_now and sys.platform == "darwin":
+                        if quit_now and policy.publish_quit_left_to_terminate:
                             _main_shown.set()  # the terminate path owns the exit
                         elif quit_now:
                             # The window may be destroyed before its ``loaded`` fires,
@@ -957,7 +1045,7 @@ class DesktopSession:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
                         state.clear_booting()
                         _main_shown.set()  # release a waiting loaded handler
-                        if sys.platform == "darwin":
+                        if policy.boot_error_terminates:
                             # No destroy (it would stop the loop mid-boot); one terminate_
                             # lets the delegate drain the server, unless one is pending.
                             _boot_errored.set()
@@ -987,14 +1075,14 @@ class DesktopSession:
                 # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
                 storage_dir = settings.data_dir / "webview"
                 storage_dir.mkdir(parents=True, exist_ok=True)
-                if sys.platform == "darwin":
+                if policy.installs_dock:
                     macos_dock.install(self)
                 webview.start(  # blocks until all windows closed (or Quit → destroy)
                     _boot,
                     private_mode=False,
                     storage_path=str(storage_dir),
                 )
-                if sys.platform == "darwin":
+                if policy.runs_path_s:
                     path_s = True
                     self._path_s_begin()
             else:
@@ -1024,7 +1112,7 @@ class DesktopSession:
 
                 handoff_token = mint_handoff_credential()
                 url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
-                if sys.platform.startswith("linux"):
+                if policy.browser_fallback_notification:
                     desktop_host.send_notification("GleepGlorp AI", _no_webview_body())
                 webbrowser.open(url)
                 if server is not None:

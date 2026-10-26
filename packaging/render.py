@@ -3,7 +3,8 @@
 
 Stdlib only (tomllib, Python 3.11 or newer).
 
-    render.py --repo R --template T [--set K=V ...]   print the rendered template
+    render.py --repo R --template T [--set K=V ...] [--out FILE]
+                                                      print (or write) the rendered template
     render.py --repo R --json [--set K=V ...]         print the values as JSON
     render.py --next-version V                        print the next dev version above V
 
@@ -11,7 +12,12 @@ A template holds ``@KEY@`` placeholders (uppercase letters, digits and underscor
 starting with a letter, so an address such as ``noreply@invalid`` is never touched). A key
 with no value is an error, except the RESERVED names, which are filled later (at install
 time by AppRun, or by build-inner.sh) and are left as they are unless ``--set`` gives them
-a value. A template whose name ends in ``.xml.in`` has its values XML-escaped.
+a value. A template whose name ends in ``.xml.in`` has its values XML-escaped. A template
+whose name ends in ``.iss.in`` (Inno Setup) has every ``"`` in a value doubled (ISPP string
+syntax) and refuses a value holding a newline.
+
+``--out FILE`` writes the rendered text to FILE as UTF-8 with LF line endings and no BOM (the
+same text stdout gets, byte for byte on a POSIX host); it is what the Windows build uses.
 """
 
 from __future__ import annotations
@@ -155,8 +161,12 @@ def load(repo: Path | str, overrides: dict[str, str] | None = None) -> dict[str,
     return values
 
 
-def render(template: str, values: dict[str, str], *, xml: bool = False) -> str:
-    """Replace ``@KEY@`` with ``values['key']``; raise on a key with no value."""
+def render(template: str, values: dict[str, str], *, xml: bool = False, iss: bool = False) -> str:
+    """Replace ``@KEY@`` with ``values['key']``; raise on a key with no value.
+
+    ``iss`` escapes for an ISPP string literal: ``"`` becomes ``""``, and a value with a
+    newline is refused (it would end the ``#define`` line).
+    """
     upper = {k.upper(): v for k, v in values.items()}
     missing: list[str] = []
 
@@ -171,6 +181,10 @@ def render(template: str, values: dict[str, str], *, xml: bool = False) -> str:
             return m.group(0)
         if xml:
             val = val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if iss:
+            if "\n" in val or "\r" in val:
+                raise RenderError(f"value of {key} holds a newline; an .iss.in value must not")
+            val = val.replace('"', '""')
         return val
 
     out = PLACEHOLDER_RE.sub(sub, template)
@@ -187,9 +201,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--template")
     mode.add_argument("--json", action="store_true")
     ap.add_argument("--set", action="append", default=[], metavar="K=V")
+    ap.add_argument("--out", metavar="FILE", help="with --template: write FILE, not stdout")
     args = ap.parse_args(argv)
     if args.next_version is None and not args.repo:
         ap.error("--repo is required")
+    if args.out and not args.template:
+        ap.error("--out needs --template")
     overrides: dict[str, str] = {}
     for item in args.set:
         key, sep, val = item.partition("=")
@@ -205,9 +222,17 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(values, indent=2, sort_keys=True))
         else:
             tpl = Path(args.template)
-            sys.stdout.write(
-                render(tpl.read_text(encoding="utf-8"), values, xml=tpl.name.endswith(".xml.in"))
+            text = render(
+                tpl.read_text(encoding="utf-8"),
+                values,
+                xml=tpl.name.endswith(".xml.in"),
+                iss=tpl.name.endswith(".iss.in"),
             )
+            if args.out:
+                # bytes, so a Windows host writes LF and no BOM (text mode would write CRLF)
+                Path(args.out).write_bytes(text.replace("\r\n", "\n").encode("utf-8"))
+            else:
+                sys.stdout.write(text)
     except (RenderError, OSError, ValueError) as exc:
         print(f"render.py: error: {exc}", file=sys.stderr)
         return 1

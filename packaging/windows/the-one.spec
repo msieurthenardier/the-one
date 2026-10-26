@@ -5,13 +5,19 @@ This is the checked-in build *contract*: hidden-imports, native-binary
 collection, and the web static-asset tree are versioned here rather than passed
 as ad-hoc CLI flags, so the freeze recipe is reviewable and reproducible.
 
-Build (native Windows only — see packaging/windows/README.md):
+Build (native Windows only; see packaging/windows/README.md): use the recipe,
+packaging\\windows\\build.ps1, which stages the source (packaging/stage.py --target windows),
+sets M32_STAGE and runs
 
-    pip install -e ".[gui,all-llms]"
-    pip install pyinstaller
-    pyinstaller --noconfirm packaging/windows/the-one.spec
+    pyinstaller --noconfirm --clean --workpath <Out>\\work-<V> --distpath <Out>\\dist-<V> \\
+        packaging\\windows\\the-one.spec
 
-Output one-dir: dist/the-one/the-one.exe  (DD1 one-dir, NOT one-file).
+Output one-dir: <distpath>\\the-one\\the-one.exe  (DD1 one-dir, NOT one-file).
+
+Environment:
+    M32_STAGE   the staged copy of the_one/ (packaging/stage.py output). REQUIRED. The project
+                is never installed (no `pip install -e .`): only this copy is importable by the
+                freeze, so the bundle carries the staged version and nothing unpatched.
 
 IMPORTANT — build host: PyInstaller must run on **native Windows** (not WSL2).
 The load-bearing native deps (pywinpty, pywebview->pythonnet) only install on
@@ -31,14 +37,21 @@ A VSVersionInfo resource is optional polish, out of scope for this unsigned leg.
 import os
 import sys
 
-# Put the repo root on sys.path BEFORE importing the_one — this import runs at
-# spec-load time, before Analysis(pathex=...) takes effect. SPECPATH is the dir
-# containing this spec (packaging/windows/); the repo root is two parents up.
-_REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir, os.pardir))  # noqa: F821
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+# The staged copy goes at the FRONT of sys.path before any collect_* call below: those helpers
+# import the_one in-process, and collect_data_files("the_one") reads the package directory, so
+# both must see the staged copy. The repo root is never put on sys.path. packaging/ is added only
+# for `import render` (the product names). SPECPATH is the dir containing this spec
+# (packaging/windows/), so Analysis(["frozen_entry.py"]) and icon= below keep resolving from it.
+_STAGE = os.environ.get("M32_STAGE")
+if not _STAGE or not os.path.isdir(os.path.join(_STAGE, "the_one")):
+    raise SystemExit("the-one.spec: set M32_STAGE to a stage.py output directory")
+_STAGE = os.path.abspath(_STAGE)
+_PACKAGING = os.path.abspath(os.path.join(SPECPATH, os.pardir))  # noqa: F821
+_REPO = os.path.abspath(os.path.join(_PACKAGING, os.pardir))  # read-only: product.toml lives here
+sys.path.insert(0, _PACKAGING)
+sys.path.insert(0, _STAGE)
 
-from PyInstaller.utils.hooks import (  # noqa: E402  (must follow the sys.path insert)
+from PyInstaller.utils.hooks import (  # noqa: E402  (must follow the sys.path inserts)
     collect_all,
     collect_data_files,
     collect_dynamic_libs,
@@ -46,18 +59,22 @@ from PyInstaller.utils.hooks import (  # noqa: E402  (must follow the sys.path i
     copy_metadata,
 )
 
-from the_one import __version__  # noqa: E402  (must follow the sys.path insert)
+import render  # noqa: E402  (packaging/render.py)
+from the_one import __version__  # noqa: E402  (the staged copy, version rewritten by stage.py)
 
-# Runtime source of truth (the_one/__init__.py), NOT the stale pyproject 0.1.0.
+# Runtime source of truth: the STAGED the_one/__init__.py (stage.py wrote the build's version).
 # Used for the EXE / dist-dir name and the version comment below — NOT passed to
 # EXE(version=...): that keyword wants a VSVersionInfo resource, and a bare
 # string breaks the build (see module docstring).
 APP_VERSION = __version__  # "0.2.0"
-APP_NAME = "the-one"  # the-one.exe / dist/the-one/  (the-one v{APP_VERSION})
+# The two exe names come from packaging/product.toml [windows] (one source with the .iss).
+PRODUCT = render.load(_REPO, {"version": APP_VERSION})
+APP_NAME = PRODUCT["cli_executable"]  # the-one.exe / dist/the-one/  (the-one v{APP_VERSION})
+GUI_NAME = PRODUCT["gui_executable"]  # the-one-app.exe (windowed)
 
 # Surface the version in the PyInstaller build log so the bundle's provenance is
 # visible (and so APP_VERSION is load-bearing, not just a comment).
-print(f"[the-one.spec] freezing {APP_NAME} v{APP_VERSION} (one-dir, Windows)")
+print(f"[the-one.spec] freezing {APP_NAME} v{APP_VERSION} from {_STAGE} (one-dir, Windows)")
 
 # ── DD7 collection contract ──────────────────────────────────────────────────
 # uvicorn: collect_all pulls its loops.auto / protocols.*.auto string-imports
@@ -354,7 +371,7 @@ excludes = ["hf_xet"]
 # Both share the same collection inputs; MERGE de-dupes the shared payload so the
 # ~38 MB of deps isn't bundled twice in the one-dir.
 _analysis_kwargs = dict(
-    pathex=[_REPO_ROOT],
+    pathex=[_STAGE],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -371,8 +388,8 @@ a_gui = Analysis(["frozen_entry_gui.py"], **_analysis_kwargs)
 # De-dupe shared binaries/datas/pyz across the two exes: a_cli owns the shared
 # files; a_gui references them (so the one-dir carries one copy).
 MERGE(  # noqa: F821  (PyInstaller spec global)
-    (a_cli, "the-one", "the-one"),
-    (a_gui, "the-one-app", "the-one-app"),
+    (a_cli, APP_NAME, APP_NAME),
+    (a_gui, GUI_NAME, GUI_NAME),
 )
 
 pyz_cli = PYZ(a_cli.pure)
@@ -403,7 +420,7 @@ exe_gui = EXE(
     a_gui.scripts,
     [],
     exclude_binaries=True,
-    name=f"{APP_NAME}-app",  # the-one-app.exe  (windowed — Start-menu shortcut)
+    name=GUI_NAME,  # the-one-app.exe  (windowed — Start-menu shortcut)
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

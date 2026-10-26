@@ -7,7 +7,7 @@ name: linux-packages
 # and 4, on the .deb gate 3 (the window) and single instance, and (on the AppImage) the browser fallback of DD14. The upgrade check needs two
 # versions, so it is reported N/A here and is proven locally and in the VMs.
 #
-# Publishes nothing and reads no repository secrets; artifacts: the two packages (3 days) and the logs and
+# Publishes nothing and reads no repository secrets; artifacts: the two packages (14 days, so a failed release publish can be re-run) and the logs and
 # evidence (7 days). Dispatch-only, so it never runs on a push, PR or tag:
 #
 #   gh workflow run linux-packages.yml --ref flight/02-linux-packages [-f version=0.11.9.dev12]
@@ -137,7 +137,7 @@ jobs:
         with:
           name: linux-packages
           path: ${{ runner.temp }}/m32-build/packages
-          retention-days: 3
+          retention-days: 14
           if-no-files-found: error
 
       - name: Upload the logs

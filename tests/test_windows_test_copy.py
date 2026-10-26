@@ -1052,29 +1052,55 @@ def test_parser_has_resize_and_splash_series():
         p.parse_args(["resize", "--width", "400"])
 
 
-def test_needles_match_ci_foreach_list() -> None:
-    yml = (
-        Path(__file__).parent.parent / "ci" / "tasks" / "windows-installer-build.yml"
-    ).read_text()
-    m = re.search(r"foreach \(\$needle in @\((.*?)\)\)", yml)
-    assert m, "foreach needle list not found in the CI task"
-    assert tuple(re.findall(r'"([^"]+)"', m.group(1))) == h.NEEDLES
+_BUILD_PS1 = Path(__file__).parent.parent / "packaging" / "windows" / "build.ps1"
 
 
-def test_closure_commands_match_ci_task() -> None:
-    """Squawk 0124: the helper's dependency closure equals the CI Windows build's."""
-    yml = (
-        Path(__file__).parent.parent / "ci" / "tasks" / "windows-installer-build.yml"
-    ).read_text()
-    m = re.search(r"-m uv export (.+?) > release-requirements\.txt", yml)
-    assert m, "uv export line not found in the CI task"
-    assert tuple(m.group(1).split()) == h.CLOSURE_UV_EXPORT_ARGS
-    m = re.search(r"-m pip install (-r release-requirements\.txt .+)", yml)
-    assert m, "pip install -r line not found in the CI task"
-    assert tuple(m.group(1).split()) == tuple(
-        "release-requirements.txt" if a == "{requirements}" else a
-        for a in h.CLOSURE_PIP_REQUIREMENTS_ARGS
-    )
-    m = re.search(r"-m pip install (-e \. .+)", yml)
-    assert m, "pip install -e line not found in the CI task"
-    assert tuple(m.group(1).split()) == h.CLOSURE_PIP_EDITABLE_ARGS
+def test_needles_match_build_ps1_list() -> None:
+    """The helper's needles are the Windows recipe's (build.ps1) list, which adds the desktop
+    shell and child-spawn gates after them."""
+    ps1 = _BUILD_PS1.read_text(encoding="utf-8")
+    m = re.search(r"function Get-DoctorNeedles \{\s*return @\((.*?)\n\s*\)\s*\}", ps1, re.S)
+    assert m, "Get-DoctorNeedles list not found in build.ps1"
+    recipe = tuple(re.findall(r"'([^']+)'", m.group(1)))
+    assert recipe[: len(h.NEEDLES)] == h.NEEDLES
+    assert recipe[len(h.NEEDLES) :] == ("desktop shell: OK", "child spawn: OK")
+
+
+def test_closure_commands_match_build_ps1() -> None:
+    """Squawk 0124: the helper's dependency closure equals the Windows recipe's.
+
+    build.ps1 adds only ``--frozen`` (uv export), ``--output-file`` and ``--require-hashes``
+    (pip), which the helper does not need. The helper keeps its editable project install (its
+    non-frozen runs import the copy); the recipe never installs the project.
+    """
+    ps1 = _BUILD_PS1.read_text(encoding="utf-8")
+    m = re.search(r"-m uv export (.+?) --output-file", ps1)
+    assert m, "uv export line not found in build.ps1"
+    assert tuple(a for a in m.group(1).split() if a != "--frozen") == h.CLOSURE_UV_EXPORT_ARGS
+    m = re.search(r"-m pip install (--require-hashes .+? -r \$reqs)", ps1)
+    assert m, "pip install -r line not found in build.ps1"
+    flags = {a for a in m.group(1).split() if a.startswith("--") and a != "--require-hashes"}
+    assert flags == {a for a in h.CLOSURE_PIP_REQUIREMENTS_ARGS if a.startswith("--")}
+    assert "pip install -e" not in ps1
+
+
+# ---------------------------------------------------------------- the staged freeze (M32 F4)
+
+
+def test_freeze_plan_stages_and_sets_m32_stage() -> None:
+    vpy = ROOT + "\\venv\\Scripts\\python.exe"
+    plan = h.freeze_plan(ROOT, vpy, "0.11.9.dev1")
+    assert plan["env"] == {"M32_STAGE": ROOT + "\\stage\\stage-windows-0.11.9.dev1"}
+    stage = plan["stage_cmd"]
+    assert stage[0] == vpy and stage[1].endswith("packaging\\stage.py")
+    assert stage[stage.index("--target") + 1] == "windows"
+    assert stage[stage.index("--version") + 1] == "0.11.9.dev1"
+    assert stage[stage.index("--out") + 1] == ROOT + "\\stage"
+    assert plan["freeze_cmd"][-1] == "packaging/windows/the-one.spec"
+
+
+def test_op_freeze_runs_stage_before_pyinstaller_with_the_env() -> None:
+    src = Path(_PATH).read_text(encoding="utf-8")
+    body = src[src.index("def op_freeze") : src.index("def op_doctor(")]
+    assert body.index('plan["stage_cmd"]') < body.index('plan["freeze_cmd"]')
+    assert 'freeze_env.update(plan["env"])' in body
