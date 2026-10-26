@@ -587,3 +587,20 @@ The splash embedded the 1024 px logo as a data URI (2,328,661 characters), over 
   - **Squawk 0263 verified:** zero `NavigateToString` failures from the new builds; the three matching lines are one trace from pid 1624, the old v0.11.8 app. The squawk is completed.
   - **Hosted Windows lifecycle runs: 5,** the 5th approved by the operator. macOS: 2 of 4.
 - **The operator approved the v0.12.0 release notes (2026-10-26)** "with the additions": two Fixed lines (the Windows startup screen, squawk 0263; quitting right after launch, the dry-run fix).
+- **The flight-end gates on the final code** (`a7b5102` plus the approved notes; the desktop shell is final):
+  - `make test-unit`: 7604 passed, 12 skipped, 2987 deselected (355 s; started at a quiet moment, 22:49).
+  - Browser, every lane (`--parallel 3`, netns, WebKit required): `PARALLEL_RESULT rc=0 total=1557s lanes=13 failed=-`. Each lane is within budget: routing 554/600, agents 480/540, chats 425/450, mcp 364/450, knowledge 316/420, providers 352/420, contracts-controls 358/420, shared 332/420, agent-tabs 314/360, settings 280/360, settings-tools 252/330, contracts-overlay 215/270, library 158/210.
+  - Ruff clean.
+  - Mission 31 started a single-file browser run (`test_flow_studio_mcp_editor.py`) about 6 minutes into this gate, so the host had 4 browser lanes for a while (load about 9.5). No lane failed or ran over budget. The quiet-host rule could not be held: the operator noted "the machine is never quiet".
+  - Against Flight 3's gate (1542 s): +15 s.
+- **The flight-end review** (Reviewer, Sonnet; the whole branch, 80 files): `[HANDOFF:confirmed]`, no issues.
+- **Leg 5 is landed.**
+
+
+## Leg 6 step 1: version bump
+
+- `the_one/__init__.py`: `__version__` 0.11.8 -> 0.12.0 (the single source; `pyproject.toml` has `dynamic = ["version"]` with `attr = "the_one.__version__"`; `uv.lock` lists the project as `source = { editable = "." }` with no version, so no lock change).
+- Grep of 0.11.8 (outside missions/, squawks/, v0.11 notes, evals/runs): every remaining hit is historical or a test/doc input, left alone: the v0.12.0 release note and `docs/windows-install.md` and `packaging/windows/README.md` "upgrading from 0.11.8" lines, `lifecycle.ps1`/`probe.ps1` OldVersion (the old release is the fixture), `render.py`/build scripts/`gates-inner.sh` docstring examples, `tests/test_packaging_metadata.py` and `tests/test_desktop_takeover.py` literals (inputs to pure functions, not the current version), `docs/macos-contributor-check.md` sample output, `sorties/` history. No change needed.
+- Tag gate: `release_check.py --event push --ref refs/tags/v0.12.0` passes the grammar and equality parts and fails only on "not an ancestor of origin/main" (expected until the merge); `v0.12.1` is refused on equality. `render.load` for 0.12.0: deb_version 0.12.0, bundle_short_version 0.12.0, bundle_version 0.12.9999.
+- Checks: packaging/release/takeover/workflow tests and the other version-touching tests pass; ruff check and format --check clean.
+- **The version bump was reviewed by the Flight Director:** a one-line diff to `the_one/__init__.py`, where nothing else moves with the version. A full reviewer spawn was judged unnecessary. Legs 1-5 are marked `completed`; leg 6 (the release and the field checks) is next.

@@ -1,6 +1,6 @@
 # Leg: release-workflow
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective

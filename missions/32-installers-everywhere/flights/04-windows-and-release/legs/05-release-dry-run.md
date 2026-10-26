@@ -1,6 +1,6 @@
 # Leg: release-dry-run
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Windows on shared metadata, and one release](../flight.md)
 
 ## Objective
@@ -38,12 +38,12 @@ Prove the composed release once. One manual `release.yml` dispatch builds, check
 7. **The flight-end Reviewer** (Phase 2d) reviews the whole branch diff against `origin/main`, every leg's criteria, and the artifacts. Its model is Sonnet, because the diff includes the credential-adjacent smoke probe and the release `contents: write`.
 
 ## Acceptance Criteria
-- [ ] **AC1:** the dry run is green on every job except `publish`, which reads `skipped`. The run id, minutes per job and the full row tables (Windows L1-L9, macOS 13 checks and 13 lifecycle steps, Linux gates) are in the flight log.
-- [ ] **AC2:** the three artifacts hold exactly the four `0.12.0.dev1` packages under the names `scripts/release_assets.py` expects. Checked by downloading the artifacts and running `release_assets.py` locally against them, into a scratch directory under `$HOME/the-one-m32-evidence/f4/leg5/`. `SHA256SUMS` is generated there; nothing is published.
-- [ ] **AC3:** the macOS L1 screenshots are classified for squawk 0261 (proven, inconclusive or regressed), and the squawk is updated.
-- [ ] **AC4:** the gates. `make test-unit` passes (12 skips), every browser lane passes (`PARALLEL_RESULT rc=0 … lanes=13`, with each lane's time against its budget), and ruff is clean. Any flake gets the triage rule (isolated re-run, recorded).
-- [ ] **AC5:** the flight-end Reviewer signals `[HANDOFF:confirmed]`, after at most 3 fix cycles.
-- [ ] **AC6:** the budgets are recorded. Hosted Windows lifecycle runs end at 4 of 4. macOS runs end at 2 of 4, or 3 if a re-run was needed.
+- [x] **AC1:** the dry run is green on every job except `publish`, which reads `skipped`. The run id, minutes per job and the full row tables (Windows L1-L9, macOS 13 checks and 13 lifecycle steps, Linux gates) are in the flight log.
+- [x] **AC2:** the three artifacts hold exactly the four `0.12.0.dev1` packages under the names `scripts/release_assets.py` expects. Checked by downloading the artifacts and running `release_assets.py` locally against them, into a scratch directory under `$HOME/the-one-m32-evidence/f4/leg5/`. `SHA256SUMS` is generated there; nothing is published.
+- [x] **AC3:** the macOS L1 screenshots are classified for squawk 0261 (proven, inconclusive or regressed), and the squawk is updated.
+- [x] **AC4:** the gates. `make test-unit` passes (12 skips), every browser lane passes (`PARALLEL_RESULT rc=0 … lanes=13`, with each lane's time against its budget), and ruff is clean. Any flake gets the triage rule (isolated re-run, recorded).
+- [x] **AC5:** the flight-end Reviewer signals `[HANDOFF:confirmed]`, after at most 3 fix cycles.
+- [x] **AC6:** the budgets are recorded. Hosted Windows lifecycle runs end at 4 of 4. macOS runs end at 2 of 4, or 3 if a re-run was needed.
 
 ## Verification Steps
 - AC1, AC3: `gh run view <id>`; `gh run download <id>` into `$HOME/the-one-m32-evidence/f4/leg5/`; read the summaries and the PNGs.
