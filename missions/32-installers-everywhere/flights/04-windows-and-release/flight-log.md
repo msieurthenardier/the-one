@@ -586,3 +586,4 @@ The splash embedded the 1024 px logo as a data URI (2,328,661 characters), over 
   - `== lifecycle done`.
   - **Squawk 0263 verified:** zero `NavigateToString` failures from the new builds; the three matching lines are one trace from pid 1624, the old v0.11.8 app. The squawk is completed.
   - **Hosted Windows lifecycle runs: 5,** the 5th approved by the operator. macOS: 2 of 4.
+- **The operator approved the v0.12.0 release notes (2026-10-26)** "with the additions": two Fixed lines (the Windows startup screen, squawk 0263; quitting right after launch, the dry-run fix).
