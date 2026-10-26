@@ -114,7 +114,7 @@ Someone on macOS or Linux can download GleepGlorp AI, install it the way they in
   - The ad-hoc signed `.app` and `.dmg`, built on a hosted Mac runner by hand.
   - The frozen seam on the `.app` layout, proven by `doctor` and a server start inside the built app on the runner.
   - The macOS install guide with the Gatekeeper approval steps, and the written contributor checklist.
-- [ ] **Flight 4: Windows on the chosen recipe, and one release path.**
+- [x] **Flight 4: Windows on the chosen recipe, and one release path.** *(Landed 2026-10-26: Windows on `product.toml`, `stage.py` and `build.ps1` with a graceful quit on upgrade and uninstall; one `BootPolicy` for the desktop shell; a single version source; `release.yml` with a dry run, then `v0.12.0` and the `v0.12.1` installer fix, four packages plus `SHA256SUMS` each; the operator's Windows upgrade confirmed. The contributors' real-Mac check is carried (squawk 0261).)*
   - Windows moves to the chosen recipe, or keeps PyInstaller and Inno with shared metadata if Flight 1 chose a hybrid. Prove in-place upgrade from the current install and the existing Windows checks, without breaking the per-push Concourse build.
   - Make `pyproject.toml`'s version dynamic (`the_one.__version__`), after Mission 31 merges: Flight 2 pins the two equal with a test and leaves the `uv.lock` change here (Flight 2 DD6).
   - Wire the tag-triggered release to publish all four packages behind the dependency audit, dry-run it through a manual run while Mission 31 is active, and update README and CLAUDE.md.

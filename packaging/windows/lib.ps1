@@ -325,6 +325,34 @@ public static class M32Win {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] public static extern uint GetDpiForSystem();
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode, SetLastError = true)] public static extern IntPtr SendMessageTimeoutText(IntPtr h, uint msg, IntPtr w, StringBuilder l, uint flags, uint timeout, out IntPtr result);
+    // WM_NULL with SMTO_ABORTIFHUNG: true when the window's thread answers inside the bound. A
+    // thread blocked in Sleep or a long call (not pumping messages) times out; that is the test.
+    public static bool Responsive(IntPtr h, uint ms) {
+        IntPtr r;
+        return SendMessageTimeout(h, 0, IntPtr.Zero, IntPtr.Zero, 0x0002, ms, out r) != IntPtr.Zero;
+    }
+    // WM_GETTEXT through SendMessageTimeout (GetWindowText cannot be trusted across processes)
+    static string TextOf(IntPtr h) {
+        StringBuilder t = new StringBuilder(256);
+        IntPtr r;
+        if (SendMessageTimeoutText(h, 0x000D, (IntPtr)256, t, 0x0002, 2000, out r) == IntPtr.Zero) { return ""; }
+        return t.ToString();
+    }
+    // child windows as "hwnd|visible|enabled|class|text"
+    public static string[] Children(IntPtr parent) {
+        List<string> acc = new List<string>();
+        EnumProc cb = delegate (IntPtr h, IntPtr l) {
+            StringBuilder c = new StringBuilder(256); GetClassName(h, c, 256);
+            acc.Add(h.ToInt64() + "|" + (IsWindowVisible(h) ? 1 : 0) + "|" + (IsWindowEnabled(h) ? 1 : 0) + "|" + c + "|" + TextOf(h));
+            return true;
+        };
+        EnumChildWindows(parent, cb, IntPtr.Zero);
+        return acc.ToArray();
+    }
     public static string[] Windows() {
         List<string> acc = new List<string>();
         EnumProc cb = delegate (IntPtr h, IntPtr l) {
@@ -377,6 +405,35 @@ function Get-MainWindow {
     $vis = @($w | Where-Object { $_.Visible })
     if ($vis.Count -gt 0) { return $vis[0] }
     return $w[0]
+}
+
+# Inno's wizard form: class TWizardForm, any process (the elevated setup .tmp owns it), visible.
+# Returns the window object or $null.
+function Get-WizardWindow {
+    $w = @(Get-AllWindows | Where-Object { $_.Class -eq 'TWizardForm' -and $_.Visible })
+    if ($w.Count -eq 0) { return $null }
+    return $w[0]
+}
+
+# The controls of a window: objects with Hwnd, Visible, Enabled, Class, Text.
+function Get-ChildControls([int64]$Hwnd) {
+    $res = @()
+    foreach ($l in [M32Win]::Children([IntPtr]$Hwnd)) {
+        $p = $l.Split('|', 5)
+        if ($p.Count -ge 5) {
+            $res += [pscustomobject]@{ Hwnd = [int64]$p[0]; Visible = ($p[1] -eq '1'); Enabled = ($p[2] -eq '1'); Class = $p[3]; Text = $p[4] }
+        }
+    }
+    return $res
+}
+
+# The wizard's buttons that could be pressed now: visible, enabled TNewButton (or a plain BUTTON)
+# whose caption is Next, Install or Finish (ampersands and arrows ignored).
+function Get-WizardButtons($Controls) {
+    return @($Controls | Where-Object {
+        $_.Visible -and $_.Enabled -and ($_.Class -eq 'TNewButton' -or $_.Class -eq 'Button') -and
+        (($_.Text -replace '[&<>\s]', '') -match '^(Next|Install|Finish)$')
+    })
 }
 
 # the native rectangle as @{X;Y;W;H}, or $null

@@ -2,7 +2,7 @@
 #
 # Build-time tooling, run only by .github/workflows/windows-packages.yml (mode=lifecycle) on an
 # ephemeral hosted windows-2022 runner, after build.ps1 has built version N and N+1. Never
-# imported by the_one/. Writes <Logs>\lifecycle\SUMMARY.txt with rows L1-L10:
+# imported by the_one/. Writes <Logs>\lifecycle\SUMMARY.txt with rows L1-L11:
 #
 #   L1 old-to-new        v0.11.8 release installer, then N over it (one entry, same {app}, data kept)
 #   L2 install & launch  shortcut, doctor from {app}, window natively visible
@@ -15,6 +15,10 @@
 #   L9 uninstall running uninstall while the app runs: the same quit sequence, data kept
 #   L10 quit during boot `quit --wait` as soon as /api/live answers: must still drain and exit
 #                        (run before L9, which removes the install; see Get-RowPlan)
+#   L11 interactive upgrade  N+1 over a running app with the wizard SHOWN, driven by BM_CLICK on
+#                        Next/Install/Finish; every pass probes the wizard with WM_NULL (5 s), the
+#                        wizard must close within 30 s of Finish, and the %TEMP% Setup log must exist
+#                        (v0.12.1: the v0.12.0 wizard froze in the field, all other rows are silent)
 #
 # Shared helpers (rows, summary, bounded waits, native windows, installers) are in lib.ps1, copied
 # from the frozen probe. Every row is seeded "FAIL <id> not-run" and replaced only by the code that
@@ -46,7 +50,7 @@ $ProgressPreference = 'SilentlyContinue'
 $script:OldVersion = '0.11.8'
 $script:MarkerAgent = 'lifecycle-marker'
 $script:MarkerFileName = 'lifecycle-marker.txt'
-$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L9')
+$script:RowIds = @('L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L10', 'L11', 'L9')
 $script:Tolerance = 16
 
 # ---------------------------------------------------------------------------------------------
@@ -416,6 +420,125 @@ function Test-RowL10 {
     else { Set-Row 'L10' 'FAIL' ($fails -join '; ') }
 }
 
+function Test-RowL11 {
+    Write-Log '=== L11: interactive upgrade (the wizard driven by clicks)'
+    # The v0.12.0 field defect: the wizard froze while the quit step ran and the Finish page took
+    # no input. Every other row installs silently, so none of them saw it. This row runs N+1 over
+    # the running app WITHOUT /VERYSILENT and /LOG (so SetupLogging writes the %TEMP% log) and
+    # presses Next / Install / Finish with BM_CLICK, probing the wizard window with WM_NULL
+    # (SMTO_ABORTIFHUNG, 5 s) on every pass: a wizard that is not pumping messages fails the row.
+    # The post-install "Launch" box is left ticked, so the app is started the way a user gets it.
+    $fails = New-Object System.Collections.Generic.List[string]
+    Stop-App 'L11-pre'
+    $appPid = Start-App 'L11'
+    if (-not $appPid) { Set-Row 'L11' 'FAIL' 'precondition: the app did not start'; return }
+    if (-not (Wait-AppReady 60 'L11 ready')) { Set-Row 'L11' 'FAIL' 'precondition: the main window is not natively visible'; return }
+    $off = Get-FileLen $script:AppLog
+    $t0 = Get-Date
+    $p = Start-Process -FilePath $InstallerNext -ArgumentList @('/NORESTART') -PassThru
+    $null = $p.Handle
+    $null = $script:Pids.Add($p.Id)
+    Write-Log "L11: started the interactive installer, recorded pid $($p.Id)"
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $deadline = (Get-Date).AddSeconds(360)
+    $clicks = New-Object System.Collections.Generic.List[string]
+    $lastClickSig = $null
+    $lastClickAt = $null
+    $slowest = 0
+    $finishAt = $null
+    $seenWizard = $false
+    while ((Get-Date) -lt $deadline -and -not (Test-PastDeadline)) {
+        $w = Get-WizardWindow
+        if (-not $w) {
+            if ($p.HasExited -and $seenWizard) { break }
+            if ($p.HasExited -and $clock.Elapsed.TotalSeconds -gt 20) { break }
+            Start-Sleep -Milliseconds 500
+            continue
+        }
+        $seenWizard = $true
+        $probe = [System.Diagnostics.Stopwatch]::StartNew()
+        $answered = [M32Win]::Responsive([IntPtr]$w.Hwnd, 5000)
+        if ($probe.ElapsedMilliseconds -gt $slowest) { $slowest = $probe.ElapsedMilliseconds }
+        if (-not $answered) {
+            $fails.Add("the wizard did not answer WM_NULL within 5 s at $([int]$clock.Elapsed.TotalSeconds) s (not pumping messages: a frozen wizard)")
+            break
+        }
+        $ctl = @(Get-ChildControls $w.Hwnd)
+        $btn = @(Get-WizardButtons $ctl)
+        $sig = (($ctl | Where-Object { $_.Visible } | ForEach-Object { "$($_.Class):$($_.Text):$([int]$_.Enabled)" }) -join ';')
+        if ($btn.Count -gt 0 -and $sig -ne $lastClickSig) {
+            $pick = $btn[0]
+            foreach ($mWant in @('Finish', 'Install', 'Next')) {
+                $hit = @($btn | Where-Object { (($_.Text -replace '[&<>\s]', '')) -eq $mWant })
+                if ($hit.Count -gt 0) { $pick = $hit[0]; break }
+            }
+            $word = ($pick.Text -replace '[&<>\s]', '')
+            $clicks.Add("$word@$([int]$clock.Elapsed.TotalSeconds)s")
+            Write-Log "L11: clicking '$($pick.Text)' (hwnd $($pick.Hwnd)); controls: $sig"
+            $null = [M32Win]::PostMessage([IntPtr]$pick.Hwnd, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)   # BM_CLICK
+            $lastClickSig = $sig
+            $lastClickAt = Get-Date
+            if ($word -eq 'Finish') { $finishAt = Get-Date; break }
+        }
+        elseif ($btn.Count -gt 0 -and $sig -eq $lastClickSig -and ((Get-Date) - $lastClickAt).TotalSeconds -gt 15) {
+            $fails.Add("the click at $($clicks[$clicks.Count - 1]) was not acted on within 15 s (the page and its buttons are unchanged)")
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Add-Info 'L11' "clicks: $($clicks -join ', '); slowest WM_NULL answer ${slowest} ms; wizard seen=$seenWizard"
+    Save-Evidence 'L11-after-wizard'
+    if (-not $finishAt -and $fails.Count -eq 0) { $fails.Add("the wizard never reached a pressable Finish within 360 s (clicks: $($clicks -join ', '))") }
+    if ($finishAt) {
+        $closed = Wait-Until { (-not (Get-WizardWindow)) -and $p.HasExited } 30 250 'L11 wizard exit after Finish'
+        $afterMs = [int](((Get-Date) - $finishAt).TotalMilliseconds)
+        Add-Info 'L11' "wizard gone and installer exited $afterMs ms after the Finish click (bound 30000); closed=$closed"
+        if (-not $closed) { $fails.Add('the wizard did not close within 30 s of the Finish click') }
+    }
+    if (-not $p.HasExited) {
+        Write-Log "L11: installer did not exit; killing recorded pid $($p.Id)"
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        $code = $null
+        try { $code = $p.ExitCode } catch { $code = $null }
+        Add-Info 'L11' "installer exit code $code"
+        if ($finishAt -and $code -ne 0) { $fails.Add("the installer exit code is $code, not 0") }
+    }
+
+    # the quit evidence: the app drained, and the Setup log (SetupLogging) shows the sequence
+    $drained = Wait-Until { (Read-NewBytes $script:AppLog $off).Text -match "Finished server process \[$appPid\]" } 10 250 'L11 drain line'
+    if (-not $drained) { $fails.Add("no 'Finished server process [$appPid]' line: the running app was not drained") }
+    $logs = @(Get-ChildItem -LiteralPath $env:TEMP -Filter 'Setup Log *.txt' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $t0.AddSeconds(-5) } | Sort-Object LastWriteTime)
+    if ($logs.Count -eq 0) { $fails.Add("no 'Setup Log *.txt' newer than the start in $($env:TEMP) (SetupLogging=yes)") }
+    else {
+        $setupLog = $logs[$logs.Count - 1]
+        $text = Get-Content -LiteralPath $setupLog.FullName -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $text) { $text = '' }
+        Add-Info 'L11' "setup log $($setupLog.Name) ($($setupLog.Length) bytes)"
+        Save-Text 'L11-setup-log-key-lines.txt' ((Get-KeyLines $text 'quit-call|quit-poll|quit-killrunning|Dest filename:|taskkill') -join "`r`n")
+        $ord = Test-LogOrder $text @('setup quit-call:', 'setup quit-poll: nothing left', 'setup quit-killrunning: calling', 'Dest filename:')
+        if (-not $ord.Ok) { $fails.Add("the Setup log sequence quit, nothing left, KillRunning, first copy failed: $($ord.Why)") }
+    }
+
+    # the new app: the "Launch" box was left ticked, so it should be up; start it if not (INFO)
+    $live = Wait-Until { (Invoke-Api GET '/api/live' -NoAuth -TimeoutSec 3).Status -eq 200 } 60 1000 'L11 launched by Finish'
+    if (-not $live) {
+        Add-Info 'L11' 'the app was not started by the Finish page within 60 s; starting it'
+        $null = Start-App 'L11-after'
+    }
+    foreach ($i in (Get-AppPids)) { $null = $script:Pids.Add($i) }
+    $ver = Get-ApiVersion
+    $marker = Test-MarkerAgent
+    $dv = Get-InstalledVersion
+    Add-Info 'L11' "after: launched by Finish=$live; /api/info version=$ver; DisplayVersion=$dv; marker present=$marker"
+    if ($ver -ne $VersionNext) { $fails.Add("/api/info version is '$ver', not $VersionNext") }
+    if ($dv -ne $VersionNext) { $fails.Add("DisplayVersion is '$dv', not $VersionNext") }
+    if (-not $marker) { $fails.Add('the marker agent is gone after the interactive upgrade') }
+    if ($fails.Count -eq 0) { Set-Row 'L11' 'PASS' "clicks $($clicks -join ', '), every probe answered (slowest $slowest ms), wizard closed after Finish, pid $appPid drained, Setup log in TEMP, $ver answers, marker kept" }
+    else { Set-Row 'L11' 'FAIL' ($fails -join '; ') }
+}
+
 function Test-RowL9 {
     Write-Log '=== L9: uninstall while running'
     $fails = New-Object System.Collections.Generic.List[string]
@@ -475,6 +598,8 @@ function Get-RowPlan {
         @{ Id = 'L8'; Fn = { Test-RowL8 } },
         # L10 runs before L9: the uninstall removes the install every other row needs
         @{ Id = 'L10'; Fn = { Test-RowL10 } },
+        # L11 also needs the install: it runs the wizard over it, after L10 and before L9
+        @{ Id = 'L11'; Fn = { Test-RowL11 } },
         @{ Id = 'L9'; Fn = { Test-RowL9 } }
     )
 }
@@ -516,7 +641,7 @@ function Invoke-SelfTest {
 
     # this file's own contract
     Initialize-Lib $scratch 'lifecycle' $script:RowIds 600
-    & $check (($script:RowIds -join ',') -eq 'L1,L2,L3,L4,L5,L6,L7,L8,L10,L9') 'the rows are L1 to L8, L10, L9 in run order'
+    & $check (($script:RowIds -join ',') -eq 'L1,L2,L3,L4,L5,L6,L7,L8,L10,L11,L9') 'the rows are L1 to L8, L10, L11, L9 in run order'
     & $check (((Get-RowPlan | ForEach-Object { $_.Id }) -join ',') -eq ($script:RowIds -join ',')) 'the plan runs every row once, in order'
     foreach ($e in (Get-RowPlan)) {
         & $check ($null -ne (Get-Command "Test-Row$($e.Id)" -ErrorAction SilentlyContinue)) "a function Test-Row$($e.Id) exists"
@@ -526,7 +651,7 @@ function Invoke-SelfTest {
     $script:Header = New-Object System.Collections.Generic.List[string]
     Write-Header
     $s = @(Get-Content -LiteralPath $script:SummaryPath)
-    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 10) 'the header write leaves ten rows FAIL not-run'
+    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 11) 'the header write leaves eleven rows FAIL not-run'
     & $check ($s[0] -like '== windows installer lifecycle*') 'header first line'
     & $check (($s -join "`n") -notmatch 'lifecycle done|lifecycle aborted') 'a running summary has neither done nor aborted'
 
@@ -563,7 +688,7 @@ function Invoke-SelfTest {
     $s = @(Get-Content -LiteralPath $script:SummaryPath)
     $ab = @($s | Where-Object { $_ -like '== lifecycle aborted:*' })
     & $check ($ab.Count -eq 1 -and $ab[0] -match "unknown row id 'L99'") 'abort path: one aborted line naming the failure'
-    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 10) 'abort path: all ten rows still show FAIL not-run'
+    & $check (@($s | Where-Object { $_ -like 'FAIL L* not-run' }).Count -eq 11) 'abort path: all eleven rows still show FAIL not-run'
     & $check (($s -join "`n") -notmatch 'lifecycle done') 'abort path: no done line'
 
     Remove-Item -Recurse -Force -LiteralPath $scratch -ErrorAction SilentlyContinue

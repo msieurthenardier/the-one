@@ -1,6 +1,6 @@
 # Squawk 0261: on macOS the splash card shows blank for about 1.5 s
 
-**Status**: in-progress
+**Status**: deferred
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-25
@@ -29,5 +29,6 @@ Known edge: if the darwin boot errors before the splash's `loaded` (inside the r
 *(written at completion)*
 
 ## Disposition
+- **Deferred** at Mission 32 Flight 4's landing (2026-10-26, operator: "Land now, carry it"). The fix shipped in `v0.12.0`/`v0.12.1`; the hosted L1 screenshot was inconclusive (leg 5). **Revisit trigger:** a contributor's real-Mac `macos-app-install` report (step 3, the splash at launch), which completes this squawk or reopens it.
 - **Logged** at Mission 32 Flight 3's debrief, on the operator's decision. The P1 fix (Flight 3's HAT) removed the larger symptom, an empty framed main window in front of the splash; this is what is left.
 - **Escalate if** the fix needs a change to the shared boot sequence beyond the darwin splash path. Verifying it needs a hosted macOS run.
