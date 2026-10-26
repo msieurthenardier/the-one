@@ -1,0 +1,46 @@
+name: macos-packages
+
+# Stub for the default branch (Mission 32 Flight 3, DD10). GitHub validates `workflow_dispatch`
+# inputs against the default branch's copy of a workflow, so this file carries the same `on:`
+# block as the flight branch's. The real steps live on the flight branch; dispatch with
+#   gh workflow run macos-packages.yml --ref flight/03-macos-app -f mode=probe
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: choice
+        options:
+          - full
+          - lifecycle
+          - probe
+        default: full
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to build (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "full, lifecycle or probe"
+        type: string
+        required: false
+        default: full
+
+permissions:
+  contents: read
+
+jobs:
+  stub:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Stub
+        timeout-minutes: 1
+        run: echo "the real steps live on the flight branch; dispatch with --ref"

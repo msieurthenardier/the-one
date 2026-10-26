@@ -12,7 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 RELEASES = ROOT / "docs" / "releases"
-WORKFLOW = ROOT / ".github" / "workflows" / "windows-installer.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 SCRIPT = ROOT / "scripts" / "release_notes.py"
 
 _spec = importlib.util.spec_from_file_location("release_notes", SCRIPT)
@@ -95,15 +95,16 @@ def test_cli_fails_on_bad_file(tmp_path: Path) -> None:
 
 def test_workflow_publish_step_uses_notes_files() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
-    step = text[text.index("name: Publish GitHub Release with installer") :]
+    step = text[text.index("name: Publish the GitHub release") :]
     assert "docs/releases/" in step
     assert "scripts/release_notes.py" in step
     assert "--notes-file" in step
     assert "gh release edit" in step
     assert "--generate-notes" in step, "the no-notes-file fallback must remain"
-    assert 'gh release upload "$TAG" "$EXE" --clobber' in step
+    assert 'gh release upload "$TAG" "${UPLOAD[@]}" --clobber' in step
     assert "set -eo pipefail" in step
     assert "--title-out" in step
     assert "--title |" not in step and "--title)" not in step, "title must not use stdout"
     assert "::warning::" in step, "a malformed notes file must warn and fall back"
     assert 'PYTHONUTF8: "1"' in step
+    assert '--title "$TAG" --generate-notes' in step, "the generic title is the bare tag"

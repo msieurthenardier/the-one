@@ -382,23 +382,27 @@ async def refresh_catalog_cache(url: str = _MODELS_DEV_URL) -> bool:
     Steps:
     1. Async GET ``url`` with timeout + follow_redirects.
     2. Project the payload via ``project_raw`` + ``apply_floor``.
-    3. **Seed-coverage write guard**: load the bundled seed and check that
-       every ``(provider, model)`` pair the seed covers is also present in the
-       newly-projected catalog.  If any pair is missing, skip the write and
-       return ``False`` (keeps the existing cache/seed intact).
-    4. Atomic write: ``<cache>.tmp`` in the same dir, then ``os.replace``.
+    3. **Seed as a floor** (squawk 0260): load the bundled seed and merge it
+       under the fetched catalog.  Every ``(provider, model)`` pair the seed
+       covers that the fetch lacks is added from the seed; where both have a
+       pair the fetched value wins.  A model upstream has dropped therefore
+       keeps its bundled window instead of blocking every refresh.  One INFO
+       line reports how many pairs were floored; a normal launch logs no
+       warning.
+    4. **Zero-model guard**: if the fetch projected no models at all for a
+       provider the seed covers (an empty or garbage payload), skip the write,
+       log a WARNING and return ``False`` -- the existing cache/seed stays
+       intact.
+    5. Atomic write: ``<cache>.tmp`` in the same dir, then ``os.replace``.
        Payload: ``{fetched_at, source, providers}``.
-    5. ``invalidate()`` so the next ``context_window_for()`` re-reads from disk.
+    6. ``invalidate()`` so the next ``context_window_for()`` re-reads from disk.
 
     Returns ``True`` only on a successful write.  All exceptions are caught,
     logged, and ``False`` is returned so the loop is offline-safe and never
     raises into the lifespan.
 
-    The seed-coverage guard is the critical defence against empty/garbage
-    fetches: ``apply_floor`` unconditionally injects all 12 OpenAI floor keys,
-    so an empty fetch would still look "covered" for OpenAI while silently
-    losing Anthropic entries and newer models.  Checking against the seed
-    (which carries both providers) is the correct guard.
+    ``apply_floor`` unconditionally injects the OpenAI floor keys, so the
+    zero-model check runs on the bare projection, before any floor is applied.
     """
     try:
         import httpx
@@ -408,35 +412,47 @@ async def refresh_catalog_cache(url: str = _MODELS_DEV_URL) -> bool:
             resp.raise_for_status()
             raw_payload = resp.json()
 
-        projected = apply_floor(project_raw(raw_payload), _OPENAI_FLOOR, "openai")
+        fetched = project_raw(raw_payload)
+        projected = apply_floor(
+            {p: dict(models) for p, models in fetched.items()}, _OPENAI_FLOOR, "openai"
+        )
 
-        # ── Seed-coverage write guard ─────────────────────────────────────
-        # Load the bundled seed (always present) and verify the projected
-        # catalog covers every (provider, model) pair the seed covers.
         try:
             seed_data = _load_seed()
             seed_providers: dict[str, Any] = seed_data.get("providers", {})
         except Exception as exc:
             logger.warning(
-                "model_catalog: could not load seed for coverage check — skipping cache write: %s",
+                "model_catalog: could not load seed for the floor merge — skipping cache write: %s",
                 exc,
             )
             return False
 
-        projected_providers = projected  # {provider: {model: ctx}}
+        # Zero-model guard: an empty or garbage fetch must not be written.
+        for provider, seed_models in seed_providers.items():
+            if isinstance(seed_models, dict) and seed_models and not fetched.get(provider):
+                logger.warning(
+                    "model_catalog: fetch projected no models for %s — "
+                    "skipping cache write to protect existing catalog",
+                    provider,
+                )
+                return False
+
+        # Seed floor: add every seed pair the fetch lacks (fetched values win).
+        floored = 0
         for provider, seed_models in seed_providers.items():
             if not isinstance(seed_models, dict):
                 continue
-            proj_section = projected_providers.get(provider, {})
-            for model in seed_models:
-                if model not in proj_section:
-                    logger.warning(
-                        "model_catalog: fetch missing seed pair (%s, %s) — "
-                        "skipping cache write to protect existing catalog",
-                        provider,
-                        model,
-                    )
-                    return False
+            section = projected.setdefault(provider, {})
+            for model, window in seed_models.items():
+                if model not in section and isinstance(window, int):
+                    section[model] = window
+                    floored += 1
+        if floored:
+            logger.info(
+                "model_catalog: %d seed pair(s) no longer upstream kept from the bundled seed",
+                floored,
+            )
+        projected_providers = projected  # {provider: {model: ctx}}
 
         # ── Atomic write ──────────────────────────────────────────────────
         cache_path = settings.data_dir / "model_catalog.json"

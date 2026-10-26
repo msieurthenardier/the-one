@@ -2876,7 +2876,7 @@ class WindowFocusBody(BaseModel):
 def window_focus(body: WindowFocusBody | None = None) -> dict[str, Any]:
     # Lazy import: the web app must stay importable without the GUI stack
     # (serve mode, CI). The desktop module pulls pywebview only when present.
-    from the_one.interfaces.desktop.shell import focus_window
+    from the_one.interfaces.desktop.window_control import focus_window
 
     token = body.activation_token if body is not None else None
     return {"focused": focus_window(token) if token else focus_window()}
@@ -2886,7 +2886,7 @@ def window_focus(body: WindowFocusBody | None = None) -> dict[str, Any]:
 def window_state_get() -> dict[str, Any]:
     """The desktop window's state, visibility read from GTK itself (M32 F2 L03)."""
     try:
-        from the_one.interfaces.desktop.shell import window_state
+        from the_one.interfaces.desktop.window_control import window_state
 
         return window_state()
     except Exception:
@@ -2911,7 +2911,7 @@ def window_quit() -> dict[str, Any]:
     null (a bare ``serve``: nothing to quit). ``quit`` is true for the first three.
     """
     try:
-        from the_one.interfaces.desktop.shell import quit_desktop
+        from the_one.interfaces.desktop.window_control import quit_desktop
 
         state = quit_desktop()
     except Exception:
@@ -2935,7 +2935,7 @@ def window_chrome_post(body: WindowChromeBody) -> dict[str, Any]:
     WebSockets. Returns ``{"theme", "desktop", "tinted"}``; ``tinted`` is true,
     false or ``"pending"``. Lazy import, as ``window_focus``.
     """
-    from the_one.interfaces.desktop.shell import set_window_theme
+    from the_one.interfaces.desktop.window_control import set_window_theme
 
     return set_window_theme(body.theme)
 

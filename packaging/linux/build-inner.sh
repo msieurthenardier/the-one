@@ -133,7 +133,7 @@ cp "$R/appimage-root.desktop" "$APPDIR/$DESKTOP_ID.desktop"
 cp "$R/integration.desktop.in" "$APPDIR/usr/share/$PACKAGE/integration.desktop.in"
 # appimagetool only validates metadata named after the desktop file (and with the network), and
 # AppStream wants the file named after the component id: the id wins; we validate it above.
-cp "$R/metainfo.xml" "$APPDIR/usr/share/metainfo/$METAINFO_ID.metainfo.xml"
+cp "$R/metainfo.xml" "$APPDIR/usr/share/metainfo/$APP_ID.metainfo.xml"
 cp /stage/icon-512.png "$APPDIR/$DESKTOP_ID.png"
 cp /stage/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/$DESKTOP_ID.png"
 install_icons "$APPDIR"
@@ -149,7 +149,7 @@ mkdir -p "$ROOT$(dirname "$INSTALL_DIR")" "$ROOT/usr/bin" "$ROOT/usr/share/appli
 cp -a "$BUNDLE" "$ROOT$INSTALL_DIR"
 ln -s "$INSTALL_DIR/$EXECUTABLE" "$ROOT/usr/bin/$EXECUTABLE"
 cp "$R/deb.desktop" "$ROOT/usr/share/applications/$DESKTOP_ID.desktop"
-cp "$R/metainfo.xml" "$ROOT/usr/share/metainfo/$METAINFO_ID.metainfo.xml"
+cp "$R/metainfo.xml" "$ROOT/usr/share/metainfo/$APP_ID.metainfo.xml"
 cp /stage/icon-512.png "$ROOT/usr/share/icons/hicolor/512x512/apps/$DESKTOP_ID.png"
 install_icons "$ROOT"
 sed "s|@INSTALLED_SIZE@|$SIZE_KB|" "$R/control" > "$ROOT/DEBIAN/control"

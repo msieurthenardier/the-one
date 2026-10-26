@@ -61,3 +61,6 @@ tests/behavior/*/runs/*/
 # Prompt evals (Mission 30): run output and the tiktoken cache are local-only.
 evals/runs/
 evals/.cache/
+
+# Rendered by packaging/windows/build.ps1 from product.iss.in on every build (Mission 32 F4).
+packaging/windows/product.iss

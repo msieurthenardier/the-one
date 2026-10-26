@@ -6,7 +6,8 @@ Covers:
 - Atomic write produces a valid cache with ``fetched_at``.
 - ``_refresh_due`` returns correct values for fresh / stale / absent cache.
 - Offline refresh (httpx raises) returns False and leaves the cache intact.
-- Seed-coverage write guard: a payload missing a seed pair → no write, False.
+- Seed-as-floor merge: a payload missing a seed pair is written with the seed's value;
+  a provider with zero fetched models is still refused.
 - Post-refresh invalidation reflects new values from the cache.
 """
 
@@ -344,28 +345,27 @@ class TestOfflineRefresh:
 
 
 # ---------------------------------------------------------------------------
-# Seed-coverage write guard
+# Seed as a floor (squawk 0260)
 # ---------------------------------------------------------------------------
 
 
-class TestSeedCoverageGuard:
+class TestSeedFloorMerge:
     @pytest.mark.asyncio
-    async def test_guard_blocks_write_when_payload_missing_seed_pair(self, tmp_path, monkeypatch):
-        """A payload missing a seed (provider, model) pair must not be written."""
+    async def test_missing_seed_pair_is_kept_from_the_seed(self, tmp_path, monkeypatch, caplog):
+        """A payload missing a seed pair is written, with the seed's value for that pair."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
+        seed = mod._load_seed()["providers"]
+        kept = "claude-3-5-haiku-20241022"
+        assert kept in seed["anthropic"]
 
-        # Build a payload that only has ONE anthropic model — definitely missing
-        # some seed anthropic entries.  Uses the real nested shape.
+        # One model per provider only; the seed has many more.
         partial_payload = {
             "openai": {
                 "id": "openai",
-                "name": "OpenAI",
                 "models": {"gpt-4o": {"id": "gpt-4o", "limit": {"context": 128_000}}},
             },
             "anthropic": {
                 "id": "anthropic",
-                "name": "Anthropic",
-                # Only one anthropic model; seed has many more entries.
                 "models": {
                     "claude-sonnet-4-6": {
                         "id": "claude-sonnet-4-6",
@@ -375,6 +375,50 @@ class TestSeedCoverageGuard:
             },
         }
         mock_resp = _make_mock_response(partial_payload)
+
+        with caplog.at_level(logging.INFO, logger="the_one.llm.model_catalog"):
+            with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
+                result = await refresh_catalog_cache()
+
+        assert result is True
+        written = json.loads((tmp_path / "model_catalog.json").read_text(encoding="utf-8"))
+        assert written["providers"]["anthropic"][kept] == seed["anthropic"][kept]
+        assert written["providers"]["anthropic"]["claude-sonnet-4-6"] == 1_000_000
+        # No warning on a normal floored launch; one INFO line with the count.
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        infos = [r.getMessage() for r in caplog.records if "seed pair" in r.getMessage()]
+        assert len(infos) == 1
+
+    @pytest.mark.asyncio
+    async def test_fetched_value_overrides_the_seed(self, tmp_path, monkeypatch):
+        """Where both the fetch and the seed have a pair, the fetched value wins."""
+        monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
+        seed = mod._load_seed()["providers"]
+        model = "claude-sonnet-4-6"
+        assert seed["anthropic"][model] != 777_000
+        payload = {
+            "openai": {"models": {"gpt-4o": {"limit": {"context": 200_000}}}},
+            "anthropic": {"models": {model: {"limit": {"context": 777_000}}}},
+        }
+        mock_resp = _make_mock_response(payload)
+
+        with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
+            result = await refresh_catalog_cache()
+
+        assert result is True
+        written = json.loads((tmp_path / "model_catalog.json").read_text(encoding="utf-8"))
+        assert written["providers"]["anthropic"][model] == 777_000
+        assert written["providers"]["openai"]["gpt-4o"] == 200_000
+
+    @pytest.mark.asyncio
+    async def test_provider_with_zero_fetched_models_is_refused(self, tmp_path, monkeypatch):
+        """A provider the seed covers that projects zero models blocks the write."""
+        monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
+        payload = {
+            "openai": {"models": {"gpt-4o": {"limit": {"context": 128_000}}}},
+            "anthropic": {"models": {}},
+        }
+        mock_resp = _make_mock_response(payload)
 
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
             result = await refresh_catalog_cache()
@@ -421,7 +465,7 @@ class TestSeedCoverageGuard:
         assert not (tmp_path / "model_catalog.json").exists()
 
     @pytest.mark.asyncio
-    async def test_existing_cache_intact_after_guard_blocks(self, tmp_path, monkeypatch):
+    async def test_existing_cache_intact_after_zero_model_refusal(self, tmp_path, monkeypatch):
         """When the guard rejects a new fetch the existing cache is not modified."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
         # Pre-existing cache with a special window value.
@@ -434,7 +478,7 @@ class TestSeedCoverageGuard:
         cache_path.write_text(json.dumps(original_cache), encoding="utf-8")
         mtime_before = cache_path.stat().st_mtime
 
-        # Payload that fails the coverage guard — only one OpenAI model, real nested shape.
+        # Payload with zero anthropic models -- refused; only OpenAI, real nested shape.
         partial_payload = {
             "openai": {
                 "id": "openai",
@@ -493,3 +537,29 @@ class TestPostRefreshInvalidation:
 
         invalidate()
         assert mod._catalog is None
+
+
+# ---------------------------------------------------------------------------
+# scripts/refresh_model_catalog.py keeps the existing seed as a floor
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_script_keeps_existing_seed_pairs(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "refresh_model_catalog.py"
+    spec = importlib.util.spec_from_file_location("refresh_model_catalog_script", path)
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+
+    seed = tmp_path / "seed.json"
+    seed.write_text(
+        json.dumps({"providers": {"anthropic": {"old-model": 200_000, "kept": 1}}}),
+        encoding="utf-8",
+    )
+    providers = {"anthropic": {"kept": 5, "new-model": 1_000_000}}
+
+    assert script.merge_existing_seed(providers, seed) == 1
+    assert providers["anthropic"] == {"kept": 5, "new-model": 1_000_000, "old-model": 200_000}
+    assert script.merge_existing_seed({}, tmp_path / "absent.json") == 0

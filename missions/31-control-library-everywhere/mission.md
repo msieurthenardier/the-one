@@ -37,7 +37,7 @@ Every control the app shows has exactly one definition in the shared control lib
   - The focus is clean code and completeness: codified, reusable and globally changeable.
   - The few inconsistencies found in passing are resolved by choosing one version, with the operator's approval.
   - Squawks 0094, 0100, 0139, 0190, 0191 and 0192 fold into the migration where it touches their code.
-  - No release is cut while the mission is active.
+  - No release is cut while the mission is active. *(Amended 2026-10-25, operator: Mission 32 Flight 4 may cut a release from `main` during this mission, once its release path is verified as far as it can be. Each Mission 31 flight still lands green on `main`, so `main` stays releasable.)*
 
 ## Success Criteria
 - [x] The app has no design-language page. Its route, its Settings navigation entry and its Jump to entry are gone, along with the scripts, styles, tests and spec steps that only it used. The old address shows no page.
@@ -68,6 +68,7 @@ Every control the app shows has exactly one definition in the shared control lib
 - **Production safety.** Never drive port 8484 or the operator's default data directory. Captures and live checks use a dedicated dev instance (non-default port and scratch data directory, started from a scratch working directory).
 - **Host policy.** At most 3 browser lanes run at once locally (`make test-browser`). The unit suite runs outside the concurrent set. Browser runs and gates on this host use `THE_ONE_TEST_NETNS=1`.
 - **Releases.** Each flight lands green on `main`, but no release is cut from `main` while this mission is active. The next release follows mission close.
+  - *Amended 2026-10-25 (operator):* the exception is Mission 32 Flight 4's release (a minor `v0.12.x`, with patches if it needs them), cut once that flight's release path is verified. A release ships whatever Mission 31 has landed on `main` by then.
 
 ## Environment Requirements
 - Local WSL2 host with the repo venv (`pip install -e ".[all-llms,dev]"`), Playwright Chromium and WebKit (`scripts/setup-webkit-userland.sh`), and `THE_ONE_TEST_NETNS=1` for browser runs.

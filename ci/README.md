@@ -3,8 +3,8 @@
 CI runs on the **local Concourse** instance (`http://localhost:8080`, team `the-one`)
 instead of GitHub Actions, to conserve GitHub Actions minutes. GitHub Actions
 `lint.yml` and `test.yml` are disabled (manual `workflow_dispatch` only — break-glass
-fallback). `windows-installer.yml` (the `v*`-tag release path) is **untouched** and
-still owns official releases.
+fallback). `release.yml` (the `v*`-tag release path: audit, version gate, the three
+platform builds, publish) owns official releases.
 
 **Pre-merge gate (GitHub Actions):** `pr-lint.yml` runs on every `pull_request`
 targeting `main` — `ruff check` + `ruff format --check` + a release-closure `pip-audit`,
@@ -26,7 +26,7 @@ Pipeline UI: `http://localhost:8080/teams/the-one/pipelines/the-one`.
 | Browser tests (Playwright, every lane in sequence, Chromium + WebKit) | `ci/tasks/browser.yml` | "browser" job (`test.yml`) |
 | Windows curated subset (~427 tests) | `ci/tasks/windows-tests.yml` | "windows" job (`test.yml`) |
 | bwrap sandbox tests (privileged) | `ci/tasks/bwrap.yml` | "bwrap" job (`test.yml`) |
-| Windows installer build + MinIO publish | `build-windows-installer` job (pipeline) | `windows-installer.yml` (v\* tag only) |
+| Windows installer build + MinIO publish | `build-windows-installer` job (pipeline) | `release.yml` → `windows-packages.yml` (v\* tag only) |
 
 All five CI tasks run in parallel (`in_parallel`, `fail_fast: false`) as a single `ci`
 job. The browser task is a single task that runs `scripts/run-tests.sh --parallel 1`:
@@ -89,7 +89,7 @@ commit triggers neither job; the installer is built from the last commit that pa
 on `workflow_dispatch`; `lint` stays PR-only (squawk 0107). A scheduled failure is
 visible through GitHub's failed-workflow notification, which goes to the user who last
 edited the cron line, and GitHub disables scheduled workflows after 60 days with no
-repository activity. `windows-installer.yml` runs the same audit as a job its build
+repository activity. `release.yml` runs the same audit as a job its three builds
 `needs:`, so a finding fails a `v*` release before any build time is spent.
 
 ## Measured times
@@ -118,8 +118,8 @@ runs two jobs, both fail-on-nonzero:
   Concourse lane).
 - **pip-audit** — audits the **release dependency closure**: `uv export --no-dev
   --no-emit-project --extra gui --extra all-llms --format requirements-txt` (the
-  closure the Windows installer actually ships — `windows-installer.yml` installs
-  `.[gui,all-llms]`; excludes dev/toolchain deps and the editable self-entry) fed to
+  closure the Windows installer actually ships — `build.ps1` installs
+  that locked closure; excludes dev/toolchain deps and the editable self-entry) fed to
   `pip-audit --disable-pip -r`. `--disable-pip` audits the pinned+hashed export
   as written with no resolver/dry-run install — needed because the gui extra's linux
   marker pulls `pycairo` (via `pywebview[gtk]`), which can't metadata-build on the
@@ -176,6 +176,8 @@ skipping just that one package. Every native step from `pip install --upgrade
 pip` through the PyInstaller freeze now also checks `$LASTEXITCODE`, since PowerShell's `$ErrorActionPreference = "Stop"` doesn't apply
 to native-executable exit codes — that gap is how build 606657's failed install went
 unnoticed in the first place.
+
+The task builds through `packaging/windows/build.ps1`, the same recipe the GitHub `windows-packages.yml` workflow calls (so both build the same way); the task only supplies the `-Out` directory and copies the installer to `installer/` for the MinIO step. A release is a separate path: `.github/workflows/release.yml` (a `v*` tag, or a dry-run dispatch) builds all three platforms and publishes the GitHub release; Concourse does not publish releases.
 
 ### 3. On-demand installer build
 

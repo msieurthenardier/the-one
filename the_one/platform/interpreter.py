@@ -29,6 +29,7 @@ import asyncio
 import os
 import shutil
 import signal
+import subprocess
 import sys
 from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING
@@ -102,11 +103,87 @@ def _is_store_alias(found: str) -> bool:
     return parent.name.lower() == "windowsapps" and parent.parent.name.lower() == "microsoft"
 
 
+_CLT_STUB_PATHS = ("/usr/bin/python3", "/usr/bin/python")
+_XCODE_SELECT = "/usr/bin/xcode-select"
+_XCODE_SELECT_TIMEOUT = 5.0
+_clt_installed_cache: bool | None = None
+
+
+def _command_line_tools_installed() -> bool:
+    """True if ``xcode-select -p`` exits 0 and prints a directory that exists.
+
+    Bounded at 5 s, cached per process, never prompts (``xcode-select -p`` only
+    reads). Only called on darwin, and only when a stub path is being judged.
+    """
+    global _clt_installed_cache
+    if _clt_installed_cache is not None:
+        return _clt_installed_cache
+    installed = False
+    try:
+        done = subprocess.run(
+            [_XCODE_SELECT, "-p"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=_XCODE_SELECT_TIMEOUT,
+            text=True,
+        )
+        printed = done.stdout.strip()
+        installed = done.returncode == 0 and bool(printed) and os.path.isdir(printed)
+    except Exception:  # noqa: BLE001 - timeout, missing binary: treat as no CLT
+        installed = False
+    _clt_installed_cache = installed
+    return installed
+
+
+def _is_clt_stub(found: str) -> bool:
+    """True for macOS ``/usr/bin/python3|python`` when no Command Line Tools exist.
+
+    Without the Command Line Tools those two paths are stubs that open an install
+    dialog when run. Compared by ``normpath`` only (never by resolving symlinks,
+    which would wrongly flag the real CLT Python). Never runs the stub itself.
+    """
+    if sys.platform != "darwin":
+        return False
+    if os.path.normpath(found) not in _CLT_STUB_PATHS:
+        return False
+    return not _command_line_tools_installed()
+
+
+def walk_python_candidates(
+    names: list[str] | tuple[str, ...], search_path: str | None
+) -> tuple[str | None, str | None]:
+    """Walk ``PATH`` entry by entry for the first real interpreter.
+
+    Candidate-outer, entry-inner. Each entry is searched with
+    ``shutil.which(cand, path=entry)`` (keeps ``PATHEXT`` on Windows), empty
+    entries are skipped, and a Windows Store alias or a macOS Command Line Tools
+    stub is skipped rather than ending the search. Returns ``(found, skipped)``
+    where ``skipped`` is ``"store"``, ``"clt"`` or ``None`` (what was passed over
+    if nothing real was found). ``found`` is the string ``which`` returned.
+    """
+    skipped: str | None = None
+    entries = [e for e in search_path.split(os.pathsep) if e] if search_path else [None]
+    for cand in names:
+        for entry in entries:
+            found = shutil.which(cand, path=entry)
+            if not found:
+                continue
+            if _is_store_alias(found):
+                skipped = skipped or "store"
+                continue
+            if _is_clt_stub(found):
+                skipped = "clt"
+                continue
+            return found, skipped
+    return None, skipped
+
+
 def _resolve_frozen_python() -> str:
     """Resolve a real external interpreter for a frozen app, or raise.
 
-    Searches ``THE_ONE_PYTHON`` then ``python3``/``python`` on the
-    frozen-augmented PATH. Returns an absolute path. Raises
+    Searches ``THE_ONE_PYTHON`` then ``python3``/``python`` across every entry of
+    the frozen-augmented PATH. Returns an absolute path. Raises
     :class:`FrozenInterpreterError` (actionable, non-Docker) when none is found.
     """
     # The cleaned subprocess env carries the frozen-augmented, bundle-stripped
@@ -114,31 +191,30 @@ def _resolve_frozen_python() -> str:
     search_path = _build_subprocess_env().get("PATH") or None
 
     override = os.environ.get(_PYTHON_OVERRIDE_ENV, "").strip()
-    candidates: list[str]
+    skipped: str | None = None
     if override:
-        candidates = [override]
-    else:
-        candidates = ["python3", "python"]
-
-    skipped_alias = False
-    for cand in candidates:
-        # An override given as an absolute/relative path resolves directly;
-        # a bare name resolves against the augmented PATH.
-        found = shutil.which(cand, path=search_path)
+        # An explicit override is never filtered.
+        found = shutil.which(override, path=search_path)
         if found:
-            # A bare-name hit on a Store alias stub is not an interpreter: skip it
-            # and keep searching. An explicit override is never filtered.
-            if not override and _is_store_alias(found):
-                skipped_alias = True
-                continue
+            return str(Path(found).resolve())
+    else:
+        found, skipped = walk_python_candidates(["python3", "python"], search_path)
+        if found:
             return str(Path(found).resolve())
 
+    if skipped == "clt":
+        raise FrozenInterpreterError(
+            "The packaged app needs an external Python interpreter to run Python tools, but "
+            "only the macOS Command Line Tools stub `/usr/bin/python3` was found, which is not "
+            "an installed Python; install Python 3 (python.org or Homebrew), or set "
+            f"{_PYTHON_OVERRIDE_ENV} to the absolute path of a Python interpreter."
+        )
     if override:
         detail = (
             f"the interpreter set in {_PYTHON_OVERRIDE_ENV}={override!r} was not "
             f"found or is not executable"
         )
-    elif skipped_alias:
+    elif skipped == "store":
         detail = (
             "only the Microsoft Store `python` alias was found, which is not a real interpreter"
         )

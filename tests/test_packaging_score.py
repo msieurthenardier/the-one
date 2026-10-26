@@ -68,6 +68,30 @@ def test_doctor_fail_nonzero_rc_or_no_gates_fail() -> None:
     assert not score.score_doctor("rc=0")["pass"]
 
 
+def test_frozen_darwin_doctor_output_passes() -> None:
+    """A sample frozen-macOS doctor run (M32 F3 L5): Cocoa, no tray, login-shell PATH."""
+    out = "\n".join(
+        [
+            "the-one doctor",
+            "  child spawn: OK — spawned via 'sh', round-trip OK",
+            "  python interpreter: OK — resolved to /opt/homebrew/bin/python3",
+            "  desktop shell: OK — Cocoa backend present",
+            "  window chrome: OK — skipped (not Windows)",
+            "  time zones: OK — bundled zone data",
+            "",
+            "  sandbox: passthrough — no bwrap on macOS",
+            "  tray: dock — macOS keeps the app in the Dock",
+            "  path: login shell",
+            "",
+            "  runtimes:",
+            "    node: found at /opt/homebrew/bin/node",
+            "RESULT: PASS",
+            "rc=0",
+        ]
+    )
+    assert score.score_doctor(out)["pass"]
+
+
 # ---------------------------------------------------------------- gate 3, per soname
 
 

@@ -1,8 +1,9 @@
 """Guard: no packaging entry point ships the frozen Windows app from an
 unlocked dependency resolve (squawk 0009, squawk 0015).
 
-Squawk 0009 fixed `.github/workflows/windows-installer.yml` (the GitHub `v*`-tag
-release path) to install the LOCKED closure — `uv export --no-dev
+Squawk 0009 fixed the GitHub `v*`-tag Windows release path (`windows-installer.yml`, deleted
+in Mission 32 Flight 4 leg 4; the recipe is now `packaging/windows/build.ps1`) to install the
+LOCKED closure — `uv export --no-dev
 --no-emit-project --extra gui --extra all-llms --format requirements-txt`,
 `pip install -r <export>`, then `pip install -e . --no-deps` — instead of a fresh
 `pip install -e ".[gui,all-llms]"` resolve, which can re-resolve version ranges at
@@ -14,10 +15,12 @@ entry point repeating the pattern.
 
 Rule (plain-text grep — no YAML parsing dependencies)
 ------------------------------------------------------
-1. ALLOWLIST — the two known artifact-producing entry points that actually build
-   and ship the frozen Windows app (`ci/tasks/windows-installer-build.yml` —
-   Concourse, every push — and `.github/workflows/windows-installer.yml` — the
-   GitHub `v*`-tag release path) MUST contain the locked-closure sequence: a
+1. ALLOWLIST — the known entry points that build the frozen Windows app or audit its
+   closure (`packaging/windows/build.ps1` — the one recipe both Concourse
+   (`ci/tasks/windows-installer-build.yml`, every push) and
+   `.github/workflows/windows-packages.yml` call — and `.github/workflows/release.yml`, whose
+   `audit` job exports the release closure, frozen, and installs nothing) MUST contain the
+   locked-closure sequence (release.yml: the frozen export only): a
    `uv export ... --extra gui ... --extra all-llms ...` line AND a
    `pip install ... --no-deps` line. Losing either marker fails the test — this
    is the exact regression squawk 0015 caught.
@@ -58,11 +61,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Rule 1 — artifact-producing entry points that MUST carry the locked-closure
-# sequence.
+# sequence. Since Mission 32 Flight 4 the Windows recipe is packaging/windows/build.ps1, which
+# the Concourse task and windows-packages.yml both call; the task no longer carries the sequence
+# itself (it is not listed: it only calls the recipe, which is). release.yml carries the export
+# in its `audit` job (the audit pins the locked closure; it installs nothing from it).
 LOCKED_CLOSURE_REQUIRED = [
-    "ci/tasks/windows-installer-build.yml",
-    ".github/workflows/windows-installer.yml",
+    "packaging/windows/build.ps1",
 ]
+
+# The release workflow's `audit` job exports the same closure (frozen) and installs nothing.
+LOCKED_EXPORT_ONLY = [".github/workflows/release.yml"]
 
 # Locked-closure sequence markers (both must be present in the file).
 UV_EXPORT_RE = re.compile(r"uv export .*--extra gui.*--extra all-llms")
@@ -128,6 +136,14 @@ def test_artifact_producing_entry_points_use_locked_closure() -> None:
         "`pip install -e . --no-deps`), not a fresh resolve — see squawk "
         f"0009 / 0015: {failures}"
     )
+
+
+def test_release_audit_exports_the_frozen_locked_closure() -> None:
+    for relpath in LOCKED_EXPORT_ONLY:
+        text = (REPO_ROOT / relpath).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if UV_EXPORT_RE.search(line)]
+        assert lines, f"{relpath} has no `uv export --extra gui --extra all-llms` line"
+        assert all("--frozen" in line for line in lines), f"{relpath}: export must be --frozen"
 
 
 def test_no_unlocked_gui_extra_install_outside_locked_files() -> None:

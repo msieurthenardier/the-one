@@ -1,6 +1,6 @@
 [project]
 name = "the-one"
-version = "0.11.8"
+dynamic = ["version"]
 description = "A personal agentic system — LLM-agnostic, tool-rich, monolithic."
 requires-python = ">=3.11"
 license = "MIT"
@@ -44,7 +44,7 @@ dependencies = [
     # CVE floors (deps — some direct, most transitive — promoted to
     # explicit floors so any resolve that starts from these ranges instead
     # of uv.lock, e.g. `pip install -e ".[gui,all-llms]"` in
-    # .github/workflows/windows-installer.yml, still lands on the fixed
+    # a Windows installer build before Mission 32, still lands on the fixed
     # versions, not just uv.lock's pins). Each line cites the version that
     # fixed the CVE, verified against the advisory:
     #  - idna via httpx/anyio/requests (closes CVE-2026-45409)
@@ -142,7 +142,7 @@ gui = [
     # pillow>=13.0 floor (12.3 closed PYSEC-2026-2253..2257, PYSEC-2026-3451..3454,
     # PYSEC-2026-3493..3496; 13.0 closes CVE-2026-112395..112404, -112895..112899 —
     # squawk 0224). The gui extra ships in the Windows installer
-    # (.github/workflows/windows-installer.yml re-resolves from these
+    # (the installer build once re-resolved from these
     # ranges), so this floor must bind there — same dual-binding rule as
     # the runtime CVE-floor block above.
     "pillow>=13.0",
@@ -162,6 +162,9 @@ the-one = "the_one.main:cli_entry"
 # forced — and huggingface_hub imports hf_xet lazily inside its download
 # path only, so excluding it is safe and trims ~4 MB from the bundle.
 exclude-dependencies = ["hf-xet"]
+
+[tool.setuptools.dynamic]
+version = {attr = "the_one.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["the_one*"]

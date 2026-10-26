@@ -38,29 +38,25 @@ pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 def test_focus_window_returns_false_when_no_window() -> None:
     """focus_window() returns False when _desktop_window is None (serve mode / no window)."""
-    import importlib
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
-    import the_one.interfaces.desktop.shell as shell_mod
+    state.desktop_window = None
 
-    importlib.reload(shell_mod)
-    shell_mod._desktop_window = None
-
-    result = shell_mod.focus_window()
+    result = window_control.focus_window()
 
     assert result is False
 
 
 def test_focus_window_calls_show_restore_and_returns_true() -> None:
     """focus_window() calls show() and restore() on the registered window and returns True."""
-    import importlib
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
-    import the_one.interfaces.desktop.shell as shell_mod
-
-    importlib.reload(shell_mod)
     mock_window = MagicMock()
-    shell_mod._desktop_window = mock_window
+    state.desktop_window = mock_window
 
-    result = shell_mod.focus_window()
+    result = window_control.focus_window()
 
     assert result is True
     mock_window.show.assert_called_once()
@@ -69,16 +65,14 @@ def test_focus_window_calls_show_restore_and_returns_true() -> None:
 
 def test_focus_window_returns_false_and_logs_on_exception() -> None:
     """focus_window() catches show()/restore() exceptions, logs, and returns False."""
-    import importlib
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
-    import the_one.interfaces.desktop.shell as shell_mod
-
-    importlib.reload(shell_mod)
     mock_window = MagicMock()
     mock_window.show.side_effect = RuntimeError("show failed")
-    shell_mod._desktop_window = mock_window
+    state.desktop_window = mock_window
 
-    result = shell_mod.focus_window()
+    result = window_control.focus_window()
 
     assert result is False
 
@@ -90,7 +84,7 @@ def test_window_focus_endpoint_returns_focused_true_when_window_registered() -> 
     """POST /api/window/focus returns 200 {"focused": true} when focus_window() → True."""
     from the_one.interfaces.web.app import app
 
-    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True):
+    with patch("the_one.interfaces.desktop.window_control.focus_window", return_value=True):
         with TestClient(app, headers=auth_headers()) as client:
             response = client.post("/api/window/focus")
 
@@ -102,7 +96,7 @@ def test_window_focus_endpoint_returns_focused_false_when_no_window() -> None:
     """POST /api/window/focus returns 200 {"focused": false} when focus_window() → False."""
     from the_one.interfaces.web.app import app
 
-    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=False):
+    with patch("the_one.interfaces.desktop.window_control.focus_window", return_value=False):
         with TestClient(app, headers=auth_headers()) as client:
             response = client.post("/api/window/focus")
 
@@ -118,7 +112,7 @@ def test_window_focus_endpoint_header_less_post_not_rejected() -> None:
     """
     from the_one.interfaces.web.app import app
 
-    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=False):
+    with patch("the_one.interfaces.desktop.window_control.focus_window", return_value=False):
         with TestClient(app, headers=auth_headers()) as client:
             # Explicitly send no Origin header (TestClient default)
             response = client.post("/api/window/focus")
@@ -133,21 +127,18 @@ def test_window_focus_endpoint_header_less_post_not_rejected() -> None:
 
 def test_run_desktop_is_ours_posts_focus_url_and_returns() -> None:
     """run_desktop() on is_ours=True POSTs to /api/window/focus and returns without a window."""
-    import importlib
-
     import httpx
 
     import the_one.interfaces.desktop.shell as shell_mod
-
-    importlib.reload(shell_mod)
+    import the_one.interfaces.desktop.takeover as takeover_mod
 
     webview_mock = MagicMock()
     sys.modules["webview"] = webview_mock
 
     try:
         with (
-            patch.object(shell_mod, "_select_port", return_value=(8484, True)),
-            patch.object(shell_mod, "_running_version", return_value=None),
+            patch.object(takeover_mod, "_select_port", return_value=(8484, True)),
+            patch.object(takeover_mod, "_running_version", return_value=None),
         ):
             with patch.object(httpx, "post") as mock_post:
                 with patch("uvicorn.Server") as mock_server_cls:
@@ -174,21 +165,18 @@ def test_run_desktop_is_ours_posts_focus_url_and_returns() -> None:
 
 def test_run_desktop_is_ours_returns_cleanly_when_post_raises() -> None:
     """run_desktop() exits cleanly (no window, no crash) when focus POST raises httpx.HTTPError."""
-    import importlib
-
     import httpx
 
     import the_one.interfaces.desktop.shell as shell_mod
-
-    importlib.reload(shell_mod)
+    import the_one.interfaces.desktop.takeover as takeover_mod
 
     webview_mock = MagicMock()
     sys.modules["webview"] = webview_mock
 
     try:
         with (
-            patch.object(shell_mod, "_select_port", return_value=(8484, True)),
-            patch.object(shell_mod, "_running_version", return_value=None),
+            patch.object(takeover_mod, "_select_port", return_value=(8484, True)),
+            patch.object(takeover_mod, "_running_version", return_value=None),
         ):
             with patch.object(httpx, "post", side_effect=httpx.ConnectError("refused")):
                 with patch("uvicorn.Server") as mock_server_cls:
@@ -209,7 +197,7 @@ def test_run_desktop_is_ours_returns_cleanly_when_post_raises() -> None:
 def test_focus_route_accepts_token_body_and_no_body() -> None:
     from the_one.interfaces.web.app import app
 
-    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True) as fw:
+    with patch("the_one.interfaces.desktop.window_control.focus_window", return_value=True) as fw:
         with TestClient(app, headers=auth_headers()) as client:
             assert client.post("/api/window/focus").status_code == 200
             fw.assert_called_once_with()
@@ -228,7 +216,7 @@ def test_focus_route_accepts_token_body_and_no_body() -> None:
 def test_focus_route_rejects_bad_token(token: str) -> None:
     from the_one.interfaces.web.app import app
 
-    with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True) as fw:
+    with patch("the_one.interfaces.desktop.window_control.focus_window", return_value=True) as fw:
         with TestClient(app, headers=auth_headers()) as client:
             r = client.post("/api/window/focus", json={"activation_token": token})
     assert r.status_code == 422
@@ -238,7 +226,8 @@ def test_focus_route_rejects_bad_token(token: str) -> None:
 def test_focus_window_gtk_token_one_idle_set_startup_id_deiconify_present() -> None:
     import types
 
-    import the_one.interfaces.desktop.shell as shell_mod
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
     idles: list = []
     gtkmod = types.SimpleNamespace(glib=types.SimpleNamespace(idle_add=idles.append))
@@ -248,14 +237,14 @@ def test_focus_window_gtk_token_one_idle_set_startup_id_deiconify_present() -> N
     window.native.deiconify.side_effect = lambda: calls.append("deiconify")
     window.native.present.side_effect = lambda: calls.append("present")
     with (
-        patch.object(shell_mod, "_desktop_window", window),
-        patch.object(shell_mod, "_is_gtk_backend", return_value=True),
+        patch.object(state, "desktop_window", window),
+        patch.object(window_control, "_is_gtk_backend", return_value=True),
         patch.dict(
             sys.modules,
             {"webview.platforms.gtk": gtkmod, "webview.platforms": MagicMock(gtk=gtkmod)},
         ),
     ):
-        assert shell_mod.focus_window("TOKEN123") is True
+        assert window_control.focus_window("TOKEN123") is True
         assert len(idles) == 1  # exactly one idle, nothing else queued
         window.show.assert_not_called()
         window.restore.assert_not_called()
@@ -266,13 +255,14 @@ def test_focus_window_gtk_token_one_idle_set_startup_id_deiconify_present() -> N
 
 
 def test_focus_window_no_token_uses_plain_path() -> None:
-    import the_one.interfaces.desktop.shell as shell_mod
+    from the_one.interfaces.desktop import window_control
+    from the_one.interfaces.desktop.session_state import state
 
     window = MagicMock()
     with (
-        patch.object(shell_mod, "_desktop_window", window),
-        patch.object(shell_mod, "_is_gtk_backend", return_value=True),
+        patch.object(state, "desktop_window", window),
+        patch.object(window_control, "_is_gtk_backend", return_value=True),
     ):
-        assert shell_mod.focus_window() is True
+        assert window_control.focus_window() is True
     window.show.assert_called_once()
     window.restore.assert_called_once()

@@ -27,37 +27,69 @@ freeze cannot be produced on Linux or WSL2 — it must run on a native Windows
 host (or the `windows-2022` CI runner). On this repo's dev host (Linux/WSL2) the
 spec is authored and statically validated via `py_compile` only.
 
-## Prerequisites (native Windows)
+## The recipe: `build.ps1` (Mission 32 Flight 4)
 
-- Windows 10/11 (or a `windows-2022` runner)
-- Python 3.11
-- The GUI + LLM extras **and** PyInstaller:
-
-```powershell
-pip install -e ".[gui,all-llms]"
-pip install pyinstaller
-```
-
-> **The `[gui]` extra is required.** Without it, `pywebview` (and its transitive
-> `pythonnet`) are absent and the spec's pywebview collection import-fails at
-> build time. The existing `windows` CI job installs only `.[all-llms,dev]`
-> (no `[gui]`) — the freeze job (Leg 4) must install `.[gui,all-llms]` +
-> `pyinstaller`.
-
-## Build
-
-From the repo root:
+[`build.ps1`](./build.ps1) is the one Windows recipe. The Concourse task
+(`ci/tasks/windows-installer-build.yml`, every push) and the GitHub workflow
+(`.github/workflows/windows-packages.yml`) both call it, so both build the same way:
 
 ```powershell
-pyinstaller --noconfirm packaging/windows/the-one.spec
+packaging\windows\build.ps1 -Out C:\m32-build [-Version 0.11.9.dev1] [-Python C:\Python311\python.exe] [-ReuseVenv]
+packaging\windows\build.ps1 -SelfTest        # argument handling, path checks, needle list; no Windows API
 ```
+
+It does, in order, and throws on the first failure (`$LASTEXITCODE` is checked after every native call):
+
+1. creates a fresh build venv under `-Out` (`-ReuseVenv` keeps one for an N+1 build);
+2. installs the **locked closure** (`uv export --frozen ... --extra gui --extra all-llms`, then
+   `pip install --require-hashes --no-deps`), never a fresh resolve (squawks 0009, 0015);
+3. installs `pyinstaller==6.22.3` and records the `pyinstaller-hooks-contrib` version it pulled;
+4. stages the source with `packaging/stage.py --target windows` into `<Out>\stage-windows-<V>`;
+5. deletes, then renders, `packaging\windows\product.iss` from `product.iss.in` at version `<V>`
+   (`render.py --set version=<V> --out ...`);
+6. freezes with `M32_STAGE` set, into `<Out>\work-<V>` and `<Out>\dist-<V>`, so an N+1 build never
+   clobbers N;
+7. runs the frozen `the-one.exe doctor` and requires, by name, `usearch`, `fts5`, `embedding model`,
+   `file watcher`, `window chrome`, `time zones`, `mcp sdk`, `desktop shell` and `child spawn` to read `OK`;
+8. runs ISCC (`/DDistDir=<Out>\dist-<V> /O<Out>\installer-<V>`; Inno Setup 6.1 or newer when the
+   version can be read) and writes `<Out>\build-<V>.env` (`VERSION`, `SETUP_EXE`, `DIST`).
+
+Output: `<Out>\installer-<V>\the-one-setup-<V>.exe`. `-Version` empty means the `__version__` in
+`the_one/__init__.py`. `-Out` must be **outside the repo**; the only file the build writes into the
+repo is the rendered, gitignored `packaging\windows\product.iss`.
+
+**The project is never installed** (no editable install). The spec requires `M32_STAGE` and puts only
+the staged copy (and `packaging/`, for `import render`) on `sys.path`, as the macOS spec does, so the
+bundle carries the staged version and nothing else. Nothing in `the_one/` reads its own distribution
+metadata (`importlib.metadata.version("the-one")`; `diagnostics.py` reads only `mcp` and `httpcore2`),
+so skipping the install is safe.
+
+The product names (`install_dir_name`, `setup_file_stem`, `cli_executable`, `gui_executable`,
+`publisher`) and the app GUID come from the `[windows]` section of `packaging/product.toml`. The
+spec reads the two exe names through `render.load`; the installer reads the rest from the rendered
+`product.iss`. The `AppId` line in `the-one.iss` stays **literal** (a test pins it to `app_guid`),
+because it is the upgrade and uninstall identity of every shipped install.
+
+## Building by hand (native Windows)
+
+Only needed when iterating on the spec; prefer `build.ps1`. After a stage and a locked-closure install
+(what `build.ps1` does), freeze from the repo root with the stage set:
+
+```powershell
+python packaging/stage.py --version 0.11.9.dev1 --target windows --out C:\m32-build
+$env:M32_STAGE = "C:\m32-build\stage-windows-0.11.9.dev1"
+pyinstaller --noconfirm --clean --workpath C:\m32-build\work --distpath C:\m32-build\dist packaging/windows/the-one.spec
+```
+
+> **The `[gui]` extra is required** in the build environment. Without it, `pywebview` (and its
+> transitive `pythonnet`) are absent and the spec's pywebview collection import-fails at build time.
 
 ## Output
 
 A one-dir bundle (DD1 — **not** one-file) containing **two exes**:
 
 ```
-dist/the-one/
+<Out>\dist-<V>\the-one\
   the-one.exe        # CLI (console=True): chat|serve|app|version|doctor|rotate-api-credential  — no shortcut
   the-one-app.exe    # windowed launcher (console=False): always runs `app` — Start-menu shortcut
   ...                # collected binaries, the_one/interfaces/web/static/**, deps
@@ -68,10 +100,10 @@ dist/the-one/
 - `the-one-app.exe` is the windowed launcher: `console=False`, no console window, hard-wired
   to run `app`. The Inno Setup `[Icons]` block creates the Start-menu (and optional desktop)
   shortcut pointing at `the-one-app.exe`, not `the-one.exe`.
-- Smoke-check after building: `dist\the-one\the-one.exe doctor` (the frozen-runtime
-  diagnostic) and `dist\the-one\the-one.exe version`.
+- Smoke-check after building: `<dist>\the-one\the-one.exe doctor` (the frozen-runtime
+  diagnostic; `build.ps1` runs it) and `<dist>\the-one\the-one.exe version`.
 
-`dist/the-one/` is also the input the Leg 3 Inno Setup script points at.
+The one-dir is also the input the Inno Setup script packages (`/DDistDir=<dist>`).
 
 ## Installer — Inno Setup (`the-one.iss`)
 
@@ -96,33 +128,35 @@ removes `{app}` and both shortcuts.
 WSL2. The `.iss` is authored and statically reviewed on the dev host; the actual
 installer `.exe` is built by **Leg 4's CI on `windows-2022`** (which pins
 **Inno Setup ≥6.3** so the `ArchitecturesAllowed=x64compatible` token compiles),
-after that job has built the one-dir the installer consumes.
+after that job has built the one-dir the installer consumes. (`build.ps1` checks the Inno version
+when it can read it and refuses one older than 6.1; an unreadable version, such as the `0.0.0.0` the
+hosted image reports, continues and the compile is the check.)
 
 ### Build
 
-`iscc` needs the one-dir present at `dist/the-one/` first
-(`pyinstaller --noconfirm packaging/windows/the-one.spec`). Then, from the repo
-root:
+`build.ps1` does this (step 5 and 8 above). By hand, after a freeze, from the repo root: render the
+include for the version you are building, then compile.
 
 ```powershell
-iscc packaging\windows\the-one.iss
+python packaging/render.py --repo . --template packaging/windows/product.iss.in --set version=1.2.3 --out packaging/windows/product.iss
+iscc /DDistDir=C:\m32-build\dist /OC:\m32-build\installer packaging\windows\the-one.iss
 ```
 
-The version defaults to `0.2.0` (a `#define AppVersion`, guarded by `#ifndef`).
-CI overrides it with the live `the_one.__version__`:
-
-```powershell
-iscc /DAppVersion=1.2.3 packaging\windows\the-one.iss
-```
+`the-one.iss` `#include`s `product.iss`, the only source of the version, the product name and the exe
+names: there is no `AppVersion` define on the command line and no fallback, so a missing
+`product.iss` is an ISCC error. `DistDir` is also required (`#error` when undefined). ISPP looks for
+the include in the `.iss`'s own directory first, which is why `product.iss` is rendered there
+(gitignored, deleted and re-rendered on every build).
 
 ### Output
 
 ```
-packaging\windows\Output\the-one-setup-<version>.exe
+<output-dir>\the-one-setup-<version>.exe
 ```
 
-e.g. `packaging\windows\Output\the-one-setup-0.2.0.exe` — the double-click
-installer artifact (Leg 4's CI uploads it from `packaging/windows/Output/`).
+e.g. `C:\m32-build\installer-0.11.8\the-one-setup-0.11.8.exe` (the stem is `setup_file_stem` in
+`product.toml`). The Concourse task copies it to `installer/` for the MinIO step, which matches
+`the-one-setup-*.exe`.
 
 ### Installer icon
 
@@ -173,17 +207,90 @@ secret) by uncommenting the inert `SignTool=` / `SignedUninstaller` hook in
 
 Two places build the frozen installer; both run the same freeze + packaged-smoke:
 
-- **Local Concourse (primary, unlimited).** A pipeline in the `the-one` Concourse
+- **Local Concourse (primary, unlimited).** The task runs `build.ps1` with `-Out` set to `build/`, a
+  sibling of `repo`, and then copies the installer to `installer/`; it logs the ISCC version and
+  whether `git` is on `PATH` (the staging step needs no git, so a `fly execute` upload whose `.git`
+  gitlink points at nothing still builds). A pipeline in the `the-one` Concourse
   team (`ci/windows-installer.pipeline.yml` + `ci/tasks/windows-installer-build.yml`)
   polls the branch, builds on a `platform: windows` worker, and publishes the `.exe`
   to a local minio bucket. This is the day-to-day build — it runs on every push, with
   no GitHub artifact-storage quota.
-- **GitHub Actions (release only).** The `build-windows-installer` job in
-  [`.github/workflows/windows-installer.yml`](../../.github/workflows/windows-installer.yml)
-  runs **only on a version tag** (`v*` pushed to `main`, e.g. `git tag v0.2.0 && git
-  push origin v0.2.0`). Routine PRs/pushes do **not** trigger it — they run the unit
-  CI in `test.yml`. (Flight 8 evolves this into the full release pipeline that
-  publishes a GitHub Release asset.)
+- **GitHub Actions (release only).** The `windows` job of
+  [`.github/workflows/release.yml`](../../.github/workflows/release.yml) runs
+  [`windows-packages.yml`](../../.github/workflows/windows-packages.yml) (which calls `build.ps1`)
+  **only on a version tag** (`v*` pushed to `main`) or a dry-run dispatch. Routine PRs/pushes do
+  **not** trigger it — they run the unit CI in `test.yml`. The `publish` job then attaches the
+  installer to the GitHub release with the Linux and macOS packages. (Mission 32 Flight 4 retired
+  `windows-installer.yml`; its smoke moved into `windows-packages.yml`, its publish into
+  `release.yml`.)
+
+## Quitting a running app: install and uninstall (Mission 32 Flight 4, DD2)
+
+The close-to-tray shell means a running app is a hidden window plus a server, and the Restart Manager
+alone cannot close it (probe W3: installer exit 5). So `the-one.iss` `[Code]` asks the app to quit
+itself, and force-kills only what is left:
+
+1. **Ask.** `the-one.exe quit --wait` from `{app}`, started without waiting. Setup
+   (`PrepareToInstall` -> `QuitThenKillSetup`) uses `ExecAsOriginalUser`, so the command runs as the
+   user who started setup and resolves *that* user's data directory and credential. The uninstaller
+   (`CurUninstallStepChanged(usUninstall)` -> `QuitThenKillUninstall`) uses `Exec`, because
+   `ExecAsOriginalUser` is a setup-only function in Inno Setup 6; the uninstaller's token is the
+   elevated user who ran it, which is the installing user in the silent-elevation case. When the
+   elevating account differs from the user running the app, the call cannot reach the app and the
+   force step below ends it: that case is a field check, not something the hosted runner proves.
+2. **Poll.** Up to 90 s, until neither `the-one-app.exe` nor `the-one.exe` is running.
+3. **Force.** `KillRunning` (`taskkill /F`) always runs last, so a hung app cannot block the install
+   or the uninstall.
+
+`CloseApplications=force` and `RestartApplications=no` stay as the backstop. Every stage writes a
+`/LOG` line (`setup quit-call`, `quit-poll: present|gone|nothing left`, `quit-killrunning`, with
+`uninstall` in place of `setup` for the uninstaller), which is what the lifecycle rows L7 and L9 read.
+An app older than this version (v0.11.8 has no `quit` command) is closed by the force step once.
+
+## Lifecycle proof: `lifecycle.ps1` and `lib.ps1`
+
+`.github/workflows/windows-packages.yml` has two modes, both dispatch-only:
+
+```
+gh workflow run windows-packages.yml --ref <branch> -f mode=full       # build N, frozen smoke, upload the installer
+gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L10
+```
+
+Both build through `build.ps1`. `lifecycle` also builds N+1 (`render.py --next-version`, `-ReuseVenv`,
+never uploaded) and runs [`lifecycle.ps1`](./lifecycle.ps1), which dot-sources the helpers in
+[`lib.ps1`](./lib.ps1) (copied from the frozen `probe/probe.ps1`). It writes
+`lifecycle/SUMMARY.txt` into the `windows-packages-logs` artifact: every row seeded
+`FAIL <id> not-run`, `== lifecycle done` only on normal completion, and the job fails unless that
+line is present and no row line starts with `FAIL`.
+
+| row | what it proves on the hosted runner |
+|---|---|
+| L1 | the v0.11.8 release installer, then N over it: exit 0, old pid gone, same `{app}`, one uninstall entry (the `{CAEEFB46-...}}_is1` key, two closing braces) at N, no duplicate shortcuts, the marker agent kept, N answers N |
+| L2 | Start-menu shortcut, `doctor` from `{app}`, the window natively visible within 60 s and the route `visible:true` |
+| L3 | `GET /api/window/chrome` answers 200 with a parseable body (DWM results are INFO) |
+| L4 | `WM_CLOSE` hides the window natively, the route reports `visible:false`, the process lives |
+| L5 | a second launch leaves exactly the first app pid and shows the window again |
+| L6 | moved and resized window, `quit --wait`, relaunch: the native rectangle is within 16 px of `window-state.json` after the app's own clamps |
+| L7 | N+1 over a running N: quit, `present`, `gone`, nothing left, `KillRunning`, first copy, in that order, N drained first |
+| L8 | `quit --wait` exits 0, with the drain line and no process left |
+| L10 | `quit --wait` sent as soon as `/api/live` answers, while the window is still booting: exit 0 within the bound, the drain line, no process left (runs before L9) |
+| L9 | silent uninstall while the app runs: the same quit sequence in the `/LOG`, `{app}` and the key gone, data dir and marker kept |
+
+What the runner cannot prove, and the guide does not claim: the Windows 11 tinted title bar (the
+runner is Server 2022 and reports "dark mode only"), the UAC prompt (the runner's administrator
+elevates silently), and a standard-user or other-account upgrade. Those are field checks.
+
+Both `.ps1` files take `-SelfTest` (no Windows API; the workflow runs it before the build, and it
+runs locally in a throwaway `mcr.microsoft.com/powershell` container):
+
+```bash
+docker run --rm --name m32-pwsh-lifecycle -v "$PWD:/repo:ro" mcr.microsoft.com/powershell:latest \
+  pwsh -NoProfile -File /repo/packaging/windows/lifecycle.ps1 -SelfTest
+```
+
+`packaging/windows/smoke.py` holds the two frozen-app probes the workflow runs with the build venv's
+Python and `PYTHONPATH=<stage dir>`: `info <version>` (frozen `serve` answers `/api/info` with the
+staged version) and `single-instance` (`_select_port` sees the frozen instance as ours).
 
 ## CI packaged-smoke (the freeze proof)
 
@@ -229,7 +336,8 @@ freeze on every push in the meantime.
 
 - **One-dir, not one-file** (DD1): one-file is forbidden — it hurts the DD2
   child-spawn fix and triggers Windows AV heuristics.
-- **Version**: the spec names the bundle from `the_one.__version__` (`0.2.0`).
+- **Version**: the spec names the bundle from the *staged* `the_one.__version__` (`stage.py` writes
+  the version being built, so an N+1 build is named N+1).
   The stale `pyproject.toml` `version = "0.1.0"` is a known discrepancy left for
   a future maintenance reconcile — do not rely on the pyproject string here.
 - **PyNaCl / Discord voice**: the nacl exclusion existed only for discord.py's
