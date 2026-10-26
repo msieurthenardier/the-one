@@ -246,7 +246,7 @@ async def test_stdio_test_connect_persists_tools_cache(client_and_repo) -> None:
     assert "auth_posture" not in cache
 
 
-async def test_stdio_test_connect_surfaces_connection_error(client_and_repo) -> None:
+async def test_stdio_test_connect_error_records_last_check_only(client_and_repo) -> None:
     """Stdio Test path translates MCPConnectionError → ``{status: "error"}``."""
     from the_one.mcp.errors import MCPConnectionError
 
@@ -270,9 +270,12 @@ async def test_stdio_test_connect_surfaces_connection_error(client_and_repo) -> 
     body = resp.json()
     assert body["status"] == "error"
     assert "MCPConnectionError" in body["error"]
-    # No cache should land on a failure.
+    # A failure lands no tools; the only cache entry is the check record (leg 08a).
     stored = await repo.get("src-stdio-err")
-    assert (stored.config or {}).get("_cache") is None
+    cache = (stored.config or {}).get("_cache")
+    assert set(cache) == {"last_check"}
+    assert cache["last_check"]["status"] == "error"
+    assert isinstance(cache["last_check"]["at"], float)
 
 
 async def test_stdio_test_connect_surfaces_sandbox_error(client_and_repo) -> None:

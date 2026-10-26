@@ -229,7 +229,7 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     # sits outside the `[data-confirm-title]` span, so the label alone is
     # what App.confirmDelete swaps on arm.
     expect(delete_btn.locator("svg")).to_have_count(1)
-    expect(delete_btn).to_have_text("Delete Knowledge Base")
+    expect(delete_btn).to_have_text("Delete knowledge base")
 
     delete_btn.click()  # arm
     # Wait for the armed state before the second click — App.confirmDelete
@@ -610,7 +610,7 @@ def test_detail_view_indexing_poll_reindex_and_search(
         "Folders",
         "Status",
         "Search",
-        "Danger Zone",
+        "Danger zone",
     ]
 
     # ...and both re-index controls now live INSIDE the Status section,
@@ -1501,7 +1501,7 @@ def test_kb_delete_confirm_lapse_is_visually_distinct(app_clean: str, page: Page
 
     expect(delete_btn).not_to_have_class(_re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
-    expect(delete_btn).to_have_text("Delete Knowledge Base")
+    expect(delete_btn).to_have_text("Delete knowledge base")
 
 
 # ── M31 F3 L05a: the knowledge frame on the library (mount once, patch in place) ──

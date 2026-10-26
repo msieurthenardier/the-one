@@ -413,6 +413,7 @@ RETIRED_SELECTORS = (
     "ui-demo-drawer-toggle-",
     "ui-demo-modal",
     "entity-tile",
+    "mcp-tools-last-updated",
     "section-nav-item",
     "back-agent-btn",
     "back-knowledge-btn",
@@ -464,6 +465,11 @@ RETIRED_SELECTORS = (
     # M31 F4 L08a: the Appearance page's segmented toggle host is replaced by the
     # ``theme-picker`` radio group.
     "admin-theme-toggle-mount",
+    # M31 F5 L07: the MCP key-value table is ``App.ui.keyValueTable``; its rows, thead
+    # and Sensitive info button are reached through the table testid and the roles.
+    "mcp-kv-tbody",
+    "mcp-kv-thead",
+    "mcp-kv-sensitive-info",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix

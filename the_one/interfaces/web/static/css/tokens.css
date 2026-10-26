@@ -181,6 +181,10 @@
     --badge-connectors: #0b5394;  /* steel blue */
     /* time (M28) — theme-stable; white ink on deep forest green (~6.5:1). */
     --badge-time: #2e6b3f;        /* deep forest green */
+    /* MCP row transport (M31 F5 HAT) — theme-stable. Local: slate blue, dark ink (~5.8:1);
+       Remote: deep indigo, white ink (~7.9:1). */
+    --badge-local: #6f93a8;       /* slate blue */
+    --badge-remote: #4338ca;      /* deep indigo */
 
     /* per-badge ink (M17 F3 L4) — theme-STABLE (chosen by fill luminance,
        and fills are theme-stable enough that one ink clears AA in both
@@ -201,6 +205,8 @@
     --badge-ink-web: #ffffff;
     --badge-ink-connectors: #ffffff;
     --badge-ink-time: #ffffff;
+    --badge-ink-local: #101114;
+    --badge-ink-remote: #ffffff;
 
     /* nav rail — ladder-native (no palette island): rail is a plain
        surface with accent reserved for the active state. */
@@ -337,6 +343,9 @@
     --badge-connectors: #0b5394;
     /* time (M28) — theme-stable, same value as the dark block. */
     --badge-time: #2e6b3f;
+    /* local / remote (M31 F5 HAT) — theme-stable, same values as the dark block. */
+    --badge-local: #6f93a8;
+    --badge-remote: #4338ca;
 
     /* per-badge ink (M17 F3 L4) — theme-stable; identical to the dark block.
        Light fills → dark ink (#101114), dark fills → white ink (#ffffff).
@@ -355,6 +364,8 @@
     --badge-ink-web: #ffffff;
     --badge-ink-connectors: #ffffff;
     --badge-ink-time: #ffffff;
+    --badge-ink-local: #101114;
+    --badge-ink-remote: #ffffff;
 
     /* nav rail — ladder-native: the light theme's dark-navy palette island
        is RETIRED (v3 design decision); light rail in light theme. */

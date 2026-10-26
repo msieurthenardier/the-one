@@ -1,10 +1,10 @@
 # Squawk 0203: Stale `_era.py` docstring and three negotiation doc gaps
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-13
-**Completed**: —
+**Completed**: 2026-10-25
 
 ## Report
 These are doc gaps left by Mission 29 Flight 2, found in its debrief:
@@ -20,11 +20,18 @@ These are doc gaps left by Mission 29 Flight 2, found in its debrief:
 - The Flight 2 flight log's HAT entry has the serverInfo versions.
 
 ## Corrective Action
-*(written at completion)*
+Documentation only, no logic change (folded into Mission 31 Flight 5 leg 12, operator decision 2026-10-25):
+1. `the_one/mcp/_era.py` module docstring rewritten: it now says who reads and writes the map (`era_for` in `connect`, `remember_era`/`forget_era` from the connect path, update, delete, Reset and the mid-use failure paths).
+2. `the_one/agents.md` "Automatic protocol negotiation": a remembered modern era still runs the full policy (one discover round trip per connect, deliberate).
+3. The same bullet: the era map is process-global and unlocked, safe only on a single asyncio event loop.
+4. The same bullet: the `version: ''` stamp is the `mcp` 2.3.0 SDK's own servers; real modern servers report real versions (sonos 0.6.1, docs-ai-search 0.4.13, cloudflare-api 0.1.0).
 
 ## Verification
+`git diff` shows only the docstring and `agents.md` text; `tests/test_mcp_era.py` and `make test-unit` pass (see the Mission 31 Flight 5 leg 12 log); `make gate` after the main merge: unit 7659 passed, 15 skipped; browser `PARALLEL_RESULT rc=0 total=1579s`.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Mission 31 Flight 5 batch B6 Reviewer (Haiku; docs and docstring only, no security surface)
+**Verdict**: `[HANDOFF:confirmed]`: the docstring matches `era_for`/`remember_era`/`forget_era`'s callers; no logic changed
+**Commit**: the Mission 31 Flight 5 leg 12 checkpoint commit (B6)
 
 ## Disposition

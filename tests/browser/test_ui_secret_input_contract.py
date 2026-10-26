@@ -210,3 +210,172 @@ def test_field_error_testid(engine_page: Page) -> None:
         }""",
     )
     assert out == {"before": None, "text": "Still", "role": "alert", "same": True, "plain": None}
+
+
+# --- stored mode, label options and the describedby helpers (M31 F5 L04) ---
+
+
+def test_secret_input_defaults_unchanged_and_label_options(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const d = App.ui.secretInput({value: 'abc'});
+          const s = App.ui.secretInput({showLabel: 'Show value, row 3', hideLabel: 'Hide value, row 3'});
+          document.getElementById('harness-root').append(d.el, s.el);
+          const before = s.button.getAttribute('aria-label');
+          s.setRevealed(true);
+          const mid = s.button.getAttribute('aria-label');
+          s.setLabels('Show value, row 4', 'Hide value, row 4');
+          const after = s.button.getAttribute('aria-label');
+          s.setRevealed(false);
+          return {d: [d.button.getAttribute('aria-label'), d.hintEl, d.el.children.length, d.button.hidden, d.input.hasAttribute('aria-describedby')],
+                  s: [before, mid, after, s.button.getAttribute('aria-label')]};
+        }""",
+    )
+    assert out["d"] == ["Show password", None, 2, False, False]
+    assert out["s"] == [
+        "Show value, row 3",
+        "Hide value, row 3",
+        "Hide value, row 4",
+        "Show value, row 4",
+    ]
+
+
+def test_secret_input_stored_mode_state_and_set_stored(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const s = App.ui.secretInput({value: '***abcd', stored: '***abcd'});
+          const wrap = document.createElement('div'); wrap.append(s.el, s.hintEl);
+          document.getElementById('harness-root').append(wrap);
+          const st = () => [s.button.hidden, (s.hintEl.textContent === ''), s.hintEl.textContent, s.input.getAttribute('aria-describedby') === s.hintEl.id];
+          const a = st();
+          s.setValue('other');
+          const b = [s.button.hidden, (s.hintEl.textContent === ''), s.input.hasAttribute('aria-describedby')];
+          s.setStored('other');
+          const c = [s.button.hidden, (s.hintEl.textContent === '')];
+          s.setStored(null);
+          const d = [s.button.hidden, (s.hintEl.textContent === '')];
+          s.setStored('');
+          return {a, b, c, d, cls: s.hintEl.className, live: s.hintEl.getAttribute('aria-live'), wrapKids: s.el.className + ':' + s.el.children.length};
+        }""",
+    )
+    assert out["a"] == [True, False, "Stored. Type a new value to replace it.", True]
+    assert (
+        out["b"] == [False, True, False] and out["c"] == [True, False] and out["d"] == [False, True]
+    )
+    assert (
+        out["cls"] == "ui-secret-hint"
+        and out["live"] == "polite"
+        and out["wrapKids"] == "api-key-wrap:2"
+    )
+
+
+def test_secret_input_set_hint_is_cleared_by_typing(engine_page: Page) -> None:
+    page = engine_page
+    _mount(
+        page,
+        """() => {
+          window.__s = App.ui.secretInput({value: 'x'});
+          document.getElementById('harness-root').append(__s.el);
+          document.getElementById('harness-root').append(__s.setHint('Say it again') || __s.hintEl);
+        }""",
+    )
+    assert page.evaluate(
+        "() => [(__s.hintEl.textContent === ''), __s.hintEl.textContent, __s.input.getAttribute('aria-describedby') === __s.hintEl.id]"
+    ) == [False, "Say it again", True]
+    page.locator("input").first.click()
+    page.keyboard.type("y")
+    assert page.evaluate(
+        "() => [(__s.hintEl.textContent === ''), __s.input.hasAttribute('aria-describedby')]"
+    ) == [True, False]
+
+
+def test_describedby_helpers_treat_the_attribute_as_a_token_list(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => { const u = App.ui.util; const e = document.createElement('input'); const r = [];
+          u.addDescribedBy(e, 'a'); r.push(e.getAttribute('aria-describedby'));
+          u.addDescribedBy(e, 'b'); u.addDescribedBy(e, 'a'); r.push(e.getAttribute('aria-describedby'));
+          u.removeDescribedBy(e, 'a'); r.push(e.getAttribute('aria-describedby'));
+          u.removeDescribedBy(e, 'zz'); r.push(e.getAttribute('aria-describedby'));
+          u.removeDescribedBy(e, 'b'); r.push(e.hasAttribute('aria-describedby'));
+          return r; }"""
+    )
+    assert out == ["a", "a b", "b", "b", False]
+
+
+def test_secret_input_ime_composition_is_not_rewritten_mid_composition(engine_page: Page) -> None:
+    page = engine_page
+    _mount(
+        page,
+        """() => {
+          window.__s = App.ui.secretInput({value: '***abcd', stored: '***abcd'});
+          document.getElementById('harness-root').append(__s.el, __s.hintEl);
+          const i = __s.input; i.focus();
+          window.__log = [];
+          i.addEventListener('input', () => __log.push(i.value));
+        }""",
+    )
+    out = page.evaluate(
+        """() => {
+          const i = __s.input;
+          i.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+          i.value = '***abcd' + 'ni';
+          i.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertCompositionText', isComposing: true}));
+          const mid = i.value;
+          i.value = '***abcd' + '\u4f60';
+          i.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertCompositionText', isComposing: true}));
+          const mid2 = i.value;
+          i.dispatchEvent(new CompositionEvent('compositionend', {bubbles: true, data: '\u4f60'}));
+          return {mid, mid2, end: i.value, btnHidden: __s.button.hidden};
+        }"""
+    )
+    assert out["mid"] == "***abcdni"
+    assert out["mid2"] == "***abcd\u4f60"
+    assert out["end"] == "\u4f60"
+    assert out["btnHidden"] is False
+
+
+def test_secret_input_hint_stays_in_dom_and_writes_only_on_change(engine_page: Page) -> None:
+    page = engine_page
+    _mount(
+        page,
+        """() => {
+          window.__s = App.ui.secretInput({value: '***abcd', stored: '***abcd'});
+          document.getElementById('harness-root').append(__s.el, __s.hintEl);
+          window.__muts = 0;
+          new MutationObserver((r) => { __muts += r.length; }).observe(__s.hintEl, {childList: true, characterData: true, subtree: true});
+        }""",
+    )
+    out = page.evaluate(
+        """async () => {
+          __s.setValue('x'); await Promise.resolve();
+          const cleared = [__s.hintEl.isConnected, __s.hintEl.hidden, __s.hintEl.textContent];
+          __s.input.value = 'xy'; __s.input.dispatchEvent(new Event('input', {bubbles: true}));
+          __s.input.value = 'xyz'; __s.input.dispatchEvent(new Event('input', {bubbles: true}));
+          await new Promise((r) => setTimeout(r, 20));
+          return {cleared, muts: __muts};
+        }"""
+    )
+    assert out["cleared"] == [True, False, ""]
+    assert out["muts"] == 1  # one clear on setValue; keystrokes write nothing
+
+
+def test_secret_input_moves_focus_off_the_eye_when_stored_mode_is_reentered(
+    engine_page: Page,
+) -> None:
+    page = engine_page
+    _mount(
+        page,
+        """() => {
+          window.__s = App.ui.secretInput({value: 'x', stored: '***abcd'});
+          document.getElementById('harness-root').append(__s.el, __s.hintEl);
+          __s.button.focus();
+        }""",
+    )
+    out = page.evaluate(
+        """() => { __s.setValue('***abcd');
+          return [__s.button.hidden, document.activeElement === __s.input]; }"""
+    )
+    assert out == [True, True]

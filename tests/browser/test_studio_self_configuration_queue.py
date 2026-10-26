@@ -206,7 +206,7 @@ def test_approval_mode_toggle_persists(app_with_data_dir: tuple[str, Path], page
     _navigate_to_self_configuration_tab(page, base_url, "queue-toggle-agent")
 
     # HAT UX pass (M21 F02 L04): the approval-mode control is now a
-    # `.tool-enable-switch` checkbox, not a button with "Turn on/off
+    # switch checkbox (`App.ui.toggle`), not a button with "Turn on/off
     # approval mode" text — assert the checked state and the status line
     # text instead.
     toggle = page.locator('[data-testid="approval-mode-toggle-btn"]')

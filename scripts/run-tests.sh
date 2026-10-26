@@ -57,21 +57,24 @@ set -euo pipefail
 LANE_LIST="chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|settings-tools|providers|contracts-overlay|contracts-controls|shared"
 CANON_LANES=(chats agents agent-tabs library knowledge mcp routing settings settings-tools providers contracts-overlay contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (re-measured in the M31 F4 L11 --parallel 3 run after the settings split; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (re-measured in the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library; earlier rows from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
+# QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
+# other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
+# `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
   [chats]=450
   [agents]=540
   [agent-tabs]=360
-  [library]=210
+  [library]=420
   [knowledge]=420
-  [mcp]=450
+  [mcp]=630
   [routing]=600
   [settings]=360
   [settings-tools]=330
   [providers]=420
   [contracts-overlay]=270
-  [contracts-controls]=420
+  [contracts-controls]=480
   [shared]=420
 )
 
@@ -180,13 +183,13 @@ chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py
 # lane only (agents = studio minus library and mcp).
 library_pat=('test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
              'test_studio_connector_editor.py' \
-             'test_flow_studio_library_focus.py')
+             'test_flow_studio_library_focus.py' 'test_flow_studio_library_list.py')
 # Knowledge lane (M31 F3 L09, split from library when it ran 1.32x over budget): the
 # knowledge-base inventory file alone, about 60% of the old library lane's time.
 knowledge_pat=('test_flow_studio_knowledge_inventory.py')
-# MCP lane (M26 F1 L4, split from library for balance): the MCP editor and the
-# Library list.
-mcp_pat=('test_flow_studio_mcp_editor.py' 'test_flow_studio_library_list.py')
+# MCP lane (M26 F1 L4, split from library for balance): the MCP editor file alone
+# (M31 F5 L12 moved the Library list file back to `library` when mcp ran 1.55x over budget).
+mcp_pat=('test_flow_studio_mcp_editor.py')
 # Today's studio globs; `agents` is these minus the library and mcp lists. The
 # agents list/detail files (M25 F3 L3) are `test_flow_agents_*` and
 # `test_agents_*` (`test_flow_agent_*` does not match a plural "agents").

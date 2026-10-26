@@ -743,6 +743,8 @@ App.registerArea({
     // M31 F3 L05a: leaving the area destroys the knowledge editor (create or
     // detail) and stops its poll, so a return is a fresh mount, as before.
     if (this._resetKnowledge) this._resetKnowledge();
+    // M31 F5 L03: leaving the area destroys the MCP editor (its sign-in poll with it).
+    if (this._resetMcp) this._resetMcp();
     if (this._knowledgePollTimer) {
       clearInterval(this._knowledgePollTimer);
       this._knowledgePollTimer = null;

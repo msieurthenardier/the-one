@@ -43,8 +43,8 @@
     { id: 'knowledge', label: 'Knowledge' },
     { id: 'mcps', label: 'MCPs' },
     // data-tab-id "tools" + testid tab-tools stay (tests and URL routing key off
-    // "tools"); only the visible label narrows to "Built-in Tools".
-    { id: 'tools', label: 'Built-in Tools' },
+    // "tools"); only the visible label narrows to "Built-in tools".
+    { id: 'tools', label: 'Built-in tools' },
     { id: 'self-configuration', label: 'Self-configuration' }
   ];
 

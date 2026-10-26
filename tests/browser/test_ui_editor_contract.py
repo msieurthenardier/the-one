@@ -52,6 +52,7 @@ def test_shell_dom_shape_and_classes(engine_page: Page) -> None:
             title: [text.querySelector('.editor-title').tagName, text.querySelector('.editor-title').tabIndex],
             crumb: [a.getAttribute('href'), a.textContent, a.getAttribute('data-testid'), a.parentNode.textContent],
             actKids: Array.from(acts.children).map((k) => k.tagName + '.' + k.className),
+            lastChild: h.lastElementChild.tagName + '.' + h.lastElementChild.className,
             unsaved: [acts.firstElementChild.getAttribute('role'), acts.firstElementChild.getAttribute('data-testid')],
             cancel: [window.__shell.cancelButton.disabled, window.__shell.saveButton.disabled],
             test: [window.__shell.testButton.querySelectorAll('svg[aria-hidden="true"]').length,
@@ -59,7 +60,7 @@ def test_shell_dom_shape_and_classes(engine_page: Page) -> None:
           };
         }"""
     )
-    assert out["root"] == "editor-header"
+    assert out["root"] == "editor-header ui-editor-shell-header"
     assert out["tid"] == "hdr"
     assert out["textKids"] == [
         "DIV.editor-breadcrumb", "H1.editor-title", "P.editor-subtitle",
@@ -76,8 +77,9 @@ def test_shell_dom_shape_and_classes(engine_page: Page) -> None:
         "BUTTON.btn-outlined-primary cancel-btn",
         "BUTTON.btn-filled-primary save-btn",
         "BUTTON.btn-outlined-primary",
-        "SPAN.editor-error",
     ]
+    # The error row is the header's last child, outside the cluster (M31 F5 L05, A1).
+    assert out["lastChild"] == "SPAN.editor-error ui-editor-error-row"
     assert out["unsaved"] == ["status", "editor-unsaved"]
     assert out["cancel"] == [True, True]
     assert out["test"] == [1, "Test", False]
@@ -350,7 +352,7 @@ def test_danger_zone_dom(engine_page: Page) -> None:
         }"""
     )
     assert out["root"] == "editor-section danger-zone"
-    assert out["title"] == ["section-title danger-zone-title", "Danger Zone"]
+    assert out["title"] == ["section-title danger-zone-title", "Danger zone"]
     assert out["btn"] == "btn-muted-destructive delete-btn"
     assert out["tid"] == "del" and out["name"] == "p1"
     assert out["kids"][0].startswith("svg.ui-icon") and out["kids"][1] == "SPAN."
@@ -702,3 +704,210 @@ def test_section_rejects_an_unknown_layout(engine_page: Page) -> None:
         "() => { try { App.ui.section({title: 'x', layout: 'grid'}); return ''; } catch (e) { return e.message; } }"
     )
     assert "layout" in msg
+
+
+# --- the error row, the Test hold and the no-error geometry (M31 F5 L05) -----------------
+
+ROW_HARNESS = """([variant, errorText, errorRole, legacy, ancestor]) => {
+  const root = document.getElementById('harness-root');
+  root.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = ancestor;
+  wrap.style.width = '800px';
+  root.appendChild(wrap);
+  let el, titleEl, cluster, errorEl;
+  if (!legacy) {
+    const o = {variant, title: 'My provider', subtitle: 'ollama', dirty: false,
+      actions: {cancel: {}, save: {}, test: {}}};
+    if (variant === 'default') o.breadcrumb = {label: 'Library', href: "/library-root", trail: ' / Model providers'};
+    if (errorRole) o.errorRole = errorRole;
+    const s = App.ui.editorShell(o);
+    window.__s = s;
+    if (errorText) s.setError(errorText);
+    wrap.appendChild(s.el);
+    el = s.el; titleEl = s.titleEl; errorEl = s.errorEl;
+    cluster = el.querySelector('.form-actions');
+  } else {
+    // A fixture copy of the pre-L05 structure: the error span is the cluster's last child.
+    cluster = document.createElement('div');
+    cluster.className = 'form-actions';
+    cluster.innerHTML = '<span class="editor-unsaved" role="status"></span>' +
+      '<button type="button" class="btn-outlined-primary cancel-btn" disabled>Cancel</button>' +
+      '<button type="button" class="btn-filled-primary save-btn" disabled>Save</button>' +
+      '<span class="editor-error"></span>';
+    cluster.insertBefore(App.ui.button({variant: 'secondary', icon: 'play', label: 'Test'}), cluster.lastChild);
+    if (variant === 'page') {
+      const h = App.ui.pageHeader({title: 'My provider', intro: 'ollama', titleClassName: 'editor-title', actions: cluster});
+      el = h.el; titleEl = h.titleEl;
+    } else {
+      el = document.createElement('div');
+      el.className = 'editor-header';
+      el.innerHTML = '<div class="editor-header-text"><div class="editor-breadcrumb"><a class="editor-breadcrumb-link" href="/library-root">Library</a> / Model providers</div>' +
+        '<h1 class="editor-title" tabindex="-1">My provider</h1><p class="editor-subtitle">ollama</p></div>';
+      el.appendChild(cluster);
+      titleEl = el.querySelector('.editor-title');
+    }
+    errorEl = cluster.querySelector('.editor-error');
+    if (errorText) errorEl.textContent = errorText;
+    wrap.appendChild(el);
+  }
+  const r = (e) => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((n) => Math.round(n * 100) / 100); };
+  const crumb = el.querySelector('.editor-breadcrumb');
+  return {header: r(el), title: r(titleEl), cluster: r(cluster), error: r(errorEl),
+          save: r(cluster.querySelector('.save-btn')), test: r(cluster.querySelector('button:last-of-type')),
+          crumb: crumb ? r(crumb) : null,
+          errorParentIsHeader: errorEl.parentNode === el, errorIsLast: el.lastElementChild === errorEl,
+          clusterHasError: cluster.contains(errorEl)};
+}"""
+
+LONG_ERROR = "x" * 400
+ROW_VARIANTS = ["default", "page"]
+ROW_ANCESTORS = {"default": "area-studio", "page": "area-admin"}
+
+
+def _row(page: Page, variant: str, text: str = "", role: str = "", legacy: bool = False) -> dict:
+    return page.evaluate(
+        f"(a) => ({ROW_HARNESS})(a)",
+        [variant, text, role, legacy, ROW_ANCESTORS[variant]],
+    )
+
+
+@pytest.mark.parametrize("width", [1024, 1280])
+@pytest.mark.parametrize("variant", ROW_VARIANTS)
+def test_long_error_is_a_full_width_row_below_the_title_and_cluster(
+    engine_page: Page, variant: str, width: int
+) -> None:
+    page = engine_page
+    page.set_viewport_size({"width": width, "height": 800})
+    load_harness(page)
+    plain = _row(page, variant, "", "alert")
+    long = _row(page, variant, LONG_ERROR, "alert")
+    assert long["errorParentIsHeader"] and long["errorIsLast"] and not long["clusterHasError"]
+    # The title column and the cluster keep their no-error size and place.
+    assert long["title"][2] >= plain["title"][2]
+    assert long["title"][:2] == plain["title"][:2]
+    assert long["cluster"] == plain["cluster"]
+    if plain["crumb"]:
+        assert long["crumb"] == plain["crumb"]  # the breadcrumb does not wrap word by word
+    # The row sits below both and spans the header's content width.
+    e, h = long["error"], long["header"]
+    assert e[1] >= long["title"][1] + long["title"][3] - 1
+    assert e[1] >= long["cluster"][1] + long["cluster"][3] - 1
+    assert e[2] >= h[2] - 2 * 32 - 1  # content width: the header pads 32px a side at most
+    assert e[0] + e[2] <= h[0] + h[2] + 0.5  # wraps inside the header, never overflows
+
+
+@pytest.mark.parametrize("role", ["", "alert"])
+@pytest.mark.parametrize("variant", ROW_VARIANTS)
+def test_empty_error_row_adds_no_height_and_nothing_moves(
+    engine_page: Page, variant: str, role: str
+) -> None:
+    page = engine_page
+    for width in (1024, 1280):
+        page.set_viewport_size({"width": width, "height": 800})
+        load_harness(page)
+        now = _row(page, variant, "", role)
+        old = _row(page, variant, "", "", legacy=True)
+        assert now["header"] == old["header"], (variant, width)
+        assert now["title"] == old["title"], (variant, width)
+        # The cluster's rect no longer holds the trailing empty span's 8px gap (it is a
+        # margin now), so compare its place and height, and the buttons themselves.
+        assert now["cluster"][:2] == old["cluster"][:2], (variant, width)
+        assert now["cluster"][3] == old["cluster"][3], (variant, width)
+        assert now["cluster"][2] + 8 == old["cluster"][2], (variant, width)
+        assert now["save"] == old["save"], (variant, width)
+        assert now["test"] == old["test"], (variant, width)
+        assert page.evaluate("() => __s.errorEl.hasAttribute('data-empty')") is True
+        if role:
+            assert page.evaluate("() => __s.errorEl.getAttribute('role')") == "alert"
+
+
+@pytest.mark.parametrize("variant", ROW_VARIANTS)
+def test_error_row_empty_marker_follows_set_error(engine_page: Page, variant: str) -> None:
+    page = engine_page
+    load_harness(page)
+    _row(page, variant, "", "alert")
+    assert page.evaluate("() => __s.errorEl.className") == "editor-error ui-editor-error-row"
+    assert page.evaluate("() => __s.el.classList.contains('ui-editor-shell-header')") is True
+    page.evaluate("() => __s.setError('Boom')")
+    assert page.evaluate("() => __s.errorEl.hasAttribute('data-empty')") is False
+    assert page.evaluate("() => __s.errorEl.textContent") == "Boom"
+    page.evaluate("() => __s.setError('')")
+    assert page.evaluate("() => __s.errorEl.hasAttribute('data-empty')") is True
+    page.evaluate("() => __s.setError(null)")
+    assert page.evaluate("() => __s.errorEl.hasAttribute('data-empty')") is True
+
+
+@pytest.mark.parametrize("variant", ROW_VARIANTS)
+def test_set_test_state_holds_across_dirty_and_busy_and_relabels(
+    engine_page: Page, variant: str
+) -> None:
+    page = engine_page
+    load_harness(page)
+    _row(page, variant, "", "alert")
+    t = "() => [__s.testButton.disabled, __s.testButton.textContent, __s.testButton.querySelectorAll('svg').length]"
+    assert page.evaluate(t) == [False, "Test", 1]
+    page.evaluate("() => __s.setTestState({disabled: true, label: 'Waiting for sign-in'})")
+    assert page.evaluate(t) == [True, "Waiting for sign-in", 1]
+    page.evaluate("() => __s.setDirty(true)")
+    assert page.evaluate(t)[0] is True
+    page.evaluate("() => __s.setDirty(false)")
+    assert page.evaluate(t)[0] is True
+    page.evaluate("() => __s.setBusy(true)")
+    assert page.evaluate(t)[0] is True
+    page.evaluate("() => __s.setBusy(false)")
+    assert page.evaluate(t) == [True, "Waiting for sign-in", 1]
+    page.evaluate("() => __s.setTestState({disabled: false, label: null})")
+    assert page.evaluate(t) == [False, "Test", 1]
+    # Busy still disables Test on its own when nothing is held.
+    page.evaluate("() => __s.setBusy(true)")
+    assert page.evaluate(t)[0] is True
+    page.evaluate("() => __s.setBusy(false)")
+    # A label alone relabels without holding.
+    page.evaluate("() => __s.setTestState({label: 'Retest'})")
+    assert page.evaluate(t) == [False, "Retest", 1]
+    page.evaluate("() => __s.setTestState({})")
+    assert page.evaluate(t)[1] == "Test"
+
+
+def test_set_test_state_is_a_no_op_without_a_test_action(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        "() => { const s = App.ui.editorShell({title: 'T', actions: {save: {}}}); "
+        "try { s.setTestState({disabled: true, label: 'x'}); return [s.testButton, 'ok']; } "
+        "catch (e) { return [null, e.message]; } }"
+    )
+    assert out == [None, "ok"]
+
+
+def test_danger_zone_accessible_name_equals_the_visible_label(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const z = App.ui.dangerZone({action: {label: 'Delete provider', testid: 'dz'}});
+          document.getElementById('harness-root').appendChild(z.el);
+          return [z.el.firstElementChild.textContent, z.button.textContent];
+        }"""
+    )
+    assert out == ["Danger zone", "Delete provider"]
+    assert page.get_by_role("button", name="Delete provider", exact=True).count() == 1
+
+
+def test_set_error_same_message_twice_reannounces(engine_page: Page) -> None:
+    page = engine_page
+    _mount(page)
+    out = page.evaluate(
+        """() => new Promise((resolve) => {
+          const el = document.querySelector('.editor-error');
+          window.__shell.setError('Boom');
+          const seen = [];
+          new MutationObserver(() => seen.push(el.textContent)).observe(el, {childList: true, characterData: true, subtree: true});
+          window.__shell.setError('Boom');
+          const sync = el.textContent;
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => resolve({sync, final: el.textContent, seen}), 20)));
+        })"""
+    )
+    assert out["sync"] == ""
+    assert out["final"] == "Boom"
+    assert "" in out["seen"] and out["seen"][-1] == "Boom"

@@ -335,7 +335,7 @@ def test_delete_connector_confirm_lapse_is_visually_distinct(
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
-    expect(delete_btn).to_have_text("Delete Connector")
+    expect(delete_btn).to_have_text("Delete connector")
 
 
 @pytest.mark.browser

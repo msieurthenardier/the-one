@@ -69,7 +69,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
-| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
+| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
@@ -160,7 +160,7 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
-| `delete-mcp-source-btn` | studio | |
+| `delete-mcp-source-btn` | studio | The MCP editor's Danger zone Delete (`App.ui.dangerZone`, label "Delete MCP server", armed "Confirm delete?", `data-name`); a failed Delete shows in the header's editor error (`role=alert`), reverts the button and returns focus to it (M31 F5 L10, row 29) |
 | `delete-provider-btn` | admin | |
 | `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's link to its root: "Agents" -> `#agents` (agent editor); on a Library editor (knowledge-base detail and `~new` form, MCP server, connector) the header reads `Library / {Group}` and "Library" is the link, to `#library` (the group is plain text; model providers: `Library / Model providers`, sortie 02, DD3); studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings: "Settings / Built-in tools" -> `#settings/tools` (tool editor; admin routes it the same way, focus: the closed tool's name link). Settings has no provider editor since sortie 02 leg 2 |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
@@ -250,7 +250,7 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-vector-store-dtype` | admin | Knowledge settings panel — read-only vector-store dtype value (DD-7, M24 F06 L04) |
 | `knowledge-vector-store-readonly-reason` | admin | Knowledge settings panel — states why vector store is read-only, not a disabled input (L4-D1, M24 F06 L04) |
 | `knowledge-watch-enabled-toggle` | admin | Knowledge settings panel — `monitoring.watch_enabled` toggle (M24 F06 L04) |
-| `kv-add-row-btn` | studio | |
+| `kv-add-row-btn` | studio | The MCP environment variables / headers table's Add row button (`addTestid`, M31 F5 L07) |
 | `library-add-btn` | studio | Library list title-row "Add" (`App.ui.menu` trigger, small outlined, plus icon; the menu opens with `align: 'end'`) (M25 F3 L4a, DD5) |
 | `library-add-connector` | studio | Library Add menu item "Connector" -> `#library/connectors/~new` (M25 F3 L4a) |
 | `library-add-provider` | studio | Library Add menu item "Model provider" (the first item) -> `#library/providers/~new` (sortie 02, DD6) |
@@ -264,25 +264,42 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
 | `mcp-command-runtime` | studio | |
-| `mcp-connection-error` | studio | |
-| `mcp-connection-led` | studio | |
-| `mcp-consent-btn` | studio | |
+| `mcp-connection-error` | studio | The Test error block (plain headline, raw text under Technical details) in the result area; its headline follows the transport (M31 F5 L08b, A18) |
+| `mcp-connection-led` | studio | The status line's LED, decorative (`aria-hidden`); the line's words carry the state (M31 F5 L08b) |
+| `mcp-connection-status` | studio | The Connection section's status line (`App.ui.status`; `data-state` is the LED state, `data-mcp-state` is `App.usage.mcpState`'s state), with the words from `App.usage.mcpStateLabel`: "Connected · checked 3:42 PM", "Not connected", "Couldn't connect" (plus " · last connected …"), "Sign-in needed" (M31 F5 L08b, A6, A9) |
+| `mcp-consent-btn` | studio | The "Sign in" button in the Test result area (the auto-run after create, and the retry after a failed sign-in) |
+| `forget-mcp-connection-btn` | studio | "Forget tools list" (armed "Forget tools list?"), beside the status line, for a cached streamable-HTTP server without a sign-in; disabled during a consent session (M31 F5 L08b, A7, DD6) |
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
-| `mcp-kv-sensitive-info` | studio | |
-| `mcp-kv-table` | studio | |
-| `mcp-kv-tbody` | studio | |
-| `mcp-kv-thead` | studio | |
+| `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
+| `mcp-kv-table` | studio | The environment variables / headers `App.ui.keyValueTable` (`<table>`, named like its section); its thead hides while it has no rows (M31 F5 L07) |
 | `mcp-sandbox-section` | studio | |
-| `mcp-server-info-section` | studio | |
-| `mcp-server-instructions` | studio | |
-| `mcp-server-meta` | studio | |
+| `mcp-server-facts` | studio | The Server section's `App.ui.facts` (Version, Protocol, Offers, Website; only rows with a value) (M31 F5 L09, A16) |
+| `mcp-server-header` | studio | The Server section's identity row (icon, title, name); hidden when there is neither a title nor an icon (M31 F5 L09) |
+| `mcp-server-icon` | studio | The server's icon `<img>` (decorative, `alt=""`); absent when the URL fails `App.safeUrl` (squawk 0010) (M31 F5 L09) |
+| `mcp-server-info-section` | studio | The "Server" `App.ui.section`; always mounted in edit mode, hidden while the cache has nothing to show (M31 F5 L09) |
+| `mcp-server-instructions` | studio | The Instructions plain `App.ui.disclosure` (hidden without instructions) (M31 F5 L09, A15) |
+| `mcp-server-instructions-text` | studio | The instructions body, text only, line breaks kept (M31 F5 L09) |
+| `mcp-server-meta` | studio | The Metadata plain disclosure (hidden without `_meta`) (M31 F5 L09) |
+| `mcp-server-meta-content` | studio | The Metadata JSON `App.ui.codeBlock` (M31 F5 L09) |
+| `mcp-server-offers` | studio | The "Offers" facts row: the announced capabilities capitalised, or "Nothing announced" (M31 F5 L09, A16) |
+| `mcp-server-protocol` | studio | The "Protocol" facts row (monospace), kept per B10 (M31 F5 L09) |
+| `mcp-server-subtitle` | studio | The server's name under its title, only when it differs (M31 F5 L09) |
+| `mcp-server-title` | studio | The server's title (or name) (M31 F5 L09) |
+| `mcp-server-version` | studio | The "Version" facts row (M31 F5 L09) |
+| `mcp-server-website` | studio | The "Website" facts row: a link (`target=_blank`, `rel="noopener noreferrer"`) through `App.safeUrl`, inert text when rejected (squawk 0010) (M31 F5 L09) |
 | `mcp-source-card` | studio | Library list MCP-server row (an `<a href="#library/mcp/{id}">`, M25 F3 L4a; was the MCP Servers grid tile) |
 | `mcp-sources-list` | studio | |
-| `mcp-test-connection` | studio | |
-| `mcp-test-status` | studio | |
-| `mcp-tools-last-updated` | studio | |
-| `mcp-tools-list` | studio | |
+| `mcp-editor-subtitle` | studio | The MCP editor header's subtitle (`editorShell` `subtitleTestid`): "{type label} · {command or URL}", the type label alone without a detail, the raw type for a legacy row; absent on the create form; follows an edit Save (M31 F5 L10, A4, defect 12) |
+| `mcp-test-connection` | studio | The header's Test button (`editorShell` `actions.test`, M31 F5 L10), built only for an edit-mode stdio or streamable-HTTP mount; its state has one writer, `syncTestHold`; reads "Waiting for sign-in…" and is disabled while a consent session runs (M31 F5 L08b, B2) |
+| `mcp-test-status` | studio | The Test result area directly after the status line, in the Connection section; empty and hidden at rest and after a success (M31 F5 L08b, A8) |
+| `mcp-test-live` | studio | The editor's one persistent polite live region (visually hidden, created at mount, after the result area); its text is set to announce "Testing connection…" and the sign-in prompt (M31 F5 B4, WCAG 4.1.3) |
+| `mcp-tool-description` | studio | A tool's full description in its body; shown only when it is longer than the summary's cut (or has line breaks, or is empty: "No description provided.") (M31 F5 L09, A15) |
+| `mcp-tool-item` | studio | One tool's bordered `App.ui.disclosure` in the Tools list (on the `<details>`) (M31 F5 L09, A15) |
+| `mcp-tool-schema` | studio | A tool's input schema `App.ui.codeBlock`; absent for an empty schema (the body says "No input schema.") (M31 F5 L09) |
+| `mcp-tools-empty` | studio | "Press Test to load this server's tools." while no tools are loaded (M31 F5 L09) |
+| `mcp-tools-list` | studio | The tool disclosures, reconciled by name in place; hidden until tools are loaded (M31 F5 L09) |
+| `mcp-tools-section` | studio | The "Tools" `App.ui.section` (M31 F5 L09) |
 | `message` | chat | |
 | `modal-cancel-btn` | shell | |
 | `modal-confirm-btn` | shell | |
@@ -336,7 +353,7 @@ caught — but it cannot see where the attribute is emitted.
 | `provider-card` | studio | A Library list row in the first group, "Model providers" (`<a href="#library/providers/{id}">` with the name, a type badge and "{n} agents" meta; the list pane marks the open one selected). Sortie 02: the Settings tile's name link (an `admin` row) retired with the Providers page |
 | `purge-history-btn` | studio | |
 | `rail-jump-to` | shell | The rail footer's **Jump to** control (`App.ui.button` ghost icon-only, the `search` icon, 44px, `aria-label="Jump to (Ctrl K)"` with `aria-keyshortcuts="Control+K"`, or "Jump to (⌘ K)" / `Meta+K` on macOS), set by `js/app.js` through `App.ui.rail`'s `footer`; a click opens the palette (`jump-to`) with it as the opener (M25 F4 L7, DD9). A literal beside the `rail-` destination family |
-| `reset-mcp-connection-btn` | studio | |
+| `reset-mcp-connection-btn` | studio | "Reset connection" (armed "Reset connection?"), beside the status line, only for a signed-in server (`oauth_active`); patches in place, disabled during a consent session (M31 F5 L08b, A7) |
 | `revision-approve-btn` | studio | Self-configuration pending-revision card approve (M21 F02 L02) |
 | `revision-base` | studio | Self-configuration pending-revision card current/base value (M21 F02 L02) |
 | `revision-card` | studio | Self-configuration pending-revision card (M21 F02 L02) |
@@ -413,7 +430,7 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
-| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
+| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `settings-nav` | admin | The Settings nav (`<nav aria-label="Settings">`, an `App.ui.navGroups` in the Settings column, reference spec section 8.1); its items are `settings-nav-{section}` links (M25 F3 L5a, DD6) |
 | `studio-knowledge-inventory` | studio | Knowledge-base detail view root (L1-D5, M24 F06 L01; retires the F5 placeholder testid). Since M25 F3 L4a it marks the detail view only: the grid is retired, and the create form at `#library/knowledge/~new` does not carry it |
 | `test-connection-btn` | admin | |
@@ -487,6 +504,9 @@ again. A retired id cannot come back.
 |------------|---------|------------|
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
+| `mcp-kv-tbody` | studio | M31 F5 L07 — the MCP key-value table is `App.ui.keyValueTable`; reach rows through `[data-testid="mcp-kv-table"] tbody tr` |
+| `mcp-kv-thead` | studio | M31 F5 L07 — use `[data-testid="mcp-kv-table"] thead` (hidden while the table has no rows) |
+| `mcp-kv-sensitive-info` | studio | M31 F5 L07 — the Sensitive column's info button is `App.ui.infoButton` (named "More information about Sensitive") |
 | `base-prompt-content` | admin | Flight 2 leg 1c (DD8) — the Prompts page's single base-prompt block is replaced by one block per platform prompt section (`platform-section-{variant}-{id}`) |
 | `kb-other-items-panel` | studio | M31 F3 HAT — the "Other items" panel is renamed "Individual files" (`kb-individual-files-panel`), with a description and a per-row remove |
 | `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |
@@ -506,6 +526,7 @@ again. A retired id cannot come back.
 | `chat-drawer-notes-status` | chat | M27 F3 L2 (HAT decision, overrides #230) — no delete arm to announce |
 | `chat-drawer-rules-edit-link` | chat | M27 F3 L2 (HAT decision, overrides #230) — Open agent settings (`chat-drawer-settings-link`) is the way to the editor |
 | `notes-row-check` | studio | M27 F3 L2 — the "Check this" badge is the warning-triangle flag `notes-row-flag` |
+| `mcp-tools-last-updated` | studio | M31 F5 L08b (A6, DD9-13) — the "Last updated: 2 minutes ago" line is replaced by the status line's clock time (`mcp-connection-status`: "Connected · checked 3:42 PM") |
 | `entity-tile` | studio, admin | M25 F3 (the tile grids are replaced by the list panes). The testid is retired, but the `entity-tile*` CSS classes are deliberately kept: they are live on the Built-in tools tiles (`areas/admin/tools-grid.js`), so the classes' presence is not a sign the testid still exists |
 | `library-empty-` | studio | Model-providers sortie (DD6, DD8) — the Library start page's testids were renamed with `#library` becoming the one root: the page is `library-start` and each card's Add button `library-start-{group}-add`. A prefix, fenced as such: every `library-empty-*` id is gone |
 | `new-chat-btn` | chat | M25 F4 L4b (DD3, DD6) — the chat header's hover-expanding "New Chat" (a new chat with the current agent) is retired with `h2.session-agent-badge`; the Chats list's New chat (`chats-new-btn`) and the new-chat state's "Pick a different agent" (`chat-pick-different-btn`) open the agent picker |

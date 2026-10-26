@@ -4,15 +4,13 @@
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``.
 Falls in the ``contracts`` browser lane.
 
-The behaviour is a copy of ``areas/admin/tools-form-helpers.js`` (``renderChipListEditor`` /
-``wireChipListEditor``); the legacy comparison hand-writes that markup inside one explicit
-``area-studio`` wrapper and compares a FIXED property list.
+The behaviour is a copy of the hand-built editor that lived in ``areas/admin/tools-form-helpers.js``
+(deleted in M31 F5 L06, with its legacy-parity comparison; see the note before ``CASCADE_JS``).
 """
 
 from __future__ import annotations
 
 import pytest
-from browser._legacy_tool_css import LEGACY_LOCKED_CHIP_CSS
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
@@ -275,55 +273,11 @@ def test_chip_size_remove_button_colours_and_focus_ring(engine_page: Page) -> No
     assert p.evaluate("() => getComputedStyle(document.activeElement).color") == colors["dan"]
 
 
-def _legacy_chip_html(locked: bool) -> str:
-    chip = (
-        '<span class="chip" data-locked="true" aria-label="a (locked by operator)">a</span>'
-        if locked
-        else '<span class="chip">a<button type="button" class="chip-remove" aria-label="Remove a">×</button></span>'
-    )
-    return (
-        '<div class="chip-list-editor" data-field="hosts" data-field-type="array">'
-        + chip
-        + '<input type="text" class="chip-list-input" placeholder="Add entry…" aria-label="Add entry"></div>'
-    )
-
-
-@pytest.mark.parametrize("locked", [False, True])
-def test_computed_styles_equal_legacy_area_studio(engine_page: Page, locked: bool) -> None:
-    load_harness(engine_page)
-    engine_page.evaluate(
-        """([legacy, locked, css]) => {
-          // The explicit wrapper: area-studio; the locked chip's legacy rule is scoped to .tool-row-overrides
-          // (the rule itself is a fixture now: it left studio.css in M31 F2 L08b).
-          const host = document.createElement('div'); host.className = 'area-studio'; host.id = 'cmp';
-          host.innerHTML = css + '<div class="tool-row-overrides"><div id="legacy-side">' + legacy + '</div><div id="lib-side"></div></div>';
-          document.getElementById('harness-root').appendChild(host);
-          const c = App.ui.chipList({values: ['a'], locked: locked ? ['a'] : []});
-          host.querySelector('#lib-side').appendChild(c.el);
-        }""",
-        [_legacy_chip_html(locked), locked, LEGACY_LOCKED_CHIP_CSS],
-    )
-    out = engine_page.evaluate(
-        """() => {
-          """
-        + PROPS_JS
-        + """
-          const L = document.getElementById('legacy-side'), N = document.getElementById('lib-side');
-          const o = {
-            wrapper: diff(snap(L.querySelector('.chip-list-editor')), snap(N.querySelector('.chip-list-editor'))),
-            chip: diff(snap(L.querySelector('.chip')), snap(N.querySelector('.chip'))),
-            input: diff(snap(L.querySelector('.chip-list-input')), snap(N.querySelector('.chip-list-input')))
-          };
-          const lr = L.querySelector('.chip-remove'), nr = N.querySelector('.ui-chip-remove');
-          if (lr && nr) o.remove = diff(snap(lr), snap(nr));
-          return o;
-        }"""
-    )
-    if "remove" in out:
-        # The one approved change (canvas): the remove colour (accent -> fg-secondary); the border
-        # colour resolves from currentColor, so it follows.
-        assert set(out.pop("remove")) <= {"color", "borderTopColor"}
-    assert out == {"wrapper": {}, "chip": {}, "input": {}}, out
+# The legacy-parity comparison (`test_computed_styles_equal_legacy_area_studio`) was retired in
+# M31 F5 L06: it compared the library chip list with the string-built chips styled by the
+# `.area-studio .chip-list-editor:not(.ui-chip-list)` rules of studio.css, which were deleted
+# with `tools-form-helpers.js` (the MCP editor, their last user, moved onto App.ui.chipList).
+# The approved look is now pinned by the contract tests above and the ledger (rows 14 and 34).
 
 
 def test_focus_within_border_is_accent(engine_page: Page) -> None:
@@ -378,17 +332,8 @@ def test_library_chip_list_keeps_its_own_look_under_an_area(
     assert out["removeColor"] == out["fgSecondary"], out
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-@pytest.mark.parametrize(
-    "area", ["area-studio"]
-)  # the area-admin half left with Settings (M31 F4 L11)
-def test_string_built_chip_list_keeps_the_area_look(
-    engine_page: Page, area: str, theme: str
-) -> None:
-    load_harness(engine_page, theme)
-    out = engine_page.evaluate(CASCADE_JS, [area, True])
-    assert out["lockedBg"] == out["accentTranslucent"], out
-    assert out["removeColor"] == out["accent"], out
+# `test_string_built_chip_list_keeps_the_area_look` was retired in M31 F5 L06 with the
+# string-built chip-list CSS it pinned (see above).
 
 
 # ── long values: data-value, the middle ellipsis (M31 F4 L04e) ───────────────

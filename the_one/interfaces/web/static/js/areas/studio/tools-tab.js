@@ -1,4 +1,4 @@
-// App.studio.renderToolsTab -- agent-editor Built-in Tools tab (F5 leg 03, F6 leg 05;
+// App.studio.renderToolsTab -- agent-editor Built-in tools tab (F5 leg 03, F6 leg 05;
 // rebuilt on the control library in M31 F2 L08b, flight DD3/DD6).
 //
 //   var h = App.studio.renderToolsTab(panel, agent, callbacks)

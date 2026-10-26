@@ -56,23 +56,19 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    # F9 L1: Refresh-connection button visible in edit-mode for streamable-http.
-    # The data-testid hook stays "mcp-test-connection" (stable selector); the
-    # visible label changed to "Refresh connection" with a refresh icon.
+    # M31 F5 L08b (B2): Test is the header's button, with a play icon before the
+    # label; the data-testid hook stays "mcp-test-connection".
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible()
-    expect(test_btn).to_contain_text("Refresh connection")
-    # Refresh icon sits inline before the label.
+    expect(test_btn).to_have_text("Test")
     expect(test_btn.locator("svg")).to_be_visible()
 
-    # Tools section: status div renders the empty-state prompt; tools list
-    # is hidden until the first successful Refresh click. (L4 UX restructure
-    # replaced the prior single `mcp-test-result` panel with the two
-    # status/list testids; see flight log L4 entry.)
-    status_panel = page.locator('[data-testid="mcp-test-status"]')
-    expect(status_panel).to_be_visible()
-    expect(status_panel).to_contain_text("Click")
-    expect(status_panel).to_contain_text("Refresh connection")
+    # The result area is hidden at rest (the status line says "Not connected");
+    # the Tools section carries the empty-state hint, and the list is hidden until
+    # the first successful Test.
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_be_hidden()
+    expect(page.locator('[data-testid="mcp-connection-status"]')).to_contain_text("Not connected")
+    expect(page.locator(".mcp-tools-empty")).to_have_text("Press Test to load this server's tools.")
     tools_list = page.locator('[data-testid="mcp-tools-list"]')
     expect(tools_list).to_be_hidden()
 
@@ -113,18 +109,14 @@ def test_test_connection_button_present_for_stdio_source(app_clean: str, page: P
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    # F9 L2 D1: Refresh button visible for stdio sources too.
+    # F9 L2 D1: Test visible for stdio sources too (the same status row and Tools hint).
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible()
-    expect(test_btn).to_contain_text("Refresh connection")
-    # Refresh icon sits inline before the label (shared render path).
+    expect(test_btn).to_have_text("Test")
     expect(test_btn.locator("svg")).to_be_visible()
 
-    # Tools section: status div carries the empty-state prompt for stdio
-    # too; tools list hidden until first successful Refresh.
-    status_panel = page.locator('[data-testid="mcp-test-status"]')
-    expect(status_panel).to_be_visible()
-    expect(status_panel).to_contain_text("Refresh connection")
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_be_hidden()
+    expect(page.locator(".mcp-tools-empty")).to_have_text("Press Test to load this server's tools.")
     tools_list = page.locator('[data-testid="mcp-tools-list"]')
     expect(tools_list).to_be_hidden()
 
@@ -176,14 +168,19 @@ def test_test_connection_button_click_shows_result(app_clean: str, page: Page) -
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible(timeout=8000)
 
-    # L4 UX restructure: the prior single `mcp-test-result` panel was split
-    # into a `mcp-test-status` div (always visible; carries status text) and
-    # a `mcp-tools-list` div (hidden until tools render). Pre-click, the
-    # status div carries the empty-state prompt; tools list is hidden.
+    # Pre-click: the result area is hidden and the tools list is hidden.
     status_panel = page.locator('[data-testid="mcp-test-status"]')
     tools_list = page.locator('[data-testid="mcp-tools-list"]')
-    expect(status_panel).to_be_visible()
+    expect(status_panel).to_be_hidden()
     expect(tools_list).to_be_hidden()
+
+    # Squawk 0216: hold the /test/connect response so the transient state is
+    # asserted before the (instant, in a loopback namespace) failure can replace it.
+    held: list = []
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: held.append(route) if route.request.method == "POST" else route.fallback(),
+    )
 
     # Click the button.
     test_btn.click()
@@ -191,9 +188,15 @@ def test_test_connection_button_click_shows_result(app_clean: str, page: Page) -
     # Button should be disabled immediately (concurrent-Test guard).
     expect(test_btn).to_be_disabled()
 
-    # Status panel should update to "Testing connection…" (note: ellipsis
-    # character U+2026, not three ASCII dots).
+    # The result area reads "Testing connection…" (note: ellipsis character U+2026,
+    # not three ASCII dots) until the response lands.
     expect(status_panel).to_have_text("Testing connection…")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(20)
+    assert held, "the /test/connect request was not held"
+    held[0].continue_()
 
     # Wait for the result to update (endpoint responds with error or auth_required).
     # The endpoint will fail quickly since the URL is unreachable, but we give it
@@ -244,7 +247,7 @@ def test_capability_flags_render_for_announced_capabilities(
     The editor mounts the Server section from ``source.config._cache`` (the
     API drops an operator-supplied ``_cache``, so the cache is seeded the way
     /test/connect persists it: straight into the source row). Asserts the
-    rendered ``.mcp-capability-flags`` line names exactly the announced
+    rendered "Offers" fact names exactly the announced
     (non-null) capabilities and none of the un-announced ones.
     """
     app_clean, data_dir = app_with_data_dir
@@ -284,24 +287,21 @@ def test_capability_flags_render_for_announced_capabilities(
 
     section = page.locator('[data-testid="mcp-server-info-section"]')
     expect(section).to_be_visible(timeout=4000)
-    flags = section.locator(".mcp-capability-flags")
-    expect(flags).to_be_visible()
-    # Positive assertions: tools and resources were non-null -> rendered.
-    expect(flags).to_contain_text("tools")
-    expect(flags).to_contain_text("resources")
+    offers = section.locator('[data-testid="mcp-server-offers"] dd')
+    expect(offers).to_be_visible()
+    # Positive assertions: tools and resources were non-null -> rendered, capitalised.
+    expect(offers).to_have_text("Tools, Resources")
     # Negative assertions: prompts/logging/completions/tasks were null -> not rendered.
-    flags_text = flags.inner_text()
-    assert "prompts" not in flags_text
-    assert "logging" not in flags_text
-    assert "completions" not in flags_text
-    assert "tasks" not in flags_text
+    offers_text = offers.inner_text().lower()
+    for absent in ("prompts", "logging", "completions", "tasks"):
+        assert absent not in offers_text
 
 
 @pytest.mark.browser
 def test_input_schema_renders_pretty_json_in_tool_body(app_clean: str, page: Page) -> None:
     """L2.3 (updated for Leg 03): input_schema renders as an always-visible <pre> in the tool body.
 
-    Leg 03 MCP polish replaced the nested <details mcp-tool-schema-summary> with a
+    Leg 03 MCP polish replaced the nested nested schema <details> with a
     labeled "Input Schema" section directly in the tool body. No inner collapsible click
     is needed — expanding the outer tool <details> reveals the <pre> immediately.
 
@@ -351,12 +351,12 @@ def test_input_schema_renders_pretty_json_in_tool_body(app_clean: str, page: Pag
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=4000)
 
     # Expand the outer tool <details> to reveal the Input Schema section body.
-    outer_details = page.locator(".mcp-tool-item").first
-    outer_details.locator(".mcp-tool-summary").click()
+    outer_details = page.locator('[data-testid="mcp-tool-item"]').first
+    outer_details.locator("summary").click()
 
     # Leg 03: schema is always-visible as a <pre> inside the labeled Input Schema section.
     # No inner collapsible click needed.
-    pre = page.locator(".mcp-tool-schema-content")
+    pre = page.locator('[data-testid="mcp-tool-schema"]')
     expect(pre).to_be_visible(timeout=4000)
     expected_json = json.dumps(schema, indent=2)
     expect(pre).to_have_text(expected_json)
@@ -367,7 +367,7 @@ def test_empty_input_schema_does_not_render_schema_details(app_clean: str, page:
     """L2.4 (negative): tools with input_schema: {} do NOT get a nested schema view.
 
     Stubs /test/connect to return one tool with an empty dict input_schema.
-    Expands the outer tool <details> and asserts .mcp-tool-schema is absent.
+    Expands the outer tool <details> and asserts the schema block is absent.
     """
     sid = _seed_mcp_source(
         app_clean,
@@ -410,8 +410,9 @@ def test_empty_input_schema_does_not_render_schema_details(app_clean: str, page:
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=4000)
 
     # Expand the outer tool <details> — schema toggle must NOT appear.
-    outer_details = page.locator(".mcp-tool-item").first
-    outer_details.locator(".mcp-tool-summary").click()
+    outer_details = page.locator('[data-testid="mcp-tool-item"]').first
+    outer_details.locator("summary").click()
 
-    # Negative assertion: empty input_schema → no .mcp-tool-schema element.
-    expect(page.locator(".mcp-tool-schema")).to_have_count(0)
+    # Negative assertion: empty input_schema → no schema block, only the empty note.
+    expect(page.locator('[data-testid="mcp-tool-schema"]')).to_have_count(0)
+    expect(outer_details).to_contain_text("No input schema.")

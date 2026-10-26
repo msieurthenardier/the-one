@@ -189,19 +189,43 @@ def seed_knowledge_base(base_url: str, name: str, description: str = "") -> str:
     return r.json()["id"]
 
 
-def seed_mcp_source(base_url: str, name: str, tools: list[str] | None = None) -> str:
-    """POST a stdio MCP source via /api/mcp-sources and return its id.
+def seed_mcp_source(
+    base_url: str,
+    name: str,
+    tools: list[str] | None = None,
+    *,
+    type: str = "stdio",  # noqa: A002
+    url: str | None = None,
+    last_check: dict | None = None,
+    last_updated: float | None = None,
+) -> str:
+    """POST an MCP source via /api/mcp-sources and return its id.
 
     ``tools`` (names) seeds ``config._cache.tools`` -- POST keeps the config
     as sent (PUT strips ``_cache``), so the Library list shows a tool count
-    without a live connect. Omitted: no cache ("Tools not loaded").
+    without a live connect. Omitted: no cache ("Not connected").
+    ``type="streamable-http"`` seeds a remote server at ``url`` (a create via
+    this route never connects). ``last_check`` (``{"status": "ok"|"error"|
+    "auth_required", "at": epoch-seconds}``) and ``last_updated`` seed the
+    cache's connection-check record, so a row can read "Couldn't connect" or
+    "Sign-in needed" with no live server and no OAuth storage.
     """
-    config: dict = {"command": "x"}
+    if type == "stdio":
+        config: dict = {"command": "x"}
+    else:
+        config = {"url": url or "http://127.0.0.1:9/mcp"}
+    cache: dict = {}
     if tools is not None:
-        config["_cache"] = {"tools": [{"name": t, "description": ""} for t in tools]}
+        cache["tools"] = [{"name": t, "description": ""} for t in tools]
+    if last_check is not None:
+        cache["last_check"] = last_check
+    if last_updated is not None:
+        cache["last_updated"] = last_updated
+    if cache:
+        config["_cache"] = cache
     r = httpx.post(
         f"{base_url}/api/mcp-sources",
-        json={"name": name, "type": "stdio", "config": config, "secrets": {}},
+        json={"name": name, "type": type, "config": config, "secrets": {}},
         headers=auth_headers_for(base_url),
         timeout=5.0,
     )

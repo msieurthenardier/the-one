@@ -257,10 +257,18 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
     """M25 F3 L4a: a connect success and Reset connection invalidate
     'mcp-sources' and then tell the studio (``onListStale``) to reload the list,
     so the row's tool count follows a Refresh."""
-    src = _src("areas/studio/mcp-server-editor.js")
-    connect = _window(src, "function onTestConnectSuccess()", "fetch(")
-    assert "callbacks.onListStale()" in connect
-    reset = _window(src, "'/connection', { method: 'DELETE' })", "return fetch(")
+    # M31 F5 L08b: the Test flow and Reset / Forget live in mcp-connection-status.js; the
+    # controller no longer has a success hook (every outcome tells the studio itself).
+    status = _src("areas/studio/mcp-connection-status.js")
+    # Leg 08a/08b: EVERY outcome (an error / auth_required Test recorded last_check)
+    # invalidates and tells the studio once, before the torn-down return.
+    outcome = _window(status, "App.store.invalidate('mcp-sources');", "if (data.status === 'ok') {")
+    assert outcome.index("callbacks.onListStale()") < outcome.index("if (!mount.alive()) return;")
+    reset = _window(
+        status,
+        "'/connection', { method: 'DELETE' })",
+        "if (!mount.alive() || !getSource() || getSource().id !== id) return;",
+    )
     assert reset.index("App.store.invalidate('mcp-sources')") < reset.index(
         "callbacks.onListStale()"
     )
@@ -278,7 +286,9 @@ def test_oauth_and_provider_mutations_invalidate_providers() -> None:
 def test_cross_collection_mutations_invalidate_agents() -> None:
     for rel, minimum in (
         ("areas/studio/knowledge-detail.js", 2),  # M31 F3 L02: rename and delete
-        ("areas/studio/mcp-server-editor.js", 2),
+        # M31 F5 L02: the Delete site stays in the controller, Reset moved out.
+        ("areas/studio/mcp-server-editor.js", 1),
+        ("areas/studio/mcp-connection-status.js", 1),
         # M31 F2 L02a: the self-configuration refresh site moved to agent-data (1);
         # M31 F2 L03: the four editor sites (create, rename, save, delete) moved to
         # the controller and studio.js keeps none. Per file, so a lost site is
@@ -312,10 +322,19 @@ INVALIDATION_ROWS = (
         "callbacks.onDeleteSuccess()",
         ("knowledge-bases", "agents"),
     ),
-    (  # MCP source: create and save
+    # M31 F5 L10: the MCP create and edit Saves are separate fetchJson sites (the old
+    # ``var method = isEdit ? 'PUT' : 'POST';`` line is gone), each pinned to its own
+    # callback so ``_window`` (which ends at the FIRST end marker) checks its own branch.
+    (  # MCP source: create
         "areas/studio/mcp-server-editor.js",
-        "var method = isEdit ? 'PUT' : 'POST';",
-        "callbacks.onSaveSuccess(updated, !isEdit)",
+        "App.api.fetchJson('/api/mcp-sources', request).then(function (created) {",
+        "callbacks.onSaveSuccess(created, true)",
+        ("mcp-sources",),
+    ),
+    (  # MCP source: save (edit); the dead-mount onListStale return is not an end marker
+        "areas/studio/mcp-server-editor.js",
+        "App.api.fetchJson('/api/mcp-sources/' + encodeURIComponent(source.id), request)",
+        "callbacks.onSaveSuccess(updated, false)",
         ("mcp-sources",),
     ),
     (  # MCP source: delete
@@ -324,22 +343,24 @@ INVALIDATION_ROWS = (
         "callbacks.onDeleteSuccess()",
         ("mcp-sources", "agents"),
     ),
-    (  # MCP source: connection delete (Reset)
-        "areas/studio/mcp-server-editor.js",
+    (  # MCP source: connection delete (Reset and Forget; M31 F5 L08b: patched in place)
+        "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/connection', { method: 'DELETE' })",
-        "return fetch(",
+        "if (!mount.alive() || !getSource() || getSource().id !== id) return;",
         ("mcp-sources", "agents"),
     ),
     (  # MCP source: Refresh tools / test-connect success (writes config._cache)
-        "areas/studio/mcp-server-editor.js",
+        "areas/studio/mcp-connection-status.js",  # M31 F5 L02
         "'/test/connect', fetchOpts)",
-        "renderToolsListHtml(data.tools)",
+        # Leg 08a: the end anchor sits BEFORE the ok check, so this pins the
+        # every-outcome invalidation (error / auth_required record last_check).
+        "if (data.status === 'ok') {",
         ("mcp-sources",),
     ),
     (  # MCP source: the agent editor's tools load (also /test/connect; agent-data now)
         "areas/studio/agent-data.js",
         "'/test/connect', {",
-        "return data;",
+        "if (data.status === 'ok') {",  # leg 08a: before the ok check, every outcome
         ("mcp-sources",),
     ),
     (  # connector: create and save

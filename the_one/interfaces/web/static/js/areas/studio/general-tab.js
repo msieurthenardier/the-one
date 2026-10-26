@@ -217,7 +217,7 @@
       danger = ui.dangerZone({
         actions: [
           {
-            label: 'Delete Agent',
+            label: 'Delete agent',
             testid: 'delete-agent-btn',
             confirmLabel: 'Confirm delete?',
             dataset: { name: cfg.name || '' },

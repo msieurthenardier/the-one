@@ -468,14 +468,17 @@ def test_chip_danger_consumes_the_gated_danger_pair() -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_editor_shell_error_passes_body_aa_and_consumes_the_danger_token(theme: str) -> None:
-    """The editor shell's error line (`.form-actions .editor-error`, components.css) is the
+    """The editor shell's error line (`.ui-editor-error-row`, components.css) is the
     one error surface of the Built-in tools editor since M31 F4 L07b (the admin.css
     `.editor-error-banner` and its soft-fill pin are retired with the banner). It paints
     `var(--status-danger)` text on the editor header's ground (`--bg`, or the card
     `--surface`): gated here at body AA in both themes, and the rule is pinned to the token
     so a retune to a novel colour needs its own gate."""
-    body = " ".join(_rule_bodies("components.css", ".form-actions .editor-error"))
-    assert "color: var(--status-danger)" in body, body
+    # The legacy `.form-actions .editor-error` selector went with the MCP editor's
+    # hand-built header (M31 F5 L10): the shell's error row is the one declaration.
+    for selector in (".ui-editor-error-row",):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "color: var(--status-danger)" in body, (selector, body)
     palette = _palette(theme)
     for ground in ("bg", "surface"):
         ratio = contrast_ratio(palette["status_danger"], palette[ground])
@@ -576,9 +579,11 @@ def _rule_bodies(css_file: str, selector: str) -> list[str]:
     return out
 
 
-_ON_TRACK = (
-    '.area-{0} .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track'
-)
+# M31 F5 L07: the legacy iOS switch (.tool-enable-switch*) is gone. Its three pins (the
+# on-track fill, the off-track border and the thumb) are the library toggle's own pins
+# below: `.ui-toggle-input:checked + .ui-toggle-track` (--accent-fill), `.ui-toggle-track`
+# (--control-border) and `.ui-toggle-track::after` (--control-thumb), so every pair stays
+# gated.
 
 # (css file, selector, tokens the block must consume, tokens it must NOT consume)
 _FILL_SITES = [
@@ -602,12 +607,6 @@ _FILL_SITES = [
         ("--accent-fill", "--fg-on-accent-fill"),
         ("var(--accent)", "var(--fg-on-accent)"),
     ),
-    (
-        "studio.css",
-        _ON_TRACK.format("studio"),
-        ("--accent-fill",),
-        ("var(--accent)",),
-    ),
     # M31 F2 L08b: the studio pill (.tool-switch) is gone; the library toggle's
     # mixed (tristate master) track and thumb carry the indeterminate pin.
     (
@@ -630,18 +629,6 @@ _FILL_SITES = [
     ),
     # Boundaries and thumbs (DD7).
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
-    (
-        "studio.css",
-        ".area-studio .tool-enable-switch-track",
-        ("--control-border",),
-        ("--border-strong",),
-    ),
-    (
-        "studio.css",
-        ".area-studio .tool-enable-switch-track::after",
-        ("--control-thumb",),
-        ("--fg-on-accent",),
-    ),
     # M25 F1 L4: the indeterminate dash and the library toggle consume the same
     # gated pairs as the tick and the legacy switches.
     (
@@ -1189,11 +1176,13 @@ _TOKEN_BADGE_KINDS = (
     "connectors",
     "execution",
     "filesystem",
+    "local",
     "mock",
     "ollama",
     "openai",
     "openai-compatible",
     "openrouter",
+    "remote",
     "time",
     "unknown",
     "web",
@@ -1349,6 +1338,9 @@ _BADGE_INK_PAIRS = (
     ("connectors", "badge_connectors", "badge_ink_connectors"),
     # time (M28) — Built-in tools grid category badge.
     ("time", "badge_time", "badge_ink_time"),
+    # local / remote (M31 F5 HAT) — Library MCP row transport badges.
+    ("local", "badge_local", "badge_ink_local"),
+    ("remote", "badge_remote", "badge_ink_remote"),
 )
 
 

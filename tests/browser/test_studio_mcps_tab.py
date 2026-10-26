@@ -34,6 +34,7 @@ import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
 from browser._self_config import ENABLE_SWITCH, click_switch
+from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -567,6 +568,79 @@ def test_mcp_error_message_helper_headlines(app_clean: str, page: Page) -> None:
         got = page.evaluate("raw => window.App.mcpErrorMessage(raw)", raw)
         assert got["headline"].startswith(headline), (raw, got)
         assert got["detail"] == raw
+
+
+@pytest.mark.browser
+def test_mcp_error_headline_follows_the_transport(app_clean: str, page: Page) -> None:
+    """A18 (leg 08b): the generic connection failure has one headline per transport, and
+    "did not respond" ends "then try again." (the editor's Test and the tab's refresh)."""
+    _nav.goto(page, app_clean, "agents")
+    page.wait_for_function("window.App && window.App.mcpErrorMessage")
+    stdio = "The server's command didn't start or stopped. Open Technical details for its output."
+    http = (
+        "Couldn't connect to this server. Check that it's running and that its address and "
+        "headers are right, then try again."
+    )
+    for transport, want in (("stdio", stdio), ("streamable-http", http), (None, http)):
+        got = page.evaluate(
+            "([raw, t]) => window.App.mcpErrorMessage(raw, t ? {transport: t} : undefined)",
+            [_OPERATOR_ERROR, transport],
+        )
+        assert got["headline"] == want, (transport, got)
+    # The probe's class-less transport failure (api.py `_probe_auth_posture`, HAT) reads as a
+    # connection failure, not the catch-all, and keeps its raw text as the detail.
+    for transport, want in (("streamable-http", http), (None, http), ("stdio", stdio)):
+        got = page.evaluate(
+            "([raw, t]) => window.App.mcpErrorMessage(raw, t ? {transport: t} : undefined)",
+            ["connection probe failed", transport],
+        )
+        assert got["headline"] == want, (transport, got)
+        assert got["detail"] == "connection probe failed"
+    slow = page.evaluate(
+        "() => window.App.mcpErrorMessage('MCPConnectionError: server did not respond within 30 s')"
+    )
+    assert (
+        slow["headline"]
+        == "The server didn't respond in time. Check that it's running, then try again."
+    )
+    # No other wording still tells the operator to "Refresh" a button that is now Test.
+    assert "Refresh" not in http + stdio + slow["headline"]
+
+
+@pytest.mark.browser
+def test_mcp_error_text_is_one_size_in_the_tab_and_the_editor(app_clean: str, page: Page) -> None:
+    """A18: the same error block reads at one size in both hosts (body-sm)."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "a18-size-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(app_clean, "a18-size-agent", {"description": "test"})
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": _OPERATOR_ERROR}),
+        ),
+    )
+    probe = "el => parseFloat(getComputedStyle(el).fontSize)"
+    _navigate_to_agent_mcps_tab(page, app_clean, "a18-size-agent")
+    _expand_source_tile(page, sid)
+    tab_err = page.locator(f'[data-testid="mcp-tools-error-{sid}"]')
+    expect(tab_err).to_be_visible(timeout=4000)
+    tab_size = tab_err.evaluate(probe)
+
+    _nav.goto(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    editor_err = page.locator('[data-testid="mcp-connection-error"]')
+    expect(editor_err).to_be_visible(timeout=8000)
+    assert editor_err.evaluate(probe) == tab_size == 12.0
 
 
 @pytest.mark.browser
@@ -1132,3 +1206,73 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
     assert out["empty"] is True
     assert out["back"] == ["s2"]
     assert out["emptyGone"] is True
+
+
+@pytest.mark.browser
+def test_expand_buttons_are_named_for_their_server(app_clean: str, page: Page) -> None:
+    """A20 (ledger row 20): every Tools button carries its server's name, so no
+    two share one; the visible text stays "Tools" or the count, and the button is
+    no longer also described by the tile's name (the server is not read twice)."""
+    unloaded = _seed_source(app_clean, "Docs search")
+    other = _seed_source(app_clean, "Billing API")
+    cached = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "Team calendar",
+            "type": "streamable-http",
+            "config": {
+                "url": "https://example.com/mcp",
+                "_cache": {
+                    "tools": [{"name": f"t{i}", "description": ""} for i in range(3)],
+                },
+            },
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "tools-name-agent",
+        {"description": "t", "mcp_source_ids": [unloaded, other, cached]},
+    )
+    _navigate_to_agent_mcps_tab(page, app_clean, "tools-name-agent")
+
+    sel = '[data-testid^="mcp-source-expand-"]'
+    expect(page.locator(sel)).to_have_count(3)
+    out = page.evaluate(
+        """(sel) => Array.from(document.querySelectorAll(sel)).map((b) => ({
+             label: b.getAttribute('aria-label'), text: b.textContent.replace('▸', ''),
+             described: b.hasAttribute('aria-describedby')}))""",
+        sel,
+    )
+    by_label = {o["label"]: o for o in out}
+    assert set(by_label) == {
+        "Tools for Docs search",
+        "Tools for Billing API",
+        "3 tools for Team calendar",
+    }, out
+    assert len(by_label) == len(out), "two Tools buttons share a name"
+    assert by_label["Tools for Docs search"]["text"] == "Tools"
+    assert by_label["3 tools for Team calendar"]["text"] == "3 tools"
+    assert not any(o["described"] for o in out), out
+    # The engine's own computed names.
+    for name in by_label:
+        expect(page.get_by_role("button", name=name, exact=True)).to_have_count(1)
+    # Label in name: the accessible name starts with the visible text.
+    assert all(label.startswith(o["text"]) for label, o in by_label.items())
+
+
+@pytest.mark.browser
+def test_tools_tab_group_tile_is_unchanged_by_the_expand_label_option(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """The Built-in tools tab's group tile does not pass `expandLabel`: its
+    expand button keeps its content-only name and its describedby."""
+    _nav.goto(page, app_with_agent.base_url, f"agents/{app_with_agent.agent_name}/tools")
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
+    out = page.evaluate(
+        """() => Array.from(document.querySelectorAll('.ui-group-tile-expand')).map((b) => ({
+             label: b.hasAttribute('aria-label'), described: b.hasAttribute('aria-describedby')}))"""
+    )
+    assert out and all(not o["label"] and o["described"] for o in out), out

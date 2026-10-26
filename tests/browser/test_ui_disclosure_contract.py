@@ -9,6 +9,7 @@ or the ``toggle`` event.
 from __future__ import annotations
 
 import pytest
+from browser._legacy_tool_css import LEGACY_MCP_TOOL_CSS
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
 
@@ -238,9 +239,9 @@ const diff = (a, b) => { const d = {}; PROPS.forEach((p) => { if (a[p] !== b[p])
 def test_bordered_computed_styles_equal_legacy_mcp_tool_item(engine_page: Page, theme: str) -> None:
     load_harness(engine_page, theme)
     out = engine_page.evaluate(
-        """() => {
+        """(css) => {
           const host = document.createElement('div'); host.className = 'area-studio';
-          host.innerHTML = '<details class="mcp-tool-item" open id="legacy"><summary class="mcp-tool-summary"><span class="mcp-tool-summary-text">Folder</span><span class="mcp-tool-chevron">▸</span></summary><div class="mcp-tool-body">body</div></details><div id="lib"></div>';
+          host.innerHTML = css + '<details class="mcp-tool-item" open id="legacy"><summary class="mcp-tool-summary"><span class="mcp-tool-summary-text">Folder</span><span class="mcp-tool-chevron">▸</span></summary><div class="mcp-tool-body">body</div></details><div id="lib"></div>';
           document.getElementById('harness-root').appendChild(host);
           const d = App.ui.disclosure({variant: 'bordered', summary: 'Folder', open: true});
           d.body.textContent = 'body';
@@ -259,7 +260,8 @@ def test_bordered_computed_styles_equal_legacy_mcp_tool_item(engine_page: Page, 
           o.rotate = [getComputedStyle(L.querySelector('.mcp-tool-chevron')).transform, getComputedStyle(d.summary.querySelector('.ui-disclosure-chevron')).transform];
           o.bodyBorder = getComputedStyle(d.body).borderTopStyle;
           return o;
-        }"""
+        }""",
+        LEGACY_MCP_TOOL_CSS,
     )
     rotate = out.pop("rotate")
     assert rotate[0] == rotate[1] and rotate[1] != "none"

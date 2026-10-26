@@ -228,7 +228,7 @@ def test_consent_link_help_option(engine_page: Page) -> None:
         "aDesc": True,
         "bHelp": 0,
         "bDesc": False,
-        "cHelp": "Finish signing in in",
+        "cHelp": "Complete the sign-in",
     }
 
 

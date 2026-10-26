@@ -45,7 +45,7 @@ def test_tab_renders_disabled_by_default(app_clean: str, page: Page) -> None:
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("disabled", timeout=8000)
     # HAT UX pass (M21 F02 L04): the enable/disable control is now a
-    # `.tool-enable-switch` checkbox, not a button with "Enable"/"Disable"
+    # switch checkbox (`App.ui.toggle`), not a button with "Enable"/"Disable"
     # text — assert the checked state instead.
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked()

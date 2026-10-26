@@ -64,13 +64,29 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
 
 
 @pytest.mark.browser
+def test_tools_tab_reads_built_in_tools_in_sentence_case(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """A21 (ledger row 21): the tab's visible text and accessible name are
+    "Built-in tools"; the id, testid and route are unchanged."""
+    _nav.goto(page, app_with_agent.base_url, "agents")
+    _wait_editor_ready(page)
+    tab = page.locator('[data-testid="tab-tools"]')
+    expect(tab).to_have_text("Built-in tools")
+    expect(page.get_by_role("tab", name="Built-in tools", exact=True)).to_have_count(1)
+    assert page.get_by_role("tab", name="Built-in Tools", exact=True).count() == 0
+    tab.click()
+    _nav.expect_route(page, f"agents/{app_with_agent.agent_name}/tools")
+
+
+@pytest.mark.browser
 def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -> None:
     """The agent editor renders a tablist with tabs and correct ARIA.
 
     The Self-configuration tab (M21 F01 L02) sits last, so the tablist
-    renders 5 tabs in order: General / Knowledge / MCPs / Built-in Tools /
+    renders 5 tabs in order: General / Knowledge / MCPs / Built-in tools /
     Self-configuration. (A Connectors tab sat between MCPs and Built-in
-    Tools from M10 through Mission 23 Flight 1, which reset the connector
+    tools from M10 through Mission 23 Flight 1, which reset the connector
     subsystem and removed it.)
     """
     base_url = app_with_agent.base_url
@@ -81,7 +97,7 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    # General + Rules and notes + Knowledge + MCPs + Built-in Tools + Self-configuration
+    # General + Rules and notes + Knowledge + MCPs + Built-in tools + Self-configuration
     expect(tabs).to_have_count(6)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
@@ -199,7 +215,7 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
 
     expected = f"agents/{_nav.seg(agent_name)}/tools"
     _nav.expect_route(page, expected)
-    # The Built-in Tools tab is category group tiles with library switch masters
+    # The Built-in tools tab is category group tiles with library switch masters
     # (M31 F2 L08b). The native input is visually hidden; its track is the visible
     # switch.
     expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible()
@@ -222,13 +238,13 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
 
 @pytest.mark.browser
 def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) -> None:
-    """Refresh on /tools URL returns the user to the Built-in Tools tab."""
+    """Refresh on /tools URL returns the user to the Built-in tools tab."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
     _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/tools")
     _wait_editor_ready(page, expected_tab="tools")
 
-    # The Built-in Tools tab is category group tiles with library switch masters
+    # The Built-in tools tab is category group tiles with library switch masters
     # (M31 F2 L08b). The native input is visually hidden; its track is the visible
     # switch.
     expect(page.locator(".ui-group-tile-row .ui-toggle-track").first).to_be_visible(timeout=8000)

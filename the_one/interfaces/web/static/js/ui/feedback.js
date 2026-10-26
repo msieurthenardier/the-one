@@ -14,11 +14,13 @@
     'dismissed',
     'execution',
     'filesystem',
+    'local',
     'mock',
     'ollama',
     'openai',
     'openai-compatible',
     'openrouter',
+    'remote',
     'time',
     'unknown',
     'web'

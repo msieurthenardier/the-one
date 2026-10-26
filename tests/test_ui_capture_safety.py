@@ -172,3 +172,48 @@ def test_time_mask_pins_the_meridiem(tmp_path: Path) -> None:
     assert masked[2] == "at 12:00PM"
     assert masked[3] == "12:00"
     assert masked[4] == "Mar 1, 12:00 PM"
+
+
+# ── Fixture MCP servers (M31 F5 L01) ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize("port", [8484, 8485, 8491])
+def test_fixture_helper_refuses_the_protected_ports(port: int) -> None:
+    with pytest.raises(cap.CaptureError, match=str(port)):
+        cap.check_fixture_port(port, instance_port=40000)
+
+
+def test_fixture_helper_refuses_the_instances_own_port() -> None:
+    with pytest.raises(cap.CaptureError, match="scratch instance"):
+        cap.check_fixture_port(40000, instance_port=40000)
+
+
+def test_fixture_helper_accepts_other_ports() -> None:
+    cap.check_fixture_port(8493, instance_port=40000)
+    cap.check_fixture_port(51234, instance_port=40000)
+
+
+def test_fixture_servers_record_the_pid_before_the_port_is_known(tmp_path: Path) -> None:
+    """A fixture that exits at once raises, but its PID is already recorded for ``stop()``."""
+    servers = cap.FixtureServers(tmp_path)
+    with pytest.raises(cap.CaptureError):
+        servers.start("not-a-mode", instance_port=40000)
+    assert "not-a-mode" in servers.procs
+    servers.stop()
+    assert servers.procs == {}
+
+
+def test_widths_for_intersects_the_surface_with_the_request() -> None:
+    both = cap.Surface("a", "#a", "x", "d")
+    only_wide = cap.Surface("b", "#b", "x", "d", widths=(1280,))
+    assert cap.widths_for(both, [1280, 1024]) == [1280, 1024]
+    assert cap.widths_for(only_wide, [1280, 1024]) == [1280]
+    assert cap.widths_for(only_wide, [1024]) == []
+
+
+def test_mcp_surfaces_are_described_and_the_refs_need_no_fixtures() -> None:
+    mcp = [s for s in cap.SURFACES if s.name.startswith(("mcp-", "agent-mcps-full"))]
+    assert len(mcp) >= 15
+    assert all(s.description for s in cap.SURFACES)
+    refs = [s for s in cap.SURFACES if s.name.startswith("ref-")]
+    assert refs and not any(s.needs_mcp for s in refs)

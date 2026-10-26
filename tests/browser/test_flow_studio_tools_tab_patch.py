@@ -1,4 +1,4 @@
-"""Agent editor Built-in Tools tab: dirty tracking, patch-on-Save and Cancel (M31 F2 L08b).
+"""Agent editor Built-in tools tab: dirty tracking, patch-on-Save and Cancel (M31 F2 L08b).
 
 The tab is built once per agent identity and patched through ``setAgent`` (DD6):
 a same-identity Save keeps loaded override bodies (and an open disclosure with

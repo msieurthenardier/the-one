@@ -65,7 +65,7 @@ The app has four destinations, always there in the rail: Chats, Agents, Library 
 
 Agents know today's date and can check the time in the time zone you pick under Settings.
 
-Each agent has a provider, a model and a system prompt, plus tabs for Rules and notes, Knowledge, MCPs, Built-in Tools and Self-configuration. Its Chat button starts a conversation with it.
+Each agent has a provider, a model and a system prompt, plus tabs for Rules and notes, Knowledge, MCPs, Built-in tools and Self-configuration. Its Chat button starts a conversation with it.
 
 <details>
 <summary>The built-in tools</summary>

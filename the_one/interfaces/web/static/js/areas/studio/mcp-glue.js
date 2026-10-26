@@ -34,6 +34,14 @@
 
     var MCP_TYPES = [];
     var mcpTypesReady = null;
+    // The live editor controller (M31 F5 L03), set only from onMounted and only in
+    // the mount's own generation; destroyed before every replacement and close.
+    var current = null;
+    function destroyCurrent() {
+      var ctl = current;
+      current = null;
+      if (ctl) ctl.destroy();
+    }
 
     // MCP Servers section — relocated from admin (post-F2 retrofit). The
     // editor branch waits for the type list then delegates to
@@ -42,6 +50,7 @@
     // retired). The orchestrator-side callbacks bridge dirty-state +
     // navigation.
     function renderMcpSourcesSection() {
+      destroyCurrent();
       sectionContentEl.replaceChildren();
       // If a hash-route pending-create is queued (e.g. direct-load on
       // #library/mcp/~new), promote it to mcpSourceFormMode='add' BEFORE
@@ -66,7 +75,15 @@
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
           if (state.mcpSourceFormMode == null || self._activeSection !== 'mcp-sources') return;
+          // Two queued renders must not leave an orphan (the connector precedent).
+          destroyCurrent();
           App.studio.renderMcpSourceEditor(sectionContentEl, state.editingMcpSource, MCP_TYPES, {
+            // Every mount reports its controller, Reset's re-mount included. One
+            // reported in a stale generation is destroyed at once.
+            onMounted: function (ctl) {
+              if (mcpGen !== state.editorGen) { ctl.destroy(); return; }
+              current = ctl;
+            },
             // Back is retired (M25 F3 L4b, DD2): the header breadcrumb's
             // "MCP servers" link closes the editor (onBreadcrumbClick).
             onCancel: function () {
@@ -99,6 +116,7 @@
               if (isCreate) {
                 // create→edit transition: re-render so Danger Zone +
                 // edit-mode subtitle render with the newly-assigned id.
+                var replaced = current; // the create editor, destroyed by this render
                 renderMcpSourcesSection();
                 // F9 L1 (vibing follow-up): auto-run Refresh on create.
                 // For streamable-http sources the Refresh button mounts
@@ -117,23 +135,15 @@
                 // point per L2 Scenario 4. Operators who prefer auto-run
                 // for stdio can drive it via the normal manual click.
                 //
-                // setTimeout(0) yields one frame so the editor's
-                // wireEditorEvents finishes attaching the click handler
-                // before we dispatch the synthetic click.
+                // The deferred runTest({autoRun: true}) runs only on the edit
+                // mount of THIS created source (a newer render, another item or
+                // a close has replaced `current` or `editingMcpSource`).
                 setTimeout(function () {
                   if (updated && updated.type !== 'streamable-http') return;
-                  var refreshBtn = sectionContentEl.querySelector(
-                    '[data-testid="mcp-test-connection"]'
-                  );
-                  if (refreshBtn) {
-                    // Signal to the editor's click handler that this is
-                    // the auto-run-after-create path: on auth_required
-                    // it must surface the consent button rather than
-                    // open the popup directly (the Save click's
-                    // user-gesture context is already lost).
-                    refreshBtn.dataset.autoRun = '1';
-                    refreshBtn.click();
-                  }
+                  var ctl = current;
+                  if (!ctl || ctl === replaced || mcpGen !== state.editorGen ||
+                      state.editingMcpSource !== updated) return;
+                  ctl.runTest({ autoRun: true });
                 }, 0);
               }
             },
@@ -182,6 +192,7 @@
     // the cache yet) closes the open form, so the section never re-renders the
     // old item while the new one resolves.
     self._closeMcpForm = function () {
+      destroyCurrent();
       state.mcpSourceFormMode = null;
       state.editingMcpSource = null;
       state.dirty = false;
@@ -227,12 +238,18 @@
       return false;
     }
     self._tryConsumePendingMcpSource = tryConsumePendingMcpSource;
+    // Leaving the Library area destroys the editor (studio.js deactivate) and
+    // leaves mcpSourceFormMode alone, so a return is a fresh mount as today.
+    self._resetMcp = destroyCurrent;
+    // Test seam: the live controller (like the area's other `_` seams).
+    self._currentMcpEditor = function () { return current; };
 
     return {
       render: renderMcpSourcesSection,
       prefetchTypes: fetchMcpSourceTypes,
       tryConsumePending: tryConsumePendingMcpSource,
       reset: function () {
+        destroyCurrent();
         state.mcpSourceFormMode = null;
         state.editingMcpSource = null;
       },

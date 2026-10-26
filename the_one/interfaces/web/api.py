@@ -3079,8 +3079,8 @@ async def list_mcp_source_types() -> list[dict[str, str]]:
     ``list_provider_types``.
     """
     return [
-        {"value": "stdio", "label": "Stdio"},
-        {"value": "streamable-http", "label": "Streamable HTTP"},
+        {"value": "stdio", "label": "Local program (stdio)"},
+        {"value": "streamable-http", "label": "Remote server (HTTP)"},
     ]
 
 
@@ -3238,8 +3238,24 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
     # would rename an ORDINARY source into the reserved constant name.
     _reject_reserved_surface_name(updated)
     _validate_mcp_source_config(updated)
+    # DD2: the row may now point at a different server. The same rule drops the
+    # remembered era (below) and the old server's last check and auth posture;
+    # every other _cache key (the tools cache) stays. An emptied _cache is
+    # removed, as Reset does (absence is the "never checked" state).
+    server_changed = updated.type != existing.type or (updated.config or {}).get("url") != (
+        existing.config or {}
+    ).get("url")
+    if server_changed and isinstance((updated.config or {}).get("_cache"), dict):
+        kept = {
+            k: v
+            for k, v in updated.config["_cache"].items()
+            if k not in ("last_check", "auth_posture")
+        }
+        new_config = {k: v for k, v in updated.config.items() if k != "_cache"}
+        if kept:
+            new_config["_cache"] = kept
+        updated = updated.model_copy(update={"config": new_config})
     await repo.update(updated)
-    # DD2: the row may now point at a different server — drop the remembered era.
     forget_era(source_id)
     return _mcp_source_response(updated)
 
@@ -3437,12 +3453,7 @@ async def _persist_oauth_posture(repo: MCPSourceRepository, source_id: str) -> N
     for the pool worker.
     """
     try:
-        persisted = await repo.get(source_id)
-        persisted_config = dict(persisted.config or {})
-        persisted_cache = dict(persisted_config.get("_cache") or {})
-        persisted_cache["auth_posture"] = "oauth"
-        persisted_config["_cache"] = persisted_cache
-        await repo.update(persisted.model_copy(update={"config": persisted_config}))
+        await repo.merge_cache(source_id, {"auth_posture": "oauth"})
     except Exception:
         # Best-effort; falling through to Phase B regardless.
         pass
@@ -3455,12 +3466,7 @@ async def _clear_auth_posture(repo: MCPSourceRepository, source_id: str) -> None
     does not know what the server is, so the next Test classifies it fresh.
     """
     try:
-        persisted = await repo.get(source_id)
-        persisted_config = dict(persisted.config or {})
-        persisted_cache = dict(persisted_config.get("_cache") or {})
-        persisted_cache.pop("auth_posture", None)
-        persisted_config["_cache"] = persisted_cache
-        await repo.update(persisted.model_copy(update={"config": persisted_config}))
+        await repo.merge_cache(source_id, {}, delete=("auth_posture",))
     except Exception:
         pass
 
@@ -3539,19 +3545,19 @@ async def _build_and_test_no_auth_mcp(
                 for t in tools
             ]
             try:
-                persisted = await repo.get(source_id)
-                persisted_config = dict(persisted.config or {})
-                persisted_config["_cache"] = {
-                    "tools": tools_cache_payload,
-                    "capabilities": capabilities,
-                    "server_info": server_info,
-                    "instructions": instructions,
-                    "meta": meta,
-                    "protocol_version": protocol_version,
-                    "last_updated": time.time(),
-                    "auth_posture": "no_auth",
-                }
-                await repo.update(persisted.model_copy(update={"config": persisted_config}))
+                await repo.merge_cache(
+                    source_id,
+                    {
+                        "tools": tools_cache_payload,
+                        "capabilities": capabilities,
+                        "server_info": server_info,
+                        "instructions": instructions,
+                        "meta": meta,
+                        "protocol_version": protocol_version,
+                        "last_updated": time.time(),
+                        "auth_posture": "no_auth",
+                    },
+                )
             except Exception:
                 # Best-effort persistence — a write failure must not break the
                 # response contract (mirrors the Phase A persistence pattern).
@@ -3645,18 +3651,18 @@ async def _build_and_test_stdio_mcp(
                 for t in tools
             ]
             try:
-                persisted = await repo.get(source_id)
-                persisted_config = dict(persisted.config or {})
-                persisted_config["_cache"] = {
-                    "tools": tools_cache_payload,
-                    "capabilities": capabilities,
-                    "server_info": server_info,
-                    "instructions": instructions,
-                    "meta": meta,
-                    "protocol_version": protocol_version,
-                    "last_updated": time.time(),
-                }
-                await repo.update(persisted.model_copy(update={"config": persisted_config}))
+                await repo.merge_cache(
+                    source_id,
+                    {
+                        "tools": tools_cache_payload,
+                        "capabilities": capabilities,
+                        "server_info": server_info,
+                        "instructions": instructions,
+                        "meta": meta,
+                        "protocol_version": protocol_version,
+                        "last_updated": time.time(),
+                    },
+                )
             except Exception:
                 # Best-effort persistence — a write failure must not break the
                 # response contract (mirrors the http no-auth helper).
@@ -3722,6 +3728,33 @@ async def _clear_stale_oauth_secrets(
 
 @router.post("/mcp-sources/{source_id}/test/connect")
 async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any]:
+    """Run a connection check and record its outcome (``_cache.last_check``).
+
+    The one write point for the record: the inner function returns
+    ``(result, recordable)``, ``recordable`` being true only for a body-less Test of
+    the saved server that was an actual connection check. See
+    :func:`_test_mcp_connection_inner` for the check itself.
+    """
+    result, recordable = await _test_mcp_connection_inner(source_id, request)
+    if recordable and result.get("status") in _RECORDED_CHECK_STATUSES:
+        try:
+            repo = await _mcp_repo()
+            await repo.merge_cache(
+                source_id,
+                {"last_check": {"status": result["status"], "at": time.time()}},
+            )
+        except Exception:
+            # Best-effort, like every other cache write: the response contract wins.
+            logger.debug("could not record last_check for %s", source_id, exc_info=True)
+    return result
+
+
+_RECORDED_CHECK_STATUSES = frozenset({"ok", "error", "auth_required"})
+
+
+async def _test_mcp_connection_inner(
+    source_id: str, request: Request
+) -> tuple[dict[str, Any], bool]:
     """Connect + list_tools probe; kicks OAuth flow if needed via popup-callback dance.
 
     Behavior:
@@ -3774,13 +3807,18 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         body_bytes = await request.body()
     except Exception:
         body_bytes = b""
+    # Only a body-less Test is the saved server under test, so only it is recorded as
+    # ``last_check`` (the client sends a body only when its form is dirty). This is NOT
+    # ``record_era`` below: a body that changes only secrets still records the era but
+    # never ``last_check``. Deliberately different gates; do not unify them.
+    recordable = not body_bytes
     if body_bytes:
         try:
             payload = json.loads(body_bytes)
         except Exception as e:
-            return {"status": "error", "error": f"invalid JSON body: {e}"}
+            return {"status": "error", "error": f"invalid JSON body: {e}"}, recordable
         if not isinstance(payload, dict):
-            return {"status": "error", "error": "request body must be a JSON object"}
+            return {"status": "error", "error": "request body must be a JSON object"}, recordable
         override_type = payload.get("type")
         override_config = payload.get("config")
         override_secrets = payload.get("secrets")
@@ -3814,7 +3852,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     del resolved_secrets[k]
             source = source.model_copy(update={"secrets": resolved_secrets})
 
-    # DD2: the editor sends its form body on every Test, so "an override was
+    # DD2: the editor sends its form body only when the form is dirty, so "an override was
     # applied" means the server under test differs from the saved row (type or
     # config, ignoring the `_cache`). Secrets are not compared: a changed
     # credential does not change which server is under test. An override Test
@@ -3832,12 +3870,16 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     # the workflow is a straight connect → list_tools → cache → return.
     # Other unsupported transports continue to surface a clear error.
     if source.type == "stdio":
-        return await _build_and_test_stdio_mcp(source, source_id, repo, record_era=record_era)
+        return (
+            await _build_and_test_stdio_mcp(source, source_id, repo, record_era=record_era)
+        ), recordable
     if source.type != "streamable-http":
-        return {
-            "status": "error",
-            "error": f"Test only supports streamable-http and stdio; got {source.type!r}",
-        }
+        return (
+            {
+                "status": "error",
+                "error": f"Test only supports streamable-http and stdio; got {source.type!r}",
+            }
+        ), False
 
     # Phase 0: HTTP-level auth-posture probe (Shape C — A6 resolution).
     # Before engaging the SDK, ask the server itself: "do you require auth?"
@@ -3862,7 +3904,9 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     )
 
     if cached_posture == "no_auth" and not has_live_tokens:
-        return await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
+        return (
+            await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
+        ), recordable
 
     # Re-probe both on a cold cache (None) AND on a cached "oauth" hint when
     # there are no live OAuth tokens. The latter re-validation matters because
@@ -3882,9 +3926,11 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             server_url, request_headers=build_request_headers(source)
         )
         if posture == "no_auth":
-            return await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
+            return (
+                await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
+            ), recordable
         if posture == "error":
-            return {"status": "error", "error": "connection probe failed"}
+            return {"status": "error", "error": "connection probe failed"}, recordable
         if posture == "unexpected_status":
             # DD9: the server answered the probe's bare `initialize` with a
             # status that is neither 200 nor 401 (e.g. 400 from a server that
@@ -3893,7 +3939,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                 source, source_id, repo, record_era=record_era, from_fallthrough=True
             )
             if result is not _SIGNIN_REQUIRED:
-                return result
+                return result, recordable
             # The SDK path hit a 401: persist `oauth` (as for a probe `oauth`)
             # and sign in. The server already rejects `initialize`, so Phase B
             # triggers sign-in with `server/discover` (DD10 amendment).
@@ -3960,29 +4006,31 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     for t in tools
                 ]
                 try:
-                    persisted = await repo.get(source_id)
-                    persisted_config = dict(persisted.config or {})
-                    persisted_config["_cache"] = {
-                        "tools": tools_cache_payload,
-                        "capabilities": capabilities,
-                        "server_info": server_info,
-                        "instructions": instructions,
-                        "meta": meta,
-                        "protocol_version": protocol_version,
-                        "last_updated": time.time(),
-                    }
-                    await repo.update(persisted.model_copy(update={"config": persisted_config}))
+                    await repo.merge_cache(
+                        source_id,
+                        {
+                            "tools": tools_cache_payload,
+                            "capabilities": capabilities,
+                            "server_info": server_info,
+                            "instructions": instructions,
+                            "meta": meta,
+                            "protocol_version": protocol_version,
+                            "last_updated": time.time(),
+                        },
+                    )
                 except Exception:
                     # Best-effort persistence — a write failure must not
                     # break the test/connect response contract. The operator
                     # still gets the live tools list; cache simply won't
                     # populate for this round.
                     pass
-            return {
-                "status": "ok",
-                "tools": tools_cache_payload,
-                "capabilities": capabilities,
-            }
+            return (
+                {
+                    "status": "ok",
+                    "tools": tools_cache_payload,
+                    "capabilities": capabilities,
+                }
+            ), recordable
         except MCPAuthRequired:
             # Token expired/revoked. Bust pool cache BEFORE Phase B builds
             # a fresh provider so the F4 cache doesn't hand out an MCPClient
@@ -4012,9 +4060,9 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                 await _evict_all_for_source(source_id)
                 # fall through to Phase B
             else:
-                return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+                return {"status": "error", "error": f"{type(e).__name__}: {e}"}, recordable
         except MCPVersionMismatch as e:
-            return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+            return {"status": "error", "error": f"{type(e).__name__}: {e}"}, recordable
 
     # A6 (no-auth MCP detection) is now handled by Phase 0 above (Shape C):
     # bare httpx probe inspects auth posture before SDK engagement, persists
@@ -4045,7 +4093,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         # With allow_dcr_bootstrap=True, the only way provider is None is
         # chat_session_id is None — but we passed a synthetic test_csid,
         # so this branch is unreachable. Defensive return.
-        return {"status": "error", "error": "OAuth provider construction failed"}
+        return {"status": "error", "error": "OAuth provider construction failed"}, recordable
 
     await _evict_all_for_source(source_id)
 
@@ -4117,15 +4165,15 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             asyncio.shield(consent_url_future), timeout=_TEST_CONNECT_TIMEOUT
         )
     except asyncio.TimeoutError:
-        return {"status": "error", "error": "consent_url_timeout"}
+        return {"status": "error", "error": "consent_url_timeout"}, recordable
     except _CredentialsRejectedSignal:
         await _clear_auth_posture(repo, source_id)
         rejected = MCPCredentialsRejected(source_id=source_id, source_name=source.name)
-        return {"status": "error", "error": f"MCPCredentialsRejected: {rejected}"}
+        return {"status": "error", "error": f"MCPCredentialsRejected: {rejected}"}, recordable
     except Exception as e:
-        return {"status": "error", "error": f"auth_flow_error: {e}"}
+        return {"status": "error", "error": f"auth_flow_error: {e}"}, recordable
 
-    return {"status": "auth_required", "consent_url": consent_url}
+    return {"status": "auth_required", "consent_url": consent_url}, recordable
 
 
 # ── Connector Accounts (Mission 23 Flight 2 Leg 2, DD-7) ───────────────────
@@ -4590,11 +4638,14 @@ def _render_oauth_callback_page(
 ) -> str:
     """Render the loopback callback page in the studio visual idiom.
 
-    The page is a self-contained HTML document served only to the popup
-    window opened by the OAuth modal. It links the same studio CSS the
-    SPA uses (``/static/css/...``) so the operator perceives continuity
-    with the rest of GleepGlorp AI — violet-accent design system, Geist
-    Sans / Geist Mono typography, quiet mono-uppercase eyebrow.
+    The page is a self-contained HTML document served to the window the OAuth
+    flow opened, which is the system browser on the desktop app: it has no
+    session cookie, so every ``/static/`` request it made returned 401 and the
+    page rendered unstyled (squawk 0214). It therefore links nothing under
+    ``/static/``: its styles are inline, with an explicit minimal subset of the
+    design tokens (pinned to ``tokens.css`` and ``fonts.css`` by
+    ``tests/test_oauth_callback_page_static.py``), light by default and dark under
+    ``prefers-color-scheme``, in the system font stack.
 
     Args:
         status: One of ``"success"``, ``"failed"``, ``"expired"``.
@@ -4618,11 +4669,8 @@ def _render_oauth_callback_page(
             render an error+retry (failed/expired/cancel) — leading to
             the M08 F4 L3 popup loop on Cloudflare-class auth failures.
 
-    The CSS is intentionally inlined for the page-specific layout
-    (centered card, eyebrow, big heading, hint footer). Theme tokens,
-    fonts, and the data-theme attribute come from the shared studio
-    stylesheets so the page automatically follows the operator's
-    dark/light/auto preference resolved by ``theme.js``.
+    The page follows the browser's light or dark preference; an explicit in-app
+    theme choice is not available here (the page cannot read it without a session).
     """
     auto_close_script = (
         "<script>setTimeout(function () { try { window.close(); } "
@@ -4657,14 +4705,38 @@ def _render_oauth_callback_page(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{heading}</title>
-<style>@layer tokens, base, components, areas, utilities;</style>
-<script src="/static/js/theme.js"></script>
-<link rel="stylesheet" href="/static/css/fonts.css">
-<link rel="stylesheet" href="/static/css/tokens.css">
 <style>
+  :root {{
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --surface: #fafafa;
+    --border: #e4e4e7;
+    --fg: #18181b;
+    --fg-secondary: #52525b;
+    --fg-muted: #65656e;
+    --radius-lg: 12px;
+    --shadow-popover: 0 4px 12px rgb(0 0 0 / 0.10);
+    --font-size-h1: 18px;
+    --font-size-body: 13px;
+    --font-size-tiny: 10px;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --line-height-tight: 1.2;
+    --line-height-normal: 1.5;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --bg: #101114;
+      --surface: #17181c;
+      --border: #26272c;
+      --fg: #ededf0;
+      --fg-secondary: #adafb7;
+      --fg-muted: #8f9199;
+    }}
+  }}
   html, body {{ margin: 0; padding: 0; height: 100%; }}
   body {{
-    font-family: var(--font-family-sans);
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--fg);
     display: flex;
@@ -4680,12 +4752,12 @@ def _render_oauth_callback_page(
     padding: 32px 36px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-popover);
     text-align: left;
   }}
   .oauth-callback-eyebrow {{
-    font-family: var(--font-family-mono);
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     font-size: var(--font-size-tiny);
     font-weight: var(--font-weight-bold);
     text-transform: uppercase;
@@ -4694,7 +4766,6 @@ def _render_oauth_callback_page(
     margin: 0 0 16px;
   }}
   .oauth-callback-heading {{
-    font-family: var(--font-family-sans);
     font-size: var(--font-size-h1);
     font-weight: var(--font-weight-semibold);
     color: var(--fg);
@@ -4711,10 +4782,12 @@ def _render_oauth_callback_page(
 </style>
 </head>
 <body>
-<main class="oauth-callback-card" role="status" aria-live="polite">
+<main class="oauth-callback-card">
   <p class="oauth-callback-eyebrow">gleepglorp ai — oauth</p>
   <h1 class="oauth-callback-heading">{heading}</h1>
-  <p class="oauth-callback-detail">{detail_html}</p>
+  <div role="status">
+    <p class="oauth-callback-detail">{detail_html}</p>
+  </div>
 </main>
 {post_message_script}
 {auto_close_script}
