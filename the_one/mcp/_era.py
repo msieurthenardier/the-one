@@ -4,8 +4,11 @@ A leaf module: stdlib only, nothing from ``the_one`` (so importing it never
 pulls in ``the_one.mcp.oauth``). It holds a process-wide ``source_id ->
 protocol revision`` map, in memory only; a restart re-discovers.
 
-Leg 1 creates the module so the failure matrix's ``forget_era`` cells exist;
-nothing reads or writes the map yet beyond that.
+``MCPClient.connect`` reads the map through ``era_for`` and passes the result to
+``_negotiate.negotiate`` as ``remembered``; ``remember_era`` and ``forget_era`` are
+called from the connect path, source update, delete, Reset connection and the
+mid-use failure paths. The map is process-global and unlocked, which is safe only
+because there is a single asyncio event loop.
 """
 
 from __future__ import annotations

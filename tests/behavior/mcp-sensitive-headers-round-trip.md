@@ -1,9 +1,9 @@
 # Behavior Test: MCP Sensitive Headers Round Trip
 
 **Slug**: `mcp-sensitive-headers-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-10-25 (Mission 31 Flight 5 Leg 07; run in Leg 12)
-**Last Run**: never
+**Last Run**: 2026-10-26-15-13-47 (pass, 8/8; [run log](mcp-sensitive-headers-round-trip/runs/2026-10-26-15-13-47.md))
 
 ## Intent
 

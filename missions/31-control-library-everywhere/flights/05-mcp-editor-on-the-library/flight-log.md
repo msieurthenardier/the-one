@@ -281,6 +281,36 @@ A testid that cannot survive the library control (for example `mcp-kv-tbody` ins
 - **Captures** (`m31-f5-l11` vs l10 / l08b): the Library list differs only in the MCP rows (row 27); the agent tab bar differs only in the "Built-in tools" label and its underline (row 21); `agent-general` additionally in the Danger zone button (row 28); the MCPs tab's A20 change is not visible (row 20). No difference outside rows 20, 21, 27, 28 (the agents-list count differed only because the five-surface run seeds one more agent than a two-surface run).
 - **Ledger status (leg 11):** rows 20, 21, 27, 28 visible or accessible, match.
 
+### Leg 12: mcp-close (landed)
+- **Docs done:** `docs/ui-control-inventory.md` (editorShell, groupTile, dangerZone rows current; stale `tools-form-helpers` mentions fixed; no "Legacy toggle 1" remains), `the_one/agents.md` (new "MCP editor, final contract (M31 F5 L12)" block with modules and `create()` APIs, `setSaving`, the side-effect inventory, the stable DOM contract; the control-library history moved from CLAUDE.md; stale mentions at the web_search, string-path icon, tools-editor and `adminFormHelpers` lines fixed; squawk 0203's three bullets), `CLAUDE.md` (control-library paragraph trimmed to the rules plus totals 25 rows / 36 uses / 5 sinks; "eleven lanes" -> thirteen; the `tools-form-helpers.js` sentence; the netns skip figure is still to be re-read on the leg's own unit run), `missions/31-.../mission.md` (Known Issues counts after Flight 5). `the_one/mcp/_era.py` docstring fixed; squawk 0203 set to `completed` (sign-off and commit left to the batch commit). `jump-to-palette.md` step 6 checked: not stale, unchanged.
+- **Alias counts after Flight 5** (call sites outside `js/ui/` and comments): `App.confirmDelete(` 1 (`chat.js`), `App.showFlash(` 3 (`markdown.js`), `App.icon(` 1 (`markdown.js`; plus `icons.js`), `App.consentLink.` 4 (`chat.js`), `App.tabs` 0. No MCP file calls any.
+- **Guards:** `HTML_SINK_ALLOWANCE` is `{"areas/chat.js": 5}`; `DYNAMIC_SINK_BASELINE` empty; `MOVES` empty; `OWNERSHIP_ALLOWANCE` 25 rows, `TOTAL_USES` 36, no MCP or `tools-form-helpers` row; `test_area_module_size.py` has no `mcp-server-editor.js` entry; `git grep "adminFormHelpers|tools-form-helpers|tool-enable-switch" the_one/interfaces/web/static/` finds only the `js/ui/chip-list.js:10` comment ("deleted in M31 F5 L06", historical). Static guards, inventory, era and lane tests: 391 passed; ruff clean.
+- **Stale-mention grep kept hits:** `tests/browser/_legacy_tool_css.py` and `test_ui_tile_contract.py` (deliberate frozen legacy fixtures); `tests/test_tools_form_helpers_assets.py` (pins the deletion); `tests/_ui_ownership_allowance.py` START_ROWS (flight-start record); `test_flow_admin_*`, `test_ui_chip_list_contract.py`, `test_design_tokens_a11y.py` comments and docs sentences that say "deleted in M31 F5 L06/L07" (historical statements, accurate).
+- **Capture compare** (`m31-f5-after` vs `m31-f5-before`, 50 PNGs each, PIL ImageChops; I read the light 1280 side-by-sides of every surface family; dark and 1024 differ in the same regions). Every surface differs (the shared editor layout, sentence case and section order touch every one); the status line's date text ("checked Oct 26, 2026, 4:12 AM", the real last-check time against the fixed capture clock) is run-to-run:
+
+| Surface | Result | Ledger rows | As promised |
+|---|---|---|---|
+| mcp-create-empty, -stdio, -http | differs | 3, 5, 10, 17, 22, 24 (title, plain type, hint, switch, Env/Sandbox hidden until a type) | yes |
+| mcp-edit-stdio (1280, 1024), -stdio-failed | differs | 3, 4, 5, 6, 8, 10, 11, 14, 16, 18, 22, 23, 25, 26, 28 | yes |
+| mcp-edit-http, -http-open, -legacy | differs | 3, 4, 6, 8, 11, 13, 15, 16, 22, 23, 26 (Headers above Server and Tools; Instructions and tools as disclosures; Version, Protocol, Offers, Website) | yes |
+| mcp-edit-rejected | differs | 6, 7 (no Reset without a sign-in), 18, 22, 23 | yes |
+| mcp-edit-signin, -signin-after-create | differs | 6, 8, 19, 22, 23 | yes |
+| mcp-edit-dirty | differs | 4, 22, 23 (same layout as -stdio) | yes |
+| mcp-edit-save-error | differs | 1 (error on its own full-width row), 2, 22, 36 | yes |
+| mcp-edit-reset-armed | differs | 7 ("Forget tools list?" armed; the before armed Reset on a server with no sign-in), 6 | yes |
+| mcp-edit-danger-armed | differs | 28 ("Confirm delete?"), 22 | yes |
+| mcp-library-list | differs (MCP rows only) | 27 (state words and Local/Remote badge) | yes |
+| agent-mcps-full | differs | 18 (error headline one size, plain wording), 21 ("Built-in tools" tab), 20 not visible | yes |
+| ref-provider-long-error | differs | 1, 36 (error on its own row, title and breadcrumb keep width), 28 | yes |
+| ref-provider-danger-armed, ref-connector-danger-armed | differs | 28 ("Confirm delete?", sentence-case labels) | yes |
+
+  Unmapped differences: none.
+- **Stopped for the night (after the main merge 14e0218; superseded by the entries below):** unit re-count done under netns (`7656 passed, 15 skipped`; the 15 are 11 Windows-only, 1 no-locale, and 3 root-only: kb_walk, kb_watcher, packaging_apprun:186; CLAUDE.md corrected). The first quiet `--parallel 3` run (load 0.84, no test processes at start) was aborted with exit 143 at 452 s (PARALLEL_RESULT rc=143), terminated externally; it does NOT count and no budget changed. Remaining: wait for a quiet host, re-run `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 bash scripts/run-tests.sh --parallel 3 --tb=short`, apply the 1.3x/15% re-budget (scripts/run-tests.sh, CLAUDE.md table, tests/test_run_tests_lanes.py), note squawk 0259, run `make gate`, then land the leg (status landed).
+- **Quiet `--parallel 3` run (Developer, resumed):** host quiet at start (`uptime` load 0.21, 0.20, 0.23; no run-tests/pytest/uvicorn/chrom/fly processes). `PARALLEL_RESULT rc=0 total=1590s lanes=13 failed=-` (lane dir `/home/cprch/the-one-lane-run-l12`). Lane wall vs budget: routing 529/600, agents 459/540, chats 393/450, **mcp 697/450 (1.55x, OVER BUDGET)**, knowledge 306/420, providers 335/420, contracts-controls 385/420, shared 315/420, agent-tabs 300/360, settings 277/360, settings-tools 250/330, contracts-overlay 181/270, library 163/210. mcp is 230 tests (676 s pytest) over 1.3x: STOPPED with [BLOCKED:lane-split-needed]; no budgets changed, `make gate` not run, leg not landed.
+- **Split and second run (FD decision):** `test_flow_studio_library_list.py` moved from `mcp_pat` to `library_pat`; lane descriptions updated (run-tests.sh, CLAUDE.md). Second quiet run (start load 0.86, no test processes; lane dir `/home/cprch/the-one-lane-run-l12b`): `PARALLEL_RESULT rc=0 total=1693s lanes=13 failed=-`. routing 539/600, agents 472/540, chats 388/450, mcp 501 (was 450, now 630), knowledge 300/420, providers 340/420, contracts-controls 365 (budget 480), shared 308/420, agent-tabs 300/360, settings 279/360, settings-tools 253/330, contracts-overlay 201 (budget kept 270; the FD's 240 was not needed, 201 + 25% rounds to 270), library 321 (was 210, now 420). No lane over 1.3x of its new budget. CLAUDE.md table and intro, squawk 0259 note done; `tests/test_run_tests_lanes.py` 15 passed. `make gate` and landing deferred to after the FD's main merge.
+- **Gate after the main merge (959cc97):** quiet start (load 0.65, no test processes). `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate`: unit `7659 passed, 15 skipped, 3236 deselected` (the merge added 3 unit tests; skip count still 15 under netns); browser `PARALLEL_RESULT rc=0 total=1579s lanes=13 failed=-`, every lane within budget (mcp 508/630, routing 528/600, agents 457/540, contracts-controls 355/480, chats 397/450, library 344/420, knowledge 303/420, providers 326/420, shared 295/420, agent-tabs 292/360, settings 272/360, settings-tools 243/330, contracts-overlay 172/270). No failures, no flakes.
+- **Leg 12 landed** (status `landed`; acceptance boxes checked except the FD's behavior test). Nothing uncommitted of mine beyond the batch.
+
 ## Decisions
 
 *(none yet)*
@@ -631,7 +661,7 @@ Counts: both new tests fail on the unfixed tree and pass after; `--lane mcp` 230
   - `mcp` lane: 230 passed;
   - static guards: 386 passed.
 
-  A scoped re-review (Sonnet) was spawned. On the host, `ps` shows three idle `bash -c` pollers in the repo cwd. They are not this flight's crew (one is 9 days old), so they were left alone, per the recorded-PID rule.
+  A scoped re-review (Sonnet) was spawned. On the host, `ps` showed idle `bash -c` pollers in the repo cwd. **Correction (FD):** there were four, and they were this session's own stale wait-loops from earlier crew runs (children of this Claude process, writing to this session's scratchpad). Their `pgrep -f` loops also matched the other session's lanes, so they never exited. The FD stopped exactly those four PIDs.
 - **B5 fix re-review** (Sonnet, scoped): `[HANDOFF:confirmed]`.
   - Commands: the editor file, 178 passed; static guards, 380 passed.
   - `setSaving` is the one writer of `saving`, the shell busy state and the danger button.
@@ -642,4 +672,75 @@ Counts: both new tests fail on the unfixed tree and pass after; `--lane mcp` 230
   2. A Delete armed before a Save starts comes back still armed after the Save; the operator did arm it.
 
   Legs 10 and 11 are `completed`. The checkpoints "one derived state" and "the controller on `editorShell`" are met.
-- **Checkpoint B5 committed** (local; ref below).
+- **Checkpoint B5 committed** as `80f98c1` (local).
+- **Leg 12's Developer was spawned** (tier low; Sonnet, background).
+- **Main moved during leg 12** (operator notice: Mission 32 Flights 3-4 merged, up to `2983df1`).
+  - Main overlaps this branch only in docs: `CLAUDE.md`, `README.md`, `the_one/agents.md` and `mission.md`. The last is the operator's release amendment: Mission 32 Flight 4 may cut a release from `main` during Mission 31.
+  - It also brings many unit tests and a dynamic package version in `pyproject.toml`.
+  - It changes no browser test, lane or static UI file, apart from a splash PNG.
+
+  FD plan: the leg 12 Developer pauses after the docs and the after set, before the quiet run and `make gate`. The FD then merges `origin/main` at that one safe point, resolving the doc overlaps onto leg 12's edits. The quiet run, re-budget and gate then run on the merged tree, so the flight lands green against the current `main`.
+- **Main merged** as `14e0218` (`origin/main` `2983df1`, Mission 32 Flights 3-4).
+  - Steps: stash leg 12's uncommitted docs, merge with no conflicts (auto-merged `CLAUDE.md`, `README.md`, `agents.md`), commit the merge, pop the stash. The pop auto-merged `CLAUDE.md`, `mission.md` and `agents.md`, again with no conflicts.
+  - The venv's editable metadata was refreshed with `pip install -e . --no-deps`: dist 0.11.8 became 0.12.0, matching `the_one.__version__` now that main's version is dynamic. Main's `pyproject.toml` brings no dependency change.
+  - `test_packaging_metadata` and `test_release_check`: 81 passed.
+
+  The leg 12 Developer was resumed for the quiet run, the re-budget and `make gate` on the merged tree.
+- **Paused for the night** (operator, to free the host).
+  - The FD stopped leg 12's `--parallel 3` run, 7 minutes in, by `TERM` to its recorded parent PID (`run-tests.sh` group cleanup). No `run-tests`, `pytest` or browser process was left.
+  - The run does NOT count as a budget reading: it was interrupted, and the load was 6-8.
+  - Leg 12 stays `in-flight`. Remaining: the unit skip re-count (if not done), the quiet `--parallel 3` run and re-budget, `make gate`, landing; then the FD's behavior spec and the HAT.
+- **Resumed (new FD session, 2026-10-26).** State checked against the log: legs 01-11 `completed` (`80f98c1`), leg 12 `in-flight`, its docs, captures, merge and netns unit re-count uncommitted in the tree. At 07:40 another session's Concourse `fly execute` (`windows-installer-build.yml`) was running, load 2.4, so the host was not quiet. At 08:10 it had finished and the load was 0.22 with no test process. A fresh leg 12 Developer (Sonnet, background) was spawned for the remaining steps only: the quiet `--parallel 3` reading, the re-budget, squawk 0259's note, `make gate`, landing. The untracked `env.sh` at the repo root is not this flight's and is left alone.
+- **Leg 12 quiet reading came back `[BLOCKED:lane-split-needed]`.** The run passed (`PARALLEL_RESULT rc=0 total=1590s lanes=13`) on a quiet host (load 0.21), but `mcp` measured 697 s against 450 s, which is 1.55x. `contracts-controls` (318 to 385 s) and `contracts-overlay` (227 to 181 s) each moved more than 15%.
+  - **FD decision: split by moving a file, not by adding a lane.** `test_flow_studio_library_list.py` (39 test functions) moves from `mcp_pat` to `library_pat`, so `mcp` keeps only `test_flow_studio_mcp_editor.py` (149).
+  - Why: the Library list file belongs with the `library` lane's subject (Library navigation and focus). That lane had the most headroom (163 s against 210 s). Lane count and `CANON_LANES` stay unchanged.
+  - Splitting the 4916-line editor file is a test refactor, too much at mission close. It is carried to the debrief as a candidate.
+  - Estimates: `mcp` about 530 s, `library` about 300 s.
+  - Budgets for `mcp` and `library` come from the re-run on the new split (measured + 25%, rounded up to 30 s). `contracts-controls` becomes 480 s and `contracts-overlay` 240 s, by the 15% rule.
+  - The same leg 12 Developer was resumed to apply the split and the re-budget, then re-run `--parallel 3` on a quiet host, then `make gate`, then land the leg.
+- **Main moved again** (operator notice): `origin/main` is at `04deb66`, Mission 32 Flight 4 landed, release v0.12.1.
+  - It brings `packaging/windows/*`, docs, squawks, `tests/test_windows_lifecycle_static.py` and `__version__` 0.12.1.
+  - It changes no browser test, lane or static UI file, so the `--parallel 3` re-run already running (`/home/cprch/the-one-lane-run-l12b`, started on the leg 12 split) stays a valid budget reading.
+  - FD plan: same as for `14e0218`. The Developer stops after the run and re-budget, before `make gate`. The FD then merges `origin/main` and refreshes the editable metadata (`pip install -e . --no-deps`, since the version changed). The gate then runs on the merged tree.
+- **Leg 12 split re-run handed back** (`[HANDOFF:review-needed]`, ready for the main merge).
+  - Result: `PARALLEL_RESULT rc=0 total=1693s lanes=13` on a quiet start (load 0.86). `mcp` measured 501 s and `library` 321 s.
+  - New budgets: `mcp` 630 s, `library` 420 s, `contracts-controls` 480 s.
+  - `contracts-overlay` keeps 270 s. **FD accepts that deviation:** 201 s is within 15% of the table's 227 s, so the 15% rule does not re-budget it. The FD's 240 s came from the first run's 181 s.
+  - No lane is over 1.3x its budget.
+- **Main merged** as `959cc97` (`origin/main` `04deb66`).
+  - Steps: stash the leg 12 working-tree edits, merge with no conflicts, pop with no conflicts.
+  - Editable metadata refreshed: dist 0.12.1 matches `__version__` 0.12.1.
+  - `test_packaging_metadata`, `test_release_check` and `test_windows_lifecycle_static`: 93 passed.
+  - The leg 12 Developer was resumed for `make gate` and landing.
+- **Leg 12 landed** (`[LAND:leg]`).
+  - `make gate` on `959cc97`: unit 7659 passed, 15 skipped. Browser `PARALLEL_RESULT rc=0 total=1579s lanes=13`, every lane within budget, no flakes.
+  - The FD removed the leg 12 section's stale "Pending" fragment.
+- **Batch B6 review spawned** over `git diff HEAD`, which is leg 12 only; legs 10 and 11 were reviewed in B5.
+  - Reviewer tier: **Haiku**. The diff is docs, the lane table in `scripts/run-tests.sh` and one docstring, with no security-sensitive surface.
+  - No Accessibility Reviewer: there are no UI changes.
+- **Batch B6 review** (Haiku): `[HANDOFF:confirmed]`, with no blocking issues.
+  - It checked every leg 12 criterion except the FD's behavior test, and checked the docs against the code: ownership 25/36, sinks 5, alias counts, the budget table, lane membership, the netns skips and `_era.py`'s callers.
+  - Tests: lanes, inventory and era, 26 passed. Ruff check and format clean.
+  - One non-blocking nit: CLAUDE.md's netns line said 7656 passed, the pre-merge count. The FD changed it to the gate's 7659.
+- **Behavior test `mcp-sensitive-headers-round-trip` started** (FD-orchestrated, live mode, cache cold).
+  - Dev instance on port 8487, scratch data dir `~/the-one-bt-mcp-headers-2026-10-26-15-13-47/data`.
+  - The credential was minted with `rotate-api-credential`, because `serve` created none at first launch.
+- **Behavior test `mcp-sensitive-headers-round-trip`: PASS, 8/8** (run log `tests/behavior/mcp-sensitive-headers-round-trip/runs/2026-10-26-15-13-47.md`). It ran live with Sonnet Executor and Validator, cache cold, against the scratch instance on port 8487. The instance and the Executor's Chromium were both stopped by recorded PID afterwards.
+  - The DD5 secrets contract held at every step:
+    - a rename keeps the stored secret;
+    - typing a new value replaces it;
+    - unticking Sensitive clears it;
+    - a key rename drops it (defect 15: never carried, never `__MASKED__`);
+    - Cancel leaves the stored row byte-identical.
+  - The spec moves `draft` to `active`. The leg's last criterion is checked.
+  - Squawk candidates for the debrief (minor, outside the spec):
+    1. After an unsaved key rename, the row's remove button keeps the saved key's name ("Remove Authorization" while the key reads `X-Auth`).
+    2. After saving an empty value under a renamed sensitive key, the hint "Type the value again for the new name." and the Show button stay, although nothing is pending.
+    3. An empty sensitive value is stored as `""` silently. Whether to warn is a product question.
+  - Spec-quality notes, also for the debrief:
+    - step 6 bundles a save and a rename;
+    - step 2's "row 2" depends on the server listing plain headers first;
+    - specs with `[a11y]` clauses should list an a11y snapshot under Observables.
+- **Leg 12 is `completed`**, with all criteria met.
+  - FD commit plan: one checkpoint commit (B6) for leg 12, squawk 0203's sign-off and the behavior-test run log.
+  - After that, the flight HAT with the operator, then flight landing and the PR.

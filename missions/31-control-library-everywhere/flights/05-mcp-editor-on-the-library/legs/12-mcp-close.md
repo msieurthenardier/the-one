@@ -1,6 +1,6 @@
 # Leg: mcp-close
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The MCP server editor on the library](../flight.md)
 
 ## Objective
@@ -86,14 +86,14 @@ The FD then runs the `mcp-sensitive-headers-round-trip` behavior spec, which is 
 - **The Verification list** in `flight.md` is checked item by item, with the grep output pasted into the flight log.
 
 ## Acceptance Criteria
-- [ ] **The Known Issues alias counts after Flight 5** are recorded, with no MCP file calling a retired alias.
-- [ ] **The catalogue, `agents.md` and `CLAUDE.md` are current.** The stale-mention grep (`git grep -n "adminFormHelpers\|tools-form-helpers\|tool-enable-switch"` over `the_one/`, `docs/`, `CLAUDE.md`, `tests/behavior/*.md` excluding run logs, and `scripts/`) finds only historical mission or squawk files and deliberate frozen fixtures. Each hit kept is listed with its reason.
-- [ ] **Squawk 0203** is `completed`, with its corrective action and verification.
-- [ ] **The flight spec's Verification "Guards" items all hold** (pasted output).
-- [ ] **The quiet-host `--parallel 3` reading is recorded,** with the load, and the budgets are re-applied by the rules. `tests/test_run_tests_lanes.py` passes.
-- [ ] **`make gate` passes** (`PARALLEL_RESULT rc=0`), with no lane over budget on the quiet run.
-- [ ] **The after set is compared with the before set,** and every difference is mapped to a ledger row and judged. Unmapped differences are listed for the FD.
-- [ ] **`/mission-control:behavior-test mcp-sensitive-headers-round-trip` passes.** The FD runs it after the Developer lands; it is not the Developer's step.
+- [x] **The Known Issues alias counts after Flight 5** are recorded, with no MCP file calling a retired alias.
+- [x] **The catalogue, `agents.md` and `CLAUDE.md` are current.** The stale-mention grep (`git grep -n "adminFormHelpers\|tools-form-helpers\|tool-enable-switch"` over `the_one/`, `docs/`, `CLAUDE.md`, `tests/behavior/*.md` excluding run logs, and `scripts/`) finds only historical mission or squawk files and deliberate frozen fixtures. Each hit kept is listed with its reason.
+- [x] **Squawk 0203** is `completed`, with its corrective action and verification.
+- [x] **The flight spec's Verification "Guards" items all hold** (pasted output).
+- [x] **The quiet-host `--parallel 3` reading is recorded,** with the load, and the budgets are re-applied by the rules. `tests/test_run_tests_lanes.py` passes.
+- [x] **`make gate` passes** (`PARALLEL_RESULT rc=0`), with no lane over budget on the quiet run.
+- [x] **The after set is compared with the before set,** and every difference is mapped to a ledger row and judged. Unmapped differences are listed for the FD.
+- [x] **`/mission-control:behavior-test mcp-sensitive-headers-round-trip` passes.** (2026-10-26, 8/8: `tests/behavior/mcp-sensitive-headers-round-trip/runs/2026-10-26-15-13-47.md`.) The FD runs it after the Developer lands; it is not the Developer's step.
 
 ## Verification Steps
 - The greps above, pasted into the flight log.

@@ -21,6 +21,8 @@ At Mission 31 Flight 4's landing, the `chats` lane ran 446 s against a 450 s bud
 ## Corrective Action
 M31 F5 L01: the quiet-host `--parallel 3` run (start load 1.03, rc=0, 1490 s) measured `chats` at 391 s, 87% of its 450 s budget, down from 446 s at the Flight 4 landing, so the earlier reading was host load. By the measured-plus-25% rule the budget stays at 450 s (not over budget, moved 4% from 409 s). The quiet-host rule is added to CLAUDE.md ("Lane time budgets") and to the budget comment in `scripts/run-tests.sh`.
 
+M31 F5 L12: re-measured again in a quiet-host `--parallel 3` run (start load 0.86, rc=0, 1693 s): `chats` 388 s vs 450 s (moved 5% from 409 s), budget unchanged.
+
 ## Verification
 `PARALLEL_RESULT rc=0 total=1490s lanes=13 failed=-`; per-lane times in the flight log (all within budget). `chats` 391 s vs 450 s. CLAUDE.md and `scripts/run-tests.sh` budget tables agree (grep). Sign-off by the flight-end Reviewer; closes with the flight's commit.
 
