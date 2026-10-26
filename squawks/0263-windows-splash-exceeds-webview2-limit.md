@@ -1,6 +1,6 @@
 # Squawk 0263: the Windows launch splash never renders, because its HTML exceeds WebView2's NavigateToString limit
 
-**Status**: open
+**Status**: in-progress
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-26
@@ -19,13 +19,15 @@ This is not a regression from Mission 32. The splash HTML has embedded the logo 
 - Found by the Developer fixing the quit-during-boot hang (Mission 32 Flight 4, leg 5). It is unrelated to that hang.
 
 ## Corrective Action
-*(written at completion)*. Candidates:
+The splash now embeds `static/brand/gleepglorp_splash.png`, a 320 px (1.33x the 240 px it is shown at), 125 KB resize of the brand logo, instead of the 1024 px 1.7 MB `gleepglorp_med.png`. `_splash_html` output: 2,328,661 characters before, 168,825 after (both themes), on every platform; the look is unchanged apart from image resolution. The asset was generated with Pillow (`Image.open("gleepglorp_med.png").resize((320, 320), Image.LANCZOS).save("gleepglorp_splash.png", optimize=True)`; the command is in the comment above the splash code in `shell.py`) and is collected by the three specs' `interfaces/web/static/**/*` glob, read through the same `STATIC_DIR` path as before. Also applied the review nit: `_destroy_splash` now claims the teardown under a lock so two threads cannot both call `splash.destroy()`. Candidates considered:
 - embed a small logo for the splash only, such as a 128 px PNG (a few KB) or an SVG;
 - or load the splash from a file URL instead of `html=`.
 
 Check WebKitGTK and WKWebView, which take the same HTML, for any size effect. Related to squawk 0261 (the macOS blank splash card).
 
 ## Verification
+- Done: `tests/test_desktop_shell.py` pins `len(_splash_html(theme))` under 256 KB for both themes with the data URI present, and a concurrent-teardown test shows one `destroy()`.
+- Pending (Flight Director): the Windows run's `the-one-app.log` must show zero `NavigateToString` failures.
 - A unit test pins the splash HTML well under 2 MB.
 - A Windows run (the lifecycle or `windows_test_copy.py`) shows no `NavigateToString` failure in `the-one-app.log`, and a capture shows the splash's logo and text.
 

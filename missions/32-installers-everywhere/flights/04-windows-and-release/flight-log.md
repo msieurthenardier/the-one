@@ -569,3 +569,9 @@ Test: `tests/test_desktop_shell.py::test_quit_after_publish_before_page_loaded_d
 - New `Wait-AppReady` (main window visible, route `visible:true`, 6 s settle) gates L8 and L9, so they test the normal case.
 - New row L10 "quit during boot": `quit --wait` the moment `/api/live` answers; PASS = exit 0 within the bound, the drain line for the pid, no process left. It runs before L9 (the uninstall removes the install), so the run order is L1-L8, L10, L9; seeded FAIL not-run; README table, static test and self-tests updated (ten rows). The workflow step name "Installer lifecycle (L1-L9)" is pinned by a test and left unchanged.
 - Verified: pwsh container self-tests for lifecycle.ps1 and lib.ps1 pass, ParseFile has 0 errors, ASCII and name-collision checks pass.
+
+## squawk 0263: the Windows splash HTML
+
+The splash embedded the 1024 px logo as a data URI (2,328,661 characters), over WebView2's ~2 MB `NavigateToString` limit. It now embeds a new 320 px `static/brand/gleepglorp_splash.png` (125 KB), giving 168,825 characters on every platform; the static glob in the three specs already collects it. `_destroy_splash` claims its teardown under a lock (review nit). Unit tests pin the size under 256 KB and the single destroy. Pending: the Windows run's app log must show no `NavigateToString` failure.
+- **Squawk 0263 review** (Reviewer, Haiku): `[HANDOFF:confirmed]`. The new asset was untracked, so it is staged. The Flight Director made the one-line doc fix the reviewer named (`the_one/agents.md` line 70 now names `gleepglorp_splash.png`).
+- **The Flight Director's error, again:** a mismatched check broke the commit chain, but a trailing `;` still dispatched `release.yml` (`40265725036`) on the old head `4caf728`. It was cancelled before any platform job started (windows, linux and macos `skipped`), so no Windows runner was used and the operator's 5th Windows run stands. From here on, a dispatch runs as its own command, after the push is verified.

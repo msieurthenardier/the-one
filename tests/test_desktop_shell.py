@@ -960,7 +960,7 @@ def test_splash_html_embeds_base64_data_uri_when_asset_present(
     brand_dir = tmp_path / "brand"
     brand_dir.mkdir()
     fake_png = b"\x89PNG\r\n\x1a\n"  # PNG magic bytes — not a valid PNG, but enough for b64
-    logo_path = brand_dir / "gleepglorp_med.png"
+    logo_path = brand_dir / "gleepglorp_splash.png"
     logo_path.write_bytes(fake_png)
 
     # Monkeypatch STATIC_DIR in the web.app module so the lazy import inside
@@ -981,14 +981,14 @@ def test_splash_html_falls_back_to_text_only_when_asset_missing(
 ) -> None:
     """_splash_html() falls back to text-only HTML (no raise) when the asset path is missing.
 
-    STATIC_DIR is pointed at an empty tmp directory so the brand/gleepglorp_med.png
+    STATIC_DIR is pointed at an empty tmp directory so the brand/gleepglorp_splash.png
     path does not exist.  The builder must NOT raise — it logs a warning and returns
     the text-only fallback constant.
     """
     import the_one.interfaces.desktop.shell as launcher_module
     import the_one.interfaces.web.app as web_app_module
 
-    # Point STATIC_DIR at an empty directory — no brand/gleepglorp_med.png inside.
+    # Point STATIC_DIR at an empty directory — no brand/gleepglorp_splash.png inside.
     monkeypatch.setattr(web_app_module, "STATIC_DIR", tmp_path)
 
     html = launcher_module._splash_html()
@@ -1343,7 +1343,7 @@ def test_splash_html_is_themed(
     import the_one.interfaces.web.app as web_app_module
 
     (tmp_path / "brand").mkdir()
-    (tmp_path / "brand" / "gleepglorp_med.png").write_bytes(b"png")
+    (tmp_path / "brand" / "gleepglorp_splash.png").write_bytes(b"png")
     monkeypatch.setattr(web_app_module, "STATIC_DIR", tmp_path)
     for html in (
         launcher_module._splash_html(theme),
@@ -1922,3 +1922,61 @@ def test_non_darwin_shows_immediately_without_waiting_for_loaded(
     ns = _boot_harness(webview_mock, tmp_path, monkeypatch, platform=platform, loaded_is_set=False)
     assert ns.order.count("show") == 1
     assert not [r for r in caplog.records if r.getMessage().startswith("macos: main")]
+
+
+# ── splash HTML size (squawk 0263) ───────────────────────────────────────────
+
+# WebView2's NavigateToString rejects HTML over ~2 MB, which the full 1024 px logo
+# (2.3 M characters as a data URI) overran on Windows. The ceiling is far under that
+# limit yet leaves room for a 2x-density logo; a regression to a big asset trips it.
+_SPLASH_HTML_CEILING = 256 * 1024
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_splash_html_stays_under_navigate_to_string_limit(theme: str) -> None:
+    from the_one.interfaces.desktop.shell import _splash_html
+
+    html = _splash_html(theme)
+    assert len(html) < _SPLASH_HTML_CEILING
+    assert 'src="data:image/png;base64,' in html  # the logo is still embedded
+
+
+def test_destroy_splash_claims_teardown_atomically(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two threads calling the session's splash teardown destroy the window once."""
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    splash = _make_splash_mock()
+    gate = threading.Barrier(2, timeout=5)
+    calls: list[int] = []
+
+    def _slow_destroy() -> None:
+        calls.append(1)
+        gate.wait()  # hold the first caller inside destroy() until the second has run
+
+    splash.destroy.side_effect = _slow_destroy
+    webview_mock.create_window.side_effect = [splash, MagicMock()]
+    session = launcher_module.DesktopSession()
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
+        with patch.object(launcher_module, "_webview_available", return_value=True):
+            with patch.object(launcher_module, "_graceful_shutdown"):
+                with patch("the_one.interfaces.web.app.app", MagicMock()):
+                    with patch("uvicorn.Server", return_value=MagicMock()):
+                        with patch("threading.Thread", return_value=MagicMock()):
+                            session.run()
+    assert session._destroy_splash is not None
+    results = [_RealThread(target=session._destroy_splash) for _ in range(2)]
+    for t in results:
+        t.start()
+    # the second caller must return without destroying; release the first one
+    for t in results:
+        t.join(0.5)
+    try:
+        gate.wait(timeout=1)
+    except threading.BrokenBarrierError:
+        pass
+    for t in results:
+        t.join(5)
+    assert len(calls) == 1

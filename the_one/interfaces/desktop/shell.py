@@ -70,12 +70,16 @@ _TRAY_NOTICE_BODY = "It's in the tray. Click its icon to show it or quit."
 # it is destroyed once the main window's `loaded` event fires.
 # HAT-deferred (Leg 7): visual appearance on real Windows.
 #
-# The brand logo (gleepglorp_med.png) is embedded as a base64 data URI read at
+# The brand logo (gleepglorp_splash.png, 320 px, ~125 KB; regenerate with
+# ``Image.open("gleepglorp_med.png").resize((320, 320), Image.LANCZOS).save(
+# "gleepglorp_splash.png", optimize=True)``) is embedded as a base64 data URI read at
 # runtime from the bundled static asset.  The spec file
 # (packaging/windows/the_one.spec) collects interfaces/web/static/**/* via
-# collect_data_files so gleepglorp_med.png IS in the bundle at
-# static/brand/gleepglorp_med.png.  Resolution uses STATIC_DIR from web.app
-# (a Path(__file__).parent / "static" that resolves under _MEIPASS correctly).
+# collect_data_files so the logo IS in the bundle at
+# static/brand/gleepglorp_splash.png.  It must stay small: WebView2's NavigateToString
+# rejects HTML over ~2 MB (squawk 0263), and the full 1024 px logo overran it.
+# Resolution uses STATIC_DIR
+# from web.app (a Path(__file__).parent / "static" that resolves under _MEIPASS correctly).
 # The import is lazy (inside the builder function) to avoid circular-import risk
 # at module-load time.  If the asset is unreadable for any reason the builder
 # falls back to the text-only HTML and logs a warning — a splash-asset failure
@@ -164,7 +168,7 @@ _SPLASH_TEXT_ONLY = _splash_text_only("dark")
 def _splash_html(theme: str = "dark") -> str:
     """Build the splash HTML, embedding the brand logo as a base64 data URI.
 
-    Reads gleepglorp_med.png from the bundled static directory at runtime and
+    Reads gleepglorp_splash.png from the bundled static directory at runtime and
     inlines it as ``<img src="data:image/png;base64,...">``.  This works both
     in development (filesystem) and in a PyInstaller freeze (_MEIPASS puts the
     collected static tree at the same path relative to web/app.py).
@@ -185,7 +189,7 @@ def _splash_html(theme: str = "dark") -> str:
     try:
         from the_one.interfaces.web.app import STATIC_DIR  # lazy — safe post web.app import
 
-        logo_path = STATIC_DIR / "brand" / "gleepglorp_med.png"
+        logo_path = STATIC_DIR / "brand" / "gleepglorp_splash.png"
         logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         logo_src = f"data:image/png;base64,{logo_b64}"
     except Exception:
@@ -747,6 +751,7 @@ class DesktopSession:
                 # (The loaded handler runs on a daemon thread; a plain bool flag
                 # has a TOCTOU window.)
                 _splash_closed = threading.Event()
+                _splash_destroy_claim = threading.Lock()
                 # Set once the main window is visible: the splash stays until then
                 # (a hidden window can finish loading before show()).
                 _main_shown = threading.Event()
@@ -766,9 +771,10 @@ class DesktopSession:
 
                 def _destroy_splash() -> None:
                     """Destroy the splash window — idempotent (safe to call twice)."""
-                    if _splash_closed.is_set() or _splash_blocked():
-                        return
-                    _splash_closed.set()
+                    with _splash_destroy_claim:
+                        if _splash_closed.is_set() or _splash_blocked():
+                            return
+                        _splash_closed.set()
                     try:
                         splash.destroy()
                     except Exception:
