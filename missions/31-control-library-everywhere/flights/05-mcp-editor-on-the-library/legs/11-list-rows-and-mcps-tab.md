@@ -1,6 +1,6 @@
 # Leg: list-rows-and-mcps-tab
 
-**Status**: ready
+**Status**: completed
 **Flight**: [The MCP server editor on the library](../flight.md)
 
 ## Objective

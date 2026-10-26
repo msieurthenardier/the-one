@@ -31,7 +31,7 @@
      padding + loading-text rules here that mirror the admin equivalents. */
   .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
   /* F5 L6 HAT R4: friendly description sits flush under each section-title,
-     e.g. the agent-editor's Built-in Tools tab. body-sm
+     e.g. the agent-editor's Built-in tools tab. body-sm
      muted text, modest bottom margin so it doesn't crowd the first
      field-row. Currently scoped to .area-studio per F5 scope; if other
      areas adopt the same pattern this rule can be lifted to
@@ -229,14 +229,6 @@
     padding: 12px 0;
   }
   /* Per-tool checkbox treatment lifted to .checkbox-primary in components.css (Mission 08 F2 L2). */
-
-  /* F9 L1 (vibing polish): source-level Delete button in the Danger
-     Zone gets a trash glyph on the LEFT of the label, mirroring the
-     Refresh button's icon-then-text idiom. SVG inherits `currentColor`
-     so the glyph picks up .btn-muted-destructive's danger-muted tone
-     and brightens with the label on hover / .confirm-delete. */
-  .area-studio .mcp-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .mcp-delete-btn svg { width: 14px; height: 14px; }
 
   /* === Self-configuration tab (M21 F02 L04 HAT UX fixes) ===================
      The tab's `self-configuration-*` / `revision-*` / `history-entry-*`

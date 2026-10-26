@@ -1289,9 +1289,8 @@
     gap: 8px;
     flex-shrink: 0;
   }
-  /* One shared declaration for the error's colour and size. The legacy selector
-     stays only for the MCP editor's hand-built header until leg 10 deletes it (DD7). */
-  .form-actions .editor-error,
+  /* The editorShell error row's colour and size (the hand-built MCP header's legacy
+     .form-actions .editor-error selector was deleted with that header, M31 F5 L10). */
   .ui-editor-error-row {
     color: var(--status-danger);
     font-size: var(--font-size-body-sm);

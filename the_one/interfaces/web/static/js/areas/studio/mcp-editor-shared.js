@@ -6,7 +6,7 @@
 // lookup helpers. A stateless function namespace: no DOM, no network.
 // Exposes: MASKED_SENTINEL, hasOAuthState, SPEC_CAPABILITY_KEYS,
 // STDIO_CUSTOM_SENTINEL, STDIO_RUNTIME_OPTIONS, findStdioRuntimeOption,
-// deriveStdioRuntimeSelection, lookupStdioRuntimeHint.
+// deriveStdioRuntimeSelection, lookupStdioRuntimeHint, uniqueStrings.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -155,7 +155,24 @@
     return '';
   }
 
+  // The chip list's own normalisation (ui/chip-list.js setValues): every value as a
+  // String, a repeat dropped, first-seen order kept. The field modules' baselineFrom
+  // uses it so a stored list compares equal to what the chip list then reads back.
+  function uniqueStrings(list) {
+    var seen = Object.create(null);
+    var out = [];
+    list = list || [];
+    for (var i = 0; i < list.length; i++) {
+      var v = String(list[i]);
+      if (seen[v]) continue;
+      seen[v] = true;
+      out.push(v);
+    }
+    return out;
+  }
+
   window.App.studio.mcpEditor.shared = {
+    uniqueStrings: uniqueStrings,
     MASKED_SENTINEL: MASKED_SENTINEL,
     hasOAuthState: hasOAuthState,
     SPEC_CAPABILITY_KEYS: SPEC_CAPABILITY_KEYS,

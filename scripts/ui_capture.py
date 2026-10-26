@@ -871,7 +871,7 @@ SURFACES += [
         "agent-tools",
         "#agents/{agent}/tools",
         '.ui-group-tile[data-category="Filesystem"]',
-        "Agent editor, Built-in Tools tab: Filesystem expanded, read_file Overrides open",
+        "Agent editor, Built-in tools tab: Filesystem expanded, read_file Overrides open",
         prepare=_tools_override_open,
     ),
     Surface(

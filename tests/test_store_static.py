@@ -322,10 +322,19 @@ INVALIDATION_ROWS = (
         "callbacks.onDeleteSuccess()",
         ("knowledge-bases", "agents"),
     ),
-    (  # MCP source: create and save
+    # M31 F5 L10: the MCP create and edit Saves are separate fetchJson sites (the old
+    # ``var method = isEdit ? 'PUT' : 'POST';`` line is gone), each pinned to its own
+    # callback so ``_window`` (which ends at the FIRST end marker) checks its own branch.
+    (  # MCP source: create
         "areas/studio/mcp-server-editor.js",
-        "var method = isEdit ? 'PUT' : 'POST';",
-        "callbacks.onSaveSuccess(updated, !isEdit)",
+        "App.api.fetchJson('/api/mcp-sources', request).then(function (created) {",
+        "callbacks.onSaveSuccess(created, true)",
+        ("mcp-sources",),
+    ),
+    (  # MCP source: save (edit); the dead-mount onListStale return is not an end marker
+        "areas/studio/mcp-server-editor.js",
+        "App.api.fetchJson('/api/mcp-sources/' + encodeURIComponent(source.id), request)",
+        "callbacks.onSaveSuccess(updated, false)",
         ("mcp-sources",),
     ),
     (  # MCP source: delete

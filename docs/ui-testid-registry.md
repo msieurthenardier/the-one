@@ -160,7 +160,7 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
-| `delete-mcp-source-btn` | studio | |
+| `delete-mcp-source-btn` | studio | The MCP editor's Danger zone Delete (`App.ui.dangerZone`, label "Delete MCP server", armed "Confirm delete?", `data-name`); a failed Delete shows in the header's editor error (`role=alert`), reverts the button and returns focus to it (M31 F5 L10, row 29) |
 | `delete-provider-btn` | admin | |
 | `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's link to its root: "Agents" -> `#agents` (agent editor); on a Library editor (knowledge-base detail and `~new` form, MCP server, connector) the header reads `Library / {Group}` and "Library" is the link, to `#library` (the group is plain text; model providers: `Library / Model providers`, sortie 02, DD3); studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings: "Settings / Built-in tools" -> `#settings/tools` (tool editor; admin routes it the same way, focus: the closed tool's name link). Settings has no provider editor since sortie 02 leg 2 |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
@@ -290,7 +290,8 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-server-website` | studio | The "Website" facts row: a link (`target=_blank`, `rel="noopener noreferrer"`) through `App.safeUrl`, inert text when rejected (squawk 0010) (M31 F5 L09) |
 | `mcp-source-card` | studio | Library list MCP-server row (an `<a href="#library/mcp/{id}">`, M25 F3 L4a; was the MCP Servers grid tile) |
 | `mcp-sources-list` | studio | |
-| `mcp-test-connection` | studio | The header's Test button, edit mode only; reads "Waiting for sign-in…" and is disabled while a consent session runs (M31 F5 L08b, B2) |
+| `mcp-editor-subtitle` | studio | The MCP editor header's subtitle (`editorShell` `subtitleTestid`): "{type label} · {command or URL}", the type label alone without a detail, the raw type for a legacy row; absent on the create form; follows an edit Save (M31 F5 L10, A4, defect 12) |
+| `mcp-test-connection` | studio | The header's Test button (`editorShell` `actions.test`, M31 F5 L10), built only for an edit-mode stdio or streamable-HTTP mount; its state has one writer, `syncTestHold`; reads "Waiting for sign-in…" and is disabled while a consent session runs (M31 F5 L08b, B2) |
 | `mcp-test-status` | studio | The Test result area directly after the status line, in the Connection section; empty and hidden at rest and after a success (M31 F5 L08b, A8) |
 | `mcp-test-live` | studio | The editor's one persistent polite live region (visually hidden, created at mount, after the result area); its text is set to announce "Testing connection…" and the sign-in prompt (M31 F5 B4, WCAG 4.1.3) |
 | `mcp-tool-description` | studio | A tool's full description in its body; shown only when it is longer than the summary's cut (or has line breaks, or is empty: "No description provided.") (M31 F5 L09, A15) |

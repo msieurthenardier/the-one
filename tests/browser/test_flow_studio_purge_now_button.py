@@ -1,11 +1,11 @@
 """End-to-end flow test: Purge-now button in the General-tab Danger Zone (M13 F2 leg 02).
 
 Covers the DOM-level placement + arm wiring of the "Purge now" control added
-alongside the Delete Agent button in the General tab's Danger Zone:
+alongside the Delete agent button in the General tab's Danger Zone:
 
 - The purge button renders in the Danger Zone for existing agents, with
   data-testid="purge-history-btn" and a [data-confirm-title] "Purge now" span.
-- It is textually distinct from Delete Agent (an operator cannot confuse
+- It is textually distinct from Delete agent (an operator cannot confuse
   "wipe history" with "delete the agent").
 - Clicking once ARMS via App.confirmDelete — the [data-confirm-title] label
   swaps to "Confirm purge?" — without firing the DELETE. (The full two-step
@@ -45,7 +45,7 @@ def _wait_editor_ready(page: Page) -> None:
 
 @pytest.mark.browser
 def test_purge_button_present_in_danger_zone(app_with_agent: SeededApp, page: Page) -> None:
-    """Purge-now button renders in the Danger Zone, distinct from Delete Agent."""
+    """Purge-now button renders in the Danger Zone, distinct from Delete agent."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
@@ -65,7 +65,7 @@ def test_purge_button_present_in_danger_zone(app_with_agent: SeededApp, page: Pa
     purge_title = purge_btn.locator("[data-confirm-title]")
     expect(purge_title).to_have_text("Purge now")
 
-    # Textually distinct from Delete Agent — no operator confusion.
+    # Textually distinct from Delete agent — no operator confusion.
     purge_text = (purge_btn.inner_text() or "").strip()
     delete_text = (delete_btn.inner_text() or "").strip()
     assert purge_text != delete_text, (

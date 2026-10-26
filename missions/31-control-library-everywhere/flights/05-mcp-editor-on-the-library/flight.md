@@ -343,9 +343,9 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
 - [ ] The editor is split into modules with no behaviour change; full gate green.
 - [x] The editor has a teardown, async writes are keyed on identity, and one consent poll at most; defects 1, 2, 6 and 8 fixed.
 - [x] The masked column and the shell's error line are in the library, contract-tested in both engines; the channel map is unchanged.
-- [ ] The server records the last connection check without losing any other `_cache` key, and the editor and the Library list read one derived state.
+- [x] The server records the last connection check without losing any other `_cache` key, and the editor and the Library list read one derived state.
 - [x] The fields, the env and headers, the connection status and sign-in, and the server info are on the library; `tools-form-helpers.js` and the legacy switch are gone.
-- [ ] The controller is on `editorShell` with patch-in-place Save and Cancel; zero sinks and zero allowance rows in the MCP files; under 800 lines.
+- [x] The controller is on `editorShell` with patch-in-place Save and Cancel; zero sinks and zero allowance rows in the MCP files; under 800 lines.
 - [ ] The list rows and the MCPs tab items are in; docs, budgets and the after set are done; full gate green; the new behavior spec passes.
 - [ ] HAT passed, and the close checks re-run after any HAT code change.
 
@@ -413,14 +413,14 @@ Verified against the working tree at `b1e47ae` (FD read and grep, 2026-10-25, pl
   - defects 9 and 10 (part); squawks 0216 and 0214 (the callback page styled with no `/static/` dependency, a unit test).
   - It keeps the popup rules: open synchronously on the click, never auto-popup on the auto-run path, a `null` from `window.open` is not a failure, the same-origin `message` check, the 120 s ceiling, and `isSafeUrl`.
 - [x] `server-info-and-tools` (09): the Server section and tools list DOM-built on `section`, `disclosure`, `codeBlock` and `facts` (A15, A16, with the protocol kept as a fact per B10), reconciled in place (squawk 0102's repaint kept); `App.safeUrl` fail-closed kept (squawk 0010); the `.mcp-tool-*` and `.mcp-server-*` CSS deleted (DD11).
-- [ ] `editor-controller` (10), **tier high (the save model)**:
+- [x] `editor-controller` (10), **tier high (the save model)**:
   - `editorShell`, `section` and `dangerZone`, with B1's section order;
   - patch-in-place Save and Cancel from the handles; the `source` replaced from the response (defect 3); `setBusy` on Create and Save (defect 5);
   - `fetchJson` with `fieldErrors` (A2, defect 10); A3's copy; A4's subtitle, updated after Save (defect 12);
   - `App.ui.flash` and `App.ui.confirm` (no `App.showFlash`, `App.confirmDelete` or `App.icon`); the side-effect inventory;
   - zero sinks and zero allowance rows in every MCP file; the `MOVES` entries retired; the line-guard entry removed;
   - `list-and-detail.md` step 13 amended.
-- [ ] `list-rows-and-mcps-tab` (11): the Library list's MCP state and badge from `App.usage.mcpState` (B6), with a test that each seeded server's row and editor status name the same state; A20 and A21 in the agent editor. Lanes: `mcp`, `agents`.
+- [x] `list-rows-and-mcps-tab` (11): the Library list's MCP state and badge from `App.usage.mcpState` (B6), with a test that each seeded server's row and editor status name the same state; A20 and A21 in the agent editor. Lanes: `mcp`, `agents`.
 - [ ] `mcp-close` (12):
   - the alias recount into the mission's Known Issues; the unused-selector report;
   - the catalogue rows (the secret input, "Legacy toggle 1" removed, the editor header, the chip list, `keyValueTable`); `agents.md` (the invalidation map's new paths, the MCP editor contract, the `last_check` note, the masked column);

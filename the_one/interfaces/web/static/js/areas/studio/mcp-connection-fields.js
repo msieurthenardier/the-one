@@ -2,8 +2,8 @@
 // fields, built from the control library (M31 F5 L06, DD4).
 //
 //   create({source, mcpTypes, onChange, onTypeChange}) ->
-//     {el, values(), setValues(source), setError(field, msg|null), focus(field),
-//      setType(type), destroy()}
+//     {el, values(), baselineFrom(source), setValues(source), setError(field, msg|null),
+//      clearErrors(), focus(field), setType(type), destroy()}
 //
 // Fields, in DOM order: Name, Type, Command (with its runtime hint), Custom command,
 // Working directory, Arguments, URL. The ids (mf-name, mf-type, mf-command-runtime,
@@ -13,6 +13,17 @@
 //   values()  {name, type, runtime, command, cwd, args, url}; args is the operator's
 //             chips only (the implicit `-y` of `npx -y` and `run` of `pipx run` are the
 //             controller's to prepend on collect).
+//   baselineFrom(source)  pure: exactly the values() object that setValues(source) would
+//             leave (the controller compares dirty against it, M31 F5 L10). It goes
+//             through the controls' own normalisation: args are Strings with repeats
+//             dropped (the chip list), the runtime comes from deriveStdioRuntimeSelection
+//             with its `uvx` default (HTTP sources get it too), and it is built by the
+//             same shape() as values(), so the key order cannot drift. Limit: a source
+//             type must be among the mount-time Type options (a legacy type is appended
+//             at mount), or the select reads '' and the two would differ.
+//   setError(field, msg)  puts the message on the field; any user edit of that field clears
+//             it again (a runtime or custom-command edit clears both command fields).
+//   clearErrors()  clears every field's message.
 //   setValues(source)  writes a stored source (or the create defaults for null) into the
 //             fields and calls setType; it never fires onChange.
 //   setType(type)  shows the stdio-only or the HTTP-only fields through the `hidden`
@@ -40,11 +51,21 @@
     var alive = true;
     var currentType = '';
 
-    function report() { if (alive && opts.onChange) opts.onChange(); }
+    var byName = {};
+    // A user edit of a field clears that field's message, then reports the change.
+    function changed(field) {
+      if (field === 'runtime' || field === 'command') {
+        if (byName.runtime) byName.runtime.setError(null);
+        if (byName.command) byName.command.setError(null);
+      } else if (byName[field]) {
+        byName[field].setError(null);
+      }
+      if (alive && opts.onChange) opts.onChange();
+    }
 
     // Name
     var nameInput = ui.textInput({
-      id: 'mf-name', placeholder: 'My MCP server', dataset: { field: 'name' }, onInput: report
+      id: 'mf-name', placeholder: 'My MCP server', dataset: { field: 'name' }, onInput: function () { changed('name'); }
     });
     var nameField = ui.field({ label: 'Name', control: nameInput });
 
@@ -65,7 +86,7 @@
       dataset: { field: 'type' },
       onChange: function () {
         setType(typeSelect.value);
-        report();
+        changed('type');
         if (alive && opts.onTypeChange) opts.onTypeChange(typeSelect.value);
       }
     });
@@ -77,7 +98,7 @@
       id: 'mf-command-runtime', testid: 'mcp-command-runtime',
       options: STDIO_RUNTIME_OPTIONS.map(function (o) { return { value: o.value, label: o.label }; }),
       value: 'uvx', dataset: { field: 'command-runtime' },
-      onChange: function () { syncRuntime(); report(); }
+      onChange: function () { syncRuntime(); changed('runtime'); }
     });
     var runtimeField = ui.field({
       label: 'Command', control: runtimeSelect, hintTestid: 'mcp-command-hint'
@@ -86,25 +107,25 @@
 
     var customInput = ui.textInput({
       id: 'mf-command', testid: 'mcp-command-custom', placeholder: 'bash /app/start.sh',
-      dataset: { field: 'command' }, onInput: report
+      dataset: { field: 'command' }, onInput: function () { changed('command'); }
     });
     var customField = ui.field({ label: 'Custom command', control: customInput });
     customField.el.classList.add('mcp-stdio-only', 'mcp-command-custom-row');
 
     var cwdInput = ui.textInput({
-      id: 'mf-cwd', placeholder: '(optional)', dataset: { field: 'cwd' }, onInput: report
+      id: 'mf-cwd', placeholder: '(optional)', dataset: { field: 'cwd' }, onInput: function () { changed('cwd'); }
     });
     var cwdField = ui.field({ label: 'Working directory', control: cwdInput });
     cwdField.el.classList.add('mcp-stdio-only');
 
     var argsChips = ui.chipList({
-      inputId: 'mf-args', dataset: { field: 'args', fieldType: 'array' }, onChange: report
+      inputId: 'mf-args', dataset: { field: 'args', fieldType: 'array' }, onChange: function () { changed('args'); }
     });
     var argsField = ui.field({ label: 'Arguments', control: argsChips.input, host: argsChips.el });
     argsField.el.classList.add('mcp-stdio-only');
 
     var urlInput = ui.textInput({
-      id: 'mf-url', placeholder: 'https://example.com/mcp', dataset: { field: 'url' }, onInput: report
+      id: 'mf-url', placeholder: 'https://example.com/mcp', dataset: { field: 'url' }, onInput: function () { changed('url'); }
     });
     var urlField = ui.field({ label: 'URL', control: urlInput });
     urlField.el.classList.add('mcp-streamable-http-only');
@@ -114,10 +135,13 @@
     [nameField, typeField, runtimeField, customField, cwdField, argsField, urlField].forEach(
       function (f) { el.appendChild(f.el); });
 
-    var byName = {
-      name: nameField, type: typeField, runtime: runtimeField, command: customField,
-      cwd: cwdField, args: argsField, url: urlField
-    };
+    byName.name = nameField;
+    byName.type = typeField;
+    byName.runtime = runtimeField;
+    byName.command = customField;
+    byName.cwd = cwdField;
+    byName.args = argsField;
+    byName.url = urlField;
 
     // The Custom row follows the transport AND the runtime; the hint follows the runtime.
     function syncRuntime() {
@@ -148,16 +172,36 @@
       setType((next && next.type) || '');
     }
 
-    function values() {
+    // The one place the values() key order lives.
+    function shape(name, type, runtime, command, cwd, args, url) {
       return {
-        name: nameInput.value,
-        type: typeSelect.value,
-        runtime: runtimeSelect.value,
-        command: customInput.value,
-        cwd: cwdInput.value,
-        args: argsChips.values(),
-        url: urlInput.value
+        name: name, type: type, runtime: runtime, command: command, cwd: cwd, args: args,
+        url: url
       };
+    }
+
+    function values() {
+      return shape(nameInput.value, typeSelect.value, runtimeSelect.value, customInput.value,
+        cwdInput.value, argsChips.values(), urlInput.value);
+    }
+
+    // The Type select's values at mount: a stored type outside them reads ''.
+    var typeValues = {};
+    typeOptions.forEach(function (o) { typeValues[o.value] = true; });
+
+    function baselineFrom(next) {
+      var cfg = (next && next.config) || {};
+      var sel = deriveStdioRuntimeSelection(cfg.command || '', cfg.args || []);
+      var type = String((next && next.type) || '');
+      return shape(
+        String((next && next.name) || ''),
+        typeValues[type] ? type : '',
+        sel.dropdownValue || 'uvx',
+        String(sel.customCommand || ''),
+        String(cfg.cwd || ''),
+        shared.uniqueStrings(sel.displayArgs || []),
+        String(cfg.url || '')
+      );
     }
 
     setValues(source);
@@ -165,9 +209,13 @@
     return {
       el: el,
       values: values,
+      baselineFrom: baselineFrom,
       setValues: setValues,
       setError: function (field, msg) {
         if (byName[field]) byName[field].setError(msg || null);
+      },
+      clearErrors: function () {
+        Object.keys(byName).forEach(function (k) { byName[k].setError(null); });
       },
       focus: function (field) {
         var f = byName[field];

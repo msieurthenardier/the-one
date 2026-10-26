@@ -468,15 +468,15 @@ def test_chip_danger_consumes_the_gated_danger_pair() -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_editor_shell_error_passes_body_aa_and_consumes_the_danger_token(theme: str) -> None:
-    """The editor shell's error line (`.form-actions .editor-error`, components.css) is the
+    """The editor shell's error line (`.ui-editor-error-row`, components.css) is the
     one error surface of the Built-in tools editor since M31 F4 L07b (the admin.css
     `.editor-error-banner` and its soft-fill pin are retired with the banner). It paints
     `var(--status-danger)` text on the editor header's ground (`--bg`, or the card
     `--surface`): gated here at body AA in both themes, and the rule is pinned to the token
     so a retune to a novel colour needs its own gate."""
-    # One shared declaration (M31 F5 L05): the shell's error row and the legacy cluster
-    # selector (kept for the MCP editor's hand-built header until leg 10) are pinned alike.
-    for selector in (".form-actions .editor-error", ".ui-editor-error-row"):
+    # The legacy `.form-actions .editor-error` selector went with the MCP editor's
+    # hand-built header (M31 F5 L10): the shell's error row is the one declaration.
+    for selector in (".ui-editor-error-row",):
         body = " ".join(_rule_bodies("components.css", selector))
         assert "color: var(--status-danger)" in body, (selector, body)
     palette = _palette(theme)

@@ -34,6 +34,7 @@ import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
 from browser._self_config import ENABLE_SWITCH, click_switch
+from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -1196,3 +1197,73 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
     assert out["empty"] is True
     assert out["back"] == ["s2"]
     assert out["emptyGone"] is True
+
+
+@pytest.mark.browser
+def test_expand_buttons_are_named_for_their_server(app_clean: str, page: Page) -> None:
+    """A20 (ledger row 20): every Tools button carries its server's name, so no
+    two share one; the visible text stays "Tools" or the count, and the button is
+    no longer also described by the tile's name (the server is not read twice)."""
+    unloaded = _seed_source(app_clean, "Docs search")
+    other = _seed_source(app_clean, "Billing API")
+    cached = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "Team calendar",
+            "type": "streamable-http",
+            "config": {
+                "url": "https://example.com/mcp",
+                "_cache": {
+                    "tools": [{"name": f"t{i}", "description": ""} for i in range(3)],
+                },
+            },
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "tools-name-agent",
+        {"description": "t", "mcp_source_ids": [unloaded, other, cached]},
+    )
+    _navigate_to_agent_mcps_tab(page, app_clean, "tools-name-agent")
+
+    sel = '[data-testid^="mcp-source-expand-"]'
+    expect(page.locator(sel)).to_have_count(3)
+    out = page.evaluate(
+        """(sel) => Array.from(document.querySelectorAll(sel)).map((b) => ({
+             label: b.getAttribute('aria-label'), text: b.textContent.replace('▸', ''),
+             described: b.hasAttribute('aria-describedby')}))""",
+        sel,
+    )
+    by_label = {o["label"]: o for o in out}
+    assert set(by_label) == {
+        "Tools for Docs search",
+        "Tools for Billing API",
+        "3 tools for Team calendar",
+    }, out
+    assert len(by_label) == len(out), "two Tools buttons share a name"
+    assert by_label["Tools for Docs search"]["text"] == "Tools"
+    assert by_label["3 tools for Team calendar"]["text"] == "3 tools"
+    assert not any(o["described"] for o in out), out
+    # The engine's own computed names.
+    for name in by_label:
+        expect(page.get_by_role("button", name=name, exact=True)).to_have_count(1)
+    # Label in name: the accessible name starts with the visible text.
+    assert all(label.startswith(o["text"]) for label, o in by_label.items())
+
+
+@pytest.mark.browser
+def test_tools_tab_group_tile_is_unchanged_by_the_expand_label_option(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """The Built-in tools tab's group tile does not pass `expandLabel`: its
+    expand button keeps its content-only name and its describedby."""
+    _nav.goto(page, app_with_agent.base_url, f"agents/{app_with_agent.agent_name}/tools")
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
+    out = page.evaluate(
+        """() => Array.from(document.querySelectorAll('.ui-group-tile-expand')).map((b) => ({
+             label: b.hasAttribute('aria-label'), described: b.hasAttribute('aria-describedby')}))"""
+    )
+    assert out and all(not o["label"] and o["described"] for o in out), out

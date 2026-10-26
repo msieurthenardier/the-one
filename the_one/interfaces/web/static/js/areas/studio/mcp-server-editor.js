@@ -1,34 +1,44 @@
 // App.studio.renderMcpSourceEditor — MCP source editor (M07 F1 L6;
-// relocated from admin → studio post-F2 retrofit).
+// relocated from admin → studio post-F2 retrofit; rebuilt on the control library in
+// M31 F5 L10).
 //
-// Mirrors provider-editor.js structural shape:
-//   <div class="editor-header"> … </div>
-//   <div class="editor-section">Connection</div>          (name, type, transport-fields)
-//   <div class="editor-section">Environment variables /
-//                               Headers</div>             (the key-value table, DOM-built)
-//   <div class="editor-section danger-zone"> … </div>     (edit only)
-//
-// The env and headers rows live in mcp-env-headers.js (M31 F5 L07): a key-value table
-// with Key / Value / Sensitive columns. Sensitive=true rows route to `secrets[key]`;
-// sensitive=false rows route to `config.env[key]` (stdio) or `config.headers[key]`
-// (streamable-http). The per-key __MASKED__ round trip (a stored secret whose value is
-// untouched sends the sentinel) is the module's partition(); this file only calls it.
+// One controller per mount, built from App.ui.editorShell, App.ui.section and
+// App.ui.dangerZone (no HTML string anywhere):
+//   editorShell   breadcrumb "Library / MCP servers", the title, the subtitle
+//                 ("{type label} · {command or URL}", testid mcp-editor-subtitle), the
+//                 unsaved caption, Cancel, Save, Test (edit mode of a stdio or
+//                 streamable-http source only) and the editor error (role=alert)
+//   section       Connection (the fields, then the status line), the env and headers,
+//                 Sandbox, Server, Tools (B1's order; each module keeps its own
+//                 visibility rule), then the dangerZone (edit mode)
+// The env and headers rows live in mcp-env-headers.js: Sensitive=true rows route to
+// `secrets[key]`, the others to `config.env[key]` (stdio) or `config.headers[key]`
+// (streamable-http). The per-key __MASKED__ round trip is the module's partition() and
+// remaskAfterSave(); this file only calls them.
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
 //              onListStale, onMounted }
-// Returns a controller {destroy, setBusy, setError, runTest} (M31 F5 L03) and
-// reports it through callbacks.onMounted on every mount (Reset and Forget patch in place
-// since M31 F5 L08b and no longer re-mount). A destroyed mount skips its DOM writes and mount-bound callbacks but
-// still invalidates the store and calls onListStale for a server change that
-// already happened (mcp-editor-lifecycle.js).
-// M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
-// breadcrumb "Library / MCP servers" ("Library" a link to `#library`, the group plain text)
-// and the unsaved caption, whose text follows every onDirtyChange report.
-// onListStale (M25 F3 L4a) fires after each 'mcp-sources' invalidation that
-// is not a save or delete: a connect success (the manual Refresh, the
-// auto-run after create, Phase 2 after sign-in) and Reset connection. Both
-// rewrite config._cache server-side, so the Library list's tool count is
-// stale; the caller reloads the list.
+// Returns a controller {destroy, setBusy, setError, runTest} and reports it through
+// callbacks.onMounted on every mount. A destroyed mount skips its DOM writes and
+// mount-bound callbacks but still invalidates the store and calls onListStale for a
+// server change that already happened (mcp-editor-lifecycle.js).
+//
+// The save model (DD4):
+//   * Save and Create go through App.api.fetchJson and are busy (shell.setBusy) until the
+//     response; a create stays busy until the glue's remount replaces the editor.
+//   * `current` is the last SAVED row, replaced from an edit Save's response BEFORE the
+//     env and headers re-mask. Cancel reverts to it, the status line and the server
+//     info read it, and the fields' dirty baseline is baselineFrom(current).
+//   * The fields stay editable during a Save. If none was edited meanwhile, the saved row
+//     is written back through setValues (which normalises); otherwise the DOM is left as
+//     the operator has it and the edited field stays dirty.
+//   * Field errors (A2) go on the field, the rest on the editor error, per Flight 4 DD3.
+//   * Test's disabled state and label have ONE writer, syncTestHold(), through the
+//     shell's setTestState; the shell ORs busy into it.
+// onListStale (M25 F3 L4a) fires after each 'mcp-sources' invalidation that is not a save
+// or delete: a connect success (a Test, the auto-run after create, Phase 2 after sign-in)
+// and Reset connection. Both rewrite config._cache server-side, so the Library list's tool
+// count is stale; the caller reloads the list.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -43,145 +53,46 @@
   var connectionStatus = mcpEditor.connectionStatus;
   var createMount = mcpEditor.lifecycle.createMount;
 
+  var WAITING_LABEL = 'Waiting for sign-in…';
+  // The connection fields in DOM order (the first error takes focus).
+  var FIELD_ORDER = ['name', 'type', 'runtime', 'command', 'cwd', 'args', 'url'];
+  // The names a server 422 `loc` can pick (the runtime row has no server field).
+  var SERVER_FIELDS = ['name', 'type', 'command', 'url', 'cwd', 'args'];
+
+  function cacheOf(source) {
+    return (source && source.config && source.config._cache) || null;
+  }
+
   // ── Public entry point ──────────────────────────────────────────────
 
   function renderMcpSourceEditor(container, source, mcpTypes, callbacks) {
     callbacks = callbacks || {};
     var mount = createMount();
     var handles = mount.handles;
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
     var isCreate = !source;
-    var name = isCreate ? 'New MCP Server' : (source.name || '');
     var type = isCreate ? '' : (source.type || '');
+    // The controller's current source: the last SAVED row (replaced by an edit Save).
+    var current = source;
+    var hasConnection = !isCreate && (type === 'streamable-http' || type === 'stdio');
+    var snapshot = '';
+    var saving = false;
+    var connStatus = null;
+    var serverInfo = null;
+    var shell = null;
+    var danger = null;
+    var dirtyFn = function () { checkDirty(); };
 
-    // ── Header ─────────────────────────────────────────────────────────
-    var html = '';
-    html += '<div class="editor-header">';
-    html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h1>';
-    if (!isCreate) {
-      var summary = '';
-      if (source.config) {
-        if (type === 'stdio' && source.config.command) summary = source.config.command;
-        else if (type === 'streamable-http' && source.config.url) summary = source.config.url;
-      }
-      var subtitleParts = [escapeHtml(type)];
-      if (summary) subtitleParts.push(escapeHtml(summary));
-      html += '<p class="editor-subtitle">' + subtitleParts.join(' · ') + '</p>';
-    }
-    html += '</div>';
-
-    // Action cluster. M25 F3 L4b (DD2): Back is retired (the breadcrumb's
-    // group link closes the item); the cluster opens with the stable unsaved
-    // caption, whose text wireEditorEvents' reportDirty sets or clears.
-    // Cancel on the create form abandons creation (DD8), so it is enabled
-    // from first render, clean or dirty (the M25 F3 behavior-gate fix); in
-    // edit mode it reverts, and stays disabled while there is nothing to
-    // revert.
-    html += '<div class="form-actions">';
-    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
-    html += '<span class="editor-error"></span>';
-    html += '</div>';
-    html += '</div>'; // .editor-header
-
-    // ── Connection section ────────────────────────────────────────────
-    html += '<div class="editor-section">';
-    html += '<div class="section-title">Connection</div>';
-    // The fields are DOM-built by connectionFields (M31 F5 L06); a host holds their place.
-    html += '<div class="mcp-connection-host"></div>';
-    // M31 F5 L08b: the status line, its result area and Reset / Forget are built by
-    // connectionStatus.create and replace this host after the markup is in place (edit
-    // mode of an HTTP or stdio source). Test is the header button, added below.
-    var hasConnection = !isCreate && source &&
-      (source.type === 'streamable-http' || source.type === 'stdio');
-    if (hasConnection) html += '<div class="mcp-connection-status-host"></div>';
-    html += '</div>';
-
-    // ── Sandbox section (stdio only) ──────────────────────────────────
-    html += '<div class="mcp-sandbox-host"></div>';
-
-    // ── Server and Tools sections (edit only, streamable-http + stdio) ──
-    // DOM-built by serverInfo.create (M31 F5 L09) and placed over these hosts: the Server
-    // section (identity, protocol, offers, instructions, metadata; hidden while the cache
-    // has nothing to show) above Tools. The cached tools render on mount; a successful
-    // Test reconciles them, Reset and Forget empty them (connectionStatus). The Test
-    // result line is not here: it sits at the end of the Connection section (A8).
-    if (hasConnection) {
-      html += '<div class="mcp-info-host"></div>';
-      html += '<div class="mcp-tools-host"></div>';
-    }
-
-    // ── Environment / Headers section ─────────────────────────────────
-    // Sits below Tools for streamable-http (F9 L1 reorder); for stdio there is no
-    // Tools section, so it lands right after Sandbox. DOM-built by envHeaders
-    // (M31 F5 L07); a host holds its place.
-    html += '<div class="mcp-env-headers-host"></div>';
-
-    // ── Danger Zone (edit only) ───────────────────────────────────────
-    // F9 L1 (vibing follow-up): the "Reset connection" button moved out
-    // of Danger Zone and now sits next to Refresh in the Connection
-    // block — it's a reversible operation (re-OAuth on next Refresh),
-    // not a destructive one. Danger Zone now contains only Delete.
-    if (!isCreate) {
-      html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      // F9 L1 (vibing polish): trash icon to the LEFT of the label,
-      // mirroring the Refresh button's icon-then-text pattern and the
-      // per-row Custom Headers trash glyph. The icon sits OUTSIDE the
-      // `data-confirm-title` span so App.confirmDelete only swaps the
-      // label text on arm; the glyph persists through the confirm flow.
-      html += '<button type="button" class="btn-muted-destructive delete-btn mcp-delete-btn" data-testid="delete-mcp-source-btn" data-name="' + escapeAttr(source.name || '') + '">' +
-              window.App.icon('trash') +
-              '<span data-confirm-title>Delete MCP Server</span>' +
-              '</button>';
-      html += '</div>';
-    }
-
-    container.innerHTML = html;
-
-    // The breadcrumb (M25 F3 DD2): "Library / MCP servers", inserted with DOM
-    // APIs after the markup is in place (this editor is string-built), as the
-    // first child of .editor-header-text, in edit and create modes. Its "Library"
-    // segment links to `#library` (DD3; the group is plain text): with
-    // Back retired it is the visible way to close the item. studio.js routes
-    // the click (the router's guard asks once about a dirty editor) and
-    // focuses the item's row after the close (DD8).
-    var headerText = container.querySelector('.editor-header-text');
-    var crumb = document.createElement('div');
-    crumb.className = 'editor-breadcrumb';
-    var crumbLink = document.createElement('a');
-    crumbLink.className = 'editor-breadcrumb-link';
-    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library' }));
-    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
-    crumbLink.textContent = 'Library';
-    crumb.appendChild(crumbLink);
-    crumb.appendChild(document.createTextNode(' / MCP servers'));
-    headerText.insertBefore(crumb, headerText.firstChild);
-
-    handles.container = container;
-    // The late-bound dirty trampoline: checkDirty is defined in wireEditorEvents.
-    var checkDirtyFn = null;
-    function dirtyTrampoline() { if (checkDirtyFn) checkDirtyFn(); }
-    var sandbox = sandboxFields.create({ source: source, onChange: dirtyTrampoline });
-    var envHeaders = envHeadersFields.create({
-      source: source, type: type, onChange: dirtyTrampoline
-    });
+    // ── The modules ─────────────────────────────────────────────────────
+    var sandbox = sandboxFields.create({ source: source, onChange: dirtyFn });
+    var envHeaders = envHeadersFields.create({ source: source, type: type, onChange: dirtyFn });
     var connection = connectionFields.create({
-      source: source, mcpTypes: mcpTypes, onChange: dirtyTrampoline,
+      source: source, mcpTypes: mcpTypes, onChange: dirtyFn,
       onTypeChange: function (t) {
         sandbox.setType(t);
         envHeaders.setType(t);
       }
     });
-    var connHost = container.querySelector('.mcp-connection-host');
-    connHost.parentNode.replaceChild(connection.el, connHost);
-    var sandboxHost = container.querySelector('.mcp-sandbox-host');
-    sandboxHost.parentNode.replaceChild(sandbox.el, sandboxHost);
-    var envHost = container.querySelector('.mcp-env-headers-host');
-    envHost.parentNode.replaceChild(envHeaders.el, envHost);
+    handles.container = container;
     handles.connectionFields = connection;
     handles.sandboxFields = sandbox;
     handles.envHeaders = envHeaders;
@@ -189,384 +100,410 @@
     mount.onDestroy(connection.destroy);
     mount.onDestroy(sandbox.destroy);
     mount.onDestroy(envHeaders.destroy);
-    // Test (B2): edit mode only, in the header cluster before Cancel, as the provider
-    // editor has it. Leg 10 moves it to editorShell's actions.test (setTestState).
-    // The controller's current source, replaced by the response of a Save in leg 10.
-    var current = source;
-    var connStatus = null;
-    var api = null;
-    var serverInfo = null;
+
+    // ── The subtitle (A4, defect 12) ────────────────────────────────────
+    function typeLabel(t) {
+      for (var i = 0; i < (mcpTypes || []).length; i++) {
+        if (mcpTypes[i].value === t) return mcpTypes[i].label;
+      }
+      return t || '';
+    }
+    // "{type label} · {command or URL}"; the label alone without a detail; a type with no
+    // label (a legacy row) falls back to the raw type.
+    function subtitleFor(src) {
+      if (!src) return '';
+      var t = src.type || '';
+      var cfg = src.config || {};
+      var detail = t === 'stdio' ? cfg.command : (t === 'streamable-http' ? cfg.url : '');
+      var label = typeLabel(t);
+      return detail ? (label + ' · ' + detail) : label;
+    }
+    function titleFor(src) { return (src && src.name) || 'MCP server'; }
+
+    // ── The shell ───────────────────────────────────────────────────────
+    // Created first, with the Test click a late-bound closure: connectionStatus needs the
+    // shell's Test button, and the shell needs runTest.
+    shell = App.ui.editorShell({
+      breadcrumb: {
+        label: 'Library', href: App.router.href({ destination: 'library' }),
+        trail: ' / MCP servers'
+      },
+      title: isCreate ? 'New MCP server' : titleFor(source),
+      subtitle: isCreate ? undefined : subtitleFor(source),
+      subtitleTestid: 'mcp-editor-subtitle',
+      errorRole: 'alert',
+      actions: {
+        // Cancel on the create form abandons creation (DD8), so it is enabled from the
+        // first render; in edit mode it reverts and is enabled only while dirty.
+        cancel: { testid: 'cancel-mcp-source-btn', onClick: performCancel, enabledWhenClean: isCreate },
+        save: { label: isCreate ? 'Create' : 'Save', testid: 'save-mcp-source-btn', onClick: performSave },
+        test: hasConnection ? { testid: 'mcp-test-connection', onClick: function () { runTest({}); } } : undefined
+      }
+    });
+
+    // ── The Test hold: the ONE writer of Test's state ───────────────────
+    function syncTestHold() {
+      if (!mount.alive() || !shell.testButton) return;
+      var session = mount.sessionActive();
+      var hold = (connStatus && connStatus.isTesting()) || session;
+      shell.setTestState(hold ? { disabled: true, label: session ? WAITING_LABEL : null } : null);
+    }
+    mount.onSessionChange(syncTestHold);
+
+    // ── Server info and the status line (edit mode, stdio or HTTP) ──────
     if (hasConnection) {
-      serverInfo = serverInfoModule.create({ cache: (source.config && source.config._cache) || null });
-      var infoHost = container.querySelector('.mcp-info-host');
-      infoHost.parentNode.replaceChild(serverInfo.serverEl, infoHost);
-      var toolsHost = container.querySelector('.mcp-tools-host');
-      toolsHost.parentNode.replaceChild(serverInfo.toolsEl, toolsHost);
+      serverInfo = serverInfoModule.create({ cache: cacheOf(source) });
       mount.onDestroy(serverInfo.destroy);
-      var testBtn = App.ui.button({
-        label: 'Test', icon: 'play', variant: 'secondary', testid: 'mcp-test-connection'
-      });
-      var cancelEl = container.querySelector('.cancel-btn');
-      cancelEl.parentNode.insertBefore(testBtn, cancelEl);
-      handles.testBtn = testBtn;
       connStatus = connectionStatus.create({
-        container: container, mount: mount, callbacks: callbacks, testBtn: testBtn,
+        container: container, mount: mount, callbacks: callbacks, testBtn: shell.testButton,
         serverInfo: serverInfo,
         getSource: function () { return current; },
-        // wireEditorEvents' setError and the title lookup, bound once it exists.
-        setError: function (msg) { if (api) api.setError(msg); },
-        titleEl: function () { return api ? api.titleEl() : null; }
+        setError: function (msg) { if (mount.alive()) shell.setError(msg); },
+        titleEl: function () { return shell.titleEl; },
+        onTestHoldChange: syncTestHold
       });
-      var statusHost = container.querySelector('.mcp-connection-status-host');
-      statusHost.parentNode.replaceChild(connStatus.el, statusHost);
     }
-    api = wireEditorEvents(handles, source, mcpTypes, callbacks, mount, connStatus,
-      function (fn) { checkDirtyFn = fn; });
-    var controller = {
-      destroy: mount.destroy, setBusy: api.setBusy, setError: api.setError, runTest: api.runTest
-    };
-    if (callbacks.onMounted) callbacks.onMounted(controller);
-    return controller;
-  }
 
-  // ── Form snapshot + dirty tracking ──────────────────────────────────
-
-  // The fields' snapshot. The env and headers rows are not in it: the module keeps
-  // its own baseline and reports through isDirty() (M31 F5 L07).
-  function getFormSnapshot(handles) {
-    return JSON.stringify({
-      connection: handles.connectionFields.values(),
-      sandbox: handles.sandboxFields.values()
+    // ── The sections, in B1's order ─────────────────────────────────────
+    var connectionSection = App.ui.section({
+      title: 'Connection', children: [connection.el, connStatus && connStatus.el]
     });
-  }
+    var frag = document.createDocumentFragment();
+    frag.appendChild(shell.el);
+    frag.appendChild(connectionSection.el);
+    frag.appendChild(envHeaders.el);
+    frag.appendChild(sandbox.el);
+    if (serverInfo) {
+      frag.appendChild(serverInfo.serverEl);
+      frag.appendChild(serverInfo.toolsEl);
+    }
+    if (!isCreate) {
+      danger = App.ui.dangerZone({
+        action: {
+          label: 'Delete MCP server', testid: 'delete-mcp-source-btn',
+          dataset: { name: source.name || '' },
+          onConfirm: function (revert) { performDelete(revert); }
+        }
+      });
+      frag.appendChild(danger.el);
+    }
+    container.replaceChildren(frag);
 
-  // ── Event wiring ────────────────────────────────────────────────────
-
-  function wireEditorEvents(handles, source, mcpTypes, callbacks, mount, connStatus, bindDirty) {
-    var container = handles.container;
-    var isEdit = !!source;
-    var snapshot = getFormSnapshot(handles);
-    var dirty = false;
-    var busy = false;
-
-    // Every dirty report goes through here: the header's unsaved caption
-    // (M25 F3 DD2, a stable span in the markup) follows the same value that
-    // feeds studio's `dirty` through onDirtyChange.
+    // ── Dirty tracking ──────────────────────────────────────────────────
+    function baselineSnapshot() {
+      return JSON.stringify({
+        connection: connection.baselineFrom(current), sandbox: sandbox.baselineFrom(current)
+      });
+    }
+    function valuesSnapshot() {
+      return JSON.stringify({ connection: connection.values(), sandbox: sandbox.values() });
+    }
+    function isDirty() {
+      return valuesSnapshot() !== snapshot || envHeaders.isDirty();
+    }
     function reportDirty(d) {
-      var unsavedEl = container.querySelector('.editor-unsaved');
-      if (unsavedEl) unsavedEl.textContent = d ? 'Unsaved changes' : '';
+      shell.setDirty(d);
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
     }
-
-    // Save and Cancel follow the dirty flag and the controller's busy flag.
-    // Edit mode only: the create form's Cancel (abandon, DD8) stays enabled.
-    function applyButtons() {
-      var saveBtn = container.querySelector('.save-btn');
-      var cancelBtn = container.querySelector('.cancel-btn');
-      if (saveBtn) saveBtn.disabled = busy || !dirty;
-      if (cancelBtn) cancelBtn.disabled = busy || (isEdit && !dirty);
-    }
-
     function checkDirty() {
-      dirty = (getFormSnapshot(handles) !== snapshot) || handles.envHeaders.isDirty();
-      applyButtons();
-      reportDirty(dirty);
+      if (!mount.alive()) return;
+      reportDirty(isDirty());
     }
-
-    bindDirty(checkDirty);
-
-    // The fields' snapshot is retaken; the env and headers rows keep their own baseline
-    // (revert() and remaskAfterSave() have already settled it), so an edit made to a row
-    // while a Save was in flight stays dirty.
-    function recaptureSnapshot() {
-      snapshot = getFormSnapshot(handles);
-      dirty = handles.envHeaders.isDirty();
-      applyButtons();
-      reportDirty(dirty);
-    }
-
-    function setError(msg) {
-      var el = container.querySelector('.editor-error');
-      if (el) el.textContent = msg || '';
-    }
-
+    snapshot = baselineSnapshot();
+    shell.setDirty(false);
     // The mount reports its initial clean state once.
     if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
 
-    // ── Field listeners ───────────────────────────────────────────────
-    // None here: connectionFields, sandboxFields and envHeaders report their own
-    // changes through the trampoline (onChange).
+    // Focus after an in-place action (M25 F6 L1b, DD2): the title is re-resolved when the
+    // focus timer fires (a create's restore resolves the NEW mount's title: the editor's one h1).
+    function titleNow() { return container.querySelector('h1'); }
 
-    // ── Cancel ────────────────────────────────────────────────────────
-    // Edit mode reverts in place; create mode hands over to onCancel (the
-    // orchestrator discards and returns to the section root). The create
-    // form's Cancel is enabled from first render, so onCancel runs on a
-    // pristine form as well as a dirty one.
-    var cancelBtn = container.querySelector('.cancel-btn');
-    // Focus after an in-place action (M25 F6 L1b, DD2): the title is re-resolved
-    // when the focus timer fires.
-    function titleEl() { return container.querySelector('.editor-title'); }
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', function () {
-        if (!mount.alive()) return;
-        if (isEdit) {
-          var cancelTok = App.focusAfter.begin(cancelBtn);
-          revertEditorToSource(handles, source, callbacks);
-          recaptureSnapshot();
-          App.focusAfter.restore(cancelTok, titleEl);
-        } else if (callbacks.onCancel) {
-          callbacks.onCancel();
-        }
-      });
+    // ── Cancel ──────────────────────────────────────────────────────────
+    // Edit mode reverts in place to the last SAVED row (defect 3); create mode hands over
+    // to onCancel (the orchestrator discards and returns to the section root).
+    function performCancel() {
+      if (!mount.alive()) return;
+      if (isCreate) {
+        if (callbacks.onCancel) callbacks.onCancel();
+        return;
+      }
+      var cancelTok = App.focusAfter.begin(shell.cancelButton);
+      applySaved(current);
+      envHeaders.setType(current.type || '');
+      envHeaders.revert();
+      connection.clearErrors();
+      shell.setError('');
+      snapshot = baselineSnapshot();
+      reportDirty(isDirty());
+      App.focusAfter.restore(cancelTok, shell.titleEl);
     }
 
-    // ── Save ──────────────────────────────────────────────────────────
-    var saveBtn = container.querySelector('.save-btn');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', function () {
-        if (!mount.alive()) return;
-        setError('');
-        var payload = collectFormData(handles, source, isEdit);
-        if (!payload) return;
-        // What this click sent per row, for the re-mask and the post-Save baseline.
-        var submitted = handles.lastPartition;
-        var saveTok = App.focusAfter.begin(saveBtn);
-        var url = isEdit ? '/api/mcp-sources/' + encodeURIComponent(source.id) : '/api/mcp-sources';
-        var method = isEdit ? 'PUT' : 'POST';
-        fetch(url, {
-          method: method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-          .then(function (r) {
-            if (!r.ok) {
-              // F9 L2 vibing: read body as text first, then try JSON. A
-              // proper FastAPI error response is JSON {detail: ...}; a
-              // catastrophic 5xx (handler raised before our envelope) is
-              // HTML and would choke r.json() with "Unexpected token <".
-              return r.text().then(function (body) {
-                var detail;
-                try {
-                  var parsed = JSON.parse(body);
-                  detail = parsed && parsed.detail;
-                } catch (_) {
-                  // Non-JSON body — fall through to status-based message.
-                }
-                if (Array.isArray(detail)) {
-                  // Pydantic ValidationError shape
-                  detail = detail.map(function (d) {
-                    var loc = (d.loc || []).join('.');
-                    return loc ? (loc + ': ' + d.msg) : d.msg;
-                  }).join(' | ');
-                }
-                if (!detail) {
-                  var snippet = (body || '').trim().slice(0, 500);
-                  detail = 'Server error ' + r.status + ' ' + r.statusText +
-                           (snippet ? ': ' + snippet : '');
-                }
-                throw new Error(detail || (isEdit ? 'Save failed' : 'Create failed'));
-              });
-            }
-            return r.json();
-          })
-          .then(function (updated) {
-            // The Library list shows the source (DD9). Invalidated BEFORE
-            // onSaveSuccess, whose router sync names the new item.
-            App.store.invalidate('mcp-sources');
-            // A Save that lands after destroy still saved on the server: the
-            // list follows, the dead editor is not touched.
-            if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-            window.App.showFlash(container, isEdit ? 'MCP Server saved' : 'MCP Server created');
-            // Create mounts the saved editor asynchronously (the orchestrator's
-            // `ready` promise): park the restore for its mount to flush.
-            if (!isEdit) App.focusAfter.defer(saveTok, titleEl);
-            if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
-            if (isEdit) {
-              // Edit→edit (M31 F5 L07): re-mask the secrets the server now holds, then
-              // retake the fields' snapshot; the form stays dirty only for an edit made
-              // while the PUT was in flight.
-              handles.envHeaders.remaskAfterSave(submitted, updated);
-              recaptureSnapshot();
-              // Squawk 0126: the title follows the saved row (a rename).
-              var t2 = titleEl();
-              if (t2 && updated && updated.name) t2.textContent = updated.name;
-              App.focusAfter.restore(saveTok, titleEl);
-            }
-          })
-          .catch(function (err) {
-            if (!mount.alive()) return;
-            setError(err.message || String(err));
-            App.focusAfter.defer(null);
-            App.focusAfter.restore(saveTok, saveBtn);
-          });
-      });
+    // The fields and the types shown for a saved row (setValues fires no events).
+    function applySaved(src) {
+      connection.setValues(src);
+      sandbox.setValues(src);
+      sandbox.setType(src.type || '');
     }
 
-    // ── Test (edit only) ──────────────────────────────────────────────
-    var testBtn = handles.testBtn;
-    var runTest = function () {};
-    if (testBtn) {
-      // The one entry for a Test click and the glue's auto-run after create
-      // ({autoRun: true}: the Save click's user gesture is gone, so the flow must NOT
-      // open the OAuth popup; there is no keyboard user behind it, so no focus token and
-      // the create's parked restore stands). A defined no-op while Test is disabled or a
-      // sign-in session is live.
-      runTest = function (opts) {
-        if (!mount.alive() || testBtn.disabled || mount.sessionActive()) return;
-        var autoRun = !!(opts && opts.autoRun);
-        // Leg 08a (DD6): the dirty check comes first. A clean form posts NO body, so the
-        // server tests (and records) the saved server and collectFormData is not called.
-        // A dirty form sends its values (the server never records a body-ful Test); a
-        // form that cannot be sent (defect 9) says why in the result area and sends
-        // nothing: a body-less fallback would record against the saved server.
-        var formDirty = (getFormSnapshot(handles) !== snapshot) || handles.envHeaders.isDirty();
-        var form = null;
-        if (formDirty) {
-          form = collectFormData(handles, source, true, { silent: true });
-          if (form.error) { connStatus.showInvalid(form.error); return; }
+    // ── Save ────────────────────────────────────────────────────────────
+    function showFieldErrors(fields) {
+      var first = null;
+      FIELD_ORDER.forEach(function (name) {
+        if (fields[name]) {
+          connection.setError(name, fields[name]);
+          if (!first) first = name;
         }
-        connStatus.runTest(form, {
-          noAutoPopup: autoRun,
-          focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
-        });
+      });
+      return first;
+    }
+
+    // The one writer of the Save-in-flight state: the shell's busy state (Save, Cancel,
+    // Test) and the danger-zone Delete follow it together, so Delete cannot be armed and
+    // confirmed while a Save is in flight. Focus is never on Delete when it goes busy (the
+    // Save click holds it), and the Save restore path re-places it afterwards.
+    function setSaving(b) {
+      saving = !!b;
+      shell.setBusy(!!b);
+      if (danger) danger.button.disabled = !!b;
+    }
+
+    function performSave() {
+      if (!mount.alive() || saving) return;
+      shell.setError('');
+      connection.clearErrors();
+      var form = collectFormData();
+      if (form.error) {
+        var firstBad = showFieldErrors(form.fields);
+        if (firstBad) connection.focus(firstBad);
+        return;
+      }
+      var body = JSON.stringify(form.payload);
+      // What this click sent per row, for the re-mask; and the fields as they were sent.
+      var submitted = handles.lastPartition;
+      var submittedValues = valuesSnapshot();
+      var saveTok = App.focusAfter.begin(shell.saveButton);
+      setSaving(true); // a second click cannot send a second request (defect 5)
+      var request = {
+        headers: { 'Content-Type': 'application/json' },
+        body: body
       };
-      testBtn.addEventListener('click', function () { runTest({}); });
+      if (isCreate) {
+        request.method = 'POST';
+        App.api.fetchJson('/api/mcp-sources', request).then(function (created) {
+          // The Library list shows the source (DD9). Invalidated BEFORE onSaveSuccess,
+          // whose router sync names the new item.
+          App.store.invalidate('mcp-sources');
+          // A Save that lands after destroy still saved on the server: the list follows,
+          // the dead editor is not touched.
+          if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
+          App.ui.flash('MCP server created', { container: container });
+          // Create mounts the saved editor asynchronously: park the restore for its mount
+          // to flush, and STAY busy until that remount replaces this editor (the connector
+          // rule).
+          App.focusAfter.defer(saveTok, titleNow);
+          // The callback is last, and its failure is not a save failure: the record was
+          // created. A throw leaves no remount coming, so un-busy (as the edit path does).
+          try {
+            if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(created, true);
+          } catch (e) {
+            if (window.console && console.error) console.error('onSaveSuccess failed', e);
+            if (mount.alive()) setSaving(false);
+          }
+        }).catch(function (err) { onSaveError(err, saveTok); });
+      } else {
+        request.method = 'PUT';
+        App.api.fetchJson('/api/mcp-sources/' + encodeURIComponent(source.id), request)
+          .then(function (updated) {
+            App.store.invalidate('mcp-sources');
+            if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
+            App.ui.flash('MCP server saved', { container: container });
+            // The saved row, BEFORE the re-mask, so every getSource() reader sees it
+            // (defect 3).
+            current = updated;
+            // Re-mask the secrets the server now holds; the rows keep their own baseline.
+            envHeaders.remaskAfterSave(submitted, updated);
+            // No field edited during the request: write the saved row back (it
+            // normalises). Otherwise leave the DOM as the operator has it; the baseline
+            // moves either way.
+            if (valuesSnapshot() === submittedValues) applySaved(updated);
+            snapshot = baselineSnapshot();
+            // Squawk 0126: the title follows the saved row (a rename); so does the subtitle.
+            shell.setTitle(titleFor(updated));
+            shell.setSubtitle(subtitleFor(updated));
+            if (danger) danger.button.dataset.name = updated.name || '';
+            // A URL or type change drops last_check and auth_posture server-side.
+            if (serverInfo) serverInfo.update(cacheOf(updated));
+            if (connStatus) connStatus.render();
+            var d = isDirty();
+            reportDirty(d);
+            setSaving(false);
+            syncTestHold();
+            App.focusAfter.restore(saveTok, shell.titleEl);
+            // The callback is last, and its failure is not a save failure.
+            try {
+              if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, false);
+            } catch (e) {
+              if (window.console && console.error) console.error('onSaveSuccess failed', e);
+            }
+            // The glue marks the editor clean on save: say so again for an edit made
+            // meanwhile.
+            if (d && mount.alive() && callbacks.onDirtyChange) callbacks.onDirtyChange(true);
+          })
+          .catch(function (err) { onSaveError(err, saveTok); });
+      }
     }
 
-    // ── Delete (edit only) ────────────────────────────────────────────
-    var deleteBtn = container.querySelector('.delete-btn');
-    if (deleteBtn && isEdit) {
-      function doDelete(btn, revertFn) {
-        fetch('/api/mcp-sources/' + encodeURIComponent(source.id), { method: 'DELETE' })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
-            App.store.invalidate('mcp-sources');
-            App.store.invalidate('agents');
-            // A late Delete drops the row but never closes the open item.
-            if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-            window.App.showFlash(container, 'MCP Server deleted');
-            if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
-          })
-          .catch(function (err) {
-            if (!mount.alive()) return;
-            revertFn();
-            window.App.showFlash(container, 'Error: ' + err.message, true);
-          });
+    function onSaveError(err, saveTok) {
+      if (!mount.alive()) return;
+      var fe = App.api.fieldErrors(err, SERVER_FIELDS);
+      var fields = {};
+      Object.keys(fe.fields).forEach(function (name) {
+        var target = name;
+        if (name === 'command' && connection.values().runtime !== STDIO_CUSTOM_SENTINEL) {
+          target = 'runtime';
+        }
+        fields[target] = fe.fields[name];
+      });
+      var firstBad = showFieldErrors(fields);
+      shell.setError(fe.text || '');
+      setSaving(false);
+      App.focusAfter.defer(null);
+      if (firstBad) connection.focus(firstBad);
+      else App.focusAfter.restore(saveTok, shell.saveButton);
+    }
+
+    // ── Test (edit only) ────────────────────────────────────────────────
+    // The one entry for a Test click and the glue's auto-run after create ({autoRun:
+    // true}: the Save click's user gesture is gone, so the flow must NOT open the OAuth
+    // popup; there is no keyboard user behind it, so no focus token and the create's
+    // parked restore stands). A quiet no-op without a Test button (create mode, a legacy
+    // type), while Test is disabled, or while a sign-in session is live.
+    function runTest(opts) {
+      var btn = shell.testButton;
+      if (!connStatus || !btn || !mount.alive() || btn.disabled || mount.sessionActive()) return;
+      var autoRun = !!(opts && opts.autoRun);
+      // Leg 08a (DD6): the dirty check comes first. A clean form posts NO body, so the
+      // server tests (and records) the saved server and collectFormData is not called. A
+      // dirty form sends its values (the server never records a body-ful Test); a form
+      // that cannot be sent (defect 9) says why in the result area and sends nothing.
+      var form = null;
+      if (isDirty()) {
+        form = collectFormData();
+        if (form.error) { connStatus.showInvalid(form.error); return; }
+        form = form.payload;
       }
-      deleteBtn.addEventListener('click', function () {
-        window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
+      connStatus.runTest(form, {
+        noAutoPopup: autoRun,
+        focusTok: autoRun ? null : App.focusAfter.begin(btn)
       });
     }
 
-    return {
-      setBusy: function (b) {
-        busy = !!b;
-        handles.busy = busy;
-        applyButtons();
-        // Test is blocked while a Save is in flight (DD4); a running Test or a sign-in
-        // session keeps it disabled on its own.
-        if (testBtn && !(connStatus && connStatus.isTesting()) && !mount.sessionActive()) {
-          testBtn.disabled = busy;
-        }
-      },
-      setError: setError,
-      titleEl: titleEl,
-      runTest: function (opts) { runTest(opts); }
-    };
-  }
-
-  // ── Cancel-revert ────────────────────────────────────────────────────
-
-  function revertEditorToSource(handles, source, callbacks) {
-    /* In edit mode, revert the form: the fields to the source object (until leg 10
-       gives them a baseline of their own), the env and headers rows to their module
-       baseline (the last saved rows). */
-    if (!source) return;
-
-    // 1. Fields: written through their handles, silently (the caller recaptures the
-    //    snapshot); setValues also shows the rows for the stored type.
-    handles.connectionFields.setValues(source);
-    handles.sandboxFields.setValues(source);
-    handles.sandboxFields.setType(source.type || '');
-
-    // 2. The env and headers rows: the label follows the stored type, then the rows go
-    //    back to the module's baseline (the last saved rows).
-    handles.envHeaders.setType(source.type || '');
-    handles.envHeaders.revert();
-  }
-
-  // ── Payload assembly ────────────────────────────────────────────────
-
-  // opts.silent (M31 F5 L08b, defect 9): a form that cannot be sent returns {error}
-  // and writes nothing into the editor error (a Test shows it in its result area);
-  // without it, the message goes to the editor error and the result is null.
-  function collectFormData(handles, source, isEdit, opts) {
-    var container = handles.container;
-    var silent = !!(opts && opts.silent);
-    /* Routes by `type` (NOT by visible-field set). A type-change
-       immediately followed by Save emits the type-correct payload. */
-    var errorEl = silent ? null : container.querySelector('.editor-error');
-    var fail = function (message) {
-      if (errorEl) errorEl.textContent = message;
-      return silent ? { error: message } : null;
-    };
-    var fv = handles.connectionFields.values();
-    var name = fv.name.trim();
-    if (!name) return fail('Name is required.');
-    var type = fv.type;
-    if (!type) return fail('Type is required.');
-
-    var config = {};
-    var secrets = {};
-
-    if (type === 'stdio') {
-      // F9 L2 vibing: command source is the dropdown selection. For all
-      // canonical runtime literals except `npx -y` and `pipx run` the
-      // dropdown value IS `config.command` verbatim. For `npx -y` we
-      // split into `command=npx, args=[-y, ...userArgs]`; for `pipx run`
-      // we split into `command=pipx, args=[run, ...userArgs]` (option
-      // (b)) so the saved JSON stays transparent — and so the spawn
-      // layer doesn't try to exec a 2-token string as a single binary
-      // and FileNotFoundError. For Custom… the free-text input feeds
-      // `config.command` directly (operator owns resolution).
-      var runtimeValue = fv.runtime;
-      var command = '';
-      var prependArgs = [];
-      if (runtimeValue === STDIO_CUSTOM_SENTINEL) {
-        command = fv.command.trim();
-      } else if (runtimeValue === 'npx -y') {
-        command = 'npx';
-        prependArgs = ['-y'];
-      } else if (runtimeValue === 'pipx run') {
-        command = 'pipx';
-        prependArgs = ['run'];
-      } else if (runtimeValue) {
-        command = runtimeValue;
-      }
-      if (!command) return fail('Command is required for stdio servers.');
-      config.command = command;
-      var cwd = fv.cwd.trim();
-      if (cwd) config.cwd = cwd;
-      var argsList = prependArgs.concat(fv.args);
-      if (argsList.length > 0) config.args = argsList;
-      config.env = {};
-      handles.lastPartition = handles.envHeaders.partition(config.env, secrets);
-      // F3 L5b: sandbox profile (stdio only). Always-emit precedent
-      // matches config.env above: empty defaults are written explicitly,
-      // not omitted. The L1b API validator accepts the default shape.
-      var sv = handles.sandboxFields.values();
-      config.sandbox = { network_allowed: sv.networkAllowed, writable_paths: sv.writablePaths };
-    } else if (type === 'streamable-http') {
-      var urlValue = fv.url.trim();
-      if (!urlValue) return fail('URL is required for streamable-http servers.');
-      config.url = urlValue;
-      config.headers = {};
-      handles.lastPartition = handles.envHeaders.partition(config.headers, secrets);
-    } else {
-      return fail('Unsupported transport type: ' + type);
+    // ── Delete (edit only) ──────────────────────────────────────────────
+    function performDelete(revert) {
+      if (saving) { revert(); return; } // the button is disabled while saving; belt and braces
+      var deleteTok = App.focusAfter.begin(danger.button);
+      App.api.fetchJson('/api/mcp-sources/' + encodeURIComponent(source.id), { method: 'DELETE' })
+        .then(function () {
+          App.store.invalidate('mcp-sources');
+          App.store.invalidate('agents');
+          // A late Delete drops the row but never closes the open item.
+          if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
+          App.ui.flash('MCP server deleted', { container: container });
+          if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
+        })
+        .catch(function (err) {
+          if (!mount.alive()) return;
+          revert();
+          shell.setError((err && err.message) || String(err));
+          App.focusAfter.restore(deleteTok, danger.button);
+        });
     }
 
-    return { name: name, type: type, config: config, secrets: secrets };
+    // ── Payload assembly ────────────────────────────────────────────────
+    // Validates on the handles and never writes the DOM. Returns {payload}, or {error,
+    // fields}: `fields` maps a field to its A2 sentence and `error` is the first one (a
+    // Test shows it in its result area; Save puts each on its field).
+    function collectFormData() {
+      /* Routes by `type` (NOT by visible-field set). A type-change immediately followed
+         by Save emits the type-correct payload. */
+      var fields = {};
+      var firstMessage = null;
+      function bad(field, message) {
+        if (!fields[field]) fields[field] = message;
+        if (!firstMessage) firstMessage = message;
+      }
+      var fv = connection.values();
+      var name = fv.name.trim();
+      if (!name) bad('name', 'Enter a name.');
+      var kind = fv.type;
+      if (!kind) bad('type', 'Choose how it connects.');
+
+      var config = {};
+      var secrets = {};
+
+      if (kind === 'stdio') {
+        // F9 L2 vibing: command source is the dropdown selection. For all canonical
+        // runtime literals except `npx -y` and `pipx run` the dropdown value IS
+        // `config.command` verbatim. For `npx -y` we split into `command=npx,
+        // args=[-y, ...userArgs]`; for `pipx run` into `command=pipx, args=[run,
+        // ...userArgs]` so the saved JSON stays transparent and the spawn layer does not
+        // try to exec a 2-token string as a single binary. For Custom… the free-text
+        // input feeds `config.command` directly (operator owns resolution).
+        var runtimeValue = fv.runtime;
+        var command = '';
+        var prependArgs = [];
+        if (runtimeValue === STDIO_CUSTOM_SENTINEL) {
+          command = fv.command.trim();
+        } else if (runtimeValue === 'npx -y') {
+          command = 'npx';
+          prependArgs = ['-y'];
+        } else if (runtimeValue === 'pipx run') {
+          command = 'pipx';
+          prependArgs = ['run'];
+        } else if (runtimeValue) {
+          command = runtimeValue;
+        }
+        if (!command) {
+          bad(runtimeValue === STDIO_CUSTOM_SENTINEL ? 'command' : 'runtime',
+            'Choose or enter a command.');
+        }
+        config.command = command;
+        var cwd = fv.cwd.trim();
+        if (cwd) config.cwd = cwd;
+        var argsList = prependArgs.concat(fv.args);
+        if (argsList.length > 0) config.args = argsList;
+        config.env = {};
+        // F3 L5b: sandbox profile (stdio only). Always-emit precedent matches config.env:
+        // empty defaults are written explicitly, not omitted.
+        var sv = sandbox.values();
+        config.sandbox = { network_allowed: sv.networkAllowed, writable_paths: sv.writablePaths };
+      } else if (kind === 'streamable-http') {
+        var urlValue = fv.url.trim();
+        if (!urlValue) bad('url', "Enter the server's URL.");
+        config.url = urlValue;
+        config.headers = {};
+      } else if (kind) {
+        bad('type', 'Unsupported transport type: ' + kind + '.');
+      }
+
+      if (firstMessage) return { error: firstMessage, fields: fields };
+      handles.lastPartition = envHeaders.partition(
+        kind === 'stdio' ? config.env : config.headers, secrets);
+      return { payload: { name: name, type: kind, config: config, secrets: secrets } };
+    }
+
+    var controller = {
+      destroy: mount.destroy,
+      // The glue un-busies a create whose remount could not open the new record.
+      setBusy: function (b) {
+        if (!mount.alive()) return;
+        setSaving(b);
+      },
+      setError: function (msg) { if (mount.alive()) shell.setError(msg); },
+      runTest: runTest
+    };
+    if (callbacks.onMounted) callbacks.onMounted(controller);
+    return controller;
   }
 
   window.App.studio.renderMcpSourceEditor = renderMcpSourceEditor;

@@ -103,9 +103,8 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     # areas/chat/composer.js), so no areas/chat* path has an entry: the chat
     # area has no dynamic HTML sink left
     # (test_chat_area_has_no_baselined_sink pins it).
-    "areas/studio/mcp-server-editor.js": [
-        "container.innerHTML = html;",
-    ],
+    # M31 F5 L10 rebuilt the MCP editor controller on the library: the last MCP
+    # entry (its container.innerHTML) is gone.
 }
 
 # ── Exact per-file count of EVERY HTML-string sink (M31 F1 L2, flight DD5) ──
@@ -118,7 +117,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    without a flight-log reason. A sink moved by a file split is a row change.
 HTML_SINK_ALLOWANCE: dict[str, int] = {
     "areas/chat.js": 5,
-    "areas/studio/mcp-server-editor.js": 1,
 }
 
 # ── The move rule for the sink tables (M31 F5 L01, DD2) ─────────────────────
@@ -143,7 +141,7 @@ class SnippetMove(NamedTuple):
 
 # The sum of HTML_SINK_ALLOWANCE, exact: lower it with each removal, never raise it without a
 # flight-log reason.
-SINK_TOTAL = 6
+SINK_TOTAL = 5
 # The files that held an HTML_SINK_ALLOWANCE row / a DYNAMIC_SINK_BASELINE entry at the
 # flight's start. A file key outside these is new and needs SINK_MOVES / SNIPPET_MOVES entries.
 SINK_START_FILES: frozenset[str] = frozenset({"areas/chat.js", "areas/studio/mcp-server-editor.js"})

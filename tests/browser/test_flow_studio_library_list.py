@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import re
+import time as _time
 
 import pytest
 from browser import _lists, _nav
@@ -181,7 +182,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
         ["Alpha KB", "2 agents"],
         ["Zeta KB", "0 agents"],
         ["alpha-mcp", "3 tools · 1 agent"],
-        ["zeta-mcp", "Tools not loaded · 0 agents"],
+        ["zeta-mcp", "Not connected · 0 agents"],
         ["Team chat", "2 agents"],  # default_agent and the channel_map duplicate count once
     ]
     # Rows are links to their item routes, with the kept card testids.
@@ -204,7 +205,10 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
     assert all(i and i["hidden"] == "true" for i in icons), icons
     assert len({icons[i]["shape"] for i in (0, 1, 3, 5)}) == 4, icons
     # The meta is part of the row's accessible name (visible text in the link).
-    expect(page.get_by_role("link", name="alpha-mcp 3 tools · 1 agent")).to_have_count(1)
+    # (the Local badge follows the meta: B6, ledger row 27).
+    expect(
+        page.get_by_role("link", name="alpha-mcp 3 tools · 1 agent Local", exact=True)
+    ).to_have_count(1)
     # No section nav.
     expect(page.locator(".area-studio .section-nav")).to_have_count(0)
     expect(page.get_by_role("navigation", name="Library sections")).to_have_count(0)
@@ -236,7 +240,7 @@ def test_agent_counts_never_read_zero_while_agents_load(
         ["Alpha KB", ""],
         ["Zeta KB", ""],
         ["alpha-mcp", "3 tools"],
-        ["zeta-mcp", "Tools not loaded"],
+        ["zeta-mcp", "Not connected"],
         ["Team chat", ""],
     ]
     heights = "(sel) => Array.from(document.querySelectorAll(sel + ' .ui-list-pane-row')).map((r) => r.getBoundingClientRect().height)"
@@ -249,6 +253,128 @@ def test_agent_counts_never_read_zero_while_agents_load(
     assert all(abs(a - b) <= 0.5 for a, b in zip(before, after, strict=True)), (before, after)
     # The reserved line is not part of any row's accessible name.
     expect(page.get_by_role("link", name="Alpha KB 2 agents")).to_have_count(1)
+
+
+# ── B6: connection state and Local / Remote badge on the MCP rows (M31 F5 L11) ──
+
+NOW = _time.time()
+# name -> (seed kwargs, meta first part, badge, state)
+MCP_STATES = {
+    "st-connected": (
+        {"tools": ["a", "b", "c"], "last_check": {"status": "ok", "at": NOW}},
+        "3 tools",
+        "Local",
+        "connected",
+    ),
+    "st-preflight": ({"tools": ["a"]}, "1 tool", "Local", "connected"),
+    "st-none": ({}, "Not connected", "Local", "none"),
+    "st-remote-none": (
+        {"type": "streamable-http", "url": "https://example.com/mcp"},
+        "Not connected",
+        "Remote",
+        "none",
+    ),
+    "st-error": (
+        {
+            "type": "streamable-http",
+            "url": "https://example.com/mcp",
+            "tools": ["a", "b"],
+            "last_check": {"status": "error", "at": NOW},
+        },
+        "Couldn't connect",
+        "Remote",
+        "error",
+    ),
+    "st-signin": (
+        {
+            "type": "streamable-http",
+            "url": "https://example.com/mcp",
+            "tools": ["a", "b", "c", "d"],
+            "last_check": {"status": "auth_required", "at": NOW},
+        },
+        "Sign-in needed",
+        "Remote",
+        "signin",
+    ),
+}
+STATE_WORDS = {
+    "connected": "Connected",
+    "none": "Not connected",
+    "error": "Couldn't connect",
+    "signin": "Sign-in needed",
+}
+
+
+def _seed_states(base: str) -> dict[str, str]:
+    return {
+        name: seed_mcp_source(base, name, **kw) for name, (kw, _m, _b, _s) in MCP_STATES.items()
+    }
+
+
+def _mcp_row(page: Page, name: str):
+    return _lists.list_row(page, "library/mcp", name)
+
+
+def test_mcp_rows_show_state_and_badge(app_clean: str, page: Page) -> None:
+    """Every state's meta and the Local / Remote badge; an errored or signed-out
+    row hides a cached tool count (FD decision); the badge is the neutral kind."""
+    _seed_states(app_clean)
+    _ready(page, app_clean, "library")
+    for name, (_kw, meta, badge, _state) in MCP_STATES.items():
+        row = _mcp_row(page, name)
+        expect(row.locator(".ui-list-pane-meta")).to_have_text(f"{meta} · 0 agents", timeout=8000)
+        expect(row.locator(".badge")).to_have_text(badge)
+        expect(row.locator(".badge")).to_have_class(re.compile(r"\bbadge--unknown\b"))
+        if meta in ("Couldn't connect", "Sign-in needed"):
+            assert "tool" not in row.locator(".ui-list-pane-meta").inner_text()
+    # The meta and the badge are part of the row's accessible name.
+    expect(
+        page.get_by_role("link", name="st-error Couldn't connect · 0 agents Remote", exact=True)
+    ).to_have_count(1)
+
+
+def test_mcp_row_state_stays_while_agents_load(app_clean: str, page: Page) -> None:
+    _seed_states(app_clean)
+    hold = _Hold(page, re.compile(r".*/api/agents$"))
+    _nav.goto(page, app_clean, "library")
+    hold.wait_held()
+    for name, (_kw, meta, badge, _state) in MCP_STATES.items():
+        row = _mcp_row(page, name)
+        expect(row.locator(".ui-list-pane-meta")).to_have_text(meta, timeout=8000)
+        expect(row.locator(".badge")).to_have_text(badge)
+    hold.release()
+    expect(_mcp_row(page, "st-none").locator(".ui-list-pane-meta")).to_have_text(
+        "Not connected · 0 agents", timeout=8000
+    )
+
+
+def test_library_row_and_editor_status_line_agree(app_clean: str, page: Page) -> None:
+    """DD6: one derivation, two readers. For each seeded server read the row's
+    state first, open the editor (no connection check fires: only a create
+    auto-runs a Test), then compare the status line's state."""
+    ids = _seed_states(app_clean)
+    connects: list[str] = []
+    page.on("request", lambda r: connects.append(r.url) if "/test/connect" in r.url else None)
+    _ready(page, app_clean, "library")
+
+    def state_of(text: str) -> str:
+        for state, word in STATE_WORDS.items():
+            if state != "connected" and text.startswith(word):
+                return state
+        return (
+            "connected" if re.match(r"\d+ tools?\b", text) or text.startswith("Connected") else "?"
+        )
+
+    for name, (_kw, _meta, _badge, state) in MCP_STATES.items():
+        row = _mcp_row(page, name)
+        expect(row.locator(".ui-list-pane-meta")).not_to_have_text(re.compile(r"^\s*$"))
+        row_state = state_of(row.locator(".ui-list-pane-meta").inner_text())
+        _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(ids[name])}")
+        status = page.locator('[data-testid="mcp-connection-status"]')
+        expect(status).to_be_visible(timeout=8000)
+        expect(status).to_have_text(re.compile(rf"^{re.escape(STATE_WORDS[state])}"))
+        assert row_state == state_of(status.inner_text()) == state, (name, row_state)
+    assert connects == [], connects
 
 
 # ── AC2: the Add menu ───────────────────────────────────────────────────────
@@ -792,7 +918,7 @@ CRUMB = {"knowledge": "Knowledge bases", "mcp": "MCP servers", "connectors": "Co
 ITEM = {"knowledge": "Alpha KB", "mcp": "alpha-mcp", "connectors": "Team chat"}
 NEW_TITLE = {
     "knowledge": "New knowledge base",
-    "mcp": "New MCP Server",
+    "mcp": "New MCP server",
     "connectors": "New Connector",
 }
 TITLE = ".studio-section-content h1.editor-title"
@@ -1156,7 +1282,7 @@ def test_unsaved_indicator_on_the_connector_editor(app_with_agent: SeededApp, pa
 # unchanged: Cancel reverts, and is disabled while the item is clean.
 
 _CREATE_FORM = {
-    "mcp": ("New MCP Server", "cancel-mcp-source-btn", "first-mcp"),
+    "mcp": ("New MCP server", "cancel-mcp-source-btn", "first-mcp"),
     "connectors": ("New Connector", "cancel-connector-btn", "First connector"),
 }
 
@@ -1214,7 +1340,7 @@ def test_mcp_create_form_cancel_stays_enabled_when_the_form_is_clean_again(
     state: its dirty mark is one-way.)"""
     _ready(page, app_with_agent.base_url, "library/mcp")
     _lists.library_add(page, "mcp")
-    expect(page.locator(TITLE)).to_have_text("New MCP Server", timeout=8000)
+    expect(page.locator(TITLE)).to_have_text("New MCP server", timeout=8000)
     name = page.locator('[data-field="name"]')
     cancel = page.locator('[data-testid="cancel-mcp-source-btn"]')
     name.fill("x")

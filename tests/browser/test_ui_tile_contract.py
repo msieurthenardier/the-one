@@ -802,3 +802,51 @@ def test_tool_tile_description_title_carries_the_full_text(engine_page: Page) ->
     )
     assert out["first"][0] == out["first"][1] and len(out["first"][0]) > 20
     assert out["second"] == "New text" and out["cleared"] is False
+
+
+# ── groupTile expandLabel (M31 F5 L11, A20) ──────────────────────────────────
+
+
+def test_group_tile_expand_label_names_the_button_and_follows_the_count(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _tile(p, "{expandLabel: (t) => t + ' for Docs search'}")
+    out = p.evaluate(
+        """() => { const b = document.querySelector('.ui-group-tile-expand');
+          const r = [b.getAttribute('aria-label'), b.textContent, b.hasAttribute('aria-describedby')];
+          window.__tile.setToolCount(3); r.push(b.getAttribute('aria-label'), b.textContent);
+          window.__tile.setToolCount(1); r.push(b.getAttribute('aria-label'));
+          window.__tile.setToolCount(null); r.push(b.getAttribute('aria-label'), b.textContent);
+          window.__tile.setToolCount('Tools'); r.push(b.getAttribute('aria-label'));
+          return r; }"""
+    )
+    assert out == [
+        "4 tools for Docs search",
+        "4 tools▸",
+        False,
+        "3 tools for Docs search",
+        "3 tools▸",
+        "1 tool for Docs search",
+        "Tools for Docs search",
+        "Tools▸",
+        "Tools for Docs search",
+    ], out
+    expect(p.get_by_role("button", name="Tools for Docs search", exact=True)).to_have_count(1)
+
+
+def test_group_tile_without_expand_label_is_unchanged(engine_page: Page) -> None:
+    """The option is opt-in: with it absent the button has no aria-label, keeps
+    its content-only name and its describedby (the Tools-tab group tile)."""
+    _tile(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => { const b = document.querySelector('.ui-group-tile-expand');
+          window.__tile.setToolCount(2);
+          return [b.hasAttribute('aria-label'), b.getAttribute('aria-describedby') ===
+            document.querySelector('.ui-group-tile-name').id, b.textContent]; }"""
+    )
+    assert out == [False, True, "2 tools▸"]
+    expect(p.get_by_role("button", name="2 tools", exact=True)).to_have_accessible_description(
+        "Filesystem"
+    )

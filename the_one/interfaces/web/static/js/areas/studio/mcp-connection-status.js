@@ -2,7 +2,8 @@
 // the status line, the Test flow's result area, and Reset connection / Forget tools
 // list (M31 F5 L08b, on the control library).
 //
-// create({container, mount, callbacks, getSource, testBtn, serverInfo, setError, titleEl})
+// create({container, mount, callbacks, getSource, testBtn, serverInfo, setError, titleEl,
+//         onTestHoldChange})
 // builds, once per mount, the tail of the Connection section:
 //   div.mcp-connection-state
 //     div.mcp-connection-status-row   the App.ui.status line (the words come only from
@@ -18,6 +19,13 @@
 // meanwhile is not overwritten) and re-renders; a failed refetch leaves the optimistic
 // state a clean Test set. A Test of unsaved form values records nothing server-side, so
 // it leaves the line on the saved record and labels its result.
+//
+// Test's disabled state and label are the shell's (M31 F5 L10): this module never writes
+// the button. It reports a Test starting and settling through onTestHoldChange(), whose
+// one implementation (the controller's syncTestHold) reads isTesting() and the mount's
+// session. testBtn is the shell's button and is null for a create form or a type other
+// than stdio and streamable-http; it is read-only here (the focus targets) and every use
+// tolerates null.
 //
 // Reset and Forget are built once, on first need, and then only toggle `hidden`: a
 // refetch never rebuilds a button, armed or not (squawk 0088's invariant). Both are
@@ -66,6 +74,7 @@
     var serverInfo = opts.serverInfo;
     var setError = opts.setError || function () {};
     var titleEl = opts.titleEl || function () { return null; };
+    var onTestHoldChange = opts.onTestHoldChange || function () {};
     var testing = false;
     var latest = App.ui.util.latest();
 
@@ -291,7 +300,7 @@
           serverInfo.update(null);
           App.ui.flash(doneText, { container: container });
           App.focusAfter.restore(tok, function () {
-            return (!testBtn.disabled && testBtn) || titleEl();
+            return (testBtn && !testBtn.disabled && testBtn) || titleEl();
           });
           syncFromServer();
         })
@@ -320,15 +329,15 @@
       var focusWasInArea = !!(document.activeElement && areaEl.contains(document.activeElement));
       showText('Testing connection…');
       testing = true;
-      testBtn.disabled = true; // concurrent-Test guard: re-enabled only on a final state
+      onTestHoldChange(); // concurrent-Test guard: released only on a final state
 
       function settle() {
         testing = false;
         if (!mount.alive()) return;
-        testBtn.disabled = !!mount.handles.busy || mount.sessionActive();
+        onTestHoldChange();
         // M25 F6 L1b (DD2): focus returns to the button the keyboard user pressed. A null
         // token (the auto-run after create) is a no-op.
-        App.focusAfter.restore(ro.focusTok, testBtn);
+        App.focusAfter.restore(ro.focusTok, testBtn || titleEl);
       }
       // A sign-in that ended without a token: the record may still have changed.
       function settleAndSync() { settle(); syncFromServer(); }
@@ -384,7 +393,10 @@
             }
             settle();
             var ae = document.activeElement;
-            if (focusWasInArea && (!ae || ae === document.body)) testBtn.focus();
+            if (focusWasInArea && (!ae || ae === document.body)) {
+              var focusEl = testBtn || titleEl();
+              if (focusEl) focusEl.focus();
+            }
             syncFromServer();
           } else if (data.status === 'auth_required') {
             if (!dirty) recordLocally('auth_required');

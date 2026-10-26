@@ -223,8 +223,13 @@
         }
       }
       if (group.id === 'mcp') {
-        var tools = App.usage.mcpToolCount(row);
-        meta.push(tools === null ? 'Tools not loaded' : plural(tools, 'tool', 'tools'));
+        // ONE mcpState call: the state and the count cannot disagree, and the words
+        // come from App.usage.mcpStateLabel, the editor's status line source (DD6).
+        // A connected row shows its tool count; an errored or signed-out row shows
+        // only its state, even with a cached count (the editor carries the detail).
+        var ms = App.usage.mcpState(row);
+        meta.push(ms.state === 'connected' ? plural(ms.tools, 'tool', 'tools') :
+          App.usage.mcpStateLabel(ms.state));
       }
       if (agents && group.id !== 'providers') {
         var n = group.id === 'knowledge' ? App.usage.kbAgents(agents, row.id)
@@ -248,6 +253,10 @@
           text: row.type || 'unknown',
           kind: KNOWN_BADGE_TYPES.indexOf(row.type) >= 0 ? row.type : 'unknown'
         }];
+      }
+      if (group.id === 'mcp') {
+        // Local (stdio) or Remote (streamable-http), the neutral `unknown` badge kind.
+        item.badges = [{ text: row.type === 'stdio' ? 'Local' : 'Remote', kind: 'unknown' }];
       }
       return item;
     }

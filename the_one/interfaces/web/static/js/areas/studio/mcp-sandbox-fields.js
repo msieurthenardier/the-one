@@ -1,7 +1,8 @@
 // App.studio.mcpEditor.sandboxFields — the MCP source editor's Sandbox section, built
 // from the control library (M31 F5 L06, DD4).
 //
-//   create({source, onChange}) -> {el, values(), setValues(source), setType(type), destroy()}
+//   create({source, onChange}) ->
+//     {el, values(), baselineFrom(source), setValues(source), setType(type), destroy()}
 //
 // el is an App.ui.section (stack layout, testid mcp-sandbox-section) holding the
 // "Allow network access" switch (mf-sandbox-network-allowed, label inline, with a hint)
@@ -9,6 +10,10 @@
 // sources only: setType shows it for `stdio` and hides it for anything else, a create
 // form with no type chosen included.
 //   values()  {networkAllowed, writablePaths}
+//   baselineFrom(source)  pure: exactly the values() object setValues(source) would leave
+//             (M31 F5 L10): null is the create default (network on), a stored source takes
+//             `network_allowed === true`, and the writable paths go through the chip list's
+//             normalisation (Strings, repeats dropped), in the same key order as values().
 //   setValues(source)  a new source (null) has the network on; a stored source takes its
 //             stored `network_allowed === true`. It never fires onChange.
 (function () {
@@ -43,6 +48,17 @@
       className: 'mcp-stdio-only', children: [network.el, pathsField.el]
     });
 
+    // The one place the values() key order lives.
+    function shape(networkAllowed, writablePaths) {
+      return { networkAllowed: networkAllowed, writablePaths: writablePaths };
+    }
+
+    function baselineFrom(source) {
+      var sandbox = (source && source.config && source.config.sandbox) || {};
+      return shape(!source ? true : sandbox.network_allowed === true,
+        window.App.studio.mcpEditor.shared.uniqueStrings(sandbox.writable_paths));
+    }
+
     function setValues(source) {
       var sandbox = (source && source.config && source.config.sandbox) || {};
       network.setChecked(!source ? true : sandbox.network_allowed === true);
@@ -52,9 +68,8 @@
 
     return {
       el: section.el,
-      values: function () {
-        return { networkAllowed: network.control.checked, writablePaths: paths.values() };
-      },
+      values: function () { return shape(network.control.checked, paths.values()); },
+      baselineFrom: baselineFrom,
       setValues: setValues,
       setType: function (type) { section.el.hidden = type !== 'stdio'; },
       destroy: function () {

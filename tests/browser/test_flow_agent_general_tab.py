@@ -146,7 +146,7 @@ def test_danger_zone_holds_two_actions_with_library_labels(
     expect(zone.locator("button")).to_have_count(2)
     delete = page.locator('[data-testid="delete-agent-btn"]')
     purge = page.locator('[data-testid="purge-history-btn"]')
-    expect(delete).to_have_text("Delete Agent")
+    expect(delete).to_have_text("Delete agent")
     expect(purge).to_have_text("Purge now")
     delete.click()
     expect(delete).to_have_text("Confirm delete?")

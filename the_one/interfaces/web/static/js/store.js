@@ -172,7 +172,7 @@
   }
 
   // The MCP source's cached tool count, or null when its tools have never
-  // been loaded (no config._cache.tools): "Tools not loaded", not zero.
+  // been loaded (no config._cache.tools): not zero (the Library list now reads mcpState instead).
   function mcpToolCount(source) {
     var cache = source && source.config && source.config._cache;
     return cache && Array.isArray(cache.tools) ? cache.tools.length : null;

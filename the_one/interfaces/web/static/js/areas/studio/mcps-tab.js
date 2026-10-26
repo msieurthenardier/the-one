@@ -217,6 +217,8 @@
           onChange: function () { onChange(); }
         },
         toolLabel: 'Tools',
+        // A20: "Tools for Docs search", "3 tools for Docs search" (label in name).
+        expandLabel: function (text) { return text + ' for ' + source.name; },
         testid: 'mcp-source-row-' + source.id,
         dataset: { sourceId: source.id },
         expandTestid: 'mcp-source-expand-' + source.id,

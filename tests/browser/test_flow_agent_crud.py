@@ -87,11 +87,11 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(agent_item).to_contain_text("test-agent")
     _lists.expect_selected(page, "agents", "test-agent")
 
-    # 11. Editor switched to edit mode — title shows agent name, Delete Agent visible.
+    # 11. Editor switched to edit mode — title shows agent name, Delete agent visible.
     expect(page.locator(".editor-title")).to_have_text("test-agent")
     delete_btn = page.locator('[data-testid="delete-agent-btn"]')
     expect(delete_btn).to_be_visible()
-    expect(delete_btn).to_have_text("Delete Agent")
+    expect(delete_btn).to_have_text("Delete agent")
 
     # 12-13. Edit description, save, verify persisted (re-render keeps the value).
     description_input = page.locator('[data-field="description"]')
@@ -165,6 +165,6 @@ def test_delete_agent_confirm_lapse_is_visually_distinct(
 
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
-    expect(delete_btn).to_have_text("Delete Agent")
+    expect(delete_btn).to_have_text("Delete agent")
     # Never committed: the agent is still there.
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(1)

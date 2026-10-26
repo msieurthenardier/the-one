@@ -18,6 +18,11 @@
   //   toolLabel (text when the count is unknown, e.g. "Tools"), expanded,
   //   onExpand(expanded), onFirstExpand(body) (fires once, on the first expand),
   //   testid, dataset (applied to the root), expandTestid, bodyTestid.
+  //   expandLabel (function(countText) -> string, M31 F5 L11, A20): names the expand
+  //   button by its content plus the owner ("Tools for Docs search", "3 tools for
+  //   Docs search"); it sets aria-label, is re-applied by setToolCount, and drops the
+  //   button's aria-describedby to the name span (the owner is not read twice). The
+  //   visible text is unchanged. Without it the button keeps its content-only name.
   //   master.tristate (default true; false = a plain on/off switch with
   //   role=switch, never mixed: setMaster('mixed') then reads as off) and
   //   master.describedBy (id of an outside element that describes the master) and
@@ -105,7 +110,7 @@
       'aria-expanded': 'false',
       // The tile's name joins the button's name through the description, so "3 tools"
       // is not the whole of what a screen reader hears (SC 2.4.6, 4.1.2).
-      'aria-describedby': nameEl.id,
+      'aria-describedby': typeof opts.expandLabel === 'function' ? undefined : nameEl.id,
       'data-testid': opts.expandTestid
     });
     var labelEl = util.el('span', { className: 'ui-group-tile-expand-label' });
@@ -132,6 +137,9 @@
         labelEl.appendChild(document.createTextNode(value === 1 ? ' tool' : ' tools'));
       } else {
         labelEl.textContent = value === null || value === undefined ? 'Tools' : String(value);
+      }
+      if (typeof opts.expandLabel === 'function') {
+        expandBtn.setAttribute('aria-label', String(opts.expandLabel(labelEl.textContent)));
       }
     }
     setToolCount(typeof opts.toolCount === 'number' ? opts.toolCount : (opts.toolLabel || 'Tools'));
