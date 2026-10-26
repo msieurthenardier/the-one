@@ -18,19 +18,46 @@ from __future__ import annotations
 import sys
 import time
 
-PORT = 8484
+
+def _port() -> int:
+    """The port the frozen serve listens on: the app's own setting (8484 unless THE_ONE_PORT)."""
+    from the_one.config import settings
+
+    return int(settings.port)
+
+
+def bearer_header(credential) -> dict[str, str]:
+    """``Authorization`` header for a LocalApiCredential.
+
+    Must use ``.encode()``: ``str(credential)`` is the redacted repr
+    (``LocalApiCredential(identifier=..., secret=<redacted>)``), which the gate rejects with 401.
+    """
+    return {"Authorization": f"Bearer {credential.encode()}"}
+
+
+def describe_credential(data_dir, cred_path, credential_text: str | None) -> str:
+    """One diagnostic line: data dir, credential file presence and its ``loc_<id>`` prefix only."""
+    exists = cred_path.exists()
+    prefix = "n/a"
+    if credential_text:
+        ident = credential_text.split(".", 1)[0]
+        prefix = ident if ident.startswith("loc_") else "unparseable"
+    return f"data dir {data_dir}; credential file {cred_path} exists={exists}; id {prefix}"
 
 
 def info(expected: str) -> int:
     import httpx
 
-    from the_one.api_credential import get_credential
+    from the_one.api_credential import credential_path, get_credential
+    from the_one.config import settings
 
-    headers = {"Authorization": f"Bearer {get_credential()}"}
+    port = _port()
+    credential = get_credential()
+    headers = bearer_header(credential)
     last = "no answer"
     for _ in range(60):
         try:
-            r = httpx.get(f"http://127.0.0.1:{PORT}/api/info", headers=headers, timeout=2.0)
+            r = httpx.get(f"http://127.0.0.1:{port}/api/info", headers=headers, timeout=2.0)
             if r.status_code == 200:
                 got = r.json().get("version")
                 if got != expected:
@@ -38,20 +65,33 @@ def info(expected: str) -> int:
                     return 1
                 print(f"ok: frozen serve answers /api/info 200, version {got}")
                 return 0
-            last = f"HTTP {r.status_code}"
+            last = f"HTTP {r.status_code} body {r.text[:200]!r}"
         except Exception as exc:  # noqa: BLE001 - the server may not be up yet
             last = repr(exc)
         time.sleep(1)
     print(f"FAIL: frozen serve did not answer /api/info 200 within 60 s ({last})")
+    print(
+        f"port {port}; "
+        + describe_credential(settings.data_dir, credential_path(), credential.encode())
+    )
     return 1
 
 
 def single_instance() -> int:
+    from the_one.api_credential import credential_path, lookup_credential
+    from the_one.config import settings
     from the_one.interfaces.app import _select_port
 
-    port, ours = _select_port("127.0.0.1", PORT)
+    port, ours = _select_port("127.0.0.1", _port())
     if not ours:
+        cred = lookup_credential() if credential_path().exists() else None
         print(f"FAIL: _select_port returned ({port}, {ours}): not seen as ours")
+        print(
+            f"port {_port()}; "
+            + describe_credential(
+                settings.data_dir, credential_path(), cred.encode() if cred else None
+            )
+        )
         return 1
     print(f"ok: _select_port -> ({port}, {ours})")
     return 0
