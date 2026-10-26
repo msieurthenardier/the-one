@@ -253,7 +253,7 @@ An app older than this version (v0.11.8 has no `quit` command) is closed by the 
 
 ```
 gh workflow run windows-packages.yml --ref <branch> -f mode=full       # build N, frozen smoke, upload the installer
-gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L10
+gh workflow run windows-packages.yml --ref <branch> -f mode=lifecycle  # full, plus N+1 and rows L1-L11
 ```
 
 Both build through `build.ps1`. `lifecycle` also builds N+1 (`render.py --next-version`, `-ReuseVenv`,
@@ -274,6 +274,7 @@ line is present and no row line starts with `FAIL`.
 | L7 | N+1 over a running N: quit, `present`, `gone`, nothing left, `KillRunning`, first copy, in that order, N drained first |
 | L8 | `quit --wait` exits 0, with the drain line and no process left |
 | L10 | `quit --wait` sent as soon as `/api/live` answers, while the window is still booting: exit 0 within the bound, the drain line, no process left (runs before L9) |
+| L11 | the interactive wizard (v0.12.1): N+1 over a running app WITHOUT `/VERYSILENT` or `/LOG`, driven by `BM_CLICK` on Next / Install / Finish (UI-thread safe `PostMessage`); every pass probes the `TWizardForm` with `WM_NULL` + `SMTO_ABORTIFHUNG` (5 s), a click must change the page within 15 s, the wizard and installer must be gone within 30 s of Finish (exit 0), the app drained, a `Setup Log *.txt` in `%TEMP%` (`SetupLogging=yes`) shows quit, nothing left, `KillRunning`, first copy in order, and the Finish page's ticked Launch box starts the new version (marker kept). Runs after L10 and before L9 |
 | L9 | silent uninstall while the app runs: the same quit sequence in the `/LOG`, `{app}` and the key gone, data dir and marker kept |
 
 What the runner cannot prove, and the guide does not claim: the Windows 11 tinted title bar (the
