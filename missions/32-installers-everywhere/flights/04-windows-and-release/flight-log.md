@@ -653,3 +653,17 @@ Branch `flight/04-v0.12.1` off `main` `2983df1`. Fix for the field defect (the v
 - Version 0.12.1 (`the_one/__init__.py`); `docs/releases/v0.12.1.md` (pending operator approval of the text); `docs/windows-install.md` names the setup log; `packaging/windows/README.md` gains the L11 row.
 - **Verified locally:** pwsh container self-tests for `lib.ps1` and `lifecycle.ps1` pass (ParseFile 0 errors, no collisions or undefined commands, ASCII); the six packaging/workflow/release test files pass (147); ruff clean. The `.iss` cannot be compiled here, and the Windows UI Automation parts (child enumeration, button captions, `BM_CLICK` on `TNewButton`) are unproven until the hosted run. Unknowns: whether the elevated respawn changes the wizard process (found by class, any pid), and whether `TNewButton` text reads via `WM_GETTEXT` (the row logs the controls it sees).
 - **v0.12.1 patch review** (Reviewer, Sonnet, because the change runs in an elevated installer): `[HANDOFF:confirmed]`. Non-blocking: the Finish-page freeze is not proven to share the stall's cause (L11 will show it); an explicit `runasoriginaluser` on `[Run]` is optional; L11's 'frozen' check could race a just-closed wizard.
+- **Paused for the night (operator, 2026-10-25 23:57 local):** "can we pause this until morning? I need to free up resources for another project".
+  - The in-flight `fly execute` compile of the v0.12.1 `.iss` (one-off build 109) was aborted at the freeze step, before ISCC.
+  - Nothing of this flight is running.
+  - **State at pause:**
+    - `v0.12.0` is published and verified.
+    - The operator is on 0.12.0 (the upgrade worked; the installer wizard froze).
+    - Branch `flight/04-v0.12.1` at `203872a`, pushed and reviewed, holds the installer fix, L11, version 0.12.1 and the draft notes.
+  - **Next, in the morning:**
+    1. Re-run `fly execute` to prove the `.iss` compiles (free, about 13 min).
+    2. One hosted Windows run: `gh workflow run release.yml --ref flight/04-v0.12.1 -f version=0.12.1.dev1 -f platforms=windows -f windows_mode=lifecycle`, with L1-L11 all PASS.
+    3. The operator approves `docs/releases/v0.12.1.md`.
+    4. The PR, the merge, then tag `v0.12.1` with the operator's go.
+    5. The operator upgrades 0.12.0 → 0.12.1 interactively: a graceful quit under a real UAC prompt, and a responsive wizard.
+    6. The contributors' macOS check, still open.
