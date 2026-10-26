@@ -1,0 +1,44 @@
+name: release
+
+# Mission 32 Flight 4 (DD7): the `.github/`-only stub for release.yml. GitHub dispatches only a
+# workflow file that exists on the default branch, and validates the dispatch inputs against that
+# copy; so this file lands on main first (copied to .github/workflows/release.yml in its own PR),
+# and `gh workflow run release.yml --ref <branch>` then runs the branch's real copy.
+#
+# Dispatch-only: no `push` trigger, no `publish` job, one no-op job. The `workflow_dispatch`
+# block below equals .github/workflows/release.yml's, byte for byte (tests/test_release_workflow.py
+# pins it). The name and the inputs FREEZE once this reaches main: changing either needs another
+# stub PR. The tag trigger arrives with the flight's merge.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Dry-run version, X.Y.Z or X.Y.Z.devN (empty: the version in the_one/__init__.py)"
+        type: string
+        required: false
+        default: ""
+      platforms:
+        description: "Platforms to build, comma-separated with no spaces: windows,linux,macos"
+        type: string
+        required: false
+        default: "windows,linux,macos"
+      macos_mode:
+        description: "macOS mode: full or lifecycle"
+        type: choice
+        options: [full, lifecycle]
+        default: full
+      windows_mode:
+        description: "Windows mode: full or lifecycle"
+        type: choice
+        options: [full, lifecycle]
+        default: full
+
+permissions:
+  contents: read
+
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "stub for release.yml; the real workflow runs from the dispatched ref"
