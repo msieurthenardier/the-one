@@ -105,6 +105,37 @@ class TestMigration:
         assert loaded.kb_ids == ["kb1"]
         assert loaded.max_iterations == 10
 
+    async def test_skips_bad_body_name_with_warning(self, setup, caplog) -> None:
+        store, agents_dir = setup
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        cfg = AgentConfig(name="a/b")
+        (agents_dir / "legacy.json").write_text(json.dumps(cfg.model_dump()))
+
+        with caplog.at_level("WARNING", logger="the_one.db.migration"):
+            count = await migrate_json_to_sqlite(store)
+
+        assert count == 0
+        assert not await store.exists("a/b")
+        assert not await store.exists("legacy")
+        assert any("legacy" in r.getMessage() for r in caplog.records)
+
+    async def test_valid_body_is_stored_unchanged(self, setup) -> None:
+        store, agents_dir = setup
+        _write_json_config(agents_dir, "padded-ok", description="  keep  ")
+        assert await migrate_json_to_sqlite(store) == 1
+        assert (await store.load("padded-ok")).description == "  keep  "
+
+    async def test_mismatched_stem_is_not_resaved_on_second_run(self, setup) -> None:
+        store, agents_dir = setup
+        cfg = AgentConfig(name="body-name", description="from json")
+        (agents_dir / "other-stem.json").write_text(json.dumps(cfg.model_dump()))
+
+        assert await migrate_json_to_sqlite(store) == 1
+        await store.save(AgentConfig(name="body-name", description="edited later"))
+
+        assert await migrate_json_to_sqlite(store) == 0
+        assert (await store.load("body-name")).description == "edited later"
+
 
 class TestSchemaV7:
     """Tests for the v7 migration that strips removed tool names."""

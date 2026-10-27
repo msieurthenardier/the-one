@@ -808,7 +808,7 @@ class TestKnowledgeBaseRenameRewrite:
     async def test_rename_normalizing_to_same_slug_touches_no_agent(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # AC-10, case 2: "My Notes" and "My/Notes" both normalize to the
+        # AC-10, case 2: "My Notes" and "My_Notes" both normalize to the
         # same "My_Notes" slug — the raw name differs but the derived
         # tool name does not, so no agent should be touched either.
         kb_resp = await client.post("/api/knowledge-bases", json={"name": "My Notes"})
@@ -816,7 +816,7 @@ class TestKnowledgeBaseRenameRewrite:
         await client.post("/api/agents", json={"name": "slug-noop-agent", "kb_ids": [kb_id]})
 
         calls = await self._track_agent_store_calls(monkeypatch)
-        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "My/Notes"})
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "My_Notes"})
         assert resp.status_code == 200
         assert calls == []
 

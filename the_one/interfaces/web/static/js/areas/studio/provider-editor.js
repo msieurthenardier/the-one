@@ -117,6 +117,7 @@
       id: 'pf-name', value: isCreate ? '' : provider.name, placeholder: 'My Provider', dataset: { field: 'name' }
     }));
     h.name = App.ui.field({ label: 'Name', control: nameInput });
+    nameInput.addEventListener('input', function () { h.name.setError(null); });
 
     var typeOptions = [];
     if (isCreate) typeOptions.push({ value: '', label: 'Select a provider…', disabled: true });
@@ -309,9 +310,8 @@
     wirePlanSignIn(h, container, provider, performSave);
 
     // ── Cancel ──────────────────────────────────────────────────────
-    // Edit mode reverts in place; create mode delegates to onCancel (the
-    // orchestrator discards and returns to the page root), enabled from the first
-    // render so it runs on a pristine form too.
+    // Edit mode reverts in place; create mode delegates to onCancel (enabled from
+    // the first render, so it runs on a pristine form too).
     function onCancelClick() {
       if (isEdit) {
         var cancelTok = App.focusAfter.begin(h.shell.cancelButton);
@@ -326,6 +326,7 @@
           }
         }
         h.secret.setRevealed(false);
+        h.name.setError(null);
         checkDirty();
         App.focusAfter.restore(cancelTok, h.shell.titleEl);
       } else if (callbacks.onCancel) {
@@ -334,11 +335,9 @@
     }
 
     // ── Save ────────────────────────────────────────────────────────
-    // Factored into performSave so the create-mode plan sign-in button reuses the
-    // EXACT same path (validation, seed-before-overlay payload, error rendering).
+    // Factored into performSave so the plan sign-in button reuses the same path.
     // onCreateSuccess (optional) fires only on a successful CREATE and BEFORE
-    // onSaveSuccess, so the pendingAutoSignInId handoff is in place when the
-    // create-to-edit re-render mounts the new editor.
+    // onSaveSuccess, so the pendingAutoSignInId handoff is in place at the re-mount.
     var saving = false; // the plan sign-in button is outside the shell's busy state
     function busy(v) { saving = v; h.shell.setBusy(v); }
     function performSave(onCreateSuccess) {
@@ -350,7 +349,6 @@
       busy(true); // squawk 0236; a create stays busy: the remount replaces the shell
       var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
       var method = isEdit ? 'PUT' : 'POST';
-      // fetchJson flattens a 422 detail list to "field: message" (squawk 0112).
       App.api.fetchJson(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
@@ -388,10 +386,12 @@
         .catch(function (err) {
           // Keep the trace for DevTools; log the error only, never the payload.
           console.error('provider save failed', err);
-          h.shell.setError(err.message || String(err));
+          var fe = App.api.fieldErrors(err, ['name']);
+          h.name.setError(fe.fields.name || null); h.shell.setError(fe.text || '');
           busy(false);
           App.focusAfter.defer(null);
           App.focusAfter.restore(saveTok, h.shell.saveButton);
+          if (fe.fields.name) nameInput.focus();
         });
     }
 

@@ -63,7 +63,7 @@ def test_provider_create_422_is_flattened_in_the_error_area(app_clean: str, page
     page.locator("#pf-api-key").fill("sk-abc")
     page.locator(".save-btn").click()
     err = page.locator(".editor-error")
-    expect(err).to_contain_text("body.base_url: Field required", timeout=8000)
+    expect(err).to_contain_text("Field required", timeout=8000)
     expect(err).not_to_contain_text("[object Object]")
 
 

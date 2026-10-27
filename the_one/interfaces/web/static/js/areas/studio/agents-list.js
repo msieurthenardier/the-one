@@ -350,7 +350,7 @@
       // self-consistent) — what does NOT stay is saving from it. The
       // `.catch` records the failure in `freshAgentLoaded`, which becomes
       // `self._selectedAgentLoaded`; `renderEditor` then shows the
-      // load-failure affordance and `checkDirty`/`save` keep Save
+      // load-failure line in the editor header and `checkDirty`/`save` keep Save
       // disabled. Refusing the save is the fix rather than DD-4's
       // omit-the-field shape because `disabled_tools` has NO server-side
       // preserve-on-omit path (`update_agent` preserves only
@@ -379,6 +379,9 @@
         // self._selectedAgent (and the matching self._agents entry) and
         // render the FETCHED object, not the outer closure's `agent`, or
         // the union below silently keeps reading stale disabled_tools.
+        if (!freshAgentLoaded) {
+          App.ui.flash('Couldn’t load this agent’s settings.', { error: true });
+        }
         var freshAgent = results[3];
         self._selectedAgent = freshAgent;
         self._selectedAgentLoaded = freshAgentLoaded;

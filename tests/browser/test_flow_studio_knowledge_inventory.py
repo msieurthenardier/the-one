@@ -1777,7 +1777,7 @@ def test_focus_after_save_is_the_title_and_after_a_failed_save_is_save(
     name.fill("Focus KB 3")
     save.focus()
     page.keyboard.press("Enter")
-    expect(page.locator(_HEADER + " .editor-error")).to_have_text("boom", timeout=8000)
+    expect(page.locator(_HEADER + " .editor-error")).to_have_text("boom.", timeout=8000)
     expect(name).to_be_enabled()
     expect(save).to_be_enabled()
     expect(save).to_be_focused()

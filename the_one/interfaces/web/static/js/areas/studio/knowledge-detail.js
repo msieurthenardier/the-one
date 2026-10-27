@@ -91,6 +91,7 @@
       dataset: { field: 'name' },
       onInput: function () {
         refreshHint();
+        nameField.setError(null);
         shell.setError('');
         onValuesChanged();
       }
@@ -150,6 +151,7 @@
       nameInput.value = stored.name;
       descInput.value = stored.description || '';
       refreshHint();
+      nameField.setError(null);
       shell.setError('');
       onValuesChanged();
       App.focusAfter.restore(focusTok, shell.titleEl);
@@ -158,6 +160,7 @@
     function save() {
       if (!alive || busy) return;
       shell.setError('');
+      nameField.setError(null);
       // AC-7 (Leg 6, carried from L5-D2): an empty name is refused
       // client-side — no request sent — exactly as the create form's
       // empty-name refusal.
@@ -202,8 +205,11 @@
         busy = false;
         setInputsDisabled(false);
         shell.setBusy(false);
-        shell.setError((err && err.message) || String(err));
+        var fe = App.api.fieldErrors(err, ['name']);
+        nameField.setError(fe.fields.name || null);
+        shell.setError(fe.text || '');
         App.focusAfter.restore(saveTok, shell.saveButton);
+        if (fe.fields.name) nameInput.focus();
       });
     }
 

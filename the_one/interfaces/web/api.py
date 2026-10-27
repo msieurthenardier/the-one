@@ -103,6 +103,13 @@ from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
 from the_one.mcp._era import forget_era
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.naming import (
+    NAME_CONFLICT_AGENT,
+    SAME_AS_CURRENT,
+    NameRuleError,
+    check_name,
+    name_rule_detail,
+)
 from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
@@ -170,6 +177,18 @@ def _validation_detail(e: ValidationError) -> list[dict]:
     ``include_input=False``: ``input`` echoes the submitted value, secrets included.
     """
     return e.errors(include_context=False, include_input=False)
+
+
+def _checked_name(value: object) -> str:
+    """The trimmed name, or a list-shaped 422 on ``loc ["name"]`` (sortie 06 DD4, DD5)."""
+    try:
+        return check_name(value)
+    except NameRuleError as e:
+        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+
+
+def _name_conflict_detail(message: str) -> list[dict]:
+    return [{"type": "name_conflict", "loc": ["name"], "msg": message}]
 
 
 async def _agent_store() -> SQLiteAgentStore:
@@ -997,6 +1016,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     from the_one.agent.config import AgentConfig
 
     data = await _read_json(request)
+    data["name"] = _checked_name(data.get("name"))
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -1027,6 +1047,8 @@ async def create_agent(request: Request) -> dict[str, Any]:
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
     store = await _agent_store()
+    if await store.exists(cfg.name):
+        raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
     await store.save(cfg)
     return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
@@ -1136,20 +1158,17 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     both rows in a single transaction; this handler maps the store's
     exceptions to HTTP status codes.
 
-    Validation reuses :class:`AgentConfig`'s pydantic rules by loading
-    the existing agent, swapping its ``name`` field, and re-validating —
-    that way any future name constraints (length, charset, etc.) added
-    to ``AgentConfig`` apply here automatically without duplicating
-    rules at this surface.
+    The new name goes through :func:`the_one.naming.check_name` (the one
+    naming rule, kept off the models). The existing agent is then loaded,
+    its ``name`` swapped, and re-validated against :class:`AgentConfig`.
+    Name refusals are list-shaped on ``loc ["name"]``.
     """
     from the_one.agent.config import AgentConfig
 
     data = await _read_json(request)
-    new_name = (data.get("new_name") or "").strip()
-    if not new_name:
-        raise HTTPException(status_code=422, detail="new_name is required")
+    new_name = _checked_name(data.get("new_name"))
     if new_name == name:
-        raise HTTPException(status_code=422, detail="new_name must differ from current name")
+        raise HTTPException(status_code=422, detail=name_rule_detail(SAME_AS_CURRENT))
     store = await _agent_store()
     # Load existing agent first so AgentConfig validation runs against
     # the full payload (some fields may be required by Pydantic). If the
@@ -1172,7 +1191,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     except ValueError:
-        raise HTTPException(status_code=409, detail=f"Agent already exists: {new_name}")
+        raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
     # M21 F01 L02 (AC11): cascade the rename onto the agent's surface row
     # (if any) — updates its ownership marker and derived name. The row's
     # id (and therefore the credential registry, keyed on source id) is
@@ -1895,6 +1914,7 @@ async def get_knowledge_base(kb_id: str) -> dict[str, Any]:
 @router.post("/knowledge-bases", status_code=201)
 async def create_knowledge_base(request: Request) -> dict[str, Any]:
     data = await _read_json(request)
+    data["name"] = _checked_name(data.get("name"))
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
@@ -1934,62 +1954,22 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
     try:
         merged = existing.model_dump()
         merged.update(data)
+        if "name" in data:
+            merged["name"] = _checked_name(merged["name"])
         updated = KnowledgeBase.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))
     await repo.update(updated)
 
     # L2-D7/L2-D9: the agent rewrite happens AFTER the knowledge-base row
-    # has committed (write_transaction raises on re-entry by the same
-    # task, so this can never be one atomic unit with the write above).
-    # First early return (L2-D9): the raw name is unchanged — most PUTs
-    # touch only description/etc., and every one of those must not load
-    # and re-save every attached agent for nothing.
+    # has committed (write_transaction raises on re-entry by the same task,
+    # so this can never be one atomic unit with the write above). Most PUTs
+    # touch only description/etc. and must not load and re-save every
+    # attached agent, hence the raw-name check here and the slug check inside.
     if existing.name != updated.name:
-        # Local imports: both cross into agent-config-adjacent territory
-        # (`compute_tool_names` pulls in `AgentConfig` at its own module
-        # level) — mirrors this module's established lazy-import
-        # convention for anything AgentConfig-adjacent (see the
-        # TYPE_CHECKING note near the top of this file).
-        from the_one.knowledge.kb_rename import rename_kb_tool_references
-        from the_one.knowledge.tool_provider import compute_tool_names
+        from the_one.knowledge.kb_rename import carry_kb_rename
 
-        # Both derived names depend only on (name, kb_id) — DD-17 — so
-        # they're computed from `existing`/`updated` alone, with no other
-        # knowledge base's set membership involved. `agent_name` here is
-        # a log-message label, not an actual agent: this call is not
-        # scoped to one.
-        old_tool_name = compute_tool_names([existing], agent_name="(kb-rename)")[kb_id]
-        new_tool_name = compute_tool_names([updated], agent_name="(kb-rename)")[kb_id]
-        # Second early return (L2-D9): two different raw names can
-        # normalize to the same derived slug (`My Notes` / `My/Notes`
-        # both -> `My_Notes`) — skip the agent rewrite when nothing
-        # actually moved.
-        if old_tool_name != new_tool_name:
-            # Phase 2d review fix: acquiring the agent store is the one
-            # step in this path that happens BEFORE `rename_kb_tool_references`
-            # is even entered, so its own try/except (AC-12) can't cover a
-            # failure here — without this guard, a DB error at this line
-            # would raise past this endpoint as an unhandled 500 *after*
-            # the knowledge-base row above has already committed, with no
-            # WARNING at all. Match the same fail-open shape: log and
-            # move on rather than raise.
-            try:
-                agent_store = await _agent_store()
-            except Exception:
-                logger.warning(
-                    "knowledge base %r rename: failed to acquire the agent "
-                    "store to rewrite disabled_tools entry %r -> %r; the "
-                    "knowledge base has already been renamed, but no agent "
-                    "could be examined, so disabled_tools entries may still "
-                    "reference the old tool name",
-                    kb_id,
-                    old_tool_name,
-                    new_tool_name,
-                    exc_info=True,
-                )
-            else:
-                await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)
+        await carry_kb_rename(existing, updated, get_agent_store=_agent_store)
     return updated.model_dump()
 
 
@@ -3097,6 +3077,7 @@ async def get_mcp_source(source_id: str) -> dict[str, Any]:
 @router.post("/mcp-sources", status_code=201)
 async def create_mcp_source(request: Request) -> dict[str, Any]:
     data = await _read_json(request)
+    data["name"] = _checked_name(data.get("name"))
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
@@ -3230,6 +3211,8 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
     try:
         merged = existing.model_dump()
         merged.update(data)
+        if "name" in data:
+            merged["name"] = _checked_name(merged["name"])
         updated = MCPSource.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))
@@ -3257,6 +3240,28 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         updated = updated.model_copy(update={"config": new_config})
     await repo.update(updated)
     forget_era(source_id)
+    # DD8: the rename carries into the attached agents' overrides and
+    # disabled tools. Runs after the row commit (write_transaction cannot
+    # nest); acquiring the store is guarded like update_knowledge_base's so
+    # a failure here is a WARNING, never a 500 after the rename committed.
+    if existing.name != updated.name:
+        from the_one.mcp.rename_references import carry_mcp_rename
+
+        try:
+            agent_store = await _agent_store()
+        except Exception:
+            logger.warning(
+                "MCP source %r rename: failed to acquire the agent store to carry "
+                "the rename; the source has already been renamed, but no agent "
+                "could be examined, so overrides and disabled_tools may still "
+                "reference the old name",
+                source_id,
+                exc_info=True,
+            )
+        else:
+            await carry_mcp_rename(
+                source_id, existing.name, updated.name, agent_store=agent_store, mcp_repo=repo
+            )
     return _mcp_source_response(updated)
 
 
@@ -5487,6 +5492,7 @@ async def create_provider(request: Request) -> dict[str, Any]:
             status_code=400,
             detail="Mock provider type requires THE_ONE_DEV_MODE=true",
         )
+    data["name"] = _checked_name(data.get("name"))
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     # DD-2 create direction: secrets are OAuth-managed — force-empty
@@ -5563,6 +5569,8 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
     try:
         merged = existing.model_dump()
         merged.update(data)
+        if "name" in data:
+            merged["name"] = _checked_name(merged["name"])
         updated = LLMProviderConfig.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))

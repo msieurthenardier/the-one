@@ -41,6 +41,7 @@ surface as a 500 after the knowledge-base row has already been renamed.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -136,3 +137,60 @@ async def rename_kb_tool_references(
             )
             failed.append(agent_name)
     return failed
+
+
+async def carry_kb_rename(
+    existing,  # KnowledgeBase before the rename
+    updated,  # KnowledgeBase after the rename
+    *,
+    get_agent_store: Callable[[], Awaitable],
+) -> None:
+    """Carry a knowledge-base rename into attached agents' ``disabled_tools``
+    (L2-D7/L2-D9); the caller has already committed the row.
+
+    Both derived names depend only on ``(name, kb_id)`` (DD-17), so they are
+    computed from ``existing``/``updated`` alone, with no other knowledge
+    base's set membership involved. Returns without touching any agent (or
+    acquiring the store) when the derived slug did not move: two different raw
+    names can normalise to the same slug (``My Notes`` / ``My/Notes`` both ->
+    ``My_Notes``). ``get_agent_store`` is called at call time, inside the
+    acquisition guard, so a failure there is a WARNING (never a 500 after the
+    row committed) and the fail-open shape matches the rewrite's.
+    """
+    # Local import: compute_tool_names pulls in AgentConfig at its own module
+    # level, so keep it out of this module's import closure.
+    from the_one.knowledge.tool_provider import compute_tool_names
+
+    kb_id = updated.id
+    # `agent_name` is a log-message label, not an actual agent: this call is
+    # not scoped to one.
+    try:
+        old_tool_name = compute_tool_names([existing], agent_name="(kb-rename)")[kb_id]
+        new_tool_name = compute_tool_names([updated], agent_name="(kb-rename)")[kb_id]
+    except Exception:
+        logger.warning(
+            "knowledge base %r rename: failed to compute the derived tool names; "
+            "the knowledge base has already been renamed, but disabled_tools "
+            "entries were not examined and may reference the old tool name",
+            kb_id,
+            exc_info=True,
+        )
+        return
+    if old_tool_name == new_tool_name:
+        return
+    try:
+        agent_store = await get_agent_store()
+    except Exception:
+        logger.warning(
+            "knowledge base %r rename: failed to acquire the agent "
+            "store to rewrite disabled_tools entry %r -> %r; the "
+            "knowledge base has already been renamed, but no agent "
+            "could be examined, so disabled_tools entries may still "
+            "reference the old tool name",
+            kb_id,
+            old_tool_name,
+            new_tool_name,
+            exc_info=True,
+        )
+        return
+    await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)

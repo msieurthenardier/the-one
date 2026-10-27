@@ -800,15 +800,6 @@
   }
   .area-studio .agent-knowledge-row-tool-name-placeholder { font-style: italic; }
 
-  /* === Studio Agent Editor: fresh-agent load failure (squawk 0090) === */
-  /* Same treatment as the Knowledge tab's load-failure line above, one
-     level up: it speaks for the whole editor, not a single tab. */
-  .area-studio .agent-load-error {
-    font-size: var(--font-size-body-sm);
-    color: var(--status-danger);
-    padding: 8px 0;
-  }
-
 /* === Start pages (M25 F6 leg 4c, DD15): the Agents and Library roots === */
 .area-studio .studio-section-content > .start-page-title,
 .area-studio .studio-section-content > .start-page {

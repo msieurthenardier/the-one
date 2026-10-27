@@ -5,16 +5,18 @@
 //
 //   <div class="editor-header">            App.ui.editorShell (breadcrumb, title,
 //                                          subtitle, Chat as `extra`, Cancel, Save)
-//   <div class="agent-load-error">         the squawk-0090 affordance (a frame node,
-//                                          shown or hidden, never inserted afterwards)
 //   <div role="tablist" class="tablist">   App.ui.tabs (split: true, so the tablist
 //   <div class="tabpanels">                and the panels are direct children, as before)
+//
+// A failed load of the agent's current configuration (squawk 0090) is a line in the
+// header's error slot (setLoadError) carrying the testid agent-load-error, present
+// only while the load has failed; Save stays disabled.
 //
 // Tab ids are agent-tab-{id} and panel ids agent-tab-panel-{id}. The six tabs keep
 // their builders (renderGeneralTab ... renderSelfConfigurationTab), each called into
 // its panel.
 //
-// handle: { shell, tabs, loadErrorEl, key, patch(agent, providers, callbacks, loaded),
+// handle: { shell, tabs, key, patch(agent, providers, callbacks, loaded),
 //           panelContainer(id), destroy() }.
 //   patch(...) is the same-identity update: it sets the shell title, subtitle and
 //   Chat visibility, updates the load-error node, patches General through its
@@ -51,9 +53,8 @@
   var PANEL_IDS = {};
   TAB_ITEMS.forEach(function (item) { PANEL_IDS[item.id] = 'agent-tab-panel-' + item.id; });
 
-  var LOAD_ERROR_TEXT =
-    'Couldn’t load this agent’s current configuration. The fields below may be ' +
-    'out of date, so saving is disabled. Go back and reopen the agent to retry.';
+  var LOAD_ERROR_LINE =
+    'Save is off because this agent’s settings didn’t load. Reopen the agent to try again.';
 
   // The per-tab entry functions, each called into its (cleared) panel.
   function buildPanel(id, panel, agent, providers, cb) {
@@ -136,7 +137,7 @@
     callbacks = callbacks || {};
     var ui = window.App.ui;
     var isCreate = !agent;
-    var h = { key: null, shell: null, tabs: null, loadErrorEl: null, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, selfConfig: null };
+    var h = { key: null, shell: null, tabs: null, loadFailed: false, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, selfConfig: null };
 
     function chatTarget(a) { return a ? (a.name || '') : ''; }
 
@@ -186,15 +187,6 @@
       }
     });
 
-    // The squawk-0090 load-failure node: a frame node above the tabs, shown by
-    // setLoadError(true). Plain textContent.
-    h.loadErrorEl = document.createElement('div');
-    h.loadErrorEl.className = 'agent-load-error';
-    h.loadErrorEl.setAttribute('data-testid', 'agent-load-error');
-    h.loadErrorEl.setAttribute('role', 'status');
-    h.loadErrorEl.textContent = LOAD_ERROR_TEXT;
-    h.loadErrorEl.hidden = true;
-
     var items = TAB_ITEMS.map(function (item) {
       return { id: item.id, label: item.label, testid: 'tab-' + item.id };
     });
@@ -210,12 +202,33 @@
 
     clearNode(container);
     container.appendChild(h.shell.el);
-    container.appendChild(h.loadErrorEl);
     container.appendChild(h.tabs.tablist);
     container.appendChild(h.tabs.panels);
 
+    // The load-failure line lives in the header's error slot. It acts only on a
+    // change of state, so a patch neither re-announces the line nor erases a save
+    // error the operator is reading.
     function setLoadError(on) {
-      h.loadErrorEl.hidden = !on;
+      on = !!on;
+      if (on === h.loadFailed) return;
+      h.loadFailed = on;
+      h.shell.setError(on ? LOAD_ERROR_LINE : null);
+      if (on) h.shell.errorEl.setAttribute('data-testid', 'agent-load-error');
+      else h.shell.errorEl.removeAttribute('data-testid');
+      // Tie the disabled Save to its only explanation (WCAG 1.3.1/3.3.1); add or
+      // remove just this token so any other description survives.
+      var errId = h.shell.errorEl.id;
+      if (!errId) {
+        errId = 'agent-editor-header-error';
+        h.shell.errorEl.id = errId;
+      }
+      var btn = h.shell.saveButton;
+      var toks = (btn.getAttribute('aria-describedby') || '').split(/\s+/).filter(function (t) {
+        return t && t !== errId;
+      });
+      if (on) toks.push(errId);
+      if (toks.length) btn.setAttribute('aria-describedby', toks.join(' '));
+      else btn.removeAttribute('aria-describedby');
     }
 
     // Build the content of the panels, each into its cleared panel, from the given

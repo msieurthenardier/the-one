@@ -705,8 +705,8 @@ def test_failed_agent_fetch_refuses_save_instead_of_reemitting_stale_disabled_to
     # `checkDirty` and re-disables the button between mousedown and mouseup
     # — so the browser never dispatches the click at all.
     save_btn.evaluate("(el) => { el.disabled = false; el.click(); }")
-    expect(page.locator(".studio-editor .editor-error")).to_contain_text(
-        "failed to load", timeout=5000
+    expect(page.locator('[data-testid="agent-load-error"]')).to_contain_text(
+        "Save is off because this agent", timeout=5000
     )
 
     assert put_bodies == [], f"no PUT may be sent from a stale agent, got {put_bodies!r}"

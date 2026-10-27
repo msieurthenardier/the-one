@@ -63,6 +63,7 @@ from the_one.db.connection import get_connection
 from the_one.db.key_reconcile import reconcile_pending_key
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
+from the_one.db.name_repair import repair_unsafe_names
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     ChatSessionRepository,
@@ -291,6 +292,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info("encryption key sidecar reconciled at startup: %s", _reconcile_outcome)
         store = SQLiteAgentStore(conn)
         await migrate_json_to_sqlite(store)
+        _self_configuration_mcp_repo = MCPSourceRepository(conn, get_encryptor(settings.data_dir))
+        # Sortie 06 DD11: rename stored names that break the naming rule, through
+        # the rename paths that carry their references. After the key reconcile and
+        # the JSON import, before the surface reconcile below; never blocks startup.
+        try:
+            await repair_unsafe_names(
+                conn,
+                agent_store=store,
+                mcp_repo=_self_configuration_mcp_repo,
+                kb_repo=KnowledgeBaseRepository(conn),
+            )
+        except Exception:
+            logger.warning("startup name repair failed; continuing", exc_info=True)
         # M21 F01 L02: register the self-configuration credential source behind
         # the Mission 20 gate seam, then reconcile every marked MCP-source row
         # against the CURRENT settings.port (LD3) and load their credentials
@@ -300,7 +314,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # template row to the constant name, migrating its owner's
         # `mcp_overrides` key along with it — needs `store` for that.
         register_credential_source_once()
-        _self_configuration_mcp_repo = MCPSourceRepository(conn, get_encryptor(settings.data_dir))
         await _self_configuration_manage.reconcile_on_startup(_self_configuration_mcp_repo, store)
         # M21 F03 L01 (DD1/DD8): register the EXTERNAL credential source on the
         # same gate seam and rebuild its in-memory registry from the store —
