@@ -21,14 +21,14 @@ OWNERSHIP_ALLOWANCE: dict[tuple[str, str], int] = {
     ("css/studio.css", "tabpanel"): 1,
     ("css/studio.css", "ui-list-pane"): 2,
     ("js/areas/chat.js", "api:App.confirmDelete("): 1,
-    ("js/areas/chat.js", "api:App.consentLink."): 4,
-    ("js/areas/chat.js", "btn-filled-primary"): 1,
-    ("js/areas/chat.js", "chip"): 1,
     ("js/areas/chat.js", "confirm-delete"): 2,
-    ("js/areas/chat.js", "consent-link"): 1,
     ("js/areas/chat/agent-drawer.js", "badge"): 2,
     ("js/areas/chat/agent-picker.js", "modal-dialog-footer-end"): 1,
+    ("js/areas/chat/attachments.js", "chip"): 1,
     ("js/areas/chat/chat-pane.js", "badge"): 2,
+    ("js/areas/chat/sign-in.js", "api:App.consentLink."): 4,
+    ("js/areas/chat/sign-in.js", "btn-filled-primary"): 1,
+    ("js/areas/chat/sign-in.js", "consent-link"): 1,
     ("js/icons.js", "api:App.icon("): 1,
     ("js/icons.js", "api:App.iconNode("): 1,
     ("js/markdown.js", "api:App.icon("): 1,
@@ -50,7 +50,7 @@ class OwnershipMove(NamedTuple):
     retire_by: str
 
 
-# Keys of ``OWNERSHIP_ALLOWANCE`` as of M31 F5 L01. A row outside this set is a NEW row and
+# Keys of ``OWNERSHIP_ALLOWANCE`` as of M31 F6 L01. A row outside this set is a NEW row and
 # needs ``MOVES`` entries (a split is the only sanctioned way to create one).
 START_ROWS: frozenset[tuple[str, str]] = frozenset(
     {
@@ -62,20 +62,10 @@ START_ROWS: frozenset[tuple[str, str]] = frozenset(
         ("css/chat.css", "ui-search-list-empty"),
         ("css/chat.css", "ui-search-list-field"),
         ("css/chat.css", "ui-search-list-listbox"),
-        ("css/studio.css", "chip"),
-        ("css/studio.css", "chip-list-editor"),
-        ("css/studio.css", "chip-list-input"),
         ("css/studio.css", "editor-section"),
-        ("css/studio.css", "field-info-icon"),
         ("css/studio.css", "field-input"),
-        ("css/studio.css", "indicator-led"),
         ("css/studio.css", "tabpanel"),
-        ("css/studio.css", "ui-chip-list"),
-        ("css/studio.css", "ui-chip-list-input"),
         ("css/studio.css", "ui-list-pane"),
-        ("js/areas/admin/tools-form-helpers.js", "chip"),
-        ("js/areas/admin/tools-form-helpers.js", "chip-list-editor"),
-        ("js/areas/admin/tools-form-helpers.js", "chip-list-input"),
         ("js/areas/chat.js", "api:App.confirmDelete("),
         ("js/areas/chat.js", "api:App.consentLink."),
         ("js/areas/chat.js", "btn-filled-primary"),
@@ -85,37 +75,6 @@ START_ROWS: frozenset[tuple[str, str]] = frozenset(
         ("js/areas/chat/agent-drawer.js", "badge"),
         ("js/areas/chat/agent-picker.js", "modal-dialog-footer-end"),
         ("js/areas/chat/chat-pane.js", "badge"),
-        ("js/areas/studio/mcp-server-editor.js", "api-key-eye"),
-        ("js/areas/studio/mcp-server-editor.js", "api-key-wrap"),
-        ("js/areas/studio/mcp-server-editor.js", "api:App.confirmDelete("),
-        ("js/areas/studio/mcp-server-editor.js", "api:App.consentLink."),
-        ("js/areas/studio/mcp-server-editor.js", "api:App.icon("),
-        ("js/areas/studio/mcp-server-editor.js", "api:App.showFlash("),
-        ("js/areas/studio/mcp-server-editor.js", "btn-filled-primary"),
-        ("js/areas/studio/mcp-server-editor.js", "btn-muted-destructive"),
-        ("js/areas/studio/mcp-server-editor.js", "btn-outlined-primary"),
-        ("js/areas/studio/mcp-server-editor.js", "chip-list-editor"),
-        ("js/areas/studio/mcp-server-editor.js", "chip-list-input"),
-        ("js/areas/studio/mcp-server-editor.js", "danger-zone"),
-        ("js/areas/studio/mcp-server-editor.js", "danger-zone-title"),
-        ("js/areas/studio/mcp-server-editor.js", "delete-btn"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-breadcrumb"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-breadcrumb-link"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-error"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-header"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-header-text"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-section"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-subtitle"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-title"),
-        ("js/areas/studio/mcp-server-editor.js", "editor-unsaved"),
-        ("js/areas/studio/mcp-server-editor.js", "field-group"),
-        ("js/areas/studio/mcp-server-editor.js", "field-info-icon"),
-        ("js/areas/studio/mcp-server-editor.js", "field-input"),
-        ("js/areas/studio/mcp-server-editor.js", "field-select"),
-        ("js/areas/studio/mcp-server-editor.js", "form-actions"),
-        ("js/areas/studio/mcp-server-editor.js", "indicator-led"),
-        ("js/areas/studio/mcp-server-editor.js", "indicator-led--success"),
-        ("js/areas/studio/mcp-server-editor.js", "section-title"),
         ("js/icons.js", "api:App.icon("),
         ("js/icons.js", "api:App.iconNode("),
         ("js/markdown.js", "api:App.icon("),
@@ -123,7 +82,13 @@ START_ROWS: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-MOVES: list[OwnershipMove] = []
+MOVES: list[OwnershipMove] = [
+    # M31 F6 L02: the chat.js split (DD3); the uses move verbatim, then each leg below retires them.
+    OwnershipMove("api:App.consentLink.", "js/areas/chat.js", "js/areas/chat/sign-in.js", 4, "05b"),
+    OwnershipMove("consent-link", "js/areas/chat.js", "js/areas/chat/sign-in.js", 1, "05b"),
+    OwnershipMove("btn-filled-primary", "js/areas/chat.js", "js/areas/chat/sign-in.js", 1, "05b"),
+    OwnershipMove("chip", "js/areas/chat.js", "js/areas/chat/attachments.js", 1, "05a"),
+]
 
 # Exact total of every key across every file, measured at M31 F5 L01. A key absent here counts 0.
 # Lower it in the same change that removes uses; never raise it without a flight-log reason.

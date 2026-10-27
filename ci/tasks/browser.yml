@@ -8,7 +8,7 @@
 # CI TIME IS UNMEASURED: no browser task has completed under CI. The first
 # post-merge pipeline build is the measurement (ci/README.md, "Measured times").
 # Local reference: the lanes sum to ~2240 s sequential for the first eight (flight log, Leg 4); providers joined in sortie 02 and `contracts` split into
-# contracts-overlay and contracts-controls in M31 F3 L01 and `knowledge` split from `library` in M31 F3 L09 and `settings` split into `settings` and `settings-tools` in M31 F4 L11 (thirteen canonical lanes now).
+# contracts-overlay and contracts-controls in M31 F3 L01 and `knowledge` split from `library` in M31 F3 L09 and `settings` split into `settings` and `settings-tools` in M31 F4 L11 and `chats` split into `chats` and `chats-transcript` and `mcp` into `mcp` and `mcp-connection` in M31 F6 L01 (fifteen canonical lanes now).
 #
 # WebKit: this task installs chromium AND webkit and sets THE_ONE_REQUIRE_WEBKIT=1
 # (an unlaunchable WebKit FAILS instead of skipping), because the `contracts-*` lanes

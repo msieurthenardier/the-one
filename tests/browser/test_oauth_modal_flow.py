@@ -158,6 +158,9 @@ def test_button_click_opens_popup_with_window_open_features(
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Stubbed for consistency (squawk 0249): this test only reads the synchronous window.open
+    # call, so it cannot race the real 404 answer, but an unstubbed click is the same hazard.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {
@@ -196,6 +199,10 @@ def test_second_auth_required_event_navigates_popup_to_consent_url(
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Squawk 0249: without this stub the click's real POST /api/oauth/start answers 404 for
+    # the made-up source, and abandon() closes and drops the popup; when that 404 beat the
+    # second frame below, the popup was never navigated.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {
@@ -249,6 +256,9 @@ def test_popup_closes_on_auth_resolved_event(app_with_agent: SeededApp, page: Pa
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Squawk 0249: with the real 404 answering, abandon() closes the popup anyway, so this
+    # test could not tell auth_resolved's close from abandon()'s. The stub makes it mean it.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {

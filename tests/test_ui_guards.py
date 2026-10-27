@@ -115,9 +115,7 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
 #    A clear becomes ``replaceChildren()``; the mission's target is zero in every
 #    file. Lower a count in the same change that removes a sink; never raise one
 #    without a flight-log reason. A sink moved by a file split is a row change.
-HTML_SINK_ALLOWANCE: dict[str, int] = {
-    "areas/chat.js": 5,
-}
+HTML_SINK_ALLOWANCE: dict[str, int] = {}
 
 # ── The move rule for the sink tables (M31 F5 L01, DD2) ─────────────────────
 #    A file split moves sinks between files; the exact per-file test cannot tell a move from
@@ -141,11 +139,11 @@ class SnippetMove(NamedTuple):
 
 # The sum of HTML_SINK_ALLOWANCE, exact: lower it with each removal, never raise it without a
 # flight-log reason.
-SINK_TOTAL = 5
+SINK_TOTAL = 0
 # The files that held an HTML_SINK_ALLOWANCE row / a DYNAMIC_SINK_BASELINE entry at the
 # flight's start. A file key outside these is new and needs SINK_MOVES / SNIPPET_MOVES entries.
-SINK_START_FILES: frozenset[str] = frozenset({"areas/chat.js", "areas/studio/mcp-server-editor.js"})
-SNIPPET_START_FILES: frozenset[str] = frozenset({"areas/studio/mcp-server-editor.js"})
+SINK_START_FILES: frozenset[str] = frozenset()
+SNIPPET_START_FILES: frozenset[str] = frozenset()
 
 SINK_MOVES: list[SinkMove] = []
 SNIPPET_MOVES: list[SnippetMove] = []
@@ -509,23 +507,17 @@ def test_html_sink_count_matches_allowance() -> None:
 
 
 def test_chat_area_has_no_baselined_sink() -> None:
-    """M25 F4 L4b (AC8): the chat area is built with DOM APIs.  The baseline
-    holds no ``areas/chat*`` entry, no chat file has a dynamic sink, and the
-    only static sites left are ``= ''`` clears (the model-loading row and the
-    thinking indicator, two static literals, were converted too)."""
+    """M31 F6 L01: the chat area holds no HTML-string sink of any kind. The baseline has no
+    ``areas/chat*`` entry, no chat file has a dynamic sink, and no static one either: the
+    ``= ''`` clears became ``replaceChildren()`` (or were already redundant)."""
     assert not [rel for rel in DYNAMIC_SINK_BASELINE if rel.startswith("areas/chat")]
     dynamic, static = classify_sinks()
     assert not [rel for rel in dynamic if rel.startswith("areas/chat")], {
         rel: dynamic[rel] for rel in dynamic if rel.startswith("areas/chat")
     }
-    literals = [
-        (rel, snippet)
-        for rel, snippets in static.items()
-        if rel.startswith("areas/chat")
-        for snippet in snippets
-        if not snippet.endswith("= '';")
-    ]
-    assert literals == [], literals
+    assert not [rel for rel in static if rel.startswith("areas/chat")], {
+        rel: static[rel] for rel in static if rel.startswith("areas/chat")
+    }
 
 
 # ── Field label-association guards (M17 F5 L1) ───────────────────────────────

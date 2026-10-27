@@ -322,7 +322,7 @@ def test_retention_days_input_renders_above_max_iterations(
     - [data-field="chat_history_retention_days"] is visible with the correct
       id, type, min, and max attributes.
     - The retention input precedes [data-field="max_iterations"] in DOM order
-      (compareDocumentPosition idiom — see test_flow_studio_mcp_editor.py).
+      (compareDocumentPosition idiom — see test_flow_studio_mcp_editor_status.py).
     """
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
