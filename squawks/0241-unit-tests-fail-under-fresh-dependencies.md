@@ -20,6 +20,11 @@ The next fresh install, CI image rebuild or new developer machine will hit the s
 - Example version deltas noted at the time: MarkupSafe, cffi, chardet, click. The full delta was not kept.
 - Recorded in `sorties/05-live-chats/flight-log.md` ("Anomaly: worktree venv dependency drift") and `sorties/05-live-chats/flight-debrief.md` (recommendation 1).
 
+### Sortie 06 evidence (2026-10-26/27)
+- A fresh worktree venv (`pip install -e ".[all-llms,dev]"` on 2026-10-26) failed 10 unit tests at base `2e82aaa`: the four files above (`test_vector_store` intermittently, either `usearch-f16` or `usearch-i8`) plus `tests/test_desktop_host.py` (3: GTK/WebKit present/missing).
+- It also fails the browser test `tests/browser/test_flow_studio_knowledge_inventory.py::test_detail_view_indexing_poll_reindex_and_search[chromium]` ("indexed: 2", expected 3, line 517) — reproduced on the **base code** with that venv, passing with the main checkout's venv. Pinning `usearch` to the main venv's 2.26.4 did not fix it, so the cause is elsewhere in the resolved set.
+- Record: `sorties/06-safe-names/flight-log.md` (Flight Director Notes, Anomalies) and `flight-debrief.md` (recommendation 1). The browser failure makes this squawk's "four files pass" done-condition incomplete: add the knowledge test to it.
+
 ## Corrective Action
 *(written at completion)*
 

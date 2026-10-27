@@ -1,6 +1,6 @@
 # Sortie: Safe names
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
