@@ -191,8 +191,8 @@
 
     // ── Header, body, footer (built once; render patches or refills) ───
     var nameEl = el('h2', { className: 'chat-drawer-name' });
-    var badge = el('span', { className: 'badge badge--unknown', hidden: true });
-    var head = el('div', { className: 'chat-drawer-head' }, [nameEl, badge]);
+    var badge = App.ui.badge.live({ kind: 'unknown' });
+    var head = el('div', { className: 'chat-drawer-head' }, [nameEl, badge.el]);
     var content = el('div', { className: 'chat-drawer-content' });
     var settingsBtn = App.ui.button({
       variant: 'secondary',
@@ -209,6 +209,7 @@
       heading: head,
       body: content,
       footer: settingsBtn,
+      reserveHeaderEnd: true, // room for the header's drawer toggle over the overlay
       testid: 'chat-drawer',
       onOpenChange: function (open) {
         // apply() opens and closes for visibility; only a change from inside
@@ -381,7 +382,7 @@
     function noteItem(n) {
       var headKids = [];
       if (n.untrusted) {
-        var flag = App.noteFlag(arr(n.untrusted_sources));
+        var flag = App.ui.noteFlag({ sources: arr(n.untrusted_sources) });
         flag.setAttribute('data-testid', 'chat-drawer-notes-flag');
         headKids.push(flag);
       }
@@ -598,9 +599,7 @@
       nameEl.textContent = name;
       nameEl.hidden = !name;
       var kind = type && App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
-      badge.className = 'badge badge--' + kind;
-      badge.textContent = type || '';
-      badge.hidden = !type;
+      badge.set({ kind: kind, text: type || '' });
       footerEl.hidden = info.kind !== 'agent';
     }
 

@@ -27,6 +27,22 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
+def test_mcp_created_toast_survives_the_remount(app_clean: str, page: Page) -> None:
+    """DD5: the toast belongs to the page, so the create -> edit remount cannot take it."""
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    page.locator('[data-field="name"]').fill("toast-mcp")
+    page.locator('[data-field="type"]').select_option("stdio")
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
+    page.locator('[data-field="command"]').fill("echo")
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+    page.wait_for_timeout(200)
+    expect(page.locator(".app-flash")).to_have_text("MCP server created")
+    expect(page.locator(".app-flash")).to_be_visible()
+
+
+@pytest.mark.browser
 def test_create_stdio_source(app_clean: str, page: Page) -> None:
     """Fill the create form for a stdio source, save, see it in the Library list."""
     _nav.goto_settled(page, app_clean, "library/mcp/~new")

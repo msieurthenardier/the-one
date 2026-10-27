@@ -1,6 +1,6 @@
 # Leg: chat-controls
 
-**Status**: planning
+**Status**: ready
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 
 ## Objective
@@ -42,14 +42,14 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
   - the trace summary takes a chevron icon and a "Tool activity · {n}" label;
   - the message takes a `chip` for "Operator only".
 
-  The consumer leg chooses the approved values.
+  The consumer leg chooses the approved values. **Every option that changes the look defaults to today's look** (design review), so the parity check compares like with like.
 - **The `contracts-chat` lane** (DD15) is created in this leg with its first file. Its files are subtracted from `contracts-controls`' complement and added to the `contracts` alias. It runs under `THE_ONE_REQUIRE_WEBKIT=1`. Its bookkeeping is the same set as leg 01's:
   - `scripts/run-tests.sh`: `LANE_LIST`, `CANON_LANES`, `BUDGET`, the pattern, `resolve_lane`, the `contracts` alias and the help text;
   - `tests/test_run_tests_lanes.py`: the `LANES` tuple, the hard-coded lane string and a by-file test;
   - CLAUDE.md: the bullets, the counts (sixteen lanes, fifteen named) and the table;
   - `the_one/agents.md`'s lane summary, and the `ci/tasks/browser.yml` comment.
 
-  Its budget is provisional, from this leg's own solo `--lane` timing ×2 (marked provisional in both tables), and is re-measured at 09b.
+  Its budget is a **provisional 300 s** in both tables. A solo `--lane` run cannot set a budget (the quiet-host rule, squawk 0259), so the provisional figure stands until the quiet-host run at 09b replaces it by the measured-plus-25% rule.
 
 ## Inputs
 - Batch B2 (legs 03a-03c) landed and committed: `App.ui.badge.live`, the copy confirmation (`App.ui.button.setIcon`), `App.ui.noteFlag`, the flash contract, the chip `lead` / `onRemove` and the confirm `onArmChange`.
@@ -95,6 +95,7 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
   - a new **Notice** row.
 
   Each lists its options, its handle, its states and every owned class and modifier by name.
+- **Testids are caller-supplied only.** `find_testid_value_violations` (`tests/_ui_guard_helpers.py:151`) requires a `testid:` value in `js/ui` to be a forwarded identifier, so no factory has a literal default such as `'message'`. The contract tests pass the literals from Python, and leg 05 passes today's literals.
 - **Contract tests,** one file per control, `tests/browser/test_ui_<name>_contract.py`, parametrized over both engines through `engine_page`. Each covers:
   - roles and names;
   - tab order and keyboard;
@@ -159,3 +160,76 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
 
 ## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.
+
+## Design Review Amendments (cycle 1, 2026-10-27; these take precedence over the Outputs above)
+- **The composer's send semantics:**
+  - Enter (without Shift, outside an IME composition) calls `onSend(rawValue)` whenever the input is enabled, **whether or not the composer is busy**. A busy Enter is how a message is held in the one-slot queue; only the Send button is disabled while busy.
+  - `onSend` fires for empty or whitespace text too (an image-only send); the area decides.
+  - **The control never clears the input.** The area clears it with `setValue('')` only on success, so a guarded return (idle, joining, a closed socket) keeps the text.
+  - The Send button's click calls the same `onSend(getValue())`.
+  - **Busy and blocked compose:** Send's disabled state is `blocked || busy` (today's `chat.js:373`), so clearing `blocked` while busy leaves Send disabled.
+  - `setBlocked` also disables Attach (B13, approved), a deliberate change from today's `applyComposerState`.
+  - **Attach:** the button's click calls `onAttach()`; the area owns the busy and blocked guard and calls `composer.openFilePicker()`. The hidden file input keeps `aria-label` "Attach images" (`attachLabel`, squawk 0110), and its `change` calls `onFiles(files)`.
+  - **Slots:** the attachments slot keeps today's inline `style.display` pattern and its visually hidden `aria-live` status node. The queued and telemetry slots toggle `hidden`, so no `ui-composer-*` rule sets a `display` that would defeat the global `[hidden]` reset.
+  - `fit()` keeps today's `box.style.minHeight` hold, which stops a pinned log drifting per keystroke, and is a no-op while disconnected. `setValue` calls `fit()`. No width cap is invented (DD16).
+  - **Contract cases:** Enter while busy, Enter with empty text, blocked then unblocked while busy, and an attach click calling `onAttach` and never the picker directly.
+- **The message's streaming contract:**
+  - `App.ui.message({…, streaming: true})` creates an explicit empty tail text node as the bubble's `lastChild`, after any operator marker or peer label.
+  - `appendText(s)` is `tail.nodeValue += s`; `tail()` returns the tail **string**.
+  - `commit(fragment, consumed)`: if the fragment is null or has no `firstChild`, do nothing and consume nothing; otherwise insert it before the tail and cut `consumed` characters from the tail's start.
+  - `finalize(fragment|null)` removes the tail even when empty, appends the fragment, and makes every later `appendText`, `commit` and `finalize` a no-op.
+  - `renderHistory` builds finished bubbles through `body` and does not use these. `body` wins over `text` when both are given.
+  - **Contract cases:** streaming with operator visibility and with a peer label (the tail stays last), an empty finalize, a double finalize, and a `commit` with an empty fragment.
+- **Today's look is the default:**
+  - **The trace:** a CSS chevron plus a separate count span by default; `chevron: 'icon'` and `countStyle: 'dot'` ("Tool activity · 4") are options for 05c's B3. The summary's accessible name ("Tool activity, 3 items") is the same either way.
+  - **Operator-only:** the `[operator-only]` label span by default; `visibilityStyle: 'chip'` is the B5 option, with label text from the caller.
+- **Message variants:**
+  - `ui-message--api` (today's `.msg.user.api`, `--accent-api`), plus `--user`, `--assistant`, `--tool`, `--system`, `--error`, `--peer` and `--operator-only`;
+  - the tool-in-trace overrides become a descendant rule (`.ui-trace-body .ui-message--tool`, and its error form);
+  - the markdown descendant rules (`chat.css` `.msg.assistant p, ul, pre, code, table, th, td…`) are re-scoped under `.ui-message--assistant`;
+  - wrapping (`pre-wrap`, word-wrap) is covered by the 200-character word case;
+  - modifiers come from a table (for example `ROLE_CLASS`) so the emitted-class guard finds each one, and each is listed by name in the catalogue.
+  - `.msg-pending-approval*` is dead CSS (no builder) and is **not** part of the control; leg 09a deletes it (DD14).
+- **Thinking composes the message:**
+  - its root is `div.ui-message.ui-message--assistant.ui-thinking` (or `--system` for `tone: 'system'`, today's centred "Loading model" look), so the bubble look comes from the message rules;
+  - `settle(text)` stops the timer, drops the thinking and loading modifiers, and replaces the contents with plain text, keeping the same node (today's `turn-frames.js` "Model loaded." behaviour);
+  - **the interval stops** on `destroy`, on `settle`, and once the node **has been connected and then disconnected**. A node that is built but not yet appended keeps ticking until attached;
+  - reduced motion is read once at creation, as today. A contract case covers both engines.
+- **Telemetry:**
+  - `thresholds` is a number pair **or a function** returning `{warn, crit}`, read on every update (today's `ctxThresholds()` reads `App.config` each time, which may load after init);
+  - `update(data)` takes **today's `updateTelemetry` data shape** (the server's usage-frame field names, including `max_context_tokens`), so 05c maps its callers one to one (`socket.js:203`, `:217`, `:273`, `session-flow.js:110`, `turn-frames.js:162`);
+  - `setMax(n)` touches only the maximum and the percentage, keeping the replay-restore behaviour (`socket.js:213`);
+  - the perf marks stay in the area, and the 0.7 resting opacity (`_TELEMETRY_RESTING_OPACITY`) is copied.
+- **The trace handle:**
+  - `App.ui.trace.find(root, id)` locates `.ui-trace[data-parent-msg-id="…"]` and re-wraps it;
+  - `count()` derives from the body's children, never a stored counter, so a re-wrapped handle cannot drift;
+  - `destroy()` on a trace detaches listeners only and never removes content;
+  - `App.ui.trace.thinking` takes `parentId` (sets `data-parent-msg-id` when given) and tolerates an empty or missing body;
+  - reusing `App.ui.disclosure`'s native-details mechanics is preferred; if the mono voice or count wiring rules that out, the reason is recorded in the flight log.
+- **Attribution:**
+  - the separator is the text node `' · '`;
+  - an empty or invalid `timeLabel` renders no separator, no time span and no `data-ts`;
+  - `relabel(root, fn)` calls `fn(ts)` and skips a node when `fn` returns null or undefined.
+- **The parity check:**
+  - mount the old renderer's node and the new control's node under the real `.area-chat .messages` on the Chats destination (a `display: none` host gives zero layout values), giving the new nodes **distinct testids**;
+  - don't mount a second old composer: its fixed `chat-composer-input` id would duplicate. Compare the live composer instead;
+  - compare pseudo-elements as well (the trace chevron's `::before`, `::-webkit-details-marker`);
+  - re-check that no `@layer areas` element rule inside `.area-chat` beats the new component rules.
+- **WebKit caveats** for the contract tests:
+  - IME through `new KeyboardEvent('keydown', {key: 'Enter', isComposing: true})` in both engines; `keyCode` 229 through `Object.defineProperty` on the event;
+  - `<details>` toggling awaited on `el.open` or the `toggle` event, never a fixed sleep; `summary` gets `list-style: none` plus the `::-webkit-details-marker` hide;
+  - auto-fit asserted as "grows, then caps and scrolls", not pixel values;
+  - telemetry expansion through `.focus()` and `:focus-within`, not hover.
+- **Lane bookkeeping detail:** `contracts_controls_files()` gains a third subtraction (explicit globs `test_ui_composer*`, `test_ui_message*`, `test_ui_thinking*`, `test_ui_trace*`, `test_ui_telemetry*`, `test_ui_notice*`). `resolve_lane`, the `shared` complement and the `run-tests.sh` header comments are updated. `ci/tasks/browser.yml` says sixteen lanes.
+- **Record for the consumer legs:** the `components.css` rules that relied on `.area-chat` specificity (`.msg.user.msg-from-peer` after `.msg.user`, the tool-in-trace override), listed in the flight log for 05a-05c's cascade checks.
+- **Not separate rows:** attribution, `relabel`, `find` and `thinking` are sub-entries of their factory's row, with no own contract file. Each catalogue row's text says so. Every row keeps six cells.
+
+## Design Review
+- **Developer design review, cycle 1 (Sonnet, 2026-10-27, read-only): approve with changes.** Applied as the amendments above. FD answers to the reviewer's questions:
+  - thinking composes the message classes;
+  - the area owns the send guards, and the control forwards the raw text;
+  - telemetry keeps the server field names, including `max`;
+  - old-look defaults, with options for the approved looks;
+  - `.msg-pending-approval*` is dead CSS for 09a;
+  - the `contracts-chat` budget is a provisional 300 s, never from a solo run.
+- **A second cycle runs when batch B2 lands**, before the leg's Developer starts. The amendments are substantive (the handle semantics), and B2 changes the library this leg builds on (the copy confirmation, `badge.live`, the chip options). The leg stays `ready`, pending that pass.

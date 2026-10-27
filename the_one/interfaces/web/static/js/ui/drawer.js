@@ -22,6 +22,10 @@
   //   el         an existing <aside> to fill (a static shell slot): its
   //              children are replaced and its id kept; without it the
   //              factory creates the <aside>
+  //   reserveHeaderEnd  true (M31 F6 L03b): in overlay mode only, the header keeps
+  //              56px clear on its right (class ui-drawer--reserve-end). The 56px is the
+  //              room for a 32px toggle a caller places over the drawer's header: 16px
+  //              padding + 32px + 8px. In push mode the header keeps its 16px.
   //   testid     placed on the <aside>
   //   onOpenChange(open)  after every change of the open state, however it
   //              was made (open, close, toggle, Escape)
@@ -144,6 +148,7 @@
     }
 
     setMode('push');
+    if (opts.reserveHeaderEnd) root.classList.add('ui-drawer--reserve-end');
     return {
       el: root,
       open: open,

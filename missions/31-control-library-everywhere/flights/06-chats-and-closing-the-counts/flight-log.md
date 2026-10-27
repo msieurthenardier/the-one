@@ -250,6 +250,92 @@ The determinism check (0 of 172 differ) and the group check passed. Batch B1 con
 
 ---
 
+### Leg 03a: flash-and-feedback-options (landed, not committed)
+
+**What changed.**
+- **`App.ui.flash`** (`ui/feedback.js`): one lazily created `div.app-flash-region` (`App.ui.flash.region()`, re-appended if detached, no CSS), the topmost open modal's dialog when one is open (`App.ui.modal.top()`, new in `modal.js`), the newest toast replacing the one showing (its timers cleared through handles on the node), a passed `container` ignored. `modal.js` `finish` moves (not clones) the closing dialog's `.app-flash` children to `top()` or the region after the `stack.splice` and before the dialog is removed.
+- **Callers:** `container` dropped at every site (providers, agent editor, MCP, connector, tools page and editor, provider-models, agent-data, mcp-connection-status) and in the `App.showFlash` delegate (signature kept, container ignored), so markdown's copy toast leaves `.messages`. A14: "Agent saved" (both sites), no "Error: " prefix on the provider delete error; no other flash string ended in "!" apart from markdown's "Copied!" (leg 07). Flight 5 page-flash comments simplified; `provider-editor.js` stays at 896 lines.
+- **`App.ui.badge.live`**, **`App.ui.button.setIcon`**, the icon-only **copy confirmation** (check icon plus `title` "Copied" for 2 s, "Copy failed" keeps the copy icon), **`App.ui.noteFlag({sources})`** (callers moved; `App.noteFlag` and `App.iconNode` deleted from `icons.js`). `chat-pane.js` and `agent-drawer.js` use `badge.live`.
+- **CSS:** the unlayered `.note-flag*` and `.consent-link*` tail moved to the end of `@layer components`, unchanged; `tests/test_css_layers.py` (new) fails on any top-level rule in `components.css` outside an `@layer`.
+- **Docs and specs:** catalogue rows (Flash, Badge, Copy, Button, Modal, new Note flag), `the_one/agents.md` (the stale `rescueFlashes` sentence rewritten, the `App.noteFlag`/`App.iconNode` lines, a Feedback-controls addendum), `docs/ui-testid-registry.md`, and the two behavior specs ("Agent saved").
+
+**Failing first (seen failing on the pre-change library before the fix; JS under `the_one/` stashed, tests kept).**
+- `test_code_copy_toast_is_on_the_page_not_in_the_message_log` (chats-transcript), `test_connector_created_toast_survives_the_remount` (library), `test_mcp_created_toast_survives_the_remount` (mcp): 3 failed, the toasts absent or inside `.messages`.
+- Flash contract tests in `test_ui_feedback_contract.py` (newest-replaces, container removed, region re-attach, toast in a modal, survives the modal's close, re-home to the next dialog, same viewport position): 12 failed (6 x 2 engines) on the old code, 14 passed on the new.
+- `tests/test_css_layers.py::test_components_css_has_no_rule_outside_a_layer` failed against the old `components.css` (the tail was unlayered) and passes now; the scanner test also proves a stray rule appended after the last layer is reported.
+- The badge-live, copy-confirmation, note-flag and computed-style tests exercise APIs that did not exist, so "failing first" is trivial (not separately run on the old tree).
+
+**Retargeted, not deleted.** `test_flash_roles_visible_and_removal` now flashes one toast; the old two-toasts-visible assertion became `test_flash_newest_replaces_and_keeps_its_role`; `test_flash_container_default_and_detached_container` became `test_flash_survives_its_caller_container_and_ignores_the_option`. A14 is asserted by `test_flow_agent_editor_frame.py::test_same_identity_save_patches_without_remount` ("Agent saved") and the new `test_flow_provider_editor.py::test_delete_error_toast_has_no_error_prefix`. The four "no flash" tests (`test_flow_admin_tools_editor_save.py:177`, `test_flow_admin_tools_grid_library.py:132`, `test_flow_provider_library.py:92`, `test_flow_studio_loadall_error.py:63`) pass unchanged in their lanes.
+
+**Allowance.** `OWNERSHIP_ALLOWANCE` lost 4 rows (`chat-pane.js` badge x2, `agent-drawer.js` badge x2, `js/icons.js` `App.icon(` x1, `js/icons.js` `App.iconNode(` x1): 25 rows / 36 uses -> 21 rows / 30 uses. `TOTAL_USES`: `badge` 5 -> 1, `api:App.icon(` 2 -> 1, `api:App.iconNode(` deleted. `START_ROWS` and `MOVES` unchanged.
+
+**Verification.**
+- Guards (ownership, library_source, control_inventory, emitted_classes, area_module_size, ui_guards, token_definitions, design_tokens_a11y, css_layers): 448 passed.
+- Lanes (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, three at a time): contracts-controls 984 passed 4 skipped; contracts-overlay 510 passed 1 skipped; providers 135; mcp 85; mcp-connection 94; library 104; knowledge 65; agents 166; settings 108; settings-tools 169; chats 150; chats-transcript 42; agent-tabs 126; shared 268. No failures.
+- `make test-unit` (netns): 7786 passed, 15 skipped. `ruff check` and `ruff format --check`: clean.
+
+**Ledger rows 14, 37, 38** confirmed as written (no amendment).
+
+### Leg 03b: layout-options (landed, not committed)
+
+**What changed.**
+- **Library options:** `searchList({variant: 'chooser'})`; `drawer({reserveHeaderEnd})`; `modal({footerEnd})`; `textInput({minWidth})`. Base-rule moves: `.ui-list-pane { flex: 1 1 0 }`, `.badge { flex-shrink: 0 }`, `.tabpanel { padding: 16px 20px 80px }`, and the section default flip (`.editor-section { padding: 12px 20px }`, `--flush` with no `!important`). Deleted: the twelve `chat.css`/`studio.css` rules (plus `studio.css:45`, a no-op) and `agent-picker.js`'s footer class. Consumers: the agent picker, agent drawer and the Self-configuration grant input.
+- **A9 (ledger row 9):** the meta ellipsizes before the label (meta `flex: 0 1000 auto`, 64px floor, right-aligned; text column `flex: 1 1 auto`, description `contain: inline-size`).
+- **D4 (ledger row 32, squawk 0185):** `searchList.refresh()` keeps the active option by `(group index, id)`, moved or not, `nearest` scroll; an input event or changed query activates the first; `keepScroll` is unified (now only "restore offset, do not scroll"). `jump-to.js` lost `lastFirstId`.
+
+**Deviations (for the FD).**
+1. **The picker field's "40px" never existed.** The old `height: 40px` rule never applied (`.field-input` is `flex: 1` in a column `.field-group`, so the basis ignores `height`; measured 34px on the old CSS in the harness). The chooser variant keeps the real 34px with the body-lg font and drops the dead line, since the leg's rule is no visible change. The contract test asserts 34px. If the operator wants a real 40px field it is a separate visible change (a candidate squawk).
+2. **A9 flex values differ from the design review's:** text `flex: 1 0 auto` made a 200-character label overflow the row (no ellipsis; seen in the first capture after the change), so the text column is `flex: 1 1 auto` and the meta gets shrink factor 1000 with the 64px floor and `text-align: right` (the floor otherwise left-aligned short metas, visible on `gpt-4o`). A test for a very long label was added.
+3. `.api-key-wrap .field-input { flex: 1 }` (`components.css`) left in place: it is a redundant library rule, not an allowance row, and `api-key-wrap` still has a user.
+4. Jump to keeps its own `gap: 0` (it restyles the field into a bar and overrides the list padding, so adopting the chooser variant would not be identical); recorded.
+
+**Audits.**
+- **Badge:** users are the list-pane row badges (wrapper `flex-shrink: 0`), the tool tile badge (`flex: none`), the drawer head, the new-chat state (a column), the notes tab's origin badge (inline-flex), and the dots. Every badge is `white-space: nowrap` with an auto minimum width, so none can shrink below its text; `kb-item-badge` is a chip, not a badge. Base rule chosen, no `noShrink` option.
+- **List pane:** the three hosts (Chats aside, Agents and Library wrappers) are column flex containers that want `flex: 1`; the contract harness is block flow, where the declaration is inert (computed-style test in a flex host and a block host).
+- **Section inset:** outside `.area-studio`, every `App.ui.section` (Settings pages, `tools-editor.js`) passes `inset: 'none'`; every studio section (agent tabs, Library editors, knowledge, MCP) keeps 20px. `--flush` now wins by order and its `!important` is deleted. Tabs: only the agent editor (default padding) and the tools grid (`panelPadding: 'none'`) use `App.ui.tabs`.
+
+**Failing first (seen failing before the fix).** 42 new contract tests failed on the old code (D4 x3, chooser, `footerEnd`, `reserveHeaderEnd`, `minWidth`, section padding, list pane, tab panel, badge, plus the A9 tests); the A9 long-meta test was re-seen failing on the old CSS (label 138 of 222) after a harness bug in the first run was fixed. The cold-landing flow test failed once on a test bug (`unroute` before `continue_`), fixed.
+
+**Pins rewritten (D4 deliberately; each reason).**
+- `test_each_source_call_makes_the_first_option_active` became `test_a_query_change_makes_the_first_option_active` (the refresh half now asserts keep-by-identity, covered by the new tests).
+- `test_without_keep_scroll_a_refresh_resets` became `test_a_refresh_keeps_the_active_item_whatever_keep_scroll_says` (one keep rule).
+- `test_flow_jump_to.py`: the "first row is active once every collection has arrived (DD10)" assertion and `test_palette_resolver_active_row_and_keys` now warm the chats store first (the first row at open is the newest chat) and say why; new `test_cold_data_landing_never_moves_the_highlighted_row`; `_jump`'s load wait (the squawk 0168 workaround) removed.
+- `test_ui_modal_contract.py` chooser fixtures use `footerEnd`.
+- `tests/behavior/jump-to-palette.md` step 2 re-authored (highlighted row does not move) and step 3 annotated.
+`test_keep_scroll_resets_on_a_changed_query_or_a_vanished_id` and `test_keep_scroll_restores_on_an_unchanged_query` pass unchanged.
+
+**Squawk 0185.** Corrective action and verification written in the squawk; status left `in-progress` for the flight-end sign-off.
+
+**Captures.** Leg-start set `m31-f6-03b-start` (25 surfaces x 4), after `m31-f6-03b-after` and `-after2` (PIL `ImageChops`). Differences: the picker open/search and Jump to rows with long meta (A9, row 9), and the MCP editor and Date and time zone list only before the fixes (a clock text and the 64px floor's left alignment; the zone list is identical after). Everything else identical: agent tabs (General, Rules and notes, Knowledge, MCPs, Tools, Self-configuration), Library start, KB detail, connector, MCP, provider editor, Settings pages, the rich chat (drawer at 1280 push and 1024), the Chats list. The `mcp-edit-stdio` difference was a timestamp. (`after2` ran fewer surfaces, so its picker bottom row differs by seed data.)
+
+**Allowance.** 21 rows / 30 uses to 8 rows / 14 uses: 12 `css` rows (15 uses) and the `agent-picker.js` row removed; `TOTAL_USES` sums to 14. `MOVES` unchanged.
+
+**Ledger rows 9 and 32** confirmed as written.
+
+**Verification.** Guards (ownership, library_source, control_inventory, emitted_classes, ui_guards, token_definitions, design_tokens_a11y, area_module_size, css_layers): 448 passed. Full browser gate (`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 --parallel 3`): all 15 lanes rc=0 except `shared` (the cold-landing test bug above, fixed; `test_flow_jump_to.py` rerun 24 passed); contracts-controls 401 s, contracts-overlay 246 s, none over budget. `make test-unit` (netns): 7786 passed, 15 skipped. `ruff check` and `ruff format --check`: clean. `provider-editor.js` untouched (896 lines).
+
+### Leg 03c: chip, confirm, key-value and labels (landed, uncommitted)
+
+**What changed.**
+- **`App.ui.chip`:** `lead` (Node before the label, wrapped in `span.chip-lead`; the label then sits in `span.chip-label`), `onRemove` + `removeLabel` (throws without it) + `removeTestid`: a trailing library ghost small icon-only `x` button, the chip's only control. Without these the DOM is unchanged (`<span class="chip">plain</span>`). New owned classes `chip--lead`, `chip-lead`, `chip-label`, `chip-remove-btn` (catalogue). `.chip-remove` stays for leg 05a.
+- **`App.ui.confirm` `onArmChange(armed)`:** `true` on arm; `false` on revert (which lapse and a caller's `revert` both reach, lapse after the announcement is queued) and on the commit click. Catalogue row updated; no caller changes.
+- **`keyValueTable`:** squawk 0269 (key-column `onInput` refreshes the remove name) and squawk 0270 (`setRow` calls `setHint(null)` on a secret control when the patch carries its `storedKey`).
+- **D7 (ledger rows 26 and 36 confirmed).** Final list: "LLM configuration", "System prompt" (title and label), "Chat history retention (days)", "Max iterations", "Context window" (label and the two validation messages), "Reasoning effort", "Anthropic account", "My provider" (name placeholder, found by the final grep), and the server's "OpenAI-compatible" provider-type label. "Base URL" kept. `provider-editor.js` stays 896 lines (in-place edits). Final grep for title-case labels in both editors and their tab modules found nothing else ("Danger zone" was already sentence case).
+- **Specs:** `studio-agent-crud.md` ("Danger Zone" to "Danger zone"; its other label text needed no change), `agent-retention-setting-roundtrip.md` ("Max iterations") and `save-preserves-config.md` ("Reasoning effort"). Run logs untouched.
+
+**Deviations.**
+1. **Squawk 0270 "no Show button" does not hold.** After a renamed sensitive header saves with an empty value the row is an ordinary empty secret cell, and its eye is the normal one (a new sensitive row has it too). The MCP test asserts only that the stale hint is gone; the contract test covers `setRow`.
+2. The MCP 0270 test's hint assertion was not seen failing on reverted code in the editor (the first reverted run failed on the dropped Show assertion); the contract test was seen failing first.
+
+**Failing first.** On code with the two `keyValueTable` hunks removed: `test_remove_name_follows_a_typed_key` and `test_set_row_rebaseline_clears_the_rename_hint` (both engines) and the MCP `test_kv_remove_name_follows_a_typed_key` failed; all pass with the fix. The chip and confirm contract tests were written with their options (new options, so they cannot pass on old code: unknown option ignored).
+
+**Pins retargeted.** `test_flow_provider_editor.py` (Context window label), `test_flow_studio_retention_error_message.py` and `test_flow_agent_tabs.py` (docstrings). `test_ui_info_contract.py` and `test_ui_secret_input_contract.py` carry their own fixture copy of "Context Window" and were left. No assertion relaxed.
+
+**Squawks 0269 and 0270.** Corrective action and verification written in each squawk; status left `in-progress` for the flight-end sign-off.
+
+**Verification.** Guards (ownership, emitted_classes, control_inventory, library_source, ui_guards, token_definitions, design_tokens_a11y, area_module_size): 446 passed; `ruff check` and `ruff format --check` clean. Contract files run in both engines: 198 passed. Batch-end full `--parallel 3` browser run and `make test-unit`: `PARALLEL_RESULT rc=0 total=1573s lanes=15 failed=-` (all 15 lanes rc=0, none over budget, including the full `shared` lane); `make test-unit` (netns): 7786 passed, 15 skipped; ruff clean.
+
+
 ## Decisions
 Runtime decisions not in the original plan.
 
@@ -321,6 +407,70 @@ Unexpected issues encountered.
   - **Reviewer checks:** a normalised statement-level comparison showed leg 02 behaviour-free apart from the recorded boundary shifts and leg 01's clears; the frame order and sign-in checks are intact; the static tests keep their strength; the bookkeeping is consistent; the capture-tool refusals are intact. The guard set passed 443 tests, and `chats-transcript` passed 41.
   - **Non-blocking:** the three squawks' sign-off sections stay empty until the flight's commit.
   - Legs 01 and 02 are `completed`, with checkpoint commit B1.
+- **Leg 04 designed and tiered high** (six new library controls with update handles). Design review cycle 1 approved with changes, applied as an amendments section:
+  - the composer's send semantics: busy Enter holds, empty sends, never clears, `blocked || busy`;
+  - exact streaming primitives;
+  - old-look defaults with options for B3 and B5;
+  - the missing variants (`--api`, tool in trace, markdown descendants);
+  - thinking composing the message;
+  - telemetry thresholds as a function, and `update` keeping the server shape;
+  - caller-only testids;
+  - parity-test hygiene;
+  - a provisional 300 s `contracts-chat` budget (never from a solo run).
+
+  Because the amendments are substantive, **a second cycle runs when batch B2 lands**, against the landed library.
+- **Leg 03a landed** (`[LAND:leg]`). The allowance went from 25 rows / 36 uses to 21 / 30. The three consumer tests and 12 flash contract cases were seen failing first, as was the CSS-layer test.
+  - The two A14 string tests are new assertions that were not run against the old code. The FD accepts this: the leg required assertion, not failing first, for those strings.
+  - Every lane, the guards (448) and the unit tier (7786 / 15) passed.
+  - Leg 03b's Developer was spawned.
+- **Leg 06 designed and tiered high** (the agent loop, the WebSocket protocol, connectors). Its design review approved with changes, all applied:
+  - the connector line in a never-raising helper after the persist;
+  - REST through a `turn_info` out-parameter;
+  - `PROVIDER_TYPE_LABELS` beside `PROVIDER_TYPES`, with 0.2 narrowed to the reachable paths;
+  - client finalize before the notice.
+
+  The leg is `ready`; it starts after batch B3.
+- **Leg 07 designed and tiered high** (a security surface). Its design review approved with changes, applied as amendments:
+  - the inline context object, so autolinks are off in link labels; the nested link is real today and fixed;
+  - an autolink never emits `#`;
+  - strike is `~~` only;
+  - the copy button through `liveEl`;
+  - an 18px A1 cap;
+  - an accessible B1 scroll region;
+  - the missed test pins.
+
+  The sibling `App.safeUrl` gap was logged as **squawk 0275** (deferred, outside the flight). The leg is `ready`.
+- **Leg 08 designed and tiered high** (it moves a complex panel's reconcile and focus logic into the library). Its design review approved with changes, applied as amendments:
+  - the row state machine owned by the control (busy, done, failure; held focus; Delete's revert);
+  - the focus fallback order plus `onFocusLost`;
+  - the live region kept as today;
+  - compact density for the basic list;
+  - the chips moved onto the control;
+  - A17's exact sentence;
+  - A13's percentage rule;
+  - a split only if still over 800.
+
+  The leg is `ready`.
+- **Leg 03b landed** (`[LAND:leg]`). The allowance went from 21 rows / 30 uses to 8 / 14. 42 contract cases failed first. The captures across 25 surfaces × 4 differ only at A9's long-meta rows (and one MCP timestamp). `--parallel 3`: 1661 s, every lane passing after the Developer's own test bug was fixed (`test_flow_jump_to.py` re-ran 24 passed). Unit 7786 / 15.
+  - **FD accepts both deviations:**
+    - the picker field stays 34px, since its 40px rule was dead CSS and keeping it is no visible change. A real 40px field is a **debrief candidate**, not a squawk yet;
+    - A9's flex values differ from the review's (`flex: 1 0 auto` overflowed a 200-character label), and a test covers the very long label.
+  - **Note:** the leg's `shared` re-run covered only `test_flow_jump_to.py`. The batch B2 end runs `shared` whole.
+  - Leg 03c's Developer was spawned.
+- **Leg 03c landed** (`[LAND:leg]`). The squawk 0269 and 0270 contract tests were seen failing first.
+  - **FD accepts the 0270 deviation:** after an empty save under a renamed key, the row is an ordinary empty secret cell, whose eye is normal (a new sensitive row has one). The stale hint was the defect, and it is fixed. The squawk's "Show button persists" clause described expected behaviour.
+  - **Batch B2 whole-suite evidence:** `PARALLEL_RESULT rc=0 total=1573s lanes=15 failed=-` (the full `shared` lane included); unit 7786 / 15.
+- **Batch B2 end (legs 03a-03c).**
+  - **The deleted-selector grep:** each leg grepped and ran the owning lanes for the `chat.css` / `studio.css` rules it deleted, and the full run covers every lane.
+  - **Reviewers spawned in parallel:** a **Sonnet** Reviewer (03c touches the key-value table's secret-cell hint handling, and the batch is broad) and an **Accessibility Reviewer** (Sonnet), since B2 has visible UI changes (A9, the chip remove button, the copy confirmation, sentence case and the flash region).
+- **Batch B2 review: code Reviewer (Sonnet) and Accessibility Reviewer (Sonnet) both `[HANDOFF:confirmed]`, no blocking issues.**
+  - **Code review:** the guard set passed (448); the D4 pin rewrites are deliberate contract changes; the 0269/0270 fixes touch no secret value or mask. Its nit (0269/0270 still `open`) is fixed: both are `in-progress` until the flight commit.
+  - **Accessibility notes carried forward:**
+    1. If a status toast replaces an error toast within a few hundred ms, the alert may not be announced. This is a risk of the operator's newest-replaces rule (ledger row 38) and goes on the **HAT walk**; a mitigation (an error holds until it has announced) is a fix-vs-feature call there.
+    2. The new chip remove button is 22×22px, under WCAG 2.2's 24px target size. **Leg 05a's design** decides 24px (a ledger row) when the chips get their consumers.
+    3. The truncated search-list meta has no `title` tooltip (a debrief candidate).
+  - The re-announce-on-re-home and the toast-behind-modal notes are recorded and accepted as rare.
+  - Legs 03a-03c are `completed`, with checkpoint commit B2.
 
 ---
 

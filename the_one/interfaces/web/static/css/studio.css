@@ -9,8 +9,6 @@
      scrolls. */
   .area-studio .studio-agents-list,
   .area-studio .studio-library-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .area-studio .studio-agents-list > .ui-list-pane,
-  .area-studio .studio-library-list > .ui-list-pane { flex: 1; }
   /* The detail pane: the section content hosts the Agents empty state (no
      agent open) and the Library detail (an editor, the knowledge-base create
      form or a section root's empty state). */
@@ -21,7 +19,6 @@
      entity-name + description block). Studio keeps only the editor host
      layout + the area-specific tablist/panels framing + form-section paddings. */
   .area-studio .studio-editor { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  .area-studio .tabpanel { padding: 16px 20px 80px; }
   /* `.editor-section` + sibling-adjacent divider lifted to components.css in F6 leg 03 (un-scoped, consumed by admin's provider editor). */
 
   /* === Studio MCP Servers section (post-F2 retrofit, relocated from admin) === */
@@ -29,7 +26,6 @@
      (M07 F1 L5/L6) and moved to studio post-F2 retrofit. The editor mounts
      directly into .studio-section-content (no tablist wrapper), so we scope
      padding + loading-text rules here that mirror the admin equivalents. */
-  .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
   /* F5 L6 HAT R4: friendly description sits flush under each section-title,
      e.g. the agent-editor's Built-in tools tab. body-sm
      muted text, modest bottom margin so it doesn't crowd the first
@@ -42,7 +38,6 @@
 
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
-  .area-studio .field-model-wrap .field-input { flex: 1; }
   .area-studio .model-loading { font-size: var(--font-size-caption); color: var(--fg-secondary); white-space: nowrap; flex-shrink: 0; }
   /* When the model-loading span is empty (the steady state — no spinner, no
      status text), remove it from the flex layout so its 8px `gap` doesn't
@@ -468,10 +463,6 @@
   .area-studio .self-configuration-external-grant-label-text {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
-  }
-  .area-studio .self-configuration-external-grant .field-input {
-    flex: 1;
-    min-width: 160px;
   }
   .area-studio .self-configuration-external-grant-btn { flex-shrink: 0; }
 

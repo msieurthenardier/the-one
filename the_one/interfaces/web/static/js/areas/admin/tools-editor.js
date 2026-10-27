@@ -418,7 +418,7 @@
         if (callbacks.onSaved) callbacks.onSaved(updated);
         if (!live() || !current()) return;
         applyResponse(submitted, updated);
-        App.ui.flash('Tool saved', { container: container });
+        App.ui.flash('Tool saved');
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
         dirty = null; // force the report: the baseline moved
         checkDirty();

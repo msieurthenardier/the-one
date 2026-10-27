@@ -321,7 +321,7 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
 | `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
 | `notes-row-edited` | studio | "Edited by you" on an operator-edited note (M27 F2 L3) |
-| `notes-row-flag` | studio | the warning-triangle (`App.noteFlag`, `role=img`) on an untrusted note in the Rules and notes tab; `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `notes-row-check`) |
+| `notes-row-flag` | studio | the warning-triangle (`App.ui.noteFlag`, `role=img`) on an untrusted note in the Rules and notes tab; `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `notes-row-check`) |
 | `notes-row-meta` | studio | a note's meta line (time, origin, badges) (M27 F2 L3) |
 | `notes-row-origin` | studio | the note's origin: chat link, "(chat deleted)", platform and peer, or "Outside a chat" (M27 F2 L3) |
 | `notes-row-origin-link` | studio | the origin `<a>` to `#chats/{id}` when the chat still exists (M27 F2 L3) |

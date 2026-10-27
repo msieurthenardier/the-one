@@ -14,7 +14,9 @@
   //   search | email | url | number; default text), value, placeholder,
   //   disabled, required, autocomplete, onInput, min, max, step (attributes, M31 F4
   //   L04b), inputMode (the inputmode attribute), width ('short': about 10ch, no
-  //   flex growth, ui-input--short; any other value throws), dataset (a plain object copied to
+  //   flex growth, ui-input--short; any other value throws), minWidth (M31 F6 L03b: a
+  //   positive number of px, set as the input's minimum width so it holds its floor in a
+  //   flex row; anything else throws), dataset (a plain object copied to
   //   data-*; a `testid` key is ignored, the test id option wins).
   //   The test id option is placed on the input itself (supplied by the caller).
   App.ui.textInput = function (opts) {
@@ -41,6 +43,12 @@
         throw new Error('App.ui.textInput: unknown width "' + opts.width + '"');
       }
       input.classList.add('ui-input--short');
+    }
+    if (opts.minWidth !== undefined) {
+      if (typeof opts.minWidth !== 'number' || !(opts.minWidth > 0)) {
+        throw new Error('App.ui.textInput: minWidth must be a positive number');
+      }
+      input.style.minWidth = opts.minWidth + 'px';
     }
     App.ui.util.applyDataset(input, opts.dataset);
     if (opts.testid) input.setAttribute('data-testid', opts.testid);

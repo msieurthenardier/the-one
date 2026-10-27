@@ -50,7 +50,7 @@ def test_retention_out_of_range_shows_readable_error(app_with_agent: SeededApp, 
 
     Steps:
     1. Open the agent editor (General tab).
-    2. Set the Chat History Retention input to 400 (above the 365-day max).
+    2. Set the Chat history retention input to 400 (above the 365-day max).
     3. Click Save.
     4. Assert the .editor-error span is non-empty and does not equal
        '[object Object]'.

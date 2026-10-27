@@ -452,7 +452,7 @@
         })
         .catch(function (err) {
           revertFn();
-          App.ui.flash((err && err.message) || 'Delete failed', { container: editorEl, error: true });
+          App.ui.flash((err && err.message) || 'Delete failed', { error: true });
         });
     }
 
@@ -475,11 +475,11 @@
           var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
           // The agent's sessions are gone (M25 F4 L1, DD4).
           App.store.invalidate('sessions');
-          App.ui.flash('Purged ' + n + ' conversation' + (n === 1 ? '' : 's'), { container: editorEl });
+          App.ui.flash('Purged ' + n + ' conversation' + (n === 1 ? '' : 's'));
         })
         .catch(function (err) {
           revertFn();
-          App.ui.flash((err && err.message) || 'Purge failed', { container: editorEl, error: true });
+          App.ui.flash((err && err.message) || 'Purge failed', { error: true });
         });
     }
 
@@ -511,19 +511,16 @@
           var isOk = res.ok && res.body && res.body.status === 'ok';
           show(isOk ? 'success' : 'danger', detail || (isOk ? 'Provider test ok' : 'Provider test failed'));
           if (isOk) {
-            App.ui.flash(detail || 'Provider test ok', { container: editorEl });
+            App.ui.flash(detail || 'Provider test ok');
           } else {
-            // The local one-arg showFlash wrapper drops the
-            // error flag — call App.ui.flash directly with error: true
-            // to preserve the error styling.
-            App.ui.flash(detail || 'Provider test failed', { container: editorEl, error: true });
+            App.ui.flash(detail || 'Provider test failed', { error: true });
           }
         })
         .catch(function (err) {
           if (!live()) return;
           var msg = (err && err.message) || 'Network error';
           show('danger', msg);
-          App.ui.flash(msg, { container: editorEl, error: true });
+          App.ui.flash(msg, { error: true });
         });
     }
 
@@ -687,7 +684,7 @@
               }
               if (found && !slot.isCurrent(saveSlotTok)) {
                 // The editor this Save came from is gone: nothing to re-render.
-                showFlash('Saved');
+                showFlash('Agent saved');
               } else if (found) {
                 // kb-studio-round-trip remediation FIX 2 (FINDING 7,
                 // 2026-09-18): `loadAll()` repopulates `self._agents` from
@@ -703,7 +700,7 @@
                 self._selectedAgent = found;
                 renderEditor(found);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
-                showFlash('Saved');
+                showFlash('Agent saved');
                 // Rewrite the URL so refresh / back-button targets the
                 // new agent name (the area's URL keys on
                 // _selectedAgent.name; writeUrl_ re-serializes).
@@ -730,7 +727,7 @@
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    var showFlash = function (msg) { App.ui.flash(msg, { container: editorEl }); };
+    var showFlash = function (msg) { App.ui.flash(msg); };
 
     return {
       renderEditor: renderEditor,

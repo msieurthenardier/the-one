@@ -186,7 +186,10 @@
         if (typeOf(column) === 'toggle') continue;
         if (row.inputs[column.key] === e.target) {
           row.data[column.key] = e.target.value;
-          if (column.key === keyColumn) checkRename(row);
+          if (column.key === keyColumn) {
+            checkRename(row);
+            row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
+          }
           fire('input');
           return;
         }
@@ -508,6 +511,10 @@
         var sk = columns[ci].storedKey;
         if (sk && Object.prototype.hasOwnProperty.call(patch, sk) && row.data[sk]) {
           row.baseline[columns[ci].key] = trimmedKey(row);
+        }
+        // Squawk 0270: a patch that re-baselines the stored value ends the one-off rename hint.
+        if (sk && Object.prototype.hasOwnProperty.call(patch, sk) && row.secrets[columns[ci].key]) {
+          row.secrets[columns[ci].key].setHint(null);
         }
       }
       for (var j = 0; j < columns.length; j++) {

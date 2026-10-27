@@ -497,7 +497,7 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 ### Checkpoints
 - [x] The chat surfaces are in the capture tool, the before set is taken, the sinks are at zero, the lanes are split and re-measured, and squawk 0249 is fixed.
 - [x] `chat.js` is split into modules, behaviour-free, at 800 lines or fewer; full gate green.
-- [ ] The flash contract is in, every caller has dropped `container`, and toasts survive modals and remounts. The options that retire the area-CSS rows are in, and the library squawks 0269, 0270 and 0185 and D7 are done. Every editor lane is green.
+- [x] The flash contract is in, every caller has dropped `container`, and toasts survive modals and remounts. The options that retire the area-CSS rows are in, and the library squawks 0269, 0270 and 0185 and D7 are done. Every editor lane is green.
 - [ ] The six chat controls (the five plus the notice) exist in `js/ui` with contract tests in both engines, in the `contracts-chat` lane.
 - [ ] The chat area is on the controls. The area renderers and legacy chat classes are deleted, the chat JS allowance rows are gone and defects 1, 3-6 and 9 are fixed. F1 and B9 are in.
 - [ ] The step-limit notice reaches the web chat, connectors and the CLI. The provider error names the right provider. The new spec is drafted.
@@ -530,19 +530,19 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - the quiet-host re-measure; `chats` split; squawk 0271's MCP test-file split and the `mcp` lane split, with budgets from junit;
   - squawk 0249's stubs and falsification check; squawk 0259 closed.
 - [x] `chat-split` (02), **tier high (a behaviour-free restructure of the largest area file)**: `chat.js` into the DD3 modules; anchors re-anchored; `MOVES` entries; the line-guard entry removed; full gate.
-- [ ] `flash-and-feedback-options` (03a), **tier high (a shared interface, every editor)**:
+- [x] `flash-and-feedback-options` (03a), **tier high (a shared interface, every editor)**:
   - DD5's flash region: the modal stack rule, the re-home on close, the newest-replaces rule, and `container` removed from every caller including `App.showFlash`;
   - A14's wording; DD9 test 6 and DD11 7;
   - `App.ui.badge.live`; the copyButton confirmation (D1, announced once under `role=log`);
   - `App.ui.noteFlag`, with `App.iconNode` deleted;
   - the unlayered CSS moved inside the layer, with its unit check;
   - every editor lane, plus `chats` and `agent-tabs` (the badge and note-flag consumers in `chat-pane.js`, `agent-drawer.js` and `studio/notes-section.js`).
-- [ ] `layout-options` (03b), **tier high (searchList contract changes)**:
+- [x] `layout-options` (03b), **tier high (searchList contract changes)**:
   - the searchList chooser variant, A9 and D4 (squawk 0185);
   - the drawer and modal options;
   - the list-pane, badge, tabpanel, section-inset and field-width rules.
   - Retires the 12 area-CSS rows and `agent-picker.js`'s row; re-authors `jump-to-palette`.
-- [ ] `chip-confirm-kv-and-labels` (03c):
+- [x] `chip-confirm-kv-and-labels` (03c):
   - the chip `lead` / `onRemove` and the confirm `onArmChange` options;
   - squawks 0269 and 0270;
   - D7's sentence case, re-authoring `studio-agent-crud`, `agent-retention-setting-roundtrip` and `save-preserves-config`.

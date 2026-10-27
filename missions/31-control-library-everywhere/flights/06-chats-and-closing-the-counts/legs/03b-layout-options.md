@@ -1,6 +1,6 @@
 # Leg: layout-options
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 
 ## Objective

@@ -316,7 +316,7 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
 def test_retention_days_input_renders_above_max_iterations(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Retention-days input renders in the Behavior section above Max Iterations.
+    """Retention-days input renders in the Behavior section above Max iterations.
 
     Asserts:
     - [data-field="chat_history_retention_days"] is visible with the correct

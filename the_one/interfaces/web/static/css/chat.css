@@ -6,7 +6,6 @@
      the pane takes the remaining height and only its body scrolls. The
      retired dropdown header and history list (.session-*, #sidebar-header,
      .sidebar-actions, .agent-select) took their rules with them. */
-  .sidebar-panel.area-chat > .ui-list-pane { flex: 1; min-height: 0; }
 
   /* === Agent picker (M25 F4 L4a, reference spec 5.6) === */
   /* The picker's <dialog> lives under <body>, outside .area-chat, so these
@@ -22,17 +21,6 @@
     display: flex;
     flex-direction: column;
   }
-  .agent-picker-body > .ui-search-list { gap: 0; }
-  .agent-picker-body .ui-search-list-field { padding: 0 20px 12px; }
-  .agent-picker-body .ui-search-list-field .field-input {
-    height: 40px;
-    font-size: var(--font-size-body-lg);
-  }
-  .agent-picker-body .ui-search-list-listbox {
-    padding: 0 12px 12px;
-    border-top: 1px solid var(--border);
-  }
-  .agent-picker-body .ui-search-list-empty { border-top: 1px solid var(--border); }
 
   /* === Chat Area: Content === */
   /* Chrome wraps the header, the new-chat state, the messages and the
@@ -84,7 +72,6 @@
      pane's right edge is the drawer's), which the overlay's header keeps
      clear: 16px + the 32px toggle + 8px. */
   .area-chat .chat-header .chat-drawer-toggle { position: relative; z-index: 11; }
-  #chat-drawer.ui-drawer--overlay .ui-drawer-header { padding-right: 56px; }
 
   /* === The agent drawer's content (M25 F4 L6; DD7, A13, A20, A21;
      reference spec 5.7) ===
@@ -114,7 +101,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .chat-drawer-head .badge { flex-shrink: 0; }
   .chat-drawer-content {
     display: flex;
     flex-direction: column;

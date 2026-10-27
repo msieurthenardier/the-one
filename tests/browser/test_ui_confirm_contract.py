@@ -460,3 +460,47 @@ def test_repeated_arm_reannounces_and_region_is_recreated_when_detached(
     )
     expect(page.locator(LIVE)).to_have_count(1)
     expect(page.locator(LIVE)).to_have_text("Press Delete alpha again to confirm delete.")
+
+
+def test_on_arm_change_fires_on_arm_lapse_commit_and_revert(engine_page: Page) -> None:
+    """M31 F6 L03c: onArmChange(armed) is true on arm and false on lapse, commit and revert."""
+    page = engine_page
+    load_harness(page)
+    _mount_fixture(page)
+    out = page.evaluate(
+        """
+        () => new Promise((resolve) => {
+          var el = document.getElementById('probe');
+          var log = [];
+          var opts = { revertMs: 40, onArmChange: function (a) { log.push(a + ':' + el.classList.contains('confirm-delete')); } };
+          var noop = function () {};
+          App.ui.confirm(el, noop, opts);
+          var armed = log.slice();
+          setTimeout(function () {
+            var lapsed = log.slice();
+            log.length = 0;
+            App.ui.confirm(el, noop, opts);
+            App.ui.confirm(el, noop, opts);
+            var commit = log.slice();
+            log.length = 0;
+            var rv;
+            App.ui.confirm(el, function (i, revert) { rv = revert; }, { revertMs: 5000, onArmChange: opts.onArmChange });
+            App.ui.confirm(el, function (i, revert) { rv = revert; }, { revertMs: 5000, onArmChange: opts.onArmChange });
+            log.length = 0;
+            rv();
+            var reverted = log.slice();
+            var plain = document.createElement('button');
+            plain.innerHTML = '<span data-confirm-title>x</span>';
+            document.body.appendChild(plain);
+            App.ui.confirm(plain, noop, {});
+            resolve({ armed: armed, lapsed: lapsed, commit: commit, reverted: reverted,
+                      plainArmed: plain.classList.contains('confirm-delete') });
+          }, 120);
+        })
+        """
+    )
+    assert out["armed"] == ["true:true"]
+    assert out["lapsed"] == ["true:true", "false:false"]
+    assert out["commit"] == ["true:true", "false:true"]
+    assert out["reverted"] == ["false:false"]
+    assert out["plainArmed"] is True

@@ -373,3 +373,26 @@ def test_drawer_and_its_toggle_pass_the_resolver(engine_page: Page) -> None:
     assert_controls_labelled_and_described(p, "#frame")
     p.evaluate("() => window.__d.close()")
     assert_controls_labelled_and_described(p, "#frame")  # hidden, still resolvable
+
+
+# ── reserveHeaderEnd (M31 F6 L03b): room for a control placed over the header ──
+
+
+def test_reserve_header_end_pads_the_header_in_overlay_mode_only(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, "{reserveHeaderEnd: true}")
+    pad = "() => [getComputedStyle(window.__d.el.querySelector('.ui-drawer-header')).paddingRight, window.__d.el.className]"
+    assert p.evaluate(pad) == ["16px", "ui-drawer ui-drawer--push ui-drawer--reserve-end"]
+    p.evaluate("() => { window.__d.setMode('overlay'); window.__d.open(); }")
+    assert p.evaluate(pad)[0] == "56px"  # 16 + a 32px toggle + 8
+    p.evaluate("() => window.__d.setMode('push')")
+    assert p.evaluate(pad)[0] == "16px"
+
+
+def test_without_reserve_header_end_the_overlay_header_keeps_its_padding(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => { window.__d.setMode('overlay'); window.__d.open(); }")
+    assert p.evaluate(
+        "() => [getComputedStyle(window.__d.el.querySelector('.ui-drawer-header')).paddingRight, window.__d.el.className]"
+    ) == ["16px", "ui-drawer ui-drawer--overlay"]

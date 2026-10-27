@@ -464,7 +464,7 @@ App.studio.agentData = {
       var reason = (err && err.message) ? err.message : 'unknown error';
       var msg = 'Unable to load Studio data — ' + reason + '.';
       if (opts && opts.nonDestructive) {
-        App.ui.flash(msg, { container: ctx.content, error: true });
+        App.ui.flash(msg, { error: true });
         return;
       }
       var bannerEl = document.createElement('div');

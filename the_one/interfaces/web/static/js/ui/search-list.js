@@ -27,16 +27,29 @@
   //   testid (the root), inputTestid (the input), rowTestid (every row
   //     without its own test id).
   //   describedBy: an id or a node; sets aria-describedby on the input.
+  //   variant (M31 F6 L03b): 'chooser' is the look of a list inside an
+  //     App.ui.modal chooser (root also carries .ui-search-list--chooser): no
+  //     gap, the field in a 0 20px 12px band with a 40px large input, the list
+  //     under a hairline padded 0 12px 12px, and the empty state under the same
+  //     hairline. It depends on no ancestor, so it works in the picker's
+  //     <dialog> under <body>.  Any other value throws.
+  //   Keeping the active option (D4, squawk 0185, supersedes M25 DD10): a
+  //     refresh() with an UNCHANGED query keeps the active option by identity,
+  //     whether or not the user moved to it, while it is still present;
+  //     identity is (group index in source's array, item id), so an id repeated
+  //     in two groups never moves the active row between them.  When it is gone
+  //     the first option becomes active.  The kept option is scrolled into view
+  //     with 'nearest'.  Typing (an input event) is a query change and always
+  //     activates the first option.
   //   inline (M31 F4 L04d, DD4): the embedded variant (root also carries
   //     .ui-search-list--inline) for a list that sits in a page, not a modal:
   //     the listbox height is capped, the description is mono, an unfocused
   //     list paints no active row (the first option is always active after a
   //     refresh and would otherwise read as chosen) and these options apply:
-  //       keepScroll: remembers the query and the active item id; a refresh()
-  //         with an unchanged query restores scrollTop and re-activates the
-  //         previous active id if it still exists, without scrolling; a
-  //         changed query resets scrollTop to 0 and activates the first
-  //         option.
+  //       keepScroll: a refresh() with an unchanged query restores the scroll
+  //         offset as it was and does not scroll to the kept option (the
+  //         identity rule above applies to every list); a changed query
+  //         resets scrollTop to 0.
   //       scrollActive: 'center' (default) | 'nearest' | 'none', how a
   //         programmatic activation (setActive) scrolls; arrow keys always
   //         use 'nearest'.
@@ -108,8 +121,12 @@
     var status = util.el('div', { className: 'visually-hidden' });
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
+    if (opts.variant !== undefined && opts.variant !== 'chooser') {
+      throw new Error('App.ui.searchList: unknown variant "' + opts.variant + '"');
+    }
     var root = util.el('div', {
-      className: 'ui-search-list' + (opts.inline ? ' ui-search-list--inline' : '')
+      className: 'ui-search-list' + (opts.inline ? ' ui-search-list--inline' : '') +
+        (opts.variant === 'chooser' ? ' ui-search-list--chooser' : '')
     }, [field.el, listbox, empty, status]);
     if (opts.describedBy) {
       var db = opts.describedBy;
@@ -123,6 +140,7 @@
     var defaultScroll = opts.inline ? (opts.scrollActive || 'center') : 'nearest';
     var lastQuery = null;
     var lastActiveId = null;
+    var lastActiveGroup = -1;
     var rendered = false;
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
 
@@ -195,6 +213,7 @@
         return;
       }
       lastActiveId = flat[index].item.id;
+      lastActiveGroup = flat[index].group;
       flat[index].el.setAttribute('aria-selected', 'true');
       input.setAttribute('aria-activedescendant', flat[index].el.id);
       if (scroll) scrollActiveIntoView(scroll === true ? 'nearest' : scroll);
@@ -220,11 +239,14 @@
       return groups;
     }
 
-    function render() {
+    // keep: true for a refresh() (the active option survives an unchanged query),
+    // false for the first render and every input event (the first option).
+    function render(keep) {
       var query = input.value;
       var groups = validate(opts.source(query) || []);
       var priorTop = listbox.scrollTop;
-      var restoreId = keepScroll && rendered && query === lastQuery ? lastActiveId : null;
+      var restoreId = keep === true && rendered && query === lastQuery && lastActiveId !== null ? lastActiveId : null;
+      var restoreGroup = lastActiveGroup;
       listbox.textContent = '';
       flat = [];
       activeIndex = -1;
@@ -248,7 +270,7 @@
         for (var i = 0; i < items.length; i++) {
           var row = buildOption(items[i]);
           host.appendChild(row);
-          flat.push({ item: items[i], el: row, first: i === 0, caption: caption });
+          flat.push({ item: items[i], el: row, first: i === 0, caption: caption, group: g });
         }
       }
       var none = flat.length === 0;
@@ -268,16 +290,19 @@
       if (status.textContent !== statusText) status.textContent = statusText;
       listbox.scrollTop = 0;
       var startIndex = none ? -1 : 0;
+      var kept = false;
       if (restoreId !== null && restoreId !== undefined) {
         for (var r = 0; r < flat.length; r++) {
-          if (flat[r].item.id === restoreId) {
+          if (flat[r].item.id === restoreId && flat[r].group === restoreGroup) {
             startIndex = r;
+            kept = true;
             listbox.scrollTop = priorTop;
             break;
           }
         }
       }
       setActiveIndex(startIndex, false);
+      if (kept && !keepScroll) scrollActiveIntoView('nearest');
       lastQuery = query;
       rendered = true;
     }
@@ -297,7 +322,11 @@
     }
 
     function onInput() {
-      render();
+      render(false);
+    }
+
+    function refresh() {
+      render(true);
     }
 
     function onKeydown(e) {
@@ -371,11 +400,11 @@
       input.removeAttribute('aria-activedescendant');
     }
 
-    render();
+    render(false);
     return {
       el: root,
       input: input,
-      refresh: render,
+      refresh: refresh,
       getActive: getActive,
       setActive: setActive,
       destroy: destroy

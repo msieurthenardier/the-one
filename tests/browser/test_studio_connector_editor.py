@@ -75,6 +75,23 @@ def test_studio_create_connector_shows_masked_token_on_redisplay(
 
 
 @pytest.mark.browser
+def test_connector_created_toast_survives_the_remount(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """DD5: the toast belongs to the page, so the create -> edit remount cannot take it."""
+    _open_create_form(page, app_with_agent.base_url)
+    page.locator('[data-field="name"]').fill("Toast Connector")
+    page.locator('[data-field="type"]').select_option("discord")
+    page.locator('[data-field="token"]').fill("real-plaintext-secret-value")
+    page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
+    page.locator('[data-testid="save-connector-btn"]').click()
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
+    page.wait_for_timeout(200)
+    expect(page.locator(".app-flash")).to_have_text("Connector created")
+    expect(page.locator(".app-flash")).to_be_visible()
+
+
+@pytest.mark.browser
 def test_studio_connector_doctor_reports_plugin_failure_without_token(
     app_with_agent: SeededApp, page: Page
 ) -> None:

@@ -296,7 +296,7 @@
           // A Save that lands after destroy still saved on the server: the list follows,
           // the dead editor is not touched.
           if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-          App.ui.flash('MCP server created', { container: container });
+          App.ui.flash('MCP server created');
           // Create mounts the saved editor asynchronously: park the restore for its mount
           // to flush, and STAY busy until that remount replaces this editor (the connector
           // rule).
@@ -316,7 +316,7 @@
           .then(function (updated) {
             App.store.invalidate('mcp-sources');
             if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-            App.ui.flash('MCP server saved', { container: container });
+            App.ui.flash('MCP server saved');
             // The saved row, BEFORE the re-mask, so every getSource() reader sees it
             // (defect 3).
             current = updated;
@@ -408,7 +408,6 @@
           App.store.invalidate('agents');
           // A late Delete drops the row but never closes the open item.
           if (!mount.alive()) { if (callbacks.onListStale) callbacks.onListStale(); return; }
-          // The page, not the editor: the success callback discards the editor and its container.
           App.ui.flash('MCP server deleted');
           if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
         })

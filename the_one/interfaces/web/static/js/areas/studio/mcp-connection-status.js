@@ -298,7 +298,7 @@
           emptyTools();
           render();
           serverInfo.update(null);
-          App.ui.flash(doneText, { container: container });
+          App.ui.flash(doneText);
           App.focusAfter.restore(tok, function () {
             return (testBtn && !testBtn.disabled && testBtn) || titleEl();
           });

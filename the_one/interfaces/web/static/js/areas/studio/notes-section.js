@@ -227,7 +227,7 @@
       var meta = el('div', 'notes-row-meta');
       meta.setAttribute('data-testid', 'notes-row-meta');
       if (note.untrusted) {
-        var check = App.noteFlag(note.untrusted_sources || []);
+        var check = App.ui.noteFlag({ sources: note.untrusted_sources || [] });
         check.setAttribute('data-testid', 'notes-row-flag');
         meta.appendChild(check);
       }

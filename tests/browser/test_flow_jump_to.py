@@ -101,12 +101,11 @@ def _jump(page: Page, query: str, kind: str, item_id: str) -> None:
     """Open the palette with Ctrl K, type *query*, move the active row to the
     (kind, id) row with the arrow keys, and press Enter."""
     _open_with_keys(page)
-    # Cold data (AC11): open() force-fetches the chats AFTER the palette shows, and
-    # a refresh moves the active row to the new first row unless the user had moved
-    # off it. Wait for that load, or a late chat row (a seeded chat titled "New chat"
-    # matches the query "new chat") takes the active row after the arrow-key
-    # selection and Enter picks it (squawk 0168).
-    page.wait_for_function("() => App.store.peek('sessions').loaded", timeout=8000)
+    # Cold data (AC11): open() force-fetches the chats AFTER the palette shows. Since
+    # M31 F6 L03b (D4, squawk 0185) the searchList keeps the highlighted row by identity
+    # across that refresh, so no wait is needed: a late chat row (a seeded chat titled
+    # "New chat" matches the query "new chat") can no longer take the active row after
+    # the arrow-key selection (the root cause of squawk 0168's flake).
     page.locator(INPUT).fill(query)
     row = page.locator(f'{RESULT}[data-kind="{kind}"][data-id="{item_id}"]')
     expect(row).to_be_visible()
@@ -265,6 +264,9 @@ def test_palette_resolver_active_row_and_keys(world: dict, page: Page, theme: st
     )
     _boot(page, world["base"], "agents")
     assert page.evaluate("document.documentElement.dataset.theme") == theme
+    # Warm data: with the chats already loaded the palette opens on the newest chat. A cold
+    # open keeps whichever row was highlighted at open (D4; see the cold-landing test).
+    page.evaluate("() => App.store.get('sessions')")
     _open_with_keys(page)
     _wait_for_rows(page, "agent", "chat")
     assert_controls_labelled_and_described(page, PALETTE)
@@ -520,6 +522,7 @@ NEW_CHAT_ROW = ["action", "new-chat", "New chat…", "Action"]
 def test_empty_query_mixes_recent_chats_new_chat_and_recent_agents(world: dict, page: Page) -> None:
     _blank_title(page, world["untitled"])
     _boot(page, world["base"], "agents")
+    page.evaluate("() => App.store.get('sessions')")  # warm: the newest chat is the first row
     _open_with_keys(page)
     _wait_for_rows(page, "chat", "agent")  # the sessions store is loaded
     order = page.evaluate(
@@ -539,11 +542,40 @@ def test_empty_query_mixes_recent_chats_new_chat_and_recent_agents(world: dict, 
             _chat_row(world["alpha_chat"], "Alpha", "test-agent"),
         ],
     )
-    # The first row is active once every collection has arrived (DD10).
+    # The row highlighted at open stays highlighted (D4, squawk 0185, superseding DD10):
+    # here the newest chat, which was the first row at open.
     assert page.evaluate(_ACTIVE_JS) == ["chat", world["newest"], "true"]
     # No group captions (the board draws none); the where text is not mono.
     assert page.locator(f"{PALETTE} .ui-search-list-caption").count() == 0
     assert page.locator(f"{PALETTE} .ui-search-list-meta-mono").count() == 0
+
+
+def test_cold_data_landing_never_moves_the_highlighted_row(world: dict, page: Page) -> None:
+    """D4 (M31 F6 L03b, squawk 0185), superseding M25 DD10. Open the palette while the chats
+    request is held: the highlighted row is the first row then ("New chat…"). When the chats
+    land, newer rows appear above it, and the highlighted row is still "New chat…" (the row
+    Enter would pick), never the newest chat."""
+    _boot(page, world["base"], "agents")
+    held: list[Route] = []
+    page.route("**/api/chat/sessions", lambda route: held.append(route))
+    _open_with_keys(page)
+    expect(page.locator(RESULT).first).to_be_visible()
+    before = page.evaluate(_ACTIVE_JS)
+    assert before is not None and before[2] == "true"
+    assert before[:2] == ["action", "new-chat"], before
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "the palette's cold chats request was not seen"
+    for route in held:
+        route.continue_()
+    page.unroute("**/api/chat/sessions")
+    _wait_for_rows(page, "chat")
+    rows = [r[:2] for r in _rows(page)]
+    assert rows.index(["chat", world["newest"]]) < rows.index(["action", "new-chat"]), rows
+    assert page.evaluate(_ACTIVE_JS) == ["action", "new-chat", "true"]
+    assert page.locator(f'{RESULT}[aria-selected="true"]').count() == 1
 
 
 def test_empty_query_caps_three_chats_and_four_recent_agents(

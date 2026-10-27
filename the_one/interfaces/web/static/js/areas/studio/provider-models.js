@@ -311,7 +311,7 @@
 
     function flash(message) {
       if (destroyed) return;
-      App.ui.flash(message, { container: container });
+      App.ui.flash(message);
     }
 
     // ── Pull: select, button, size line ───────────────────────────────

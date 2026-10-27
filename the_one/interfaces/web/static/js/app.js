@@ -285,7 +285,7 @@
 
   // App.ui.flash owns the markup, roles and timing; this keeps the old signature.
   function showFlash(container, msg, isError) {
-    App.ui.flash(msg, { error: !!isError, container: container || document.body });
+    App.ui.flash(msg, { error: !!isError }); // container: kept for callers, ignored
   }
 
   window.App = window.App || {};

@@ -324,3 +324,20 @@ def test_panel_padding_none_is_flush_under_area_admin(engine_page: Page) -> None
     assert out["flush"] == "0px 0px 0px 0px visible" and out["tl"] == "0px"
     assert "ui-tabs--flush" in out["cls"] and "ui-tabs--flush" in out["tlcls"]
     assert "ui-tabs--flush" not in out["plainCls"]
+
+
+def test_a_tab_panel_has_the_agent_editors_padding_and_flush_has_none(engine_page: Page) -> None:
+    """M31 F6 L03b: the library's `.tabpanel` takes the 16px 20px 80px the agent editor
+    used to add with an area rule; `panelPadding: 'none'` stays at zero."""
+    _mount(engine_page)
+    out = engine_page.evaluate(
+        """() => { const p = document.querySelector('[role=tabpanel]:not([hidden])');
+          return getComputedStyle(p).padding; }"""
+    )
+    assert out == "16px 20px 80px"
+    load_harness(engine_page)
+    engine_page.evaluate(f"({MOUNT})({{panelPadding: 'none'}})")
+    out = engine_page.evaluate(
+        """() => getComputedStyle(document.querySelector('[role=tabpanel]:not([hidden])')).padding"""
+    )
+    assert out == "0px"

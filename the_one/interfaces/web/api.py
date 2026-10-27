@@ -5462,7 +5462,7 @@ async def list_provider_types() -> list[dict[str, str]]:
     """
     types = [
         {"value": "ollama", "label": "Ollama"},
-        {"value": "openai-compatible", "label": "OpenAI-Compatible"},
+        {"value": "openai-compatible", "label": "OpenAI-compatible"},
         {"value": "openai", "label": "OpenAI"},
         {"value": "anthropic", "label": "Anthropic"},
         {"value": "anthropic-plan", "label": "Claude Plan (OAuth)"},

@@ -15,7 +15,7 @@
 //   App.ui.editorShell   header: breadcrumb "Library / Model providers", title,
 //                        `type · base_url` subtitle, Cancel / Save (Create) / Test,
 //                        the unsaved caption and the error slot
-//   App.ui.section       Connection, Anthropic Account, Available models
+//   App.ui.section       Connection, Anthropic account, Available models
 //   App.ui.field + the form controls (textInput, select, toggle, secretInput)
 //   App.ui.status        the Test result line (provider-test-result)
 //   App.ui.dangerZone    Delete provider (agent-usage block, then arm and commit)
@@ -114,7 +114,7 @@
 
     // ── Connection fields ───────────────────────────────────────────
     var nameInput = watch(App.ui.textInput({
-      id: 'pf-name', value: isCreate ? '' : provider.name, placeholder: 'My Provider', dataset: { field: 'name' }
+      id: 'pf-name', value: isCreate ? '' : provider.name, placeholder: 'My provider', dataset: { field: 'name' }
     }));
     h.name = App.ui.field({ label: 'Name', control: nameInput });
     nameInput.addEventListener('input', function () { h.name.setError(null); });
@@ -164,7 +164,7 @@
       h.apiKey.el.appendChild(h.expiryHost);
     }
 
-    // Context Window (config.num_ctx): Ollama-only, required, always carries a
+    // Context window (config.num_ctx): Ollama-only, required, always carries a
     // value (the default window for a new provider, else the stored one).
     var numCtx = (isEdit && provider.config && provider.config.num_ctx != null)
       ? provider.config.num_ctx : DEFAULT_NUM_CTX;
@@ -174,7 +174,7 @@
     }));
     numCtxInput.min = '1';
     numCtxInput.step = '1';
-    h.numCtx = App.ui.field({ label: 'Context Window', control: numCtxInput, info: NUM_CTX_DESC });
+    h.numCtx = App.ui.field({ label: 'Context window', control: numCtxInput, info: NUM_CTX_DESC });
     h.numCtx.el.classList.add('admin-pf-num-ctx');
     h.numCtx.el.hidden = !defaults.showNumCtx;
 
@@ -196,7 +196,7 @@
       value: (isEdit && provider.config && provider.config.reasoning_effort) || '',
       dataset: { field: 'config.reasoning_effort' }
     }));
-    h.effort = App.ui.field({ label: 'Reasoning Effort', control: effortSelect, info: EFFORT_DESC });
+    h.effort = App.ui.field({ label: 'Reasoning effort', control: effortSelect, info: EFFORT_DESC });
     h.effort.el.classList.add('admin-pf-reasoning-effort');
     h.effort.el.hidden = !defaults.showReasoningEffort;
 
@@ -209,7 +209,7 @@
       children: [h.name.el, h.type.el, h.baseUrl.el, h.apiKey.el, h.numCtx.el, h.thinking.el, h.effort.el, h.testStatus.el]
     });
 
-    // ── Anthropic Account (M19 F01 L03) ─────────────────────────────
+    // ── Anthropic account (M19 F01 L03) ─────────────────────────────
     // Present in every mode and type, hidden unless the selected type carries
     // showPlanSignIn (the OAuth type only). The body is populated by
     // wirePlanSignIn; nothing inside carries a data-field (the dirty snapshot
@@ -222,7 +222,7 @@
     h.planErr = h.planErrBanner.el;
     h.planBody = util.el('div', { className: 'plan-signin-body' }, [h.planState, h.planErr]);
     h.planSection = App.ui.section({
-      title: 'Anthropic Account', className: 'admin-pf-plan-signin', children: [h.planBody]
+      title: 'Anthropic account', className: 'admin-pf-plan-signin', children: [h.planBody]
     });
     h.planSection.el.hidden = !defaults.showPlanSignIn;
 
@@ -357,7 +357,7 @@
         .then(function (updated) {
           App.store.invalidate('providers');
           // A flash across the create re-mount is dropped (DD7).
-          if (isEdit) App.ui.flash('Provider saved', { container: container });
+          if (isEdit) App.ui.flash('Provider saved');
           if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
           // Create re-mounts the editor in edit mode asynchronously (the
           // orchestrator's `ready` promise): park the restore for that mount.
@@ -417,12 +417,12 @@
           App.focusAfter.restore(testTok, testBtn);
           if (result.status === 'ok') {
             setTestResult('success', result.detail || 'Connected');
-            App.ui.flash('Connection successful', { container: container });
+            App.ui.flash('Connection successful');
             if (h.modelsCtl) h.modelsCtl.refresh();
           } else if (result.status === 'warning') {
             // Reachable but non-functional (e.g. openrouter with no key).
             setTestResult('warning', result.detail || 'Warning');
-            App.ui.flash('Connection reachable, action required', { container: container, error: true });
+            App.ui.flash('Connection reachable, action required', { error: true });
             if (h.modelsCtl) h.modelsCtl.refresh();
           } else if (result.status === 'reauth_required') {
             // anthropic-plan only (M19 F01 L03): renewal is no longer possible.
@@ -430,18 +430,18 @@
             // one revoked signal; the standing affordance is the connected
             // state's Re-authenticate control.
             setTestResult('danger', result.detail ||
-              'Re-authentication required — use Re-authenticate in the Anthropic Account section to sign in again.', true);
-            App.ui.flash('Re-authentication required', { container: container, error: true });
+              'Re-authentication required — use Re-authenticate in the Anthropic account section to sign in again.', true);
+            App.ui.flash('Re-authentication required', { error: true });
           } else {
             setTestResult('danger', result.detail || 'Failed');
-            App.ui.flash('Connection failed', { container: container, error: true });
+            App.ui.flash('Connection failed', { error: true });
           }
         })
         .catch(function (err) {
           testBtn.disabled = false;
           App.focusAfter.restore(testTok, testBtn);
           setTestResult('danger', err.message || 'Request failed');
-          App.ui.flash('Connection test error', { container: container, error: true });
+          App.ui.flash('Connection test error', { error: true });
         });
     }
 
@@ -477,12 +477,12 @@
         .then(function (r) {
           if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
           App.store.invalidate('providers');
-          App.ui.flash('Provider deleted'); // the page, not the editor: the success callback discards it
+          App.ui.flash('Provider deleted');
           if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
         })
         .catch(function (err) {
           revertFn();
-          App.ui.flash('Error: ' + err.message, { container: container, error: true });
+          App.ui.flash(err.message, { error: true });
         });
     }
   }
@@ -669,7 +669,7 @@
           Object.assign(provider, updated);
           awaitingUrl = null;
           renderState();
-          App.ui.flash('Signed in to Anthropic', { container: container });
+          App.ui.flash('Signed in to Anthropic');
         })
         .catch(function (err) {
           // Inline (not a vanishing toast); the paste field stays usable.
@@ -689,7 +689,7 @@
           Object.assign(provider, updated);
           awaitingUrl = null;
           renderState();
-          App.ui.flash('Connection reset', { container: container });
+          App.ui.flash('Connection reset');
         })
         .catch(function (err) {
           revertFn();
@@ -858,19 +858,19 @@
        config (edit mode) so the blocks below only overlay the fields they own. */
     payload.config = (isEdit && provider && provider.config) ? Object.assign({}, provider.config) : {};
 
-    // Ollama Context Window (config.num_ctx): REQUIRED and always persisted (the
+    // Ollama Context window (config.num_ctx): REQUIRED and always persisted (the
     // field is pre-filled with the default, so a blank means the operator cleared
     // it). Validated client-side (the server re-validates): non-empty, a positive
     // whole number.
     if (defaults.showNumCtx) {
       var numCtxRaw = h.numCtx.control.value.trim();
       if (!numCtxRaw) {
-        setError('Context Window is required.');
+        setError('Context window is required.');
         return null;
       }
       var numCtxVal = Number(numCtxRaw);
       if (!Number.isInteger(numCtxVal) || numCtxVal <= 0) {
-        setError('Context Window must be a positive whole number.');
+        setError('Context window must be a positive whole number.');
         return null;
       }
       payload.config.num_ctx = numCtxVal;

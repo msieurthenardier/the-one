@@ -49,6 +49,31 @@
   };
   App.ui.badge.KINDS = BADGE_KINDS.slice();
 
+  // App.ui.badge.live(opts) -> { el, set({kind, text}) }: a badge whose kind and text change
+  //   in place (the model badge on the new-chat state and in the agent drawer). opts: kind,
+  //   text, title, testid (as App.ui.badge). Unlike App.ui.badge, empty or null text is not
+  //   an error: the badge is hidden (the hidden attribute) until it has text. set() validates
+  //   kind like App.ui.badge (unknown kind throws, an omitted kind is the neutral badge)
+  //   and patches the class and the text in place; the node is never replaced.
+  App.ui.badge.live = function (opts) {
+    opts = opts || {};
+    var node = App.ui.util.el('span', { className: 'badge' });
+    if (opts.title) node.setAttribute('title', opts.title);
+    if (opts.testid) node.setAttribute('data-testid', opts.testid);
+    function set(next) {
+      next = next || {};
+      if (next.kind && BADGE_KINDS.indexOf(next.kind) === -1) {
+        throw new Error('App.ui.badge.live: unknown kind "' + next.kind + '"');
+      }
+      var text = next.text === undefined || next.text === null ? '' : String(next.text);
+      node.className = next.kind ? 'badge badge--' + next.kind : 'badge';
+      node.textContent = text;
+      node.hidden = text === '';
+    }
+    set({ kind: opts.kind, text: opts.text });
+    return { el: node, set: set };
+  };
+
   // App.ui.badge.dot(kind) -> HTMLSpanElement: the text-less, aria-hidden 8px disc
   // (the provider dot, a list row's `lead`). `kind` is a provider type slug: one of
   // KINDS, any other string maps to 'unknown', and null/undefined draws the hollow
@@ -122,12 +147,29 @@
 
   // App.ui.flash(message, opts) -> HTMLDivElement (class app-flash, plus error).
   //   error: role=alert; otherwise role=status with aria-live=polite.
-  //   container: where it is appended (default document.body).
+  //   Always appended to one page region (App.ui.flash.region()), never to a caller's
+  //   element, so it outlives the editor that raised it; while an App.ui.modal is open it
+  //   goes inside that dialog (its top layer would hide the page region), and the modal
+  //   moves it back out when it closes. The newest toast replaces the one showing.
+  //   A `container` option is ignored.
   //   duration: the visible dwell in ms (default 5000, WCAG 2.2.1 reading time).
   //   It shows after 10ms (.visible) and is removed 300ms after the fade starts.
+  var flashRegion = null;
+  var showing = null;
+  function flashRegionNode() {
+    if (!flashRegion) flashRegion = App.ui.util.el('div', { className: 'app-flash-region' });
+    if (!flashRegion.isConnected) document.body.appendChild(flashRegion);
+    return flashRegion;
+  }
+  function dropToast(node) {
+    if (!node) return;
+    var timers = node._flashTimers || [];
+    for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+    node._flashTimers = [];
+    node.remove();
+  }
   App.ui.flash = function (message, opts) {
     opts = opts || {};
-    var container = opts.container || document.body;
     var dwell = typeof opts.duration === 'number' ? opts.duration : 5000;
     var node = App.ui.util.el('div', {
       className: 'app-flash' + (opts.error ? ' error' : ''),
@@ -135,13 +177,38 @@
       'aria-live': opts.error ? null : 'polite',
       text: String(message)
     });
-    container.appendChild(node);
-    setTimeout(function () { if (node.isConnected) node.classList.add('visible'); }, 10);
-    setTimeout(function () {
+    dropToast(showing);
+    showing = node;
+    (App.ui.modal && App.ui.modal.top && App.ui.modal.top() || flashRegionNode()).appendChild(node);
+    node._flashTimers = [setTimeout(function () {
+      if (node.isConnected) node.classList.add('visible');
+    }, 10), setTimeout(function () {
       node.classList.remove('visible');
-      setTimeout(function () { if (node.isConnected) node.remove(); }, 300);
-    }, dwell);
+      node._flashTimers.push(setTimeout(function () {
+        if (node.isConnected) node.remove();
+      }, 300));
+    }, dwell)];
     return node;
+  };
+  // App.ui.flash.region() -> the page region (div.app-flash-region, a plain block: no
+  // transform or containment, which would make a containing block for the fixed toast),
+  // created on first use and re-appended to document.body when detached.
+  App.ui.flash.region = flashRegionNode;
+
+  // App.ui.noteFlag(opts) -> HTMLSpanElement (span.note-flag, role=img): the warning-triangle
+  //   flag on an untrusted note. opts.sources: the origins (an array of strings) named in the
+  //   sentence, which is both the title and the accessible name. The test id option is placed
+  //   on the span (supplied by the caller).
+  App.ui.noteFlag = function (opts) {
+    opts = opts || {};
+    var list = (opts.sources || []).join(', ');
+    var sentence = 'Check this note: it was written after content that didn\'t come from you' +
+      (list ? ' (' + list + ')' : '') + '. It may have been planted.';
+    var flag = App.ui.util.el('span', {
+      className: 'note-flag', role: 'img', title: sentence, 'aria-label': sentence
+    }, [App.ui.util.icon('alert-triangle')]);
+    if (opts.testid) flag.setAttribute('data-testid', opts.testid);
+    return flag;
   };
 
   var STATUS_STATES = ['success', 'warning', 'danger', 'idle', 'pending'];
@@ -202,6 +269,9 @@
   // App.ui.chip(opts) -> HTMLSpanElement (class chip), display only.
   //   label (required), tone: neutral (default) | danger | warning, size: omit | 'sm',
   //   title, dataset (a plain object copied to data-*).
+  //   lead: a Node placed before the label (the thumbnail). onRemove + removeLabel (required
+  //   with onRemove) add a trailing ghost small icon-only x button named removeLabel
+  //   (removeTestid on it); the chip stays a span and the button is its only control.
   //   The test id option is placed on the span itself (supplied by the caller).
   App.ui.chip = function (opts) {
     opts = opts || {};
@@ -219,7 +289,26 @@
     if (tone === 'danger') classes.push('chip--danger');
     if (tone === 'warning') classes.push('chip--warning');
     if (opts.size === 'sm') classes.push('chip--sm');
-    var node = App.ui.util.el('span', { className: classes.join(' '), text: String(opts.label) });
+    if (typeof opts.onRemove === 'function' && !opts.removeLabel) {
+      throw new Error('App.ui.chip: onRemove requires removeLabel');
+    }
+    var node = App.ui.util.el('span', { className: classes.join(' ') });
+    if (opts.lead) {
+      node.classList.add('chip--lead');
+      var lead = App.ui.util.el('span', { className: 'chip-lead' });
+      lead.appendChild(opts.lead);
+      node.appendChild(lead);
+      node.appendChild(App.ui.util.el('span', { className: 'chip-label', text: String(opts.label) }));
+    } else {
+      node.textContent = String(opts.label);
+    }
+    if (typeof opts.onRemove === 'function') {
+      node.appendChild(App.ui.button({
+        variant: 'ghost', size: 'sm', iconOnly: true, icon: 'x', ariaLabel: opts.removeLabel,
+        className: 'chip-remove-btn', testid: opts.removeTestid,
+        onClick: function () { opts.onRemove(); }
+      }));
+    }
     if (opts.title) node.setAttribute('title', opts.title);
     App.ui.util.applyDataset(node, opts.dataset);
     if (opts.testid) node.setAttribute('data-testid', opts.testid);

@@ -172,7 +172,7 @@ def test_kv_row_controls_name_their_row(app_clean: str, page: Page) -> None:
     expect(page.get_by_role("button", name="Remove X-Api-Key")).to_be_visible()
 
     # A stored secret has no eye and carries the hint; a new sensitive row has the eye.
-    expect(page.get_by_role("button", name="Show value, row 2")).to_have_count(0)
+    # An empty sensitive row is a plain new secret cell, so its eye is the normal one.
     page.locator('[data-testid="kv-add-row-btn"]').click()
     page.get_by_label("Key, row 3", exact=True).fill("X-New")
     page.get_by_role("switch", name="Sensitive, row 3").check(force=True)
@@ -202,6 +202,33 @@ def test_kv_stored_row_hint_and_rename_hint(app_clean: str, page: Page) -> None:
     _kv_key(row).fill("X-Api-Key2")
     expect(_kv_val(row)).to_have_value("")
     expect(row.locator(".ui-secret-hint")).to_have_text("Type the value again for the new name.")
+
+
+@pytest.mark.browser
+def test_kv_remove_name_follows_a_typed_key(app_clean: str, page: Page) -> None:
+    """Squawk 0269: the row's remove button is named for the key as typed, not the old key."""
+    sid = _seed_kv_shape(app_clean)
+    _open_source(page, app_clean, sid)
+    row = _kv_row_by_key(page, "X-Plain")
+    expect(page.get_by_role("button", name="Remove X-Plain")).to_have_count(1)
+    _kv_key(row).fill("X-Typed")
+    expect(page.get_by_role("button", name="Remove X-Typed")).to_have_count(1)
+    expect(page.get_by_role("button", name="Remove X-Plain")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_kv_rename_hint_and_eye_clear_after_save_with_empty_value(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0270: a saved rename with an empty value leaves no stale rename hint."""
+    sid = _seed_kv_shape(app_clean)
+    _open_source(page, app_clean, sid)
+    row = _kv_row_by_key(page, "X-Api-Key")
+    _kv_key(row).fill("X-Api-Key2")
+    expect(row.locator(".ui-secret-hint")).to_have_text("Type the value again for the new name.")
+    _save_edit(page)
+    expect(page.locator(".ui-secret-hint", has_text="Type the value again")).to_have_count(0)
+    # An empty sensitive row is a plain new secret cell, so its eye is the normal one.
 
 
 @pytest.mark.browser

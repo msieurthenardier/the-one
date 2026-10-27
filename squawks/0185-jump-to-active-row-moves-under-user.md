@@ -1,6 +1,6 @@
 # Squawk 0185: Jump to's active row can move under the user when cold data lands
 
-**Status**: open
+**Status**: in-progress
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-11
@@ -27,9 +27,15 @@ chat titled "New chat" was inserted above "New chat…" and became active.
   contract change: re-check the contract tests in both engines.
 
 ## Corrective Action
-*(written at completion)*
+Mission 31 Flight 6 leg 03b. The operator chose option (a) on 2026-10-26: keep the highlighted row **by identity** across refreshes, whether or not the user moved, rather than "the first row follows the data" (M25 DD10, now superseded).
+- `js/ui/search-list.js`: `refresh()` with an unchanged query keeps the active option by `(group index, id)` while it still exists, scrolls it into view with `nearest`, and falls back to the first option when it is gone; an input event (a changed query) still activates the first match. The inline variant's `keepScroll` is unified with it (it now only means "restore the offset, do not scroll"); there is one keep rule.
+- `js/jump-to.js`: `lastFirstId` and the "keep only when the user moved off the first row" logic are removed; `refresh(entry)` just calls `list.refresh()`.
+- The change reaches every `searchList`: the agent picker, Jump to and the Date and time zone list.
 
 ## Verification
+- Contract tests, Chromium and WebKit (`test_ui_search_list_contract.py`, written and seen failing before the fix): an arrowed-to row stays active and in view when a row is added above it; a cold refresh with no move keeps the highlighted row; with the same id in two groups the active row stays in its own group; a vanished active option falls back to the first; a query change (and an input event with the same value) activates the first match.
+- `test_flow_jump_to.py::test_cold_data_landing_never_moves_the_highlighted_row` holds the palette's chats request, opens it ("New chat…" is first), releases the request, and asserts that newer chat rows appear above while "New chat…" is still the one active row. The pinned DD10 tests were rewritten deliberately (see the flight log), and `_jump`'s wait for the chats to load, the workaround for squawk 0168's flake, is removed.
+- `tests/behavior/jump-to-palette.md` step 2 re-authored (the highlighted row does not move when data lands).
 
 ## Sign-Off
 *(written at completion)*

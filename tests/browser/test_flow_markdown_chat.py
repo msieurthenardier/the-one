@@ -205,3 +205,25 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     # Data cells render as <td>.
     expect(bubble.locator("td").nth(0)).to_have_text("1")
     expect(bubble.locator("td").nth(1)).to_have_text("2")
+
+
+@pytest.mark.browser
+def test_code_copy_toast_is_on_the_page_not_in_the_message_log(app_clean: str, page: Page) -> None:
+    """DD9 test 6 / DD11 7: the copy toast lands in the page's flash region, never inside
+    the transcript (``.messages``), where it scrolled and was announced with the log."""
+    base_url = app_clean
+    provider_id = seed_mock_provider(
+        base_url,
+        config={"stream_chunks": ["```js\n", "console.log(1);\n", "```"], "delay_ms": 0},
+    )
+    agent_name = seed_mock_agent(base_url, provider_id)
+    page.goto(base_url)
+    _chats.start_chat(page, agent_name)
+    _chats.send_first(page, "show me code")
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
+    bubble = page.locator('[data-testid="message"].assistant').last
+    expect(bubble.locator("pre code.language-js")).to_be_visible(timeout=5000)
+    bubble.locator(".markdown-copy-btn").click(force=True)
+    expect(page.locator(".app-flash")).to_be_visible(timeout=5000)
+    expect(page.locator(".messages .app-flash")).to_have_count(0)
+    expect(page.locator(".app-flash-region .app-flash")).to_have_count(1)

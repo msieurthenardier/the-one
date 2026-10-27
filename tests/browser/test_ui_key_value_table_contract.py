@@ -867,6 +867,28 @@ def test_unrelated_set_row_does_not_wipe_the_rename_hint(engine_page: Page) -> N
     )
 
 
+def test_remove_name_follows_a_typed_key(engine_page: Page) -> None:
+    """Squawk 0269: typing a key renames the remove button; an empty key keeps the numbered name."""
+    p = engine_page
+    _sec(p)
+    rm = p.get_by_test_id("kv-rm").nth(0)
+    p.get_by_test_id("k").nth(0).fill("TYPED")
+    assert rm.get_attribute("aria-label") == "Remove TYPED"
+    p.get_by_test_id("k").nth(0).fill("")
+    assert rm.get_attribute("aria-label") == "Remove row 1"
+
+
+def test_set_row_rebaseline_clears_the_rename_hint(engine_page: Page) -> None:
+    """Squawk 0270: a setRow that re-baselines the stored mask ends the rename hint."""
+    p = engine_page
+    _sec(p)
+    p.get_by_test_id("k").nth(0).fill("RENAMED")
+    hint = "() => document.querySelector('.ui-secret-hint').textContent"
+    assert p.evaluate(hint) == "Type the value again for the new name."
+    p.evaluate("() => window.__kv.setRow(0, {value: '', _mask: ''})")
+    assert p.evaluate(hint) == ""
+
+
 def test_error_and_stored_mode_share_aria_describedby_tokens(engine_page: Page) -> None:
     p = engine_page
     _sec(p)

@@ -136,6 +136,10 @@
     // unconditionally before that decision is made.
     itemEl.classList.remove('confirm-lapsed');
 
+    function armChange(armed) {
+      if (typeof opts.onArmChange === 'function') opts.onArmChange(armed);
+    }
+
     function revert() {
       if (itemEl._confirmRevertTimer) {
         clearTimeout(itemEl._confirmRevertTimer);
@@ -146,6 +150,7 @@
         titleEl.textContent = itemEl._confirmOriginalTitle;
       }
       itemEl._confirmOriginalTitle = null;
+      armChange(false);
     }
 
     // Timer-expiry-only path: marks the lapse cue, THEN reverts. Distinct
@@ -171,6 +176,7 @@
         itemEl._confirmRevertTimer = null;
       }
       announce('');
+      armChange(false);
       // revertFn lets transport-failure callers roll the UI back.
       if (typeof onConfirm === 'function') onConfirm(itemEl, revert);
       return;
@@ -183,6 +189,7 @@
     itemEl.classList.add('confirm-delete');
     if (titleEl) titleEl.textContent = confirmLabel;
     announce(armSentence(itemEl._confirmSubject, confirmLabel));
+    armChange(true);
     itemEl._confirmRevertTimer = setTimeout(lapse, revertMs);
   };
   window.App.confirmDelete = App.ui.confirm;
