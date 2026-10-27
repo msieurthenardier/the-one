@@ -10,7 +10,7 @@
   window.App.studio = window.App.studio || {};
 
   // ── HAT fix #4 — human-readable timestamps ──────────────────────────
-  // Copied from chat/message-bubble.js's relative-time idiom (no shared
+  // Copied from the chat message control's (js/ui/message.js) relative-time idiom (no shared
   // formatter exists app-wide; see the reuse note in the header comment).
   // `rev.created_at` is an ISO 8601 string (backend `now_iso()`); this
   // renders it as coarse relative time ("3 hours ago") and returns the

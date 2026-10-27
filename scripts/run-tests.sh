@@ -20,18 +20,19 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, chats-transcript, agents, agent-tabs, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-controls and shared.
+# are chats, chats-transcript, agents, agent-tabs, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-controls and shared.
 # Aliases (kept for muscle memory and older docs):
 #   chat = chats + chats-transcript, studio = agents + agent-tabs + library + knowledge + mcp + mcp-connection,
 #   system = settings + settings-tools + providers,
-#   contracts = contracts-overlay + contracts-controls.
+#   contracts = contracts-overlay + contracts-chat + contracts-controls.
 # chats/agents/agent-tabs/library/mcp/settings-tools/providers are basename-glob buckets or explicit file
 # lists over tests/browser/ (`agents` is the old studio globs MINUS the library,
 # knowledge, mcp, mcp-connection and agent-tabs lists; `chats` is the chats globs MINUS the
 # chats-transcript list). `routing` (M26 F1 L4) holds the router / leave-guard / client
 # store files that used to be the long pole of `shared`. `contracts-overlay` and
-# `contracts-controls` (M25 F4 L1 squawk 0117; split in M31 F3 L01) hold the `App.ui`
-# control-library contract files (`test_ui_*`): overlay is an explicit list, controls the rest.
+# `contracts-chat` (M31 F6 L04) and `contracts-controls` (M25 F4 L1 squawk 0117; split in M31 F3 L01)
+# hold the `App.ui` control-library contract files (`test_ui_*`): overlay and chat are explicit
+# lists (chat: the six chat controls), controls the rest.
 # `shared` is the COMPLEMENT (every browser test file not claimed by the named
 # lanes), so the lanes' union is always exactly the whole browser suite and no
 # test file can be orphaned — a newly-added test file lands in `shared` until it
@@ -55,8 +56,8 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-controls|shared"
-CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-controls shared)
+LANE_LIST="chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
+CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
 
 # Per-lane wall-clock budgets in seconds (re-measured in the M31 F6 L01 run 2 --parallel 3 run, after the chats and mcp splits: chats 283 s, chats-transcript 122 s, mcp 254 s, mcp-connection 289 s; earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
@@ -77,6 +78,7 @@ declare -A BUDGET=(
   [settings-tools]=330
   [providers]=420
   [contracts-overlay]=270
+  [contracts-chat]=300  # PROVISIONAL (M31 F6 L04): never from a solo run; the quiet-host run at 09b replaces it
   [contracts-controls]=480
   [shared]=420
 )
@@ -189,7 +191,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_peer_attribution.py' 'test_flow_chat_thinking_disclosure.py' \
                       'test_flow_chat_time_zone.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
-                      'test_flow_usage_restore.py')
+                      'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py')
 # Library-owned files (explicit): connectors, library focus, and the
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).
@@ -238,6 +240,9 @@ providers_pat=('test_flow_provider_*')
 contracts_overlay_pat=('test_ui_modal*' 'test_ui_menu*' 'test_ui_rail*' 'test_ui_list_pane_chats*' \
   'test_ui_search_list*' 'test_ui_drawer*' 'test_ui_nav_groups*' 'test_ui_confirm*' \
   'test_ui_focus_after*' 'test_ui_dialog_rule*' 'test_ui_dialog_scroll*')
+# Contracts-chat (M31 F6 L04, flight DD15): the six chat-control contract files.
+contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' 'test_ui_trace*' \
+  'test_ui_telemetry*' 'test_ui_notice*')
 contracts_all_pat=('test_ui_*')
 
 # Files matching the studio globs minus the library, knowledge, mcp, mcp-connection and
@@ -259,10 +264,10 @@ settings_files() {
            <(expand_lane "${settings_tools_pat[@]}" | sort -u)
 }
 
-# Files matching test_ui_* minus the overlay list, sorted.
+# Files matching test_ui_* minus the overlay and chat lists, sorted.
 contracts_controls_files() {
   comm -23 <(expand_lane "${contracts_all_pat[@]}" | sort -u) \
-           <(expand_lane "${contracts_overlay_pat[@]}" | sort -u)
+           <(expand_lane "${contracts_overlay_pat[@]}" "${contracts_chat_pat[@]}" | sort -u)
 }
 
 # Resolve lane $1 into the global array lane_files. Returns 1 for an unknown lane.
@@ -285,6 +290,7 @@ resolve_lane() {
     system)        mapfile -t lane_files < <(expand_lane "${settings_all_pat[@]}" "${providers_pat[@]}" | sort -u) ;;
     studio)        mapfile -t lane_files < <(expand_lane "${studio_pat[@]}" | sort -u) ;;
     contracts-overlay)  mapfile -t lane_files < <(expand_lane "${contracts_overlay_pat[@]}" | sort -u) ;;
+    contracts-chat) mapfile -t lane_files < <(expand_lane "${contracts_chat_pat[@]}" | sort -u) ;;
     contracts-controls) mapfile -t lane_files < <(contracts_controls_files) ;;
     contracts)     mapfile -t lane_files < <(expand_lane "${contracts_all_pat[@]}" | sort -u) ;;
     shared)

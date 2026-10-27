@@ -34,8 +34,8 @@ from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
-USER_MSG = '[data-testid="message"].user'
-ASSISTANT_MSG = '[data-testid="message"].assistant'
+USER_MSG = _chats.message_sel("user")
+ASSISTANT_MSG = _chats.message_sel("assistant")
 REPLY = "Mock response from the mock provider."
 
 # Drops the FIRST start_session frame the page sends (the server never sees

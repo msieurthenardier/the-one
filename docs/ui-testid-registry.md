@@ -98,13 +98,16 @@ caught — but it cannot see where the attribute is emitted.
 | `cancel-provider-btn` | admin | |
 | `cancel-tool-btn` | admin | |
 | `chat-agent-line` | chat | The chat header's "with {agent}" line (12px, `--fg-muted`; "Default agent" for a null agent; blank while a cold `#chats/~new/{agent}` validates the agent) (M25 F4 L4b) |
+| `chat-agent-error` | chat | An agent error in the log (M31 F6 L05c, A4): an `App.ui.notice` danger line, "The agent couldn't finish this reply.", for a `system` frame whose content starts "Agent error: "; holds `chat-agent-error-details` |
+| `chat-agent-error-details` | chat | The agent error's collapsed "Technical details" (`App.ui.disclosure`, plain variant); its body is the raw text after the "Agent error: " prefix (M31 F6 L05c) |
 | `chat-attach-btn` | chat | The composer's Attach images (`btn-ghost btn-sm btn-icon`, the paperclip icon, `aria-label="Attach images"`); opens the hidden `chat-image-input` (M25 F4 L5; a plus-icon `btn-outlined-primary` "Attach image" before) |
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
 | `chat-consent-link-url` | chat | The sign-in link block's read-only URL field in a chat's login-required group, shown once the consent URL is known (`App.consentLink.build(url, {surface: 'chat'})`, `consent-link.js`; sortie 04 DD1) |
 | `chat-consent-link-open` | chat | The block's "Open sign-in page" `<a target="_blank" rel="noopener noreferrer">` styled as a button (sortie 04 DD1) |
 | `chat-consent-link-copy` | chat | The block's Copy button (clipboard, `execCommand` fallback; sortie 04 DD1) |
-| `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.composer`; above the old `.input-area` row before M25 F4 L5) |
+| `chat-copy-status` | chat | The one visually hidden `role=status` node (in the chat chrome, outside the `role=log` message list) every "Copy reply" confirmation announces in (M31 F6 L05c) |
+| `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.ui-composer`; above the old `.input-area` row before M25 F4 L5) |
 | `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
 | `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
@@ -123,6 +126,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
 | `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|tools|self-configuration]` (Rules first, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
+| `chat-discarded` | chat | The muted "Queued message discarded." line after "Stopped." when the Stop discarded a held message; never stored (M31 F6 L05c, B9) |
 | `chat-empty-new-btn` | chat | The empty state's New chat (`App.ui.button` primary, square-pen icon), inside `chat-welcome` when setup is complete and no chat is open; opens the agent picker. Absent in the setup-guidance state (M25 F4 L4b) |
 | `chat-header` | chat | The chat header (`<header>`, 48px, hairline; reference spec 5.2): an `h1` with the chat's title (read from the `sessions` store by id, so it follows the auto-title) or "New chat", and `chat-agent-line`. Hidden while idle (M25 F4 L4b) |
 | `chat-image-input` | chat | The composer's hidden `<input type=file accept=image/* multiple>`, named "Attach images" by `aria-label` since M25 F4 L5 (squawk 0110) |
@@ -132,6 +136,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
 | `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.confirmDelete`); never on the pending row (M25 F4 L4a) |
+| `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
+| `chat-telemetry` | chat | The context-usage readout (`App.ui.telemetry`) in the composer's telemetry row; `role=status`, `tabindex=0`, shown only while a chat is joined; the chat area's `_telemetry()` is its handle (M31 F6 L05c) |
 | `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
 | `chat-stop-btn` | chat | The composer's Stop (`btn-muted-destructive`), hidden unless the open chat has a turn in flight; just before Send when shown |
 | `chat-welcome` | chat | The pane's empty and setup-guidance state (idle with no chat to auto-join): the mascot, the "Hello." `h1`, the idle notice, then the prompt and `chat-empty-new-btn` (setup complete) or the guidance links (setup incomplete). Since M25 F4 L4b it no longer holds an agent list |
@@ -300,10 +306,12 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-empty` | studio | "Press Test to load this server's tools." while no tools are loaded (M31 F5 L09) |
 | `mcp-tools-list` | studio | The tool disclosures, reconciled by name in place; hidden until tools are loaded (M31 F5 L09) |
 | `mcp-tools-section` | studio | The "Tools" `App.ui.section` (M31 F5 L09) |
-| `message` | chat | |
+| `message` | chat | A transcript bubble (`App.ui.message`, roles `ui-message--user|assistant|tool|system`); browser tests name it through `tests/browser/_chats.py` `message_sel` / `messages` (M31 F6 L05c) |
+| `message-copy` | chat | The icon-only "Copy reply" in a finished agent reply's attribution row (`App.ui.message.attribution`'s `copyTestid`); copies the reply's stored markdown (M31 F6 L05c, F1) |
 | `modal-cancel-btn` | shell | |
 | `modal-confirm-btn` | shell | |
 | `model-capabilities` | studio | |
+| `model-loading` | chat | The "Loading model…" line (`App.ui.thinking`, system tone); the same node settles in place to "Model loaded." (M31 F6 L05c) |
 | `model-ctx-chip` | studio | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3); since M25 F3 L3 the Agents list's title-row "New" (`App.ui.button`, small outlined, plus icon) -> `#agents/~new` |
 | `notes-applies-note` | studio | the Notes section's "Changes apply…" line (M27 F2 L3) |

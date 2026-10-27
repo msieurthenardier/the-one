@@ -4,7 +4,7 @@
 **Status**: draft
 **Created**: 2026-06-21
 **Last Run**: never
-**Updated**: 2026-10-05 (M25 F4 leg 8: step 1 starts the chat through New chat and the agent picker, as a pending chat)
+**Updated**: 2026-10-27 (M31 F6 L05c: step 2's indicator reads "Thinking…"; step 4's cancelled indication is the muted "Stopped." line); 2026-10-05 (M25 F4 leg 8: step 1 starts the chat through New chat and the agent picker, as a pending chat)
 
 ## Intent
 Verifies the three operator-facing guarantees added by Flight 07: (1) a chat turn
@@ -37,9 +37,9 @@ watching the UI/event stream.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | Open browser to `http://localhost:8485`. On Chats, start a new chat with the web-tool agent (e.g. `sonnet-loop-test`): click the Chats list's **New chat** (`chats-new-btn`), type the agent's name in the agent picker's search (`agent-picker-search`), and press Enter. | A pending new chat with that agent: the chat header (`chat-header`) reads "New chat" with "with {agent}"; the message box (`chat-input`) is enabled. Step 2's first send creates the session. |
-| 2 | Send: "Use http_request to GET `https://stream.radioparadise.com/aac-320` and tell me exactly what the tool returned." | A "thinking" / in-progress indicator appears; a stop control is visible while the turn runs. |
+| 2 | Send: "Use http_request to GET `https://stream.radioparadise.com/aac-320` and tell me exactly what the tool returned." | A "Thinking…" indicator (`thinking-indicator`) appears; a stop control is visible while the turn runs. |
 | 3 | (Wait point) | Within 150s the turn **completes** (thinking indicator clears, a final assistant message renders). The tool returns a bounded result — a media-content short-circuit message (e.g. "looks like a media stream") or a cap/timeout error — **not** an indefinite hang and not a frozen UI. |
-| 4 | Send a message that triggers a longer turn (e.g. "Search the web and fetch three pages about internet radio formats, then summarize."). While it is still running, click the **stop/interrupt** control. | The turn aborts promptly; a cancelled indication appears; the input is re-enabled; any text already streamed remains visible (partial output preserved, not erased). |
+| 4 | Send a message that triggers a longer turn (e.g. "Search the web and fetch three pages about internet radio formats, then summarize."). While it is still running, click the **stop/interrupt** control. | The turn aborts promptly; a muted **"Stopped."** line (`chat-stopped`) follows the partial output (and "Queued message discarded." (`chat-discarded`) as well if a message was held when Stop was clicked; neither line survives a reload); the input is re-enabled; any text already streamed remains visible (partial output preserved, not erased). |
 | 5 | Send message A ("Count slowly from 1 to 20."). While A is still running, send message B ("Now say the alphabet."). | B is accepted while A runs and shown as **pending/queued** (input not silently dropped). A completes first, then B runs and completes. The conversation shows A's answer then B's answer in order. |
 | 6 | While A or B is still running (busy), attempt to send a third message C. | C is **not** queued (queue depth is one) — it is ignored or the control indicates the queue is full; no third response is produced out of order. |
 

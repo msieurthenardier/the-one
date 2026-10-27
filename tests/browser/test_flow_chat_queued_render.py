@@ -79,9 +79,7 @@ def test_queued_chip_is_pinned_outside_scroll_list(app_clean: str, page: Page) -
 
     # Turn 1: send and wait until it is streaming (proves in-flight).
     _chats.send_first(page, "first")
-    expect(page.locator('[data-testid="message"].assistant').first).to_contain_text(
-        "one", timeout=8000
-    )
+    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
 
     # Queue a message via Enter (the Send button is disabled during a turn).
     page.locator('[data-testid="chat-input"]').fill("held message")
@@ -116,9 +114,7 @@ def test_cancel_chip_discards_held_message_no_turn_runs(app_clean: str, page: Pa
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], 400)
 
     _chats.send_first(page, "first")
-    expect(page.locator('[data-testid="message"].assistant').first).to_contain_text(
-        "one", timeout=8000
-    )
+    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
 
     # Queue, then cancel via the × button (keyboard-accessible native button).
     page.locator('[data-testid="chat-input"]').fill("discard me")
@@ -133,9 +129,30 @@ def test_cancel_chip_discards_held_message_no_turn_runs(app_clean: str, page: Pa
     # second turn means exactly one user bubble and one assistant bubble.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     page.wait_for_timeout(1500)
-    expect(page.locator('[data-testid="message"].user')).to_have_count(1)
-    expect(page.locator('[data-testid="message"].user')).to_have_text("first")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1)
+    expect(_chats.messages(page, "user")).to_have_count(1)
+    expect(_chats.messages(page, "user")).to_have_text("first")
+    expect(_chats.messages(page, "assistant")).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_cancelling_the_chip_by_keyboard_focuses_the_composer(app_clean: str, page: Page) -> None:
+    """WCAG 2.4.3 and 4.1.3: the cancel button held focus, so the composer input takes it
+    after the chip goes; the live region stays rendered (never hidden) while empty."""
+    _start_slow_turn(page, app_clean, ["one ", "two ", "three"], 400)
+    _chats.send_first(page, "first")
+    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+    region = page.locator('[data-testid="pending-queued-region"]')
+    expect(region).to_have_attribute("aria-live", "polite")
+    assert region.evaluate("(e) => e.hasAttribute('hidden')") is False
+    page.locator('[data-testid="chat-input"]').fill("discard me")
+    page.locator('[data-testid="chat-input"]').press("Enter")
+    cancel = page.locator('[data-testid="pending-queued-cancel"]')
+    expect(cancel).to_be_visible(timeout=3000)
+    cancel.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(0)
+    expect(page.locator('[data-testid="chat-input"]')).to_be_focused()
+    assert region.evaluate("(e) => e.hasAttribute('hidden')") is False
 
 
 @pytest.mark.browser
@@ -149,7 +166,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
     _start_slow_turn(page, base_url, ["resp-one ", "resp-two ", "resp-DONE"], 400)
 
     _chats.send_first(page, "first")
-    assistant = page.locator('[data-testid="message"].assistant')
+    assistant = _chats.messages(page, "assistant")
     expect(assistant.first).to_contain_text("resp-one", timeout=8000)
 
     # Hold "second" while turn 1 runs (Enter — Send is disabled during a turn).
@@ -161,7 +178,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
 
     # When turn 1 finishes, the held message is sent and renders as a real user
     # bubble (the core of F09-02). Before the fix this never appeared live.
-    user_bubbles = page.locator('[data-testid="message"].user')
+    user_bubbles = _chats.messages(page, "user")
     expect(user_bubbles).to_have_count(2, timeout=10000)
     expect(user_bubbles.nth(1)).to_have_text("second")
 
@@ -188,7 +205,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
 
     # The queued turn runs as a real turn: its own assistant response appears,
     # then the UI returns to idle.
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(2, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(2, timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
 
 
@@ -203,7 +220,7 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     _start_slow_turn(page, base_url, ["alpha ", "beta ", "gamma-FINAL"], 500)
 
     _chats.send_first(page, "running")
-    assistant = page.locator('[data-testid="message"].assistant')
+    assistant = _chats.messages(page, "assistant")
     expect(assistant.first).to_contain_text("alpha", timeout=8000)
     expect(assistant.first).not_to_contain_text("gamma-FINAL")
 
@@ -218,11 +235,11 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     # Wait well past the running turn's natural completion (3 chunks x 500ms ≈
     # 1s). If it had continued (the bug), the sentinel would have rendered.
     page.wait_for_timeout(2500)
-    expect(page.locator('[data-testid="message"].assistant')).not_to_contain_text("gamma-FINAL")
+    expect(_chats.messages(page, "assistant")).not_to_contain_text("gamma-FINAL")
 
     # The held message was discarded ("stop = stop everything"): no second user
     # bubble, no lingering chip.
-    expect(page.locator('[data-testid="message"].user')).to_have_count(1)
+    expect(_chats.messages(page, "user")).to_have_count(1)
     expect(page.locator('[data-testid="pending-queued"]')).to_have_count(0)
 
     # The UI returns to idle (Send re-enabled, no thinking indicator).

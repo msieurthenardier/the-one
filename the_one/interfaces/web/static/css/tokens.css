@@ -89,7 +89,7 @@
     --fg-secondary: #adafb7;
     --fg-tertiary: #9a9ca4;
     /* muted 6.00/5.64/5.35 on bg/surface/surface-elevated —
-       .pending-queued-chip makes muted-on-surface-elevated a real pair. */
+       the queued chip (App.ui.chip in the composer's queued slot) makes muted-on-surface-elevated a real pair. */
     --fg-muted: #8f9199;
     /* faint is the lowest text tier but still body AA: 5.34/5.02/4.76 on
        bg/surface/surface-elevated. De-emphasized annotations

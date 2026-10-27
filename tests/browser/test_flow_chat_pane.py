@@ -1,7 +1,7 @@
 """The Chats detail pane (M25 F4 leg 4b; flight DD3, DD6; reference spec 5.2, 5.4).
 
 The pane is built with DOM APIs (``areas/chat/chat-pane.js``, the composer
-``areas/chat/composer.js``):
+``App.ui.composer`` in ``js/ui/composer.js``):
 
 * **the header** (``chat-header``): an ``h1`` with the chat's title -- read
   from the ``sessions`` store by id, so it follows the auto-title, else the
@@ -177,14 +177,14 @@ def test_header_in_pending_starting_and_joined_follows_the_store(
     expect(title).to_have_text("New chat")
     expect(_chats.chat_agent_line(page)).to_have_text(f"with {agent}")
     expect(_chats.new_chat_state(page)).to_be_hidden()
-    expect(page.locator('[data-testid="message"].user')).to_have_text(["Plan the garden"])
+    expect(_chats.messages(page, "user")).to_have_text(["Plan the garden"])
 
     # joined: the title follows the auto-title through the `sessions` store.
     _wait_state(page, "joined")
     sid = _chats.current_session_id(page)
     expect(title).to_have_text("Plan the garden", timeout=10000)
     expect(_chats.chat_agent_line(page)).to_have_text(f"with {agent}")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     page.wait_for_timeout(500)  # the `done` list refresh (a prime) has landed
 
@@ -375,7 +375,7 @@ def test_a_start_failure_shows_its_error_in_the_pending_pane(
     box = page.locator('[data-testid="chat-input"]')
     box.fill("will fail")
     box.press("Enter")
-    notice = page.locator(f"{PANEL} .messages .msg.system")
+    notice = page.locator(f"{PANEL} .messages " + _chats.message_sel("system"))
     expect(notice).to_contain_text("Cannot start chat", timeout=8000)
     _wait_state(page, "pending")
     expect(notice).to_be_visible()
@@ -384,7 +384,7 @@ def test_a_start_failure_shows_its_error_in_the_pending_pane(
         """() => {
           const q = (sel) => document.querySelector(sel).getBoundingClientRect();
           const s = q('[data-testid="chat-new-state"]');
-          const m = q('.area-chat .messages .msg.system');
+          const m = q('.area-chat .messages [data-testid="message"].ui-message--system');
           return s.bottom <= m.top + 1;
         }"""
     )

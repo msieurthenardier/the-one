@@ -11,9 +11,6 @@
   function create(ctx) {
     var state = ctx.state;
     var chatState = ctx.chatState;
-    var inputEl = ctx.inputEl;
-    var sendBtn = ctx.sendBtn;
-    var stopBtn = ctx.stopBtn;
     var composer = ctx.composer;
 
     // Busy while starting (the first turn is on its way, whatever the
@@ -29,8 +26,7 @@
     // automatically hides it without extra plumbing. Call this after any mutation
     // to inFlightSessions or after the session state changes.
     function updateStopControl() {
-      if (!stopBtn) return;
-      stopBtn.hidden = !isCurrentBusy();
+      composer.setBusy(isCurrentBusy());
     }
 
     // Normal turn-send path: optimistic user bubble, transmit, mark in-flight,
@@ -63,7 +59,6 @@
         state.inFlightSessions[active] = true;
         state.ownTurn[active] = true;
       }
-      sendBtn.disabled = true;
       updateStopControl();
       ctx.transcript.showThinking();
     }
@@ -81,15 +76,16 @@
     // Every scripted write to the composer's text goes through here, so the
     // textarea re-fits (a cleared draft drops back to two rows).
     function setInputValue(text) {
-      inputEl.value = text;
-      composer.fit();
+      composer.setValue(text);
     }
 
-    function send() {
-      var text = inputEl.value.trim();
+    // The composer's onSend (Enter or the Send button) with the raw value: the control calls it
+    // for a busy or empty Enter too, so the area's guards (and its clearing on success) are here.
+    function send(raw) {
+      var text = String(raw === undefined ? composer.getValue() : raw).trim();
       if (!text && !ctx.attachments.staged().length) return;
       // Blocked by health gate (agent deleted, provider missing, etc.) — never queue.
-      if (state.sessionBannerEl || inputEl.disabled) return;
+      if (state.bannerActive || composer.input.disabled) return;
       var st = chatState.state().name;
       // Nothing open, or a join still in flight: nothing a message could go
       // to (an unbound socket would auto-create a default-agent session).

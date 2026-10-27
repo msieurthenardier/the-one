@@ -109,10 +109,10 @@ Rows 1-38 at planning (legs updated after Architect cycle 1). Every leg appends 
 | 1 | 07 | Chat reply | Markdown headings on the type tokens, never larger than the page heading | A1 |
 | 2 | 07 | Chat reply | The code-block Copy is the library icon button; it confirms in place (check icon, "Copied") with no page toast | A2, D1 |
 | 3 | 05b | Chat sign-in | "Sign-in needed" and "Sign in to {server}" on a library primary button | A3 |
-| 4 | 05c | Chat | An agent error is a danger-tone headline with the raw text under "Technical details" | A4 |
-| 5 | 05a | Chat | The deleted-agent warning is the library warning banner | A5 |
-| 6 | 05a | Composer | A staged image's remove is the library icon-only remove button | A6 |
-| 7 | 05a | Composer | The queued message's cancel is a library icon button; the label is "Queued" | A7 |
+| 4 | 05c | Chat | An agent error is a danger-tone headline ("The agent couldn't finish this reply.") with the raw text under "Technical details" (confirmed in the captures) | A4 |
+| 5 | 05a | Chat | The deleted-agent warning is the library warning banner (confirmed in the captures: a left-ruled warning band above the composer, left-aligned, replacing the centred top-ruled bar) | A5 |
+| 6 | 05a | Composer | A staged image's remove is the library icon-only remove button (confirmed: a grey 24px x, replacing the small red glyph; the thumbnail's alt is empty and the chip is named "Staged image N") | A6 |
+| 7 | 05a | Composer | The queued message's cancel is a library icon button; the label is "Queued" (confirmed: a chip in the chip fill, not a dashed card; the text is no longer italic and stays one line with an ellipsis) | A7 |
 | 8 | 05c | Chat | "Thinking…" and "Loading model…" in sentence case on one control | A8 |
 | 9 | 03b | Agent picker, Jump to | Long secondary text truncates before the row's name | A9 |
 | 10 | 08 | Provider models | Model ids in mono in the generic list | A10 |
@@ -128,11 +128,11 @@ Rows 1-38 at planning (legs updated after Architect cycle 1). Every leg appends 
 | 20 | 05c | Chat | The thinking disclosure sits above the reply it belongs to | B2 |
 | 21 | 05c | Chat | The trace summary keeps the mono voice, with the library chevron and "Tool activity · 4" | B3 |
 | 22 | 05c | Chat | "Operator only" is a small chip | B5 |
-| 23 | 05a | Chats empty state | The text column is centred under the mascot | B6 |
+| 23 | 05a | Chats empty state | The text column is centred under the mascot (confirmed: greeting, prompt and New chat centred) | B6 |
 | 24 | 05c | Chat | After Stop: a muted "Stopped." line, plus "Queued message discarded." when one was held | B9 |
-| 25 | 05a | Composer | Blocked: the box is dimmed with the disabled tokens, and Attach is disabled | B13, 0.3 |
+| 25 | 05a | Composer | Blocked: the box is dimmed with the disabled tokens, and Attach is disabled (confirmed: a dashed box on the page background) | B13, 0.3 |
 | 26 | 03c | Agent and provider editors | Sentence-case labels ("LLM configuration", "System prompt", "Max iterations", "Context window", "Reasoning effort", "OpenAI-compatible", …) | D7 |
-| 27 | 05a | Chat | After an agent pick, focus is in the message box | 0.1 |
+| 27 | 05a | Chat | After an agent pick, focus is in the message box (confirmed by test; the picker test that expected the opener now expects the message box, and a leave-guard Stay still keeps the opener) | 0.1 |
 | 28 | 06 | Chat | An OpenAI-compatible provider's connection error names that provider type, not Ollama | 0.2 |
 | 29 | 07 | Chat reply | `~~struck~~`, task lists (disabled checkboxes) and bare URLs (as links) render | 0.4 |
 | 30 | 05c | Chat reply | A finished agent reply has an icon-only "Copy reply" in its attribution row; it copies the markdown source | F1 |
@@ -144,6 +144,11 @@ Rows 1-38 at planning (legs updated after Architect cycle 1). Every leg appends 
 | 36 | 03c | MCP editor (Headers / Env) | The row's remove button is named after the key as typed, and the rename hint clears after a re-baselining Save | squawks 0269, 0270 |
 | 37 | 03a | Toasts | A toast survives its editor's remount and a closing modal (the MCP and connector "created" toasts now show) | DD5 |
 | 38 | 03a | Toasts | A new toast replaces the one showing; two never overlap | DD5 (operator, 2026-10-26) |
+| 39 | 04 / 05c | Chat trace | A tool message inside a trace caps at the trace's width (`max-width: 100%`), so a 200-character unbroken word wraps instead of overflowing | the leg 04 parity check (a degenerate-input fix) |
+| 40 | 05a | Every chip with a remove button (chat staged image and queued message, Library and MCP editors) | The remove button is a 24x24 target with no negative margin (was 22x22 with a negative margin); a chip with one is a few pixels taller | WCAG 2.2 target size (the B2 accessibility review) |
+| 41 | 05a | Chat composer | Send follows `blocked` or `busy`: clearing the health banner while a turn runs keeps Send disabled (the banner's clear path used to enable it); a latent defect, not reachable through a real flow today, so no visible change | DD7, leg 04 contract |
+| 42 | 05a | Composer | A short queued message's chip now fits its text instead of filling the region's width (the library chip is inline); a long one keeps one line with an ellipsis | leg 05a (A7 consequence; for the HAT to judge) |
+| 43 | 05c | Chat | A "Loading model…" line that never settled is removed when the turn ends in an agent error, `done` or Stop (it used to keep spinning); a deleted agent's chat makes no context-window request (no console 404) | DD11 4, 0.3 |
 
 ## Leg Progress
 
@@ -336,6 +341,101 @@ The determinism check (0 of 172 differ) and the group check passed. Batch B1 con
 **Verification.** Guards (ownership, emitted_classes, control_inventory, library_source, ui_guards, token_definitions, design_tokens_a11y, area_module_size): 446 passed; `ruff check` and `ruff format --check` clean. Contract files run in both engines: 198 passed. Batch-end full `--parallel 3` browser run and `make test-unit`: `PARALLEL_RESULT rc=0 total=1573s lanes=15 failed=-` (all 15 lanes rc=0, none over budget, including the full `shared` lane); `make test-unit` (netns): 7786 passed, 15 skipped; ruff clean.
 
 
+### Leg 04: chat-controls (landed, not committed)
+
+**What changed.**
+- **Six factories** in `js/ui/`, loaded after `drawer.js`: `App.ui.composer` (`composer.js`), `App.ui.message` with `message.attribution` and `message.relabel` (`message.js`), `App.ui.thinking` (`thinking.js`), `App.ui.trace` with `trace.find` and `trace.thinking` (`trace.js`), `App.ui.telemetry` with `telemetry.formatTokens` (`telemetry.js`) and `App.ui.notice` (`notice.js`). Owned rules are one section in `components.css` (`ui-composer*`, `ui-message*`, `ui-thinking*`, `ui-trace*`, `ui-telemetry*`, `ui-notice*`). Testids are caller-supplied only; ES5; no app global. **No consumer changed:** `git diff` shows nothing under `js/areas/` and nothing in `chat.css`.
+- **Catalogue:** Composer, Telemetry and Message rows moved to `library:`; "Thinking indicator, trace shell" split into Thinking indicator and Trace rows; a new Notice row. Each lists every class and modifier by name.
+- **The `contracts-chat` lane** (six files, provisional 300 s budget in `scripts/run-tests.sh` and CLAUDE.md). Bookkeeping: `LANE_LIST`, `CANON_LANES`, `BUDGET`, `contracts_chat_pat`, `contracts_controls_files()` (third pattern subtracted), `resolve_lane`, header comments; `tests/test_run_tests_lanes.py` (`LANES`, the lane string, a three-way union and a new by-file test); CLAUDE.md (bullets, table, counts: sixteen lanes, fifteen named, the `contracts` alias), `the_one/agents.md` (the lane summary and a "Chat controls" paragraph) and the `ci/tasks/browser.yml` comment. The parity test joins `chats_transcript_pat`.
+
+**Contract cases (each file runs in Chromium and WebKit under `THE_ONE_REQUIRE_WEBKIT=1`).** composer 19 per engine (38), message 17 (34), thinking 7 (14), trace 13 (26), telemetry 10 (20), notice 6 (12): 144 in all, `--lane contracts-chat` 144 passed in 46 s. Cases include the amendments' list: Enter while busy, Enter with empty text, blocked then unblocked while busy, an attach click calling `onAttach` and never the picker, IME by a composition-flagged event and by `keyCode` 229 in both engines, streaming with an operator marker and a peer label, an empty finalize, a double finalize, a `commit` with an empty fragment, a thinking node never attached that keeps ticking, a function `thresholds` that changes between updates, and a 200-character word in a message, a trace and a composer.
+
+**Parity check** (`tests/browser/test_flow_chat_controls_parity.py`, lane `chats-transcript`, removed in leg 05c): 9 message roles and modifiers, markdown descendants, 3 attributions, thinking and the system loading line, the trace closed and open (with and without an operator-only tool message, pseudo-elements included), the thinking disclosure closed and open, telemetry in a warn state, and the live composer against a second new one. It was seen failing on a deliberately changed colour (the message-system and trace-count edits) and the edit was reverted. **Intended differences** (the `INTENDED` set; a stale entry fails):
+1. A tool message inside a trace has `max-width: 100%`, not `none`: with an unbreakable word the old rule let it overflow the trace (found by the 200-character contract case, and fixed in the new rule).
+2. (Behavioural, asserted separately) a blocked composer disables Attach (B13), and Send is disabled while `blocked` or `busy`.
+
+The telemetry percentage is NOT mono: today's `.telemetry .t-ctx-pct` rule never matched the summary's percentage (it sits outside `.telemetry`), so the new control copies what is drawn, not what the rule intended. A mono percentage is a one-line change for 05c if the operator wants it (a presentation-debt candidate, not changed here).
+
+**Cascade notes recorded for 05a-05c** (also in `components.css` above the chat-controls section):
+- `.msg.user.msg-from-peer` beat `.msg.user` by source order; the new peer and api looks are compound selectors, so order no longer matters.
+- The tool-in-trace override (0,5,0 in `.area-chat`) beat `.msg.msg-operator-only` (0,3,0); the new `.ui-trace-body .ui-message--tool` (0,2,0) ties `.ui-message.ui-message--operator-only` (0,2,0) and is declared AFTER it to win. If 05c reorders `components.css`, keep that order.
+- Markdown descendant rules are scoped under `.ui-message--assistant` only.
+- No `@layer areas` rule targets an element inside `.area-chat`, so none beats the new component rules (re-checked by grep: every `chat.css` rule is class-qualified).
+- A modifier on an `.ui-message` sets `align-self`; a consumer that puts a message in a non-flex parent loses it.
+
+**Decisions.**
+- `App.ui.disclosure` was not reused for the trace: its summary is named by `aria-labelledby` over its text and meta nodes, which cannot give the exact name "Tool activity, N items", and its look (proportional text, bordered card) is not the trace's mono, left-ruled voice. The trace is its own native `<details>`.
+- The attribution's Copy reply is `App.ui.copyButton` (icon only, `size: 'sm'`); with a shared `liveEl` the node is the bare button.
+- The trace re-wraps by reading `data-trace-label` and its count-style class from the DOM, so `find` needs no stored state.
+- `message` takes the visibility chip through `App.ui.chip` wrapped in `span.ui-message-operator-chip` (the chip takes no `className`).
+- The blocked composer's dim is `background: var(--bg)`, a dashed border and `--fg-muted` input text; each is an audited pair (`fg_muted` x `bg`), so the contrast audit needed no new pair. 05a may choose another dim through the same class.
+- `App.ui.notice` has no old renderer, so no parity pair; its look is a muted or danger body-sm line.
+
+**Verification.** Guards (control inventory, library source, emitted classes, ownership, ui guards, token definitions, design-tokens a11y, run-tests lanes, index cache busting): 487 passed. `--lane contracts-chat` 144 passed; `contracts-controls` 1000 passed, 4 skipped (all `test_ui_*` outside the new lane; `--list | grep -c test_ui_` is 22 before and after, so the six files left no other lane); `chats-transcript` 43 passed (the parity test included); `chats` 150 passed. The three were run concurrently, never with the unit suite. `make test-unit` (under `THE_ONE_TEST_NETNS=1`): 7805 passed, 15 skipped (from 7786 / 15 at the B2 close). `ruff check` and `ruff format --check` clean. The `contracts-chat` budget is a **provisional 300 s** (a solo run took 46 s, which is not a budget input: squawk 0259).
+
+**Not done.** Nothing in scope. The `contracts-chat` budget stays provisional until the quiet-host run at 09b.
+
+### Leg 05a: composer-and-attachments (landed, not committed)
+
+**What changed.**
+- **The composer is `App.ui.composer`**, built once in `chat.js` with the legacy test ids and the callbacks `onSend` (`send.send(raw)`; the area's guards and its clearing on success stay in `send.js`, and a busy or empty Enter reaches the hold queue there), `onStop` (`stopTurn`, moved from the old listener), `onAttach` (`attachments.attach()`, which keeps the busy and blocked guard and calls `openFilePicker()`) and `onFiles` (`attachments.addFiles`). `areas/chat/composer.js`, its script tag and the `.area-chat .composer*`, `.chat-attachments`, queued-chip and `.chat-session-banner` rules are deleted. `ctx` no longer carries `inputEl`, `sendBtn`, `stopBtn`, `fileInputEl` or `attachBtn`: every module writes the handle (`ctx.composer`).
+- **One blocked computation, written first:** `computeBlocked()` (`state.bannerActive`, or a pending chat with setup incomplete or validating) and `applyComposerState()` (`setBlocked` + `setBusy(isCurrentBusy())`). Every former `state.sessionBannerEl` guard (`send.js`, `attachments.js`, `socket.js` x3, `turn-frames.js` x3) now calls it; `updateStopControl` is `composer.setBusy(isCurrentBusy())`; the `sendBtn.disabled = true` writes in `performSend`, `startSend` and the `is_processing` join are gone (busy covers them). `state.sessionBannerEl` became `state.bannerActive` plus one persistent `App.ui.banner({tone: 'warning', live: 'status'})` driven by `set(text)`, empty collapsing it (A5).
+- **A6/A7:** the staged-image chip is `App.ui.chip({label: 'Staged image N', labelHidden, lead: img (alt ''), onRemove, removeLabel: 'Remove staged image N', removeTestid, testid: 'chat-attachment', dataset})`; the queued chip is `App.ui.chip({label: text, truncate, lead: 'Queued' span, onRemove, removeLabel: 'Cancel queued message', ...})` in the live queued slot. The `chip` ownership row and its `MOVES` entry are gone.
+- **Library additions (each with a contract test in both engines):** `composer.fileInput` and the persistent `aria-live="polite"` queued slot (`test_ui_composer_contract.py`, +1 case, 38 -> 40 across engines); `chip` `labelHidden` and `truncate`, and the 24x24 remove button with no negative margin (`test_ui_feedback_contract.py::test_chip_label_hidden_truncate_and_24px_remove_button`, both engines). The legacy `.chip-remove` rule (its last user was the staged chip) is deleted; its contrast gate moved to the ghost remove icon: `--fg-secondary` on the composited chip fill at 4.5:1 (covering the icon's 3:1 and the queued chip's "Queued" lead text), over bg, surface and surface-elevated, both themes.
+- **0.1:** `requestPick` (the picker path only: Jump to's "New chat..." goes through it too) focuses the message box after `goPick` resolves true; a leave-guard Stay resolves false and focus stays on the opener. `chatWith`, direct hash entry and re-renders never move focus.
+- **B6:** `.chat-welcome-inner` centres its text; `.chat-welcome-actions` centres the button.
+- **Guards:** `tests/_ui_guard_helpers.py` `_TESTID_NAME` widened from `<lower>Testid` to `<camel>Testid` so the registry sees the composer's `fileInputTestid` and `attachmentsStatusTestid` (a stricter guard; the registry rows for `chat-image-input` and `chat-attachments-status` would otherwise have read as stale). `scripts/ui_capture.py` shots `.composer` -> `.ui-composer`.
+- **Docs:** CLAUDE.md "Chats pane" and "Chat composer"; `the_one/agents.md` "Chat composer" (the header paragraph, with the legacy class names renamed to `ui-` throughout) and the chat module map; the catalogue's Composer and Chip rows and the chip-list row; the testid registry row for the attachments row; `tests/behavior/vision-round-trip.md` (the composer note; the spec never named the glyph or `.chip-remove`, so no step changed).
+
+**Failing first (written and seen failing before the fix, 10 failures in the first run):** after a pick `chat-input` is focused (0.1); a deleted agent's chat has a `role=status` `.ui-banner` `banner-warning` and Attach disabled (0.3); the staged chip's remove is named "Remove staged image 1" and is 24px; the queued chip reads "Queued" (no colon) with a "Cancel queued message" button and its region is `aria-live=polite`; the empty state's text and button are centred (computed `text-align` and the button's and mascot's horizontal centres against the pane's); and the contract cases (`fileInput`, the live queued slot, `labelHidden`, `truncate`, the 24px button). **Not provable failing first: the `blocked || busy` Send fix.** The old banner-clear path set `sendBtn.disabled = false`, but no real flow clears a banner while the active chat is busy (a pick or an idle go has no busy chat, and a join's `is_processing` branch set it back synchronously), so it was a latent defect with no browser-observable failure. It is pinned by the leg 04 composer contract (blocked then unblocked while busy keeps Send disabled) and by `test_the_banner_clears_when_another_chat_opens_and_send_follows_busy`, which passes before and after; ledger row 41 says so.
+
+**Locators retargeted and deliberate assertion changes (nothing relaxed).**
+- `test_flow_chat_composer.py`: `.composer*` classes -> `.ui-composer*`, `.chat-attachments` and `.pending-queued-region` -> their testids, the Attach/Stop/Send class strings gain `ui-composer-`; **deliberate:** the chrome's children are now `[header, new-state, messages, banner, composer]` (the persistent health banner, collapsed while empty) and the telemetry slot and box are named by their `ui-composer-*` classes.
+- `test_flow_chat_image_attach.py` (names test): the chip's name is its visually hidden `.chip-label` ("Staged image 1/2") and the thumbnail's `alt` is `""` (the amendment's FD answer: the label names the chip, never twice); the remove-button names are unchanged.
+- `test_flow_chat_picker.py::test_enter_picks_and_a_re_pick_replaces`: the focus assertion after a completed pick was the opener and is now `chat-input` (0.1); `test_a_guard_stay_keeps_the_pickers_opener_focused` is unchanged and passes.
+- `test_flow_chat_controls_parity.py`: the composer pair and its B13 check are removed (the old renderer is gone); its docstring says so. `test_index_asset_cache_busting.py`: the fixture script is `areas/chat/send.js`. `test_nav_helper.py`: the synthetic selector fixtures use `.ui-composer-*`. `test_design_tokens_a11y.py`: the `.pending-queued-chip` comment and the moved gate.
+- `RETIRED_SELECTORS` gained nothing: the removed names are CSS classes the registry's testid table does not cover, and `git grep -nE "\.area-chat \.composer|\.composer-(box|input|toolbar|model|send|stop|telemetry)\b|pending-queued-(chip|label|text)\b|chat-session-banner|\.chip-remove[ {,:]|App\.chat\.composer" -- the_one/ tests/` finds nothing. (`pending-queued-cancel` is kept as a testid.)
+
+**Capture comparison** (`$HOME/.cache/the-one-ui-capture/m31-f6-l05a-after` against `m31-f6-before`, PIL threshold 8, 11 surfaces x light/dark x 1280/1024): **identical** (0 differing pixels): `chat-composer-focused`, `chat-composer-multiline`, `chat-live-streaming`, `chat-pending-new`, `chat-pending-long-name`, `chat-joined-empty`. **Differing only where a ledger row says so:** `chat-composer-staged-images` (a 110x34 region: the chip and its remove button, rows 6 and 40), `chat-live-queued` (the queued chip, row 7), `chat-joined-ghost-agent` and `chat-live-thinking` (both agents' sessions carry a health banner: the library banner, row 5, and the dashed blocked box, row 25), `chats-empty` (the centred column, row 23). The queued capture holds a long message, which keeps one line with an ellipsis.
+
+**Lanes (each with `THE_ONE_REQUIRE_WEBKIT=1`, `THE_ONE_TEST_NETNS=1`, three at a time, never with the unit suite):** `chats` 156 passed; `chats-transcript` 43; `contracts-chat` 146; `contracts-controls` 1002 passed, 4 skipped; `library` 104; `mcp` 87; `mcp-connection` 94; `knowledge` 65; `agents` 166. **Unit:** `make test-unit` 7805 passed, 15 skipped (the same as the leg 04 close; the leg adds browser tests only). `ruff check` and `ruff format --check` clean. Guards (ownership, ui guards, token definitions, design-tokens a11y, area module size, index cache busting, control inventory, emitted classes, nav helper): 468 passed.
+
+**Flake triage.** In the first concurrent `chats` run `test_flow_chat_list.py::test_row_delete_arms_confirms_and_focuses_the_neighbour` failed (an `expect(action).to_be_focused()` after a Tab); it passed in isolation, in a three-file re-run and in the final full `chats` run, so it is recorded as a load flake (not a regression). The other first-run failures were the retargets above.
+
+**Allowance deltas.** `OWNERSHIP_ALLOWANCE` 8 rows / 14 uses -> 7 rows / 13 uses (`js/areas/chat/attachments.js` `chip` removed; its `MOVES` entry and `TOTAL_USES["chip"]` removed); HTML-string sinks unchanged at 5 (`chat.js`); `chat.js` is 516 lines and every module is under 800.
+
+**Not done / notes.** The queued chip hugs its text instead of filling the region's width when the message is short (the chip takes no layout hook; the long case fills to the ellipsis). Row 41's fix has no failing-first browser evidence (see above). The deleted-agent drawer and the context-window 404 stay with 05c as the leg says.
+
+### Leg 05c: transcript (landed, not committed)
+
+**What changed.**
+- **Order followed:** the parity test was deleted first (`run-tests.sh` list now names `test_flow_chat_transcript_library.py`), then the failing-first tests, then the migration.
+- **The transcript is on the library:** `transcript.js` builds `App.ui.message` / `.attribution` (roles, `api`/`error`, peer, operator chip), the streaming bubble through `appendText` / `tail()` / `commit` / `finalize` with the full received text kept per bubble (F1), `App.ui.thinking` ("Thinking", "Loading model"), `App.ui.trace` (icon chevron, dot count, `.find` after a re-join) and `App.ui.trace.thinking`, and `App.ui.notice`. One `clearLog()` (called by `renderPending`, `clearConversation` and `renderHistory`) drops the thinking, model-loading and stream handles and the trace map (DD11 4). `chat.js` builds one `App.ui.telemetry` (`ctx.telemetry`, seam `_telemetry()`, testid `chat-telemetry`), one `chat-copy-status` live node (in the area panel, outside the log), and the zone relabel is `App.ui.message.relabel`.
+- **B2:** a per-iteration anchor (streaming bubble or last assistant bubble; cleared at `tool_call`, `tool_result`, `user`, `done`, `cancelled`; on replay only the immediately preceding `assistant`); no anchor appends in stream order. **B9:** `stopTurn` records `state.discardedOnStop[id]` before clearing the held message; `cancelled` appends "Stopped." and, for the flag or a still-held message, "Queued message discarded."; neither is stored. **A4:** an `Agent error: ` system frame is a danger notice with the headline and the raw text under a plain "Technical details" disclosure (the bubble is finalized first; the model-loading line is dropped). **DD11 5 / 0.3:** the context-window fetch is skipped for a join `status` other than `ok` or a loaded store without the agent, and applied only while the bound session and agent are unchanged.
+- **Library addition (one):** `App.ui.message.visibilityStyles` ({label, chip}) so the area names the chip style without the owned class token as a string (the ownership ratchet counts string literals; the alternative was a new allowance row). Catalogue row updated; no contract pin changed.
+- **Deleted:** `message-bubble.js`, `thinking-indicator.js`, `trace-shell.js`, `telemetry-overlay.js` and their script tags; the `chat.css` rules for `.msg*`, `.trace*`, `.thinking*`, `.model-loading`, `.telemetry*`, `.context-bar*` (the dead `.trace-shell ... .login-required-*` rules with them); `.msg-pending-approval*` and `.messages .login-required-*` stay. A15 (`opacity: 0.75` removed) and A18 (2px offset) are `components.css` edits.
+- **Registry and docs:** testids `chat-agent-error`, `chat-agent-error-details`, `chat-copy-status`, `chat-discarded`, `chat-stopped`, `chat-telemetry`, `message-copy`, `model-loading`; CLAUDE.md (transcript paragraph, composer telemetry, lane list), `agents.md` ("Chat transcript on the library", module map, telemetry, relabel), the catalogue's five rows. `scripts/ui_capture.py`: telemetry and message selectors retargeted; `CHAT_ERROR_TEXT` now carries the real "Agent error: " prefix so the capture exercises A4.
+
+**Failing first (seen failing against the old code, behavioural, run from a temporary selector-swapped copy that was deleted):** DD11 4 (a 120 ms interval still alive after a picker switch), DD11 5 (`99.0k` in B's readout after A's late response), 0.3 (a context-window request made for a deleted agent). The other new cases (F1, B2 live/replay/multi-iteration, B9 x3, A4, A8, A15, A18, B3, B5, the zero-max restore, the stopped-reply drain) all failed in the first run too, but on the new selectors and testids, so that is selector evidence, not behavioural; all 18 pass now.
+
+**Locators retargeted (helper `_chats.message_sel(role, *modifiers)` / `_chats.messages(page, role)`, plus `_chats.telemetry`, `emit_frame`):** about 55 `[data-testid="message"].role` locators across 15 files by script (`test_chats_helper`, `test_flow_chat`, `_composer`, `_image_attach`, `_pane`, `_queued_render`, `_start_flow`, `_start_reconnect`, `test_flow_context_overlay_thresholds`, `test_flow_markdown_chat`, `test_flow_new_chat`, `test_flow_streaming`, `test_flow_usage_restore`, `test_nav_guard` (routing), `test_visual_snapshots` (pixel)); by hand: `.msg*`, `.trace-*`, `.thinking-*`, `.telemetry-*`, `.context-bar`, `.t-*`, `.msg-attribution*` in `peer_attribution`, `visibility_distinction`, `thinking_disclosure`, `time_zone`, `oauth_modal_flow` (shared), `chat_pane`, `chat_start_flow`, `context_overlay_thresholds` (drive through `_telemetry()`), `usage_restore`. **Deliberate assertion changes:** `[operator-only]` label -> "Operator only" chip (B5); the trace count `1` -> "Tool activity · 1" (B3); `from-agent` / `from-peer` / `from-you` -> `ui-message-attribution--*`; composer chrome pin unchanged (the live node sits in the area panel). Contrast: `_TELEMETRY_RESTING_OPACITY` comment retargeted; new `test_message_timestamp_passes_body_aa` (`--fg-faint` on `--bg` 5.12:1 light, 5.34:1 dark) and a usage pin that `.ui-message-attribution-ts` has no opacity.
+
+**Behavior specs re-authored:** `stub-connector-round-trip` steps 5-7, `agent-governance-and-search` preconditions and step 8, `extended-thinking-tool-turn` steps 4-5, `chat-loop-hang-and-cancel` steps 2 and 4.
+
+**Capture comparison** (`$HOME/.cache/the-one-ui-capture/m31-f6-l05c-after` against `m31-f6-before`, 33 chat surfaces x light/dark x 1280/1024, PIL threshold 8, scratch `--out` outside the repo). Identical: none of the transcript surfaces; every difference maps to a row: Chats list "Discord" badge (230 px at the badge, `chat-joined-empty`, `chat-pending-*`, `chats-list-groups`; row 16, leg 05b); `chats-empty` and guidance (row 23, 05a); `chat-joined-ghost-agent`, `chat-live-thinking` (banner rows 5 and 25, and "Thinking…" row 8); `chat-live-agent-error` (row 4: danger headline and collapsed "Technical details"); `chat-live-after-stop` (rows 24, 30, 15); `chat-live-streaming` and `chat-live-queued` (rows 30, 15, 7); `chat-joined-peer` (rows 22, 30, 15); `chat-joined-long-names` (rows 30, 15); every rich-chat surface is 22 px taller (Copy reply in the attribution rows, row 30) and shows the thinking disclosure above its reply (row 20), "Tool activity · 4" with the icon chevron (row 21) and, in the connector chat, the chip (row 22); the telemetry surfaces are unchanged apart from the A18 offset (not visible at rest). Row 39 is covered by the trace tool-message cap (not visible in these captures: no unbroken word).
+
+**Lanes (three at a time):** `chats-transcript` 60 passed, `chats` 159 (run before the last small edits), `shared` 271, `routing` 186, `contracts-chat` 146 (WebKit required). Guards (ownership, ui guards, token definitions, a11y 317, nav helper, area module size, cache busting, inventory, emitted classes, lanes) 169 passed. `ruff check` and `ruff format --check` clean. **Full gate** (`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate`): the first run failed one unit test (`test_store_static.py::test_start_session_join_refreshes_the_list_that_primes_sessions` counts `return;` in the `session_joined` block; the new context-window `.then` had one, now restructured); the re-run: unit 7810 passed, 15 skipped; `PARALLEL_RESULT rc=0 total=1795s lanes=16 failed=-`.
+
+**Allowance.** `OWNERSHIP_ALLOWANCE` holds only `markdown.js` (`api:App.icon(` 1, `api:App.showFlash(` 3); no `js/areas/chat*` or `css/chat.css` row; `MOVES` empty; no HTML-string sink in the chat files.
+
+### Batch B3 review fixes (landed, not committed)
+
+- Chip focus (WCAG 2.4.3): `attachments.js` `removeStagedImage` and `hold-queue.js` `cancelPendingQueued` move focus only when the removed button held it (next chip's remove button, else previous, else the composer input; the queued cancel goes to the composer input). Tests: two in `test_flow_chat_image_attach.py`, one in `test_flow_chat_queued_render.py` (chats-transcript).
+- Queued live region (WCAG 4.1.3): `ui/composer.js` no longer sets `hidden` on `slots.queued`; `hold-queue.js` only inserts and removes the chip; `.ui-composer-queued:empty` has no margin, so the collapsed layout is unchanged (no ledger row). Composer contract tests updated (both engines).
+- `ui/thinking.js`: the dots span is `aria-hidden="true"`; contract assertion added.
+- Stale references updated (config.py, self-config-history.js, self-configuration-tab.js, test_flow_chat_pane.py, agents.md; the CLAUDE.md `--lane` list gained `contracts-chat`). Accepted: bare function-name mentions (`renderMessage`, `updateTelemetry`) in two test comments and an app.py comment.
+- Verification: static guards 467 passed; contracts-chat 146, chats-transcript 63, chats 159 passed; `make test-unit` 7810 passed, 15 skipped (netns); ruff clean.
+
 ## Decisions
 Runtime decisions not in the original plan.
 
@@ -471,6 +571,78 @@ Unexpected issues encountered.
     3. The truncated search-list meta has no `title` tooltip (a debrief candidate).
   - The re-announce-on-re-home and the toast-behind-modal notes are recorded and accepted as rare.
   - Legs 03a-03c are `completed`, with checkpoint commit B2.
+- **Leg 04 design review, cycle 2** (Sonnet, against the landed B2 library): approve with changes, applied. The Outputs were rewritten to fold in the amendments; the Copy reply uses `copyButton` with one shared `liveEl` (FD answer); the script order, the trace not reusing `disclosure`, and the concrete lane bookkeeping. This was the final cycle. The leg is `ready`; batch B3 starts once 05a-05c are designed.
+- **Legs 05a, 05b and 05c designed** (all tier high per the flight spec). Their Developer design reviews are deferred until leg 04 lands, so they check against the landed controls rather than the spec. A16 moved from 05c to 05b, since its badge is built in `chats-list.js`; 05b names it. The B2 accessibility note on the 22px chip remove button is decided in 05a: the library button becomes 24px (a ledger row).
+- **Leg 04 landed** (`[LAND:leg]`). Six controls, 144 contract tests in `contracts-chat` (both engines), and the parity check green; no consumer or `chat.css` change.
+  - **Ledger row 39 added:** the one intended parity difference, the tool message in a trace capped at the trace width.
+  - The telemetry percentage stays non-mono, as drawn today (its old mono rule never matched); 05c may choose otherwise only as a ledger row.
+  - Guards 487, unit 7805 / 15.
+  - The design reviews of 05a, 05b and 05c were spawned in parallel, read-only, against the landed controls.
+- **Design reviews for 05a and 05b: both approve with changes, applied as amendments.**
+  - **05a:** an AC grep that could never pass (it collided with `ui-composer-*`); a cache-busting fixture pointing at the deleted file; the eight `sessionBannerEl` guards folded into one `computeBlocked()`; a persistent live banner; one-shot 0.1 focus.
+    - **Small library additions:** `composer.fileInput`, a live queued slot, chip `labelHidden` / `truncate`, and the 24px remove button. Staged chips keep their names (FD answer).
+  - **05b:** the delete label derived from the title, never read back (a second-click trap); the sign-in button keeping its `data-*` and class hooks; no new testid; the Discord badge test retargeted; unknown slugs title-cased.
+  - Leg 05a's Developer was spawned. The 05c review is pending.
+- **Leg 05c design review: approve with changes, applied as amendments.**
+  - B2 anchored per iteration (no frame carries a message id; stream order with no anchor);
+  - B9's trigger moved to the Stop click (the held message is gone by `cancelled`), Stop only;
+  - A4's error from a closed-port provider, keeping the `"Agent error: "` prefix (now a recorded contract in leg 06);
+  - F1 for a Stopped reply copies the received text;
+  - 0.3 checks `status` plus a loaded store;
+  - one `clearLog()` for DD11 4;
+  - the parity test deleted first;
+  - the labels "Thinking" and "Loading model";
+  - a locator helper for about 55 role locators, with the `routing` and `shared` lanes added;
+  - the `ui_capture.py` retargets;
+  - an anchored AC grep.
+
+  The leg is `ready`.
+- **Leg 05a landed** (`[LAND:leg]`). The allowance went from 8 rows / 14 uses to 7 / 13; 10 failing-first cases were recorded; the captures match the ledger.
+  - **FD accepts:** the `blocked || busy` Send fix could not be shown failing first (the old defect was latent: no real flow clears the banner while busy). It is pinned by the contract test and an area test (ledger row 41).
+  - **Ledger row 42 added:** the short queued chip now hugs its text.
+  - **A slip in the report:** it said the sinks were "unchanged at 5"; the FD checked, and `HTML_SINK_ALLOWANCE` is `{}` with `SINK_TOTAL = 0`.
+  - **Flake:** one `test_flow_chat_list.py` delete-focus test failed once under concurrent load and passed in isolation and on the full lane. It is recorded; it recurs only if it reappears.
+  - Unit 7805 / 15. Leg 05b's Developer was spawned.
+- **Leg 05b landed** (`[LAND:leg]`). Chat sign-in and the Chats list delete are on the library; the chat area holds no ownership row.
+  - **Sign-in:** "Sign-in needed" above a library primary button "Sign in to {server}" (keeps the `login-required-btn` class and `data-*` hooks, no new testid); `App.ui.consentLink` direct; the group keeps `_btn` / `_consentBlock` references (no class queries). **Squawk 0215:** `abandon()` calls `resetLoginGroups`; recorded in the squawk (in-progress, closes at the flight commit).
+  - **Chats list:** `App.ui.confirm` with `onArmChange` (label derived from the row title passed into `onDelete`, MutationObserver gone); DD11 6 offline delete reverts the arm and flashes "Not connected, so the chat wasn't deleted. Try again in a moment."; A16 `App.chat.chatsList.platformName` (Discord, Telegram, Slack, Stub; unknown title-cased).
+  - **Failing first (seen failing before the fix):** 0215 http-500 and network-error (POST held until the consent frame was injected; block still present), DD11 6 offline (no toast), A16 badge ("discord" vs "Discord"). The arming-label and online-no-toast tests passed already (regression pins, as the leg expected).
+  - **Retargeted:** `test_oauth_modal_flow.py` strings ("Log in to" to "Sign in to", comments); `test_flow_chat_list.py` badge to "Discord".
+  - **Allowance:** the 5 chat.js/sign-in.js rows and 3 MOVES entries deleted; `TOTAL_USES` down to `api:App.icon(` 1 and `api:App.showFlash(` 3 (markdown.js only, leg 07). `MOVES` is empty. Ledger rows 3, 16, 34, 35 confirmed.
+  - **Docs:** CLAUDE.md "Honest sign-in", `agents.md` sign-in and Chats list notes. `start-a-chat.md` step 14 needed no change.
+  - **Verification:** guards (ownership, consent-link static, ui_guards, tokens, a11y) 373 passed; lanes chats, chats-transcript, shared green (43 / 159 / 271 passed across the three); `make test-unit` 7805 passed, 15 skipped; ruff clean.
+- **Legs 09a and 09b drafted** (`planning`), from DD14 and DD15. They go `ready` after batch B4 lands and their citations are re-run against that tree. Tiering: 09a is low-to-medium (deletions with no remaining callers, verified by grep, plus docs); 09b is a verification leg. Both get a design review at that point, since they depend on everything before them. The HAT leg (10) is written when it is next.
+- **Leg 05b landed** (`[LAND:leg]`). The 0215 (both branches), DD11 6 and A16 tests were seen failing first; two regression pins passed before (expected).
+  - **The allowance:** 5 rows removed, `MOVES` empty; `TOTAL_USES` now holds only `markdown.js`'s `api:App.icon(` 1 and `api:App.showFlash(` 3 (leg 07). The chat area holds no ownership row.
+  - Unit 7805 / 15. Leg 05c's Developer was spawned.
+- **Leg 05c landed** (`[LAND:leg]`). The full gate (the batch B3 end): unit 7810 / 15; `PARALLEL_RESULT rc=0 total=1795s lanes=16 failed=-`. Only `markdown.js`'s 2 rows (4 uses) remain in the allowance, for leg 07.
+  - **FD notes:**
+    - DD11 4, DD11 5 and 0.3 were shown failing behaviourally first; the other 15 new cases failed on missing selectors only (not behavioural evidence, accepted given the behavioural three and the leg's scope);
+    - the `App.ui.message.visibilityStyles` addition is accepted (it keeps the area free of allowance rows, with no contract change);
+    - the rich-chat surfaces grow about 22px per reply from Copy reply (row 30) and go on the HAT walk;
+    - ledger row 43 was added.
+  - **Untested, recorded:** a `refreshAfterTurn` re-join landing right after `cancelled`, and A18 checked through the rule rather than a real keyboard focus.
+- **Batch B3 end (legs 04, 05a, 05b, 05c).** Reviewers were spawned in parallel: a **Sonnet** code Reviewer (the sign-in flow and consent-URL gating changed, and the batch is large) and an **Accessibility Reviewer** (Sonnet).
+- **Batch B3 reviews, first pass.**
+  - **Accessibility Reviewer:** `[HANDOFF:confirmed]`, no blocking issues, with three non-blocking findings the FD takes into the fix pass:
+    1. focus falls to `body` after a chip removes itself (`attachments.js`, `hold-queue.js`);
+    2. the queued slot is unhidden in the same step its chip is inserted, which can defeat its live region;
+    3. the spinner glyphs are not `aria-hidden`.
+  - **Code Reviewer:** `[HANDOFF:confirmed]`, but self-described as a spot-check that left the sign-in security gating, the transcript behaviour, locator fidelity and the lane bookkeeping unverified. **The FD did not accept a spot-check for the largest batch with a security-sensitive path,** and sent the same Reviewer back (`SendMessage`) to verify those areas explicitly. Its stale-comment findings (references to the deleted renderer files) go into the fix pass.
+- **Batch B3 code review, deepened pass (Sonnet, the same Reviewer): `[HANDOFF:confirmed]`.**
+  - **Verified explicitly:**
+    - the sign-in security gating, unchanged apart from the alias rename (`test_oauth_modal_flow.py`: 20 passed);
+    - the transcript behaviours: F1 source, B2 anchor, B9, DD11 4, DD11 5 and 0.3 (`test_flow_chat_transcript_library.py`: 18; `test_flow_streaming.py`: 2);
+    - the retarget fidelity across about 15 files (no weakened assertion; the deliberate changes match the ledger);
+    - the offline delete;
+    - the `contracts-chat` bookkeeping.
+  - **Its question answered by the FD:** B9's "Stopped." in a tab that did not click Stop (a Stop from another tab) is intended, as leg 05c specified.
+  - **A fix pass was spawned** for the three accessibility findings, the stale comment references to deleted files, and CLAUDE.md's `--lane` selector list. Per the F5 debrief's rule, it runs the unit tier plus its owning lanes.
+- **Batch B3 fix pass verified.**
+  - The FD re-ran the static guards after the pass's final edits: 471 passed.
+  - The Accessibility Reviewer re-reviewed its three findings: `[HANDOFF:confirmed]`, all fixed.
+  - The fix pass's own run: `contracts-chat` 146, `chats-transcript` 63, `chats` 159, unit 7810 / 15.
+  - Legs 04, 05a, 05b and 05c are `completed`, with checkpoint commit B3.
 
 ---
 

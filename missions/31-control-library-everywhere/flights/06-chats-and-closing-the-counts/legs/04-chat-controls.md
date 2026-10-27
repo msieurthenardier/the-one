@@ -1,6 +1,6 @@
 # Leg: chat-controls
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 
 ## Objective
@@ -55,43 +55,61 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
 - Batch B2 (legs 03a-03c) landed and committed: `App.ui.badge.live`, the copy confirmation (`App.ui.button.setIcon`), `App.ui.noteFlag`, the flash contract, the chip `lead` / `onRemove` and the confirm `onArmChange`.
 
 ## Outputs
+*(Rewritten after design review cycle 2 to fold in the cycle-1 amendments. Where the amendments section below still adds detail, it applies. Nothing here contradicts it.)*
 - **`App.ui.composer(opts)`** (`js/ui/composer.js`, new):
-  - **Options:** `label` ("Message"), `placeholder`, `onSend(text)`, `onStop()`, `onFiles(files)`, `accept`, `multiple`, `attachLabel` ("Attach images"), and per-part testids (the caller passes today's literals).
-  - **Handle:** `{el, input, setPlaceholder(text), setModel(text), setBusy(bool), setBlocked(reason|null), getValue(), setValue(text), focus(), slots: {telemetry, attachments, attachmentsStatus, queued}, fit(), destroy()}`.
-    - `setBusy(true)` shows Stop and disables Send.
-    - `setBlocked(reason)` disables the input, Send **and** Attach, and adds a dimmed modifier on the box (B13). It is the single writer of the disabled state.
-  - It owns the Enter-sends / Shift+Enter-newline / IME rule (`isComposing` or `keyCode` 229 does nothing), the auto-fit to about 8 lines on `input` and after `setValue`, and the file input's `change`.
-  - Its input id comes from `App.ui.util.uid()`. `destroy` removes every listener.
+  - **Options:** `label` ("Message"), `placeholder`, `onSend(text)`, `onStop()`, `onAttach()`, `onFiles(files)`, `accept`, `multiple`, `attachLabel` ("Attach images"), and per-part testids (the caller passes today's literals).
+  - **Handle:** `{el, input, setPlaceholder(text), setModel(text), setBusy(bool), setBlocked(reason|null), openFilePicker(), getValue(), setValue(text), focus(), slots: {telemetry, attachments, attachmentsStatus, queued}, fit(), destroy()}`.
+    - `setBusy(true)` shows Stop and disables Send (not the input).
+    - `setBlocked(reason)` disables the input and Attach and dims the box (B13).
+    - **Send's disabled state is `blocked || busy`**, so clearing `blocked` while busy keeps Send disabled. Today the banner-clear path re-enables Send even while busy; the new behaviour is an intended fix.
+  - It owns:
+    - the Enter-sends / Shift+Enter-newline / IME rule (`isComposing` or `keyCode` 229 does nothing). Enter calls `onSend(rawValue)` whenever the input is enabled, busy or not, and with empty text too;
+    - the auto-fit, with today's `minHeight` hold;
+    - the file input's `change`.
+  - It never clears the input.
+  - Its input id comes from `App.ui.util.uid()`. No test selects the old `chat-composer-input` id. `destroy` removes every listener.
 - **`App.ui.message(opts)`** (`js/ui/message.js`, new):
-  - **Options:** `role` ('user', 'assistant', 'tool' or 'system'), `tone` ('error' optional), `body` (a Node; the area renders markdown) or `text`, `visibility` ('operator' adds the operator-only marker for non-user roles, as a chip, with the label text from the caller), `peerName` (the peer modifier plus a visually hidden "From {peer}: " label), and `testid` ('message').
-  - **Handle:** `{el, appendText(s), commit(fragment, consumed), finalize(fragment|null), tail(), destroy()}`. These are the streaming tail primitives: `commit` inserts a rendered prefix before the live tail and drops `consumed` characters from the tail; `finalize` replaces the tail with a final fragment, or leaves the text.
-  - **`App.ui.message.attribution(opts)`:** options `side` ('you', 'agent' or 'peer'), `name`, `timeLabel`, `ts` (stored as `data-ts`), and `copyText` (F1; when set, an icon-only library copy button named "Copy reply", with D1's confirmation).
-    - Returns `{el, setTimeLabel(text), setCopy(text|null)}`.
-    - `App.ui.message.relabel(root, fn)` re-labels every attribution under `root` from its `data-ts` through the caller's `fn`. It replaces the area's global `querySelectorAll` sweep without an `App.time` dependency.
+  - **Options:**
+    - `role` ('user', 'assistant', 'tool' or 'system') and `source` ('api' for today's `.msg.user.api`);
+    - `tone` ('error');
+    - `body` (a Node; wins over `text`) or `text`;
+    - `streaming` (true creates the empty tail text node);
+    - `visibility` ('operator' for non-user roles), with `visibilityStyle` ('label', the default `[operator-only]` span, or 'chip', B5) and `visibilityLabel`;
+    - `peerName`;
+    - `testid` (caller-supplied).
+  - **Handle:** `{el, appendText(s), commit(fragment, consumed), finalize(fragment|null), tail(), destroy()}`. `tail()` returns the tail **string**; the semantics are as in the amendments.
+  - **`App.ui.message.attribution(opts)`:**
+    - options `side` ('you', 'agent' or 'peer'), `name`, `timeLabel`, `ts`, `copyText` and `liveEl`;
+    - with `copyText` it builds `App.ui.copyButton({iconOnly: true, label: 'Copy reply', text: function () {…}, liveEl: opts.liveEl, testid})`, D1's confirmation. The transcript passes **one shared live node** as `liveEl`, so replies do not each carry a `role=status` span; with `liveEl` the root is the bare button;
+    - returns `{el, setTimeLabel(text), setCopy(text|null)}`. `setCopy(null)` removes the node it owns;
+    - while confirming, the button's name is "Copied" (or "Copy failed") for 2 s, then reverts to "Copy reply". Tests assert the revert and never assume a constant name;
+    - `App.ui.message.relabel(root, fn)` as in the amendments.
 - **`App.ui.thinking(opts)`** (`js/ui/thinking.js`, or beside `message`):
-  - options `label` (the caller passes "Thinking…" or "Loading model…"), `tone` ('assistant' or 'system') and `testid`;
+  - options `label` ("Thinking…" or "Loading model…", from the caller), `tone` ('assistant' or 'system') and `testid`;
+  - its root composes the message classes (`ui-message ui-message--assistant ui-thinking`, or `--system`);
   - returns `{el, settle(text), destroy()}`;
-  - the dots animate only without `prefers-reduced-motion`. The interval stops on `destroy`, on `settle` and when `el` is disconnected (checked in the tick). There are no DOM expandos.
+  - the dots animate only without reduced motion (read once). The interval stops on `destroy`, on `settle`, and once the node has been connected and **then** disconnected; a node not yet attached keeps ticking. There are no DOM expandos.
 - **`App.ui.trace(opts)`:**
-  - options `id` (stored as `data-parent-msg-id`), `label` ('Tool activity'), `testid` ('trace-shell');
-  - a native `<details>` with a summary using the library chevron (B3 (b)), the label and a count in the "· {n}" form, and a body;
-  - returns `{el, append(node), count(), destroy()}`; `append` updates the count and the summary's accessible name;
-  - `App.ui.trace.find(root, id)` returns the handle for an existing trace, kept in a module `WeakMap` or by re-wrapping, never an expando;
-  - **`App.ui.trace.thinking(opts)`:** the thinking disclosure (`label` 'Thinking', `body` text, `testid` 'thinking-disclosure'), a `<details>` in the trace's mono voice.
+  - options `id` (`data-parent-msg-id`), `label` ('Tool activity'), `chevron` ('css', the default, today's look; or 'icon'), `countStyle` ('span', the default, today's separate count; or 'dot', "Tool activity · 4", B3), `testid`;
+  - a native `<details>`;
+  - returns `{el, append(node), count(), destroy()}`. `count()` derives from the body's children. `append` updates the count and the summary's accessible name ("Tool activity, N items"). `destroy` detaches listeners only;
+  - `App.ui.trace.find(root, id)` looks up `.ui-trace[data-parent-msg-id="…"]` (scoped to `.ui-trace`, since the thinking disclosure also carries the attribute) and re-wraps it;
+  - **`App.ui.trace.thinking(opts)`** (`label` 'Thinking', `body`, `parentId`, `testid`);
+  - `App.ui.disclosure` is not expected to be reused: its `aria-labelledby` labelling conflicts with the trace's exact summary name and mono voice. The reason is recorded.
 - **`App.ui.telemetry(opts)`:**
-  - options `warn` and `crit` (thresholds from the area), `testid`;
-  - returns `{el, update({input, output, context}), setMax(n), reset(), destroy()}`;
-  - it keeps today's `role=status`, `tabindex=0`, the expand-on-hover-or-focus and the context bar with its warn and crit states, plus `aria-label`;
-  - `fmtTokens` moves into it as a private helper (or `App.ui.telemetry.formatTokens`);
-  - its state is in the closure, never `root.__telemetry`.
+  - options `thresholds` (`{warn, crit}` or a function returning it, read on every update) and `testid`;
+  - returns `{el, update(data), setMax(n), reset(), destroy()}`. `update` takes today's usage-frame shape (`input_tokens`, `output_tokens`, `context_tokens`, `max_context_tokens`). `setMax` touches only the maximum and the percentage;
+  - it keeps today's `role=status`, `tabindex=0`, the expand-on-hover-or-focus, the context bar's warn and crit states, `aria-label` and the 0.7 resting opacity;
+  - `fmtTokens` moves in as a private helper (or `App.ui.telemetry.formatTokens`), and its state is in the closure.
 - **`App.ui.notice(opts)`:**
-  - options `tone` ('muted' or 'danger'), `body` (a Node or text), `testid`;
+  - options `tone` ('muted' or 'danger'), `body` (a Node or text) and `testid`;
   - returns `{el, set(body), destroy()}`;
   - a transcript line, not a live region: the log announces it.
+- **Script order:** the six new files go in `index.html`'s `js/ui` block **after `drawer.js`** (so after `feedback.js`, `copy.js` and `button.js`). The harness derives its script list from `index.html`.
 - **Owned rules** in `components.css`, one section per control, reproducing today's look under the new names. `chat.css` is not edited.
 - **Catalogue rows** (`docs/ui-control-inventory.md`):
   - Composer, Message bubble (with attribution) and Telemetry readout change from "not yet defined" to `library: App.ui.<name>`;
-  - row 82 "Thinking indicator, trace shell" **splits into two rows**, Thinking indicator (`App.ui.thinking`) and Trace (`App.ui.trace`), since the guard requires one factory per row;
+  - the "Thinking indicator, trace shell" row (row 83 at B2's close) **splits into two rows**, Thinking indicator (`App.ui.thinking`) and Trace (`App.ui.trace`), since the guard requires one factory per row;
   - a new **Notice** row.
 
   Each lists its options, its handle, its states and every owned class and modifier by name.
@@ -106,7 +124,7 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
 - **A parity check:** a browser flow test (in `chats-transcript`) that renders each old area renderer and its new library control side by side on the real app page under `.area-chat`. It compares a fixed set of computed properties (font family, size and weight, line height, padding, margin, colours, border, radius, max-width) on the root and its main parts. It is removed in leg 05c with the old renderers.
 
 ## Acceptance Criteria
-- [ ] **Six factories exist** in `js/ui`, each with a catalogue row and a contract file calling `App.ui.<name>(`. `tests/test_ui_control_inventory.py`, `tests/test_ui_library_source.py` (ES5, `_APP_GLOBAL`, `_FACTORY_LINE`), `tests/test_ui_emitted_classes.py` and `tests/test_ui_ownership.py` pass. The catalogue rows list every modifier by name. `index.html` loads the new files after `ui/core.js`, and `test_index_asset_cache_busting.py` passes.
+- [ ] **Six factories exist** in `js/ui`, each with a catalogue row and a contract file calling `App.ui.<name>(`. `tests/test_ui_control_inventory.py`, `tests/test_ui_library_source.py` (ES5, `_APP_GLOBAL`, `_FACTORY_LINE`), `tests/test_ui_emitted_classes.py` and `tests/test_ui_ownership.py` pass. The catalogue rows list every modifier by name. `index.html` loads the new files after `drawer.js`, and `test_index_asset_cache_busting.py` passes.
 - [ ] **Each contract file passes in Chromium and WebKit** under `THE_ONE_REQUIRE_WEBKIT=1`, covering the cases in Outputs:
   - the composer: Enter sends, Shift+Enter adds a newline, an IME Enter does nothing, `setBlocked` disables the input, Send and Attach and dims the box, `setBusy` toggles Stop and Send, auto-fit grows and then scrolls, and `destroy` removes the listeners;
   - the message: each role and modifier, `body` versus `text`, the operator-only chip and the peer label, and the streaming `appendText`, `commit` and `finalize` sequence leaving the expected DOM;
@@ -154,7 +172,7 @@ Build the six chat controls as `App.ui` factories with update handles, contract-
 - `tests/test_ui_library_source.py:20` (`_APP_GLOBAL`) and `_FACTORY_LINE`; `tests/browser/_ui_engines.py:199-201` (the harness loads only `icons.js` and `js/ui`). Verified (Architect cycles 1-2 and FD).
 - The area renderers' APIs and testids: FD grep of `js/areas/chat/{composer,message-bubble,thinking-indicator,trace-shell,telemetry-overlay}.js` after leg 02 (2026-10-27). `transcript.js:340-360` holds the streaming bubble.
 - The `chat.css` line ranges are from the code survey §9. Re-derive them.
-- Catalogue row 82 ("Thinking indicator, trace shell") and `test_inventory_rows_are_classified`'s one-factory rule: Architect cycle 2.
+- The catalogue's "Thinking indicator, trace shell" row (row 83 after B2) and `test_inventory_rows_are_classified`'s one-factory rule: Architect cycle 2.
 
 ---
 
@@ -215,12 +233,18 @@ Completion steps (status transitions, the flight-log update, checking off in the
   - don't mount a second old composer: its fixed `chat-composer-input` id would duplicate. Compare the live composer instead;
   - compare pseudo-elements as well (the trace chevron's `::before`, `::-webkit-details-marker`);
   - re-check that no `@layer areas` element rule inside `.area-chat` beats the new component rules.
+- **The copy fallback:** the harness page has no clipboard permission, so WebKit takes `copyButton`'s `execCommand` fallback. Follow `tests/browser/test_ui_copy_contract.py`'s approach.
+- **Extra contract cases** (cycle 2): thinking built but never attached keeps ticking; telemetry `thresholds` as a function that changes between updates; the parity test asserts Attach reaches the disabled state (the intended B13 change).
 - **WebKit caveats** for the contract tests:
   - IME through `new KeyboardEvent('keydown', {key: 'Enter', isComposing: true})` in both engines; `keyCode` 229 through `Object.defineProperty` on the event;
   - `<details>` toggling awaited on `el.open` or the `toggle` event, never a fixed sleep; `summary` gets `list-style: none` plus the `::-webkit-details-marker` hide;
   - auto-fit asserted as "grows, then caps and scrolls", not pixel values;
   - telemetry expansion through `.focus()` and `:focus-within`, not hover.
-- **Lane bookkeeping detail:** `contracts_controls_files()` gains a third subtraction (explicit globs `test_ui_composer*`, `test_ui_message*`, `test_ui_thinking*`, `test_ui_trace*`, `test_ui_telemetry*`, `test_ui_notice*`). `resolve_lane`, the `shared` complement and the `run-tests.sh` header comments are updated. `ci/tasks/browser.yml` says sixteen lanes.
+- **Lane bookkeeping detail** (concrete after cycle 2):
+  - `scripts/run-tests.sh`: `contracts_controls_files()` (about `:263`) subtracts a new `contracts_chat_pat`; `LANE_LIST`, `CANON_LANES`, `BUDGET` (300, provisional), the `resolve_lane` case, the header comments (`:23`, `:27`) and the error text (`:509`). The `contracts` alias and the `shared` complement use `contracts_all_pat`, so they need no change.
+  - `tests/test_run_tests_lanes.py`: `LANES`, the hard-coded lane string (`:149-150`), and `test_contracts_lanes_are_exactly_the_ui_contract_files` (`:86-88`), which becomes a three-way union.
+  - CLAUDE.md `:431`/`:433` (fifteen lanes become sixteen, fourteen named become fifteen) plus its bullets and table; `the_one/agents.md:179`; `ci/tasks/browser.yml:11`.
+  - (The original text follows.) `contracts_controls_files()` gains a third subtraction (explicit globs `test_ui_composer*`, `test_ui_message*`, `test_ui_thinking*`, `test_ui_trace*`, `test_ui_telemetry*`, `test_ui_notice*`). `resolve_lane`, the `shared` complement and the `run-tests.sh` header comments are updated. `ci/tasks/browser.yml` says sixteen lanes.
 - **Record for the consumer legs:** the `components.css` rules that relied on `.area-chat` specificity (`.msg.user.msg-from-peer` after `.msg.user`, the tool-in-trace override), listed in the flight log for 05a-05c's cascade checks.
 - **Not separate rows:** attribution, `relabel`, `find` and `thinking` are sub-entries of their factory's row, with no own contract file. Each catalogue row's text says so. Every row keeps six cells.
 
@@ -233,3 +257,12 @@ Completion steps (status transitions, the flight-log update, checking off in the
   - `.msg-pending-approval*` is dead CSS for 09a;
   - the `contracts-chat` budget is a provisional 300 s, never from a solo run.
 - **A second cycle runs when batch B2 lands**, before the leg's Developer starts. The amendments are substantive (the handle semantics), and B2 changes the library this leg builds on (the copy confirmation, `badge.live`, the chip options). The leg stays `ready`, pending that pass.
+- **Design review cycle 2** (Sonnet, 2026-10-27, against the landed B2 library, read-only): approve with changes. Applied:
+  - **[medium]** the Outputs rewritten so no bullet contradicts the amendments;
+  - **[medium]** the Copy reply through `copyButton` with one shared `liveEl` (FD answer to the reviewer's question) and its 2 s name revert;
+  - **[medium]** Send's `blocked || busy` noted as an intended fix;
+  - **[low]** the script order after `drawer.js`;
+  - **[low]** the trace not reusing `disclosure` (expected);
+  - **[low]** the row-number drift.
+
+  The lane bookkeeping detail below is now concrete. This was the second and final cycle.

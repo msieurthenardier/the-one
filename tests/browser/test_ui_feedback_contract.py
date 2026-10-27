@@ -595,3 +595,47 @@ def test_a_badge_never_shrinks_in_a_narrow_flex_row(engine_page: Page) -> None:
         }"""
     )
     assert out == {"shrink": "0", "whole": True, "inside": True}
+
+
+def test_chip_label_hidden_truncate_and_24px_remove_button(engine_page: Page) -> None:
+    """M31 F6 L05a: `labelHidden` keeps the label as the chip's name but visually hides it;
+    `truncate` is one line with an ellipsis (min-width 0); the remove button is a 24px target
+    with no negative margin (WCAG 2.2 target size) in both layouts."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const wrap = document.createElement('div'); wrap.style.cssText = 'width: 180px; display: flex;';
+          root.appendChild(wrap);
+          const img = document.createElement('img'); img.alt = ''; img.width = 24; img.height = 24;
+          const hid = App.ui.chip({label: 'Staged image 1', labelHidden: true, lead: img, onRemove: () => {},
+                                   removeLabel: 'Remove staged image 1', removeTestid: 'rm-hidden'});
+          const tr = App.ui.chip({label: 'a very long queued message that cannot possibly fit on one line at all',
+                                  truncate: true, lead: document.createTextNode('Queued'), onRemove: () => {},
+                                  removeLabel: 'Cancel queued message', removeTestid: 'rm-trunc'});
+          const plain = App.ui.chip({label: 'tag', onRemove: () => {}, removeLabel: 'Remove tag', removeTestid: 'rm-plain'});
+          wrap.appendChild(hid); wrap.appendChild(tr); wrap.appendChild(plain);
+          const lab = hid.querySelector('.chip-label');
+          const tl = tr.querySelector('.chip-label');
+          const box = (n) => { const r = n.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+          const cs = (n) => getComputedStyle(n);
+          return {
+            hidClass: lab.className, hidText: lab.textContent, hidW: box(lab)[0] <= 1,
+            hidClip: cs(lab).position === 'absolute',
+            trWs: cs(tl).whiteSpace, trOv: cs(tl).overflow, trTo: cs(tl).textOverflow, trMin: cs(tl).minWidth,
+            trFits: tr.getBoundingClientRect().right <= wrap.getBoundingClientRect().right + 1,
+            btnHidden: box(hid.querySelector('button')), btnTrunc: box(tr.querySelector('button')),
+            btnPlain: box(plain.querySelector('button')),
+            margin: cs(plain.querySelector('button')).margin,
+            hidden: (() => { try { App.ui.chip({label: 'x', labelHidden: true, lead: null}); return ''; } catch (e) { return e.message; } })()
+          };
+        }""",
+    )
+    assert "visually-hidden" in out["hidClass"] and out["hidText"] == "Staged image 1"
+    assert out["hidW"] and out["hidClip"]
+    assert out["trWs"] == "nowrap" and out["trOv"] == "hidden" and out["trTo"] == "ellipsis"
+    assert out["trMin"] == "0px" and out["trFits"]
+    assert out["btnHidden"] == [24, 24] and out["btnTrunc"] == [24, 24]
+    assert out["btnPlain"] == [24, 24]
+    assert out["margin"] == "0px"
+    assert engine_page.get_by_role("button", name="Remove staged image 1").count() == 1

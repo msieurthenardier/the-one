@@ -93,7 +93,7 @@ def test_chat_image_attach_with_text_renders_indicator(
 
     _chats.send_first(page, "what is in this image?")
 
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("what is in this image? [image]", timeout=5000)
     assert "[object Object]" not in user_msg.inner_text()
 
@@ -107,7 +107,7 @@ def test_chat_image_attach_with_text_renders_indicator(
 
     # Assistant reply still arrives — the WS round-trip survived the
     # image-bearing payload (mock provider's deterministic default reply).
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Mock response from the mock provider.", timeout=10000)
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled()
@@ -232,9 +232,12 @@ def test_chat_staged_images_have_distinct_accessible_names(
     chips = page.locator('[data-testid="chat-attachment"]')
     expect(chips).to_have_count(2)
 
-    alts = [chips.nth(i).locator("img").get_attribute("alt") for i in range(2)]
+    # M31 F6 L05a (deliberate retarget): the chip is App.ui.chip, so its name is its visually
+    # hidden label and the thumbnail's alt is empty (the label names the chip, never twice).
+    alts = [chips.nth(i).locator(".chip-label").text_content() for i in range(2)]
     assert alts == ["Staged image 1", "Staged image 2"]
     assert len(set(alts)) == 2
+    assert [chips.nth(i).locator("img").get_attribute("alt") for i in range(2)] == ["", ""]
 
     remove_btns = page.locator('[data-testid="chat-attachment-remove"]')
     labels = [remove_btns.nth(i).get_attribute("aria-label") for i in range(2)]
@@ -276,12 +279,12 @@ def test_chat_two_images_send_includes_both_and_omits_empty_text(
     # guard would have blocked this entirely; L08 widens it to text-OR-image).
     page.locator('[data-testid="chat-send-btn"]').click()
 
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("[image]", timeout=5000)
     expect(page.locator('[data-testid="chat-attachments"]')).to_be_hidden()
     expect(chips).to_have_count(0)
 
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Mock response from the mock provider.", timeout=10000)
 
 
@@ -308,9 +311,7 @@ def test_chat_attach_over_count_caps_at_max_and_notices(
     chips = page.locator('[data-testid="chat-attachment"]')
     expect(chips).to_have_count(10)
 
-    system_notice = page.locator('[data-testid="message"].system').filter(
-        has_text="Only up to 10 images"
-    )
+    system_notice = _chats.messages(page, "system").filter(has_text="Only up to 10 images")
     expect(system_notice).to_be_visible(timeout=5000)
 
 
@@ -337,9 +338,7 @@ def test_chat_attach_oversized_file_rejected_with_notice(
     image_input = page.locator('[data-testid="chat-image-input"]')
     image_input.set_input_files(files=[oversized])
 
-    system_notice = page.locator('[data-testid="message"].system').filter(
-        has_text="per-image limit"
-    )
+    system_notice = _chats.messages(page, "system").filter(has_text="per-image limit")
     expect(system_notice).to_be_visible(timeout=5000)
 
     # No chicklet was staged and the async-staged marker never flips —
@@ -361,8 +360,53 @@ def test_chat_text_only_send_unaffected(app_with_agent: SeededApp, page: Page) -
 
     _chats.send_first(page, "hello")
 
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("hello", timeout=5000)
 
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Mock response from the mock provider.", timeout=10000)
+
+
+@pytest.mark.browser
+def test_removing_a_chip_with_the_keyboard_hands_focus_on(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """WCAG 2.4.3: a removed chip's remove button held focus, so focus goes to the next
+    chip's remove button, else the previous one, else the composer input; a pointer user
+    who has clicked elsewhere is not moved."""
+    page.goto(app_with_agent.base_url)
+    _chats.start_chat(page, app_with_agent.agent_name)
+    for name in ("a.png", "b.png", "c.png"):
+        _attach_and_wait_staged(page, name=name)
+    removes = page.locator('[data-testid="chat-attachment-remove"]')
+    expect(removes).to_have_count(3)
+
+    # middle chip: focus lands on the chip that took its place (the old third)
+    removes.nth(1).focus()
+    page.keyboard.press("Enter")
+    expect(removes).to_have_count(2)
+    expect(removes.nth(1)).to_be_focused()
+    # last chip: focus lands on the previous one
+    page.keyboard.press("Enter")
+    expect(removes).to_have_count(1)
+    expect(removes.nth(0)).to_be_focused()
+    # only chip: focus lands on the composer input
+    page.keyboard.press("Enter")
+    expect(removes).to_have_count(0)
+    expect(page.locator('[data-testid="chat-input"]')).to_be_focused()
+
+
+@pytest.mark.browser
+def test_removing_a_chip_does_not_steal_focus_from_elsewhere(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    page.goto(app_with_agent.base_url)
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _attach_and_wait_staged(page, name="a.png")
+    _attach_and_wait_staged(page, name="b.png")
+    removes = page.locator('[data-testid="chat-attachment-remove"]')
+    # a scripted removal while the composer input has focus leaves focus alone
+    page.locator('[data-testid="chat-input"]').focus()
+    removes.first.evaluate("(b) => b.click()")
+    expect(removes).to_have_count(1)
+    expect(page.locator('[data-testid="chat-input"]')).to_be_focused()

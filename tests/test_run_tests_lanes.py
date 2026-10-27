@@ -35,6 +35,7 @@ LANES = (
     "settings-tools",
     "providers",
     "contracts-overlay",
+    "contracts-chat",
     "contracts-controls",
     "shared",
 )
@@ -85,11 +86,24 @@ def test_lanes_union_is_the_browser_suite(lanes: dict[str, set[str]]) -> None:
 
 def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[str]]) -> None:
     ui = {f"tests/browser/{p.name}" for p in (REPO / "tests" / "browser").glob("test_ui_*.py")}
-    assert lanes["contracts-overlay"] | lanes["contracts-controls"] == ui
+    assert lanes["contracts-overlay"] | lanes["contracts-chat"] | lanes["contracts-controls"] == ui
     # `contracts` stays an alias for the union (not a canonical lane).
     assert _lane_files("contracts") == ui
     assert "tests/browser/test_ui_listener_cleanup.py" in lanes["contracts-controls"]
     assert not (lanes["shared"] & ui)
+
+
+def test_contracts_chat_lane_is_the_six_chat_control_files(lanes: dict[str, set[str]]) -> None:
+    """M31 F6 L04 (DD15): the six chat-control contract files are their own lane, so
+    `contracts-controls` no longer lists them and the `contracts` alias still does."""
+    chat = {
+        f"tests/browser/test_ui_{n}_contract.py"
+        for n in ("composer", "message", "thinking", "trace", "telemetry", "notice")
+    }
+    assert lanes["contracts-chat"] == chat
+    assert not (lanes["contracts-controls"] & chat)
+    assert not (lanes["contracts-overlay"] & chat)
+    assert chat <= _lane_files("contracts")
 
 
 def test_settings_tools_lane_is_the_built_in_tools_files(lanes: dict[str, set[str]]) -> None:
@@ -147,7 +161,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     assert proc.returncode == 2
     lanes = (
         "chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|"
-        "settings|settings-tools|providers|contracts-overlay|contracts-controls|shared"
+        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
     )
     assert lanes in proc.stderr
     assert proc.stdout == ""

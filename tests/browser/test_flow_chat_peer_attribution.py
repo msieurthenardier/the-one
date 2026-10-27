@@ -1,22 +1,23 @@
+# ruff: noqa: E501  (long selectors and inline JS snippets are evaluated verbatim)
 """Browser test for M11 F06 L04 — chat-ui-attribution.
 
 Verifies that USER messages persisted with ``Message.peer_name`` render
 with:
-- the ``msg-from-peer`` class on the bubble (left-aligned via the CSS
-  override declared after ``.area-chat .msg.user`` — same specificity,
+- the ``ui-message--peer`` class on the bubble (left-aligned via the CSS
+  override declared after ``.ui-message--user`` — same specificity,
   last-rule-wins);
-- an attribution element with class ``msg-attribution from-peer`` whose
+- an attribution element with class ``ui-message-attribution ui-message-attribution--peer`` whose
   text is the peer's display name;
 - ``getComputedStyle(...).alignSelf === 'flex-start'`` (verifies the
-  source-order CSS override actually wins over ``.msg.user``'s
+  source-order CSS override actually wins over ``.ui-message--user``'s
   ``flex-end``).
 
 Operator-typed user bubbles (no ``peer_name``) keep their pre-leg
-``.msg.user`` (right-aligned) + ``.from-you`` attribution rendering.
+``.ui-message--user`` (right-aligned) + ``.ui-message-attribution--you`` attribution rendering.
 
 Composition with the operator-only marker (M10 F05 L05 + L08 HAT) is
 preserved: assistant bubbles tagged ``visibility=operator`` still carry
-``.msg-operator-only``; peer user bubbles and operator-typed user
+``.ui-message--operator-only``; peer user bubbles and operator-typed user
 bubbles do NOT (the JS gate skips the marker on user bubbles).
 
 Per user-global rule (no committed snapshot baselines), this test
@@ -82,22 +83,22 @@ def test_chat_renders_peer_attribution(
     page: Page,
 ) -> None:
     """A seeded session with mixed operator-typed + peer-attributed USER
-    messages renders peer bubbles with msg-from-peer + from-peer
+    messages renders peer bubbles with ui-message--peer + ui-message-attribution--peer
     attribution, while operator-typed user bubbles keep their
-    .msg.user (right-aligned) + from-you rendering.
+    .ui-message--user (right-aligned) + ui-message-attribution--you rendering.
 
     Acceptance criteria coverage:
-    - ``.msg.user.msg-from-peer`` count == 2 (USER #2 alice + USER #3 bob).
-    - ``.msg.user:not(.msg-from-peer)`` count == 1 (USER #1 operator).
-    - First peer bubble's attribution: ``.from-peer`` text ``'alice'``.
-    - Second peer bubble's attribution: ``.from-peer`` text ``'bob'``.
-    - Operator-typed user bubble's attribution: ``.from-you`` text
+    - ``.ui-message--user.ui-message--peer`` count == 2 (USER #2 alice + USER #3 bob).
+    - ``.ui-message--user:not(.ui-message--peer)`` count == 1 (USER #1 operator).
+    - First peer bubble's attribution: ``.ui-message-attribution--peer`` text ``'alice'``.
+    - Second peer bubble's attribution: ``.ui-message-attribution--peer`` text ``'bob'``.
+    - Operator-typed user bubble's attribution: ``.ui-message-attribution--you`` text
       ``'You'``.
     - Computed ``alignSelf`` on peer bubble == ``'flex-start'`` (the CSS
-      override wins over ``.msg.user``'s ``flex-end``).
+      override wins over ``.ui-message--user``'s ``flex-end``).
     - Computed ``alignSelf`` on operator-typed user bubble ==
       ``'flex-end'`` (unchanged).
-    - Visibility composition: assistant bubble has ``.msg-operator-only``;
+    - Visibility composition: assistant bubble has ``.ui-message--operator-only``;
       peer bubbles + operator-typed user bubble do NOT (existing F5 L8
       HAT decision preserved).
     """
@@ -137,24 +138,24 @@ def test_chat_renders_peer_attribution(
     # Wait for the chat chrome (deep-link path renders straight into chrome).
     _chats.expect_chat(page, agent_name)
 
-    # Wait for messages to render — at least one .msg bubble.
-    expect(page.locator(".msg").first).to_be_visible(timeout=5000)
+    # Wait for messages to render — at least one message bubble.
+    expect(page.locator('[data-testid="message"]').first).to_be_visible(timeout=5000)
 
     # Wait for ALL four expected bubbles (3 user + 1 assistant) to render.
-    expect(page.locator(".msg.user")).to_have_count(3, timeout=5000)
-    expect(page.locator(".msg.assistant")).to_have_count(1, timeout=5000)
+    expect(_chats.messages(page, "user")).to_have_count(3, timeout=5000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=5000)
 
     # Assertion 1: peer bubble count.
-    peer_bubbles = page.locator(".msg.user.msg-from-peer")
+    peer_bubbles = _chats.messages(page, "user", "peer")
     expect(peer_bubbles).to_have_count(2)
 
     # Assertion 2: operator-typed user bubble count.
     # CSS-spec :not(.x) is well-supported; locator passes it through.
-    operator_user_bubbles = page.locator(".msg.user:not(.msg-from-peer)")
+    operator_user_bubbles = page.locator(_chats.message_sel("user") + ":not(.ui-message--peer)")
     expect(operator_user_bubbles).to_have_count(1)
 
     # Assertion 3: first peer bubble's immediately-following attribution
-    # element has class 'msg-attribution from-peer' and text starting with
+    # element has class 'ui-message-attribution ui-message-attribution--peer' and text starting with
     # 'alice'. Since the message-timestamp-on-replay fix (PR #159,
     # 8b02669), Message.user()/assistant() persist created_at and the codec
     # projects it as `ts` on replay, so restored attributions render with a
@@ -172,19 +173,19 @@ def test_chat_renders_peer_attribution(
         }"""
     )
     assert first_peer_attr is not None, "first peer bubble has no following attribution element"
-    assert "msg-attribution" in first_peer_attr["cls"], (
-        "expected msg-attribution class on first peer attribution, got "
+    assert "ui-message-attribution" in first_peer_attr["cls"], (
+        "expected ui-message-attribution class on first peer attribution, got "
         f"cls={first_peer_attr['cls']!r}"
     )
-    assert "from-peer" in first_peer_attr["cls"], (
-        f"expected from-peer class on first peer attribution, got cls={first_peer_attr['cls']!r}"
+    assert "ui-message-attribution--peer" in first_peer_attr["cls"], (
+        f"expected ui-message-attribution--peer class on first peer attribution, got cls={first_peer_attr['cls']!r}"
     )
     assert re.fullmatch(r"alice( · \d{1,2}:\d{2} [AP]M)?", first_peer_attr["text"]), (
         f"expected first peer attribution 'alice' (+ optional ' · h:mm AM/PM' "
         f"timestamp suffix), got {first_peer_attr['text']!r}"
     )
 
-    # Assertion 4: second peer bubble's attribution is 'bob' and from-peer.
+    # Assertion 4: second peer bubble's attribution is 'bob' and ui-message-attribution--peer.
     second_peer = peer_bubbles.nth(1)
     second_peer_attr = second_peer.evaluate(
         """el => {
@@ -196,8 +197,8 @@ def test_chat_renders_peer_attribution(
         }"""
     )
     assert second_peer_attr is not None, "second peer bubble has no following attribution element"
-    assert "from-peer" in second_peer_attr["cls"], (
-        f"expected from-peer class on second peer attribution, got cls={second_peer_attr['cls']!r}"
+    assert "ui-message-attribution--peer" in second_peer_attr["cls"], (
+        f"expected ui-message-attribution--peer class on second peer attribution, got cls={second_peer_attr['cls']!r}"
     )
     assert re.fullmatch(r"bob( · \d{1,2}:\d{2} [AP]M)?", second_peer_attr["text"]), (
         f"expected second peer attribution 'bob' (+ optional ' · h:mm AM/PM' "
@@ -205,7 +206,7 @@ def test_chat_renders_peer_attribution(
     )
 
     # Assertion 5: operator-typed user bubble's attribution is 'You' on
-    # the from-you side.
+    # the ui-message-attribution--you side.
     op_user = operator_user_bubbles.first
     op_user_attr = op_user.evaluate(
         """el => {
@@ -217,8 +218,8 @@ def test_chat_renders_peer_attribution(
         }"""
     )
     assert op_user_attr is not None, "operator-typed user bubble has no following attribution"
-    assert "from-you" in op_user_attr["cls"], (
-        f"expected from-you class on operator-typed attribution, got cls={op_user_attr['cls']!r}"
+    assert "ui-message-attribution--you" in op_user_attr["cls"], (
+        f"expected ui-message-attribution--you class on operator-typed attribution, got cls={op_user_attr['cls']!r}"
     )
     assert re.fullmatch(r"You( · \d{1,2}:\d{2} [AP]M)?", op_user_attr["text"]), (
         f"expected operator-typed attribution 'You' (+ optional ' · h:mm AM/PM' "
@@ -230,53 +231,55 @@ def test_chat_renders_peer_attribution(
     peer_align = first_peer.evaluate("el => getComputedStyle(el).alignSelf")
     assert peer_align == "flex-start", (
         f"peer bubble align-self should be 'flex-start' (CSS source-order "
-        f"override after .msg.user), got {peer_align!r}"
+        f"override after .ui-message--user), got {peer_align!r}"
     )
 
     # Assertion 7: computed style on the operator-typed user bubble —
-    # the base .msg.user rule should still apply, keeping flex-end.
+    # the base .ui-message--user rule should still apply, keeping flex-end.
     op_align = op_user.evaluate("el => getComputedStyle(el).alignSelf")
     assert op_align == "flex-end", (
         f"operator-typed user bubble align-self should be 'flex-end', got {op_align!r}"
     )
 
     # Assertion 8: visibility composition — the assistant bubble carries
-    # .msg-operator-only (visibility=operator); the peer bubbles do not
+    # .ui-message--operator-only (visibility=operator); the peer bubbles do not
     # (peer-inbound users have visibility=None per visibility.py:60);
     # the operator-typed user bubble does not (F5 L8 HAT suppresses the
     # marker on user bubbles even when visibility=operator).
-    assistant_has_marker = page.locator(".msg.assistant").first.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
+    assistant_has_marker = _chats.messages(page, "assistant").first.evaluate(
+        "el => el.classList.contains('ui-message--operator-only')"
     )
     assert assistant_has_marker is True, (
-        "assistant bubble should carry .msg-operator-only (visibility=operator persisted by codec)"
+        "assistant bubble should carry .ui-message--operator-only (visibility=operator persisted by codec)"
     )
 
     for i in range(2):
         peer_has_marker = peer_bubbles.nth(i).evaluate(
-            "el => el.classList.contains('msg-operator-only')"
+            "el => el.classList.contains('ui-message--operator-only')"
         )
         assert peer_has_marker is False, (
-            f"peer bubble #{i} unexpectedly carries .msg-operator-only — "
+            f"peer bubble #{i} unexpectedly carries .ui-message--operator-only — "
             "peer-inbound users have visibility=None by construction"
         )
 
-    op_user_has_marker = op_user.evaluate("el => el.classList.contains('msg-operator-only')")
+    op_user_has_marker = op_user.evaluate(
+        "el => el.classList.contains('ui-message--operator-only')"
+    )
     assert op_user_has_marker is False, (
-        "operator-typed user bubble unexpectedly carries .msg-operator-only — "
+        "operator-typed user bubble unexpectedly carries .ui-message--operator-only — "
         "the F5 L8 HAT decision suppresses the marker on user bubbles."
     )
 
     # Assertion 9 (M11 F06 L04 a11y follow-up — WCAG 1.3.3 / 1.4.1):
     # Each peer bubble must contain a visually-hidden screen-reader label
-    # `<span class="msg-from-peer-label visually-hidden">From {peerName}: </span>`
+    # `<span class="ui-message-peer-label visually-hidden">From {peerName}: </span>`
     # prepended BEFORE the message text. Without this, assistive technology
     # cannot distinguish a peer message from an operator-typed message
-    # (both are <div class="msg user">{text}</div> to AT; the differentiators
+    # (both are <div class="ui-message ui-message--user">{text}</div> to AT; the differentiators
     # are visual-only — left/right alignment + background color).
     first_peer_label = first_peer.evaluate(
         """el => {
-            const lbl = el.querySelector('.msg-from-peer-label');
+            const lbl = el.querySelector('.ui-message-peer-label');
             return lbl ? {
                 cls: lbl.className,
                 text: lbl.textContent,
@@ -289,12 +292,12 @@ def test_chat_renders_peer_attribution(
         }"""
     )
     assert first_peer_label is not None, (
-        "first peer bubble is missing the .msg-from-peer-label span "
+        "first peer bubble is missing the .ui-message-peer-label span "
         "(WCAG 1.3.3 / 1.4.1 — screen readers need an explicit 'From alice: ' "
         "announcement; visual alignment alone is insufficient)."
     )
     assert "visually-hidden" in first_peer_label["cls"], (
-        f"expected .msg-from-peer-label to also carry .visually-hidden, "
+        f"expected .ui-message-peer-label to also carry .visually-hidden, "
         f"got cls={first_peer_label['cls']!r}"
     )
     assert first_peer_label["text"] == "From alice: ", (
@@ -316,15 +319,15 @@ def test_chat_renders_peer_attribution(
 
     second_peer_label = second_peer.evaluate(
         """el => {
-            const lbl = el.querySelector('.msg-from-peer-label');
+            const lbl = el.querySelector('.ui-message-peer-label');
             return lbl ? { cls: lbl.className, text: lbl.textContent } : null;
         }"""
     )
     assert second_peer_label is not None, (
-        "second peer bubble is missing the .msg-from-peer-label span"
+        "second peer bubble is missing the .ui-message-peer-label span"
     )
     assert "visually-hidden" in second_peer_label["cls"], (
-        f"expected second .msg-from-peer-label to carry .visually-hidden, "
+        f"expected second .ui-message-peer-label to carry .visually-hidden, "
         f"got cls={second_peer_label['cls']!r}"
     )
     assert second_peer_label["text"] == "From bob: ", (
@@ -332,12 +335,14 @@ def test_chat_renders_peer_attribution(
     )
 
     # Assertion 10 (negative case): the operator-typed user bubble must NOT
-    # carry a .msg-from-peer-label — the operator IS the source; there is no
+    # carry a .ui-message-peer-label — the operator IS the source; there is no
     # peer to announce. Verifies the gate is `opts.peerName` truthiness (not
     # bubble-role).
-    op_user_peer_label = op_user.evaluate("el => el.querySelector('.msg-from-peer-label') !== null")
+    op_user_peer_label = op_user.evaluate(
+        "el => el.querySelector('.ui-message-peer-label') !== null"
+    )
     assert op_user_peer_label is False, (
         "operator-typed user bubble unexpectedly carries a "
-        ".msg-from-peer-label — the screen-reader label gate is "
+        ".ui-message-peer-label — the screen-reader label gate is "
         "opts.peerName, which is falsy for operator-typed input."
     )

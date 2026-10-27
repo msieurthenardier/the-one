@@ -13,8 +13,6 @@
     var state = ctx.state;
     var chatState = ctx.chatState;
     var messagesEl = ctx.messagesEl;
-    var sendBtn = ctx.sendBtn;
-    var content = ctx.content;
     var agentDrawer = ctx.agentDrawer;
 
     var NOTE_TOOLS = { save_note: true, update_note: true, forget_note: true };
@@ -23,35 +21,14 @@
       if (data.content === 'Loading model...') {
         // Server will run `agent.step` only AFTER the load finishes — until
         // then, suppress the "thinking" indicator we optimistically showed
-        // on send so the operator sees a single, accurate state.
-        ctx.transcript.hideThinking();
-        var loadEl = document.createElement('div');
-        // `system-model-loading` is a system-only class so the
-        // `Model loaded.` handler below can target this row exclusively
-        // without accidentally matching the thinking indicator (which
-        // also carries `.model-loading` for shared dot-animation styling).
-        loadEl.className = 'msg system model-loading system-model-loading';
-        // DOM-built (M25 F4 L4b; was a static innerHTML literal).
-        var loadTextEl = document.createElement('span');
-        loadTextEl.className = 'model-loading-text';
-        loadTextEl.textContent = 'Loading model';
-        var dotEl = document.createElement('span');
-        dotEl.className = 'model-loading-dots';
-        loadEl.appendChild(loadTextEl);
-        loadEl.appendChild(dotEl);
-        messagesEl.appendChild(loadEl);
-        ctx.transcript.scrollToBottomIfPinned();
-        var frames = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-        var frameIdx = 0;
-        loadEl._dotTimer = setInterval(function () { frameIdx = (frameIdx + 1) % frames.length; dotEl.textContent = ' ' + frames[frameIdx]; }, 120);
+        // on send so the operator sees a single, accurate state. The line is an
+        // App.ui.thinking handle the transcript keeps (DD11 4: its timer stops on
+        // settle, on any log wipe and when the turn ends).
+        ctx.transcript.showModelLoading();
       } else if (data.content === 'Model loaded.') {
-        var loadingMsg = messagesEl.querySelector('.system-model-loading');
-        if (loadingMsg) {
-          if (loadingMsg._dotTimer) clearInterval(loadingMsg._dotTimer);
-          loadingMsg.classList.remove('model-loading');
-          loadingMsg.classList.remove('system-model-loading');
-          loadingMsg.textContent = 'Model loaded.';
-        } else { ctx.transcript.addMsg('system', data.content); }
+        if (!ctx.transcript.settleModelLoading('Model loaded.')) {
+          ctx.transcript.addMsg('system', data.content);
+        }
         // Restore the "thinking" state — the agent step is about to run
         // and we still owe the user a response indicator until the first
         // chunk arrives.
@@ -61,7 +38,15 @@
         }
       } else {
         ctx.transcript.hideThinking();
-        ctx.transcript.addMsg('system', data.content);
+        ctx.transcript.dropModelLoading();
+        if (ctx.transcript.isAgentError(data.content)) {
+          // A4: an agent error during streaming finalizes the bubble first, then the notice.
+          ctx.transcript.finalizeStreamingBubble();
+          ctx.transcript.clearStreamingVisibility();
+          ctx.transcript.addAgentError(data.content);
+        } else {
+          ctx.transcript.addMsg('system', data.content);
+        }
         var errActive = chatState.activeId();
         if (errActive && state.inFlightSessions[errActive]) {
           delete state.inFlightSessions[errActive];
@@ -71,7 +56,7 @@
           delete state.pendingQueuedMessages[errActive];
           ctx.holdQueue.clearPendingQueued();
           ctx.send.updateStopControl();
-          if (!state.sessionBannerEl) sendBtn.disabled = false;
+          ctx.applyComposerState();
         }
       }
     }
@@ -119,13 +104,14 @@
         // rendering + reset of currentStreamingMsg both happen inside).
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();
+        ctx.transcript.clearIterationAnchor();
         // L03: route into the trace shell for this assistant turn.
         var argsText = '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
         var liveTrace = ctx.transcript.getOrCreateTrace(data.parent_message_id);
         // M10 F05 L05: forward visibility from the live tool_call event.
         var liveMsg = ctx.transcript.buildToolMsg(argsText, false, data.tool_call_id, { visibility: data.visibility });
         if (liveTrace) {
-          App.chat.appendToTrace(liveTrace, liveMsg);
+          liveTrace.append(liveMsg);
         } else {
           // Legacy / null parent_message_id — render standalone.
           messagesEl.appendChild(liveMsg);
@@ -138,6 +124,7 @@
         // Iteration boundary — finalize the current streaming bubble.
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();
+        ctx.transcript.clearIterationAnchor();
         // M23 F02 L03: a delivered (peer-visible) tool result is
         // promoted to a top-level bubble live too, matching renderHistory
         // — otherwise a live-vs-reload rendering gap would just move from
@@ -151,7 +138,7 @@
           // M10 F05 L05: forward visibility from the live tool_result event.
           var resMsg = ctx.transcript.buildToolMsg(data.content, data.is_error, data.tool_call_id, { visibility: data.visibility });
           if (resTrace) {
-            App.chat.appendToTrace(resTrace, resMsg);
+            resTrace.append(resMsg);
           } else {
             messagesEl.appendChild(resMsg);
           }
@@ -159,17 +146,24 @@
         ctx.transcript.scrollToBottomIfPinned();
       }
       else if (data.type === 'system') handleSystem(data);
-      else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
+      else if (data.type === 'usage') {
+        App.perf.mark('telemetry-update:start');
+        ctx.telemetry.update(data);
+        App.perf.mark('telemetry-update:end');
+        App.perf.measure('telemetry-update', 'telemetry-update:start', 'telemetry-update:end');
+      }
       else if (data.type === 'auth_required') ctx.signIn.onAuthRequired(data);
       else if (data.type === 'auth_resolved') ctx.signIn.onAuthResolved(data);
       else if (data.type === 'auth_failed') ctx.signIn.onAuthFailed(data);
       else if (data.type === 'done') {
         ctx.transcript.hideThinking();
+        ctx.transcript.dropModelLoading();
         // End of agent step — finalize so the streaming bubble swaps
         // its accumulated text for the markdown-rendered fragment, and
         // the next user message starts a fresh streaming round.
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();
+        ctx.transcript.clearIterationAnchor();
         // AC6: the joined session (activeId); a held message goes out on
         // the joined path (performSend), never as a start.
         var sid = chatState.activeId();
@@ -191,7 +185,7 @@
           }
           ctx.holdQueue.clearPendingQueued();
           ctx.send.updateStopControl();
-          if (!state.sessionBannerEl) sendBtn.disabled = false;
+          ctx.applyComposerState();
         }
         ctx.sessionFlow.refreshSessionList();
         // A session_updated waited for this turn: re-join now (a held message
@@ -206,9 +200,19 @@
         // The partial assistant bubble was already committed by the backend (leg 3);
         // finalizeStreamingBubble() seals any streaming tail still in the pacing queue.
         ctx.transcript.hideThinking();
+        ctx.transcript.dropModelLoading();
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();
+        ctx.transcript.clearIterationAnchor();
         var cancelledActive = chatState.activeId();
+        // B9: "Stopped." after the sealed reply, then "Queued message discarded." when a held
+        // message went with it: the Stop click recorded one, or one is still held here (a Stop
+        // from another tab never ran this tab's click handler). Neither line is stored.
+        ctx.transcript.addStoppedNotice();
+        if (cancelledActive && (state.discardedOnStop[cancelledActive] || state.pendingQueuedMessages[cancelledActive])) {
+          ctx.transcript.addDiscardedNotice();
+        }
+        if (cancelledActive) delete state.discardedOnStop[cancelledActive];
         if (cancelledActive) {
           delete state.inFlightSessions[cancelledActive];
           delete state.ownTurn[cancelledActive];
@@ -219,7 +223,7 @@
           ctx.holdQueue.clearPendingQueued();
         }
         ctx.send.updateStopControl();
-        if (!state.sessionBannerEl) sendBtn.disabled = false;
+        ctx.applyComposerState();
         ctx.sessionFlow.refreshSessionList();
         if (cancelledActive && state.refreshAfterTurn[cancelledActive]) {
           delete state.refreshAfterTurn[cancelledActive];

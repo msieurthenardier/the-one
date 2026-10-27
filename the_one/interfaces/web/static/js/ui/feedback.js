@@ -272,6 +272,9 @@
   //   lead: a Node placed before the label (the thumbnail). onRemove + removeLabel (required
   //   with onRemove) add a trailing ghost small icon-only x button named removeLabel
   //   (removeTestid on it); the chip stays a span and the button is its only control.
+  //   labelHidden (M31 F6 L05a): the label is visually hidden (.visually-hidden) but still the
+  //   chip's text, so a lead-only chip (a thumbnail) is named. truncate: one line with an
+  //   ellipsis (the chip gets min-width 0 and max-width 100%, the label min-width 0).
   //   The test id option is placed on the span itself (supplied by the caller).
   App.ui.chip = function (opts) {
     opts = opts || {};
@@ -289,6 +292,7 @@
     if (tone === 'danger') classes.push('chip--danger');
     if (tone === 'warning') classes.push('chip--warning');
     if (opts.size === 'sm') classes.push('chip--sm');
+    if (opts.truncate) classes.push('chip--truncate');
     if (typeof opts.onRemove === 'function' && !opts.removeLabel) {
       throw new Error('App.ui.chip: onRemove requires removeLabel');
     }
@@ -298,7 +302,15 @@
       var lead = App.ui.util.el('span', { className: 'chip-lead' });
       lead.appendChild(opts.lead);
       node.appendChild(lead);
-      node.appendChild(App.ui.util.el('span', { className: 'chip-label', text: String(opts.label) }));
+      node.appendChild(App.ui.util.el('span', {
+        className: 'chip-label' + (opts.labelHidden ? ' visually-hidden' : ''),
+        text: String(opts.label)
+      }));
+    } else if (opts.labelHidden || opts.truncate) {
+      node.appendChild(App.ui.util.el('span', {
+        className: 'chip-label' + (opts.labelHidden ? ' visually-hidden' : ''),
+        text: String(opts.label)
+      }));
     } else {
       node.textContent = String(opts.label);
     }

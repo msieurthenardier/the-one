@@ -8,12 +8,6 @@ bookkeeping). All paths are relative to ``static/`` (``js/areas/...``, ``css/...
 from typing import NamedTuple
 
 OWNERSHIP_ALLOWANCE: dict[tuple[str, str], int] = {
-    ("js/areas/chat.js", "api:App.confirmDelete("): 1,
-    ("js/areas/chat.js", "confirm-delete"): 2,
-    ("js/areas/chat/attachments.js", "chip"): 1,
-    ("js/areas/chat/sign-in.js", "api:App.consentLink."): 4,
-    ("js/areas/chat/sign-in.js", "btn-filled-primary"): 1,
-    ("js/areas/chat/sign-in.js", "consent-link"): 1,
     ("js/markdown.js", "api:App.icon("): 1,
     ("js/markdown.js", "api:App.showFlash("): 3,
 }
@@ -67,21 +61,11 @@ START_ROWS: frozenset[tuple[str, str]] = frozenset(
 
 MOVES: list[OwnershipMove] = [
     # M31 F6 L02: the chat.js split (DD3); the uses move verbatim, then each leg below retires them.
-    OwnershipMove("api:App.consentLink.", "js/areas/chat.js", "js/areas/chat/sign-in.js", 4, "05b"),
-    OwnershipMove("consent-link", "js/areas/chat.js", "js/areas/chat/sign-in.js", 1, "05b"),
-    OwnershipMove("btn-filled-primary", "js/areas/chat.js", "js/areas/chat/sign-in.js", 1, "05b"),
-    OwnershipMove("chip", "js/areas/chat.js", "js/areas/chat/attachments.js", 1, "05a"),
 ]
 
 # Exact total of every key across every file, measured at M31 F5 L01. A key absent here counts 0.
 # Lower it in the same change that removes uses; never raise it without a flight-log reason.
 TOTAL_USES: dict[str, int] = {
-    "api:App.confirmDelete(": 1,
-    "api:App.consentLink.": 4,
     "api:App.icon(": 1,
     "api:App.showFlash(": 3,
-    "btn-filled-primary": 1,
-    "chip": 1,
-    "confirm-delete": 2,
-    "consent-link": 1,
 }

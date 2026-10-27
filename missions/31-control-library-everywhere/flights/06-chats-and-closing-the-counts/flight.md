@@ -498,8 +498,8 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 - [x] The chat surfaces are in the capture tool, the before set is taken, the sinks are at zero, the lanes are split and re-measured, and squawk 0249 is fixed.
 - [x] `chat.js` is split into modules, behaviour-free, at 800 lines or fewer; full gate green.
 - [x] The flash contract is in, every caller has dropped `container`, and toasts survive modals and remounts. The options that retire the area-CSS rows are in, and the library squawks 0269, 0270 and 0185 and D7 are done. Every editor lane is green.
-- [ ] The six chat controls (the five plus the notice) exist in `js/ui` with contract tests in both engines, in the `contracts-chat` lane.
-- [ ] The chat area is on the controls. The area renderers and legacy chat classes are deleted, the chat JS allowance rows are gone and defects 1, 3-6 and 9 are fixed. F1 and B9 are in.
+- [x] The six chat controls (the five plus the notice) exist in `js/ui` with contract tests in both engines, in the `contracts-chat` lane.
+- [x] The chat area is on the controls. The area renderers and legacy chat classes are deleted, the chat JS allowance rows are gone and defects 1, 3-6 and 9 are fixed. F1 and B9 are in.
 - [ ] The step-limit notice reaches the web chat, connectors and the CLI. The provider error names the right provider. The new spec is drafted.
 - [ ] Markdown: the negative tests are in, the holes are closed, A1, B1 and 0.4 are done and the Copy is on the library.
 - [ ] The model list is in the library, and `provider-models.js` is under 800.
@@ -546,7 +546,7 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - the chip `lead` / `onRemove` and the confirm `onArmChange` options;
   - squawks 0269 and 0270;
   - D7's sentence case, re-authoring `studio-agent-crud`, `agent-retention-setting-roundtrip` and `save-preserves-config`.
-- [ ] `chat-controls` (04), **tier high (six new library controls with update handles)**: under DD4's boundary and class policy (new `ui-*` names, owned rules in `components.css`, `chat.css` untouched):
+- [x] `chat-controls` (04), **tier high (six new library controls with update handles)**: under DD4's boundary and class policy (new `ui-*` names, owned rules in `components.css`, `chat.css` untouched):
   - `App.ui.composer`;
   - `message` (with the attribution and F1's `setCopy`);
   - `thinking`;
@@ -555,16 +555,16 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - `notice`.
 
   Catalogue rows: one factory per row, so row 82 "Thinking indicator, trace shell" splits in two and `notice` gets a new row, and every `--` modifier is listed by name in Owned classes (the emitted-class guard cannot see `--` modifiers). Contract tests in both engines. The `contracts-chat` lane, with DD2's bookkeeping (`run-tests.sh`, `tests/test_run_tests_lanes.py`, CLAUDE.md) and a provisional budget from this leg's own `--lane` timing, re-measured at 09b.
-- [ ] `composer-and-attachments` (05a), **tier high (the send path)**:
+- [x] `composer-and-attachments` (05a), **tier high (the send path)**:
   - the composer, attachments, hold queue and health banner moved onto the library: A5, A6, A7, B6, B13, DD11 1 and 3;
   - `composer.js` and the legacy composer classes deleted, with locators retargeted;
   - re-authors `vision-round-trip`.
-- [ ] `sign-in-and-list-delete` (05b), **tier high (sign-in)**:
+- [x] `sign-in-and-list-delete` (05b), **tier high (sign-in)**:
   - chat sign-in on `App.ui.button` and `App.ui.consentLink`: A3 and squawk 0215 (DD11 9);
   - the Chats list delete on `App.ui.confirm`'s `onArmChange`: DD11 6; the platform badge's display name (A16, `chat/chats-list.js:120`);
   - `App.confirmDelete` and `App.consentLink` call sites removed;
   - re-authors `start-a-chat` step 14.
-- [ ] `transcript` (05c), **tier high (streaming, replay)**:
+- [x] `transcript` (05c), **tier high (streaming, replay)**:
   - the message, thinking, trace, telemetry and notice moved onto the library: A4, A8, A15, A18, B2 (anchored reorder), B3, B5, B9, F1 (the full received source kept), DD11 4 and 5;
   - the area renderers and legacy classes deleted (`message-bubble.js`, `thinking-indicator.js`, `trace-shell.js`, `telemetry-overlay.js`), with locators retargeted and the contrast audits moved;
   - re-authors `chat-loop-hang-and-cancel`, `extended-thinking-tool-turn`, `stub-connector-round-trip` (step 7) and `agent-governance-and-search` (step 8).

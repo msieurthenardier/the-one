@@ -110,7 +110,7 @@ def test_static_ref_check_rejects_an_area_script_above_ui_core() -> None:
     with TestClient(app, headers=auth_headers()) as client:
         body = client.get("/").text
     core = f'<script src="/static/js/ui/core.js?v={__version__}"></script>'
-    area = f'<script src="/static/js/areas/chat/composer.js?v={__version__}"></script>'
+    area = f'<script src="/static/js/areas/chat/send.js?v={__version__}"></script>'
     assert core in body and area in body
     bad = body.replace(area, "", 1).replace(core, area + core, 1)
     with pytest.raises(AssertionError, match="must load before"):

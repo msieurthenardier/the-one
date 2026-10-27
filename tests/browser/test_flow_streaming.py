@@ -31,7 +31,7 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
     Configures the mock provider with ``stream_chunks=["Hello, ", "world", "!"]``
     so the agent emits three ``assistant_chunk`` WS events plus a final
     metadata chunk. The chat.js leg-04 wire-up (option B minimal rendering)
-    accumulates them into a single ``[data-testid="message"].assistant``.
+    accumulates them into a single ``[data-testid="message"]`` assistant bubble.
     """
     base_url = app_clean
     provider_id = seed_mock_provider(
@@ -49,13 +49,13 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
 
     _chats.send_first(page, "hi")
 
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("hi", timeout=5000)
 
     # The assistant bubble accumulates all three chunks. There is exactly
     # one assistant bubble (chunks land in the same element) and its text
     # is the concatenated content.
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Hello, world!", timeout=10000)
     expect(assistant_msg).to_have_count(1)
 
@@ -90,7 +90,7 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     _chats.send_first(page, "ping")
 
     # Wait for the streaming round to land.
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("chunk-one chunk-two", timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled()
 
@@ -101,5 +101,5 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     # The assistant bubble re-renders from server-side history. If
     # `session.add_event` had NOT been called for the streamed message,
     # this expectation would fail (history would only contain the user msg).
-    rejoined_assistant = page.locator('[data-testid="message"].assistant')
+    rejoined_assistant = _chats.messages(page, "assistant")
     expect(rejoined_assistant).to_have_text("chunk-one chunk-two", timeout=8000)

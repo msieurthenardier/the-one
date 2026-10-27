@@ -111,7 +111,7 @@ def _expect_list(page: Page, want: list[Any]) -> None:
 
 
 def _stamps(page: Page) -> list[str]:
-    return page.locator(".msg-attribution-ts").all_inner_texts()
+    return page.locator(".ui-message-attribution-ts").all_inner_texts()
 
 
 def _expect_stamps(page: Page, want: list[str]) -> None:

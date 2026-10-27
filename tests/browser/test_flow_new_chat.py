@@ -290,7 +290,7 @@ def test_session_delete_confirm_lapse_is_visually_distinct(
     page.goto(app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     sid = _chats.send_first(page, "hello")  # a start is pending; the send makes the session
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
 
     row = page.locator("li").filter(has=_chats.chat_row(page, sid))
     expect(row).to_be_visible(timeout=5000)
@@ -340,11 +340,11 @@ def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page
     _chats.send_first(page, "hello there")
 
     # Wait for the assistant response to land (mock provider returns instantly).
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
 
     # Two attribution labels: one "You" and one with the agent name.
-    you_label = page.locator(".msg-attribution.from-you").filter(has_text="You")
-    agent_label = page.locator(".msg-attribution.from-agent").filter(
+    you_label = page.locator(".ui-message-attribution--you").filter(has_text="You")
+    agent_label = page.locator(".ui-message-attribution--agent").filter(
         has_text=app_with_agent.agent_name
     )
     expect(you_label).to_have_count(1)
@@ -363,26 +363,26 @@ def test_telemetry_overlay_collapses_by_default(app_with_agent: SeededApp, page:
     joined chat (it was read right after the start, in the pending chat)."""
     page.goto(app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
-    overlay = page.locator(".telemetry-overlay")
+    overlay = _chats.telemetry(page)
     expect(overlay).to_be_hidden()  # pending: no telemetry
     _chats.send_first(page, "hello")
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
 
     expect(overlay).to_be_visible()
 
     details_max_width = page.evaluate(
-        "() => getComputedStyle(document.querySelector('.telemetry-details')).maxWidth"
+        "() => getComputedStyle(document.querySelector('.ui-telemetry-details')).maxWidth"
     )
     # Either '0px' (chrome) or '0%' depending on browser; both indicate collapsed.
     assert details_max_width in ("0px", "0%"), (
-        f"telemetry-details should start collapsed, got max-width={details_max_width!r}"
+        f"ui-telemetry-details should start collapsed, got max-width={details_max_width!r}"
     )
 
     # Focus reveals — focus-within lifts max-width above 0.
     overlay.focus()
     page.wait_for_function(
         "() => parseFloat(getComputedStyle(document.querySelector("
-        "'.telemetry-details')).maxWidth) > 0",
+        "'.ui-telemetry-details')).maxWidth) > 0",
         timeout=2000,
     )
 
@@ -423,5 +423,5 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
     expect(thinking).to_be_visible(timeout=2000)
 
     # And must be cleared once the assistant reply lands.
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
     expect(thinking).to_have_count(0)

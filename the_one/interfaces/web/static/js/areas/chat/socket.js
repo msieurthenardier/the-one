@@ -17,8 +17,6 @@
     var state = ctx.state;
     var chatState = ctx.chatState;
     var messagesEl = ctx.messagesEl;
-    var sendBtn = ctx.sendBtn;
-    var content = ctx.content;
     var agentDrawer = ctx.agentDrawer;
 
     var ws = null;
@@ -29,6 +27,18 @@
     // or leave sent, or a session_joined received). Reconnect actions run
     // only for a binding made on an EARLIER socket.
     var boundOn = null;
+
+    // 0.3: false only when the agents store is loaded and ok and holds no agent of this name
+    // (a deleted agent). An unloaded store (a cold deep link) says "may exist": the eager
+    // resolve still runs.
+    function agentMayExist(name) {
+      var peeked = App.store.peek('agents');
+      if (!peeked.loaded || !peeked.ok || !Array.isArray(peeked.value)) return true;
+      for (var i = 0; i < peeked.value.length; i++) {
+        if (peeked.value[i] && peeked.value[i].name === name) return true;
+      }
+      return false;
+    }
 
     function socketOpen() {
       return !!(ws && ws.readyState === WebSocket.OPEN);
@@ -84,7 +94,7 @@
           ctx.sessionFlow.clearLiveRefresh();
           ctx.holdQueue.clearPendingQueued();
           ctx.send.updateStopControl();
-          if (!state.sessionBannerEl) ctx.applyComposerState();
+          ctx.applyComposerState();
         }
         reconnectTimer = setTimeout(connect, 2000);
       };
@@ -200,7 +210,7 @@
           ctx.renderChatsList();
           ctx.renderPane();
           ctx.transcript.hideThinking();
-          App.chat.resetTelemetry(content);
+          ctx.telemetry.reset();
           // AC2/AC7: the first turn behaves like any turn. A start's join
           // with an empty history keeps the optimistic bubble; any other
           // join renders the history (an in-flight session's history already
@@ -214,7 +224,7 @@
           // the bar will fill once setTelemetryMax runs async shortly after.
           var lastUsage = (data.session_metadata && data.session_metadata.last_usage) || null;
           if (lastUsage) {
-            App.chat.updateTelemetry(content, {
+            ctx.telemetry.update({
               input_tokens: lastUsage.input_tokens || 0,
               output_tokens: lastUsage.output_tokens || 0,
               context_tokens: lastUsage.context_tokens || 0,
@@ -236,11 +246,9 @@
           ctx.holdQueue.clearPendingQueued();
           if (data.is_processing) {
             state.inFlightSessions[joinedId] = true;
-            if (!state.sessionBannerEl) sendBtn.disabled = true;
             ctx.transcript.showThinking();
           } else {
             delete state.inFlightSessions[joinedId];
-            if (!state.sessionBannerEl) sendBtn.disabled = false;
           }
           var sentHeld = false;
           if (state.pendingQueuedMessages[joinedId]) {
@@ -255,22 +263,24 @@
           ctx.send.updateStopControl();
           ctx.showChrome();
           agentDrawer.refreshNotes();
-          // F7 L04 eager-resolve: fetch the agent's max_context_tokens
-          // BEFORE the first user message so the telemetry overlay's
-          // `max:` field shows the real value (not 0). Closes F6.5
-          // debrief AI #5. Fire-and-forget; failures (404 — agent was
-          // deleted between session create and join — or 400 — provider
-          // misconfigured) leave `max:` at its default until the first
-          // usage event arrives. Placed AFTER showChrome() so the
-          // overlay element exists before updateTelemetry mutates it.
-          if (state.currentAgentName) {
-            fetch('/api/agents/' + encodeURIComponent(state.currentAgentName) + '/context-window')
+          // F7 L04 eager-resolve: fetch the agent's max_context_tokens BEFORE the first user
+          // message so the readout's `max:` field shows the real value (not 0). Closes F6.5
+          // debrief AI #5. Fire-and-forget; a failure (400, a misconfigured provider) leaves
+          // `max:` at its default until the first usage event arrives.
+          // M31 F6 L05c (DD11 5, 0.3): the fetch is skipped when the join says the agent is
+          // gone or unusable (status not ok: a request could only 404 or 400 in the console),
+          // or when the loaded agents store has no such agent. The response is applied only
+          // while the bound session and its agent are still the ones the join was for.
+          if (state.currentAgentName && (data.status || 'ok') === 'ok' && agentMayExist(state.currentAgentName)) {
+            var cwAgent = state.currentAgentName;
+            var cwSession = joinedId;
+            fetch('/api/agents/' + encodeURIComponent(cwAgent) + '/context-window')
               .then(function (r) { return r.ok ? r.json() : null; })
               .then(function (payload) {
-                if (payload && payload.max_context_tokens) {
-                  // M16 F06 L02: max-only seed — never re-zeros restored
-                  // used-counts; recomputes the bar from retained context_tokens.
-                  App.chat.setTelemetryMax(content, payload.max_context_tokens);
+                var unchanged = chatState.boundId() === cwSession && state.currentAgentName === cwAgent;
+                if (unchanged && payload && payload.max_context_tokens) {
+                  // M16 F06 L02: max-only seed — never re-zeros restored used-counts.
+                  ctx.telemetry.setMax(payload.max_context_tokens);
                 }
               })
               .catch(function () { /* best-effort; silent on failure */ });

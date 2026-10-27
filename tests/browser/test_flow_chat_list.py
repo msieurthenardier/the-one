@@ -212,7 +212,7 @@ def test_groups_boundaries_times_and_cross_agent_rows(
     # Only the connector row has a badge: its platform, a neutral span whose
     # class is never built from the value.
     assert {r["label"]: (r["badges"], r["badgeClasses"]) for r in flat if r["badges"]} == {
-        "Two days": (["discord"], ["ui-list-pane-badge"])
+        "Two days": (["Discord"], ["ui-list-pane-badge"])
     }
     # One selected row.
     assert [r["label"] for r in flat if r["current"]] == ["Fresh chat"]
@@ -476,3 +476,84 @@ def test_clock_formatter_edges(app_with_agent: SeededApp, page: Page) -> None:
         "3:45 PM",
         "11:59 PM",
     ]
+
+
+def _toasts(page: Page):
+    return page.locator(".app-flash")
+
+
+def _hover_action(page: Page, sid: str):
+    """The row's delete action is shown on hover or focus: hover the row first."""
+    _chats.chat_row(page, sid).hover()
+    return _chats.chat_row_delete(page, sid)
+
+
+def test_arming_sets_the_confirm_name_and_a_lapse_restores_it(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """onArmChange: arming names the action "Confirm delete: {title}", a lapse restores it."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    (st,) = _stamps(page, [[0, None, None]])
+    sid = seed_session(base, agent, "Arm me", st["iso"])
+    _nav.goto(page, base, "chats")
+    _wait_rows(page, 1)
+    action = _hover_action(page, sid)
+    action.click()
+    expect(action).to_have_attribute("aria-label", "Confirm delete: Arm me")
+    expect(action).to_have_attribute("aria-label", "Delete chat: Arm me", timeout=6000)
+
+
+def test_delete_while_offline_reverts_the_arm_and_says_why(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """DD11 6: with the socket down, the confirming click reverts the arm, shows the
+    sentence, and sends nothing."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    (st,) = _stamps(page, [[0, None, None]])
+    sid = seed_session(base, agent, "Offline row", st["iso"])
+    _nav.goto(page, base, "chats")
+    _wait_rows(page, 1)
+    # Close the socket and keep the reconnect from succeeding for the test's duration.
+    page.evaluate(
+        """() => {
+          const sent = window.__fakeSent = [];
+          const real = window.WebSocket;
+          const Fake = function () {
+            return { readyState: 0, send: (m) => sent.push(m), close() {} };
+          };
+          Fake.OPEN = real.OPEN; Fake.CLOSED = real.CLOSED; Fake.CONNECTING = real.CONNECTING;
+          Fake.CLOSING = real.CLOSING;
+          window.WebSocket = Fake;
+          const area = App.areas.find((a) => a.id === 'chat');
+          area._ws().close();
+        }"""
+    )
+    page.wait_for_function(
+        "() => !App.areas.find((a) => a.id === 'chat')._ws() || "
+        "App.areas.find((a) => a.id === 'chat')._ws().readyState !== 1"
+    )
+    li = page.locator("li").filter(has=_chats.chat_row(page, sid))
+    action = _hover_action(page, sid)
+    action.click()
+    expect(action).to_have_attribute("aria-label", "Confirm delete: Offline row")
+    action.click()
+    expect(
+        _toasts(page).filter(has_text="Not connected, so the chat wasn't deleted.")
+    ).to_have_count(1)
+    expect(li).not_to_have_class(re.compile(r"\bconfirm-delete\b"))
+    expect(action).to_have_attribute("aria-label", "Delete chat: Offline row")
+    assert page.evaluate("() => window.__fakeSent") == []
+    assert {s["id"] for s in _sessions(base)} == {sid}
+
+
+def test_online_delete_shows_no_not_connected_toast(app_with_agent: SeededApp, page: Page) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    (st,) = _stamps(page, [[0, None, None]])
+    sid = seed_session(base, agent, "Online row", st["iso"])
+    _nav.goto(page, base, "chats")
+    _wait_rows(page, 1)
+    action = _hover_action(page, sid)
+    action.click()
+    action.click()
+    _wait_rows(page, 0)
+    expect(_toasts(page).filter(has_text="Not connected")).to_have_count(0)

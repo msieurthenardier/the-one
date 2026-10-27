@@ -14,10 +14,8 @@
     var state = ctx.state;
     var chatState = ctx.chatState;
     var messagesEl = ctx.messagesEl;
-    var inputEl = ctx.inputEl;
-    var sendBtn = ctx.sendBtn;
+    var composer = ctx.composer;
     var pane = ctx.pane;
-    var content = ctx.content;
 
     var pendingJoinId = null;
 
@@ -60,7 +58,10 @@
     // opener) is where a guard Stay returns focus.
     function requestPick(agent, opts) {
       if (state.setupIncomplete || !agent) return;
-      goPick(agent, opts);
+      // M31 F6 L05a (0.1, DD11 1): a completed PICKER pick lands in the message box (a guard Stay
+      // resolves false, so focus stays at the opener). Only this path: chatWith, direct hash
+      // entry and re-renders never move focus.
+      goPick(agent, opts).then(function (ok) { if (ok) composer.focus(); });
     }
 
     // The pick's guarded go() with its one-shot pickIntent, so the AC9 rail
@@ -103,11 +104,8 @@
       var st = chatState.state();
       state.currentAgentName = st.agent;
       state.currentSessionPlatform = null;
-      ctx.transcript.hideThinking();
-      ctx.transcript.resetStream();
-      messagesEl.replaceChildren();
-      ctx.transcript.resetTraceShells();
-      App.chat.resetTelemetry(content);
+      ctx.transcript.clearLog();
+      ctx.telemetry.reset();
       ctx.holdQueue.clearPendingQueued();
       setWelcomeNotice(null);
       ctx.setSessionHealth('ok');
@@ -157,13 +155,11 @@
     // The next session_list's idle rules pick what shows next.
     function clearConversation() {
       clearLiveRefresh();
-      ctx.transcript.hideThinking();
-      ctx.transcript.resetStream();
       state.currentAgentName = null;
       state.currentSessionPlatform = null;
       state.joinedTitle = null;
       App.router.sync('chat', null);
-      messagesEl.replaceChildren();
+      ctx.transcript.clearLog();
       ctx.setSessionHealth('ok');
       ctx.send.updateStopControl();
       ctx.renderChatsList();
@@ -296,7 +292,6 @@
       }
       ctx.socket.sendBinding(eff.send);
       state.ownTurn[eff.send.session_id] = true;
-      sendBtn.disabled = true;
       ctx.send.updateStopControl();
       // pending -> starting: the new-chat state gives way to the log.
       ctx.renderPane();
@@ -322,12 +317,12 @@
       }
       ctx.holdQueue.clearPendingQueued();
       var p = eff.payload || {};
-      if (!inputEl.value && p.message) ctx.send.setInputValue(p.message);
+      if (!composer.getValue() && p.message) ctx.send.setInputValue(p.message);
       if (p.images && p.images.length) {
         ctx.attachments.prependStaged(p.images);
       }
       if (held) {
-        if (!inputEl.value) ctx.send.setInputValue(held);
+        if (!composer.getValue()) ctx.send.setInputValue(held);
         else ctx.transcript.addMsg('system', 'The queued message was discarded.');
       }
       ctx.applyComposerState();

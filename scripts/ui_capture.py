@@ -1523,7 +1523,7 @@ CHAT_STREAM_TEXT = (
     "Chunk two follows it with a little more text to read. "
     "Chunk three is where this capture stops, with no end in sight."
 )
-CHAT_ERROR_TEXT = "Error: could not reach the model provider (connection refused)."
+CHAT_ERROR_TEXT = "Agent error: could not reach the model provider (connection refused)."
 CHAT_GROUP_LABELS = {
     "today": "Today",
     "yesterday": "Yesterday",
@@ -2006,7 +2006,7 @@ def _check_chat_groups(ctx: Ctx) -> None:
 
 
 def _telemetry_expanded(ctx: Ctx) -> None:
-    ctx.page.locator(".telemetry-overlay").hover()
+    ctx.page.locator('[data-testid="chat-telemetry"]').hover()
     ctx.page.wait_for_timeout(500)
 
 
@@ -2049,7 +2049,7 @@ def _stream_text(ctx: Ctx) -> None:
     for part in CHAT_STREAM_TEXT.replace(". ", ". |").split("|"):
         sock.send({"type": "assistant_chunk", "content": part})
     page.wait_for_function(
-        "t => { const m = Array.from(document.querySelectorAll('.messages .msg.assistant'));"
+        "t => { const m = Array.from(document.querySelectorAll('.messages [data-testid=\"message\"].ui-message--assistant'));"  # noqa: E501
         " return m.length && m[m.length - 1].textContent === t; }",
         arg=CHAT_STREAM_TEXT,
         timeout=30000,
@@ -2084,7 +2084,7 @@ def _agent_error(ctx: Ctx) -> None:
     page = ctx.page
     page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
     ctx.state["sock"].send({"type": "system", "content": CHAT_ERROR_TEXT})
-    page.locator(".messages .msg.system").last.wait_for(timeout=10000)
+    page.locator('[data-testid="chat-agent-error"]').last.wait_for(timeout=10000)
     page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
     _scroll_messages(page, "bottom")
 
@@ -2312,14 +2312,14 @@ SURFACES += [
         _ROUTE,
         "The composer focused and empty",
         prepare=_composer_focus,
-        shot=".composer",
+        shot=".ui-composer",
     ),
     _chat_surface(
         "chat-composer-multiline",
         _ROUTE,
         "The composer with ten lines (grown to its cap, then scrolling)",
         prepare=_composer_multiline,
-        shot=".composer",
+        shot=".ui-composer",
     ),
     _chat_surface(
         "chat-composer-staged-images",
@@ -2331,14 +2331,14 @@ SURFACES += [
         "chat-telemetry-resting",
         _ROUTE,
         "The composer's telemetry readout at rest",
-        shot=".composer",
+        shot=".ui-composer",
     ),
     _chat_surface(
         "chat-telemetry-expanded",
         _ROUTE,
         "The telemetry readout hovered (expanded)",
         prepare=_telemetry_expanded,
-        shot=".composer",
+        shot=".ui-composer",
     ),
     _chat_surface(
         "chat-live-streaming",

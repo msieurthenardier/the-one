@@ -75,9 +75,10 @@ _KEY_PARAMETRIC = re.compile(r"""(['"])data-testid\1\s*:\s*'([^"'\n]+)'\s*\+""")
 # object). ``\b`` excludes ``rowtestid:``; the negative lookahead stops a
 # parametric site (``'prefix-' + x``) also matching as a literal. The char
 # class ``[^"'\n]`` anchors to the value's own quotes. M25 F4 L1: a factory
-# option named ``<lower>Testid`` (``App.ui.searchList``'s ``inputTestid`` and
-# ``rowTestid``) is a test id key too, so its values stay registry-visible.
-_TESTID_NAME = r"(?:testid|[a-z]+Testid)"
+# option named ``<camel>Testid`` (``App.ui.searchList``'s ``inputTestid`` and ``rowTestid``;
+# widened from ``<lower>`` in M31 F6 L05a for the composer's ``fileInputTestid``) is a test id
+# key too, so its values stay registry-visible.
+_TESTID_NAME = r"(?:testid|[a-z][A-Za-z]*Testid)"
 _PROP_LITERAL = re.compile(r"\b" + _TESTID_NAME + r":\s*'([^\"'\n]+)'(?!\s*\+)")
 
 # Library parametric: ``testid: 'prefix-' + ...`` (``\s*`` spans a newline).

@@ -25,7 +25,7 @@
 // badge (a neutral muted span; no class is built from the value), href =
 // #chats/{id}, dataset {id}, testid chat-row, and a delete row action (the
 // trash icon, "Delete chat: {title}", testid chat-row-delete) that the chat
-// area drives through App.confirmDelete(li, ...).
+// area drives through App.ui.confirm(li, ...).
 //
 // The pending row (a chat picked but not sent yet, DD1): id '__pending__',
 // "New chat", time "now", the agent as meta, href #chats/~new/{agent} (so it
@@ -33,13 +33,14 @@
 // 'true'} with no data-id, and no action. It sits at the top of Today.
 //
 // API:
-//   App.chat.chatsList.create({onNew(btn), onDelete(id, li, btn)})
+//   App.chat.chatsList.create({onNew(btn), onDelete(id, li, btn, title)})
 //     -> {el, newButton, render(rows, view), setNewDisabled(bool), destroy()}
 //     view: {pending: {agent} | null, selectedId: id | null}
 //   App.chat.chatsList.groups(rows, view, onDelete, now) -> the listPane groups
 //   App.chat.chatsList.bucketFor(row, now) -> 'today' | 'yesterday' | 'last7'
 //     | 'last30' | 'older'
 //   App.chat.chatsList.timeFor(row, now) -> the row's time string
+//   App.chat.chatsList.platformName(slug) -> 'Discord' (the display name; title-cased if unknown)
 //   App.chat.chatsList.PENDING_ID, GROUPS
 (function () {
   'use strict';
@@ -97,6 +98,16 @@
     return timeOf(d, bucketOf(d, now || new Date()));
   }
 
+  // The one platform display-name table of the chat area (A16); an unknown slug is title-cased.
+  var PLATFORM_NAMES = { discord: 'Discord', telegram: 'Telegram', slack: 'Slack', stub: 'Stub' };
+
+  function platformName(slug) {
+    var s = String(slug);
+    var key = s.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(PLATFORM_NAMES, key)) return PLATFORM_NAMES[key];
+    return s.replace(/(^|[\s_-])([a-z])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); });
+  }
+
   function sessionItem(row, d, bucket, onDelete) {
     var title = row.title || 'Untitled chat';
     var item = {
@@ -112,12 +123,12 @@
         icon: 'trash',
         testid: 'chat-row-delete',
         onClick: function (current, btn, li) {
-          if (typeof onDelete === 'function') onDelete(current.id, li, btn);
+          if (typeof onDelete === 'function') onDelete(current.id, li, btn, title);
         }
       }
     };
     // A connector session: its platform as a neutral plain-string badge.
-    if (row.platform) item.badges = [String(row.platform)];
+    if (row.platform) item.badges = [platformName(row.platform)];
     return item;
   }
 
@@ -213,6 +224,7 @@
     GROUPS: GROUPS,
     bucketFor: bucketFor,
     timeFor: timeFor,
+    platformName: platformName,
     groups: groups,
     create: create
   };

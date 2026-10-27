@@ -1,5 +1,5 @@
 // App.chat.signIn -- the in-chat MCP sign-in: the consent popups, the per-(session, source)
-// login flows, the "Log in" group and its link block, and the auth_required / auth_resolved /
+// login flows, the "Sign in" group and its link block, and the auth_required / auth_resolved /
 // auth_failed handlers (M31 F6 L02, split out of areas/chat.js, moved verbatim apart from the
 // ctx./state. prefixes).
 //
@@ -15,7 +15,7 @@
   function create(ctx) {
     var chatState = ctx.chatState;
     var messagesEl = ctx.messagesEl;
-    var inputEl = ctx.inputEl;
+    var composer = ctx.composer;
 
     // F5 L5: Login-required inline button helpers.
     //
@@ -74,9 +74,9 @@
     }
 
     // Sortie 04 DD2: per-(chat session, source) sign-in state. A consent_url
-    // frame for a flow THIS client started (startedHere, set by its "Log in"
+    // frame for a flow THIS client started (startedHere, set by its "Sign in"
     // click) stores it; the login-required group then shows the link block
-    // (App.consentLink) instead of the "Log in" button. Any other consent_url
+    // (App.ui.consentLink) instead of the "Sign in" button. Any other consent_url
     // is ignored. Replayed auth_required
     // frames carry consent_url=null (rebuilt from tool-result metadata), so the
     // map is what keeps the link across a reconnect and stops a second
@@ -106,7 +106,7 @@
       // Only for a flow THIS client started: an in-band consent URL (or another
       // client's) is never stored, so every other click starts a fresh flow.
       if (known && known.startedHere && known.consentUrl) {
-        if (App.consentLink.isSafeUrl(known.consentUrl)) {
+        if (App.ui.consentLink.isSafeUrl(known.consentUrl)) {
           var again = openConsentPopup(known.consentUrl, sourceId);
           if (again) oauthPopups[sourceId] = again;
         }
@@ -127,6 +127,9 @@
       function abandon() {
         delete loginFlows[key];
         closeOauthPopup(sourceId);
+        // Squawk 0215: a consent frame may have rendered the link block while the POST was
+        // pending; drop it and show "Sign in" again.
+        resetLoginGroups(sourceId);
       }
       fetch('/api/oauth/start', {
         method: 'POST',
@@ -155,10 +158,11 @@
         '.login-required-group[data-source-id="' + ctx.transcript.cssEscape(sourceId || '') + '"]'
       );
       for (var i = 0; i < groups.length; i++) {
-        var link = groups[i].querySelector('.consent-link');
+        var link = groups[i]._consentBlock;
         var hadFocus = !!(link && link.contains(document.activeElement));
         if (link && link.parentNode) link.parentNode.removeChild(link);
-        var btn = groups[i].querySelector('.login-required-btn');
+        groups[i]._consentBlock = null;
+        var btn = groups[i]._btn;
         if (btn) btn.hidden = false;
         if (hadFocus && btn) btn.focus();
       }
@@ -191,37 +195,40 @@
 
       var attr = document.createElement('div');
       attr.className = 'login-required-attribution';
-      attr.textContent = 'Authorization required to continue.';
+      attr.textContent = 'Sign-in needed';
       group.appendChild(attr);
 
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn-filled-primary login-required-btn';
-      btn.dataset.sourceId = data.source_id || '';
-      btn.dataset.toolCallId = data.tool_call_id || '';
-      btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
-      if (data.consent_url) btn.dataset.consentUrl = data.consent_url;
       var label = data.source_name
         || (data.source_id && sourceNames[data.source_id])
         || data.source_id
         || '<unknown>';
-      btn.textContent = 'Log in to ' + label;
-      btn.addEventListener('click', function () {
-        startLoginFlow(data);
+      var btn = App.ui.button({
+        variant: 'primary',
+        label: 'Sign in to ' + label,
+        className: 'login-required-btn',
+        onClick: function () {
+          startLoginFlow(data);
+        }
       });
+      btn.dataset.sourceId = data.source_id || '';
+      btn.dataset.toolCallId = data.tool_call_id || '';
+      btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
+      if (data.consent_url) btn.dataset.consentUrl = data.consent_url;
+      group._btn = btn;
       group.appendChild(btn);
       // Sortie 04 DD2: a known consent URL (this frame's, or kept from the
       // flow's earlier frame when this one is a replay with consent_url=null)
-      // shows the link block; the "Log in" button stays in the DOM, hidden, so
+      // shows the link block; the "Sign in" button stays in the DOM, hidden, so
       // the group is still found by its button on the next replay and
       // un-hides if the flow fails.
       var flow = data.source_id ? loginFlows[loginFlowKey(data.source_id)] : null;
       var linkBlock = null;
       if (flow && flow.consentUrl) {
         btn.hidden = true;
-        linkBlock = App.consentLink.build(flow.consentUrl, {
+        linkBlock = App.ui.consentLink.build(flow.consentUrl, {
           surface: 'chat', sourceName: label,
         });
+        group._consentBlock = linkBlock;
         group.appendChild(linkBlock);
       }
       // Sortie 04 (operator HAT decision): the sign-in control must not hide
@@ -232,17 +239,18 @@
       // The shell is only looked up, never created, here. With no
       // parent_message_id, or no shell for it, append to .messages instead
       // (legacy/null cases, e.g. synthetic auth_required events in tests).
-      var authShell = data.parent_message_id
-        ? (ctx.transcript.traceShellFor(data.parent_message_id) || messagesEl.querySelector(
-            '.trace-shell[data-parent-msg-id="' + ctx.transcript.cssEscape(data.parent_message_id) + '"]'))
-        : null;
+      var authShell = null;
+      if (data.parent_message_id) {
+        var authTrace = App.ui.trace.find(messagesEl, data.parent_message_id);
+        authShell = authTrace ? authTrace.el : ctx.transcript.traceShellFor(data.parent_message_id);
+      }
       if (authShell && authShell.parentNode === messagesEl) {
         messagesEl.insertBefore(group, authShell.nextSibling);
       } else {
         messagesEl.appendChild(group);
       }
       if (focusWasInGroup && linkBlock) {
-        var target = App.consentLink.focusTarget(linkBlock);
+        var target = App.ui.consentLink.focusTarget(linkBlock);
         if (target) target.focus();
       }
       ctx.transcript.scrollToBottomIfPinned();
@@ -270,15 +278,15 @@
       var flowKey = data.source_id ? loginFlowKey(data.source_id) : null;
       var flow = flowKey ? loginFlows[flowKey] : null;
       // Sortie 04 DD2 amendment: store a consent URL only for a flow this
-      // client started (its own "Log in" click). An in-band frame (the SDK's
+      // client started (its own "Sign in" click). An in-band frame (the SDK's
       // own flow, killed by the connect timeout) or another client's flow is
-      // ignored: the normal "Log in" group renders and a click starts fresh.
+      // ignored: the normal "Sign in" group renders and a click starts fresh.
       var ownFlow = !!(flow && flow.startedHere);
       if (data.consent_url && flowKey && ownFlow) {
         flow.consentUrl = data.consent_url;
       }
       var popupHeld = false;
-      var consentSafe = App.consentLink.isSafeUrl(data.consent_url);
+      var consentSafe = App.ui.consentLink.isSafeUrl(data.consent_url);
       if (data.consent_url && ownFlow && oauthPopups[data.source_id]) {
         var p = oauthPopups[data.source_id];
         if (!consentSafe) {
@@ -310,13 +318,13 @@
       var arLost = !!(ar && ar.closest && ar.closest('.login-required-group'));
       clearLoginRequiredButton(data);
       renderResumingPlaceholder(data);
-      if (arLost && !inputEl.disabled) inputEl.focus();
+      if (arLost && !composer.input.disabled) composer.focus();
     }
 
     function onAuthFailed(data) {
       var failMsg = 'OAuth failed: ' + (data.description || data.error || 'unknown error');
       ctx.transcript.addMsg('system', failMsg);
-      // The consent URL is dead: drop the link block and offer "Log in" again.
+      // The consent URL is dead: drop the link block and offer "Sign in" again.
       resetLoginGroups(data.source_id);
     }
 

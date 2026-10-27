@@ -4,10 +4,10 @@ Drives a real Chromium session through the full emit → codec-replay → render
 path using the MockProvider thinking seam (no live Anthropic key). Proves:
 
   1. A turn that produces thinking + a tool call renders a
-     ``.thinking-disclosure`` <details> that is COLLAPSED by default.
+     ``thinking-disclosure`` <details> that is COLLAPSED by default.
   2. It EXPANDS on toggle (native <details>: click the summary), revealing the
      reasoning text.
-  3. The tool trace (``.trace-shell``) ALSO renders — the two disclosures
+  3. The tool trace (``trace-shell``) ALSO renders — the two disclosures
      coexist (distinct identifiers, no shared toggle).
   4. After a page reload / chat reopen the disclosure re-renders from history
      replay (the codec re-derives the thinking event from persisted
@@ -78,20 +78,20 @@ def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
     assert disclosure.evaluate("el => el.open") is False, (
         "thinking disclosure should be collapsed (not open) by default"
     )
-    body = disclosure.locator(".thinking-body")
+    body = disclosure.locator(".ui-trace-thinking-body")
     expect(body).to_be_hidden()
 
     # ── (3) The tool trace coexists (distinct disclosure) ────────────────────
-    trace = page.locator(".trace-shell")
+    trace = page.locator('[data-testid="trace-shell"]')
     expect(trace.first).to_be_visible(timeout=10000)
     # The two are distinct DOM subtrees — the thinking body is NOT inside the
     # trace shell (it is its own disclosure, not a tool-trace child).
-    assert page.locator(".trace-shell .thinking-disclosure").count() == 0, (
-        "thinking disclosure must not be nested inside the tool-trace shell"
-    )
+    assert (
+        page.locator('[data-testid="trace-shell"] [data-testid="thinking-disclosure"]').count() == 0
+    ), "thinking disclosure must not be nested inside the tool-trace shell"
 
     # ── (2) It expands on toggle, revealing the reasoning text ───────────────
-    disclosure.locator("summary.thinking-toggle").click()
+    disclosure.locator("summary.ui-trace-thinking-toggle").click()
     assert disclosure.evaluate("el => el.open") is True, (
         "thinking disclosure should be open after clicking its summary"
     )
@@ -112,7 +112,7 @@ def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
         "replayed thinking disclosure should be collapsed by default"
     )
     # The tool trace also replays (codec emits thinking before the tool_call).
-    expect(page.locator(".trace-shell").first).to_be_visible(timeout=10000)
+    expect(page.locator('[data-testid="trace-shell"]').first).to_be_visible(timeout=10000)
     # Expanding the replayed disclosure still reveals the reasoning text.
-    replayed.locator("summary.thinking-toggle").click()
-    expect(replayed.locator(".thinking-body")).to_contain_text(_THINKING_TEXT)
+    replayed.locator("summary.ui-trace-thinking-toggle").click()
+    expect(replayed.locator(".ui-trace-thinking-body")).to_contain_text(_THINKING_TEXT)

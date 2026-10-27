@@ -1,0 +1,555 @@
+# ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
+"""The chat transcript on the control library (M31 F6 L05c, flight DD4, DD7, DD8, DD11, DD15).
+
+The message log is built from ``App.ui.message`` (bubbles and attributions), ``App.ui.thinking``,
+``App.ui.trace``, ``App.ui.telemetry`` and ``App.ui.notice``. These tests pin what the migration
+changed on the real app page:
+
+* DD11 4 -- no model-loading interval survives a log wipe (and the dots are static under reduced
+  motion);
+* DD11 5 and 0.3 -- the context-window fetch is keyed on the session and skipped for a deleted agent;
+* F1 -- a finished agent reply has one "Copy reply" button that copies its full content;
+* B2 -- the thinking disclosure sits above its own iteration's reply, live and on replay;
+* B9 -- Stop leaves a "Stopped." line (and "Queued message discarded."), never stored;
+* A4 -- an agent error is a danger notice with its raw text under "Technical details";
+* A8, A15, A18, B3, B5 -- the approved looks, as computed-style or text assertions.
+
+Falls in the ``chats-transcript`` browser lane.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import uuid
+
+import httpx
+import pytest
+from browser import _chats
+from browser._credential_registry import auth_headers_for
+from browser.seeders import seed_mock_agent, seed_mock_provider, seed_session
+from playwright.sync_api import Page, expect
+
+from the_one.db.codec import encode_messages
+from the_one.llm.base import OPERATOR_VISIBILITY, Message, ThinkingBlock, ToolCall, ToolResult
+
+pytestmark = pytest.mark.browser
+
+SEND = '[data-testid="chat-send-btn"]'
+STOP = '[data-testid="chat-stop-btn"]'
+INPUT = '[data-testid="chat-input"]'
+COPY = '[data-testid="message-copy"]'
+THINKING = '[data-testid="thinking-indicator"]'
+STOPPED = '[data-testid="chat-stopped"]'
+DISCARDED = '[data-testid="chat-discarded"]'
+AGENT_ERROR = '[data-testid="chat-agent-error"]'
+MESSAGES = ".area-chat .messages"
+
+# Counts the 120 ms dot intervals (the thinking and model-loading dots) that are alive.
+_COUNT_INTERVALS = """
+(() => {
+  const set = window.setInterval, clr = window.clearInterval;
+  window.__live = new Set();
+  window.setInterval = function (fn, ms, ...rest) {
+    const id = set.call(window, fn, ms, ...rest);
+    if (ms === 120) window.__live.add(id);
+    return id;
+  };
+  window.clearInterval = function (id) { window.__live.delete(id); return clr.call(window, id); };
+})();
+"""
+
+_CLIPBOARD_SPY = """() => {
+  window.__copied = [];
+  Object.defineProperty(navigator, 'clipboard', {configurable: true,
+    value: {writeText: (t) => { window.__copied.push(t); return Promise.resolve(); }}});
+}"""
+
+# The log's direct children as a compact kind list, in DOM order.
+_KINDS_JS = """() => Array.from(document.querySelector('.area-chat .messages').children).map(e => {
+  const t = e.getAttribute('data-testid');
+  if (t === 'thinking-disclosure') return 'think:' + e.textContent.replace('Thinking', '').trim();
+  if (t === 'message') {
+    const role = e.className.match(/ui-message--(user|assistant|tool|system)/)[1];
+    return role + ':' + e.textContent.trim().slice(0, 24);
+  }
+  if (t === 'trace-shell') return 'trace';
+  if (e.classList.contains('ui-message-attribution')) return 'attr';
+  return e.getAttribute('data-testid') || e.className || e.tagName;
+})"""
+
+_TELEMETRY_MAX_JS = """() => {
+  const el = document.querySelector('[data-testid="chat-telemetry"]');
+  const rows = el.querySelectorAll('.ui-telemetry-row');
+  return rows[rows.length - 1].querySelector('.ui-telemetry-value').textContent;
+}"""
+
+
+def provider_suffix() -> str:
+    return uuid.uuid4().hex[:6]
+
+
+def _agent(base: str, **config) -> str:
+    provider_id = seed_mock_provider(base, name=f"p-{provider_suffix()}", config=config or None)
+    return seed_mock_agent(base, provider_id, name=f"a-{provider_suffix()}")
+
+
+def _joined(page: Page, base: str, agent: str, text: str = "hello") -> None:
+    page.goto(base)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, text)
+    expect(page.locator(SEND)).to_be_enabled(timeout=15000)
+
+
+def _telemetry_handle(page: Page, js: str):
+    return page.evaluate(
+        "() => { const h = window.App.areas.find(a => a.id === 'chat')._telemetry();"
+        " return (" + js + ")(h); }"
+    )
+
+
+# ── DD11 4: the model-loading interval ─────────────────────────────────────────
+
+
+def test_model_loading_interval_stops_on_a_log_wipe(app_clean: str, page: Page) -> None:
+    page.add_init_script(_COUNT_INTERVALS)
+    first = _agent(app_clean)
+    second = seed_mock_agent(
+        app_clean, seed_mock_provider(app_clean, name="p-other"), name="other-agent"
+    )
+    _joined(page, app_clean, first)
+    assert page.evaluate("() => window.__live.size") == 0
+    _chats.emit_frame(page, {"type": "system", "content": "Loading model..."})
+    expect(page.locator('[data-testid="model-loading"]')).to_have_text(
+        re.compile(r"^Loading model")
+    )
+    assert page.evaluate("() => window.__live.size") == 1
+    # A picker switch wipes the log: nothing may keep ticking.
+    _chats.start_chat(page, second)
+    page.wait_for_function("() => window.__live.size === 0", timeout=1500)
+    expect(page.locator('[data-testid="model-loading"]')).to_have_count(0)
+
+
+def test_model_loading_dots_are_static_under_reduced_motion(app_clean: str, page: Page) -> None:
+    page.emulate_media(reduced_motion="reduce")
+    page.add_init_script(_COUNT_INTERVALS)
+    _joined(page, app_clean, _agent(app_clean))
+    _chats.emit_frame(page, {"type": "system", "content": "Loading model..."})
+    loading = page.locator('[data-testid="model-loading"]')
+    expect(loading).to_have_text(re.compile(r"^Loading model\s?…$"))
+    assert page.evaluate("() => window.__live.size") == 0
+    # It settles in place on "Model loaded." (no class query).
+    _chats.emit_frame(page, {"type": "system", "content": "Model loaded."})
+    expect(page.locator('[data-testid="model-loading"]')).to_have_text("Model loaded.")
+
+
+def test_the_thinking_label_and_its_static_ellipsis(app_clean: str, page: Page) -> None:
+    """A8: the indicator reads "Thinking…" (the label plus the control's dots)."""
+    page.emulate_media(reduced_motion="reduce")
+    agent = _agent(app_clean, delay_ms=3000)
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "hi")
+    expect(page.locator(THINKING)).to_have_text(re.compile(r"^Thinking\s?…$"), timeout=5000)
+
+
+# ── DD11 5 and 0.3: the context-window fetch ───────────────────────────────────
+
+
+def test_a_late_context_window_response_for_another_session_is_dropped(
+    app_clean: str, page: Page
+) -> None:
+    pa = seed_mock_provider(app_clean, name="pa")
+    a = seed_mock_agent(app_clean, pa, name="agent-a")
+    b = seed_mock_agent(app_clean, pa, name="agent-b")
+    sid_a = seed_session(app_clean, a, "Chat A", "2026-01-02T00:00:00Z")
+    sid_b = seed_session(app_clean, b, "Chat B", "2026-01-01T00:00:00Z")
+    held: list = []
+    seen: list[str] = []
+
+    def handle(route):
+        url = route.request.url
+        seen.append(url)
+        if "/agent-a/" in url:
+            held.append(route)  # A's response waits until released
+        else:
+            route.fulfill(status=404, content_type="application/json", body="{}")
+
+    page.route("**/api/agents/*/context-window", handle)
+    page.goto(app_clean)
+    _chats.open_chat(page, sid_a)
+    page.wait_for_function("() => true")
+    expect_wait = 0
+    while not held and expect_wait < 50:
+        page.wait_for_timeout(100)
+        expect_wait += 1
+    assert held, "A's context-window request was never made"
+    _chats.open_chat(page, sid_b)
+    while not any("/agent-b/" in u for u in seen) and expect_wait < 100:
+        page.wait_for_timeout(100)
+        expect_wait += 1
+    held[0].fulfill(
+        status=200, content_type="application/json", body=json.dumps({"max_context_tokens": 99000})
+    )
+    page.wait_for_timeout(400)
+    assert page.evaluate(_TELEMETRY_MAX_JS) == "0", "A's late max reached B's readout"
+
+
+def test_a_deleted_agents_chat_makes_no_context_window_request(app_clean: str, page: Page) -> None:
+    """0.3: nothing to fetch for a deleted agent, so no request and no console error."""
+    pid = seed_mock_provider(app_clean, name="pd")
+    name = seed_mock_agent(app_clean, pid, name="doomed")
+    sid = seed_session(app_clean, name, "Doomed chat", "2026-01-02T00:00:00Z")
+    r = httpx.delete(
+        f"{app_clean}/api/agents/{name}", headers=auth_headers_for(app_clean), timeout=5
+    )
+    assert r.status_code in (200, 204), r.text
+    requests: list[str] = []
+    errors: list[str] = []
+    page.on(
+        "request", lambda req: requests.append(req.url) if "/context-window" in req.url else None
+    )
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.goto(app_clean)
+    _chats.open_chat(page, sid)
+    expect(page.locator(".chat-health-banner")).to_contain_text("deleted", timeout=8000)
+    page.wait_for_timeout(500)
+    assert requests == []
+    assert errors == []
+
+
+def test_a_restored_count_is_never_zeroed_by_a_zero_maximum(app_clean: str, page: Page) -> None:
+    _joined(page, app_clean, _agent(app_clean))
+    page.evaluate(
+        "() => { const t = window.App.areas.find(a => a.id === 'chat')._telemetry();"
+        " t.update({input_tokens: 5, output_tokens: 2, context_tokens: 50, max_context_tokens: 0});"
+        " t.setMax(100); }"
+    )
+    expect(_chats.telemetry(page)).to_contain_text("50%")
+    assert page.evaluate(_TELEMETRY_MAX_JS) == "100"
+
+
+# ── F1: Copy reply ──────────────────────────────────────────────────────────────
+
+_CHUNKS = [
+    "Here is code:\n\n",
+    "```python\nprint('a')\n\nprint('b')\n```\n\n",
+    "| h1 | h2 |\n|----|----|\n| a | b |\n\n",
+    "done",
+]
+
+
+def test_copy_reply_copies_the_stored_content_live_and_on_replay(
+    app_clean: str, page: Page
+) -> None:
+    agent = _agent(app_clean, stream_chunks=_CHUNKS, delay_ms=350)
+    expected = "".join(_CHUNKS)
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "go")
+    assistant = _chats.messages(page, "assistant")
+    expect(assistant.first).to_contain_text("Here is code", timeout=8000)
+    # There is no Copy while the reply streams.
+    expect(page.locator(COPY)).to_have_count(0)
+    expect(page.locator(SEND)).to_be_enabled(timeout=15000)
+    expect(page.locator(COPY)).to_have_count(1)
+    page.evaluate(_CLIPBOARD_SPY)
+    page.locator(COPY).click()
+    page.wait_for_function("() => window.__copied.length === 1")
+    assert page.evaluate("() => window.__copied[0]") == expected
+    # A replayed reply has one Copy, with the same text.
+    page.reload()
+    _chats.expect_chat(page, agent, timeout=10000)
+    expect(_chats.messages(page, "assistant").first).to_contain_text("done", timeout=10000)
+    expect(page.locator(COPY)).to_have_count(1)
+    page.evaluate(_CLIPBOARD_SPY)
+    page.locator(COPY).click()
+    page.wait_for_function("() => window.__copied.length === 1")
+    assert page.evaluate("() => window.__copied[0]") == expected
+
+
+def test_an_empty_reply_has_no_copy_and_delivered_results_have_none(
+    app_clean: str, page: Page
+) -> None:
+    _joined(page, app_clean, _agent(app_clean))
+    before = page.locator(COPY).count()
+    _chats.emit_frame(page, {"type": "assistant", "content": ""})
+    _chats.emit_frame(page, {"type": "assistant", "content": "filled"})
+    expect(page.locator(COPY)).to_have_count(before + 1)
+
+
+def test_a_stopped_streaming_reply_keeps_every_received_character(
+    app_clean: str, page: Page
+) -> None:
+    """drainPacing hands the whole queue to the bubble before it is finalized: Stop does not
+    drop characters still waiting to be paced, and Copy copies the received text."""
+    _joined(page, app_clean, _agent(app_clean))
+    text = "x" * 3000
+    _chats.emit_frame(page, {"type": "assistant_chunk", "content": text})
+    _chats.emit_frame(page, {"type": "cancelled"})
+    page.evaluate(_CLIPBOARD_SPY)
+    assistant = _chats.messages(page, "assistant").last
+    assert len((assistant.text_content() or "").strip()) == 3000
+    page.locator(COPY).last.click()
+    page.wait_for_function("() => window.__copied.length === 1")
+    assert page.evaluate("() => window.__copied[0]") == text
+
+
+# ── B2: the thinking disclosure above its reply ────────────────────────────────
+
+
+def test_thinking_precedes_its_reply_live_and_on_replay(app_clean: str, page: Page) -> None:
+    agent = _agent(
+        app_clean,
+        response={
+            "content": "the answer",
+            "thinking": [{"type": "thinking", "thinking": "pondering", "signature": "s"}],
+        },
+    )
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "q")
+    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(1, timeout=10000)
+
+    def order() -> list[str]:
+        return page.evaluate(_KINDS_JS)
+
+    live = order()
+    assert live.index("think:pondering") + 1 == live.index("assistant:the answer"), live
+    page.reload()
+    _chats.expect_chat(page, agent, timeout=10000)
+    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(1, timeout=10000)
+    replayed = order()
+    assert replayed.index("think:pondering") + 1 == replayed.index("assistant:the answer"), replayed
+
+
+_ITERATIONS = [
+    "user:go",
+    "attr",
+    "think:T1",
+    "assistant:first",
+    "attr",
+    "trace",
+    "think:T2",
+    "assistant:second",
+    "attr",
+]
+
+
+def test_each_iterations_thinking_sits_above_its_own_reply_live(app_clean: str, page: Page) -> None:
+    _joined(page, app_clean, _agent(app_clean))
+    frames = [
+        {"type": "user", "content": "go"},
+        {"type": "assistant", "content": "first"},
+        {"type": "thinking", "content": "T1"},
+        {
+            "type": "tool_call",
+            "name": "shell",
+            "arguments": {},
+            "tool_call_id": "t1",
+            "parent_message_id": "p1",
+        },
+        {
+            "type": "tool_result",
+            "content": "ok",
+            "is_error": False,
+            "tool_call_id": "t1",
+            "parent_message_id": "p1",
+        },
+        {"type": "assistant", "content": "second"},
+        {"type": "thinking", "content": "T2"},
+        {"type": "done"},
+    ]
+    for f in frames:
+        _chats.emit_frame(page, f)
+    kinds = page.evaluate(_KINDS_JS)
+    assert kinds[kinds.index("user:go") :] == _ITERATIONS, kinds
+
+
+def test_each_iterations_thinking_sits_above_its_own_reply_on_replay(
+    app_clean: str, page: Page
+) -> None:
+    pid = seed_mock_provider(app_clean, name="pr")
+    agent = seed_mock_agent(app_clean, pid, name="replayer")
+    msgs = [
+        Message.user("go"),
+        Message.assistant(
+            "first",
+            tool_calls=[ToolCall(id="t1", name="shell", arguments={})],
+            thinking=[ThinkingBlock(type="thinking", thinking="T1", signature="s")],
+        ),
+        Message.tool(ToolResult(tool_call_id="t1", content="ok", is_error=False)),
+        Message.assistant(
+            "second", thinking=[ThinkingBlock(type="thinking", thinking="T2", signature="s")]
+        ),
+    ]
+    sid = seed_session(
+        app_clean, agent, "Iterations", "2026-01-02T00:00:00Z", messages=encode_messages(msgs)
+    )
+    page.goto(app_clean)
+    _chats.open_chat(page, sid)
+    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(2, timeout=10000)
+    kinds = page.evaluate(_KINDS_JS)
+    assert kinds[kinds.index("user:go") :] == _ITERATIONS, kinds
+
+
+# ── B9: Stopped. ────────────────────────────────────────────────────────────────
+
+
+def _slow_turn(page: Page, base: str) -> None:
+    agent = _agent(base, stream_chunks=["alpha ", "beta ", "gamma-FINAL"], delay_ms=700)
+    page.goto(base)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "running")
+    expect(_chats.messages(page, "assistant").first).to_contain_text("alpha", timeout=8000)
+
+
+def test_stop_shows_stopped_and_a_discarded_held_message(app_clean: str, page: Page) -> None:
+    _slow_turn(page, app_clean)
+    page.locator(INPUT).fill("held")
+    page.locator(INPUT).press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_be_visible(timeout=3000)
+    page.locator(STOP).click()
+    expect(page.locator(STOPPED)).to_have_text("Stopped.", timeout=8000)
+    expect(page.locator(DISCARDED)).to_have_text("Queued message discarded.")
+    # Stopped. first, then the discarded line, after the reply.
+    kinds = page.evaluate(_KINDS_JS)
+    assert kinds[-2:] == ["chat-stopped", "chat-discarded"], kinds
+    # A re-join shows neither (neither is stored).
+    page.reload()
+    expect(page.locator(MESSAGES)).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
+    expect(page.locator(STOPPED)).to_have_count(0)
+    expect(page.locator(DISCARDED)).to_have_count(0)
+
+
+def test_stop_without_a_held_message_shows_only_stopped_and_consumes_the_flag(
+    app_clean: str, page: Page
+) -> None:
+    _slow_turn(page, app_clean)
+    page.locator(STOP).click()
+    expect(page.locator(STOPPED)).to_have_count(1, timeout=8000)
+    expect(page.locator(DISCARDED)).to_have_count(0)
+    expect(page.locator(SEND)).to_be_enabled(timeout=8000)
+    # A second Stop in a later turn does not inherit anything.
+    page.locator(INPUT).fill("again")
+    page.locator(INPUT).press("Enter")
+    expect(_chats.messages(page, "assistant").last).to_contain_text("alpha", timeout=8000)
+    page.locator(STOP).click()
+    expect(page.locator(STOPPED)).to_have_count(2, timeout=8000)
+    expect(page.locator(DISCARDED)).to_have_count(0)
+
+
+def test_a_cancel_from_elsewhere_with_a_held_message_discards_it_too(
+    app_clean: str, page: Page
+) -> None:
+    """A Stop from another tab never ran this tab's click handler: the `cancelled` frame finds
+    the held message still present and reports it."""
+    _slow_turn(page, app_clean)
+    page.locator(INPUT).fill("held")
+    page.locator(INPUT).press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_be_visible(timeout=3000)
+    _chats.emit_frame(page, {"type": "cancelled"})
+    expect(page.locator(STOPPED)).to_have_count(1)
+    expect(page.locator(DISCARDED)).to_have_text("Queued message discarded.")
+
+
+# ── A4: an agent error ──────────────────────────────────────────────────────────
+
+
+def test_an_agent_error_is_a_danger_notice_with_technical_details(
+    app_clean: str, page: Page
+) -> None:
+    r = httpx.post(
+        f"{app_clean}/api/providers",
+        json={
+            "name": "dead",
+            "type": "openai-compatible",
+            "base_url": "http://127.0.0.1:1/v1",
+            "api_key": "k",
+        },
+        headers=auth_headers_for(app_clean),
+        timeout=5,
+    )
+    assert r.status_code == 201, r.text
+    agent = seed_mock_agent(app_clean, r.json()["id"], name="dead-agent", model="m")
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "hello")
+    notice = page.locator(AGENT_ERROR)
+    expect(notice).to_be_visible(timeout=45000)
+    expect(notice).to_contain_text("The agent couldn't finish this reply.")
+    assert "ui-notice--danger" in (notice.get_attribute("class") or "")
+    details = notice.locator("details")
+    assert details.evaluate("el => el.open") is False
+    expect(details.locator("summary")).to_have_text("Technical details")
+    assert (details.locator(".ui-disclosure-body, div").last.text_content() or "").strip() != ""
+    # It is not a system bubble.
+    expect(_chats.messages(page, "system").filter(has_text="Agent error")).to_have_count(0)
+
+
+# ── A15, A18, B3, B5: the approved looks ───────────────────────────────────────
+
+
+def _seed_operator_session(base: str) -> tuple[str, str]:
+    pid = seed_mock_provider(base, name="po")
+    agent = seed_mock_agent(base, pid, name="op-agent")
+    msgs = [
+        Message.user("hello"),
+        Message.assistant(
+            "checking",
+            tool_calls=[ToolCall(id="t1", name="shell", arguments={})],
+            visibility=OPERATOR_VISIBILITY,
+        ),
+        Message.tool(ToolResult(tool_call_id="t1", content="ok", is_error=False)),
+        Message.assistant("done", visibility=OPERATOR_VISIBILITY),
+    ]
+    sid = seed_session(
+        base, agent, "Operator chat", "2026-01-02T00:00:00Z", messages=encode_messages(msgs)
+    )
+    return agent, sid
+
+
+def test_operator_only_is_a_chip_and_the_trace_has_a_chevron_and_a_dot_count(
+    app_clean: str, page: Page
+) -> None:
+    _, sid = _seed_operator_session(app_clean)
+    page.goto(app_clean)
+    _chats.open_chat(page, sid)
+    chip = page.locator(".ui-message-operator-chip").first
+    expect(chip).to_have_text("Operator only", timeout=10000)
+    expect(page.locator(MESSAGES)).not_to_contain_text("[operator-only]")
+    trace = page.locator('[data-testid="trace-shell"]')
+    expect(trace.locator("summary")).to_contain_text("Tool activity · 2")
+    expect(trace.locator(".ui-trace-chevron svg")).to_have_count(1)
+    closed = trace.locator(".ui-trace-chevron").evaluate("el => getComputedStyle(el).transform")
+    trace.locator("summary").click()
+    page.wait_for_timeout(300)
+    opened = trace.locator(".ui-trace-chevron").evaluate("el => getComputedStyle(el).transform")
+    assert closed != opened
+
+
+def test_timestamps_are_full_strength_and_the_telemetry_focus_offset_is_two_pixels(
+    app_clean: str, page: Page
+) -> None:
+    _joined(page, app_clean, _agent(app_clean))
+    stamp = page.locator(".ui-message-attribution-ts").first
+    assert stamp.evaluate("el => getComputedStyle(el).opacity") == "1"
+    offset = page.evaluate(
+        """() => {
+          const walk = (rules) => {
+            for (const r of rules) {
+              if (r.selectorText === '.ui-telemetry:focus-visible') return r.style.outlineOffset;
+              if (r.cssRules) { const hit = walk(r.cssRules); if (hit) return hit; }
+            }
+            return null;
+          };
+          for (const sheet of document.styleSheets) {
+            let rules; try { rules = sheet.cssRules; } catch (e) { continue; }
+            const hit = walk(rules);
+            if (hit) return hit;
+          }
+          return null;
+        }"""
+    )
+    assert offset == "2px"

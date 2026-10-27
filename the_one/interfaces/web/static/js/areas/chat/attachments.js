@@ -2,7 +2,8 @@
 // per-image and per-message caps and the attach button and file input listeners (M31 F6 L02,
 // split out of areas/chat.js, moved verbatim apart from the ctx./state. prefixes).
 //
-// Exposes: staged (the live array), clearStagedImages, prependStaged, renderAttachments.
+// Exposes: attach and addFiles (the composer's onAttach and onFiles), staged (the live array),
+// clearStagedImages, prependStaged, renderAttachments.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -10,9 +11,8 @@
 
   function create(ctx) {
     var state = ctx.state;
-    var inputEl = ctx.inputEl;
-    var fileInputEl = ctx.fileInputEl;
-    var attachBtn = ctx.attachBtn;
+    var composer = ctx.composer;
+    var fileInputEl = composer.fileInput;
 
     // M16 F12 L08: minimal image-ingestion producer. Staged images
     // ({data: base64, media_type}) are collected by the file-attach handler
@@ -23,8 +23,7 @@
     // a `stagedImages` ARRAY — attaching APPENDS rather than replacing, and
     // the hidden file input carries `multiple` so one OS-picker interaction
     // can stage several images at once. The chicklet row lives in
-    // `attachmentsEl` (`.chat-attachments`, resolved alongside
-    // fileInputEl/attachBtn below) ABOVE the composer box (M25 F4 L5; above
+    // `attachmentsEl` (the composer's attachments slot) ABOVE the composer box (M25 F4 L5; above
     // the old `.input-area` row before it) — the standard multi-attachment
     // layout — rather than inline inside it. `renderAttachments()` fully
     // rebuilds the row from `stagedImages` on every mutation
@@ -37,8 +36,8 @@
     // unconditionally, which beats the UA `[hidden]{display:none}` rule at
     // equal specificity (author origin wins over UA origin; see the
     // `.btn-muted-destructive[hidden]` override elsewhere in chat.css for
-    // the same footgun). Each chicklet itself also uses `.chip`/`.chip-remove`
-    // — no CSS file change.
+    // the same footgun). Each chicklet is App.ui.chip (L05a: a 24px library
+    // remove button).
     // M18 F02 L02: client-side mirror of the server's authoritative caps
     // (the_one/interfaces/web/app.py IMAGE_ATTACHMENT_CAP_BYTES /
     // IMAGE_ATTACHMENT_MAX_COUNT). UX-only — a client that bypasses these
@@ -48,7 +47,7 @@
     var IMAGE_ATTACHMENT_CAP_BYTES = 10 * 1024 * 1024; // ~10 MB per image
     var IMAGE_ATTACHMENT_MAX_COUNT = 10; // max attachments per turn
     var stagedImages = [];
-    var attachmentsEl = ctx.composer.attachmentsEl;
+    var attachmentsEl = composer.slots.attachments;
     function renderAttachments() {
       if (fileInputEl) {
         if (stagedImages.length) fileInputEl.setAttribute('data-staged', 'true');
@@ -63,13 +62,13 @@
     }
     // M18 F03 L01 (A1): a SEPARATE visually-hidden aria-live="polite" status
     // element announces a short delta per stage/remove mutation. Deliberately
-    // NOT on the visible `.chat-attachments` row above — that row fully
+    // NOT on the visible attachments row above — that row fully
     // rebuilds via innerHTML on every mutation (see renderAttachments()), so
     // making IT the live region would re-announce all N remaining chips on
     // every single removal. This element's `textContent` is instead set to
     // just the delta for the mutation that just happened, mirroring the
     // aria-live="polite" precedent set by pendingQueuedEl (chat.js ~line 61).
-    var attachmentsStatusEl = ctx.composer.attachmentsStatusEl;
+    var attachmentsStatusEl = composer.slots.attachmentsStatus;
     function announceAttachmentChange(text) {
       if (attachmentsStatusEl) attachmentsStatusEl.textContent = text;
     }
@@ -78,39 +77,29 @@
     // rebuilds every chip from scratch on every mutation, so indices are
     // never stale by the time a click fires).
     function buildAttachmentChip(img, idx) {
-      var chip = document.createElement('div');
-      chip.className = 'chat-attachment chip';
-      chip.setAttribute('data-testid', 'chat-attachment');
-      chip.setAttribute('data-attachment-index', String(idx));
-
-      // M18 F03 L01 (A2): interpolate the 1-based index so no two staged
-      // images share an identical accessible name (thumbnail alt / remove
-      // aria-label) — with multi-image staging a user relying on a screen
-      // reader could not otherwise tell which chip/remove-button was which.
+      // M18 F03 L01 (A2): the 1-based index is in the chip's name and its remove button's name,
+      // so no two staged images share an accessible name. The label is visually hidden (the
+      // thumbnail is the visible part; its alt is empty because the label names the chip).
       var displayIndex = idx + 1;
-
       var thumb = document.createElement('img');
       thumb.className = 'chat-attachment-thumb';
-      thumb.alt = 'Staged image ' + displayIndex;
+      thumb.alt = '';
       thumb.style.width = '24px';
       thumb.style.height = '24px';
       thumb.style.objectFit = 'cover';
       thumb.style.borderRadius = '4px';
       thumb.style.display = 'block';
       thumb.src = 'data:' + img.media_type + ';base64,' + img.data;
-      chip.appendChild(thumb);
-
-      var removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'chat-attachment-remove chip-remove';
-      removeBtn.setAttribute('data-testid', 'chat-attachment-remove');
-      removeBtn.setAttribute('aria-label', 'Remove staged image ' + displayIndex);
-      removeBtn.style.fontSize = '12px';
-      removeBtn.textContent = '✕';
-      removeBtn.addEventListener('click', function () { removeStagedImage(idx); });
-      chip.appendChild(removeBtn);
-
-      return chip;
+      return App.ui.chip({
+        label: 'Staged image ' + displayIndex,
+        labelHidden: true,
+        lead: thumb,
+        onRemove: function () { removeStagedImage(idx); },
+        removeLabel: 'Remove staged image ' + displayIndex,
+        removeTestid: 'chat-attachment-remove',
+        testid: 'chat-attachment',
+        dataset: { attachmentIndex: String(idx) }
+      });
     }
     function appendStagedImage(img) {
       stagedImages.push(img);
@@ -120,9 +109,18 @@
       );
     }
     function removeStagedImage(idx) {
+      // WCAG 2.4.3: the removed chip's button held focus, so hand it on (the next chip's
+      // remove button, else the previous one, else the composer input). A pointer user who
+      // clicked elsewhere is unaffected.
+      var hadFocus = !!(attachmentsEl && attachmentsEl.contains(document.activeElement));
       stagedImages.splice(idx, 1);
       renderAttachments();
       announceAttachmentChange('Image removed');
+      if (!hadFocus) return;
+      var btns = attachmentsEl.querySelectorAll('[data-testid="chat-attachment-remove"]');
+      var target = btns[idx] || btns[idx - 1];
+      if (target) target.focus();
+      else if (composer.input) composer.input.focus();
     }
     function clearStagedImages() {
       stagedImages = [];
@@ -147,21 +145,15 @@
     // (the F09-04 hold queue carries text only) — both handlers ignore the
     // interaction while the current session is busy rather than staging an
     // image that would silently be dropped by the hold-queue clear above.
-    attachBtn.addEventListener('click', function () {
-      if (ctx.send.isCurrentBusy() || (state.sessionBannerEl || inputEl.disabled)) return;
-      fileInputEl.click();
-    });
-    fileInputEl.addEventListener('change', function () {
-      // Snapshot into a real array BEFORE clearing `.value` below — the
-      // input's `.files` FileList is LIVE (tied to the element), so
-      // resetting `.value` empties it in place; a stored reference to the
-      // FileList itself (rather than to the individual File objects) would
-      // silently see length 0 by the time the loop below runs.
-      var files = fileInputEl.files ? Array.prototype.slice.call(fileInputEl.files) : [];
-      // Reset the input value so selecting the SAME file(s) again still
-      // fires `change` (browsers do not re-fire change for an unchanged
-      // value).
-      fileInputEl.value = '';
+    // The composer's onAttach: the busy and blocked guard stays here; the picker opens through the
+    // control.
+    function attach() {
+      if (ctx.send.isCurrentBusy() || state.bannerActive || composer.input.disabled) return;
+      composer.openFilePicker();
+    }
+    // The composer's onFiles (the file input's change, the files already snapshotted into an
+    // array and the input reset by the control).
+    function addFiles(files) {
       if (!files.length) return;
       if (ctx.send.isCurrentBusy()) return;
       // M18 F02 L02: per-file size check + count cap. `plannedCount` (NOT
@@ -222,9 +214,11 @@
             ' images can be attached per message; extra selections were not attached.'
         );
       }
-    });
+    }
 
     return {
+      attach: attach,
+      addFiles: addFiles,
       staged: staged,
       clearStagedImages: clearStagedImages,
       prependStaged: prependStaged,

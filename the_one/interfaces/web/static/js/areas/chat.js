@@ -42,6 +42,9 @@ App.registerArea({
       // Per-session one-slot queue: key is session id, value is the pending message text.
       // Mirrors inFlightSessions shape so session-switch and onclose handle both together.
       pendingQueuedMessages: Object.create(null),
+      // B9: a held message the operator's own Stop click discarded, keyed by session id; the
+      // `cancelled` frame reports it ("Queued message discarded.") and consumes the flag.
+      discardedOnStop: Object.create(null),
       sessions: [],
       // A session_list has arrived on some socket (the idle rules can run).
       listSeen: false,
@@ -77,7 +80,9 @@ App.registerArea({
       // fallback until the `sessions` store has its row).
       joinedTitle: null,
       setupIncomplete: false,
-      sessionBannerEl: null,
+      // The deleted-agent / missing-provider health banner is active (the persistent library
+      // banner below carries its text); computeBlocked reads it.
+      bannerActive: false,
       setupState: { hasProviders: false, hasAgents: false }
     };
 
@@ -87,8 +92,7 @@ App.registerArea({
     // joined). There is no "null means idle": the state's name says it.
     var chatState = App.chat.createSessionState();
 
-    var messagesEl, inputEl, sendBtn, stopBtn;
-    var fileInputEl, attachBtn;
+    var messagesEl;
 
     // M25 F4 L4a (DD5): the Chats list column, an App.ui.listPane built with
     // DOM APIs (areas/chat/chats-list.js): the New chat button (it opens the
@@ -99,30 +103,25 @@ App.registerArea({
       onNew: function (btn) {
         App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
       },
-      onDelete: function (id, li, btn) {
-        // Two-step confirm (arm, then confirm) via App.confirmDelete on the
-        // row's <li>; the WebSocket delete is fire-and-forget and the
-        // server's session_deleted + list refresh update the list (the
-        // listPane keeps an armed <li> across rebuilds, DD5).
-        // A1 (WCAG 4.1.2/4.1.3): the focused action button's accessible name
-        // follows the armed state ("Confirm delete: {title}"), kept in step
-        // with the li's .confirm-delete class by one observer per li, so a
-        // lapse, a revert and a re-render (the armed button node is reused)
-        // all restore "Delete chat: {title}".
-        var idleLabel = btn && !li.classList.contains('confirm-delete') ? btn.getAttribute('aria-label') : null;
-        if (btn && idleLabel && !li._armLabelObs && typeof MutationObserver === 'function') {
-          li._armLabelObs = new MutationObserver(function () {
-            var armed = li.classList.contains('confirm-delete');
-            btn.setAttribute('aria-label', armed ? 'Confirm delete: ' + li._armTitle : li._armIdle);
-          });
-          li._armLabelObs.observe(li, { attributes: true, attributeFilter: ['class'] });
-        }
-        if (idleLabel) {
-          li._armIdle = idleLabel;
-          li._armTitle = idleLabel.replace(/^Delete chat: /, '');
-        }
-        App.confirmDelete(li, function () {
-          if (ctx.socket.socketOpen()) ctx.ws().send(JSON.stringify({ action: 'delete_session', session_id: id }));
+      onDelete: function (id, li, btn, title) {
+        // Two-step confirm (arm, then confirm) via App.ui.confirm on the row's <li>; the
+        // WebSocket delete is fire-and-forget and the server's session_deleted + list refresh
+        // update the list (the listPane keeps an armed <li> across rebuilds, DD5).
+        // A1 (WCAG 4.1.2/4.1.3): the action's accessible name follows the armed state,
+        // derived from the row's title (never read back from the DOM, since a second click
+        // runs this again): onArmChange fires on arm, lapse, commit and revert, idempotently.
+        App.ui.confirm(li, function (itemEl, revert) {
+          if (!ctx.socket.socketOpen()) {
+            // DD11 6: nothing was sent, so say so and disarm the row.
+            revert();
+            App.ui.flash("Not connected, so the chat wasn't deleted. Try again in a moment.", { error: true });
+            return;
+          }
+          ctx.ws().send(JSON.stringify({ action: 'delete_session', session_id: id }));
+        }, {
+          onArmChange: function (armed) {
+            if (btn) btn.setAttribute('aria-label', (armed ? 'Confirm delete: ' : 'Delete chat: ') + title);
+          }
         });
       }
     });
@@ -132,8 +131,8 @@ App.registerArea({
     // content sink is gone): the welcome (the empty and guidance states under
     // one "Hello." h1) and the chrome (the chat header's h1 and "with
     // {agent}", the new-chat state, the message log, then the composer),
-    // areas/chat/chat-pane.js. The composer is areas/chat/composer.js (leg 5:
-    // reference spec 5.5, the telemetry row above it).
+    // areas/chat/chat-pane.js. The composer is App.ui.composer (reference
+    // spec 5.5, the telemetry row above it), built below.
     var pane = App.chat.chatPane.create({
       onNewChat: function (btn) {
         App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
@@ -142,7 +141,28 @@ App.registerArea({
         App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
       }
     });
-    var composer = App.chat.composer.create();
+    // M31 F6 L05a (DD4, DD7): the composer is App.ui.composer; the modules reach it through
+    // ctx.composer. Every control's behaviour is a callback into a module (called at event time,
+    // so the later-created modules are reachable); the modules never touch its elements.
+    var composer = App.ui.composer({
+      placeholder: 'Message…',
+      testid: 'chat-input',
+      attachTestid: 'chat-attach-btn',
+      fileInputTestid: 'chat-image-input',
+      modelTestid: 'chat-model',
+      stopTestid: 'chat-stop-btn',
+      sendTestid: 'chat-send-btn',
+      attachmentsTestid: 'chat-attachments',
+      attachmentsStatusTestid: 'chat-attachments-status',
+      queuedTestid: 'pending-queued-region',
+      onSend: function (raw) { ctx.send.send(raw); },
+      onStop: function () { stopTurn(); },
+      onAttach: function () { ctx.attachments.attach(); },
+      onFiles: function (files) { ctx.attachments.addFiles(files); }
+    });
+    // The deleted-agent / missing-provider notice: one persistent warning banner above the
+    // composer, driven by set(text) (empty collapses it), so a change is announced.
+    var healthBanner = App.ui.banner({ tone: 'warning', live: 'status', className: 'chat-health-banner' });
     // M25 F4 L6 (DD7): the agent drawer fills the static shell slot
     // (#chat-drawer, after <main>; areas/chat/agent-drawer.js). Its toggle
     // goes at the END of the chat header. renderPane feeds it the header's
@@ -152,11 +172,6 @@ App.registerArea({
     var chromeEl = pane.chrome;
     var welcomeEl = pane.welcome;
     messagesEl = pane.messages;
-    inputEl = composer.input;
-    fileInputEl = composer.fileInput;
-    attachBtn = composer.attachBtn;
-    stopBtn = composer.stopBtn;
-    sendBtn = composer.sendBtn;
 
     // The mascot, decorative, above the greeting.
     var mascotEl = document.createElement('img');
@@ -174,10 +189,28 @@ App.registerArea({
     // the queued-message region (F09-04: above the box and OUTSIDE the
     // scrolling .messages list, so a held message cannot scroll away;
     // showPendingQueued/clearPendingQueued toggle its `hidden`), then the box.
-    composer.telemetryRow.appendChild(App.chat.renderTelemetry());
+    // The telemetry readout (App.ui.telemetry, M31 F6 L05c): the area keeps the thresholds
+    // (read from App.config on every update, since the config may load after this runs) and
+    // the perf marks; session_joined and the usage frame feed it.
+    var telemetry = App.ui.telemetry({
+      thresholds: function () {
+        var cfg = window.App.config || {};
+        return { warn: cfg.context_warn_pct || 70, crit: cfg.context_crit_pct || 90 };
+      },
+      testid: 'chat-telemetry'
+    });
+    composer.slots.telemetry.appendChild(telemetry.el);
+    // The one shared role=status node the transcript's "Copy reply" confirmations announce in,
+    // outside the role=log message list (placed in the area panel, after the chrome).
+    var copyLiveEl = document.createElement('div');
+    copyLiveEl.className = 'visually-hidden';
+    copyLiveEl.setAttribute('role', 'status');
+    copyLiveEl.setAttribute('data-testid', 'chat-copy-status');
+    chromeEl.appendChild(healthBanner.el);
     chromeEl.appendChild(composer.el);
     content.appendChild(welcomeEl);
     content.appendChild(chromeEl);
+    content.appendChild(copyLiveEl);
 
     // The one object every chat module is created from (M31 F6 L02): the state, the session state
     // machine, the DOM refs, the functions this file keeps, and (assigned below as each module is
@@ -186,12 +219,9 @@ App.registerArea({
       state: state,
       chatState: chatState,
       messagesEl: messagesEl,
-      inputEl: inputEl,
-      sendBtn: sendBtn,
-      stopBtn: stopBtn,
-      fileInputEl: fileInputEl,
-      attachBtn: attachBtn,
       composer: composer,
+      telemetry: telemetry,
+      copyLiveEl: copyLiveEl,
       pane: pane,
       chromeEl: chromeEl,
       welcomeEl: welcomeEl,
@@ -275,11 +305,9 @@ App.registerArea({
         pane.renderNewState(null);
       }
       chromeEl.classList.toggle('chat-chrome--new', pending);
-      composer.render({
-        agent: composerAgent,
-        model: composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers).model : ''
-      });
-      composer.telemetryRow.hidden = name !== 'joined';
+      composer.setPlaceholder(composerAgent ? 'Message ' + String(composerAgent) + '…' : 'Message…');
+      composer.setModel(composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers).model : '');
+      composer.slots.telemetry.hidden = name !== 'joined';
     }
 
     // M25 F4 L4a (AC6): the ONE render of the Chats list. The rows are the
@@ -329,11 +357,10 @@ App.registerArea({
     // list and every message timestamp in place when it changes. Never released.
     App.time.onChange(function () {
       renderChatsList();
-      var stamps = document.querySelectorAll('.msg-attribution-ts[data-ts]');
-      for (var i = 0; i < stamps.length; i++) {
-        var d = new Date(stamps[i].getAttribute('data-ts'));
-        if (!isNaN(d.getTime())) stamps[i].textContent = App.time.formatClock(d);
-      }
+      App.ui.message.relabel(messagesEl, function (ts) {
+        var d = new Date(ts);
+        return isNaN(d.getTime()) ? null : App.time.formatClock(d);
+      });
     });
     renderChatsList();
     // The new-chat state reads the agent's model, description and provider
@@ -363,14 +390,20 @@ App.registerArea({
       chromeEl.hidden = false;
     }
 
-    // The composer outside a health banner: a pending chat types unless setup
-    // is incomplete or a cold load is still validating its agent; Send is
-    // disabled while busy.
+    // The ONE blocked computation (M31 F6 L05a): a health banner is up, or a pending chat whose
+    // setup is incomplete or whose cold load is still validating its agent.
+    function computeBlocked() {
+      return state.bannerActive ||
+        (chatState.state().name === 'pending' && (state.setupIncomplete || state.validating));
+    }
+
+    // The composer's state, from the session state: blocked (the input and Attach off, the box
+    // dimmed) and busy (Stop shown, Send off). Send is disabled while blocked OR busy, so
+    // clearing the banner mid-turn leaves it disabled. Every former sessionBannerEl guard calls
+    // this.
     function applyComposerState() {
-      if (state.sessionBannerEl) return;
-      var blocked = chatState.state().name === 'pending' && (state.setupIncomplete || state.validating);
-      inputEl.disabled = blocked;
-      sendBtn.disabled = blocked || ctx.send.isCurrentBusy();
+      composer.setBlocked(computeBlocked());
+      composer.setBusy(ctx.send.isCurrentBusy());
     }
 
     // One read per activation: agents + providers through App.store, deriving
@@ -407,19 +440,9 @@ App.registerArea({
       var msg = null;
       if (status === 'agent_deleted') msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
       else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a model provider in Library to continue this conversation.";
-      if (msg) {
-        if (!state.sessionBannerEl) {
-          state.sessionBannerEl = document.createElement('div');
-          state.sessionBannerEl.className = 'chat-session-banner';
-          state.sessionBannerEl.setAttribute('role', 'status');
-          chromeEl.insertBefore(state.sessionBannerEl, composer.el);
-        }
-        state.sessionBannerEl.textContent = msg;
-        inputEl.disabled = true; sendBtn.disabled = true;
-      } else {
-        if (state.sessionBannerEl) { state.sessionBannerEl.parentNode.removeChild(state.sessionBannerEl); state.sessionBannerEl = null; }
-        inputEl.disabled = false; sendBtn.disabled = false;
-      }
+      state.bannerActive = !!msg;
+      healthBanner.set(msg || '');
+      applyComposerState();
     }
 
     // The chat modules, leaves first (each is App.chat.<name>.create(ctx); see their headers).
@@ -432,26 +455,10 @@ App.registerArea({
     ctx.sessionFlow = App.chat.sessionFlow.create(ctx);
     ctx.socket = App.chat.socket.create(ctx);
 
-    // Wire events
-    // M25 F4 L5 (DD6): the composer's textarea. Enter sends (its newline is
-    // prevented); Shift+Enter keeps the native newline. An Enter that commits
-    // an IME composition does nothing here (the IME takes it): WebKit can
-    // deliver that Enter with isComposing false, so keyCode 229 (the
-    // composition keyCode) is checked too.
-    inputEl.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || e.shiftKey) return;
-      if (e.isComposing || e.keyCode === 229) return;
-      e.preventDefault();
-      ctx.send.send();
-    });
-    // The textarea grows with its content (to about eight lines).
-    inputEl.addEventListener('input', function () { composer.fit(); });
-    sendBtn.addEventListener('click', ctx.send.send);
-
     // F7 L04: stop/cancel button — send the cancel action, then optimistically
     // reset the thinking indicator and discard any pending queued message. The
     // `cancelled` event from the backend will perform the authoritative full reset.
-    stopBtn.addEventListener('click', function () {
+    function stopTurn() {
       if (!ctx.send.isCurrentBusy()) return; // no-op: already done, or raced to completion
       // AC8: a closed or not-yet-re-bound socket has nothing to cancel (and a
       // send on a closed socket throws). While starting, the cancel is
@@ -464,13 +471,15 @@ App.registerArea({
       // Discard pending queued message — "stop" means stop everything.
       var stopActive = chatState.activeId();
       if (stopActive) {
+        // B9: remember that this Stop discarded a held message, for the `cancelled` frame.
+        if (state.pendingQueuedMessages[stopActive]) state.discardedOnStop[stopActive] = true;
         delete state.pendingQueuedMessages[stopActive];
         ctx.holdQueue.clearPendingQueued();
       }
-      // Do NOT prematurely clear inFlightSessions or re-enable sendBtn here;
+      // Do NOT prematurely clear inFlightSessions or re-enable Send here;
       // the authoritative `cancelled` event handles those (avoids a race where
       // a rapid double-click re-enables the button before the event arrives).
-    });
+    }
 
     var self = this;
     self._connect = ctx.socket.connect;
@@ -484,6 +493,8 @@ App.registerArea({
       if (ctx.socket.socketOpen()) ctx.sessionFlow.openConversation(id);
     };
     self._sessionState = function () { return chatState.state(); };
+    // The telemetry handle (App.ui.telemetry), for the threshold and restore tests.
+    self._telemetry = function () { return telemetry; };
     // AC4: "the joined or joining id", derived from the state (null while
     // idle, pending or starting).
     Object.defineProperty(self, '_currentSessionId', {

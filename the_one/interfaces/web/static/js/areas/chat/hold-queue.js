@@ -19,7 +19,7 @@
     var pendingQueuedEl = null;
     // F09-04: pinned container above the composer that hosts the queued chip,
     // outside the scrolling .messages list.
-    var pendingQueuedRegionEl = ctx.composer.queuedRegion;
+    var pendingQueuedRegionEl = ctx.composer.slots.queued;
 
     // F09-04 (client-hold): render a PINNED chip for the held queued message.
     // The chip lives in pendingQueuedRegionEl — a region above the composer,
@@ -32,33 +32,22 @@
       clearPendingQueued();
       if (!text || !pendingQueuedRegionEl) return;
 
-      pendingQueuedEl = document.createElement('div');
-      pendingQueuedEl.className = 'pending-queued-chip';
-      pendingQueuedEl.setAttribute('data-testid', 'pending-queued');
-      pendingQueuedEl.setAttribute('aria-live', 'polite');
-
-      var label = document.createElement('span');
-      label.className = 'pending-queued-label';
-      label.textContent = 'Queued:';
-      pendingQueuedEl.appendChild(label);
-
-      var body = document.createElement('span');
-      body.className = 'pending-queued-text';
-      body.textContent = text;
-      pendingQueuedEl.appendChild(body);
-
-      // Native <button> → focusable and Enter/Space-activatable for free.
-      var cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button';
-      cancelBtn.className = 'pending-queued-cancel';
-      cancelBtn.setAttribute('data-testid', 'pending-queued-cancel');
-      cancelBtn.setAttribute('aria-label', 'Cancel queued message');
-      cancelBtn.textContent = '×'; // ×
-      cancelBtn.addEventListener('click', cancelPendingQueued);
-      pendingQueuedEl.appendChild(cancelBtn);
+      // A7: the queued chip is App.ui.chip: a "Queued" lead, the text on one line with an
+      // ellipsis, and a library remove button that cancels it (keyboard-activatable).
+      var lead = document.createElement('span');
+      lead.className = 'pending-queued-lead';
+      lead.textContent = 'Queued';
+      pendingQueuedEl = App.ui.chip({
+        label: text,
+        truncate: true,
+        lead: lead,
+        onRemove: cancelPendingQueued,
+        removeLabel: 'Cancel queued message',
+        removeTestid: 'pending-queued-cancel',
+        testid: 'pending-queued'
+      });
 
       pendingQueuedRegionEl.appendChild(pendingQueuedEl);
-      pendingQueuedRegionEl.hidden = false;
     }
 
     // Remove the pinned chip from the DOM (idempotent). Does NOT touch the
@@ -68,7 +57,6 @@
         pendingQueuedEl.parentNode.removeChild(pendingQueuedEl);
       }
       pendingQueuedEl = null;
-      if (pendingQueuedRegionEl) pendingQueuedRegionEl.hidden = true;
     }
 
     // F09-04: cancel (×) — discard the held message for the current session
@@ -77,7 +65,10 @@
     function cancelPendingQueued() {
       var a = chatState.activeId();
       if (a) delete state.pendingQueuedMessages[a];
+      // WCAG 2.4.3: the cancel button held focus when it was used; the composer input takes it.
+      var hadFocus = !!(pendingQueuedEl && pendingQueuedEl.contains(document.activeElement));
       clearPendingQueued();
+      if (hadFocus && ctx.composer.input) ctx.composer.input.focus();
     }
 
     return {

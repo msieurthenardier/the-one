@@ -33,13 +33,13 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
     _chats.send_first(page, "hello")
 
     # 5. User message renders.
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("hello", timeout=5000)
 
     # 6. Assistant message renders with the mock provider's default response.
     #    Per leg 02, MockProvider.complete() with no config["response"] returns
     #    "Mock response from the mock provider."
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Mock response from the mock provider.", timeout=10000)
 
     # 7. Send button re-enabled after `done` event (busy=false).

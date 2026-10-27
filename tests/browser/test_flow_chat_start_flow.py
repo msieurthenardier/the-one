@@ -41,8 +41,8 @@ pytestmark = pytest.mark.browser
 INPUT = '[data-testid="chat-input"]'
 SEND = '[data-testid="chat-send-btn"]'
 STOP = '[data-testid="chat-stop-btn"]'
-USER_MSG = '[data-testid="message"].user'
-ASSISTANT_MSG = '[data-testid="message"].assistant'
+USER_MSG = _chats.message_sel("user")
+ASSISTANT_MSG = _chats.message_sel("assistant")
 THINKING = '[data-testid="thinking-indicator"]'
 CHIP = '[data-testid="pending-queued"]'
 MESSAGES = ".area-chat .messages"
@@ -250,7 +250,7 @@ def test_reset_in_a_pending_chat_is_a_client_side_notice(
     box = page.locator(INPUT)
     box.fill("/reset")
     box.press("Enter")
-    expect(page.locator(f"{MESSAGES} .msg.system")).to_have_text(
+    expect(page.locator(f"{MESSAGES} " + _chats.message_sel("system"))).to_have_text(
         "Send a message to start the chat first"
     )
     page.wait_for_timeout(300)
@@ -349,7 +349,7 @@ def test_start_failed_restores_the_text_and_the_staged_image(
     box = page.locator(INPUT)
     box.fill("will fail")
     box.press("Enter")
-    expect(page.locator(f"{MESSAGES} .msg.system")).to_contain_text(
+    expect(page.locator(f"{MESSAGES} " + _chats.message_sel("system"))).to_contain_text(
         "Cannot start chat", timeout=8000
     )
     _wait_state(page, "pending")

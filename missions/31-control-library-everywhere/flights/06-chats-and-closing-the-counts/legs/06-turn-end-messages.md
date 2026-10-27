@@ -161,6 +161,8 @@ The leg also drafts the behavior spec `agent-step-limit-notice`.
 ## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.
 
+- **Contract with leg 05c (added 2026-10-27):** the web `system` frame for an agent error keeps its `"Agent error: "` content prefix. Leg 05c detects it to render the danger notice (A4). 0.2 changes only the provider wording after the prefix.
+
 ## Design Review
 - **Developer design review, cycle 1 (Sonnet, 2026-10-27, read-only): approve with changes.** Applied in place:
   - **[high] persistence:** the connector line goes through a fully suppressed helper after the persist (FD answer: after), plus a test;
