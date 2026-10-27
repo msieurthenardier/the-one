@@ -78,6 +78,23 @@
       if (s) s.setError(text);
     }
 
+    function setNameError_(text) {
+      var d = currentData_();
+      if (d && d.handle && d.handle.general) d.handle.general.setNameError(text);
+    }
+
+    // A failed save: the server's name refusal goes on the Name field (focused, so
+    // the operator lands on it), every other message in the header.
+    function onSaveError_(err) {
+      var fe = App.api.fieldErrors(err, ['name']);
+      setNameError_(fe.fields.name || null);
+      setEditorError_(fe.text || '');
+      if (fe.fields.name) {
+        var input = editorEl.querySelector('#studio-name');
+        if (input) input.focus();
+      }
+    }
+
     // A liveness guard for an async callback: true while the mount it was taken
     // under is still the slot's current one AND no panel rebuild (patch, Cancel)
     // has replaced the DOM it reads.
@@ -530,6 +547,14 @@
     }
 
     function save(isCreate) {
+      // Squawk 0090 -- belt-and-braces behind the disabled Save button (a
+      // keyboard/script-driven click, or a save that races the in-flight
+      // fresh-agent fetch, still reaches here). Refuse rather than PUT a body
+      // whose `disabled_tools` was unioned from a possibly-pre-rename cached
+      // agent. The header already says why; a new error would replace that line.
+      if (!isCreate && self._selectedAgentLoaded === false) return;
+      setNameError_(null);
+      setEditorError_('');
       var data = collectFormData();
       var blocking = ctx.formData.blockingError();
       if (blocking) {
@@ -543,7 +568,7 @@
 
       if (isCreate) {
         if (!data.name || !data.name.trim()) {
-          setEditorError_('Name is required.');
+          setNameError_('Name is required.');
           return;
         }
         // Create turns into the saved agent's editor asynchronously (doSelect's
@@ -560,15 +585,11 @@
           var cur = App.router.current();
           return createGen === state.editorGen && !!cur && cur.route === 'agents/~new';
         };
-        fetch('/api/agents', {
+        App.api.fetchJson('/api/agents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
         })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(extractApiError(e, 'Create failed')); });
-            return r.json();
-          })
           .then(function (created) {
             App.store.invalidate('agents');
             // Still on the form: it is now a saved agent awaiting its route,
@@ -601,25 +622,16 @@
             });
           })
           .catch(function (err) {
-            setEditorError_(err.message);
+            onSaveError_(err);
             App.focusAfter.defer(null);
             App.focusAfter.restore(focusTok, saveBtnEl_);
           })
           .then(function () { saveInFlight = false; });
       } else {
-        // Squawk 0090 — belt-and-braces behind the disabled Save button
-        // (a keyboard/script-driven click, or a save that races the
-        // in-flight fresh-agent fetch, still reaches here). Refuse rather
-        // than PUT a body whose `disabled_tools` was unioned from a
-        // possibly-pre-rename cached agent.
-        if (self._selectedAgentLoaded === false) {
-          setEditorError_('Can’t save — this agent’s current configuration failed to load.');
-          return;
-        }
         var oldName = self._selectedAgent.name;
         var requestedName = (data.name || '').trim();
         if (!requestedName) {
-          setEditorError_('Name is required.');
+          setNameError_('Name is required.');
           return;
         }
         // F4 L02 functional batch — rename support. If the user changed
@@ -633,23 +645,17 @@
         var effectiveName;
         if (requestedName !== oldName) {
           effectiveName = requestedName;
-          renamePromise = fetch('/api/agents/' + encodeURIComponent(oldName) + '/rename', {
+          renamePromise = App.api.fetchJson('/api/agents/' + encodeURIComponent(oldName) + '/rename', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ new_name: requestedName })
           })
-            .then(function (r) {
-              if (!r.ok) {
-                return r.json().then(function (e) {
-                  throw new Error(extractApiError(e, 'Rename failed'));
-                });
-              }
-              return r.json();
-            })
             .then(function (renamed) {
               App.store.invalidate('agents');
               // A rename re-points chat_sessions.agent_name (M25 F4 L1, DD4).
               App.store.invalidate('sessions');
+              // ...and the connector bindings that named the agent.
+              App.store.invalidate('connectors');
               // Re-bind the in-closure "currently-editing" name so the
               // subsequent PUT targets the new PK and so the area's
               // URL state serialization reflects the rename.
@@ -664,15 +670,11 @@
         renamePromise
           .then(function () {
             data.name = effectiveName;
-            return fetch('/api/agents/' + encodeURIComponent(effectiveName), {
+            return App.api.fetchJson('/api/agents/' + encodeURIComponent(effectiveName), {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(data)
             });
-          })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(extractApiError(e, 'Save failed')); });
-            return r.json();
           })
           .then(function (updated) {
             App.store.invalidate('agents');
@@ -719,7 +721,7 @@
             });
           })
           .catch(function (err) {
-            setEditorError_(err.message);
+            onSaveError_(err);
             App.focusAfter.restore(focusTok, saveBtnEl_);
           })
           .then(function () { saveInFlight = false; });
@@ -727,28 +729,6 @@
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
-
-    // Extract a human-readable error message from a FastAPI response body.
-    // e        - the parsed JSON response body
-    // fallback - returned when no usable message can be derived
-    //
-    // FastAPI 422 bodies have e.detail as a Pydantic validation array:
-    //   [{ loc: [..., "field"], msg: "Input should be ..." }, ...]
-    // Single-string details (e.g. 404, 409 custom errors) are passed through.
-    function extractApiError(e, fallback) {
-      if (!e || !e.detail) return fallback;
-      if (typeof e.detail === 'string') return e.detail;
-      if (Array.isArray(e.detail)) {
-        var msgs = [];
-        for (var i = 0; i < e.detail.length; i++) {
-          var item = e.detail[i];
-          var field = (item.loc && item.loc.length) ? item.loc[item.loc.length - 1] : null;
-          msgs.push(field ? (field + ': ' + item.msg) : item.msg);
-        }
-        return msgs.join('; ') || fallback;
-      }
-      return fallback;
-    }
 
     var showFlash = function (msg) { App.ui.flash(msg, { container: editorEl }); };
 

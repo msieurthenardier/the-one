@@ -310,7 +310,7 @@ def test_settings_nav_labels_and_chat_rows_do_not_clip_at_1024(
     # inside the aside; the long name ellipsizes.
     httpx.post(
         f"{base}/api/knowledge-bases",
-        json={"name": "A knowledge base with an extremely long name " + "x" * 80},
+        json={"name": "A knowledge base with an extremely long name " + "x" * 19},
         headers=auth_headers_for(base),
         timeout=5,
     )

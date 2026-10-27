@@ -95,7 +95,7 @@ def test_provider_failed_save_keeps_focus_on_save(app_with_provider: SeededApp, 
             route.fulfill(
                 status=422,
                 content_type="application/json",
-                body=json.dumps({"detail": [{"loc": ["body", "name"], "msg": "nope"}]}),
+                body=json.dumps({"detail": [{"loc": ["body", "base_url"], "msg": "nope"}]}),
             )
             if route.request.method == "PUT"
             else route.fallback()

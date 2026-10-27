@@ -152,7 +152,12 @@
       }).catch(function (err) {
         if (!alive) return;
         shell.setBusy(false);
-        errorLine.set('danger', (err && err.message) || String(err));
+        var fe = App.api.fieldErrors(err, ['name']);
+        if (fe.fields.name) {
+          nameField.setError(fe.fields.name);
+          nameInput.focus();
+        }
+        errorLine.set('danger', fe.text || '');
       });
     }
 

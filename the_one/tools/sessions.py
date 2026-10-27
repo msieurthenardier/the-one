@@ -45,6 +45,7 @@ the other three (no timeout-bearing await inside the envelope, so
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -62,6 +63,12 @@ from the_one.tools.execution import (
     _truncate_output,
 )
 from the_one.tools.filesystem import FilesystemConfig
+
+
+def _scratch_slug(agent_name: str) -> str:
+    """The agent name as one safe directory-name part (sortie 06 DD13): an agent
+    name may hold anything the naming rule allows, and it must never add a path level."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", agent_name)[:40] or "agent"
 
 
 def _require_agent_name(tool: Tool) -> str:
@@ -171,7 +178,9 @@ class ShellSessionStartTool(Tool):
                 # instantiation that would break env-monkeypatching tests.
                 from the_one.config import settings  # function-local — see docstring
 
-                scratch = settings.data_dir / "boxes" / f"{agent_name}-{sid}-{uuid4().hex}"
+                scratch = (
+                    settings.data_dir / "boxes" / f"{_scratch_slug(agent_name)}-{sid}-{uuid4().hex}"
+                )
                 # parents=True: "boxes" parent may already exist (leg 3 creates it too).
                 # No exist_ok on the leaf — UUID collision is loud, which won't happen.
                 scratch.mkdir(parents=True)

@@ -55,11 +55,11 @@ def test_frame_dom_shape_and_ids(app_with_agent: SeededApp, page: Page) -> None:
             kids: Array.from(ed.children).map((k) => k.className.split(' ')[0]),
             tabs: Array.from(ed.querySelectorAll('[role=tab]')).map((t) => [t.id, t.getAttribute('aria-controls'), t.dataset.testid]),
             panels: Array.from(ed.querySelectorAll('[role=tabpanel]')).map((p) => p.id),
-            loadError: !!ed.querySelector('[data-testid=agent-load-error]:not([hidden])'),
+            loadError: !!ed.querySelector('[data-testid=agent-load-error]'),
           };
         }"""
     )
-    assert out["kids"][:2] == ["editor-header", "agent-load-error"]
+    assert out["kids"][:2] == ["editor-header", "tablist"]
     assert [t[0] for t in out["tabs"]] == [
         f"agent-tab-{t}"
         for t in ("general", "rules-and-notes", "knowledge", "mcps", "tools", "self-configuration")

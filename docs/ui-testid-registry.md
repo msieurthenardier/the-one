@@ -58,7 +58,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-list` | studio | Agent editor Knowledge tab — attach-row list container (M24 F06 L03) |
 | `agent-knowledge-load-error` | studio | Agent editor Knowledge tab — the knowledge-base fetch failed; no `data-kb-list-loaded` marker (DD-4, L3-D1, M24 F06 L03) |
 | `agent-knowledge-tab` | studio | Agent editor Knowledge tab root; carries `data-kb-list-loaded="true"` on a successful fetch (DD-4, M24 F06 L03) |
-| `agent-load-error` | studio | Agent editor — the fresh `GET /api/agents/{name}` failed; the editor renders the last-known copy and Save is disabled (squawk 0090) |
+| `agent-load-error` | studio | Agent editor — on the header's error slot (`span.editor-error`), present only while the fresh `GET /api/agents/{name}` has failed; the editor renders the last-known copy, the slot reads why Save is off and Save is disabled (squawk 0090) |
 | `agent-picker` | chat | The agent picker `<dialog>`: an `App.ui.modal` chooser ("Start a chat with…", 640 wide at top 72, dismissible), built fresh on every `App.chat.openPicker` (M25 F4 L4a) |
 | `agent-picker-close` | chat | The agent picker's "Esc" close button (accessible name "Close (Esc)"; the modal's `closeButton`, M25 F4 L4a) |
 | `agent-picker-row` | chat | One agent option in the picker (`role=option`, `data-agent`; the `searchList` `rowTestid`; an agent in both "Recently used" and "All agents" has two, M25 F4 L4a) |

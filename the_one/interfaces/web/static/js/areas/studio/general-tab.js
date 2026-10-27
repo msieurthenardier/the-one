@@ -5,6 +5,7 @@
 // returned as a handle:
 //
 //   { providerSelect, modelSelect, testButton, setAgent(agent, providers),
+//     setNameError(msg | null),
 //     applyStored(stored, baseline), setStoredChangeNote(fields | null),
 //     setTestResult(state, text), clearTestResult() }
 //
@@ -75,8 +76,9 @@
       value: cfg.name || '',
       placeholder: 'agent-name',
       dataset: { field: 'name' },
-      onInput: dirty
+      onInput: function () { nameField.setError(null); dirty(); }
     }));
+    var nameField = ui.field({ label: 'Name', control: nameInput });
     var descriptionInput = own(ui.textInput({
       id: 'studio-description',
       value: cfg.description || '',
@@ -87,7 +89,7 @@
     var identity = ui.section({
       title: 'Identity',
       children: [
-        ui.field({ label: 'Name', control: nameInput }).el,
+        nameField.el,
         ui.field({ label: 'Description', control: descriptionInput }).el
       ]
     });
@@ -322,6 +324,7 @@
     function setAgent(a, provs) {
       setStoredChangeNote(null);
       var c = a || defaults(provs);
+      nameField.setError(null);
       nameInput.value = c.name || '';
       descriptionInput.value = c.description || '';
       fillProviders(c, provs || []);
@@ -350,6 +353,7 @@
       testButton: testButton,
       dangerZone: danger,
       setAgent: setAgent,
+      setNameError: function (msg) { nameField.setError(msg || null); },
       applyStored: applyStored,
       setStoredChangeNote: setStoredChangeNote,
       setTestResult: setTestResult,

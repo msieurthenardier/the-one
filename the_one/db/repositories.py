@@ -222,6 +222,25 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_mcp_source(self, source_id: str) -> list[str]:
+        """Return agent names whose ``mcp_source_ids`` contains ``source_id``.
+
+        Same ``json_each`` membership test and NULL/empty guard as
+        :meth:`list_by_kb`; an id that is a substring of another does not match.
+        """
+        async with self.conn.execute(
+            """\
+            SELECT name FROM agents
+            WHERE mcp_source_ids IS NOT NULL AND mcp_source_ids != ''
+              AND EXISTS (
+                  SELECT 1 FROM json_each(agents.mcp_source_ids) WHERE json_each.value = ?
+              )
+            ORDER BY name
+            """,
+            (source_id,),
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
@@ -372,6 +391,12 @@ class SQLiteAgentStore:
         FK constraint was dropped in schema v5 (``schema.py:188``), so
         we cascade manually within the same transaction.
 
+        The same transaction rewrites the connector bindings that name the
+        agent: every ``connectors.config.default_agent`` and every
+        ``channel_map`` value equal to ``old_name`` becomes ``new_name`` (a
+        rewritten connector gets a fresh ``updated_at``; a connector whose
+        config is malformed is skipped with a WARNING).
+
         Runtime caveat: the in-memory PTY tool-session registry
         (``the_one/tools/sessions.py``) keys live sessions on
         ``(agent_name, session_id)``. This rename does NOT migrate
@@ -397,6 +422,30 @@ class SQLiteAgentStore:
                 "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
                 (new_name, old_name),
             )
+            async with self.conn.execute("SELECT id, config FROM connectors") as cur:
+                connector_rows = await cur.fetchall()
+            for row in connector_rows:
+                try:
+                    config = _parse_connector_binding_config(row["config"])
+                except (ValueError, TypeError, AttributeError):
+                    _conn_logger.warning(
+                        "Skipping malformed connector row %r", row["id"], exc_info=True
+                    )
+                    continue
+                channel_map = config.get("channel_map") or {}
+                changed = config.get("default_agent") == old_name
+                if changed:
+                    config["default_agent"] = new_name
+                if old_name in channel_map.values():
+                    config["channel_map"] = {
+                        k: (new_name if v == old_name else v) for k, v in channel_map.items()
+                    }
+                    changed = True
+                if changed:
+                    await self.conn.execute(
+                        "UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(config), now, row["id"]),
+                    )
         notify_sessions_changed()
 
     def _row_to_config(self, row: aiosqlite.Row) -> AgentConfig:
@@ -1424,6 +1473,18 @@ class ConnectorRepository:
 _conn_logger = logging.getLogger(__name__)
 
 
+def _parse_connector_binding_config(raw: str | None) -> dict:
+    """Parse a ``connectors.config`` value into a dict whose ``channel_map``
+    is an object. Raises ``ValueError``/``TypeError`` on a malformed row."""
+    config = json.loads(raw or "{}")
+    if not isinstance(config, dict):
+        raise TypeError("connector config is not an object")
+    channel_map = config.get("channel_map") or {}
+    if not isinstance(channel_map, dict):
+        raise TypeError("channel_map is not an object")
+    return config
+
+
 async def connector_bindings(conn: aiosqlite.Connection) -> dict[str, set[str]]:
     """Map each connector id to the agent names its binding names.
 
@@ -1438,12 +1499,8 @@ async def connector_bindings(conn: aiosqlite.Connection) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     for row in rows:
         try:
-            config = json.loads(row["config"] or "{}")
-            if not isinstance(config, dict):
-                raise TypeError("connector config is not an object")
+            config = _parse_connector_binding_config(row["config"])
             channel_map = config.get("channel_map") or {}
-            if not isinstance(channel_map, dict):
-                raise TypeError("channel_map is not an object")
             names = {n for n in [config.get("default_agent"), *channel_map.values()] if n}
             out[row["id"]] = names
         except (ValueError, TypeError, AttributeError):
