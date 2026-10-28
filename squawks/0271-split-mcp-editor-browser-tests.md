@@ -1,10 +1,10 @@
 # Squawk 0271: Split the 4,920-line MCP editor browser test file by concern
 
-**Status**: in-progress
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-26
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 `tests/browser/test_flow_studio_mcp_editor.py` is 4,920 lines: 149 test functions, 178 tests after parametrisation, and 45 module-level helpers. It is the entire `mcp` lane.
@@ -42,4 +42,3 @@ M31 F6 L01. The file is deleted and replaced by seven flat files by concern plus
 - Run 2 (`PARALLEL_RESULT rc=0 total=1600s lanes=15 failed=-`): both lanes passed.
 
 ## Sign-Off
-*(written at completion)*

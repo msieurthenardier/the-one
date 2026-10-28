@@ -80,7 +80,7 @@
       });
       // A user message ends the previous turn's iteration; an assistant bubble is the anchor
       // the next `thinking` disclosure is placed above (B2).
-      if (role === 'user') iterationAnchor = null;
+      if (role === 'user') { iterationAnchor = null; dropContinue(); }
       if (role === 'assistant') iterationAnchor = msg.el;
       messagesEl.appendChild(msg.el);
       if (attribution) {
@@ -105,6 +105,7 @@
     // The one log wipe (DD11 4): every handle the old log held is dropped, then the log is
     // emptied. The three wipe sites (a pending chat, a deleted chat, a history replay) call it.
     function clearLog() {
+      dropContinue();
       hideThinking();
       dropModelLoading();
       resetStream();
@@ -471,10 +472,10 @@
       scrollToBottomIfPinned();
     }
 
-    function addDiscardedNotice() {
+    function addDiscardedNotice(n) {
       messagesEl.appendChild(App.ui.notice({
         tone: 'muted',
-        body: 'Queued message discarded.',
+        body: n > 1 ? n + ' queued messages discarded.' : 'Queued message discarded.',
         testid: 'chat-discarded'
       }).el);
       scrollToBottomIfPinned();
@@ -483,7 +484,43 @@
     // DD8 F2: the agent ran out of steps. A muted line after the reply, never stored (a re-join
     // renders none). "Max iterations" links to the agent's settings only when the agent has a
     // stored record (the default agent and a deleted agent get plain text).
+    // L10d: a live Continue button follows the notice (web chats only) unless the composer is
+    // blocked or the hold queue is non-empty (it drains at once). One live handle at a time.
+    var liveContinue = null;
+    function dropContinue() {
+      if (liveContinue && liveContinue.wrap.parentNode) liveContinue.wrap.parentNode.removeChild(liveContinue.wrap);
+      liveContinue = null;
+    }
+    function setContinueEnabled(enabled) {
+      if (liveContinue && !liveContinue.busy) liveContinue.btn.disabled = !enabled;
+    }
+    function buildContinue() {
+      var wrap = document.createElement('span');
+      wrap.className = 'chat-step-limit-actions';
+      var btn = App.ui.button({
+        variant: 'secondary', size: 'sm', label: 'Continue', testid: 'chat-step-limit-continue',
+        onClick: function () {
+          if (!liveContinue || liveContinue.busy) return;
+          var mine = liveContinue;
+          mine.busy = true;
+          btn.disabled = true;
+          var ok = ctx.send.sendText('continue');
+          if (ok) {
+            if (liveContinue === mine) dropContinue();
+            ctx.composer.focus();
+          } else {
+            mine.busy = false;
+            btn.disabled = !!(state.bannerActive || ctx.composer.input.disabled);
+          }
+        }
+      });
+      wrap.appendChild(btn);
+      liveContinue = { wrap: wrap, btn: btn, busy: false };
+      return wrap;
+    }
+
     function addStepLimitNotice(steps, agentName) {
+      dropContinue();
       var n = Number(steps);
       var used = n >= 1 ? 'used its ' + n + ' steps' : 'reached its step limit';
       var rows = App.store.peek('agents').value;
@@ -493,18 +530,23 @@
           if (rows[i] && rows[i].name === agentName) { hasRecord = true; break; }
         }
       }
+      var sid = ctx.chatState.activeId();
+      var canContinue = !state.bannerActive && !ctx.composer.input.disabled && !!sid &&
+        ctx.holdQueue.count(sid) === 0;
       var body = document.createDocumentFragment();
-      body.appendChild(document.createTextNode('Stopped: this agent ' + used + ' for this message. Send another message to continue, or raise '));
+      body.appendChild(document.createTextNode('Stopped: this agent ' + used + ' for this message. ' +
+        (canContinue ? 'Click Continue or raise ' : 'Send another message to continue, or raise ')));
       if (hasRecord) {
         var link = document.createElement('a');
         link.href = App.router.href({ destination: 'agents', id: agentName });
-        link.textContent = 'Max iterations';
+        link.textContent = 'max iterations';
         link.setAttribute('data-testid', 'chat-step-limit-link');
         body.appendChild(link);
       } else {
-        body.appendChild(document.createTextNode('Max iterations'));
+        body.appendChild(document.createTextNode('max iterations'));
       }
       body.appendChild(document.createTextNode(' in its settings.'));
+      if (canContinue) body.appendChild(buildContinue());
       messagesEl.appendChild(App.ui.notice({ tone: 'muted', body: body, testid: 'chat-step-limit' }).el);
       scrollToBottomIfPinned();
     }
@@ -573,6 +615,7 @@
       addStoppedNotice: addStoppedNotice,
       addDiscardedNotice: addDiscardedNotice,
       addStepLimitNotice: addStepLimitNotice,
+      setContinueEnabled: setContinueEnabled,
       cssEscape: cssEscape,
       traceShellFor: traceShellFor,
       resetTraceShells: resetTraceShells,

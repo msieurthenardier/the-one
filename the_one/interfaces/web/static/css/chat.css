@@ -292,6 +292,7 @@
   /* The composer is App.ui.composer (css/components.css `.ui-composer*`), the staged-image and
      queued chips are App.ui.chip (M31 F6 L05a); only the queued chip's "Queued" lead is the
      area's. */
+  .area-chat .pending-queued-full { margin: 4px 0 0; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-chat .pending-queued-lead { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); }
 
   /* === Chat Area: Welcome canvas === */
@@ -319,3 +320,6 @@
     -webkit-user-drag: none;
   }
 }
+
+/* L10d: the step-limit notice's Continue button sits on its own line below the text, centred. */
+.area-chat .chat-step-limit-actions { display: block; margin-top: var(--space-2, 8px); text-align: center; }

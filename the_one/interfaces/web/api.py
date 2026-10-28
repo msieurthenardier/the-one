@@ -115,6 +115,7 @@ from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
+from the_one.sessions import is_session_busy, turn_seq
 from the_one.vectors import get_vector_store
 
 if TYPE_CHECKING:
@@ -5258,6 +5259,9 @@ def _session_summary(session: ChatSession) -> dict[str, Any]:
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "platform": session.platform,
+        # M31 F6 L10b: same two keys as app.py's ``_session_to_list_payload``.
+        "busy": is_session_busy(session.id),
+        "turn_seq": turn_seq(session.id),
     }
 
 

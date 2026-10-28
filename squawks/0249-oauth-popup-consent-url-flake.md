@@ -1,10 +1,10 @@
 # Squawk 0249: OAuth modal test flakes on the popup wait under parallel load
 
-**Status**: in-progress
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-23
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 `tests/browser/test_oauth_modal_flow.py::test_second_auth_required_event_navigates_popup_to_consent_url` intermittently times out its 10 s popup wait in the `shared` lane during a full `--parallel 3` run. Its whole file, and the `shared` lane run alone, pass.
@@ -28,7 +28,6 @@ M31 F6 L01. Root cause found by reading and then reproduced on demand: the test 
 - `tests/browser/test_oauth_modal_flow.py`: 18 passed. `shared` passed in run 2 (rc=0).
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: the Mission 31 Flight 6 flight-end Reviewer for the batch that carried the fix (independent of the Developer)
+**Verdict**: `[HANDOFF:confirmed]`; the full gate (unit tier and all 16 browser lanes) passed at the flight's close
+**Commit**: on branch `flight/06-chats-and-closing-the-counts`, in the batch commit that carried the fix (batches B1-B5 and the HAT batch), merged with the Flight 6 PR

@@ -1,10 +1,10 @@
 # Squawk 0276: `App.focusAfter` contract test flakes in WebKit under load (fixed 60 ms settle)
 
-**Status**: in-progress
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-27
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 `tests/browser/test_ui_focus_after_contract.py::test_cancel_after_restore_before_the_timer_cancels_the_focus[webkit]` failed once in Mission 31 Flight 6 leg 09b's quiet-host run, with `assert 'btn' == 'BODY'`. The run's result line was `PARALLEL_RESULT rc=1 total=1763s lanes=16 failed=contracts-overlay`.
@@ -34,7 +34,6 @@ Done: `settle()` in `tests/browser/test_ui_focus_after_contract.py` now waits 60
 Result: the file passed 5 of 5 runs under both engines (24 passed each). With `App.focusAfter.cancel` a no-op, the three cancel tests failed in Chromium and WebKit (6 failed, 18 passed); reverted. The leg 09b quiet-host `--parallel 3` re-run, which includes this file in `contracts-overlay`, passed: `rc=0 total=1662s lanes=16`.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: the Mission 31 Flight 6 flight-end Reviewer for the batch that carried the fix (independent of the Developer)
+**Verdict**: `[HANDOFF:confirmed]`; the full gate (unit tier and all 16 browser lanes) passed at the flight's close
+**Commit**: on branch `flight/06-chats-and-closing-the-counts`, in the batch commit that carried the fix (batches B1-B5 and the HAT batch), merged with the Flight 6 PR

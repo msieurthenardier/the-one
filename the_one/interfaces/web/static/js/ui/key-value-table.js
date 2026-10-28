@@ -4,7 +4,7 @@
   App.ui = App.ui || {};
 
   var CELL_TYPES = { text: true, secret: true, toggle: true };
-  var RENAME_HINT = 'Type the value again for the new name.';
+  var RENAME_HINT = 'Sensitive values must be re-entered when the key changes.';
 
   // App.ui.keyValueTable(opts) -> {el, values(), setValues(rows), setRow(i, patch),
   //   setError(rowIndex, colKey, text|null), focusRow(i, colKey), destroy()} (M31 F3 L04, flight
@@ -24,7 +24,7 @@
   //   Node); the row value is a boolean; the change fires onChange(values, {type: 'toggle'}).
   //   keyColumn (default columns[0].key): when a row has a stored mask and its trimmed key differs
   //   from the key captured when the mask was loaded, a value still equal to the mask clears with
-  //   its stored mask and the cell's hint reads "Type the value again for the new name." (one
+  //   its stored mask and the cell's hint reads "Sensitive values must be re-entered when the key changes." (one
   //   onChange). No attribute ever holds a secret: values travel only through .value.
   //   rows [{<colKey>: value, ...}] (keys that are not columns are kept on the row and
   //   round-trip through values()/setValues); rowDataset(row) -> object (extra data-* on each tr);

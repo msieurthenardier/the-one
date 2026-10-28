@@ -1064,6 +1064,41 @@ def test_chats_row_pairs_pass_body_aa(theme: str) -> None:
         assert ratio >= need, f"{theme} chats row {name} = {ratio:.2f}:1 (need >= {need}:1)"
 
 
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_chats_row_activity_pairs_pass_ui_aa(theme: str) -> None:
+    """M31 F6 L10b: the row activity marks (the working ring and the new-reply dot,
+    both --accent, non-text) hold 3:1 on the aside ground, the selected wash and the
+    hover ground, in both themes."""
+    palette = _palette(theme)
+    aside = _sidebar_ground(theme)
+    selected = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], aside)
+    hover = palette["surface_elevated"]
+    for name, ground in (("aside", aside), ("selected wash", selected), ("hover", hover)):
+        ratio = contrast_ratio(palette["accent"], ground)
+        assert ratio >= 3.0, f"{theme} row activity mark (accent on {name}) = {ratio:.2f}:1"
+
+
+def test_chats_row_activity_rules_consume_the_gated_pair() -> None:
+    for selector in (
+        ".ui-list-pane-activity--working::before",
+        ".ui-list-pane-activity--new::before",
+    ):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "var(--accent)" in body, (selector, body)
+    working = " ".join(_rule_bodies("components.css", ".ui-list-pane-activity--working::before"))
+    assert "animation:" in working, working
+    reduced = _reduced_motion_rules("components.css")
+    assert ".ui-list-pane-activity--working::before { animation: none; }" in reduced, reduced
+
+
+def _reduced_motion_rules(css_file: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", (_CSS_DIR / css_file).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(
+        r"@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", css
+    )
+    return " ".join(" ".join(b.split()) for b in blocks)
+
+
 def test_chats_row_rules_consume_the_gated_pairs() -> None:
     time = " ".join(_rule_bodies("components.css", ".ui-list-pane-time"))
     assert "color: var(--fg-muted)" in time and "font-size: var(--font-size-caption)" in time, time
@@ -1103,6 +1138,8 @@ def _forced_colors_rules(css_file: str) -> str:
     ("css_file", "selector", "declaration"),
     [
         ("components.css", ".ui-tool-tile--selected", "outline: 1px solid Highlight"),
+        ("components.css", ".ui-list-pane-activity--new::before", "background: CanvasText"),
+        ("components.css", ".ui-list-pane-activity--working::before", "border-color: CanvasText"),
         ("components.css", ".ui-tool-tile--selected", "border-color: Highlight"),
         (
             "components.css",

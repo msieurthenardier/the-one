@@ -808,6 +808,49 @@
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
+  /* Row activity (M31 F6 L10b; rowStyle 'chats' only). Every chats row reserves
+     the slot at a fixed 12px so the indicator never shifts the row. "Working"
+     is a spinning ring (a 2px --accent ring with a gap), "New reply" a filled
+     --accent dot; they differ in shape, not only motion or colour. Both are
+     non-text marks gated at 3:1 on the aside ground and the selected wash
+     (test_chats_row_activity_pairs_pass_ui_aa). Under reduced motion the ring
+     stops and keeps its gap, so it still differs from the dot. */
+  .ui-list-pane-activity {
+    flex: none;
+    align-self: center;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ui-list-pane-activity--working::before,
+  .ui-list-pane-activity--new::before {
+    content: "";
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .ui-list-pane-activity--working::before {
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    animation: ui-list-pane-activity-spin 0.9s linear infinite;
+  }
+  .ui-list-pane-activity--new::before { background: var(--accent); }
+  @keyframes ui-list-pane-activity-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-list-pane-activity--working::before { animation: none; }
+  }
+  /* Forced colours drop background colours, so the dot is drawn in a system colour. */
+  @media (forced-colors: active) {
+    .ui-list-pane-activity--new::before { background: CanvasText; forced-color-adjust: none; }
+    .ui-list-pane-activity--working::before {
+      border-color: CanvasText;
+      border-top-color: transparent;
+      forced-color-adjust: none;
+    }
+  }
   /* Row actions (M25 F4 L1, DD5): a sibling icon button after the row in its
      <li>, laid over the row's right end. display:none at rest (never
      visibility/opacity: a hidden action must not be a Tab stop, and a shown
@@ -2747,7 +2790,8 @@
   .ui-composer-telemetry { display: flex; justify-content: flex-end; margin-bottom: 8px; }
   .ui-composer-attachments { flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
   .ui-composer-queued { margin: 0 0 8px; }
-  .ui-composer-queued:empty { margin: 0; }
+  .ui-composer-queued:not(:has(.chip)) { margin: 0; }
+  .ui-composer-queued .chip { margin: 0 6px 4px 0; }
   .ui-composer-box {
     position: relative;
     display: flex;

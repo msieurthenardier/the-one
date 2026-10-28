@@ -138,7 +138,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.ui.confirm`); never on the pending row (M25 F4 L4a) |
 | `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
 | `chat-step-limit` | chat | The muted step-limit line after a `step_limit` frame; never stored, so a re-join shows none (M31 F6 L06, DD8) |
-| `chat-step-limit-link` | chat | Its "Max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
+| `chat-step-limit-link` | chat | Its "max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
+| `chat-step-limit-continue` | chat | The step-limit notice's Continue button: sends `continue` through `send.sendText`; only the latest notice carries one, a new user message or log wipe removes it (M31 F6 L10d) |
 | `chat-telemetry` | chat | The context-usage readout (`App.ui.telemetry`) in the composer's telemetry row; `role=status`, `tabindex=0`, shown only while a chat is joined; the chat area's `_telemetry()` is its handle (M31 F6 L05c) |
 | `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
 | `chat-stop-btn` | chat | The composer's Stop (`btn-muted-destructive`), hidden unless the open chat has a turn in flight; just before Send when shown |
@@ -347,6 +348,8 @@ caught — but it cannot see where the attribute is emitted.
 | `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |
 | `pending-queued` | chat | |
 | `pending-queued-cancel` | chat | |
+| `pending-queued-full` | chat | |
+| `pending-queued-status` | chat | |
 | `pending-queued-region` | chat | |
 | `plan-code-input` | admin | anthropic-plan sign-in: consent-code paste field (no `data-field` — deliberately outside the dirty snapshot) |
 | `plan-code-submit-btn` | admin | anthropic-plan sign-in: submit pasted code → POST /oauth/code |

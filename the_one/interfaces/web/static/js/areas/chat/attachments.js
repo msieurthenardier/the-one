@@ -133,6 +133,11 @@
       stagedImages = images.concat(stagedImages);
       renderAttachments();
     }
+    // L10c: a silent restore of a draft's images (no announcement, no focus move).
+    function setStaged(images) {
+      stagedImages = images.slice();
+      renderAttachments();
+    }
     function staged() { return stagedImages; }
 
     // M16 F12 L08: minimal image-ingestion producer. Attach (chat-attach-btn) opens
@@ -162,6 +167,8 @@
       // so a multi-select batch would otherwise schedule more than
       // IMAGE_ATTACHMENT_MAX_COUNT reads before any of them resolves and
       // increments `stagedImages`.
+      var owner = state.draftOwner;
+      var epoch = state.draftEpoch;
       var plannedCount = stagedImages.length;
       var rejectedForSize = false;
       var rejectedForCount = false;
@@ -186,7 +193,16 @@
             var result = String(reader.result || '');
             var comma = result.indexOf(',');
             var base64 = comma >= 0 ? result.slice(comma + 1) : result;
-            appendStagedImage({ data: base64, media_type: file.type });
+            var img = { data: base64, media_type: file.type };
+            if (state.draftEpoch === epoch) { appendStagedImage(img); return; }
+            // The instance changed while the file was read. A pending chat that was promoted
+            // routes to the session it became; a session key is a stable chat; any other dead
+            // pending instance drops the image (never into a later pending chat).
+            var target = state.promotedKeys[epoch] || (owner && owner.indexOf('s:') === 0 ? owner : null);
+            if (target === null) return;
+            if (state.draftOwner === target) { appendStagedImage(img); return; }
+            var d = state.drafts[target] || (state.drafts[target] = { text: '', images: [] });
+            d.images.push(img);
           };
           reader.readAsDataURL(file);
         })(files[i]);
@@ -220,6 +236,7 @@
       attach: attach,
       addFiles: addFiles,
       staged: staged,
+      setStaged: setStaged,
       clearStagedImages: clearStagedImages,
       prependStaged: prependStaged,
       renderAttachments: renderAttachments

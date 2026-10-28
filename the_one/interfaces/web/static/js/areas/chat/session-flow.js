@@ -19,6 +19,47 @@
 
     var pendingJoinId = null;
 
+    // L10c: per-chat drafts. The composer holds the draft of state.draftOwner; switching the
+    // active conversation saves it and restores the new one's (silent: no announcement, no focus).
+    function switchDraft(newKey) {
+      if (newKey === state.draftOwner) return;
+      if (state.draftOwner !== null) {
+        var text = composer.getValue();
+        var images = ctx.attachments.staged().slice();
+        if (text || images.length) state.drafts[state.draftOwner] = { text: text, images: images };
+        else delete state.drafts[state.draftOwner];
+      }
+      var d = newKey !== null ? state.drafts[newKey] : null;
+      ctx.send.setInputValue(d ? d.text : '');
+      ctx.attachments.setStaged(d ? d.images : []);
+      state.draftOwner = newKey;
+      state.draftEpoch++;
+    }
+    function dropDraft(key) { if (key) delete state.drafts[key]; }
+    // The first reply of a start: the pending chat's draft key becomes the session's, the
+    // composer untouched (anything typed while starting carries over).
+    function promoteDraft(id) {
+      var old = state.draftOwner;
+      if (old && old.indexOf('n:') === 0) {
+        // The pending chat's draft now lives in the session; the old key must not resurface
+        // in the next pending chat for that agent. Late image reads follow the promotion
+        // through the instance token (draftEpoch), never the reusable n: key.
+        dropDraft(old);
+        state.promotedKeys[state.draftEpoch] = 's:' + id;
+        var epochs = Object.keys(state.promotedKeys);
+        if (epochs.length > 8) delete state.promotedKeys[epochs[0]];
+        state.draftEpoch++;
+      }
+      state.draftOwner = 's:' + id;
+    }
+    function pruneDrafts(ids) {
+      var live = Object.create(null);
+      for (var i = 0; i < ids.length; i++) live['s:' + ids[i]] = true;
+      for (var k in state.drafts) {
+        if (k !== state.draftOwner && k.indexOf('n:') !== 0 && !live[k]) delete state.drafts[k];
+      }
+    }
+
     function clearLiveRefresh(id) {
       var k;
       if (id == null) {
@@ -86,7 +127,8 @@
       var eff = chatState.pick(agent);
       if (eff.noop) return false;
       if (eff.leave && ctx.socket.socketOpen()) ctx.socket.sendBinding({ action: 'leave' });
-      if (eff.discardHeld) delete state.pendingQueuedMessages[eff.discardHeld];
+      if (eff.discardHeld) ctx.holdQueue.discardAll(eff.discardHeld);
+      switchDraft('n:' + agent);
       clearLiveRefresh();
       if (eff.clearPendingJoin) pendingJoinId = null;
       state.rebinding = false;
@@ -127,9 +169,10 @@
       if (chatState.boundId() !== id) clearLiveRefresh();
       var eff = chatState.openConversation(id);
       if (eff.discardHeld) {
-        delete state.pendingQueuedMessages[eff.discardHeld];
+        ctx.holdQueue.discardAll(eff.discardHeld);
         ctx.holdQueue.clearPendingQueued();
       }
+      switchDraft('s:' + id);
       state.validating = false;
       state.startBubbleNodes = [];
       setWelcomeNotice(null);
@@ -142,8 +185,9 @@
     function resetToIdle() {
       var eff = chatState.reset();
       clearLiveRefresh();
-      if (eff.discardHeld) delete state.pendingQueuedMessages[eff.discardHeld];
+      if (eff.discardHeld) ctx.holdQueue.discardAll(eff.discardHeld);
       ctx.holdQueue.clearPendingQueued();
+      switchDraft(null);
       state.rebinding = false;
       state.validating = false;
       state.startBubbleNodes = [];
@@ -155,6 +199,7 @@
     // The next session_list's idle rules pick what shows next.
     function clearConversation() {
       clearLiveRefresh();
+      switchDraft(null);
       state.currentAgentName = null;
       state.currentSessionPlatform = null;
       state.joinedTitle = null;
@@ -262,8 +307,10 @@
     // re-canonicalises the URL to it).
     function heal() {
       if (chatState.state().name === 'pending') {
+        var failedKey = state.draftOwner;
         resetToIdle();
         clearConversation();
+        dropDraft(failedKey);
       } else {
         App.router.sync('chat', null);
       }
@@ -308,12 +355,12 @@
       }
       state.startBubbleNodes = [];
       ctx.transcript.hideThinking();
-      var held = null;
+      var held = [];
       if (eff.clientId) {
         delete state.inFlightSessions[eff.clientId];
         clearLiveRefresh(eff.clientId);
-        held = state.pendingQueuedMessages[eff.clientId] || null;
-        delete state.pendingQueuedMessages[eff.clientId];
+        held = ctx.holdQueue.list(eff.clientId).slice();
+        ctx.holdQueue.discardAll(eff.clientId);
       }
       ctx.holdQueue.clearPendingQueued();
       var p = eff.payload || {};
@@ -321,9 +368,16 @@
       if (p.images && p.images.length) {
         ctx.attachments.prependStaged(p.images);
       }
-      if (held) {
-        if (!composer.getValue()) ctx.send.setInputValue(held);
-        else ctx.transcript.addMsg('system', 'The queued message was discarded.');
+      if (held.length) {
+        // The first held message returns to an empty box; whatever cannot is discarded, said
+        // once with the count.
+        var rest = held;
+        if (!composer.getValue()) {
+          ctx.send.setInputValue(held[0]);
+          rest = held.slice(1);
+        }
+        if (rest.length === 1) ctx.transcript.addMsg('system', 'The queued message was discarded.');
+        else if (rest.length > 1) ctx.transcript.addMsg('system', rest.length + ' queued messages were discarded.');
       }
       ctx.applyComposerState();
       ctx.send.updateStopControl();
@@ -353,6 +407,10 @@
     }
 
     return {
+      switchDraft: switchDraft,
+      dropDraft: dropDraft,
+      promoteDraft: promoteDraft,
+      pruneDrafts: pruneDrafts,
       pendingJoinId: function () { return pendingJoinId; },
       setPendingJoinId: function (v) { pendingJoinId = v; },
       clearLiveRefresh: clearLiveRefresh,

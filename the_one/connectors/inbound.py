@@ -43,7 +43,7 @@ from the_one.connectors.base import (
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.llm.base import Message, Role, tag_post_step_visibility
-from the_one.sessions import broadcast_to_session, session_locks
+from the_one.sessions import broadcast_to_session, track_turn
 
 if TYPE_CHECKING:
     from the_one.connectors.manager import ConnectorManager
@@ -474,7 +474,7 @@ async def dispatch_inbound(
     )
 
     try:
-        async with session_locks[session_row.id]:
+        async with track_turn(session_row.id) as turn:
             await chat_repo.update_last_inbound(session_row.id, now_iso())
             try:
                 agent = await factory.create(agent_name)
@@ -488,6 +488,7 @@ async def dispatch_inbound(
                 non_system = [m for m in stored if m.role != Role.SYSTEM]
                 agent.messages = agent.messages[:1] + non_system
 
+            turn.ran = True
             pre_step_len = len(agent.messages)
             hit_step_limit = False
             token = current_chat_session_id.set(session_row.id)

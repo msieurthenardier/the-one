@@ -199,3 +199,50 @@ async def test_cancelled_error_propagates(repos):
     ws = _WS()
     with pytest.raises(asyncio.CancelledError):
         await _run(store, Cancelling(responses=[]), [ws])
+
+
+# ── M31 F6 L10b: the connector turn seam (busy push, turn counter) ──────────
+
+
+async def _turn_counts_and_pushes(repos, *, agent: bool, llm):
+    from the_one.db import _session_changes
+    from the_one.sessions import is_session_processing, turn_seq
+
+    conn_repo, _ = repos
+    store = await _setup(conn_repo, agent=agent)
+    pushes: list[tuple[bool, str]] = []
+    ws = _WS()
+
+    def listener() -> None:
+        sid = ws.session_id
+        if sid:
+            pushes.append((is_session_processing(sid), turn_seq(sid)))
+
+    _session_changes.add_listener(listener)
+    try:
+        await _run(store, llm, [ws])
+    finally:
+        _session_changes.remove_listener(listener)
+    return ws, pushes
+
+
+async def test_a_connector_turn_pushes_at_start_and_after_release_and_bumps(repos):
+    ws, pushes = await _turn_counts_and_pushes(
+        repos, agent=True, llm=FakeLLM(responses=[Message.assistant(content="hi")])
+    )
+    ends = [p for p in pushes if not p[0] and p[1].endswith(":1")]
+    starts = [p for p in pushes if p[0]]
+    assert starts and starts[0][1].endswith(":0")
+    assert ends, pushes  # the end push reads an idle session with the bumped counter
+
+
+async def test_a_connector_early_return_does_not_bump(repos):
+    ws, pushes = await _turn_counts_and_pushes(
+        repos,
+        agent=False,
+        llm=FakeLLM(responses=[]),  # AgentNotFoundError: early return
+    )
+    from the_one.sessions import turn_seq
+
+    assert turn_seq(ws.session_id).endswith(":0")
+    assert all(p[1].endswith(":0") for p in pushes), pushes

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -76,7 +77,10 @@ def test_seed_session_round_trips_past_dates_and_platform(app_with_agent: Seeded
     h = auth_headers_for(base)
     rows = {r["id"]: r for r in httpx.get(f"{base}/api/chat/sessions", headers=h, timeout=5).json()}
     assert set(rows) == {old, recent}
-    assert rows[old] == {
+    old_row = dict(rows[old])
+    assert old_row.pop("busy") is False
+    assert re.fullmatch(r"[0-9a-f]+:0", old_row.pop("turn_seq"))
+    assert old_row == {
         "id": old,
         "agent_name": agent,
         "title": "Old discord chat",

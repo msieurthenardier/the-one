@@ -1,6 +1,6 @@
 # Leg: multi-message-queue
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 **Origin**: HAT step 3 (operator, 2026-10-28). Operator choice: "Queue several". A behaviour change, so it goes through the fix-vs-feature gate.
 

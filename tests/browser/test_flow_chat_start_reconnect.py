@@ -153,10 +153,12 @@ def test_start_session_that_never_reached_the_server_is_resent_on_reconnect(
     cid = (_chats.session_state(page) or {})["clientId"]
 
     _close_socket(page)
-    # The reconnect gap: a second Send is held in the starting chat's slot.
+    # The reconnect gap: a second and third Send are held in the starting chat's queue.
     page.locator('[data-testid="chat-input"]').fill("second")
     page.locator('[data-testid="chat-input"]').press("Enter")
-    expect(page.locator('[data-testid="pending-queued"]')).to_be_visible()
+    page.locator('[data-testid="chat-input"]').fill("third")
+    page.locator('[data-testid="chat-input"]').press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(2)
     assert _state(page) == "starting"
 
     _wait_reconnected(page)
@@ -169,21 +171,21 @@ def test_start_session_that_never_reached_the_server_is_resent_on_reconnect(
     _nav.expect_route(page, f"chats/{cid}")
 
     # The held message goes out after the first turn, on the joined path.
-    expect(page.locator(USER_MSG)).to_have_text(["hello", "second"], timeout=10000)
-    expect(page.locator(ASSISTANT_MSG)).to_have_count(2, timeout=10000)
+    expect(page.locator(USER_MSG)).to_have_text(["hello", "second", "third"], timeout=20000)
+    expect(page.locator(ASSISTANT_MSG)).to_have_count(3, timeout=20000)
     sessions = _wait(page, lambda: _sessions(base), what="the session")
     assert [s["id"] for s in sessions] == [cid]
     assert _wait(
         page,
-        lambda: _user_messages(base, cid) if len(_user_messages(base, cid)) >= 2 else None,
-        what="both messages persisted",
-    ) == ["hello", "second"]
+        lambda: _user_messages(base, cid) if len(_user_messages(base, cid)) >= 3 else None,
+        what="all messages persisted",
+    ) == ["hello", "second", "third"]
     assert len(_sessions(base)) == 1
     sent = [(_action(f), f.get("session_id")) for f in wire if _action(f) != "list_sessions"]
     # On the wire: the re-sent start (the dropped one never left), then the
     # held message after the first turn's `done`. Never a `join` while
     # starting, never a plain message before the start.
-    assert sent == [("start_session", cid), ("message", None)], sent
+    assert sent == [("start_session", cid), ("message", None), ("message", None)], sent
 
 
 def test_start_session_that_reached_the_server_is_resent_idempotently(

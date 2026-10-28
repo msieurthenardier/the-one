@@ -53,8 +53,10 @@
           ctx.sessionFlow.clearLiveRefresh(errActive);
           // Also clear any pending queued message — the session is no longer
           // processing so the queue slot is moot (the error terminated the turn).
-          delete state.pendingQueuedMessages[errActive];
+          // L10a: the whole queue drops with a muted notice; nothing is sent after a failed turn.
+          var errHeld = ctx.holdQueue.discardAll(errActive);
           ctx.holdQueue.clearPendingQueued();
+          if (errHeld) ctx.transcript.addDiscardedNotice(errHeld);
           ctx.send.updateStopControl();
           ctx.applyComposerState();
         }
@@ -183,8 +185,9 @@
         // the queued turn's response) and starts the queued turn — the sender's
         // optimistic render + the backend's sender-exclusion (app.py) align
         // because it flows through the same path as a normal send.
-        var held = sid ? state.pendingQueuedMessages[sid] : null;
-        if (held) {
+        var held = sid && ctx.holdQueue.count(sid) > 0;
+        var canDrain = held && ctx.socket.socketOpen() && !state.rebinding;
+        if (canDrain) {
           ctx.send.sendHeld(sid);
         } else {
           // No held message — normal idle reset.
@@ -192,7 +195,7 @@
             delete state.inFlightSessions[sid];
             delete state.ownTurn[sid];
           }
-          ctx.holdQueue.clearPendingQueued();
+          ctx.holdQueue.refresh();
           ctx.send.updateStopControl();
           ctx.applyComposerState();
         }
@@ -218,9 +221,10 @@
         // message went with it: the Stop click recorded one, or one is still held here (a Stop
         // from another tab never ran this tab's click handler). Neither line is stored.
         ctx.transcript.addStoppedNotice();
-        if (cancelledActive && (state.discardedOnStop[cancelledActive] || state.pendingQueuedMessages[cancelledActive])) {
-          ctx.transcript.addDiscardedNotice();
-        }
+        var cancelledHeld = cancelledActive
+          ? Math.max(state.discardedOnStop[cancelledActive] || 0, ctx.holdQueue.count(cancelledActive))
+          : 0;
+        if (cancelledHeld) ctx.transcript.addDiscardedNotice(cancelledHeld);
         if (cancelledActive) delete state.discardedOnStop[cancelledActive];
         if (cancelledActive) {
           delete state.inFlightSessions[cancelledActive];
@@ -228,7 +232,7 @@
           // Cancel also discards any pending queued message (DD4 sub-decision:
           // "stop" means stop everything). Both the optimistic click handler and
           // this arrival path clear it so a race between the two is safe.
-          delete state.pendingQueuedMessages[cancelledActive];
+          ctx.holdQueue.discardAll(cancelledActive);
           ctx.holdQueue.clearPendingQueued();
         }
         ctx.send.updateStopControl();

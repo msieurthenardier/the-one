@@ -153,6 +153,12 @@ Rows 1-38 at planning (legs updated after Architect cycle 1). Every leg appends 
 | 45 | 07 | Chat reply | A task item's disabled checkbox replaces its bullet (`li.markdown-task`, `list-style: none`, checkbox in the bullet's place); a table with unbreakable cell text now overflows into its own focusable "Table" region instead of the bubble (B1; the table's own width is unchanged: auto) | 0.4, B1 |
 | 46 | 08 | Provider models | A model id in either list carries its full id as a tooltip (`title`); the generic list keeps its compact rows (4px padding, default cursor) and only the font changes (row 10) | DD10 |
 | 47 | 10 (HAT) | Chats list | The connector platform marker is the neutral library badge pill ("Discord") | operator, HAT step 1 |
+| 48 | 10a | Composer queue | Several Sends while a turn runs are held, each its own "Queued" chip with its own cancel ("Cancel queued message 2 of 3"), up to 10; each turn end sends the first; Stop or an agent error discards all ("3 queued messages discarded."); at 10 the text stays in the box with "Queue is full (10)" | operator, HAT step 3 |
+| 49 | 10b | Chats list | Each chat row shows a quiet "working" ring while its session has a turn running (web or connector, from any tab, the open chat too) and a filled "new reply" dot when a turn finished in a chat that is not open, until it is opened; each is in the row's accessible name ("Working" / "New reply"), reduced motion keeps the ring still, and the pending row shows nothing | operator, HAT step 3 |
+| 50 | 10c | Chats composer | Each chat keeps its own unsent draft (message-box text and staged images): switching away saves it, coming back restores it silently (no "Image staged" announcement, no focus move), a pending new chat has its own draft per agent, sending or deleting a chat drops it, held-queue messages are not part of a draft; in memory for this window only | operator, HAT step 4 |
+| 51 | 10d | Chats transcript | The step-limit notice gains a **Continue** button (web chats only): one click sends `continue` as the operator's message through the normal send path (held in the queue while a turn runs); only the latest notice is live, a new user message or log wipe removes it, none is shown for a blocked composer or a non-empty queue; focus goes to the message box and the draft and staged images are untouched | operator, HAT step 5 |
+| 52 | 10 (HAT) | MCP and connector editors (key/value table) | The rename hint reads "Sensitive values must be re-entered when the key changes." | operator, HAT step 6 |
+| 53 | 10 (HAT) | Chat step-limit notice | Button-aware copy ("Click Continue or raise max iterations in its settings."), the Continue button on its own line below the sentence, centred; the button-free variant keeps "Send another message to continue" | operator, HAT step 5 |
 
 ## Leg Progress
 
@@ -934,6 +940,52 @@ Unexpected issues encountered.
   - (b) A working/done indicator on Chats-list rows. The operator chose to build it in this flight. That is leg 10b, `chat-row-status`, which touches the server push and adds a library option.
   - Both legs are tiered high (the send path, the WebSocket and session-list shape, a shared library control). A Developer design review (Sonnet) is spawned over both. The HAT pauses at step 3 until they land.
 
+- **Legs 10a and 10b design reviews.**
+  - **10a: one cycle, "approve with changes".** The amendments make every slot reader array-aware. An agent error now discards the whole queue with a notice and sends nothing. The Stop count, the chip names, a live status line and a cap of 10 were added. 10a is `ready` and has been spawned for implementation (Sonnet).
+  - **10b, cycle 1: "needs rework".** The fixes:
+    - "new reply" comes from a server `turn_seq`, because the busy edge is lost to the 250 ms coalescing;
+    - a `track_turn` seam notifies after the lock is released;
+    - `is_session_busy` moves into the sessions module;
+    - `toSessionSummary` now carries the new fields;
+    - the option is named `activity`, not `status`, to avoid a collision.
+  - **10b, cycle 2: "approve with changes".** The fixes:
+    - `track_turn` is the lock acquisition itself, with a `turn.ran` handle, so a cancel while waiting and the connector's early returns do not bump;
+    - the turn sequence is restart-safe, as a `"{boot_id}:{n}"` epoch with a silent re-baseline;
+    - the open chat never accumulates debt;
+    - the baseline is flagged;
+    - `_session_inflight` is the same dict object, moved into the module;
+    - `setItems` patches the activity node in place;
+    - resume-after-auth is declared out of scope.
+  - 10b is `ready`. It runs after 10a lands, sequentially, because the two share docs and the flight log.
+
+- **HAT, step 3 re-walk: pass.** The 10a queue and the 10b row activity were checked on the restarted preview. The preview restart was needed for 10b's server change and the memoized `index.html`. The relaunch is `hat_serve.sh` in the scratchpad with the same env, and the uvicorn PID is recorded in the scratch tree (`hat.pid`).
+- **HAT, step 4: drafts (FD call: a feature, through the fix-vs-feature gate).** The operator found that staged images and typed text followed them into another chat. That is long-standing behaviour: one shared composer that nothing swaps on a switch.
+  - Operator choice: **per-chat drafts**.
+  - This becomes leg 10c `per-chat-drafts`, client-only. It is tiered high (it touches the session-flow seam), and a design review has been spawned (Sonnet).
+
+- **HAT, steps 4 and 5: pass.** Step 5 ran on the stub connector, retargeted to `limit-agent` through the API. The connector sent exactly one `(Stopped: reached its step limit for this message.)` line, and no second copy appeared over five polls. The row's new-reply dot appeared while another chat was open and cleared on opening, with no stored notice.
+  - The operator asked whether "continue" resumes. Answer: yes. The tool calls and results are stored, and `Agent.step` re-primes the budget. A real model resuming was not checked live.
+- **HAT, step 5: a "Continue" button on the step-limit notice (FD call: a feature, through the gate).** This is leg 10d `step-limit-continue`.
+  - Design review: "approve with changes". The changes: a `sendText` entry that never clears the draft and reports whether it sent; a live-button handle in `transcript.js`; no button when the queue is non-empty or the composer is blocked; a one-line blocked sync.
+  - 10d is `ready` and is sequenced after 10c.
+
+- **HAT, step 6: pass**, with one inline copy fix. The operator found the key/value rename hint unclear. It now reads "Sensitive values must be re-entered when the key changes." (operator wording: "key", not "name"). That is ledger row 52. The FD clarified that the hint shows only for a header marked sensitive. Rows 10-14, 17, 26, 36-38 and 46 were checked live.
+- **HAT, step 7 (Dark, 1024): pass.** Per-chat drafts (10c) were also checked live: pass.
+- **HAT, step 8: the operator approved the before/after capture set** (2026-10-28, "looks good").
+- **Remaining:** the 10d Continue button re-walk and a glance at the new hint copy. Then batch review of 10a-10d and the HAT fixes, re-runs of the affected lanes and behavior specs, and the commit.
+
+- **Legs 10c and 10d landed. Two HAT copy fixes applied.**
+  - **10c (per-chat drafts):** chats-transcript 79, chats 166, unit 7841/15.
+  - **10d (the Continue button):** chats-transcript 85, chats 166, unit 7841/15.
+  - **Row 52:** the key/value rename hint, operator wording "key".
+  - **Row 53:** the step-limit notice copy became button-aware ("Click Continue or raise max iterations in its settings."), with the button on its own line, centred, and a button-free variant ("Send another message to continue, …").
+  - The operator passed the 10c, 10d, row 52 and row 53 re-walks live.
+  - **The HAT walk is complete:** steps 1-8 pass.
+- **HAT batch review spawned** over everything since `0d1e0201` (10a-10d and rows 52-53): the code Reviewer on Haiku (no security-sensitive surface) and the Accessibility Reviewer on Sonnet.
+  - **Next:** fixes if any, then a quiet-host `--parallel 3` run.
+  - **Behavior specs re-authored at the HAT, to re-run:** `agent-step-limit-notice`, `chat-loop-hang-and-cancel`, `mcp-sensitive-headers-round-trip`.
+  - **Then:** commit, flight landed, the draft PR.
+
 ---
 
 ## Session Notes
@@ -944,3 +996,83 @@ Unexpected issues encountered.
   - **Deciding quiet-host run (the first run's record above is kept):** start load 0.74 (1-minute; a 1.03 read a minute earlier, `ps` showed no test process), `PARALLEL_RESULT rc=0 total=1662s lanes=16 failed=-`. End read, taken right after the run's own tail: 1-minute 5.30, 5-minute 5.50, no test process left (the run itself accounts for the load). Per-lane wall seconds: routing 548, contracts-controls 431, agents 476, chats 305, library 339, knowledge 305, providers 339, shared 341, mcp-connection 280, agent-tabs 294, settings 275, mcp 256, settings-tools 255, contracts-overlay 239, chats-transcript 191, contracts-chat 59. Every lane is within its budget.
   - **Budgets:** checked against this run: no lane moved more than 15% from its budgeted reading except `contracts-chat` (59 s against 71 s, -17%), whose 90 s budget would not change (59 s +25% rounds up to 90 s). No budget changed, so the tables in `scripts/run-tests.sh` and CLAUDE.md agree. CLAUDE.md's run-time sentence and squawk 0259's Verification now cite this run.
   - **Non-blocking items:** CLAUDE.md's `contracts-chat` bullet (provisional wording replaced), the "own badge" claim for `current_time` (CLAUDE.md, and `the_one/agents.md` marked as retired in M31 F6 L09a), `tests/behavior/system-provider-config.md` (`App.confirmDelete` to `App.ui.confirm`, descriptive only, noted in squawk 0213), and the stale class names in `studio.css` comments (comments only; `scripts/unused_selectors.py` on all stylesheets: unused 0).
+
+### Leg 10a: multi-message-queue (landed, not committed)
+- Client only. `pendingQueuedMessages[sid]` is now an array (key deleted when empty); `hold-queue.js` owns list/push/shift/discardAll/refresh and renders one chip per message, with distinct cancel names, a hidden live status line, focus-on-remove (next, previous, box) and a cap of 10 (`pending-queued-full` note). `send.js`, `turn-frames.js`, `session-flow.js`, `socket.js`, `chat.js` (Stop stores the count) and `transcript.js` (`addDiscardedNotice(n)`) converted together. An agent error now drops the whole queue with the notice; a drain with a closed or rebinding socket keeps the queue. CSS: the queued region's margin is off when it holds no chip; chips get a small gap. Two testids registered.
+- Tests: new several-chips/order/drain, middle-and-last remove focus, cap (`test_flow_chat_queued_render.py`), Stop count and agent-error discard (`test_flow_chat_transcript_library.py`), two Sends while starting (`_start_flow`), and the reconnect test now holds two (`_start_reconnect`). `tests/behavior/chat-loop-hang-and-cancel.md` rows 5-6 re-authored (descriptive wording only: step 6 stated the one-slot rule). Results: ruff clean; static guards 366 passed; lanes chats-transcript 72, chats 160 (holds `test_flow_chat_live_updates.py`), contracts-chat 146 all passed; unit tier 7828 passed, 15 skipped.
+
+### Leg 10b: chat-row-status (landed, not committed)
+- **Server.** `the_one/sessions/_locks.py` gains `track_turn(sid)` (the lock acquisition: notifies on acquire; a `finally` outside the lock bumps the per-session counter and notifies again, only if the body set `turn.ran`), `is_session_busy`, `turn_seq` (`"{boot_id}:{n}"`) and the in-flight registry (`_session_inflight`, the same dict object, imported by `app.py` under its old name). `app.py` `_locked_message_processing` and `connectors/inbound.py` use `track_turn` (the connector sets `ran` after the agent is built, so early returns neither bump nor push). Both projections (`_session_to_list_payload`, `_session_summary`) carry `busy` and `turn_seq`.
+- **Client.** `areas/chat/chat-activity.js` (`App.chat.activity`) holds the per-window `seen`/`latest` bookkeeping (first loaded prime baselines silently, epoch change re-baselines, larger `n` wins, the open chat never owes a dot); `toSessionSummary` copies both fields; `chats-list.js` passes `view.activity`. `App.ui.listPane` gains `item.activity` (`'working'`/`'new'`, `rowStyle: 'chats'` only): a fixed 12px aria-hidden slot beside the time, a separate visually hidden name run, patched in place on a reused armed row. Classes `ui-list-pane-activity`, `--working`, `--new` are in both catalogue rows.
+- **Found while testing:** an unloaded store collection peeks as an empty list, which baselined too early and lit a spurious dot; `renderChatsList` now observes only a loaded collection.
+- **Tests.** `tests/test_track_turn.py` (order via a fake listener and events, cancel before acquire, early return, cancel and error during a turn), two connector tests in `tests/test_inbound_session_updated.py`, the `tests/test_db_api.py` pin, two contrast tests in `test_design_tokens_a11y.py`, `tests/browser/test_ui_list_pane_activity.py` (both engines, contracts-controls lane), `tests/browser/test_flow_chat_row_status.py` (chats lane: connector turn in another chat then dot then cleared on open; turn into the open chat leaves no dot; a web turn from another tab; pending row; armed delete survives a busy flip; the state machine through restarts and stale rows). Existing pins moved: `test_store_static.py`, `test_web_list_sessions_projection.py` (now thirteen keys), `test_store.py`, and the chats-row anatomy test.
+- **Out of scope as designed:** the resume-after-auth path is untracked; a turn paused for sign-in reads idle; `seen` is per tab and not persisted; the server's counter dict is never pruned.
+
+
+### Leg 10c: per-chat-drafts (landed, not committed)
+
+- **Client.** `session-flow.js` `switchDraft(newKey)` (keyed `s:{id}` / `n:{agent}`, tracked owner `state.draftOwner`, `state.drafts`) is called from `pickAgent`, `openConversation`, `resetToIdle` and `clearConversation` after the held-queue discard; a same-key call is a no-op, so a `session_updated` re-join keeps caret and chips. `attachments.setStaged(images)` restores chips silently. `socket.js`: a start's `session_joined` promotes the owner to `s:{id}` without touching the composer; `session_deleted`, `join_failed` and heal drop the draft; every `session_list` and `sessions_changed` prunes drafts of vanished sessions. `addFiles` files the image under the draft it was picked in if the chat changes mid-read.
+- **Tests.** `tests/browser/test_flow_chat_drafts.py` (7, in `chats-transcript`): follow-the-chat, silent restore with no focus move, send clears, pending draft across a chat and Agents, text typed while starting, same-id update, delete of the open chat.
+
+
+### Leg 10d: step-limit-continue (landed, not committed)
+
+- **Client.** `send.js` gains `sendText(text)` (shares `send()`'s guards, holds while busy, never touches composer text or staged images; `performSend(text, {textOnly: true})`; true only when sent or held). `transcript.js` owns the live handle (`liveContinue`): `addStepLimitNotice` appends an `App.ui.button` (secondary, small, `chat-step-limit-continue`) in an area-owned `.chat-step-limit-actions` span unless the composer is blocked or the session's hold queue is non-empty; it is dropped by `addMsg('user', ...)`, `clearLog()` and a newer notice; `setContinueEnabled` is called from `applyComposerState` (one line in `chat.js`). The click disables at once, then removes the button and focuses the message box on success, re-enables on a refused send. One `chat.css` rule; no library or catalogue change.
+- **Tests.** Six new in `test_flow_chat_transcript_library.py` (single send and fresh button on a repeated limit, double click, draft kept and focus, removal by a user frame, blocked chat shows none, queued message shows none); the two exact-text notice assertions became `to_contain_text` (the button's label follows the text). Registry row added.
+- **Behavior spec.** `agent-step-limit-notice` re-authored on purpose: step 1's text assertion now reads the notice text plus the Continue button, and a new step 1b clicks it (reason: new behavior, HAT step 5). The FD re-runs it.
+
+
+### HAT batch review fixes (legs 10a-10d, landed, not committed)
+
+- **`track_turn`:** the end push now fires whenever the start push went out (`entered`), so a connector early return or an exception before `ran` clears busy; the turn counter bumps only when `ran`. Cancel before acquire still neither pushes nor bumps. `test_track_turn.py` updated (two pushes, no bump) plus an exception-before-`ran` test; agents.md and the 10b leg reworded; the 10b cycle-1 status marked superseded and a non-goal added (row state changes are not announced live).
+- **Drafts:** `promoteDraft` drops the old `n:{agent}` entry and records `promotedKeys[old] = s:{id}`; a late image read follows the promotion into the chat it was added to. New browser test in `test_flow_chat_drafts.py` (type in a pending chat, switch away and back, send, New chat again: empty box). `session_deleted` with the chat open but no idle transition resets `draftOwner`.
+- **Held drain:** `sendHeld` sends `{textOnly: true}`; pinned by a static test in `test_store_static.py` (a browser test is not possible: attaching is blocked while busy).
+- **A11y:** queued chips carry `aria-live="off"` inside the persistent region (only the hidden status announces); the cap note's text is written on the next tick so it announces; forced-colours rules for the new-reply dot and working ring in `components.css`, pinned in `test_design_tokens_a11y.py`.
+- **Comments:** stale "one-slot" wording fixed in `chat.js` and `socket.js`.
+- **Verified:** ruff clean; the named unit and static files (608 passed); lanes `chats` (166) and `chats-transcript` (87) green; `make test-unit` 7845 passed, 15 skipped. `contracts` not run (no `js/ui/` change).
+
+- **Review fixes cycle 2 (drafts misroute).** `promotedKeys` was keyed by the reusable `n:{agent}` key, so a second pending chat for the same agent misrouted its attached image. Each pending instance now has a token, `state.draftEpoch` (bumped on every `switchDraft` and promotion); `promotedKeys` is keyed by that token (pruned to 8). `addFiles` captures owner and epoch: same epoch adds to the chips; a promoted instance routes to the `s:` key it became; a session key stays its own draft; a dead pending instance drops the image. Tests in `test_flow_chat_drafts.py`: second pending chat after a promotion shows the chip, and a held (deterministic) late read from a dead pending chat is dropped. Lanes `chats-transcript` (89) green; `chats` (166) green.  Two LOW fixes followed: the `session_deleted` handler now bumps `state.draftEpoch` where it clears `state.draftOwner` (so a late read from the deleted chat is dropped), and the `promotedKeys` comment in `chat.js` now says it maps an epoch token to the `s:{id}` it became.
+
+- **HAT batch gate run (quiet host, start load 0.94, `--parallel 3`):** `PARALLEL_RESULT rc=1 total=1679s lanes=16 failed=shared`. The one failure was `test_seeders.py::test_seed_session_round_trips_past_dates_and_platform`, which pinned an exact session row and missed leg 10b's `busy` and `turn_seq`; the pin now asserts `busy is False` and `turn_seq` matching `^[0-9a-f]+:0$` and keeps every other field exact. Walls (s): routing 532, contracts-controls 429, agents 461, chats 335, library 333, knowledge 295, providers 339, shared 336, mcp-connection 275, agent-tabs 292, settings 270, mcp 255, settings-tools 253, contracts-overlay 242, chats-transcript 250, contracts-chat 53. `chats-transcript` moved past 15% (191 to 250, the drafts tests) and is re-budgeted 240 to 330 s; every other lane stayed within 15%.
+- **Shared lane re-run after the pin fix:** `--lane shared` passed with 333 tests in 295 s. Together with the run above, all 16 lanes are green. The unit tier passed before the run, with 7845 passed and 15 skipped (the expected netns count).
+
+### Leg 10: flight-hat (completed)
+
+- **The walk.** The operator walked HAT steps 1-8 in both themes at 1280 and 1024, and every step passed. Inline fixes:
+  - row 16: the Chats platform marker is a neutral badge pill;
+  - row 52: the key-change hint reads "Sensitive values must be re-entered when the key changes.";
+  - row 53: the step-limit notice copy is button-aware, with the button centred below the sentence.
+
+  Four requests went through the fix-vs-feature gate as features, each with its own design review, leg and review:
+  - 10a: several queued messages;
+  - 10b: Chats row activity;
+  - 10c: per-chat drafts;
+  - 10d: a Continue button on the step-limit notice.
+
+  The operator approved the before and after captures.
+- **Review.**
+  - Accessibility review: confirmed, with no blocking issues. Its non-blocking items were fixed.
+  - Code review: three cycles.
+    - Cycle 1 found two blocking issues: a row could stay stuck on "working", and a draft resurfaced after promotion.
+    - Cycle 2 found that an image in a second pending chat for the same agent misrouted. Each pending chat now carries its own token.
+    - Cycle 3 confirmed, with two low notes, both fixed.
+- **Re-runs of the re-authored behavior specs** (run `2026-10-28-14-36-06`):
+  - `agent-step-limit-notice`: pass, 7/7, on port 8497.
+  - `mcp-sensitive-headers-round-trip`: pass, 8/8, on port 8498.
+  - `chat-loop-hang-and-cancel`: **not run**. It is still a draft that has never run. It needs a live Sonnet provider key, outbound network access to a real stream URL, and the port-8485 preparation its preconditions name. Its hold-queue rows (5 and 6) are covered by `test_flow_chat_queued_render.py`, `test_flow_chat_transcript_library.py` and the start-flow tests. This is carried to the debrief.
+- **Instances and processes.** Both instances (PIDs 581271 and 581275) and every crew Chromium were stopped by their recorded PIDs. The HAT preview (PID 96834, port 56764) is stopped at the landing.
+
+### Flight Director Notes (HAT close)
+- **Review cycles.** The HAT batch took three code-review cycles, which is the cap. Cycle 3 confirmed it, so it was not escalated.
+- **Gate failure.** The full-run failure was a pin the 10b test sweep missed. It was a test-only expectation, not a product fault, and was fixed in place; a solo `shared` re-run is the evidence. The budget readings come from the full quiet-host run.
+- **Debrief candidates:**
+  - CLAUDE.md says a dev instance creates `api-credential` "on first launch", but `the-one serve` never does. Only the desktop app path (`get_credential()` in `interfaces/desktop/takeover.py`) and `rotate-api-credential` create it. Both Executors hit a 401 first. This is a doc fix, so log it as a squawk.
+  - The MCP editor's Save may render disabled on a dirty form right after a save (`step-8-edited.png` in the MCP run). Investigate it; the run's outcome did not depend on it.
+  - `chat-loop-hang-and-cancel` has never run.
+  - Squawk 0277: an agent POST with an unknown provider returns 500. Both Executors' seeds hit it again.
+  - The spec follow-ups listed in the two run logs.
+  - The leg 09b and HAT watch items:
+    - the trace count reads calls plus results;
+    - the lingering toast;
+    - the faint Dark pending wash;
+    - the picker and model-list a11y notes.

@@ -110,12 +110,16 @@ from the_one.sessions import (
     add_subscriber,
     all_sockets,
     broadcast_to_all,
+    is_session_busy,
     is_session_processing,
     remove_socket,
     remove_subscriber,
     session_locks,
     subscribers_for,
+    track_turn,
+    turn_seq,
 )
+from the_one.sessions._locks import _session_inflight
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 from the_one.vectors import close_vector_store
 
@@ -829,7 +833,7 @@ _inflight_tasks: set[asyncio.Task] = set()
 # the set holds BOTH. A WS `cancel` action cancels every not-done task
 # in the set — "stop = stop everything" (F07 DD4). The done-callback
 # discards the finished task and deletes the key when the set empties.
-_session_inflight: dict[str, set[asyncio.Task]] = {}
+# ``_session_inflight`` lives in ``the_one.sessions._locks`` (same dict object, imported above).
 
 # M25 F6 L2 (squawk 0120): a WS `cancel` can cancel a spawned turn BEFORE its
 # first step (no body code ever runs) or while it waits on the session lock
@@ -1101,7 +1105,8 @@ async def _locked_message_processing(
     exclude_user_echo: WebSocket | None,
 ) -> None:
     """The lock + `_process_and_broadcast` body of `_spawn_message_processing`."""
-    async with session_locks[session.id]:
+    async with track_turn(session.id) as turn:
+        turn.ran = True
         # F05 L01: touch last_activity at the start of message processing
         # so the reaper clock advances on every new user turn.
         session.last_activity = time.monotonic()
@@ -1850,6 +1855,9 @@ def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
         "thread_id": s.thread_id,
         "peer_id": s.peer_id,
         "last_inbound_at": s.last_inbound_at,
+        # M31 F6 L10b: the Chats list's working indicator and new-reply marker.
+        "busy": is_session_busy(s.id),
+        "turn_seq": turn_seq(s.id),
     }
 
 

@@ -45,6 +45,10 @@ PRE_F5_FIELDS = (
 )
 
 
+# M31 F6 L10b: the Chats list's working indicator and new-reply marker.
+L10B_FIELDS = ("busy", "turn_seq")
+
+
 def test_projects_pre_f5_fields_unchanged_for_web_native_session() -> None:
     """A web-native session's projection carries the pre-F5 five fields
     with the exact values from the DB row.
@@ -136,8 +140,8 @@ def test_does_not_project_session_metadata_or_messages() -> None:
     )
 
 
-def test_projection_shape_is_exactly_eleven_keys() -> None:
-    """Pin the wire contract to the eleven documented keys. A new key
+def test_projection_shape_is_exactly_thirteen_keys() -> None:
+    """Pin the wire contract to the thirteen documented keys. A new key
     appearing here forces a deliberate edit to this test (and a
     corresponding leg/flight design decision) rather than landing
     silently.
@@ -156,7 +160,7 @@ def test_projection_shape_is_exactly_eleven_keys() -> None:
     )
     payload = _session_to_list_payload(s)
 
-    expected_keys = set(PRE_F5_FIELDS) | set(F5_NEW_FIELDS)
+    expected_keys = set(PRE_F5_FIELDS) | set(F5_NEW_FIELDS) | set(L10B_FIELDS)
     assert set(payload.keys()) == expected_keys, (
         f"projection shape drift — got {sorted(payload.keys())}, expected {sorted(expected_keys)}"
     )

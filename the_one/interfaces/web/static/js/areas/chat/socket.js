@@ -88,9 +88,9 @@
           // strand the UI; the auto-reconnect below brings the WS back.
           ctx.transcript.hideThinking();
           // Disconnect drops every in-flight broadcast — clear both maps so neither
-          // the one-slot queue guard nor the stop control get stuck after reconnect.
+          // the held-message queue nor the stop control get stuck after reconnect.
           for (var k in state.inFlightSessions) delete state.inFlightSessions[k];
-          for (var k2 in state.pendingQueuedMessages) delete state.pendingQueuedMessages[k2];
+          for (var k2 in state.pendingQueuedMessages) ctx.holdQueue.discardAll(k2);
           ctx.sessionFlow.clearLiveRefresh();
           ctx.holdQueue.clearPendingQueued();
           ctx.send.updateStopControl();
@@ -109,6 +109,7 @@
           // refresh the local list and the store only. Never the rebind logic,
           // the idle rules, a render call or the open conversation.
           state.sessions = data.sessions || [];
+          ctx.sessionFlow.pruneDrafts(state.sessions.map(function (s) { return s.id; }));
           App.store.prime('sessions', state.sessions.map(toSessionSummary));
           return;
         }
@@ -131,6 +132,7 @@
         if (data.type === 'session_list') {
           state.sessions = data.sessions || [];
           state.listSeen = true;
+          ctx.sessionFlow.pruneDrafts(state.sessions.map(function (s) { return s.id; }));
           // M25 F4 L1 (DD4): every session_list reply primes the store's
           // 'sessions' collection, mapped to the REST summary shape
           // (_session_summary), so a WebSocket-primed row and a REST-fetched
@@ -192,6 +194,7 @@
             return;
           }
           var joinedId = data.session_id;
+          if (joinedEff.fromStart) ctx.sessionFlow.promoteDraft(joinedId);
           App.perf.mark('session-join:received');
           App.router.sync('chat', joinedEff.sync);
           state.currentAgentName = data.agent_name;
@@ -251,13 +254,13 @@
             delete state.inFlightSessions[joinedId];
           }
           var sentHeld = false;
-          if (state.pendingQueuedMessages[joinedId]) {
+          if (ctx.holdQueue.count(joinedId)) {
             if (upd && !data.is_processing) {
               // The re-join found the chat idle: the message held meanwhile goes now.
               ctx.send.sendHeld(joinedId);
               sentHeld = true;
             } else {
-              ctx.holdQueue.showPendingQueued(state.pendingQueuedMessages[joinedId]);
+              ctx.holdQueue.showPendingQueued(ctx.holdQueue.list(joinedId));
             }
           }
           ctx.send.updateStopControl();
@@ -323,7 +326,9 @@
           var joinFailedEff = chatState.onFrame(data);
           if (!joinFailedEff.accept) return;
           state.rebinding = false;
+          var failedOwner = state.draftOwner;
           ctx.sessionFlow.clearConversation();
+          ctx.sessionFlow.dropDraft(failedOwner);
           ctx.sessionFlow.setWelcomeNotice(joinFailedEff.notice);
           ctx.sessionFlow.refreshSessionList();
           return;
@@ -331,9 +336,21 @@
 
         if (data.type === 'session_deleted') {
           var deletedEff = chatState.onFrame(data);
+          ctx.sessionFlow.dropDraft('s:' + data.session_id);
+          if (!deletedEff.toIdle && state.draftOwner === 's:' + data.session_id) {
+            // The open chat is gone but the view stays: its composer text must not be re-saved
+            // under a dead key.
+            state.draftOwner = null;
+            state.draftEpoch++;
+          }
           if (deletedEff.toIdle) {
             state.rebinding = false;
             ctx.sessionFlow.clearConversation();
+            ctx.sessionFlow.dropDraft('s:' + data.session_id);
+            if (state.draftOwner === 's:' + data.session_id) {
+              state.draftOwner = null;
+              state.draftEpoch++;
+            }
             // Don't auto-create — the session_list refresh below runs the
             // idle rules.
           }

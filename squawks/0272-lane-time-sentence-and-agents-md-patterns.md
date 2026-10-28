@@ -1,10 +1,10 @@
 # Squawk 0272: Stale lane-time sentence in CLAUDE.md, and four patterns missing from agents.md
 
-**Status**: in-progress
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-26
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 Docs left behind by Mission 31 Flight 5 (operator-approved at its debrief).
@@ -29,4 +29,3 @@ Docs left behind by Mission 31 Flight 5 (operator-approved at its debrief).
 - `grep -n "Four patterns from the Flight 5 HAT" the_one/agents.md` finds the bullet; `grep -n "1763 s, 16 lanes" CLAUDE.md` finds the sentence (M31 F6 L09b); the badge-kind pin (11) passes in the unit tier. Status stays `in-progress` until the flight commit (M31 F6 L09a).
 
 ## Sign-Off
-*(written at completion)*

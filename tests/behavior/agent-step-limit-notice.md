@@ -3,7 +3,7 @@
 **Slug**: `agent-step-limit-notice`
 **Status**: active
 **Created**: 2026-10-27
-**Last Run**: 2026-10-28-02-28-33 — pass (6/6; first run, M31 F6 close sweep, port 8498; draft → active)
+**Last Run**: 2026-10-28-14-36-06 — pass (7/7; re-run after the M31 F6 L10 HAT re-author: Continue button, button-aware copy; port 8497; [run log](agent-step-limit-notice/runs/2026-10-28-14-36-06.md)). Previous: 2026-10-28-02-28-33 — pass (6/6; first run, M31 F6 close sweep, port 8498; draft → active)
 
 ## Intent
 
@@ -27,8 +27,9 @@ Verifies Mission 31 Flight 6's F2 end to end (DD8): when an agent stops because 
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Seed the provider, agent and connector as in Preconditions. Open the app in a browser context, go to **Chats**, start a chat with `limit-agent` (New chat, pick it) and send `hello`. Wait for the turn to settle (the send button enabled again). | After the turn's tool activity, the log's last child is a muted notice (`chat-step-limit`, class `ui-notice--muted`) reading "Stopped: this agent used its 2 steps for this message. Send another message to continue, or raise Max iterations in its settings." "Max iterations" is a link (`chat-step-limit-link`). No `chat-agent-error` notice and no system bubble. |
-| 2 | Click the "Max iterations" link. | The hash becomes `#agents/limit-agent` and the agent's editor opens. |
+| 1 | Seed the provider, agent and connector as in Preconditions. Open the app in a browser context, go to **Chats**, start a chat with `limit-agent` (New chat, pick it) and send `hello`. Wait for the turn to settle (the send button enabled again). | After the turn's tool activity, the log's last child is a muted notice (`chat-step-limit`, class `ui-notice--muted`) whose text reads "Stopped: this agent used its 2 steps for this message. Click Continue or raise max iterations in its settings." with a "Continue" button (`chat-step-limit-continue`) on its own line below it, centred. "max iterations" is a link (`chat-step-limit-link`). No `chat-agent-error` notice and no system bubble. |
+| 1b | Click **Continue**. | Exactly one new user bubble reads `continue` and is stored; focus is in the message box; the old button is gone, and when the turn ends at the limit again a fresh notice with its own Continue button is the last child. (Re-authored in M31 F6 L10d: the notice gained this button; step 1's text assertion changed to match. Re-authored again at the L10 HAT: the button-aware copy and the button below the sentence; a notice with no button, for a blocked composer or a held message, reads "Send another message to continue, or raise max iterations in its settings.") |
+| 2 | Click the "max iterations" link. | The hash becomes `#agents/limit-agent` and the agent's editor opens. |
 | 3 | Via the seam, inject an inbound DM from `peer-1`: `POST /api/_test/stub/inbound` with `{"connector_id":"{ID}","peer_id":"peer-1","peer_name":"peer-1","text":"go","is_dm":true}`. Poll `GET /api/_test/stub/outbound` every ~2s for up to 30s. | The outbound records hold exactly one entry for this turn: `connector_id=="{ID}"`, `peer_id=="peer-1"`, `content == "(Stopped: reached its step limit for this message.)"`. No second copy appears on a further poll. |
 | 4 | In the first browser context, reload the page (the chat re-joins). Then open a second browser context (a fresh handoff mint), go to **Chats** and open the same session from the list. | Both show the conversation with no step-limit notice (`chat-step-limit` count 0): it was broadcast only. |
 | 5 | `GET /api/chat/sessions/{id}` for the web chat's session (the id from `#chats/{id}`), then for the connector chat's session (`GET /api/chat/sessions?agent_name=limit-agent`). | In both, no message in `messages` contains "step limit" or "Stopped:": the notice and the connector line are not stored. |

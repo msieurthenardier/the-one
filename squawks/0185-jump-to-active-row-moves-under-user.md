@@ -1,10 +1,10 @@
 # Squawk 0185: Jump to's active row can move under the user when cold data lands
 
-**Status**: in-progress
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-11
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 When the Jump to palette opens cold, it force-fetches `sessions` (and other
@@ -38,4 +38,3 @@ Mission 31 Flight 6 leg 03b. The operator chose option (a) on 2026-10-26: keep t
 - `tests/behavior/jump-to-palette.md` step 2 re-authored (the highlighted row does not move when data lands).
 
 ## Sign-Off
-*(written at completion)*

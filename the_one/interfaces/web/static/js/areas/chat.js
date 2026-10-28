@@ -35,14 +35,23 @@ App.registerArea({
       // (its pin state and scroll offset); refreshAfterJoin notes a session_updated
       // that landed while the same id was being joined. All keyed by session id.
       ownTurn: Object.create(null),
+      // L10c: unsent drafts, keyed 's:{id}' (a session) or 'n:{agent}' (a pending new chat);
+      // draftOwner is the key whose draft the composer currently holds (null: none).
+      drafts: Object.create(null),
+      draftOwner: null,
+      // draftEpoch is the pending-instance token (bumped on every draft switch, promotion and
+      // draft-owner clear); promotedKeys maps a pending instance's epoch token to the 's:{id}'
+      // it became (late image reads follow it; pruned to the most recent few).
+      draftEpoch: 0,
+      promotedKeys: Object.create(null),
       refreshAfterTurn: Object.create(null),
       updateRejoin: null,
       refreshAfterJoin: null,
-      // Per-session one-slot queue: key is session id, value is the pending message text.
+      // Per-session held-message queue (up to 10): key is session id, value is the list of held texts.
       // Mirrors inFlightSessions shape so session-switch and onclose handle both together.
       pendingQueuedMessages: Object.create(null),
-      // B9: a held message the operator's own Stop click discarded, keyed by session id; the
-      // `cancelled` frame reports it ("Queued message discarded.") and consumes the flag.
+      // B9: how many held messages the operator's own Stop click discarded, keyed by session
+      // id; the `cancelled` frame reports it ("Queued message discarded.") and consumes it.
       discardedOnStop: Object.create(null),
       sessions: [],
       // A session_list has arrived on some socket (the idle rules can run).
@@ -327,9 +336,14 @@ App.registerArea({
         title: s.title,
         created_at: s.created_at,
         updated_at: s.updated_at,
-        platform: s.platform || null
+        platform: s.platform || null,
+        // M31 F6 L10b: the working indicator and the new-reply marker (see chat/chat-activity.js).
+        busy: !!s.busy,
+        turn_seq: s.turn_seq || null
       };
     }
+
+    var chatActivity = App.chat.activity.create();
 
     function renderChatsList() {
       var st = chatState.state();
@@ -341,7 +355,19 @@ App.registerArea({
       if (st.name === 'starting') {
         rows = rows.filter(function (r) { return r.id !== st.clientId; });
       }
+      // M31 F6 L10b: row activity. observe() sees every stored row (before the starting
+      // filter) and treats the joined chat as open, so it never owes a new-reply dot.
+      var openId = st.name === 'joined' ? chatState.boundId() : null;
+      var allRows = Array.isArray(peeked.value) ? peeked.value : [];
+      // Only a loaded collection baselines (an unloaded one reads as an empty list).
+      if (peeked.loaded && peeked.ok !== false) chatActivity.observe(allRows, openId);
+      var activity = {};
+      for (var r = 0; r < rows.length; r++) {
+        var as = chatActivity.stateFor(rows[r], openId);
+        if (as) activity[rows[r].id] = as;
+      }
       chatsList.render(rows, {
+        activity: activity,
         pending: pendingActive ? { agent: st.agent } : null,
         selectedId: pendingActive ? App.chat.chatsList.PENDING_ID : chatState.boundId()
       });
@@ -403,6 +429,7 @@ App.registerArea({
     function applyComposerState() {
       composer.setBlocked(computeBlocked());
       composer.setBusy(ctx.send.isCurrentBusy());
+      ctx.transcript.setContinueEnabled(!computeBlocked());
     }
 
     // One read per activation: agents + providers through App.store, deriving
@@ -471,8 +498,9 @@ App.registerArea({
       var stopActive = chatState.activeId();
       if (stopActive) {
         // B9: remember that this Stop discarded a held message, for the `cancelled` frame.
-        if (state.pendingQueuedMessages[stopActive]) state.discardedOnStop[stopActive] = true;
-        delete state.pendingQueuedMessages[stopActive];
+        // L10a: the count, since the queue is gone by the time `cancelled` arrives.
+        var stopHeld = ctx.holdQueue.discardAll(stopActive);
+        if (stopHeld) state.discardedOnStop[stopActive] = stopHeld;
         ctx.holdQueue.clearPendingQueued();
       }
       // Do NOT prematurely clear inFlightSessions or re-enable Send here;

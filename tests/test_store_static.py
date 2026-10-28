@@ -114,7 +114,10 @@ def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
     helper = _window(src, "function toSessionSummary(s) {", "\n    }")
     for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
         assert re.search(rf"\b{key}: s\.{key}\b", helper), key
-    assert helper.count(": s.") == 6
+    # M31 F6 L10b: the two activity fields (busy is coerced, turn_seq passes through).
+    assert re.search(r"\bturn_seq: s\.turn_seq\b", helper)
+    assert re.search(r"\bbusy: !!s\.busy\b", helper)
+    assert helper.count(": s.") == 7
     handler = _window(
         sock, "if (data.type === 'session_list') {", "if (data.type === 'session_joined')"
     )
@@ -484,3 +487,15 @@ def test_studio_shell_keeps_its_public_surface() -> None:
     ):
         assert needle in src, needle
     assert len(src.splitlines()) <= 800  # the leg 03 shell budget
+
+
+def test_held_message_drain_is_text_only() -> None:
+    """A drained held message never takes the draft's staged images (L10 review fix)."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parent.parent
+        / "the_one/interfaces/web/static/js/areas/chat/send.js"
+    ).read_text(encoding="utf-8")
+    body = src.split("function sendHeld", 1)[1].split("function setInputValue", 1)[0]
+    assert "performSend(held, { textOnly: true })" in body

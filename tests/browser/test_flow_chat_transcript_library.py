@@ -487,6 +487,33 @@ def test_a_cancel_from_elsewhere_with_a_held_message_discards_it_too(
     expect(page.locator(DISCARDED)).to_have_text("Queued message discarded.")
 
 
+def test_stop_with_several_held_messages_reports_the_count(app_clean: str, page: Page) -> None:
+    _slow_turn(page, app_clean)
+    for text in ("one", "two"):
+        page.locator(INPUT).fill(text)
+        page.locator(INPUT).press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(2, timeout=3000)
+    page.locator(STOP).click()
+    expect(page.locator(STOPPED)).to_have_text("Stopped.", timeout=8000)
+    expect(page.locator(DISCARDED)).to_have_text("2 queued messages discarded.")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(0)
+
+
+def test_an_agent_error_discards_the_whole_queue_and_sends_nothing(
+    app_clean: str, page: Page
+) -> None:
+    _slow_turn(page, app_clean)
+    for text in ("one", "two"):
+        page.locator(INPUT).fill(text)
+        page.locator(INPUT).press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(2, timeout=3000)
+    _chats.emit_frame(page, {"type": "system", "content": "Agent error: boom"})
+    expect(page.locator(DISCARDED)).to_have_text("2 queued messages discarded.")
+    expect(page.locator('[data-testid="pending-queued"]')).to_have_count(0)
+    page.wait_for_timeout(1500)
+    expect(_chats.messages(page, "user")).to_have_count(1)
+
+
 # ── A4: an agent error ──────────────────────────────────────────────────────────
 
 
@@ -597,7 +624,11 @@ _TOOL_REPLY = {
 }
 _STEP_TEXT = (
     "Stopped: this agent used its 2 steps for this message. "
-    "Send another message to continue, or raise Max iterations in its settings."
+    "Click Continue or raise max iterations in its settings."
+)
+_STEP_TEXT_NO_BUTTON = (
+    "Stopped: this agent used its 2 steps for this message. "
+    "Send another message to continue, or raise max iterations in its settings."
 )
 
 
@@ -615,10 +646,22 @@ def test_the_step_limit_notice_links_to_the_agent_and_is_not_stored(
     _joined(page, app_clean, agent)
     notice = page.locator(STEP_LIMIT)
     expect(notice).to_be_visible(timeout=15000)
-    expect(notice).to_have_text(_STEP_TEXT)
+    # The Continue button (L10d) sits below the sentence, so its label follows the text.
+    expect(notice).to_contain_text(_STEP_TEXT)
+    # The button is on its own line below the sentence, centred.
+    below = page.evaluate(
+        """() => {
+          const t = document.querySelector('[data-testid="chat-step-limit"]');
+          const b = t.querySelector('[data-testid="chat-step-limit-continue"]');
+          const r = b.getBoundingClientRect(), n = t.getBoundingClientRect();
+          const l = t.querySelector('a').getBoundingClientRect();
+          return [r.top >= l.bottom - 1, Math.abs((r.left + r.right) / 2 - (n.left + n.right) / 2) < 40];
+        }"""
+    )
+    assert below == [True, True]
     assert "ui-notice--muted" in (notice.get_attribute("class") or "")
     link = page.locator(STEP_LIMIT_LINK)
-    expect(link).to_have_text("Max iterations")
+    expect(link).to_have_text("max iterations")
     # After the turn's last tool result, in the log.
     assert page.evaluate(_KINDS_JS)[-1] == "chat-step-limit"
     # Not stored: a re-join renders none.
@@ -653,5 +696,109 @@ def test_the_step_limit_notice_for_a_deleted_agent_is_plain_text(
         }"""
     )
     last = page.locator(STEP_LIMIT).last
-    expect(last).to_have_text(_STEP_TEXT)
+    expect(last).to_contain_text(_STEP_TEXT)
     expect(last.locator("a")).to_have_count(0)
+
+
+# ── M31 F6 L10d: the step-limit notice's Continue button ───────────────────────
+
+CONTINUE = '[data-testid="chat-step-limit-continue"]'
+
+
+def _user_texts(page: Page) -> list[str]:
+    return page.evaluate(
+        """() => Array.from(document.querySelectorAll('.area-chat .ui-message--user'))
+            .map(e => e.textContent.trim())"""
+    )
+
+
+def test_continue_sends_exactly_one_message_and_the_button_goes(app_clean: str, page: Page) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    btn = page.locator(CONTINUE)
+    expect(btn).to_have_count(1, timeout=15000)
+    expect(btn).to_have_text("Continue")
+    assert btn.evaluate("e => e.tagName") == "BUTTON"
+    btn.click()
+    # The agent's next turn runs and hits the limit again: one fresh button, one stored message.
+    expect(_chats.messages(page, "user").nth(1)).to_have_text("continue", timeout=10000)
+    expect(page.locator(STEP_LIMIT)).to_have_count(1, timeout=15000)
+    expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
+    assert _user_texts(page).count("continue") == 1
+    assert len(_user_texts(page)) == 2
+
+
+def test_a_double_click_on_continue_sends_once(app_clean: str, page: Page) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    btn = page.locator(CONTINUE)
+    expect(btn).to_have_count(1, timeout=15000)
+    btn.dblclick(force=True)
+    expect(page.locator(STEP_LIMIT)).to_have_count(1, timeout=15000)
+    expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
+    assert _user_texts(page).count("continue") == 1
+
+
+def test_continue_keeps_the_draft_and_focuses_the_message_box(app_clean: str, page: Page) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
+    page.locator(INPUT).fill("my draft")
+    page.locator(CONTINUE).click()
+    expect(page.locator(INPUT)).to_be_focused()
+    expect(page.locator(INPUT)).to_have_value("my draft")
+
+
+def test_a_frame_from_elsewhere_or_a_typed_message_removes_the_button(
+    app_clean: str, page: Page
+) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
+    page.evaluate(
+        """() => App.areas.find(a => a.id === 'chat')._turnFrames()
+            .handle({type: 'user', content: 'from another tab'})"""
+    )
+    expect(page.locator(CONTINUE)).to_have_count(0)
+    # The notice text stays.
+    expect(page.locator(STEP_LIMIT)).to_have_count(1)
+
+
+def test_a_blocked_chat_renders_no_continue_button(app_clean: str, page: Page) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    expect(page.locator(STEP_LIMIT)).to_be_visible(timeout=15000)
+    r = httpx.delete(
+        f"{app_clean}/api/agents/{agent}", headers=auth_headers_for(app_clean), timeout=5
+    )
+    assert r.status_code in (200, 204), r.text
+    page.reload()
+    expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
+    expect(page.locator(INPUT)).to_be_disabled()
+    page.evaluate(
+        """() => App.areas.find(a => a.id === 'chat')._turnFrames()
+            .handle({type: 'step_limit', steps: 2})"""
+    )
+    expect(page.locator(STEP_LIMIT)).to_have_count(1)
+    expect(page.locator(CONTINUE)).to_have_count(0)
+    expect(page.locator(STEP_LIMIT)).to_have_text(_STEP_TEXT_NO_BUTTON)
+
+
+def test_no_continue_button_when_a_message_is_queued(app_clean: str, page: Page) -> None:
+    provider_id = seed_mock_provider(
+        app_clean,
+        name=f"p-{provider_suffix()}",
+        config={"response": _TOOL_REPLY, "delay_ms": 600},
+    )
+    agent = seed_mock_agent(
+        app_clean, provider_id, name=f"sl-{provider_suffix()}", max_iterations=2
+    )
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "go")
+    page.locator(INPUT).fill("held")
+    page.locator(INPUT).press("Enter")
+    expect(page.locator('[data-testid="pending-queued"]')).to_be_visible(timeout=3000)
+    expect(page.locator(STEP_LIMIT).first).to_be_visible(timeout=15000)
+    expect(page.locator(CONTINUE)).to_have_count(0)
+    expect(page.locator(STEP_LIMIT).first).to_have_text(_STEP_TEXT_NO_BUTTON)

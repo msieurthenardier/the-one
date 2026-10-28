@@ -1,6 +1,6 @@
 # Leg: chat-row-status
 
-**Status**: planned
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 **Origin**: HAT step 3 (operator, 2026-10-28): "we also need a thinking indicator on the chat row item in the list to indicate thinking/done". Operator choice: build it in this flight. New behaviour, so it goes through the fix-vs-feature gate.
 
@@ -80,4 +80,58 @@ Each Chats-list row shows a quiet "working" indicator while its session has a tu
   4. the Chats list wiring;
   5. the tests and docs.
 - **Sequencing.** 10b runs after 10a. The uncommitted HAT platform-badge fix in `chats-list.js` is committed first.
-- **Status:** a second review cycle runs on this amended design before implementation.
+- **Status:** SUPERSEDED by the cycle-2 amendments below (cycle 2 ran and approved with changes).
+
+## Design Review Amendments (cycle 2, Developer/Sonnet, 2026-10-28: approve with changes; these take precedence over cycle 1 where they differ)
+
+**The `track_turn` contract (acceptance criteria):**
+- `track_turn(sid)` IS the lock acquisition. It replaces `async with session_locks[sid]` at app.py ~1104 and connectors/inbound.py ~477. It yields a `turn` handle.
+- After the lock is acquired, the body sets `turn.ran = True` when a turn really starts. In the connector path that happens after the agent is built, so the early `return`s at about inbound.py 483-486 do not count. On acquire, `track_turn` notifies (the start push).
+- In a `finally` outside the lock, `track_turn` notifies again whenever the start push went out (early returns and exceptions before `ran` included, so busy always clears) and bumps the turn sequence only if `turn.ran`.
+- So: a cancel while waiting for the lock does not bump or notify, and a cancel during the turn does bump (Stop lights the dot).
+- The `_started_tasks` / `_running_tasks` / `_cancel_tokens` machinery is untouched.
+
+**Non-goal:** row state changes (working, new reply) are not announced live. The list is not a live region; the state is carried in the row's accessible name.
+
+**Out of scope:** the resume-after-auth path (`_inflight_resume_tasks`, no lock) is not tracked. A resumed turn neither shows "working" nor lights the dot. It reads like a turn paused for sign-in already reads (idle).
+
+**Restart safety:**
+- `turn_seq` is a string `"{boot_id}:{n}"`, where `boot_id` is a random per-process token.
+- The client keeps `seenEpoch`. When a row's epoch differs from `seenEpoch`, the server has restarted: the client re-baselines every row silently (`seen = turn_seq`) and adopts the new epoch.
+- Within one epoch the dot shows when `n > seen_n`.
+- The store merge keeps the larger `n` per id within an epoch, so a stale REST refetch never lowers it.
+
+**When `seen` updates:**
+- **The open chat never accumulates debt.** Before computing dots, every `renderChatsList()` sets `seen = turn_seq` for the open chat. This covers a connector turn into the open chat: navigate away, and no dot appears.
+- **Baseline.** The first prime of either kind (REST or WebSocket) sets every row's baseline silently and sets a `baselined` flag.
+- **Later rows.** A row that first appears after baselining has no `seen` entry, so it counts as 0 and its first finished turn lights the dot. A chat this window started via `start_session` gets `seen` from its join and from the open-chat rule.
+- **Tabs.** Each tab keeps its own `seen` (accepted and stated).
+- **Server growth.** The server's sequence dict is never pruned, the same as `session_locks` (stated).
+
+**`busy` and the in-flight registry:**
+- `busy = is_session_busy(sid)`, defined in `the_one/sessions/_locks.py` as lock held OR registered in-flight.
+- `_session_inflight` moves into that module as the same single dict object. `app.py` imports it under its existing name and never rebinds it, so `tests/test_ws_start_session.py` and `tests/test_cancel.py` (which `.clear()` it and compare it with `== {}`) keep working. `clear_locks_for_test` does not touch it.
+- `_session_summary` reads the module dict for `turn_seq` (`ChatSession` has no such field).
+- Extend both projections together, with the `tests/test_db_api.py` subset pin.
+- Wording: the in-flight entry is cleared by a done-callback one loop iteration later. The end-push guarantee therefore rests on `is_session_processing` being false at the end notify. The unit test asserts exactly that, through a fake listener with `asyncio.Event`s and no sleeps.
+
+**The listPane `activity` option:**
+- It applies only to `rowStyle: 'chats'` and is ignored and documented for other styles. It sits in `ui-list-pane-line` beside the time.
+- Every chats row reserves its slot at a fixed size, so nothing shifts when the indicator appears.
+- Its visually hidden text is a separate run after the existing `nameSuffix`, with a separator: "…, Working" or "…, New reply".
+- `setItems` patches the activity node in place when it reuses a row, including an armed delete row. The armed-delete test asserts that the delete stays armed AND that the indicator updates.
+- Classes `ui-list-pane-activity`, `--working` and `--new` go in both catalogue rows (`docs/ui-control-inventory.md` at the repo root, ~87 and ~89) and the emitted-class guard.
+- The contract file is `tests/browser/test_ui_list_pane_activity.py`, so it lands in the `contracts-controls` lane. It calls `App.ui.listPane(` in both engines.
+
+**Open chat:** its row shows "Working" too. A link's name is announced only when focused, so it does not duplicate the composer's busy state (accepted).
+
+**Acceptance criteria added:**
+- a connector early return lights no dot;
+- a turn into the open chat lights no dot after navigating away;
+- a cancel before acquiring the lock causes no bump (unit);
+- a server restart (a changed epoch) lights no spurious dots and does not suppress later ones;
+- resume-after-auth is out of scope, as stated above.
+
+**Lanes:** name the lane of any browser file using `app_with_stub_connector` / `seeders.stub_inbound` (check with `--list`); also `contracts` (the alias), `chats` and `routing`; and the unit tier.
+
+**Status:** ready. This was the second and final review cycle.

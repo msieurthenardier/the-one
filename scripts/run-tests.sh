@@ -66,7 +66,7 @@ CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-
 # `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
   [chats]=420
-  [chats-transcript]=240
+  [chats-transcript]=330
   [agents]=540
   [agent-tabs]=360
   [library]=420
@@ -191,7 +191,8 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_peer_attribution.py' 'test_flow_chat_thinking_disclosure.py' \
                       'test_flow_chat_time_zone.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
-                      'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py')
+                      'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
+                      'test_flow_chat_drafts.py')
 # Library-owned files (explicit): connectors, library focus, and the
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).

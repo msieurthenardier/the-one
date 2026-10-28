@@ -737,7 +737,7 @@ def test_key_rename_clears_a_still_stored_value_once(engine_page: Page) -> None:
     )
     assert hint == [
         False,
-        "Type the value again for the new name.",
+        "Sensitive values must be re-entered when the key changes.",
         "polite",
         None,
         None,
@@ -857,13 +857,13 @@ def test_unrelated_set_row_does_not_wipe_the_rename_hint(engine_page: Page) -> N
     p.get_by_test_id("k").nth(0).fill("RENAMED")
     assert (
         p.evaluate("() => document.querySelector('.ui-secret-hint').textContent")
-        == "Type the value again for the new name."
+        == "Sensitive values must be re-entered when the key changes."
     )
     p.evaluate("() => window.__kv.setRow(0, {extra: 1})")
     p.evaluate("() => window.__kv.setRow(0, {sensitive: true})")
     assert (
         p.evaluate("() => document.querySelector('.ui-secret-hint').textContent")
-        == "Type the value again for the new name."
+        == "Sensitive values must be re-entered when the key changes."
     )
 
 
@@ -884,7 +884,7 @@ def test_set_row_rebaseline_clears_the_rename_hint(engine_page: Page) -> None:
     _sec(p)
     p.get_by_test_id("k").nth(0).fill("RENAMED")
     hint = "() => document.querySelector('.ui-secret-hint').textContent"
-    assert p.evaluate(hint) == "Type the value again for the new name."
+    assert p.evaluate(hint) == "Sensitive values must be re-entered when the key changes."
     p.evaluate("() => window.__kv.setRow(0, {value: '', _mask: ''})")
     assert p.evaluate(hint) == ""
 

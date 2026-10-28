@@ -2,7 +2,7 @@
 // message's sendHeld, setInputValue, and the busy and Stop-control helpers (M31 F6 L02, split
 // out of areas/chat.js, moved verbatim apart from the ctx./state. prefixes).
 //
-// Exposes: isCurrentBusy, updateStopControl, performSend, sendHeld, setInputValue, send.
+// Exposes: isCurrentBusy, updateStopControl, performSend, sendHeld, setInputValue, send, sendText.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -42,10 +42,10 @@
     // same shape the server will broadcast/persist. Staged images are
     // cleared after every send, sent or held (HAT fix round 2: now the
     // whole `stagedImages` array, not a single-shot slot).
-    function performSend(text) {
+    function performSend(text, opts) {
       var payload = { message: text };
       var displayText = text;
-      if (ctx.attachments.staged().length) {
+      if (!(opts && opts.textOnly) && ctx.attachments.staged().length) {
         payload.images = ctx.attachments.staged();
         displayText = text ? text + ' [image]' : '[image]';
         ctx.attachments.clearStagedImages();
@@ -67,10 +67,13 @@
     // by the `done` handler and a session_updated re-join's reply, so the two
     // cannot drift.
     function sendHeld(sid) {
-      var held = state.pendingQueuedMessages[sid];
-      delete state.pendingQueuedMessages[sid];
-      ctx.holdQueue.clearPendingQueued();
-      performSend(held);
+      // A closed or unbound socket keeps every held message (a drain must never reach it).
+      if (!ctx.socket.socketOpen() || state.rebinding) return;
+      var held = ctx.holdQueue.shift(sid);
+      if (held === null) return;
+      // The first goes now; the rest stay chipped, in order, for the following turn ends.
+      ctx.holdQueue.refresh();
+      performSend(held, { textOnly: true });
     }
 
     // Every scripted write to the composer's text goes through here, so the
@@ -104,22 +107,25 @@
       // conversation, so discard any held queued message + chip first so a
       // stale hold can't fire after the context is cleared.
       if (isReset && active) {
-        delete state.pendingQueuedMessages[active];
+        ctx.holdQueue.discardAll(active);
         ctx.holdQueue.clearPendingQueued();
       }
 
       if (!isReset && isCurrentBusy()) {
-        // One-slot CLIENT-HOLD queue (F09-04): hold exactly one message locally
-        // while a turn runs. It is NOT sent to the backend now — the `done`
+        // CLIENT-HOLD queue (F09-04; many messages since L10a, capped at 10): hold
+        // each message locally, in order, while a turn runs. It is NOT sent to the backend now — the `done`
         // handler sends it via the normal path once the running turn finishes.
-        // This keeps cancel trivial (nothing sent) and the chip pinned. A
-        // second hold attempt while one is already held is ignored. Keyed on
+        // This keeps cancel trivial (nothing sent) and the chip pinned. Each
+        // `done` sends the first. Keyed on
         // activeId(): the client id while starting (the server uses it as the
         // session id), so a second Send while starting is held, never sent
         // as a plain message (AC6).
         if (!active) return;
-        if (state.pendingQueuedMessages[active]) return;
-        state.pendingQueuedMessages[active] = text;
+        // At the cap nothing is held and the text stays in the box (a note says why).
+        if (!ctx.holdQueue.push(active, text)) {
+          ctx.holdQueue.showFull();
+          return;
+        }
         // The hold queue carries text only (F09-04 predates image attach) —
         // attach-while-a-turn-is-running is explicitly out of scope for L08
         // (the attach handler below already ignores staging while busy, but
@@ -127,7 +133,7 @@
         // and send).
         ctx.attachments.clearStagedImages();
         setInputValue('');
-        ctx.holdQueue.showPendingQueued(text);
+        ctx.holdQueue.refresh();
         return;
       }
 
@@ -143,7 +149,30 @@
       setInputValue('');
     }
 
+    // Send (or hold, while a turn runs) a fixed text on an operator's behalf, as the step-limit
+    // notice's Continue does (L10d). It shares send()'s guards, but never reads or clears the
+    // composer text or the staged images. True only when the text was sent or held.
+    function sendText(text) {
+      if (state.bannerActive || composer.input.disabled) return false;
+      var st = chatState.state().name;
+      if (st !== 'joined' && !isCurrentBusy()) return false;
+      var active = chatState.activeId();
+      if (!active) return false;
+      if (isCurrentBusy()) {
+        if (!ctx.holdQueue.push(active, text)) {
+          ctx.holdQueue.showFull();
+          return false;
+        }
+        ctx.holdQueue.refresh();
+        return true;
+      }
+      if (!ctx.socket.socketOpen() || state.rebinding) return false;
+      performSend(text, { textOnly: true });
+      return true;
+    }
+
     return {
+      sendText: sendText,
       isCurrentBusy: isCurrentBusy,
       updateStopControl: updateStopControl,
       performSend: performSend,

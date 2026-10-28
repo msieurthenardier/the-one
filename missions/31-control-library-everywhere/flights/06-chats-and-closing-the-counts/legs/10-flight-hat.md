@@ -1,6 +1,6 @@
 # Leg: flight-hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 **Interactive**: yes (HAT; the operator verifies, the Flight Director guides one step at a time)
 

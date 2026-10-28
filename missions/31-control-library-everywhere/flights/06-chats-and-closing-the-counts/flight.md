@@ -1,18 +1,18 @@
 # Flight: Chats, and closing every count to zero
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **Every kind of control is defined once in the library.** This flight adds the chat controls (`App.ui.composer`, `message`, `thinking`, `trace`, `telemetry`, `notice`), the badge live form (`App.ui.badge.live`), the model list (`App.ui.modelList`) and the note flag (`App.ui.noteFlag`). It closes the catalogue's last "not yet defined" rows: composer, message bubble, thinking indicator and trace shell, telemetry readout, and provider model picker. The retired "Data table" row moves to a new Retired table (D5). A unit assertion then fails on any control row that reads "not yet defined" (DD14).
-- [ ] **A change to one control reaches every place it appears.** `OWNERSHIP_ALLOWANCE` goes from 25 rows / 36 uses to **empty**, and so do `TOTAL_USES` and `MOVES`. Library options replace the 12 area-CSS rows in `chat.css` and `studio.css` (DD6). The chat JS rows go with the migration (legs 05a and 05b). The `icons.js` and `markdown.js` rows go in legs 03a and 07, and the aliases in leg 09a.
-- [ ] **No UI markup is built from HTML strings outside the markdown renderer.** `HTML_SINK_ALLOWANCE` goes from 5 (all in `chat.js`, all `innerHTML = ''` clears) to **empty** in leg 01. `markdown.js` loses its trusted icon seam (`injectIcon`'s SVG-string parse) with the copy-button migration (leg 07). Icons are placed only as nodes (`App.ui.icon`), and `App.icon` / `App.iconNode` are deleted.
-- [ ] **Each control's styles are owned by that control.** The chat rules for the new controls move from `chat.css` into owned sections of `components.css`. Dead families are deleted (`.test-result*`, `.msg-pending-approval*`, `.stub-*`, `.u-flex`, `.u-block`, the orphaned badge kinds per D6). The unlayered tail of `components.css` goes inside `@layer components`, with a unit check that keeps it there. The unused-selector report is reviewed at leg 09a and is empty apart from documented dynamic users.
-- [ ] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures cover the chat surfaces in every state, the model picker and the agent and provider editors (D7), in both themes, on one seed (DD12). The approved visible changes are the planning survey's items and the operator's two added features (DD7, DD8). None of them are found at the HAT.
-- [ ] **Every library control works by keyboard and by role in both engines.** Each new control and each new option gets contract tests in Chromium and WebKit. That includes the composer's Enter/Shift+Enter/IME rule, the reply Copy and its confirmation, and the model list's row actions and focus retention.
-- [ ] **The area code is organised by surface.** `chat.js` (2,399 lines) splits into seven modules and lands at about 600 lines (DD3). `provider-models.js` (996 lines; its allowance ceiling is 1,014) drops under 800 on the model list (D2, D8). Both line-guard allowance entries are removed. Every area entry module (`studio.js`, `chat.js`, `admin.js`) is then 800 lines or fewer.
-- [ ] **The catalogue documents every control** in its final state, with the Retired table.
-- [ ] **Existing behaviour holds.** The planning defects are fixed, each with a test that fails first (DD11). The unit, browser (every lane, both engines for the contracts) and lint gates pass. The mission-close UI behavior specs pass on a dedicated dev instance (DD15). Every testid survives or is recorded as retired.
+- [x] **Every kind of control is defined once in the library.** This flight adds the chat controls (`App.ui.composer`, `message`, `thinking`, `trace`, `telemetry`, `notice`), the badge live form (`App.ui.badge.live`), the model list (`App.ui.modelList`) and the note flag (`App.ui.noteFlag`). It closes the catalogue's last "not yet defined" rows: composer, message bubble, thinking indicator and trace shell, telemetry readout, and provider model picker. The retired "Data table" row moves to a new Retired table (D5). A unit assertion then fails on any control row that reads "not yet defined" (DD14).
+- [x] **A change to one control reaches every place it appears.** `OWNERSHIP_ALLOWANCE` goes from 25 rows / 36 uses to **empty**, and so do `TOTAL_USES` and `MOVES`. Library options replace the 12 area-CSS rows in `chat.css` and `studio.css` (DD6). The chat JS rows go with the migration (legs 05a and 05b). The `icons.js` and `markdown.js` rows go in legs 03a and 07, and the aliases in leg 09a.
+- [x] **No UI markup is built from HTML strings outside the markdown renderer.** `HTML_SINK_ALLOWANCE` goes from 5 (all in `chat.js`, all `innerHTML = ''` clears) to **empty** in leg 01. `markdown.js` loses its trusted icon seam (`injectIcon`'s SVG-string parse) with the copy-button migration (leg 07). Icons are placed only as nodes (`App.ui.icon`), and `App.icon` / `App.iconNode` are deleted.
+- [x] **Each control's styles are owned by that control.** The chat rules for the new controls move from `chat.css` into owned sections of `components.css`. Dead families are deleted (`.test-result*`, `.msg-pending-approval*`, `.stub-*`, `.u-flex`, `.u-block`, the orphaned badge kinds per D6). The unlayered tail of `components.css` goes inside `@layer components`, with a unit check that keeps it there. The unused-selector report is reviewed at leg 09a and is empty apart from documented dynamic users.
+- [x] **Every migrated surface looks as it did before, apart from approved differences.** Before and after captures cover the chat surfaces in every state, the model picker and the agent and provider editors (D7), in both themes, on one seed (DD12). The approved visible changes are the planning survey's items and the operator's two added features (DD7, DD8). None of them are found at the HAT.
+- [x] **Every library control works by keyboard and by role in both engines.** Each new control and each new option gets contract tests in Chromium and WebKit. That includes the composer's Enter/Shift+Enter/IME rule, the reply Copy and its confirmation, and the model list's row actions and focus retention.
+- [x] **The area code is organised by surface.** `chat.js` (2,399 lines) splits into seven modules and lands at about 600 lines (DD3). `provider-models.js` (996 lines; its allowance ceiling is 1,014) drops under 800 on the model list (D2, D8). Both line-guard allowance entries are removed. Every area entry module (`studio.js`, `chat.js`, `admin.js`) is then 800 lines or fewer.
+- [x] **The catalogue documents every control** in its final state, with the Retired table.
+- [x] **Existing behaviour holds.** The planning defects are fixed, each with a test that fails first (DD11). The unit, browser (every lane, both engines for the contracts) and lint gates pass. The mission-close UI behavior specs pass on a dedicated dev instance (DD15). Every testid survives or is recorded as retired.
 
 ---
 
@@ -455,17 +455,17 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 
 ### Prerequisites
 - [x] The operator's decisions on the review page and the three feature questions (2026-10-26).
-- [ ] The branch `flight/06-chats-and-closing-the-counts` is created from `main` (`3b3d42a` or later) at flight start. Sortie 06 (#329, `3b3d42a`) landed after planning. The FD checked it against the plan: the counts are unchanged (25 rows / 36 uses, 5 sinks); it does not touch `chat.js` or the chat area; `provider-editor.js` is still 896 lines; and the `studio.css` rows of DD6 are unchanged (it deleted only `.agent-load-error`).
-- [ ] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of every leg that runs browser tests.
-- [ ] The before captures are taken in leg 01, before any chat file changes.
-- [ ] A quiet host for leg 01's re-measure (no other test process; 1-minute load below about 1.0).
-- [ ] The stub connector seam (`THE_ONE_STUB_TEST_ENDPOINT=1` with `THE_ONE_DEV_MODE=true`) works on a scratch instance, for the F2 spec (checked in leg 06).
+- [x] The branch `flight/06-chats-and-closing-the-counts` is created from `main` (`3b3d42a` or later) at flight start. Sortie 06 (#329, `3b3d42a`) landed after planning. The FD checked it against the plan: the counts are unchanged (25 rows / 36 uses, 5 sinks); it does not touch `chat.js` or the chat area; `provider-editor.js` is still 896 lines; and the `studio.css` rows of DD6 are unchanged (it deleted only `.agent-load-error`).
+- [x] WebKit userland and `THE_ONE_TEST_NETNS=1` work. Re-verify at the start of every leg that runs browser tests.
+- [x] The before captures are taken in leg 01, before any chat file changes.
+- [x] A quiet host for leg 01's re-measure (no other test process; 1-minute load below about 1.0).
+- [x] The stub connector seam (`THE_ONE_STUB_TEST_ENDPOINT=1` with `THE_ONE_DEV_MODE=true`) works on a scratch instance, for the F2 spec (checked in leg 06).
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified (the branch, WebKit and the quiet host are verified at flight start and per leg)
+- [x] Prerequisites verified (the branch, WebKit and the quiet host are verified at flight start and per leg)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -504,7 +504,7 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 - [x] Markdown: the negative tests are in, the holes are closed, A1, B1 and 0.4 are done and the Copy is on the library.
 - [x] The model list is in the library, and `provider-models.js` is under 800.
 - [x] Every count is at zero. Docs and the catalogue are final, the after set is reviewed, budgets are re-measured and the full gate is green. The mission-close specs and the new spec pass.
-- [ ] HAT passed, and the close checks re-run after any HAT code change.
+- [x] HAT passed, and the close checks re-run after any HAT code change.
 
 ### Adaptation Criteria
 
@@ -583,19 +583,23 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - D6's badge kinds; dead CSS; the unused-selector review;
   - docs final, including squawk 0272.
 - [x] `close-verification` (09b): the after set and its ledger mapping; the quiet-host re-budget; the full gate; the behavior-spec sweep and `agent-step-limit-notice`.
-- [ ] `flight-hat` (10) *(interactive)*: the operator walks the ledger in both themes at 1280 and 1024, on a seeded dev instance.
+- [x] `flight-hat` (10) *(interactive)*: the operator walks the ledger in both themes at 1280 and 1024, on a seeded dev instance.
   - The walk includes a state the operator isn't looking at: a connector chat updated while another chat is open, and the step-limit line on the stub connector.
   - The operator approves the before and after set.
+- [x] `multi-message-queue` (10a), HAT feature (fix-vs-feature gate): the hold queue holds up to 10 messages, one chip each.
+- [x] `chat-row-status` (10b), HAT feature: the Chats rows show working and new-reply activity (`busy`, `turn_seq`, `track_turn`).
+- [x] `per-chat-drafts` (10c), HAT feature: each conversation keeps its own unsent text and staged images.
+- [x] `step-limit-continue` (10d), HAT feature: the web step-limit notice carries a Continue button.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - **Counts:** `OWNERSHIP_ALLOWANCE`, `TOTAL_USES`, `MOVES` and `HTML_SINK_ALLOWANCE` are empty. `tests/test_area_module_size.py` `ALLOWANCE` holds only `studio/provider-editor.js` (D8). `git grep` finds no code call to `App.confirmDelete(`, `App.showFlash(`, `App.icon(`, `App.iconNode(`, `App.consentLink.`, `App.escapeHtml` or `App.escapeAttr`.

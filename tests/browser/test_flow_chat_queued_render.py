@@ -1,8 +1,8 @@
 """Browser tests for M16 F09 leg 02 — send-while-thinking CLIENT-HOLD queue.
 
-The send-while-thinking one-slot queue (F07 DD4) uses a **client-hold** model:
-a message queued while a turn is running is HELD locally (not sent to the
-backend) and shown as a **pinned chip** above the composer. On the running
+The send-while-thinking queue (F07 DD4; many messages, in order, capped at 10, since M31 F6
+L10a) uses a **client-hold** model: a message queued while a turn is running is HELD locally
+(not sent to the backend) and shown as a **pinned chip** above the composer. On the running
 turn's ``done`` it is sent via the normal send path; a cancel (×) on the chip
 discards it (nothing was ever sent). This fixes three HAT findings:
 
@@ -245,3 +245,106 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     # The UI returns to idle (Send re-enabled, no thinking indicator).
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=8000)
     expect(page.locator('[data-testid="thinking-indicator"]')).to_have_count(0)
+
+
+# ── M31 F6 L10a: several held messages ────────────────────────────────────────
+
+CHIPS = '[data-testid="pending-queued"]'
+CANCELS = '[data-testid="pending-queued-cancel"]'
+INPUT = '[data-testid="chat-input"]'
+
+
+def _hold(page: Page, text: str) -> None:
+    page.locator(INPUT).fill(text)
+    page.locator(INPUT).press("Enter")
+
+
+def _running_turn(page: Page, base_url: str, delay_ms: int = 700) -> None:
+    _start_slow_turn(page, base_url, ["one ", "two ", "three"], delay_ms)
+    _chats.send_first(page, "first")
+    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+
+
+@pytest.mark.browser
+def test_several_sends_are_held_in_order_then_drain_one_per_turn(
+    app_clean: str, page: Page
+) -> None:
+    _running_turn(page, app_clean, 200)
+    for text in ("alpha", "bravo", "charlie"):
+        _hold(page, text)
+    chips = page.locator(CHIPS)
+    expect(chips).to_have_count(3, timeout=3000)
+    expect(chips.nth(0)).to_contain_text("alpha")
+    expect(chips.nth(1)).to_contain_text("bravo")
+    expect(chips.nth(2)).to_contain_text("charlie")
+    expect(page.locator(INPUT)).to_have_value("")
+    # Nothing was sent: only "first" is a user bubble while the first turn runs.
+    expect(_chats.messages(page, "user")).to_have_count(1)
+    # The live status line counts them; each cancel is named by its place.
+    expect(page.locator('[data-testid="pending-queued-status"]')).to_have_text("3 messages queued")
+    names = [page.locator(CANCELS).nth(i).get_attribute("aria-label") for i in range(3)]
+    assert names == [
+        "Cancel queued message 1 of 3",
+        "Cancel queued message 2 of 3",
+        "Cancel queued message 3 of 3",
+    ]
+    # One per turn end, first first: the bubbles arrive in send order, the chips drain.
+    expect(_chats.messages(page, "user")).to_have_text(
+        ["first", "alpha", "bravo", "charlie"], timeout=20000
+    )
+    expect(chips).to_have_count(0)
+    expect(_chats.messages(page, "assistant")).to_have_count(4, timeout=20000)
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
+
+
+@pytest.mark.browser
+def test_removing_the_middle_then_the_last_chip_moves_focus_and_renames(
+    app_clean: str, page: Page
+) -> None:
+    _running_turn(page, app_clean, 1500)
+    for text in ("alpha", "bravo", "charlie"):
+        _hold(page, text)
+    chips = page.locator(CHIPS)
+    expect(chips).to_have_count(3, timeout=3000)
+    page.locator(CANCELS).nth(1).focus()
+    page.keyboard.press("Enter")
+    expect(chips).to_have_count(2)
+    expect(chips.nth(0)).to_contain_text("alpha")
+    expect(chips.nth(1)).to_contain_text("charlie")
+    # Focus went to the next chip (now at the removed index); names are recomputed.
+    expect(page.locator(CANCELS).nth(1)).to_be_focused()
+    last = page.locator(CANCELS).nth(1)
+    assert last.get_attribute("aria-label") == "Cancel queued message 2 of 2"
+    expect(page.locator('[data-testid="pending-queued-status"]')).to_have_text("2 messages queued")
+    # Removing the last: focus goes to the previous chip.
+    page.keyboard.press("Enter")
+    expect(chips).to_have_count(1)
+    expect(page.locator(CANCELS).first).to_be_focused()
+    assert page.locator(CANCELS).first.get_attribute("aria-label") == "Cancel queued message"
+    expect(page.locator('[data-testid="pending-queued-status"]')).to_have_text("1 message queued")
+    # Removing the only one: the message box.
+    page.keyboard.press("Enter")
+    expect(chips).to_have_count(0)
+    expect(page.locator(INPUT)).to_be_focused()
+
+
+@pytest.mark.browser
+def test_the_queue_is_capped_at_ten_and_the_eleventh_stays_in_the_box(
+    app_clean: str, page: Page
+) -> None:
+    _running_turn(page, app_clean, 2000)
+    for i in range(10):
+        _hold(page, f"m{i}")
+    expect(page.locator(CHIPS)).to_have_count(10, timeout=5000)
+    _hold(page, "eleven")
+    expect(page.locator(CHIPS)).to_have_count(10)
+    expect(page.locator(INPUT)).to_have_value("eleven")
+    expect(page.locator('[data-testid="pending-queued-full"]')).to_have_text("Queue is full (10)")
+
+
+@pytest.mark.browser
+def test_chips_are_not_announced_individually(app_clean: str, page: Page) -> None:
+    _running_turn(page, app_clean, 1500)
+    _hold(page, "alpha")
+    expect(page.locator(CHIPS)).to_have_count(1, timeout=3000)
+    assert page.locator(CHIPS).first.get_attribute("aria-live") == "off"

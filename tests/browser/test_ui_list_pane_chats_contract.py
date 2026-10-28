@@ -123,10 +123,13 @@ def test_chats_row_anatomy(engine_page: Page, theme: str) -> None:
     )
     rest, sel = out["rest"], out["selected"]
     assert rest["lines"] == [
-        ["ui-list-pane-label", "ui-list-pane-time"],
+        ["ui-list-pane-label", "visually-hidden", "ui-list-pane-activity", "ui-list-pane-time"],
         ["ui-list-pane-meta", "ui-list-pane-badges"],
     ]
-    assert sel["lines"] == [["ui-list-pane-label", "ui-list-pane-time"], ["ui-list-pane-meta"]]
+    assert sel["lines"] == [
+        ["ui-list-pane-label", "visually-hidden", "ui-list-pane-activity", "ui-list-pane-time"],
+        ["ui-list-pane-meta"],
+    ]
     assert rest["pad"] == "8px 10px" and rest["dir"] == "column" and rest["rowGap"] == "2px", rest
     assert rest["label"] == ["13px", _rgb(palette["fg"]), "ellipsis", "nowrap"], rest
     assert rest["time"] == ["11px", _rgb(palette["fg_muted"]), "0"], rest

@@ -21,13 +21,19 @@ from the_one.sessions._broadcast import (
 )
 from the_one.sessions._locks import (
     clear_locks_for_test,
+    is_session_busy,
     is_session_processing,
     session_locks,
+    track_turn,
+    turn_seq,
 )
 
 __all__ = [
     "session_locks",
     "is_session_processing",
+    "is_session_busy",
+    "track_turn",
+    "turn_seq",
     "clear_locks_for_test",
     "add_socket",
     "remove_socket",

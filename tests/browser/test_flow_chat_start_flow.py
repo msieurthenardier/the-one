@@ -237,6 +237,26 @@ def test_first_turn_behaves_like_any_turn(app_with_provider: SeededApp, page: Pa
     assert [s["id"] for s in _sessions(base)] == [sid]  # exactly one new session
 
 
+def test_two_sends_while_starting_are_both_held_and_delivered_in_order(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    base = app_with_provider.base_url
+    agent = _slow_agent(base)
+    _nav.goto(page, base, "chats")
+    _chats.start_chat(page, agent)
+    box = page.locator(INPUT)
+    box.fill("first")
+    box.press("Enter")
+    for text in ("two", "three"):
+        box.fill(text)
+        box.press("Enter")
+    expect(page.locator(CHIP)).to_have_count(2)
+    expect(page.locator(USER_MSG)).to_have_text(["first"])
+    expect(page.locator(USER_MSG)).to_have_text(["first", "two", "three"], timeout=30000)
+    expect(page.locator(CHIP)).to_have_count(0)
+    expect(page.locator(ASSISTANT_MSG)).to_have_count(3, timeout=30000)
+
+
 # ── AC6: /reset, a closed socket, Stop while starting ────────────────────────
 
 

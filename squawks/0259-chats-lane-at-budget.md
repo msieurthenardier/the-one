@@ -1,10 +1,10 @@
 # Squawk 0259: `chats` browser lane at 99% of its budget
 
-**Status**: in-progress
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-25
-**Completed**: —
+**Completed**: 2026-10-28 (signed off at the Mission 31 Flight 6 landing)
 
 ## Report
 At Mission 31 Flight 4's landing, the `chats` lane ran 446 s against a 450 s budget in the final `--parallel 3` gate. It was 396 s at Flight 3's debrief and 409 s at Flight 4 leg 11, and it gained no tests in between, so the jump may be host noise or the Mission 32 merge. It is the next lane to trip `OVER BUDGET`, and Flight 5 will add browser tests.
@@ -31,7 +31,6 @@ M31 F6 L09b: the final quiet-host `--parallel 3` run (first run: start load 0.94
 `PARALLEL_RESULT rc=0 total=1600s lanes=15 failed=-` (M31 F6 L01 run 2); per-lane times in the flight log (all within the new budgets). `chats` 283 s vs 360 s, `chats-transcript` 122 s vs 180 s. CLAUDE.md and `scripts/run-tests.sh` budget tables agree (a script compared the two). `tests/test_run_tests_lanes.py` pins the split (disjoint, union is the suite, the by-file pair test). Final (M31 F6 L09b): `PARALLEL_RESULT rc=1 total=1763s lanes=16 failed=contracts-overlay` (one isolated-clean flake), `chats` 329 s vs 420 s, `chats-transcript` 191 s vs 240 s, all sixteen lanes within their new budgets; CLAUDE.md's table matches `scripts/run-tests.sh` (a script compared the two: 16 of 16 equal) and `tests/test_run_tests_lanes.py` passes (18). Sign-off by the flight-end Reviewer; closes with the flight's commit.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: the Mission 31 Flight 6 flight-end Reviewer for the batch that carried the fix (independent of the Developer)
+**Verdict**: `[HANDOFF:confirmed]`; the full gate (unit tier and all 16 browser lanes) passed at the flight's close
+**Commit**: on branch `flight/06-chats-and-closing-the-counts`, in the batch commit that carried the fix (batches B1-B5 and the HAT batch), merged with the Flight 6 PR

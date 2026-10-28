@@ -35,7 +35,8 @@
 // API:
 //   App.chat.chatsList.create({onNew(btn), onDelete(id, li, btn, title)})
 //     -> {el, newButton, render(rows, view), setNewDisabled(bool), destroy()}
-//     view: {pending: {agent} | null, selectedId: id | null}
+//     view: {pending: {agent} | null, selectedId: id | null,
+//            activity: {sessionId: 'working' | 'new'} (M31 F6 L10b; the pending row never has one)}
 //   App.chat.chatsList.groups(rows, view, onDelete, now) -> the listPane groups
 //   App.chat.chatsList.bucketFor(row, now) -> 'today' | 'yesterday' | 'last7'
 //     | 'last30' | 'older'
@@ -108,7 +109,7 @@
     return s.replace(/(^|[\s_-])([a-z])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); });
   }
 
-  function sessionItem(row, d, bucket, onDelete) {
+  function sessionItem(row, d, bucket, onDelete, activity) {
     var title = row.title || 'Untitled chat';
     var item = {
       id: row.id,
@@ -129,6 +130,8 @@
     };
     // A connector session: its platform as the neutral library badge pill.
     if (row.platform) item.badges = [{ text: platformName(row.platform), kind: 'unknown' }];
+    // M31 F6 L10b: 'working' | 'new' | absent (view.activity, by session id).
+    if (activity === 'working' || activity === 'new') item.activity = activity;
     return item;
   }
 
@@ -172,7 +175,10 @@
       var items = [];
       if (g.id === 'today' && view.pending) items.push(pendingItem(view.pending));
       for (var k = 0; k < entries.length; k++) {
-        items.push(sessionItem(entries[k].row, entries[k].d, entries[k].bucket, onDelete));
+        items.push(sessionItem(
+          entries[k].row, entries[k].d, entries[k].bucket, onDelete,
+          view.activity ? view.activity[entries[k].row.id] : null
+        ));
       }
       if (items.length) out.push({ id: g.id, label: g.label, items: items });
     }

@@ -40,12 +40,12 @@ watching the UI/event stream.
 | 2 | Send: "Use http_request to GET `https://stream.radioparadise.com/aac-320` and tell me exactly what the tool returned." | A "Thinking…" indicator (`thinking-indicator`) appears; a stop control is visible while the turn runs. |
 | 3 | (Wait point) | Within 150s the turn **completes** (thinking indicator clears, a final assistant message renders). The tool returns a bounded result — a media-content short-circuit message (e.g. "looks like a media stream") or a cap/timeout error — **not** an indefinite hang and not a frozen UI. |
 | 4 | Send a message that triggers a longer turn (e.g. "Search the web and fetch three pages about internet radio formats, then summarize."). While it is still running, click the **stop/interrupt** control. | The turn aborts promptly; a muted **"Stopped."** line (`chat-stopped`) follows the partial output (and "Queued message discarded." (`chat-discarded`) as well if a message was held when Stop was clicked; neither line survives a reload); the input is re-enabled; any text already streamed remains visible (partial output preserved, not erased). |
-| 5 | Send message A ("Count slowly from 1 to 20."). While A is still running, send message B ("Now say the alphabet."). | B is accepted while A runs and shown as **pending/queued** (input not silently dropped). A completes first, then B runs and completes. The conversation shows A's answer then B's answer in order. |
-| 6 | While A or B is still running (busy), attempt to send a third message C. | C is **not** queued (queue depth is one) — it is ignored or the control indicates the queue is full; no third response is produced out of order. |
+| 5 | Send message A ("Count slowly from 1 to 20."). While A is still running, send message B ("Now say the alphabet."). | B is accepted while A runs and shown as a **queued** chip (input not silently dropped). A completes first, then B runs and completes. The conversation shows A's answer then B's answer in order. |
+| 6 | While A is running, send B and then a third message C ("Name three colours."). | Both are held as chips in send order ("Queued" lead, each with its own cancel). A completes, then B runs, then C runs; the conversation shows the answers in order and each message is sent only when the previous turn ends. (The queue holds up to 10; an eleventh Send stays in the message box with a "Queue is full (10)" note.) |
 
 **Row conventions:** rows 1 and (the send half of) 5 are setup; the judged
 checkpoints are 3 (no-hang), 4 (interrupt + partial preserved), 5 (one queued runs
-after), 6 (queue capped at one).
+after), 6 (several queued run in order, one per turn).
 
 ## Out of Scope
 - The web_search backend configuration ("No results found" on the installed

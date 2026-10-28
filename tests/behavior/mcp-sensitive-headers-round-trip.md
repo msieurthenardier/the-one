@@ -3,7 +3,7 @@
 **Slug**: `mcp-sensitive-headers-round-trip`
 **Status**: active
 **Created**: 2026-10-25 (Mission 31 Flight 5 Leg 07; run in Leg 12)
-**Last Run**: 2026-10-26-15-13-47 (pass, 8/8; [run log](mcp-sensitive-headers-round-trip/runs/2026-10-26-15-13-47.md))
+**Last Run**: 2026-10-28-14-36-06 (pass, 8/8; re-run after the M31 F6 L10 HAT re-authored step 6's hint; [run log](mcp-sensitive-headers-round-trip/runs/2026-10-28-14-36-06.md)). Previous: 2026-10-26-15-13-47 (pass, 8/8)
 
 ## Intent
 
@@ -65,7 +65,7 @@ Masks read back as `***...1111` and `***...2222`.
 | 3 | Change only the name to `sens-headers-b`. Click Save. Read `GET /api/mcp-sources/{SRC}`. | The save succeeds with no error. `secrets` is still `{"Authorization": "***...1111"}` and `config.headers` is still `{"X-Plain": "plain-value"}`. The form reads clean after the save. |
 | 4 | Type `S2` into the `Authorization` value (the stored mask is replaced as soon as you type). Click Save. Read `GET /api/mcp-sources/{SRC}`. Then look at the row. | `secrets.Authorization` is `***...2222`: the secret was replaced (the tail changed from `1111`). `config.headers` still has no `Authorization`. After the save the row is back in stored mode (value `***...2222`, no Show control) and the form is clean. |
 | 5 | Untick **Sensitive** on the `Authorization` row. Look at the value field, then click Save. Read `GET /api/mcp-sources/{SRC}`. | Unticking clears the value (the field is empty and plain text, not the mask). After Save, `secrets` is `{}` and `config.headers.Authorization` is `""`. The mask text (`***`) and `S2` appear nowhere in `config`. |
-| 6 | Tick **Sensitive** again on the `Authorization` row, type `S1` into its value and Save, so the row is stored again (`secrets.Authorization` is `***...1111`). Then change the row's **key** to `X-Auth`, without touching the value. | As soon as the key changes, the value field empties and the hint under it asks for the value again ("Type the value again for the new name."). Save is enabled. |
+| 6 | Tick **Sensitive** again on the `Authorization` row, type `S1` into its value and Save, so the row is stored again (`secrets.Authorization` is `***...1111`). Then change the row's **key** to `X-Auth`, without touching the value. | As soon as the key changes, the value field empties and the hint under it asks for the value again ("Sensitive values must be re-entered when the key changes."). Save is enabled. |
 | 7 | Without retyping, click Save. Read `GET /api/mcp-sources/{SRC}`. | The save succeeds. `secrets` no longer holds `Authorization`. `X-Auth` is stored with an empty value (`secrets["X-Auth"]` is `""`), `__MASKED__` and `S1` appear nowhere in the response, and the old secret was not carried under the new name. The form reads clean and the `X-Auth` row shows an empty value, not stored mode. |
 | 8 | Type `S2` into the `X-Auth` value and Save. Edit `X-Plain`'s value to `changed`, then click Cancel. | After the first save `secrets["X-Auth"]` is `***...2222` and the row is in stored mode. After Cancel the `X-Plain` value is back to `plain-value`, the `X-Auth` row is still present in stored mode, and no row named `Authorization` has come back. `GET /api/mcp-sources/{SRC}` is unchanged by the Cancel. |
 

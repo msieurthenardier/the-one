@@ -201,7 +201,9 @@ def test_kv_stored_row_hint_and_rename_hint(app_clean: str, page: Page) -> None:
     expect(hint).not_to_have_text("")
     _kv_key(row).fill("X-Api-Key2")
     expect(_kv_val(row)).to_have_value("")
-    expect(row.locator(".ui-secret-hint")).to_have_text("Type the value again for the new name.")
+    expect(row.locator(".ui-secret-hint")).to_have_text(
+        "Sensitive values must be re-entered when the key changes."
+    )
 
 
 @pytest.mark.browser
@@ -225,9 +227,13 @@ def test_kv_rename_hint_and_eye_clear_after_save_with_empty_value(
     _open_source(page, app_clean, sid)
     row = _kv_row_by_key(page, "X-Api-Key")
     _kv_key(row).fill("X-Api-Key2")
-    expect(row.locator(".ui-secret-hint")).to_have_text("Type the value again for the new name.")
+    expect(row.locator(".ui-secret-hint")).to_have_text(
+        "Sensitive values must be re-entered when the key changes."
+    )
     _save_edit(page)
-    expect(page.locator(".ui-secret-hint", has_text="Type the value again")).to_have_count(0)
+    expect(
+        page.locator(".ui-secret-hint", has_text="Sensitive values must be re-entered")
+    ).to_have_count(0)
     # An empty sensitive row is a plain new secret cell, so its eye is the normal one.
 
 
