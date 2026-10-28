@@ -80,40 +80,6 @@
 
   window.App = window.App || {};
   Object.assign(window.App, {
-    icons: Icons,
-    icon: function (name) {
-      var svg = Icons[name];
-      if (!svg) {
-        console.warn('App.icon: unknown icon name "' + name + '"');
-        return '';
-      }
-      return svg;
-    },
-    // M27 F3 L2: a trusted icon as a DOM node (DOMParser, no HTML sink), or null.
-    iconNode: function (name) {
-      var svg = window.App.icon(name);
-      if (!svg) return null;
-      var doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-      if (doc && doc.documentElement && doc.documentElement.nodeName.toLowerCase() === 'svg') {
-        return document.importNode(doc.documentElement, true);
-      }
-      return null;
-    },
-    // The warning-triangle flag on an untrusted note, shared by the chat agent
-    // panel and the Rules and notes tab: role=img, title and aria-label are
-    // the self-explaining sentence. The caller sets the testid.
-    noteFlag: function (sources) {
-      var list = (sources || []).join(', ');
-      var sentence = 'Check this note: it was written after content that didn\'t come from you' +
-        (list ? ' (' + list + ')' : '') + '. It may have been planted.';
-      var flag = document.createElement('span');
-      flag.className = 'note-flag';
-      flag.setAttribute('role', 'img');
-      flag.setAttribute('title', sentence);
-      flag.setAttribute('aria-label', sentence);
-      var icon = window.App.iconNode('alert-triangle');
-      if (icon) flag.appendChild(icon);
-      return flag;
-    }
+    icons: Icons
   });
 })();

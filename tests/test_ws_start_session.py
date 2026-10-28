@@ -83,6 +83,8 @@ class _FakeAgent:
         self.messages: list[Message] = [Message.system(f"You are {name}.")]
         self.llm = _LLMShim()
         self._deferred_tool_calls = None
+        self.stopped_at_step_limit = False
+        self.max_iterations = 20
         self._recorder = recorder
         self._name = name
 

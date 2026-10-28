@@ -276,10 +276,7 @@ App.admin.toolsPage = {
             if (grid) grid.setSelection(null);
           }
           if (!gone) {
-            App.ui.flash((err && err.message) || ('Failed to load ' + name + '.'), {
-              error: true,
-              container: ctx.contentEl()
-            });
+            App.ui.flash((err && err.message) || ('Failed to load ' + name + '.'), { error: true });
           }
         });
     }
@@ -349,7 +346,7 @@ App.admin.toolsPage = {
     }
 
     function showAdminFlash(msg, isError) {
-      App.ui.flash(msg, { error: !!isError, container: ctx.contentEl() });
+      App.ui.flash(msg, { error: !!isError });
     }
 
     // ── Opening and closing items from the page (M25 F3 L5b) ────────

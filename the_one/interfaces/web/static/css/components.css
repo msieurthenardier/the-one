@@ -120,18 +120,6 @@
   .ui-rail-footer .btn-icon { width: 44px; height: 44px; padding: 0; }
 
   /* === Form Field Primitives (editable form rows) === */
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-  .field-row label {
-    width: 100px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    flex-shrink: 0;
-  }
   .field-input {
     flex: 1;
     background: var(--surface);
@@ -221,9 +209,7 @@
 
   /* === Stacked field group (M17 F3 — the vocabulary field form) ===
      Label ABOVE the control; optional hint and inline validation message
-     below it. This is the v3 field convention; the legacy label-left
-     ``.field-row`` (100px gutter) remains for existing area forms and
-     migrates per-area in the F4-6 re-skins. */
+     below it. This is the only field layout. */
   .field-group {
     display: flex;
     flex-direction: column;
@@ -251,10 +237,7 @@
   }
   /* Inline validation — color + message, never color alone. Set
      ``.is-invalid`` on the control and render the message in a
-     ``.field-error`` element directly below it. (Studio's former area-scoped
-     ``.field-row .field-error`` 100px-gutter variant was retired in F5 L2
-     when its last consumer migrated to ``.field-group``; inline validation
-     now flows through this un-scoped primitive.) */
+     ``.field-error`` element directly below it. (Inline validation flows through this un-scoped primitive.) */
   .field-input.is-invalid,
   .field-textarea.is-invalid,
   .field-select.is-invalid { border-color: var(--status-danger); }
@@ -538,10 +521,10 @@
   .btn-lg { height: 36px; padding: 0 20px; font-size: var(--font-size-body); }
   .btn-xl { height: 40px; padding: 0 28px; font-size: var(--font-size-body-lg); }
 
-  /* Icon sizing inside vocabulary buttons: App.icon() svgs ship 24×24
+  /* Icon sizing inside vocabulary buttons: App.icons svgs ship 24×24
      width/height attributes, so an explicit CSS size is required. 16px
      pairs with the 32px control height. Per-consumer overrides later in
-     the file (e.g. .refresh-btn svg 14px) win by source order. */
+     the file win by source order. */
   .btn-outlined-primary svg,
   .btn-filled-primary svg,
   .btn-ghost svg,
@@ -567,21 +550,32 @@
   .chip--danger { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
   .chip--warning { background: var(--status-warning-bg-soft); border-color: var(--status-warning); color: var(--status-warning); }
   .chip--sm { font-size: var(--font-size-tiny); padding: 2px 8px; }
-  .chip-remove { cursor: pointer; color: var(--status-danger); font-size: var(--font-size-tiny); border-radius: 3px; transition: color 0.2s, background-color 0.2s; background: transparent; border: none; padding: 0; }
-  /* Resting color is --status-danger (M18 F3 L1 A3 contrast fix — must clear
-     4.5:1 on .chip's --accent-translucent fill, gated in
-     tests/test_design_tokens_a11y.py). Hover/focus-visible keep that same
-     text color (regressing it would undo the fix) and layer the existing
-     --status-danger-bg-soft wash as a background instead, so hovering still
-     reads as a distinct affordance (M18 F3 L1 review polish, obs 3). */
-  .chip-remove:hover, .chip-remove:focus-visible { background-color: var(--status-danger-bg-soft); }
-  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
+  .chip-lead { display: inline-flex; align-items: center; }
+  .chip-label { min-width: 0; overflow-wrap: anywhere; }
+  /* The remove button is a 24px target (WCAG 2.2 2.5.8), with no negative margin that could clip
+     its focus ring; a chip with one trims its own trailing padding instead. */
+  .chip .chip-remove-btn { min-width: 0; min-height: 0; width: 24px; height: 24px; padding: 0; margin: 0; flex-shrink: 0; }
+  .chip--truncate { min-width: 0; max-width: 100%; }
+  .chip--truncate .chip-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
   /* Capability chips (moved from admin.css, sortie 02): surfaced on each Ollama
      model row in the provider editor and reused by the agent editor under the
      model selector. The chips are App.ui.chip (size sm; the "no tools" chip is
      tone danger). .cap-chip-row is their panel layout wrapper. */
   .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+  /* === Model list (App.ui.modelList, M31 F6 L08, DD10) ===
+     Keyed rows in sections: status dot, mono name (ellipsis), capability chips, mono size,
+     actions, and a per-row error line. `--compact` is the plain, no-action list. */
+  .ui-model-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
+  .ui-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; flex-wrap: wrap; }
+  .ui-model-row:last-child { border-bottom: none; }
+  .ui-model-list--compact .ui-model-row { padding: 4px 8px; cursor: default; }
+  .ui-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ui-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
+  .ui-model-list--compact .ui-model-size:empty, .ui-model-actions:empty { display: none; }
+  .ui-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .ui-model-led { gap: 0; }
+  .ui-model-error { width: 100%; }
 
   /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
      A navigation list: <section> > header (h2, optional count, actions),
@@ -598,7 +592,9 @@
      so a long list's hidden suffixes escape the scroller's clipping and
      stretch the DOCUMENT's scroll height (scrollIntoView could then scroll
      the viewport). Each row now contains its own suffix. */
-  .ui-list-pane { position: relative; display: flex; flex-direction: column; min-height: 0; }
+  /* flex: 1 1 0 (M31 F6 L03b): in a flex-column host the pane takes the remaining height, as
+     the chats, agents and library area rules each said (`flex: 1`); in block flow it is inert. */
+  .ui-list-pane { position: relative; display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
   .ui-list-pane-header {
     display: flex;
     align-items: center;
@@ -812,6 +808,49 @@
     font-size: var(--font-size-caption);
     color: var(--fg-secondary);
   }
+  /* Row activity (M31 F6 L10b; rowStyle 'chats' only). Every chats row reserves
+     the slot at a fixed 12px so the indicator never shifts the row. "Working"
+     is a spinning ring (a 2px --accent ring with a gap), "New reply" a filled
+     --accent dot; they differ in shape, not only motion or colour. Both are
+     non-text marks gated at 3:1 on the aside ground and the selected wash
+     (test_chats_row_activity_pairs_pass_ui_aa). Under reduced motion the ring
+     stops and keeps its gap, so it still differs from the dot. */
+  .ui-list-pane-activity {
+    flex: none;
+    align-self: center;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ui-list-pane-activity--working::before,
+  .ui-list-pane-activity--new::before {
+    content: "";
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .ui-list-pane-activity--working::before {
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    animation: ui-list-pane-activity-spin 0.9s linear infinite;
+  }
+  .ui-list-pane-activity--new::before { background: var(--accent); }
+  @keyframes ui-list-pane-activity-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-list-pane-activity--working::before { animation: none; }
+  }
+  /* Forced colours drop background colours, so the dot is drawn in a system colour. */
+  @media (forced-colors: active) {
+    .ui-list-pane-activity--new::before { background: CanvasText; forced-color-adjust: none; }
+    .ui-list-pane-activity--working::before {
+      border-color: CanvasText;
+      border-top-color: transparent;
+      forced-color-adjust: none;
+    }
+  }
   /* Row actions (M25 F4 L1, DD5): a sibling icon button after the row in its
      <li>, laid over the row's right end. display:none at rest (never
      visibility/opacity: a hidden action must not be a Tab stop, and a shown
@@ -849,7 +888,7 @@
   .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-time,
   .ui-list-pane-list > li.ui-list-pane-has-action:hover .ui-list-pane-count,
   .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-count { opacity: 0; }
-  /* Armed by App.confirmDelete (.confirm-delete on the <li>, its
+  /* Armed by App.ui.confirm (.confirm-delete on the <li>, its
      [data-confirm-title] label swapped): the danger ink, the action shown. */
   .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row { border-color: var(--status-danger); }
   .ui-list-pane:not(.ui-list-pane-styled) .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row {
@@ -1028,7 +1067,14 @@
     border-color: var(--accent);
   }
   .ui-search-list-lead { display: inline-flex; flex: none; }
-  .ui-search-list-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+  /* A9 (M31 F6 L03b): the label is the identifier and keeps its width until the meta has
+     given up its room. The text column takes its content width (flex-basis auto) and can
+     still shrink; contain: inline-size keeps a long description from adding to that intrinsic
+     width (it ellipsizes inside the column). The meta carries a shrink factor of 1000, so when
+     a row is too narrow it absorbs the whole shortfall (down to its 64px floor) before the text
+     column, and with it the label's own ellipsis, gives up anything. */
+  .ui-search-list-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+  .ui-search-list-text > .ui-search-list-description { contain: inline-size; }
   .ui-search-list-label {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1045,12 +1091,31 @@
   }
   .ui-search-list-meta {
     margin-left: auto;
-    flex-shrink: 0;
+    flex: 0 1000 auto;
+    min-width: 64px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: var(--font-size-caption);
     white-space: nowrap;
     color: var(--fg-muted);
   }
   .ui-search-list-meta-mono { font-family: var(--font-family-mono); }
+  /* variant: 'chooser' (M31 F6 L03b): the look of a list inside an App.ui.modal chooser,
+     which the agent picker's area rules used to draw: no gap, the field in a 0 20px 12px
+     band with a large (body-lg) input, the list under a hairline padded 0 12px 12px, the empty
+     state under the same hairline. No ancestor is involved (the dialog lives under <body>).
+     The old picker rule also said `height: 40px`, which never applied: .field-input is
+     `flex: 1` in the column .field-group, whose basis ignores `height` (measured 34px before
+     and after), so the variant keeps the size the picker really had and drops the dead line. */
+  .ui-search-list--chooser { gap: 0; }
+  .ui-search-list--chooser .ui-search-list-field { padding: 0 20px 12px; }
+  .ui-search-list--chooser .ui-search-list-field .field-input { font-size: var(--font-size-body-lg); }
+  .ui-search-list--chooser .ui-search-list-listbox {
+    padding: 0 12px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .ui-search-list--chooser .ui-search-list-empty { border-top: 1px solid var(--border); }
   .ui-search-list-row[aria-selected="true"] .ui-search-list-meta { color: var(--fg-secondary); }
   /* The inline variant (M31 F4 L04d, DD4): a list embedded in a page. A capped
      listbox, a mono description, a 16px accent lead (the chosen check, or an
@@ -1112,7 +1177,7 @@
      state — agent deletion lives in the editor's Danger Zone (F5 leg 05). */
 
   /* === App.ui.confirm (M31 F1 L4): the armed look and the lapse cue ===
-     Two-step confirm (alias App.confirmDelete) adds .confirm-delete to the
+     Two-step confirm (App.ui.confirm) adds .confirm-delete to the
      armed control. One armed style serves every button: solid danger fill,
      semibold label. The selector list carries :hover and :focus-visible at
      (0,2,1) so no variant's own hover rule (.btn-outlined-primary:hover,
@@ -1132,7 +1197,7 @@
      `revert()` itself, since revert() also runs as the revertFn callers
      invoke on transport failure and (system-page.js's credential rotation)
      on SUCCESS; decorating revert() would mislabel a successful commit as
-     lapsed. Cleared unconditionally on the control's next confirmDelete
+     lapsed. Cleared unconditionally on the control's next App.ui.confirm
      call (arm or commit alike). Element-shape-agnostic on purpose — the 13
      call sites arm a <button>, a list-row <li>, or a <summary>,
      and outline works identically on all three with no assumption about
@@ -1223,6 +1288,7 @@
   .tabpanel {
     flex: 1;
     overflow-y: auto;
+    padding: 16px 20px 80px; /* the agent editor's panel padding (M31 F6 L03b) */
   }
   /* panelPadding: 'none' (M31 F4 L04d): the hosting page owns the inset and
      the one scroller. */
@@ -1329,30 +1395,12 @@
     white-space: nowrap;
   }
 
-  /* === Test result span (canonical connectivity-test indicator) === */
-  /* Used by the General tab's Test button (F5 leg 03) and admin's provider
-     editor (F6 leg 03). The `.admin-pf-test-ok` / `.admin-pf-test-fail`
-     migration landed in F6 leg 03. */
-  .test-result {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: 8px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-  .test-result-ok { color: var(--status-success); }
-  .test-result-fail { color: var(--status-danger); }
-  .test-result-warning { color: var(--status-warning); }
-  .test-result-pending { color: var(--fg-secondary); }
-
   /* === App.ui.status (M31 F1 L5): the LED and the status line ===
      .ui-status is the line (body-sm, muted); .indicator-led is the LED.
      10px flat round status dot. Color is never the only signal — every
      LED is paired with a text label (see accessibility contract below).
      Use directly as `<span class="indicator-led indicator-led--success">`,
-     or rely on the `.test-result-*` retrofit below which renders the LED
-     as a ::before pseudo on every existing connection-test result.
+     (App.ui.status renders it for the connection-test results).
 
      Accessibility contract (F2 Leg 2, A.9):
        - When adjacent visible text fully conveys the LED's state (e.g.,
@@ -1387,28 +1435,6 @@
   .ui-status--tone[data-state="danger"] .ui-status-text { color: var(--status-danger); }
   .ui-status--tone[data-state="warning"] .ui-status-text { color: var(--status-warning); }
 
-  /* Retrofit: .test-result-* gets the LED dot via ::before so existing
-     connection-test consumers (provider editor, agent editor) pick it up
-     without JS markup changes. The flex+gap on `.test-result` (above)
-     positions the LED before the text. */
-  .test-result-ok::before,
-  .test-result-fail::before,
-  .test-result-warning::before,
-  .test-result-pending::before {
-    content: "";
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    margin-right: 6px;
-    vertical-align: middle;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .test-result-ok::before { background-color: var(--status-success); }
-  .test-result-fail::before { background-color: var(--status-danger); }
-  .test-result-warning::before { background-color: var(--status-warning); }
-  .test-result-pending::before { background-color: var(--fg-muted); }
-
   /* === Save / Cancel button (disabled-SSoT pattern) === */
   /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
      from .area-studio .save-btn in F6 leg 03; consumed by both studio's
@@ -1419,20 +1445,9 @@
      variant (B14); the old opacity transition is dropped with the opacity. */
   .save-btn[disabled] { cursor: not-allowed; }
 
-  /* === Back button (icon + text) === */
-  .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .back-btn svg { width: 14px; height: 14px; }
-
-  /* Refresh button — icon + text affordance, sized like .back-btn / .test-provider-btn.
-     Composed onto .btn-outlined-primary for color/border. Used by admin's
-     provider-models panel header (basic-list + Ollama lifecycle). */
-  .refresh-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .refresh-btn svg { width: 14px; height: 14px; }
-  .refresh-btn:disabled { color: var(--btn-disabled-fg); border-color: var(--btn-disabled-border); cursor: not-allowed; }
-
   /* === Delete button (App.ui.dangerZone's .delete-btn; armed state is App.ui.confirm's) === */
   /* Delete-btn — area-agnostic; cosmetics from .btn-muted-destructive.
-     The armed look (.confirm-delete) is set by App.confirmDelete
+     The armed look (.confirm-delete) is set by App.ui.confirm
      (chat session items, studio agent editor, provider editor — 3 consumers
      post-F6 leg 04). 3-second revert + accessibility behavior owned by the
      helper at ui/confirm.js. The capital-D 'Confirm Delete?' label is
@@ -1448,13 +1463,12 @@
      agent-editor + admin's provider-editor). Sibling-adjacent rule provides
      the section divider; admin's editor uses three sections (Connection /
      Models / Danger Zone). */
-  .editor-section { padding: 12px 0; }
-  /* inset: 'none' (App.ui.section, M31 F4 L04a). !important stays (kept at the flight review):
-     the one remaining areas-layer rule, `.area-studio .editor-section { padding: 0 20px }` in
-     studio.css, sits in a LATER cascade layer, so no specificity here can beat it (tried:
-     the :is() pattern fails under .area-studio); Flight 5 deletes that rule and this
-     !important with it. */
-  .editor-section--flush { padding-left: 0 !important; padding-right: 0 !important; }
+  /* The default section carries the 20px side inset the studio editors always had (M31 F6
+     L03b: the `.area-studio .editor-section` area rule is gone). inset: 'none'
+     (App.ui.section, M31 F4 L04a) drops it; the later rule at equal specificity wins, so no
+     !important is needed now that no areas-layer rule competes. */
+  .editor-section { padding: 12px 20px; }
+  .editor-section--flush { padding-left: 0; padding-right: 0; }
   .editor-section + .editor-section { border-top: 1px solid var(--border); padding-top: 16px; }
   /* One rule per section boundary (M25 F6 L4, D2): a section that opens with a
      section title already draws that title's rule, so the divider goes. A
@@ -1640,41 +1654,23 @@
   .markdown-code-wrap {
     position: relative;
   }
+  /* The button's own look is the library icon button (App.ui.copyButton, size sm);
+     this keeps only placement and the quiet-at-rest reveal. The reveal opacity is a
+     visibility affordance, not a disabled state. */
   .markdown-copy-btn {
     position: absolute;
     top: 8px;
     right: 8px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 4px 6px;
-    color: var(--fg-muted);
-    cursor: pointer;
     /* M17 F4 L03: always-visible-but-quiet (F3 CTA lesson — no hover-reveal-only
-       affordance). Resting opacity keeps the copy control visible/findable at
-       rest; wrap-hover / focus-within / the button's own hover+focus lift it to full.
-       The button is keyboard-reachable (a real <button> in the DOM) regardless. */
+       affordance). Wrap-hover / focus-within / the button's own hover+focus lift it. */
     opacity: 0.6;
-    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    transition: opacity 0.15s;
   }
   .markdown-code-wrap:hover .markdown-copy-btn,
-  .markdown-code-wrap:focus-within .markdown-copy-btn {
-    opacity: 1;
-  }
-  .markdown-copy-btn:hover {
-    opacity: 1;
-    color: var(--fg);
-    border-color: var(--accent);
-  }
+  .markdown-code-wrap:focus-within .markdown-copy-btn,
+  .markdown-copy-btn:hover,
   .markdown-copy-btn:focus-visible {
     opacity: 1;
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .markdown-copy-btn svg {
-    width: 14px;
-    height: 14px;
-    display: block;
   }
 
   /* === Modal dialog (F5 leg 04) ===
@@ -1789,6 +1785,7 @@
   }
   /* A footer item pushed to the end (the picker's "Enter to start"): pass the
      footer as a DocumentFragment so its items are the row's flex children. */
+  .modal-dialog-footer { display: flex; }
   .modal-dialog-footer-end { margin-left: auto; }
 
   /* === Jump-to palette (M25 F4 L7, DD10; reference spec 9) ===
@@ -1869,6 +1866,9 @@
     z-index: 10;
     box-shadow: var(--shadow-modal);
   }
+  /* reserveHeaderEnd (M31 F6 L03b): in overlay mode the header keeps clear the room for a 32px
+     toggle placed over it (16px + 32px + 8px). */
+  .ui-drawer--overlay.ui-drawer--reserve-end .ui-drawer-header { padding-right: 56px; }
   .ui-drawer-header {
     height: 48px;
     flex-shrink: 0;
@@ -1930,13 +1930,11 @@
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-normal);
     white-space: nowrap;
+    flex-shrink: 0; /* M31 F6 L03b: a badge never gives up its text to a neighbour */
   }
   .badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
   .badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
   .badge--anthropic-plan-token { background: var(--badge-anthropic-plan-token); color: var(--badge-ink-anthropic-plan-token); }
-  .badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
-  .badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
-  .badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
   .badge--local { background: var(--badge-local); color: var(--badge-ink-local); }
   .badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
   .badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
@@ -1944,19 +1942,7 @@
   .badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
   .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
   .badge--remote { background: var(--badge-remote); color: var(--badge-ink-remote); }
-  .badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
-  .badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
-  .badge--approved {
-    background: var(--surface-elevated);
-    color: var(--fg);
-    box-shadow: inset 0 0 0 1px var(--status-success);
-  }
-  .badge--dismissed {
-    background: var(--surface-elevated);
-    color: var(--fg-secondary);
-    box-shadow: inset 0 0 0 1px var(--border);
-  }
   /* A text-less 8px disc in a kind's fill (reference spec section 6.1: the
      agents list's provider dot, an item.lead). Decorative: always aria-hidden,
      with the meaning carried in text (the row's accessible name). --none is a
@@ -2213,7 +2199,7 @@
   /* === App.ui.chipList (M31 F2 L4) === */
   /* Copied from the .area-admin / .area-studio chip-list rules in admin.css,
      which stay as recorded debt until Flight 3 migrates their consumers. The
-     remove button is quieter than the legacy .chip-remove (canvas, approved):
+     remove button is quieter than the retired chat remove glyph (canvas, approved):
      --fg-secondary at rest, --status-danger on hover and focus. */
   .chip-list-editor {
     flex: 1;
@@ -2386,7 +2372,7 @@
      box-shadows are dropped, so state must ride on borders and system colours. */
   @media (forced-colors: active) {
     .btn-outlined-primary:disabled, .btn-filled-primary:disabled, .btn-ghost:disabled,
-    .btn-muted-destructive:disabled, .refresh-btn:disabled, .ui-progress-cancel:disabled {
+    .btn-muted-destructive:disabled, .ui-progress-cancel:disabled {
       color: GrayText; border-color: GrayText;
     }
     .ui-radio-option:has(.ui-radio-input:checked),
@@ -2583,42 +2569,278 @@
   .ui-disclosure-summary.confirm-delete .ui-disclosure-actions svg {
     color: var(--status-danger);
   }
+
+  /* M27 F3 L2: the warning-triangle flag on an untrusted note (App.ui.noteFlag),
+     shared by the chat agent panel and the Rules and notes tab. */
+  .note-flag {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    color: var(--status-warning);
+  }
+  .note-flag svg { width: 14px; height: 14px; }
+
+  /* Sortie 04 DD1: the MCP sign-in link block (App.ui.consentLink, ui/consent-link.js),
+     shared by chat and the studio, so unscoped. */
+  .consent-link { display: flex; flex-direction: column; gap: var(--space-2); max-width: 560px; }
+  .consent-link-row { display: flex; align-items: center; gap: var(--space-2); }
+  .consent-link-row .consent-link-url {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  a.consent-link-open:any-link { color: var(--fg); text-decoration: none; white-space: nowrap; }
+  .consent-link-copy { white-space: nowrap; }
+  .consent-link-help {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: var(--line-height-normal);
+  }
+
+  /* === Chat controls (M31 F6 L04): notice, thinking, trace, telemetry, message, composer ===
+     Each rule reproduces the matching chat.css rule under a ui-* name, without the
+     .area-chat ancestor. The old rules stay live until legs 05a-05c move the consumers.
+     Cascade notes for those legs (the old look leaned on .area-chat specificity):
+       - .msg.user.msg-from-peer beat .msg.user by source order; here the peer and api looks
+         are compound selectors (.ui-message--user.ui-message--peer), so order does not matter.
+       - the tool-in-trace override (.trace-shell .trace-body .msg.tool, 0,5,0) beat
+         .msg.msg-operator-only (0,3,0); here .ui-trace-body .ui-message--tool (0,2,0) ties
+         .ui-message.ui-message--operator-only (0,2,0) and is declared AFTER it to win.
+       - the markdown descendant rules are scoped under .ui-message--assistant only.
+       - no @layer areas rule targets an element inside .area-chat, so none beats these. */
+
+  /* --- Notice --- */
+  .ui-notice {
+    align-self: center;
+    max-width: 100%;
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-normal);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .ui-notice--muted { color: var(--fg-tertiary); }
+  .ui-notice--danger { color: var(--status-danger); }
+
+  /* --- Message --- */
+  .ui-message {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .ui-message--user { align-self: flex-end; background: var(--accent-translucent); color: var(--fg); border: 1px solid var(--accent-translucent-hover); }
+  .ui-message--user.ui-message--api { background: var(--accent-api); color: var(--fg-on-accent); border-color: var(--accent-api); }
+  .ui-message--user.ui-message--peer { align-self: flex-start; background: var(--surface-elevated); color: var(--fg); box-shadow: none; border: 1px solid var(--border); }
+  .ui-message--assistant { align-self: flex-start; max-width: min(100%, 46rem); background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .ui-message--tool { align-self: flex-start; background: var(--surface-tool); font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-tool-msg); border-left: 3px solid var(--accent); }
+  .ui-message--tool.ui-message--error { border-left-color: var(--status-danger); }
+  .ui-message--system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
+  .ui-message.ui-message--operator-only { border-left: 3px solid var(--border-strong); padding-left: 8px; }
+  .ui-message-operator-label { display: inline-block; margin-right: 4px; font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); }
+  .ui-message-operator-chip { display: inline-block; margin-right: 6px; white-space: normal; }
+  /* max-width 100% (the old rule said none): a tool message with an unbreakable word wraps inside the trace. */
+  .ui-trace-body .ui-message--tool { max-width: 100%; border-left: 2px solid var(--accent); }
+  .ui-trace-body .ui-message--tool.ui-message--error { border-left-color: var(--status-danger); }
+  /* The markdown inside an assistant bubble. */
+  .ui-message--assistant > :first-child { margin-top: 0; }
+  .ui-message--assistant > :last-child { margin-bottom: 0; }
+  .ui-message--assistant p { margin: 0.5em 0; }
+  .ui-message--assistant ul,
+  .ui-message--assistant ol { margin: 0.5em 0; padding-left: 1.5em; }
+  /* A1: reply headings on the type tokens, capped at the app's page heading (h1 18px). */
+  .ui-message--assistant h1,
+  .ui-message--assistant h2,
+  .ui-message--assistant h3,
+  .ui-message--assistant h4,
+  .ui-message--assistant h5,
+  .ui-message--assistant h6 { margin: 0.5em 0; font-weight: var(--font-weight-semibold); line-height: var(--line-height-normal); }
+  .ui-message--assistant h1 { font-size: var(--font-size-h1); }
+  .ui-message--assistant h2 { font-size: var(--font-size-h2); }
+  .ui-message--assistant h3 { font-size: var(--font-size-h3); }
+  .ui-message--assistant h4 { font-size: var(--font-size-body-lg); }
+  .ui-message--assistant h5,
+  .ui-message--assistant h6 { font-size: var(--font-size-body); }
+  /* Task list item (0.4): the disabled checkbox stands in for the bullet. */
+  .ui-message--assistant li.markdown-task { list-style: none; margin-left: -1.25em; }
+  .ui-message--assistant li.markdown-task > input[type="checkbox"] { margin: 0 0.5em 0 0; vertical-align: middle; }
+  .ui-message--assistant pre {
+    margin: 0.5em 0;
+    background: var(--code-block-bg);
+    color: var(--code-block-fg);
+    border: 1px solid var(--border);
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+  }
+  .ui-message--assistant code {
+    background: var(--surface-elevated);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--font-family-mono);
+    font-size: 0.92em;
+  }
+  .ui-message--assistant pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    color: inherit;
+    font-family: var(--font-family-mono);
+    font-size: 0.9em;
+  }
+  .ui-message--assistant blockquote { margin: 0.5em 0; padding-left: 1em; border-left: 3px solid var(--border); }
+  /* B1: a wide table scrolls sideways inside its own focusable wrapper, not the bubble. */
+  .ui-message--assistant .markdown-table-wrap { margin: 0.5em 0; max-width: 100%; overflow-x: auto; }
+  .ui-message--assistant .markdown-table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-message--assistant table { margin: 0; border-collapse: collapse; white-space: normal; font-size: 0.95em; width: auto; }
+  .ui-message--assistant th,
+  .ui-message--assistant td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
+  .ui-message--assistant thead th { background: var(--surface); font-weight: var(--font-weight-semibold); }
+  .ui-message--assistant tbody tr:nth-child(even) { background: var(--surface-translucent); }
+  /* Attribution. */
+  .ui-message-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
+  .ui-message-attribution--you { align-self: flex-end; }
+  .ui-message-attribution--agent { align-self: flex-start; }
+  .ui-message-attribution--peer { align-self: flex-start; }
+  .ui-message-attribution-ts { color: var(--fg-faint); }
+  .ui-message-attribution-copy { vertical-align: middle; margin-left: 4px; }
+  .ui-message-attribution .ui-copy { display: inline-flex; vertical-align: middle; margin-left: 4px; }
+  .ui-message-attribution .ui-copy .ui-message-attribution-copy { margin-left: 0; }
+
+  /* --- Thinking (composes the message look) --- */
+  .ui-thinking .ui-thinking-dots { display: inline; font-size: var(--font-size-body-lg); }
+  .ui-message--assistant.ui-thinking { color: var(--fg-muted); font-style: italic; }
+  .ui-message--assistant.ui-thinking .ui-thinking-text { letter-spacing: 0.02em; }
+
+  /* --- Trace (and the thinking disclosure) --- */
+  .ui-trace { align-self: flex-start; max-width: 85%; margin-top: -4px; font-size: var(--font-size-body-sm); }
+  .ui-trace-details { border-left: 2px solid var(--border); padding-left: 8px; }
+  .ui-trace-toggle,
+  .ui-trace-thinking-toggle {
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.02em;
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ui-trace-toggle::-webkit-details-marker,
+  .ui-trace-thinking-toggle::-webkit-details-marker { display: none; }
+  .ui-trace-toggle::before,
+  .ui-trace-thinking-toggle::before {
+    content: '\25b8';
+    transition: transform 0.15s ease;
+    color: var(--accent);
+    font-size: 0.85em;
+  }
+  .ui-trace-details[open] > .ui-trace-toggle::before,
+  .ui-trace-thinking[open] > .ui-trace-thinking-toggle::before { transform: rotate(90deg); }
+  .ui-trace--icon-chevron .ui-trace-toggle::before { content: none; }
+  .ui-trace-chevron { display: inline-flex; color: var(--accent); transition: transform 0.15s ease; }
+  .ui-trace-chevron svg { width: 14px; height: 14px; }
+  .ui-trace-details[open] > .ui-trace-toggle .ui-trace-chevron { transform: rotate(90deg); }
+  .ui-trace-toggle:focus-visible,
+  .ui-trace-thinking-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .ui-trace-count { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .ui-trace-body { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 4px 0; }
+  .ui-trace-thinking {
+    align-self: flex-start;
+    max-width: 85%;
+    margin-top: -4px;
+    font-size: var(--font-size-body-sm);
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+  }
+  .ui-trace-thinking-body {
+    padding: 8px 0 4px 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--fg-muted);
+  }
+
+  /* --- Telemetry (resting opacity 0.7 is pinned by the contrast audit) --- */
+  .ui-telemetry { display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; }
+  .ui-telemetry:hover,
+  .ui-telemetry:focus-within { opacity: 1; }
+  .ui-telemetry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .ui-telemetry-summary { display: flex; align-items: center; gap: 8px; }
+  .ui-telemetry-details { display: flex; align-items: center; gap: 10px; max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; transition: max-width 0.3s ease, opacity 0.25s ease; }
+  .ui-telemetry:hover .ui-telemetry-details,
+  .ui-telemetry:focus-within .ui-telemetry-details { max-width: 280px; opacity: 1; }
+  .ui-telemetry-label { color: var(--fg-faint); }
+  .ui-telemetry-value { color: var(--fg-secondary); font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; }
+  .ui-telemetry-pct--warn { color: var(--status-warning); }
+  .ui-telemetry-pct--crit { color: var(--status-danger); }
+  .ui-telemetry-bar-wrap { width: 64px; height: 6px; background: var(--surface); border-radius: 3px; border: 1px solid var(--border); overflow: hidden; }
+  .ui-telemetry-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s ease, background-color 0.3s ease; width: 0%; }
+  .ui-telemetry-bar--warn { background: var(--status-warning); }
+  .ui-telemetry-bar--crit { background: var(--status-danger); }
+
+  /* --- Composer --- */
+  .ui-composer { flex-shrink: 0; padding: 12px 24px 20px; }
+  .ui-composer-telemetry { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .ui-composer-attachments { flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
+  .ui-composer-queued { margin: 0 0 8px; }
+  .ui-composer-queued:not(:has(.chip)) { margin: 0; }
+  .ui-composer-queued .chip { margin: 0 6px 4px 0; }
+  .ui-composer-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+  }
+  .ui-composer-box:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-composer-box--blocked { background: var(--bg); border-style: dashed; }
+  .ui-composer-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    resize: none;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+    max-height: calc(var(--line-height-normal) * 8em);
+    overflow-y: auto;
+    outline: none;
+  }
+  .ui-composer-input::placeholder { color: var(--fg-muted); opacity: 1; }
+  .ui-composer-input:disabled { cursor: not-allowed; }
+  .ui-composer-box--blocked .ui-composer-input:disabled { color: var(--fg-muted); }
+  .ui-composer-toolbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ui-composer-model {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  .ui-composer-toolbar .ui-composer-send { margin-left: auto; }
+  .ui-composer-toolbar .ui-composer-stop { margin-left: auto; }
+  .ui-composer-toolbar .ui-composer-stop:not([hidden]) + .ui-composer-send { margin-left: 0; }
 }
 
 @layer utilities {
   /* Utility classes — !important wins over @layer components / @layer areas
      by design (utility is the explicit override). */
   .is-hidden { display: none !important; }
-  .u-flex { display: flex !important; }
-  .u-block { display: block !important; }
-}
-
-/* M27 F3 L2: the warning-triangle flag on an untrusted note (App.noteFlag),
-   shared by the chat agent panel and the Rules and notes tab. */
-.note-flag {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: var(--status-warning);
-}
-.note-flag svg { width: 14px; height: 14px; }
-
-/* Sortie 04 DD1: the MCP sign-in link block (App.ui.consentLink, ui/consent-link.js),
-   shared by chat and the studio, so unscoped. */
-.consent-link { display: flex; flex-direction: column; gap: var(--space-2); max-width: 560px; }
-.consent-link-row { display: flex; align-items: center; gap: var(--space-2); }
-.consent-link-row .consent-link-url {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-caption);
-  color: var(--fg-secondary);
-}
-a.consent-link-open:any-link { color: var(--fg); text-decoration: none; white-space: nowrap; }
-.consent-link-copy { white-space: nowrap; }
-.consent-link-help {
-  margin: 0;
-  font-size: var(--font-size-body-sm);
-  color: var(--fg-secondary);
-  line-height: var(--line-height-normal);
 }

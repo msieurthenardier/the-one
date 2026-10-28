@@ -75,9 +75,10 @@ _KEY_PARAMETRIC = re.compile(r"""(['"])data-testid\1\s*:\s*'([^"'\n]+)'\s*\+""")
 # object). ``\b`` excludes ``rowtestid:``; the negative lookahead stops a
 # parametric site (``'prefix-' + x``) also matching as a literal. The char
 # class ``[^"'\n]`` anchors to the value's own quotes. M25 F4 L1: a factory
-# option named ``<lower>Testid`` (``App.ui.searchList``'s ``inputTestid`` and
-# ``rowTestid``) is a test id key too, so its values stay registry-visible.
-_TESTID_NAME = r"(?:testid|[a-z]+Testid)"
+# option named ``<camel>Testid`` (``App.ui.searchList``'s ``inputTestid`` and ``rowTestid``;
+# widened from ``<lower>`` in M31 F6 L05a for the composer's ``fileInputTestid``) is a test id
+# key too, so its values stay registry-visible.
+_TESTID_NAME = r"(?:testid|[a-z][A-Za-z]*Testid)"
 _PROP_LITERAL = re.compile(r"\b" + _TESTID_NAME + r":\s*'([^\"'\n]+)'(?!\s*\+)")
 
 # Library parametric: ``testid: 'prefix-' + ...`` (``\s*`` spans a newline).
@@ -448,12 +449,8 @@ _STRING_LITERAL_ARG = re.compile(r"^('(?:[^'\\\n]|\\.)*'|\"(?:[^\"\\\n]|\\.)*\")
 # Whitespace-normalized (single spaces). Any OTHER non-literal arg — notably a
 # variable or a call carrying untrusted data — fails the guard.
 #
-# Allowance note (not a sink, do NOT "tighten" into a failure): injectIcon()
-# uses `new DOMParser().parseFromString(svg, 'image/svg+xml')` to turn a
-# TRUSTED icons.js SVG string (App.icon('copy'), a literal name) into DOM
-# without an inner-HTML assignment. That is the sanctioned no-inner-HTML path
-# for the copy-button glyph; it parses no untrusted data and is not scanned by
-# this guard (createElement + the three sink tokens are the only surfaces).
+# Note: the former injectIcon() DOMParser seam is gone (the code-block copy button is
+# App.ui.copyButton since M31 F6 L07), so markdown.js has no parse-from-string path at all.
 MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED: set[str] = {
     "'h' + lvl",
     "ordered ? 'ol' : 'ul'",

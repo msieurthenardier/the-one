@@ -650,39 +650,8 @@ RENDER_CASES: list[tuple[str, str]] = [
         "[wiki](https://en.wikipedia.org/wiki/Foo_(bar))",
         '<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)" rel="noopener noreferrer" target="_blank">wiki</a></p>',  # noqa: E501
     ),
-    # --- code blocks (with + without lang) ---
-    # Note: the SVG icon is parsed via DOMParser then re-serialized when read
-    # back as host.innerHTML — self-closing tags (`<rect/>`) come out as
-    # paired tags (`<rect></rect>`). This is HTML-tree serialization, not a
-    # library bug; the asserted strings match the post-serialization form.
-    (
-        "```js\nconsole.log(1);\n```",
-        '<div class="markdown-code-wrap">'
-        '<pre><code class="language-js">console.log(1);\n</code></pre>'
-        '<button class="markdown-copy-btn" aria-label="Copy code" type="button">'
-        '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" '
-        'width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>'
-        '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>'
-        "</svg>"
-        "</button>"
-        "</div>",
-    ),
-    (
-        "```\nplain\n```",
-        '<div class="markdown-code-wrap">'
-        "<pre><code>plain\n</code></pre>"
-        '<button class="markdown-copy-btn" aria-label="Copy code" type="button">'
-        '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" '
-        'width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-        '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>'
-        '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>'
-        "</svg>"
-        "</button>"
-        "</div>",
-    ),
+    # --- code blocks: exact markup is asserted structurally in
+    # test_markdown_code_block_structure (the copy button is the library control) ---
     # --- blockquote ---
     ("> quoted", "<blockquote><p>quoted</p></blockquote>"),
     # --- lists ---
@@ -705,24 +674,27 @@ RENDER_CASES: list[tuple[str, str]] = [
     # --- GFM tables ---
     (
         "| a | b |\n| - | - |\n| 1 | 2 |",
+        '<div class="markdown-table-wrap" tabindex="0" role="region" aria-label="Table">'
         "<table>"
         "<thead><tr><th>a</th><th>b</th></tr></thead>"
         "<tbody><tr><td>1</td><td>2</td></tr></tbody>"
-        "</table>",
+        "</table></div>",
     ),
     (
         "Name | Age\n---- | ---\nAlice | 30",
+        '<div class="markdown-table-wrap" tabindex="0" role="region" aria-label="Table">'
         "<table>"
         "<thead><tr><th>Name</th><th>Age</th></tr></thead>"
         "<tbody><tr><td>Alice</td><td>30</td></tr></tbody>"
-        "</table>",
+        "</table></div>",
     ),
     (
         "| **Key** | Value |\n| --- | --- |\n| `id` | 42 |",
+        '<div class="markdown-table-wrap" tabindex="0" role="region" aria-label="Table">'
         "<table>"
         "<thead><tr><th><strong>Key</strong></th><th>Value</th></tr></thead>"
         "<tbody><tr><td><code>id</code></td><td>42</td></tr></tbody>"
-        "</table>",
+        "</table></div>",
     ),
 ]
 
@@ -747,7 +719,7 @@ def test_markdown_render_html(page_with_app: Page, source: str, expected: str) -
 
 @pytest.mark.browser
 def test_markdown_nodetype_constants(page_with_app: Page) -> None:
-    """``App.markdown.NodeType`` exposes all 18 frozen string constants."""
+    """``App.markdown.NodeType`` exposes all 20 frozen string constants."""
     nt = page_with_app.evaluate("() => Object.assign({}, App.markdown.NodeType)")
     assert nt == {
         "DOCUMENT": "document",
@@ -765,6 +737,7 @@ def test_markdown_nodetype_constants(page_with_app: Page) -> None:
         "TEXT": "text",
         "EMPHASIS": "emphasis",
         "STRONG": "strong",
+        "STRIKE": "strike",
         "INLINE_CODE": "inlineCode",
         "LINK": "link",
         "SOFT_BREAK": "softBreak",
@@ -806,9 +779,37 @@ def test_markdown_render_empty_returns_empty_fragment(page_with_app: Page) -> No
 
 
 @pytest.mark.browser
+def test_markdown_code_block_structure(page_with_app: Page) -> None:
+    """wrap > pre > code, one named library copy button, no inline SVG string or flash."""
+    result = page_with_app.evaluate(
+        """() => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render('```js\\nconsole.log(1);\\n```'));
+            const wrap = host.firstElementChild;
+            const btns = wrap.querySelectorAll('button.markdown-copy-btn[aria-label="Copy code"]');
+            return {
+                wrapClass: wrap.className,
+                kids: Array.from(wrap.children).map((c) => c.tagName.toLowerCase()),
+                preKid: wrap.querySelector(':scope > pre > code').className,
+                buttons: btns.length,
+                libButton: btns[0].classList.contains('btn-icon'),
+                svgs: btns[0].querySelectorAll('svg').length,
+                hasUiCopy: wrap.querySelector('.ui-copy') !== null,
+            };
+        }"""
+    )
+    assert result["wrapClass"] == "markdown-code-wrap"
+    assert result["kids"][0] == "pre"
+    assert result["preKid"] == "language-js"
+    assert result["buttons"] == 1
+    assert result["libButton"] is True
+    assert result["svgs"] == 1
+    assert result["hasUiCopy"] is False
+
+
+@pytest.mark.browser
 def test_markdown_copy_button(page_with_app: Page) -> None:
-    """Clicking the copy button writes the code text to the clipboard and flashes 'Copied!'."""
-    # Module-scoped page accumulates DOM across cases — clean before the e2e.
+    """Clicking Copy code writes the code text to the clipboard and confirms in place."""
     page_with_app.evaluate("() => { document.body.innerHTML = ''; }")
     page_with_app.evaluate(
         """() => {
@@ -819,14 +820,73 @@ def test_markdown_copy_button(page_with_app: Page) -> None:
         }"""
     )
     btn = page_with_app.locator("#md-test-host .markdown-copy-btn")
-    # M17 F4 L03: the copy button is now always-visible-but-quiet (resting
-    # opacity 0.6, no hover-reveal-only). force=True is retained as a harmless
-    # belt-and-braces against any transitional opacity during the click.
+    assert btn.get_attribute("aria-label") == "Copy code"
+    before = btn.inner_html()
     btn.click(force=True)
-    flash = page_with_app.locator(".app-flash").filter(has_text="Copied!")
-    flash.wait_for(state="visible", timeout=2000)
+    page_with_app.wait_for_function(
+        "() => document.querySelector('#md-test-host .markdown-copy-btn')"
+        ".getAttribute('aria-label') === 'Copied'",
+        timeout=2000,
+    )
+    assert btn.inner_html() != before  # the check icon replaced the copy icon
+    status = page_with_app.locator("#md-test-host .markdown-code-wrap [role=status]")
+    assert status.text_content() == "Copied"
     clipboard_text = page_with_app.evaluate("() => navigator.clipboard.readText()")
     assert clipboard_text == "console.log(1);\n"
+    assert page_with_app.locator(".app-flash").count() == 0
+
+
+@pytest.mark.browser
+def test_markdown_copy_status_is_per_block_without_the_option_and_shared_with_it(
+    page_with_app: Page,
+) -> None:
+    """No option: a role=status span in the wrap. With copyLiveEl: that node, no span."""
+    page_with_app.evaluate("() => { document.body.innerHTML = ''; }")
+    result = page_with_app.evaluate(
+        """async () => {
+            const md = '```\\nx\\n```';
+            const plain = document.createElement('div');
+            plain.appendChild(App.markdown.render(md));
+            const shared = document.createElement('div');
+            shared.setAttribute('role', 'status');
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(md, {copyLiveEl: shared}));
+            document.body.append(plain, shared, host);
+            Object.defineProperty(navigator, 'clipboard', {configurable: true,
+              value: {writeText: () => Promise.resolve()}});
+            host.querySelector('.markdown-copy-btn').click();
+            await new Promise(r => setTimeout(r, 200));
+            return {
+                plainSpans: plain.querySelectorAll('.markdown-code-wrap [role=status]').length,
+                sharedSpans: host.querySelectorAll('[role=status]').length,
+                sharedText: shared.textContent,
+            };
+        }"""
+    )
+    assert result == {"plainSpans": 1, "sharedSpans": 0, "sharedText": "Copied"}
+
+
+@pytest.mark.browser
+def test_markdown_code_wrap_adds_no_height(page_with_app: Page) -> None:
+    """The copy control adds no inline box: the wrap is exactly the pre's height."""
+    page_with_app.evaluate("() => { document.body.innerHTML = ''; }")
+    result = page_with_app.evaluate(
+        """() => {
+            const host = document.createElement('div');
+            host.className = 'ui-message ui-message--assistant';
+            host.appendChild(App.markdown.render('```\\nx\\n```'));
+            document.body.appendChild(host);
+            const wrap = host.querySelector('.markdown-code-wrap');
+            const pre = wrap.querySelector('pre');
+            // The pre's vertical margins collapse through the wrap, so the wrap's own
+            // height is exactly the pre's box when nothing else flows inside it.
+            return {
+                wrap: wrap.getBoundingClientRect().height,
+                pre: pre.getBoundingClientRect().height,
+            };
+        }"""
+    )
+    assert abs(result["wrap"] - result["pre"]) < 1.0
 
 
 # ── XSS regression suite (M17 F4 L1) ──────────────────────────────────────────
@@ -924,9 +984,15 @@ def test_markdown_safehref_boundary(page_with_app: Page, source: str, expected_h
 
 @pytest.mark.browser
 def test_markdown_codefence_lang_is_class_attr_only(page_with_app: Page) -> None:
-    """A code-fence language tag carrying an attribute-injection payload lands
-    ONLY as the ``<code>`` class value (via setAttribute — no HTML parse), never
-    as a real event-handler attribute or a new element."""
+    """A code-fence info string carrying an attribute-injection payload yields NO
+    language class and no extra attribute or element.
+
+    Rewritten in M31 F6 L07 (it used to pin ``cls == 'language-js" onmouseover=...'``,
+    the whole info string landing in the class): the language is now the first
+    whitespace token, kept only if it matches ``^[A-Za-z0-9_+#.-]{1,32}$``. The
+    token here is ``js"`` (a quote), so it is rejected and the block has no class.
+    A clean ``js`` still gives ``language-js`` (test_markdown_fence_class_is_one_valid_token).
+    """
     source = '```js" onmouseover="alert(1)\ncode line\n```'
     result = page_with_app.evaluate(
         """(src) => {
@@ -941,11 +1007,9 @@ def test_markdown_codefence_lang_is_class_attr_only(page_with_app: Page) -> None
         }""",
         source,
     )
-    # The injection is trapped inside the single class value; setAttribute does
-    # not parse it into a second attribute.
-    assert result["attrNames"] == ["class"]
+    assert result["attrNames"] == []
     assert result["onmouseover"] is None
-    assert result["cls"] == 'language-js" onmouseover="alert(1)'
+    assert result["cls"] is None
 
 
 # Streaming-boundary prefixes: what commitSafeBoundary() feeds to
@@ -960,6 +1024,9 @@ STREAMING_BOUNDARY_PREFIXES: list[str] = [
     "[x](javascript:alert(1))",  # complete -> safeHref strips to '#'
     "before\n\n[x](javascript:alert(1))",  # committed after a blank-line boundary
     "[x](java\nscript:alert(1))",  # scheme split across a stream chunk
+    "see https://exa",  # URL cut mid-host -> at most a safe http(s) link
+    "see https://example.com/a\\",  # cut right at a backslash -> stops before it
+    "~~half",  # unclosed strike -> literal text
 ]
 
 
@@ -981,3 +1048,373 @@ def test_markdown_streaming_boundary_no_live_unsafe_href(page_with_app: Page, pr
         assert not collapsed.startswith(("javascript:", "data:", "vbscript:")), (
             f"live unsafe href {href!r} emitted for streaming prefix {prefix!r}"
         )
+
+
+# ── Leg 07 hardening: negative tests (written before the fixes) ───────────────
+#
+# Each helper renders into a detached host so nothing leaks between cases.
+
+_RENDER_JS = """(src) => {
+    const host = document.createElement('div');
+    host.appendChild(App.markdown.render(src));
+    return host.innerHTML;
+}"""
+
+_ANCHORS_JS = """(src) => {
+    const host = document.createElement('div');
+    host.appendChild(App.markdown.render(src));
+    return Array.from(host.querySelectorAll('a')).map((a) => ({
+        href: a.getAttribute('href'),
+        text: a.textContent,
+        nested: a.querySelector('a') !== null,
+    }));
+}"""
+
+# Backslash / whitespace / control paths: a browser URL parser treats `\` as `/` and drops
+# tab/LF, so `/\evil` and `/<TAB>/evil` resolve to `//evil` (off-site). All collapse to '#'.
+# Marked FAILING TODAY (they pass the old `^/` allow-list).
+SAFEHREF_PATH_ESCAPE_CASES: list[tuple[str, str]] = [
+    ("[x](/\\evil.example)", "#"),
+    ("[x](/\t/evil.example)", "#"),
+    ("[x](/\n/evil.example)", "#"),
+    ("[x](\\/evil.example)", "#"),
+    ("[x](https://ok.com/a\\b)", "#"),
+    ("[x](https://ok.com/a\x01b)", "#"),
+    ("[x](#a\x7fb)", "#"),
+    ("[x](mailto:a@b.com\t)", "#"),
+]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("source, expected_href", SAFEHREF_PATH_ESCAPE_CASES)
+def test_markdown_safehref_rejects_backslash_and_controls(
+    page_with_app: Page, source: str, expected_href: str
+) -> None:
+    anchors = page_with_app.evaluate(_ANCHORS_JS, source)
+    assert len(anchors) == 1, f"expected one anchor for {source!r}"
+    assert anchors[0]["href"] == expected_href
+
+
+# Regression guards (pass today): attribute injection and encoded schemes.
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source",
+    [
+        '[x](https://ok.com" onclick="alert(1))',
+        "[x](javascript&colon;alert(1))",
+        "[x](%6Aavascript:alert(1))",
+        "[x](&#106;avascript:alert(1))",
+    ],
+)
+def test_markdown_href_injection_and_encoded_schemes_regression(
+    page_with_app: Page, source: str
+) -> None:
+    result = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            const a = host.querySelector('a');
+            return {
+                attrs: Array.from(a.attributes).map((x) => x.name).sort(),
+                href: a.getAttribute('href'),
+            };
+        }""",
+        source,
+    )
+    assert result["attrs"] in (["href", "rel"], ["href", "rel", "target"])
+    assert not result["href"].lower().startswith(("javascript", "%6a"))
+
+
+@pytest.mark.browser
+def test_markdown_same_origin_links_survive(page_with_app: Page) -> None:
+    """A same-origin /path and #anchor still render as links with the original href."""
+    anchors = page_with_app.evaluate(_ANCHORS_JS, "[a](/about?x=1#y) [b](#top)")
+    assert [a["href"] for a in anchors] == ["/about?x=1#y", "#top"]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source, cls",
+    [
+        ("```js is-hidden\nx\n```", "language-js"),
+        ("```js\tis-hidden\nx\n```", "language-js"),
+        ("```c++\nx\n```", "language-c++"),
+        ("```objective-c\nx\n```", "language-objective-c"),
+        ("```c#\nx\n```", "language-c#"),
+        ('```js" onmouseover="alert(1)\nx\n```', None),
+        ("```" + "a" * 33 + "\nx\n```", None),
+        ("```\nx\n```", None),
+    ],
+)
+def test_markdown_fence_class_is_one_valid_token(
+    page_with_app: Page, source: str, cls: str | None
+) -> None:
+    """The fence info string yields at most one class token, from a strict charset."""
+    result = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            const code = host.querySelector('pre code');
+            return {
+                cls: code.getAttribute('class'),
+                attrs: Array.from(code.attributes).map((a) => a.name),
+            };
+        }""",
+        source,
+    )
+    assert result["cls"] == cls
+    assert result["attrs"] == (["class"] if cls else [])
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source",
+    [
+        "[a [b](https://x.example)](https://y.example)",
+        "[https://a.example](https://a.example)",
+        "[see https://a.example now](https://b.example)",
+    ],
+)
+def test_markdown_no_nested_anchors(page_with_app: Page, source: str) -> None:
+    """A link label never holds another anchor (nested links and label autolinks)."""
+    anchors = page_with_app.evaluate(_ANCHORS_JS, source)
+    assert len(anchors) == 1
+    assert anchors[0]["nested"] is False
+
+
+# Autolink negatives (0.4).
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source",
+    [
+        "javascript:alert(1)",
+        "see javascript:alert(1) here",
+        "http://",
+        "https:// alone",
+        "foohttp://x.example",
+        "`https://a.example`",
+        "```\nhttps://a.example\n```",
+        "mailto:a@b.com and www.example.com",
+        "https://a.example/a\\b",
+        "https://a.example/a\x01b",
+    ],
+)
+def test_markdown_autolink_negatives(page_with_app: Page, source: str) -> None:
+    """Text that must not become a link, and an autolink never emits href="#"."""
+    anchors = page_with_app.evaluate(_ANCHORS_JS, source)
+    for a in anchors:
+        assert a["href"] != "#", f"autolink emitted '#' for {source!r}"
+    assert anchors == [] or source.startswith("https://a.example/a")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source, href, text, tail",
+    [
+        ("see (https://a.example/x).", "https://a.example/x", "https://a.example/x", ")."),
+        ("go https://a.example/x, then", "https://a.example/x", "https://a.example/x", ", then"),
+        ("https://a.example/x?", "https://a.example/x", "https://a.example/x", "?"),
+        (
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            "",
+        ),
+        (
+            "(https://en.wikipedia.org/wiki/Foo_(bar))",
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            "https://en.wikipedia.org/wiki/Foo_(bar)",
+            ")",
+        ),
+        ("HTTP://A.EXAMPLE/x_y_z", "HTTP://A.EXAMPLE/x_y_z", "HTTP://A.EXAMPLE/x_y_z", ""),
+    ],
+)
+def test_markdown_autolink_positive(
+    page_with_app: Page, source: str, href: str, text: str, tail: str
+) -> None:
+    anchors = page_with_app.evaluate(_ANCHORS_JS, source)
+    assert len(anchors) == 1, source
+    assert anchors[0]["href"] == href
+    assert anchors[0]["text"] == text
+    html = page_with_app.evaluate(_RENDER_JS, source)
+    assert html.endswith(tail + "</p>")
+
+
+@pytest.mark.browser
+def test_markdown_autolink_contexts(page_with_app: Page) -> None:
+    """Autolinks work in headings, table cells, emphasis and list items."""
+    for src in [
+        "# see https://a.example",
+        "| a | b |\n| - | - |\n| https://a.example | x |",
+        "**see https://a.example**",
+        "- https://a.example",
+    ]:
+        anchors = page_with_app.evaluate(_ANCHORS_JS, src)
+        assert [a["href"] for a in anchors] == ["https://a.example"], src
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("~~gone~~", "<p><del>gone</del></p>"),
+        ("a ~~b~~ c", "<p>a <del>b</del> c</p>"),
+        ("**~~x~~**", "<p><strong><del>x</del></strong></p>"),
+        ("~~**x**~~", "<p><del><strong>x</strong></del></p>"),
+        ("~single~", "<p>~single~</p>"),
+        ("~~unclosed", "<p>~~unclosed</p>"),
+        ("`~~code~~`", "<p><code>~~code~~</code></p>"),
+        ("~~a `~~` b~~", "<p><del>a <code>~~</code> b</del></p>"),
+        ("~~a\nb~~", "<p><del>a b</del></p>"),
+        ("~~a\n\nb~~", "<p>~~a</p><p>b~~</p>"),
+    ],
+)
+def test_markdown_strikethrough(page_with_app: Page, source: str, expected: str) -> None:
+    assert page_with_app.evaluate(_RENDER_JS, source) == expected
+
+
+@pytest.mark.browser
+def test_markdown_strike_ast(page_with_app: Page) -> None:
+    ast = page_with_app.evaluate("() => App.markdown.parse('~~x~~')")
+    assert ast == _doc(_para({"type": "strike", "children": [_text("x")]}))
+
+
+@pytest.mark.browser
+def test_markdown_link_label_with_code_bracket(page_with_app: Page) -> None:
+    anchors = page_with_app.evaluate(_ANCHORS_JS, "[`]`](https://a.example)")
+    assert len(anchors) == 1
+    assert anchors[0]["text"] == "]"
+
+
+# ── Task lists (0.4) ──────────────────────────────────────────────────────────
+
+
+def _task_summary(page: Page, src: str) -> list[dict]:
+    return page.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            return Array.from(host.querySelectorAll('li')).map((li) => {
+                const box = li.querySelector(':scope > input');
+                return {
+                    cls: li.getAttribute('class'),
+                    box: box ? {
+                        type: box.type, disabled: box.disabled, checked: box.checked,
+                        name: box.getAttribute('aria-label'),
+                    } : null,
+                    links: li.querySelectorAll(':scope > a').length,
+                };
+            });
+        }""",
+        src,
+    )
+
+
+@pytest.mark.browser
+def test_markdown_task_list_ast(page_with_app: Page) -> None:
+    ast = page_with_app.evaluate("() => App.markdown.parse('- [ ] a\\n- [x] b\\n- [X] c\\n- d')")
+    items = ast["children"][0]["children"]
+    assert [i.get("meta") for i in items] == [
+        {"task": {"checked": False}},
+        {"task": {"checked": True}},
+        {"task": {"checked": True}},
+        None,
+    ]
+    assert items[0]["children"] == [_para(_text("a"))]
+
+
+@pytest.mark.browser
+def test_markdown_task_list_render(page_with_app: Page) -> None:
+    rows = _task_summary(page_with_app, "- [ ] write\n- [x] **ship** it\n- plain")
+    assert rows[0] == {
+        "cls": "markdown-task",
+        "box": {"type": "checkbox", "disabled": True, "checked": False, "name": "write"},
+        "links": 0,
+    }
+    assert rows[1]["box"] == {
+        "type": "checkbox",
+        "disabled": True,
+        "checked": True,
+        "name": "ship it",
+    }
+    assert rows[2] == {"cls": None, "box": None, "links": 0}
+
+
+@pytest.mark.browser
+def test_markdown_task_list_edge_cases(page_with_app: Page) -> None:
+    # A link at the start of an item is not a task.
+    rows = _task_summary(page_with_app, "- [x](https://a.example)")
+    assert rows[0]["box"] is None and rows[0]["links"] == 1
+    # No whitespace after the marker: not a task.
+    assert _task_summary(page_with_app, "- [x]done")[0]["box"] is None
+    # Ordered lists behave the same.
+    rows = _task_summary(page_with_app, "1. [x] one\n2. [ ] two")
+    assert [r["box"]["checked"] for r in rows] == [True, False]
+    # Empty label: still a task, named "Task".
+    rows = _task_summary(page_with_app, "- [ ]")
+    assert rows[0]["box"]["name"] == "Task"
+    # The name is the first paragraph only, never a nested sublist.
+    rows = _task_summary(page_with_app, "- [ ] parent\n  - child")
+    assert rows[0]["box"]["name"] == "parent"
+    assert rows[1]["box"] is None
+
+
+# ── A1 (reply headings) and B1 (wide tables) ──────────────────────────────────
+
+
+@pytest.mark.browser
+def test_markdown_reply_headings_on_type_tokens(page_with_app: Page) -> None:
+    """h1..h6 in an assistant bubble: h1 <= --font-size-h1 (18px), and h1 >= ... >= h6."""
+    page_with_app.evaluate("() => { document.body.innerHTML = ''; }")
+    sizes = page_with_app.evaluate(
+        """() => {
+            const host = document.createElement('div');
+            host.className = 'ui-message ui-message--assistant';
+            host.appendChild(App.markdown.render(
+                '# a\\n\\n## b\\n\\n### c\\n\\n#### d\\n\\n##### e\\n\\n###### f'));
+            document.body.appendChild(host);
+            const cap = parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--font-size-h1'));
+            return {
+                cap,
+                sizes: ['h1','h2','h3','h4','h5','h6'].map(
+                    (t) => parseFloat(getComputedStyle(host.querySelector(t)).fontSize)),
+            };
+        }"""
+    )
+    s = sizes["sizes"]
+    assert s[0] <= (sizes["cap"] or 18)
+    assert s == sorted(s, reverse=True)
+    assert s[0] == 18 and s[1] == 16 and s[2] == 15
+
+
+@pytest.mark.browser
+def test_markdown_wide_table_scrolls_in_wrapper(page_with_app: Page) -> None:
+    """A wide table scrolls inside its focusable region; the bubble does not overflow."""
+    page_with_app.evaluate("() => { document.body.innerHTML = ''; }")
+    long_cell = "x" * 160
+    src = f"| a | b |\n| - | - |\n| {long_cell} | {long_cell} |"
+    result = page_with_app.evaluate(
+        """(src) => {
+            const col = document.createElement('div');
+            col.style.cssText = 'display:flex;flex-direction:column;width:420px';
+            const host = document.createElement('div');
+            host.className = 'ui-message ui-message--assistant';
+            host.appendChild(App.markdown.render(src));
+            col.appendChild(host);
+            document.body.appendChild(col);
+            const w = host.querySelector('.markdown-table-wrap');
+            return {
+                wrapScroll: w.scrollWidth, wrapClient: w.clientWidth,
+                bubbleScroll: host.scrollWidth, bubbleClient: host.clientWidth,
+                overflowX: getComputedStyle(w).overflowX,
+                role: w.getAttribute('role'), label: w.getAttribute('aria-label'),
+                tabindex: w.getAttribute('tabindex'),
+            };
+        }""",
+        src,
+    )
+    assert result["wrapScroll"] > result["wrapClient"]
+    assert result["bubbleScroll"] <= result["bubbleClient"]
+    assert result["overflowX"] == "auto"
+    assert (result["role"], result["label"], result["tabindex"]) == ("region", "Table", "0")

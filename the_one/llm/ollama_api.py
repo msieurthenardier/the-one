@@ -85,6 +85,17 @@ def _parse_parameter_size(raw: str | None) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+def server_phrase(label: str = "Ollama", *, sentence_start: bool = False) -> str:
+    """How an error names the server: "Ollama", or "the OpenAI-compatible server".
+
+    ``label`` is the provider type's label (``PROVIDER_TYPE_LABELS``); Ollama keeps its
+    historical wording. ``sentence_start`` capitalises the article for "... returned N".
+    """
+    if label == "Ollama":
+        return "Ollama"
+    return ("The" if sentence_start else "the") + f" {label} server"
+
+
 async def list_models(base_url: str) -> list[dict[str, Any]]:
     """Return a list of locally available models from ``/api/tags``.
 
@@ -128,6 +139,7 @@ async def show_model(
     base_url: str,
     model: str,
     headers: dict[str, str] | None = None,
+    server_label: str = "Ollama",
 ) -> dict[str, Any]:
     """Return model details from ``/api/show``.
 
@@ -142,12 +154,18 @@ async def show_model(
             resp.raise_for_status()
             data = resp.json()
     except httpx.ConnectError as exc:
-        raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
+        raise ConnectionError(
+            f"Cannot connect to {server_phrase(server_label)} at {url}: {exc}"
+        ) from exc
     except httpx.TimeoutException as exc:
-        raise ConnectionError(f"Timeout connecting to Ollama at {url}: {exc}") from exc
+        raise ConnectionError(
+            f"Timeout connecting to {server_phrase(server_label)} at {url}: {exc}"
+        ) from exc
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            raise ValueError(f"Model '{model}' not found on Ollama at {url}") from exc
+            raise ValueError(
+                f"Model '{model}' not found on {server_phrase(server_label)} at {url}"
+            ) from exc
         raise
 
     details = data.get("details", {})
@@ -229,6 +247,7 @@ async def chat_stream(
     provider_url: str,
     body: dict[str, Any],
     headers: dict[str, str] | None = None,
+    server_label: str = "Ollama",
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream ``/v1/chat/completions`` SSE chunks from an OpenAI-compatible Ollama endpoint.
 
@@ -249,8 +268,8 @@ async def chat_stream(
                     body_bytes = await resp.aread()
                     detail = body_bytes.decode("utf-8", errors="replace").strip()
                     raise httpx.HTTPStatusError(
-                        f"Ollama returned {resp.status_code} from "
-                        f"{resp.request.url}: {detail or '(empty body)'}",
+                        f"{server_phrase(server_label, sentence_start=True)} returned "
+                        f"{resp.status_code} from {resp.request.url}: {detail or '(empty body)'}",
                         request=resp.request,
                         response=resp,
                     )
@@ -267,9 +286,13 @@ async def chat_stream(
                     except ValueError:
                         continue
     except httpx.ConnectError as exc:
-        raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
+        raise ConnectionError(
+            f"Cannot connect to {server_phrase(server_label)} at {url}: {exc}"
+        ) from exc
     except httpx.TimeoutException as exc:
-        raise ConnectionError(f"Timeout streaming from Ollama at {url}: {exc}") from exc
+        raise ConnectionError(
+            f"Timeout streaming from {server_phrase(server_label)} at {url}: {exc}"
+        ) from exc
 
 
 async def chat_native(

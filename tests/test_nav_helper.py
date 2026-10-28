@@ -443,7 +443,7 @@ RETIRED_SELECTORS = (
     "chat-welcome-list",
     "session-agent-badge",
     # Flight 4 leg 5: the composer's old single-line row (its controls keep
-    # their testids inside the new ``.composer-box``).
+    # their testids inside the new ``.ui-composer-box``).
     "input-area",
     # Model-providers sortie (DD6, DD8): the Library start page's testids were
     # renamed (`library-start`, `library-start-{group}-add`) when `#library`
@@ -574,8 +574,8 @@ def test_retired_selector_guard_self_test():
     row = "def test_a(page):\n    page.locator('.area-chat .input-area')\n"
     composer = (
         "def test_a(page):\n"
-        "    page.locator('.composer-box [data-testid=\"chat-input\"]')\n"
-        "    page.locator('[data-testid=\"chat-send-btn\"], .composer-telemetry')\n"
+        "    page.locator('.ui-composer-box [data-testid=\"chat-input\"]')\n"
+        "    page.locator('[data-testid=\"chat-send-btn\"], .ui-composer-telemetry')\n"
     )
     for src in (header_btn, option, listbox, badge, row):
         assert len(find_retired_selectors(src, "t.py")) == 1, src

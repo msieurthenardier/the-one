@@ -234,7 +234,7 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     delete_btn.click()  # arm
     # Wait for the armed state before the second click — App.confirmDelete
     # is a two-step in-place control (ui/confirm.js), and the existing
-    # MCP-source precedent (test_flow_studio_mcp_editor.py) asserts this
+    # MCP-source precedent (test_flow_studio_mcp_editor_create.py) asserts this
     # transition explicitly before committing, rather than firing both
     # clicks back-to-back.
     expect(delete_btn).to_have_class(_re.compile(r"\bconfirm-delete\b"))

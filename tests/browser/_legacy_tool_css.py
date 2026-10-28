@@ -11,6 +11,12 @@ under ``.area-studio`` as they were. Not product CSS: never loaded by the app.
 M31 F5 L07: the legacy iOS switch rules (``.tool-enable-switch*``) were deleted from
 studio.css with the switch's last user; the copy below is kept because the legacy tile
 fixture in test_ui_tile_contract.py still carries that switch's markup.
+
+M31 F6 L09a (deliberate edit of a frozen fixture, D6): the seven orphaned badge kinds
+(approved, connectors, dismissed, execution, filesystem, time, web) were deleted from the product,
+so their tokens no longer exist. The per-category ``.admin-tool-badge--<kind>`` rules here are
+retargeted to the one kept kind the tile contract uses, ``ollama``; only the kind changed, never
+the comparison logic.
 """
 
 LEGACY_TOOLS_CSS = """<style>
@@ -336,14 +342,7 @@ LEGACY_ADMIN_TILE_CSS = """<style>
   text-transform: none;
   letter-spacing: normal;
 }
-.area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
-.area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
-.area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
-/* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
-   for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
-.area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
-/* time (M28) — the current_time tool's category. */
-.area-admin .admin-tool-badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
+.area-admin .admin-tool-badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
 .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
 /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */

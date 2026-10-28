@@ -45,7 +45,10 @@
   //   control owns one and el is a span.ui-copy holding both).
   //   The test id option is placed on the button itself (supplied by the caller).
   //   Feedback: the visible text reads "Copied" for 2s ("Copy failed" on failure);
-  //   the accessible name follows the visible text. iconOnly changes aria-label.
+  //   the accessible name follows the visible text. iconOnly changes aria-label, swaps
+  //   the icon to the check (App.ui.button.setIcon) and sets title "Copied" for the 2s
+  //   (a failure sets title "Copy failed", the icon stays copy); the revert restores the
+  //   copy icon and removes the title.
   App.ui.copyButton = function (opts) {
     opts = opts || {};
     var label = opts.label || 'Copy';
@@ -61,13 +64,19 @@
     var root = opts.liveEl ? btn : util.el('span', { className: 'ui-copy' }, [btn, live]);
     var timer = null;
 
-    function show(words) {
-      if (iconOnly) btn.setAttribute('aria-label', words);
-      else btn.textContent = words;
+    function show(words, state) {
+      if (iconOnly) {
+        btn.setAttribute('aria-label', words);
+        App.ui.button.setIcon(btn, state === 'done' ? 'check' : 'copy');
+        if (state) btn.setAttribute('title', words);
+        else btn.removeAttribute('title');
+      } else {
+        btn.textContent = words;
+      }
     }
     function finish(ok) {
       var visible = ok ? 'Copied' : 'Copy failed';
-      show(visible);
+      show(visible, ok ? 'done' : 'failed');
       live.textContent = '';
       live.textContent = ok ? doneText : failText;
       if (timer) clearTimeout(timer);

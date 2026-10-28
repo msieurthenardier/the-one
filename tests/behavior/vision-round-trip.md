@@ -77,8 +77,8 @@ the chat header `data-testid="chat-header"`; message composer
 `data-testid="chat-input"`; attach control `data-testid="chat-attach-btn"` / hidden file input
 `data-testid="chat-image-input"`; staged-image row `data-testid="chat-attachments"` with chicklets
 `data-testid="chat-attachment"`; send button `data-testid="chat-send-btn"`; rendered turns
-`data-testid="message"` with `.user` / `.assistant` role classes (the composer is built by
-`the_one/interfaces/web/static/js/areas/chat/composer.js`, the turns by `areas/chat.js`).
+`data-testid="message"` with `.user` / `.assistant` role classes (the composer is `App.ui.composer`, built in
+`the_one/interfaces/web/static/js/areas/chat.js`; the chicklet is `App.ui.chip` with a thumbnail and a library remove button named "Remove staged image N").
 
 ## Out of Scope
 

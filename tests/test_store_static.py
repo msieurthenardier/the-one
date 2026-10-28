@@ -30,6 +30,13 @@ def _src(rel: str) -> str:
     return (JS / rel).read_text()
 
 
+def _chat_src() -> str:
+    """areas/chat.js plus every areas/chat/*.js module (M31 F6 L02 split chat.js)."""
+    parts = [_src("areas/chat.js")]
+    parts += [p.read_text() for p in sorted((JS / "areas/chat").glob("*.js"))]
+    return "\n".join(parts)
+
+
 def _studio_src() -> str:
     """studio.js plus every studio module, for text-presence pins that may span
     files (M31 F2 L02a: studio.js is being split into modules; a pin that asserts
@@ -103,15 +110,19 @@ def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
     session_list handler and the sessions_changed branch each prime
     'sessions' through it exactly once and render nothing themselves."""
     src = _src("areas/chat.js")
+    sock = _src("areas/chat/socket.js")
     helper = _window(src, "function toSessionSummary(s) {", "\n    }")
     for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
         assert re.search(rf"\b{key}: s\.{key}\b", helper), key
-    assert helper.count(": s.") == 6
+    # M31 F6 L10b: the two activity fields (busy is coerced, turn_seq passes through).
+    assert re.search(r"\bturn_seq: s\.turn_seq\b", helper)
+    assert re.search(r"\bbusy: !!s\.busy\b", helper)
+    assert helper.count(": s.") == 7
     handler = _window(
-        src, "if (data.type === 'session_list') {", "if (data.type === 'session_joined')"
+        sock, "if (data.type === 'session_list') {", "if (data.type === 'session_joined')"
     )
     pushed = _window(
-        src, "if (data.type === 'sessions_changed') {", "if (data.type === 'session_list')"
+        sock, "if (data.type === 'sessions_changed') {", "if (data.type === 'session_list')"
     )
     for branch in (handler, pushed):
         assert branch.count("App.store.prime('sessions'") == 1
@@ -128,7 +139,7 @@ def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
         "openConversation",
     ):
         assert needle not in pushed, needle
-    assert "renderList(" not in src and "renderSessionList" not in src
+    assert "renderList(" not in _chat_src() and "renderSessionList" not in _chat_src()
 
 
 def test_chats_list_renders_from_the_sessions_subscription_only() -> None:
@@ -149,15 +160,18 @@ def test_chats_list_renders_from_the_sessions_subscription_only() -> None:
     # The subscription is never released (the area lives as long as the page):
     # its unsubscribe handle is not even kept.
     assert "= App.store.subscribe('sessions'" not in src
+    flow = _src("areas/chat/session-flow.js")  # M31 F6 L02: the transitions moved here
     for fn in (
         "function renderPending()",  # pick
         "function openConversation(id)",  # open
         "function resetToIdle()",  # idle
         "function clearConversation()",  # idle (delete, join_failed)
     ):
-        assert "renderChatsList();" in _window(src, fn, "\n    }\n"), fn
+        assert "renderChatsList();" in _window(flow, fn, "\n    }\n"), fn
     joined = _window(
-        src, "if (data.type === 'session_joined') {", "if (data.type === 'start_failed')"
+        _src("areas/chat/socket.js"),
+        "if (data.type === 'session_joined') {",
+        "if (data.type === 'start_failed')",
     )
     assert "renderChatsList();" in joined  # joined, and the starting -> joined swap
 
@@ -168,14 +182,16 @@ def test_start_session_join_refreshes_the_list_that_primes_sessions() -> None:
     renders -- ends with the list refresh, whose session_list reply primes
     'sessions'. No path between the gate and the refresh skips it except a
     start failure (nothing was created)."""
-    src = _src("areas/chat.js")
+    src = _src("areas/chat/session-flow.js")
     handler = _window(
-        src, "if (data.type === 'session_joined') {", "if (data.type === 'start_failed')"
+        _src("areas/chat/socket.js"),
+        "if (data.type === 'session_joined') {",
+        "if (data.type === 'start_failed')",
     )
     accepted = handler[handler.index("if (joinedEff.startFailed)") :]
     body = accepted[accepted.index("return;") + len("return;") :]
     # Only renderHistory is conditional on the start (AC2).
-    assert "if (joinedEff.render === 'history') renderHistory(" in body
+    assert "if (joinedEff.render === 'history') ctx.transcript.renderHistory(" in body
     assert "refreshSessionList();" in body, "the accepted session_joined path must refresh"
     assert body.index("refreshSessionList();") < body.rindex("return;")
     assert body.count("return;") == 1  # the refresh is on the one exit
@@ -208,7 +224,7 @@ def test_retired_new_session_path_is_gone_from_the_client() -> None:
     ]
     assert hits == []
     # ...and the replacement is in place.
-    chat = _src("areas/chat.js")
+    chat = _src("areas/chat/session-flow.js")
     assert "action: 'start_session'" in _src("areas/chat/session-state.js")
     assert "sendBinding({ action: 'leave' })" in chat
 
@@ -471,3 +487,15 @@ def test_studio_shell_keeps_its_public_surface() -> None:
     ):
         assert needle in src, needle
     assert len(src.splitlines()) <= 800  # the leg 03 shell budget
+
+
+def test_held_message_drain_is_text_only() -> None:
+    """A drained held message never takes the draft's staged images (L10 review fix)."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parent.parent
+        / "the_one/interfaces/web/static/js/areas/chat/send.js"
+    ).read_text(encoding="utf-8")
+    body = src.split("function sendHeld", 1)[1].split("function setInputValue", 1)[0]
+    assert "performSend(held, { textOnly: true })" in body

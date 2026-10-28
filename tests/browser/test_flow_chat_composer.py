@@ -1,14 +1,14 @@
 """The chat composer and the telemetry row (M25 F4 leg 5; flight DD6, A25;
 reference spec 5.3, 5.5; squawk 0110).
 
-The composer (``areas/chat/composer.js``) is a wrapper (``.composer``,
+The composer (``App.ui.composer``, built in ``areas/chat.js``) is a wrapper (``.ui-composer``,
 ``padding: 12px 24px 20px``) holding, top to bottom:
 
-* the telemetry row (``.composer-telemetry``): the token readout, flex-end,
+* the telemetry row (``.ui-composer-telemetry``): the token readout, flex-end,
   shown only while a chat is joined (none in the new-chat state, 5.4);
 * the staged-image chicklets (``chat-attachments``) and the queued-message
   region (``pending-queued-region``), filling the wrapper's content width;
-* the box (``.composer-box``): fills the wrapper's content width (no 760px cap
+* the box (``.ui-composer-box``): fills the wrapper's content width (no 760px cap
   since M25 F6 L4b, DD16), ``--surface``, a hairline,
   ``--radius-md``; the focus ring is its ``:focus-within`` (A25). Inside, a
   visually hidden ``<label for>`` "Message", the ``<textarea rows=2>``
@@ -35,9 +35,9 @@ from playwright.sync_api import Page, expect
 pytestmark = pytest.mark.browser
 
 INPUT = '[data-testid="chat-input"]'
-BOX = ".area-chat .composer-box"
-ROW = ".area-chat .composer-telemetry"
-USER_MSG = '[data-testid="message"].user'
+BOX = ".area-chat .ui-composer-box"
+ROW = ".area-chat .ui-composer-telemetry"
+USER_MSG = _chats.message_sel("user")
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -48,7 +48,7 @@ _PNG_1X1 = base64.b64decode(
 _TOKEN = """([prop, value]) => {
   const p = document.createElement('span');
   p.style[prop] = value;
-  document.querySelector('.area-chat .composer-box').appendChild(p);
+  document.querySelector('.area-chat .ui-composer-box').appendChild(p);
   const v = getComputedStyle(p)[prop];
   p.remove();
   return v;
@@ -85,7 +85,7 @@ def _prime_session_agent(page: Page, sid: str, agent: str | None) -> None:
 def _ring(page: Page) -> dict[str, str]:
     return page.evaluate(
         """() => {
-          const cs = getComputedStyle(document.querySelector('.area-chat .composer-box'));
+          const cs = getComputedStyle(document.querySelector('.area-chat .ui-composer-box'));
           return {style: cs.outlineStyle, width: cs.outlineWidth, color: cs.outlineColor,
                   offset: cs.outlineOffset,
                   input: getComputedStyle(
@@ -108,11 +108,11 @@ def test_composer_box_textarea_and_toolbar_match_the_board(
 
     shape = page.evaluate(
         """() => {
-          const wrap = document.querySelector('.area-chat .composer');
-          const box = wrap.querySelector('.composer-box');
+          const wrap = document.querySelector('.area-chat .ui-composer');
+          const box = wrap.querySelector('.ui-composer-box');
           const input = box.querySelector('[data-testid="chat-input"]');
           const label = box.querySelector('label');
-          const bar = box.querySelector('.composer-toolbar');
+          const bar = box.querySelector('.ui-composer-toolbar');
           const cs = (el) => getComputedStyle(el);
           const kid = (c) => c.getAttribute('data-testid') || c.className;
           const wr = wrap.getBoundingClientRect(), br = box.getBoundingClientRect();
@@ -164,13 +164,21 @@ def test_composer_box_textarea_and_toolbar_match_the_board(
     )
     # AC1: the chrome ends in the composer wrapper; it holds the telemetry
     # row, the chicklets and their status, the queued region, then the box.
-    assert shape["chrome"] == ["chat-header", "chat-new-state", "messages", "composer"], shape
+    # (M31 F6 L05a, deliberate: the library composer's class, and the persistent health banner
+    # (collapsed while empty) now sits between the log and the composer.)
+    assert shape["chrome"] == [
+        "chat-header",
+        "chat-new-state",
+        "messages",
+        "banner banner-warning ui-banner chat-health-banner",
+        "ui-composer",
+    ], shape
     assert shape["wrapKids"] == [
-        "composer-telemetry",
+        "ui-composer-telemetry",
         "chat-attachments",
         "chat-attachments-status",
         "pending-queued-region",
-        "composer-box",
+        "ui-composer-box",
     ], shape["wrapKids"]
     assert shape["wrapPad"] == "12px 24px 20px", shape
     box = shape["box"]
@@ -206,7 +214,7 @@ def test_composer_box_textarea_and_toolbar_match_the_board(
         "chat-send-btn",
     ], bar
     attach = shape["attach"]
-    assert attach["cls"] == "btn-ghost btn-sm btn-icon composer-attach", attach
+    assert attach["cls"] == "btn-ghost btn-sm btn-icon ui-composer-attach", attach
     assert attach["type"] == "button" and attach["label"] == "Attach images", attach
     assert attach["text"] == "" and attach["path"] == "m21.44", attach  # paperclip, icon only
     assert attach["w"] == 24 and attach["h"] == 24, attach
@@ -223,9 +231,9 @@ def test_composer_box_textarea_and_toolbar_match_the_board(
     assert model["size"] == "11px", model
     assert model["family"] == _token(page, "fontFamily", "var(--font-family-mono)"), model
     assert model["color"] == _token(page, "color", "var(--fg-muted)"), model
-    assert shape["stop"] == {"cls": "btn-muted-destructive composer-stop", "hidden": True}
+    assert shape["stop"] == {"cls": "btn-muted-destructive ui-composer-stop", "hidden": True}
     send = shape["send"]
-    assert send["cls"] == "btn-filled-primary composer-send" and send["text"] == "Send", send
+    assert send["cls"] == "btn-filled-primary ui-composer-send" and send["text"] == "Send", send
     assert send["svg"] and send["keys"] == "Enter", send
     assert abs(send["right"] - send["barRight"]) < 1, send  # pushed to the end
 
@@ -375,7 +383,7 @@ def test_stop_shows_just_before_send_while_a_turn_runs(app_clean: str, page: Pag
     geo = page.evaluate(
         """() => {
           const r = (s) => document.querySelector(s).getBoundingClientRect();
-          const bar = r('.area-chat .composer-toolbar');
+          const bar = r('.area-chat .ui-composer-toolbar');
           const stop = r('[data-testid="chat-stop-btn"]');
           const send = r('[data-testid="chat-send-btn"]');
           const model = r('[data-testid="chat-model"]');
@@ -385,7 +393,7 @@ def test_stop_shows_just_before_send_while_a_turn_runs(app_clean: str, page: Pag
     )
     assert abs(geo["gap"] - 8) < 1 and abs(geo["end"]) < 1 and geo["afterModel"], geo
     # The turn ends: Stop hides, Send is back at the end.
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     expect(stop).to_be_hidden()
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled()
 
@@ -429,7 +437,7 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
     _nav.goto(page, base, "chats")
     _chats.start_chat(page, agent)
     row = page.locator(ROW)
-    readout = page.locator(".telemetry-overlay")
+    readout = _chats.telemetry(page)
 
     # Pending (the new-chat state): no telemetry.
     expect(row).to_be_hidden()
@@ -444,7 +452,7 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
           el.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true,
                                                          cancelable: true}}));
           return {{state: ({_STATE})(),
-                   hidden: document.querySelector('.area-chat .composer-telemetry').hidden}};
+                   hidden: document.querySelector('.area-chat .ui-composer-telemetry').hidden}};
         }}"""
     )
     assert starting == {"state": "starting", "hidden": True}, starting
@@ -453,13 +461,13 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
     # 24px from the pane's right edge (reference spec 5.3), resting at 0.7.
     _wait_state(page, "joined")
     expect(row).to_be_visible()
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     page.mouse.move(0, 0)
     geo = page.evaluate(
         """() => {
-          const row = document.querySelector('.area-chat .composer-telemetry');
-          const box = document.querySelector('.area-chat .composer-box');
-          const out = row.querySelector('.telemetry-overlay');
+          const row = document.querySelector('.area-chat .ui-composer-telemetry');
+          const box = document.querySelector('.area-chat .ui-composer-box');
+          const out = row.querySelector('[data-testid="chat-telemetry"]');
           const main = document.querySelector('#main-content').getBoundingClientRect();
           const rr = row.getBoundingClientRect(), br = box.getBoundingClientRect();
           const or = out.getBoundingClientRect();
@@ -486,7 +494,7 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
     readout.focus()
     page.wait_for_function(
         "() => parseFloat(getComputedStyle(document.querySelector("
-        "'.telemetry-details')).maxWidth) > 0",
+        "'.ui-telemetry-details')).maxWidth) > 0",
         timeout=2000,
     )
 
@@ -512,7 +520,7 @@ def test_the_box_fills_the_pane_and_meets_the_readout(
     _chats.start_chat(page, agent)
     _chats.send_first(page, "hello")
     _wait_state(page, "joined")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     toggle = page.locator('[data-testid="chat-drawer-toggle"]')
     want = "true" if drawer == "open" else "false"
     if toggle.get_attribute("aria-pressed") != want:
@@ -522,12 +530,12 @@ def test_the_box_fills_the_pane_and_meets_the_readout(
     geo = page.evaluate(
         """() => {
           const q = (s) => document.querySelector(s);
-          const box = q('.area-chat .composer-box').getBoundingClientRect();
-          const out = q('.area-chat .telemetry-overlay').getBoundingClientRect();
-          const wrap = q('.area-chat .composer');
+          const box = q('.area-chat .ui-composer-box').getBoundingClientRect();
+          const out = q('.area-chat [data-testid="chat-telemetry"]').getBoundingClientRect();
+          const wrap = q('.area-chat .ui-composer');
           const cs = getComputedStyle(wrap);
-          const att = q('.area-chat .chat-attachments');
-          const reg = q('.area-chat .pending-queued-region');
+          const att = q('[data-testid="chat-attachments"]');
+          const reg = q('[data-testid="pending-queued-region"]');
           return {boxRight: box.right, outRight: out.right, boxLeft: box.left,
                   width: box.width,
                   column: wrap.getBoundingClientRect().width
@@ -565,7 +573,7 @@ def test_staged_images_sit_above_the_box_in_its_column(
         """() => {
           const r = (s) => document.querySelector(s).getBoundingClientRect();
           const a = r('[data-testid="chat-attachments"]');
-          const b = r('.area-chat .composer-box');
+          const b = r('.area-chat .ui-composer-box');
           return {above: a.bottom <= b.top, left: a.left - b.left};
         }"""
     )
@@ -583,7 +591,7 @@ def test_no_unnamed_control_on_chats_with_a_chat_open_in_either_theme(
     _nav.goto(page, app_with_agent.base_url, "chats")
     _chats.start_chat(page, app_with_agent.agent_name)
     _chats.send_first(page, "hello")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     expect(page.locator('[data-testid="chat-image-input"]')).to_have_attribute(
         "aria-label", "Attach images"
     )

@@ -595,7 +595,7 @@ TOOL_DESC = "Reads a file from the local filesystem and returns its contents as 
 
 TOOL_TILE = """(extra) => {
   window.__calls = [];
-  const o = Object.assign({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'filesystem'},
+  const o = Object.assign({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'ollama'},
     description: %s, testid: 'tt-card', dataset: {name: 'read_file'},
     toggle: {label: 'read_file: enabled for all agents', checked: true, testid: 'tt-toggle', dataset: {name: 'read_file'},
       onChange: (v) => window.__calls.push(v)}}, extra || {});
@@ -625,7 +625,7 @@ def test_tool_tile_dom_link_toggle_and_api(engine_page: Page) -> None:
     )
     assert out["root"] == ["listitem", "tt-card", "read_file", True]
     assert out["link"] == ["A", "read_file", "#tools/read_file", None]
-    assert out["badge"][0] == "filesystem" and "badge--filesystem" in out["badge"][1]
+    assert out["badge"][0] == "filesystem" and "badge--ollama" in out["badge"][1]
     assert out["desc"] is True
     assert out["sw"] == [
         "switch",
@@ -679,7 +679,7 @@ def test_tool_tile_setters_and_selected(engine_page: Page) -> None:
 LEGACY_TOOL_TILE = (
     """<div class="@ET@ tool-tile" data-testid="tt-card" data-name="read_file" role="listitem">
   <div class="tile-title-row"><a class="@ET@-name tool-tile-link" href="#tools/read_file">read_file</a>
-    <span class="@ET@-badge admin-tool-badge admin-tool-badge--filesystem">filesystem</span></div>
+    <span class="@ET@-badge admin-tool-badge admin-tool-badge--ollama">filesystem</span></div>
   <span class="@ET@-description">%s</span>
   <label class="tool-enable-switch tool-enable-switch--corner"><input type="checkbox" checked /><span class="tool-enable-switch-track" aria-hidden="true"></span></label></div>"""
     % TOOL_DESC
@@ -690,7 +690,7 @@ TILE_COMPARE_JS = """(args) => {
   const host = document.createElement('div'); host.className = 'area-admin'; host.id = 'cmp'; host.style.width = '320px';
   host.innerHTML = legacyCss + '<div id="legacy-side">' + legacyHtml + '</div>';
   document.getElementById('harness-root').appendChild(host);
-  const t = App.ui.toolTile({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'filesystem'},
+  const t = App.ui.toolTile({name: 'read_file', href: '#tools/read_file', badge: {text: 'filesystem', kind: 'ollama'},
     description: %s, toggle: {label: 'read_file: enabled for all agents', checked: true}});
   let target = host;
   if (standalone) {

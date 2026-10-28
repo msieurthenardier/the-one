@@ -30,8 +30,7 @@ mirrored:
   ``test_design_tokens_a11y.py`` (every fill × its per-badge ink clears
   body AA in both themes), so the fill and ink hexes must live here for
   the audit to read them. ``--badge-ink-*`` is theme-stable; the fills
-  are brand-stable except the tool-badge light-theme fills
-  (filesystem/execution lighter; web darkened for its white ink).
+  are brand-stable (the tool-category kinds were retired at M31 F6 L09a).
 - Geometry/motion tokens (no color content).
 - ``shell_chrome_bg`` (mirrored pre-v3) — the shell chrome was retired
   (neutralized in Leg 1, structure dismantled + tokens deleted in Leg 2b);
@@ -113,13 +112,6 @@ DARK: dict[str, str] = {
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
-    "badge_filesystem": "#008b8b",
-    "badge_execution": "#b8860b",
-    "badge_web": "#c71585",
-    # connectors (squawk 0032) — theme-stable, like the provider badges.
-    "badge_connectors": "#0b5394",
-    # time (M28) — theme-stable.
-    "badge_time": "#2e6b3f",
     "badge_local": "#6f93a8",
     "badge_remote": "#4338ca",
     # per-badge INK (M17 F3 L4) — theme-stable; light fills → dark ink,
@@ -133,11 +125,6 @@ DARK: dict[str, str] = {
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",
-    "badge_ink_filesystem": "#101114",
-    "badge_ink_execution": "#101114",
-    "badge_ink_web": "#ffffff",
-    "badge_ink_connectors": "#ffffff",
-    "badge_ink_time": "#ffffff",
     "badge_ink_local": "#101114",
     "badge_ink_remote": "#ffffff",
 }
@@ -196,9 +183,7 @@ LIGHT: dict[str, str] = {
     # code well — pale zinc + primary ink (16.1:1).
     "code_block_bg": "#f4f4f5",
     "code_block_fg": "#18181b",
-    # provider / tool badge FILLS — providers brand-stable
-    # (same hex as dark); tool fills diverge: filesystem/execution lighter,
-    # web darkened #d63a93 → #cc2d87 so its white ink clears body AA.
+    # provider / transport badge FILLS — brand-stable (same hex as dark).
     "badge_ollama": "#2ecc71",
     "badge_openai_compatible": "#d4a800",
     "badge_openai": "#4a9eff",
@@ -209,13 +194,6 @@ LIGHT: dict[str, str] = {
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
-    "badge_filesystem": "#0e8e8e",
-    "badge_execution": "#c5912a",
-    "badge_web": "#cc2d87",
-    # connectors (squawk 0032) — theme-stable, same hex as dark.
-    "badge_connectors": "#0b5394",
-    # time (M28) — theme-stable.
-    "badge_time": "#2e6b3f",
     "badge_local": "#6f93a8",
     "badge_remote": "#4338ca",
     # per-badge INK (M17 F3 L4) — theme-stable; identical to the dark block.
@@ -228,11 +206,6 @@ LIGHT: dict[str, str] = {
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",
-    "badge_ink_filesystem": "#101114",
-    "badge_ink_execution": "#101114",
-    "badge_ink_web": "#ffffff",
-    "badge_ink_connectors": "#ffffff",
-    "badge_ink_time": "#ffffff",
     "badge_ink_local": "#101114",
     "badge_ink_remote": "#ffffff",
 }

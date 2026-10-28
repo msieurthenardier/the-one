@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-03
 **Updated**: 2026-10-11 (step 5: `#library` is the Library root; model-providers sortie); 2026-10-07 (squawk 0127: wording only, no expectation changed: step 4's description and filter field, step 7's persisted state, step 9's hash samples); 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: the empty-instance branch in Preconditions, step 2's inferred baseline, step 8's true reload, step 9's hash sample); 2026-10-05 (M25 F3: the Agents list, the Library groups; Providers as tiles, leg 7. M25 F4 leg 8: step 1's Jump to control, step 3 re-authored for the Chats list, the chat pane and the empty and guidance states)
-**Last Run**: 2026-10-07-11-51-23 — pass (8/8 judged; step 2 a setup row; M25 F6 mission close, empty instance, start pages re-authored in leg 4c; wording drift fixed by squawk 0127)
+**Last Run**: 2026-10-28-03-02-54 — pass (8/8 judged; step 2 a setup row; M31 F6 close sweep, port 8504, empty instance)
 
 ## Intent
 

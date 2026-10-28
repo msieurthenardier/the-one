@@ -3,7 +3,7 @@
 **Slug**: `chat-roundtrip`
 **Status**: active
 **Created**: 2026-07-04
-**Last Run**: 2026-10-07-11-51-23 — pass (9/9; Light steps 1–6 + Dark steps 3–6; step 4 re-run after an apparatus gap; M25 F6 mission close)
+**Last Run**: 2026-10-28-02-23-17 — pass (9/9; Light steps 1, 3–6 + Dark steps 3–6; M31 F6 close sweep, port 8497)
 **Updated**: 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: step 3 names `GET /api/chat/sessions` as its "nothing is created yet" check, step 4 bounds "tinted" and says when to sample); 2026-10-05 (M25 F4 leg 8: step 3 starts through New chat and the agent picker, as a pending chat; steps 4 and 6 name the session the first send creates; the Dark variant runs in its own fresh context)
 
 ## Intent
@@ -12,8 +12,8 @@ Verify the chat *interaction* on the redesigned v3 chat surface end-to-end again
 
 ## Preconditions
 
-- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). Default `http://127.0.0.1:8485` for the M17 mission dev instance (the operator's packaged app owns 8484 — never target it). The orchestrator states the actual base URL at run time and it applies to every step below.
-- **The instance was launched with `THE_ONE_DEV_MODE=true`** — required for the `mock` provider type to be creatable (the API rejects mock-typed creates with HTTP 400 when dev mode is off, and the provider-type dropdown filters `mock` out). This is a decay-prone precondition (a plain relaunch drops it), so Step 1 actively probes it. **Relaunch note**: if the probe fails, stop and relaunch the instance with `THE_ONE_DEV_MODE=true` (the M17 8485 instance sets it in its `.env`; a fresh instance needs it exported), then re-probe.
+- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). A dedicated dev instance on a dedicated port of 8490 or higher (not 8485, the Flight Director's preview port; never 8484) with a fresh scratch data directory and a scratch working directory under `$HOME` (CLAUDE.md "Behavior-test credential convention"; the operator's packaged app owns 8484 — never target it). The orchestrator states the actual base URL at run time and it applies to every step below.
+- **The instance was launched with `THE_ONE_DEV_MODE=true`** — required for the `mock` provider type to be creatable (the API rejects mock-typed creates with HTTP 400 when dev mode is off, and the provider-type dropdown filters `mock` out). This is a decay-prone precondition (a plain relaunch drops it), so Step 1 actively probes it. **Relaunch note**: if the probe fails, stop and relaunch the instance with `THE_ONE_DEV_MODE=true` (a fresh instance needs it exported), then re-probe.
 - A browser apparatus (goldfinch MCP) is attached and can open tabs to that origin. Per the apparatus doctrine (`the_one/agents.md`): if a viewport screenshot wedges (occluded/backgrounded window), the `printToPDF` fallback is sanctioned rendered-state evidence; the a11y tree is second-strongest evidence; a CDP page may be used for focus-state checks.
 - The mock provider + mock agent this test needs are **seeded by the test itself** (Step 2) via the real HTTP API — no pre-existing chat data is assumed. Seeded entities should be cleaned up after the run (or left on the disposable dev instance).
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's

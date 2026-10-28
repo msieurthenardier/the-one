@@ -23,16 +23,19 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "run-tests.sh"
 LANES = (
     "chats",
+    "chats-transcript",
     "agents",
     "agent-tabs",
     "library",
     "knowledge",
     "mcp",
+    "mcp-connection",
     "routing",
     "settings",
     "settings-tools",
     "providers",
     "contracts-overlay",
+    "contracts-chat",
     "contracts-controls",
     "shared",
 )
@@ -83,11 +86,24 @@ def test_lanes_union_is_the_browser_suite(lanes: dict[str, set[str]]) -> None:
 
 def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[str]]) -> None:
     ui = {f"tests/browser/{p.name}" for p in (REPO / "tests" / "browser").glob("test_ui_*.py")}
-    assert lanes["contracts-overlay"] | lanes["contracts-controls"] == ui
+    assert lanes["contracts-overlay"] | lanes["contracts-chat"] | lanes["contracts-controls"] == ui
     # `contracts` stays an alias for the union (not a canonical lane).
     assert _lane_files("contracts") == ui
     assert "tests/browser/test_ui_listener_cleanup.py" in lanes["contracts-controls"]
     assert not (lanes["shared"] & ui)
+
+
+def test_contracts_chat_lane_is_the_six_chat_control_files(lanes: dict[str, set[str]]) -> None:
+    """M31 F6 L04 (DD15): the six chat-control contract files are their own lane, so
+    `contracts-controls` no longer lists them and the `contracts` alias still does."""
+    chat = {
+        f"tests/browser/test_ui_{n}_contract.py"
+        for n in ("composer", "message", "thinking", "trace", "telemetry", "notice")
+    }
+    assert lanes["contracts-chat"] == chat
+    assert not (lanes["contracts-controls"] & chat)
+    assert not (lanes["contracts-overlay"] & chat)
+    assert chat <= _lane_files("contracts")
 
 
 def test_settings_tools_lane_is_the_built_in_tools_files(lanes: dict[str, set[str]]) -> None:
@@ -101,6 +117,38 @@ def test_settings_tools_lane_is_the_built_in_tools_files(lanes: dict[str, set[st
     assert _lane_files("system") == lanes["settings"] | tools | lanes["providers"]
 
 
+def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[str]]) -> None:
+    """M31 F6 L01 (squawk 0259): `chats` was split; the transcript, composer and streaming files
+    are `chats-transcript`, a new `test_flow_chat_*` file lands in `chats`, and the `chat` alias
+    is the union of both."""
+    transcript = lanes["chats-transcript"]
+    assert "tests/browser/test_flow_chat_composer.py" in transcript
+    assert "tests/browser/test_flow_streaming.py" in transcript
+    assert "tests/browser/test_flow_chat_pane.py" in lanes["chats"]
+    assert "tests/browser/test_chats_helper.py" in lanes["chats"]
+    assert not (transcript & lanes["chats"])
+    assert _lane_files("chat") == lanes["chats"] | transcript
+
+
+def test_mcp_lanes_are_the_split_editor_files(lanes: dict[str, set[str]]) -> None:
+    """M31 F6 L01 (squawk 0271): the MCP editor test file was split by concern. `mcp` is create,
+    fields, chip lists and key/value; `mcp-connection` is sign-in and lifecycle, status, the
+    Server section and the controller tests. None of them falls into `agents`, and the
+    `studio` alias still covers every one."""
+    editor = {
+        f"tests/browser/{p.name}"
+        for p in (REPO / "tests" / "browser").glob("test_flow_studio_mcp_editor_*.py")
+    }
+    assert len(editor) == 7
+    assert lanes["mcp"] | lanes["mcp-connection"] == editor
+    assert not (lanes["mcp"] & lanes["mcp-connection"])
+    assert "tests/browser/test_flow_studio_mcp_editor_create.py" in lanes["mcp"]
+    assert "tests/browser/test_flow_studio_mcp_editor_status.py" in lanes["mcp-connection"]
+    assert not (editor & lanes["agents"])
+    assert not (REPO / "tests" / "browser" / "test_flow_studio_mcp_editor.py").exists()
+    assert editor <= _lane_files("studio")
+
+
 def test_list_without_lane_exits_2() -> None:
     proc = _list("--list")
     assert proc.returncode == 2
@@ -112,8 +160,8 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|agents|agent-tabs|library|knowledge|mcp|routing|settings|settings-tools|providers|"
-        "contracts-overlay|contracts-controls|shared"
+        "chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|"
+        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
     )
     assert lanes in proc.stderr
     assert proc.stdout == ""

@@ -288,7 +288,9 @@ def test_enter_picks_and_a_re_pick_replaces(app_with_provider: SeededApp, page: 
     assert st["name"] == "pending" and st["agent"] == "Alpha"
     expect(_chats.pending_row(page)).to_have_count(1)
     expect(_chats.pending_row(page)).to_contain_text("Alpha")
-    expect(_chats.chats_new_button(page)).to_be_focused()  # the opener
+    # M31 F6 L05a (0.1, deliberate): a completed pick lands in the message box (it was the
+    # opener); a leave-guard Stay keeps the opener (the next test).
+    expect(page.locator('[data-testid="chat-input"]')).to_be_focused()
     h1 = page.evaluate("history.length")
     assert h1 == h0 + 1
 

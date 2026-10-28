@@ -43,7 +43,7 @@ from the_one.connectors.base import (
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.llm.base import Message, Role, tag_post_step_visibility
-from the_one.sessions import broadcast_to_session, session_locks
+from the_one.sessions import broadcast_to_session, track_turn
 
 if TYPE_CHECKING:
     from the_one.connectors.manager import ConnectorManager
@@ -244,6 +244,44 @@ def _bind_peer_name(messages: list[Message], pre_step_len: int, peer_name: str) 
     messages[pre_step_len].peer_name = peer_name
 
 
+STEP_LIMIT_LINE = "(Stopped: reached its step limit for this message.)"
+
+
+def _reply_target(envelope: InboundEnvelope, connector_id: str) -> SendTarget:
+    """The originating target: a ``PeerTarget`` for a DM, else a ``ChannelTarget``."""
+    if envelope.is_dm:
+        return PeerTarget(connector_id, envelope.peer_id)
+    return ChannelTarget(connector_id, envelope.channel_id, envelope.thread_id)
+
+
+async def _send_step_limit_line(
+    envelope: InboundEnvelope, connector_id: str, manager: "ConnectorManager"
+) -> None:
+    """M31 F6 leg 06 (DD8): tell the peer the agent stopped at its step limit.
+
+    A neutral plain line to the same target and client as auto-delivery. NEVER
+    raises (it runs after the persist, and a failure here must not cost the
+    stored turn); with no client or on a send failure it is logged and dropped.
+    Not stored: ``encode_messages`` has already run.
+    """
+    try:
+        client = manager.client_for(connector_id)
+        if client is None:
+            logger.warning(
+                "dispatch_inbound: step-limit line skipped for connector %s (no live client)",
+                connector_id,
+            )
+            return
+        await client.send(_reply_target(envelope, connector_id), STEP_LIMIT_LINE)
+    except ConnectorClientError:
+        logger.exception("dispatch_inbound: step-limit line failed for connector %s", connector_id)
+    except Exception:
+        logger.exception(
+            "dispatch_inbound: unexpected error sending step-limit line for connector %s",
+            connector_id,
+        )
+
+
 async def _auto_deliver_reply(
     messages: list[Message],
     pre_step_len: int,
@@ -308,11 +346,7 @@ async def _auto_deliver_reply(
     if not isinstance(final.content, str) or not final.content:
         return
 
-    target: SendTarget
-    if envelope.is_dm:
-        target = PeerTarget(connector_id, envelope.peer_id)
-    else:
-        target = ChannelTarget(connector_id, envelope.channel_id, envelope.thread_id)
+    target = _reply_target(envelope, connector_id)
 
     client = manager.client_for(connector_id)
     if client is None:
@@ -440,7 +474,7 @@ async def dispatch_inbound(
     )
 
     try:
-        async with session_locks[session_row.id]:
+        async with track_turn(session_row.id) as turn:
             await chat_repo.update_last_inbound(session_row.id, now_iso())
             try:
                 agent = await factory.create(agent_name)
@@ -454,7 +488,9 @@ async def dispatch_inbound(
                 non_system = [m for m in stored if m.role != Role.SYSTEM]
                 agent.messages = agent.messages[:1] + non_system
 
+            turn.ran = True
             pre_step_len = len(agent.messages)
+            hit_step_limit = False
             token = current_chat_session_id.set(session_row.id)
             # M27 F2 DD5: the peer whose message starts this turn (notes taint/origin).
             turn_token = current_turn.set(
@@ -471,6 +507,8 @@ async def dispatch_inbound(
             try:
                 async for _ in agent.step(envelope.text):
                     pass
+                # DD8 F2: capture once, right after the turn's own loop.
+                hit_step_limit = bool(agent.stopped_at_step_limit)
                 _bind_peer_name(agent.messages, pre_step_len, envelope.peer_name)
                 tag_post_step_visibility(agent.messages, pre_step_len)
                 await _auto_deliver_reply(
@@ -483,6 +521,10 @@ async def dispatch_inbound(
                 logger.exception(
                     "dispatch_inbound: agent.step failed for session %s", session_row.id
                 )
+            else:
+                # After the persist, so a send failure can never cost the turn.
+                if hit_step_limit:
+                    await _send_step_limit_line(envelope, connector_id, manager)
             finally:
                 current_turn.reset(turn_token)
                 current_chat_session_id.reset(token)

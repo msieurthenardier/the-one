@@ -331,7 +331,7 @@ def test_chats_session_list_primes_sessions_in_the_summary_shape(
     )
     primed = page.evaluate("() => App.store.peek('sessions').value")
     assert seen == [], "Chats primes from the WebSocket; it never fetches the list"
-    keys = {"id", "agent_name", "title", "created_at", "updated_at", "platform"}
+    keys = {"id", "agent_name", "title", "created_at", "updated_at", "platform", "busy", "turn_seq"}
     assert all(set(row) == keys for row in primed), primed
     assert sorted(r["platform"] or "" for r in primed) == ["", "discord"]
     fetched = page.evaluate("async () => App.store.get('sessions', {force: true})")

@@ -94,7 +94,7 @@
       ]
     });
 
-    // ── LLM Configuration ───────────────────────────────────────────
+    // ── LLM configuration ───────────────────────────────────────────
     var providerSelect = own(ui.select({
       id: 'studio-provider',
       options: [{ value: '', label: 'placeholder' }],
@@ -147,7 +147,7 @@
     testRow.appendChild(testStatus.el);
 
     var llm = ui.section({
-      title: 'LLM Configuration',
+      title: 'LLM configuration',
       children: [
         ui.field({ label: 'Provider', control: providerSelect }).el,
         ui.field({ label: 'Model', control: modelSelect, host: modelWrap }).el,
@@ -157,7 +157,7 @@
       ]
     });
 
-    // ── System Prompt ───────────────────────────────────────────────
+    // ── System prompt ───────────────────────────────────────────────
     // The section title is the visible heading; the field's label is visually
     // hidden (the programmatic association, WCAG 1.3.1/4.1.2).
     var promptInput = own(ui.textarea({
@@ -169,8 +169,8 @@
       onInput: dirty
     }));
     var promptSection = ui.section({
-      title: 'System Prompt',
-      children: [ui.field({ label: 'System Prompt', labelHidden: true, control: promptInput }).el]
+      title: 'System prompt',
+      children: [ui.field({ label: 'System prompt', labelHidden: true, control: promptInput }).el]
     });
 
     // ── Behavior ────────────────────────────────────────────────────
@@ -194,8 +194,8 @@
     var behavior = ui.section({
       title: 'Behavior',
       children: [
-        ui.field({ label: 'Chat History Retention (days)', control: retentionInput }).el,
-        ui.field({ label: 'Max Iterations', control: iterationsInput }).el
+        ui.field({ label: 'Chat history retention (days)', control: retentionInput }).el,
+        ui.field({ label: 'Max iterations', control: iterationsInput }).el
       ]
     });
 

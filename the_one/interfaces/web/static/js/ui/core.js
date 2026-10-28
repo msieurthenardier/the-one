@@ -213,7 +213,7 @@
 
   // buildIcon(name, who) - an SVGElement parsed from App.icons[name] with
   // DOMParser and imported into the document. Throws on an unknown name or a
-  // parse failure (App.icon only warns and returns an empty string). The node
+  // parse failure. The node
   // is hidden from assistive technology and not focusable.
   function buildIcon(name, who) {
     var source = window.App.icons && window.App.icons[name];

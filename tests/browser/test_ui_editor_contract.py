@@ -9,7 +9,7 @@ Falls in the ``contracts`` browser lane.
 from __future__ import annotations
 
 import pytest
-from browser._ui_engines import load_harness
+from browser._ui_engines import STATIC_DIR, load_harness
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -911,3 +911,26 @@ def test_set_error_same_message_twice_reannounces(engine_page: Page) -> None:
     assert out["sync"] == ""
     assert out["final"] == "Boom"
     assert "" in out["seen"] and out["seen"][-1] == "Boom"
+
+
+# ── section inset (M31 F6 L03b): a default section carries its own side padding ──
+
+
+def test_a_default_section_has_20px_sides_and_inset_none_has_none(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const mk = (o) => { const s = App.ui.section(Object.assign({title: 'T'}, o)); root.appendChild(s.el); return s.el; };
+          const plain = mk({}), flush = mk({inset: 'none'}), second = mk({}), stackFlush = mk({inset: 'none', layout: 'stack'});
+          const sides = (n) => { const c = getComputedStyle(n); return [c.paddingLeft, c.paddingRight, c.paddingTop]; };
+          return {plain: sides(plain), flush: sides(flush), second: sides(second), stackFlush: sides(stackFlush)};
+        }"""
+    )
+    assert out["plain"][:2] == ["20px", "20px"], out
+    assert out["flush"][:2] == ["0px", "0px"], out
+    assert out["stackFlush"][:2] == ["0px", "0px"], out
+    assert out["second"][2] == "16px", out  # the divider's top padding is untouched
+    css = (STATIC_DIR / "css" / "components.css").read_text()
+    flush_rule = css[css.index(".editor-section--flush {") :].split("}")[0]
+    assert "!important" not in flush_rule, flush_rule

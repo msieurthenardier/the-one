@@ -1201,3 +1201,92 @@ async def test_dispatch_inbound_sets_turn_context_with_the_envelope_peer(
     sessions = await chat_repo.list()
     assert turn.session_id == sessions[0].id
     assert current_turn.get() is None
+
+
+# ── M31 F6 leg 06 (DD8): the step-limit line ─────────────────────────────
+
+_STEP_LIMIT_LINE = "(Stopped: reached its step limit for this message.)"
+
+
+def _always_tool_call(tool: str = "current_time", args: dict | None = None, n: int = 1) -> list:
+    return [
+        Message.assistant(
+            content="", tool_calls=[ToolCall(id=f"tc{i}", name=tool, arguments=args or {})]
+        )
+        for i in range(n)
+    ]
+
+
+async def _run_one_turn(conn_repo, responses, *, max_iterations=1, live=True) -> None:
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    provider_repo = LLMProviderRepository(conn_repo.conn, conn_repo.encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(id="prov-1", name="p", type="ollama", base_url="http://x")
+    )
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await agent_store.save(
+        AgentConfig(name="bot", provider_config_id="prov-1", max_iterations=max_iterations)
+    )
+    fake_llm = FakeLLM(responses=responses)
+    envelope = _envelope(is_dm=True, peer_id="peer-1", channel_id="dm-peer-1", text="go")
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager(poll_interval=0.01)
+        set_manager(mgr)
+        if live:
+            mgr.start(connector, get_encryptor(settings.data_dir))
+            await asyncio.sleep(0.05)
+            await StubPlugin.push_inbound("conn-1", envelope)
+            await mgr.drain()
+        else:
+            await dispatch_inbound("conn-1", envelope, manager=mgr)
+
+
+def _persisted_text(sessions) -> str:
+    return " ".join(str(m.content) for m in decode_messages(sessions[0].messages))
+
+
+async def test_step_limit_line_sent_once_and_not_stored(conn_repo, chat_repo) -> None:
+    await _run_one_turn(conn_repo, _always_tool_call())
+    assert [c for _, c in StubPlugin.outbound_records] == [_STEP_LIMIT_LINE]
+    target, _ = StubPlugin.outbound_records[0]
+    assert isinstance(target, PeerTarget) and target.peer_id == "peer-1"
+    sessions = await chat_repo.list()
+    assert "step limit" not in _persisted_text(sessions)
+
+
+async def test_step_limit_line_sent_after_send_to_platform_channel_turn(
+    conn_repo, chat_repo
+) -> None:
+    send = _always_tool_call(
+        "send_to_platform_channel",
+        {"target": {"connector_id": "conn-1", "peer_id": "peer-1"}, "content": "hi back"},
+    )
+    await _run_one_turn(conn_repo, send)
+    assert [c for _, c in StubPlugin.outbound_records] == ["hi back", _STEP_LIMIT_LINE]
+
+
+async def test_no_step_limit_line_for_a_normal_turn(conn_repo, chat_repo) -> None:
+    await _run_one_turn(conn_repo, [Message.assistant(content="fine")], max_iterations=2)
+    assert [c for _, c in StubPlugin.outbound_records] == ["fine"]
+
+
+async def test_step_limit_line_send_failure_keeps_the_persisted_turn(conn_repo, chat_repo) -> None:
+    StubPlugin.send_should_raise = ConnectorClientError("platform unreachable")
+    await _run_one_turn(conn_repo, _always_tool_call())  # must not raise
+    assert StubPlugin.outbound_records == []
+    sessions = await chat_repo.list()
+    persisted = decode_messages(sessions[0].messages)
+    assert [m.role for m in persisted if m.role == Role.TOOL]  # the turn was stored
+    assert "step limit" not in _persisted_text(sessions)
+
+
+async def test_step_limit_line_with_no_live_client_is_dropped(conn_repo, chat_repo, caplog) -> None:
+    with caplog.at_level("WARNING"):
+        await _run_one_turn(conn_repo, _always_tool_call(), live=False)
+    assert StubPlugin.outbound_records == []
+    assert "step-limit line skipped" in caplog.text
+    sessions = await chat_repo.list()
+    assert len(sessions) == 1

@@ -239,13 +239,10 @@
     };
   }
 
-  var lastFirstId = null; // the first row's item id in the last render
-
   function source(query) {
     var found = match(query);
     var items = [];
     for (var i = 0; i < found.length; i++) items.push(toItem(found[i]));
-    lastFirstId = items.length ? items[0].id : null;
     // One unlabelled group: the board draws no group headings.
     return [{ id: 'results', items: items }];
   }
@@ -299,16 +296,13 @@
     current.list.input.focus();
   }
 
-  // Re-render with fresh store data. The first result is active (DD10), so a
-  // row the user moved to (keys or pointer) is kept only when they did move:
-  // while the first row is active, the new first row becomes the active one.
-  // A no-op once this palette closed (its list is destroyed).
+  // Re-render with fresh store data. The searchList keeps the highlighted row by
+  // identity (M31 F6 L03b, D4, squawk 0185, superseding M25 DD10's "the first row
+  // follows the data"): the row Enter would pick never changes under the user when
+  // data lands. A no-op once this palette closed (its list is destroyed).
   function refresh(entry) {
     if (current !== entry || !entry.modal.isOpen()) return;
-    var active = entry.list.getActive();
-    var keep = active && active.id !== lastFirstId ? active.id : null;
     entry.list.refresh();
-    if (keep) entry.list.setActive(keep);
   }
 
   function load(entry) {
@@ -361,7 +355,7 @@
     }));
 
     // A fragment, so the two items are the footer row's own flex children
-    // (both on the left: no .modal-dialog-footer-end).
+    // (both on the left: no footerEnd).
     var footer = document.createDocumentFragment();
     footer.appendChild(el('span', { text: keyHint() + ' from anywhere' }));
     footer.appendChild(el('span', { text: 'Enter to open' }));

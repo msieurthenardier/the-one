@@ -277,6 +277,31 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
 
 
 @pytest.mark.browser
+def test_delete_error_toast_has_no_error_prefix(app_with_provider: SeededApp, page: Page) -> None:
+    """A14: a failed delete flashes the server's message as is, without an "Error: " prefix."""
+    page.route(
+        "**/api/providers/*",
+        lambda route: (
+            route.fulfill(
+                status=500, content_type="application/json", body='{"detail": "Disk is full"}'
+            )
+            if route.request.method == "DELETE"
+            else route.continue_()
+        ),
+    )
+    _nav.goto_settled(
+        page,
+        app_with_provider.base_url,
+        f"library/providers/{_nav.seg(app_with_provider.provider_id)}",
+    )
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    delete_btn.click()
+    delete_btn.click()
+    expect(page.locator(".app-flash.error")).to_have_text("Disk is full", timeout=5000)
+
+
+@pytest.mark.browser
 def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Page) -> None:
     """Provider with an agent attached must hard-block (no confirm flow).
 
@@ -474,12 +499,12 @@ def test_masked_key_round_trip_and_remask_after_save(app_clean: str, page: Page)
     expect(key).to_have_attribute("type", "password")
 
 
-# ── Context Window (num_ctx) field — F09-05 polish ───────────────────────
+# ── Context window (num_ctx) field — F09-05 polish ───────────────────────
 
 
 @pytest.mark.browser
 def test_num_ctx_field_shown_for_ollama_with_default_prefill(app_clean: str, page: Page) -> None:
-    """Selecting the ollama type reveals a required Context Window field
+    """Selecting the ollama type reveals a required Context window field
     pre-filled with the default window (32768)."""
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
@@ -490,7 +515,7 @@ def test_num_ctx_field_shown_for_ollama_with_default_prefill(app_clean: str, pag
     expect(num_ctx).to_have_attribute("type", "number")
     expect(num_ctx).to_have_attribute("required", "")
     # Canonical label text (no longer the parenthetical num_ctx form).
-    expect(page.locator('label[for="pf-num-ctx"]')).to_have_text("Context Window")
+    expect(page.locator('label[for="pf-num-ctx"]')).to_have_text("Context window")
 
 
 def _assert_described_by(page: Page, selector: str, desc: str) -> None:

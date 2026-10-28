@@ -21,6 +21,9 @@
   //   keeps the standard 16px icon, so the small "+ New" is unchanged)
   //   ariaLabel, disabled, onClick, className
   //   the test id option: placed on the button itself (supplied by the caller)
+  // App.ui.button.setIcon(btn, name): swap the button's icon in place (its first svg child,
+  //   or a new one prepended when it has none) for the App.icons icon `name`. The label,
+  //   classes, accessible name and focus are untouched.
   App.ui.button = function (opts) {
     opts = opts || {};
     var variant = opts.variant || 'secondary';
@@ -46,5 +49,11 @@
     if (opts.testid) btn.setAttribute('data-testid', opts.testid);
     if (typeof opts.onClick === 'function') btn.addEventListener('click', opts.onClick);
     return btn;
+  };
+  App.ui.button.setIcon = function (btn, name) {
+    var next = App.ui.util.icon(name);
+    var old = btn.querySelector('svg');
+    if (old && old.parentNode === btn) btn.replaceChild(next, old);
+    else btn.insertBefore(next, btn.firstChild);
   };
 })();

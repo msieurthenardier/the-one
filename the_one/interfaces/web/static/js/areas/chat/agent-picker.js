@@ -165,6 +165,7 @@
     var list = App.ui.searchList({
       label: 'Find an agent',
       placeholder: 'Find an agent by name, model or provider',
+      variant: 'chooser',
       inputTestid: 'agent-picker-search',
       rowTestid: 'agent-picker-row',
       source: source,
@@ -174,10 +175,10 @@
         modal.close(item.id);
       }
     });
-    // A fragment, so the two items are the footer row's own flex children.
+    // A fragment, so its item is a flex child of the footer row; the end text is
+    // the modal's footerEnd.
     var footer = document.createDocumentFragment();
     footer.appendChild(el('span', { text: 'Picking an agent starts a new chat with it' }));
-    footer.appendChild(el('span', { className: 'modal-dialog-footer-end', text: 'Enter to start' }));
     var entry = { modal: null, list: list };
     modal = App.ui.modal({
       title: 'Start a chat with…',
@@ -188,6 +189,7 @@
       closeButton: { label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'agent-picker-close' },
       body: el('div', { className: 'agent-picker-body' }, [list.el]),
       footer: footer,
+      footerEnd: 'Enter to start',
       initialFocus: list.input,
       testid: 'agent-picker',
       onClose: function (value) {

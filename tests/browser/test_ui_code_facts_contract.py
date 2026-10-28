@@ -261,3 +261,25 @@ def test_text_input_unknown_width_throws(engine_page: Page) -> None:
         "() => { try { App.ui.textInput({width: 'wide'}); return ''; } catch (e) { return e.message; } }"
     )
     assert "width" in msg
+
+
+def test_text_input_min_width_sets_the_inputs_minimum(engine_page: Page) -> None:
+    """M31 F6 L03b: a px floor the library sets on the element (the Self-configuration
+    external-grant row's 160px), no area rule on the field's class."""
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          root.style.width = '600px';
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display: flex; width: 120px;';
+          const a = App.ui.textInput({minWidth: 160}), b = App.ui.textInput({});
+          const bad = [-1, 'wide', 0].map((v) => { try { App.ui.textInput({minWidth: v}); return ''; } catch (e) { return e.message; } });
+          wrap.append(a);
+          root.appendChild(wrap);
+          return {style: a.style.minWidth, none: b.style.minWidth, w: a.getBoundingClientRect().width, bad};
+        }"""
+    )
+    assert out["style"] == "160px" and out["none"] == "", out
+    assert out["w"] >= 160, out  # held at its floor inside a 120px flex row
+    assert out["bad"] == ["App.ui.textInput: minWidth must be a positive number"] * 3, out

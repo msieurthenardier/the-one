@@ -21,11 +21,11 @@
 // every engine and locale draws the same English labels.
 //
 // A row: label = the title, time as above, meta = the agent name ("Default
-// agent" for a null agent_name), a connector row's platform as a plain-string
-// badge (a neutral muted span; no class is built from the value), href =
+// agent" for a null agent_name), a connector row's platform as the neutral
+// library badge pill (App.ui.badge kind 'unknown'; no class is built from the value), href =
 // #chats/{id}, dataset {id}, testid chat-row, and a delete row action (the
 // trash icon, "Delete chat: {title}", testid chat-row-delete) that the chat
-// area drives through App.confirmDelete(li, ...).
+// area drives through App.ui.confirm(li, ...).
 //
 // The pending row (a chat picked but not sent yet, DD1): id '__pending__',
 // "New chat", time "now", the agent as meta, href #chats/~new/{agent} (so it
@@ -33,13 +33,15 @@
 // 'true'} with no data-id, and no action. It sits at the top of Today.
 //
 // API:
-//   App.chat.chatsList.create({onNew(btn), onDelete(id, li, btn)})
+//   App.chat.chatsList.create({onNew(btn), onDelete(id, li, btn, title)})
 //     -> {el, newButton, render(rows, view), setNewDisabled(bool), destroy()}
-//     view: {pending: {agent} | null, selectedId: id | null}
+//     view: {pending: {agent} | null, selectedId: id | null,
+//            activity: {sessionId: 'working' | 'new'} (M31 F6 L10b; the pending row never has one)}
 //   App.chat.chatsList.groups(rows, view, onDelete, now) -> the listPane groups
 //   App.chat.chatsList.bucketFor(row, now) -> 'today' | 'yesterday' | 'last7'
 //     | 'last30' | 'older'
 //   App.chat.chatsList.timeFor(row, now) -> the row's time string
+//   App.chat.chatsList.platformName(slug) -> 'Discord' (the display name; title-cased if unknown)
 //   App.chat.chatsList.PENDING_ID, GROUPS
 (function () {
   'use strict';
@@ -97,7 +99,17 @@
     return timeOf(d, bucketOf(d, now || new Date()));
   }
 
-  function sessionItem(row, d, bucket, onDelete) {
+  // The one platform display-name table of the chat area (A16); an unknown slug is title-cased.
+  var PLATFORM_NAMES = { discord: 'Discord', telegram: 'Telegram', slack: 'Slack', stub: 'Stub' };
+
+  function platformName(slug) {
+    var s = String(slug);
+    var key = s.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(PLATFORM_NAMES, key)) return PLATFORM_NAMES[key];
+    return s.replace(/(^|[\s_-])([a-z])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); });
+  }
+
+  function sessionItem(row, d, bucket, onDelete, activity) {
     var title = row.title || 'Untitled chat';
     var item = {
       id: row.id,
@@ -112,12 +124,14 @@
         icon: 'trash',
         testid: 'chat-row-delete',
         onClick: function (current, btn, li) {
-          if (typeof onDelete === 'function') onDelete(current.id, li, btn);
+          if (typeof onDelete === 'function') onDelete(current.id, li, btn, title);
         }
       }
     };
-    // A connector session: its platform as a neutral plain-string badge.
-    if (row.platform) item.badges = [String(row.platform)];
+    // A connector session: its platform as the neutral library badge pill.
+    if (row.platform) item.badges = [{ text: platformName(row.platform), kind: 'unknown' }];
+    // M31 F6 L10b: 'working' | 'new' | absent (view.activity, by session id).
+    if (activity === 'working' || activity === 'new') item.activity = activity;
     return item;
   }
 
@@ -161,7 +175,10 @@
       var items = [];
       if (g.id === 'today' && view.pending) items.push(pendingItem(view.pending));
       for (var k = 0; k < entries.length; k++) {
-        items.push(sessionItem(entries[k].row, entries[k].d, entries[k].bucket, onDelete));
+        items.push(sessionItem(
+          entries[k].row, entries[k].d, entries[k].bucket, onDelete,
+          view.activity ? view.activity[entries[k].row.id] : null
+        ));
       }
       if (items.length) out.push({ id: g.id, label: g.label, items: items });
     }
@@ -213,6 +230,7 @@
     GROUPS: GROUPS,
     bucketFor: bucketFor,
     timeFor: timeFor,
+    platformName: platformName,
     groups: groups,
     create: create
   };

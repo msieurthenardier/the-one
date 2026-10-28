@@ -95,7 +95,7 @@ def _stream_chunks(content_pieces, tool_call_deltas=None):
 
 
 def _patch_chat_stream(monkeypatch, chunks) -> None:
-    async def fake_chat_stream(base_url, body, headers=None):
+    async def fake_chat_stream(base_url, body, headers=None, server_label="Ollama"):
         for c in chunks:
             yield c
 

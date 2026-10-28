@@ -4,7 +4,7 @@
 // showModal(), Escape-cancel, a manual Tab wrap and restore-focus-on-close. Used
 // by the leave guard (App.nav, nav.js), which the router runs on every guarded
 // navigation (a list row; a nav, breadcrumb or rail link; Back/Forward).
-// Distinct from App.confirmDelete (in-place two-step destructive
+// Distinct from App.ui.confirm (in-place two-step destructive
 // confirm) — App.confirmDialog is the BLOCKING modal primitive for the
 // "you are about to lose unsaved work" decision.
 //

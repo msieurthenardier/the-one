@@ -44,6 +44,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -54,9 +55,10 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIN_PORT = 8490
@@ -248,6 +250,8 @@ class Ctx:
     ids: dict[str, str]  # provider type -> id; "flash" -> flash-demo provider id
     theme: str
     token: str = ""
+    # Per-capture scratch shared by a surface's ``setup`` and ``prepare`` (the socket script).
+    state: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -268,6 +272,12 @@ class Surface:
     widths: tuple[int, ...] | None = None
     # True: needs the MCP fixture servers and seed_mcp() (only then are they started).
     needs_mcp: bool = False
+    # True: needs seed_chat() (providers, agents and dated sessions) and, for the instance, a
+    # purge interval so long that no retention sweep runs during the capture (M31 F6 L01).
+    needs_chat: bool = False
+    # Called as ``setup(page, state)`` after the fixed clock and the provider routes and BEFORE
+    # ``goto``: the only place a WebSocket route can be installed (M31 F6 L01).
+    setup: Callable[[object, dict], None] | None = None
 
 
 def widths_for(s: Surface, requested: list[int]) -> list[int]:
@@ -734,8 +744,7 @@ def _tool_test(payload: dict):
         page.locator('[data-testid="test-tool-btn"]').click()
         page.locator(
             '[data-testid="test-result"][data-state="success"], '
-            '[data-testid="test-result"][data-state="warning"], '
-            ".test-result .test-result-ok, .test-result .test-result-fail"
+            '[data-testid="test-result"][data-state="warning"]'
         ).first.wait_for(timeout=10000)
         page.locator('[data-testid="test-tool-btn"]').scroll_into_view_if_needed()
 
@@ -802,7 +811,7 @@ SURFACES += [
     Surface(
         "ollama-models-panel",
         "#library/providers/{ollama}",
-        ".admin-pf-model-row",
+        ".ui-model-row",
         "Ollama models panel: one loaded, two available, stubbed",
         shot=".provider-models",
         stubs=("ollama",),
@@ -975,13 +984,6 @@ SURFACES += [
         '[data-testid="connector-doctor-btn"]',
         "Connector editor: doctor result, pairing code and two channel-map rows",
         prepare=_connector_edit,
-    ),
-    Surface(
-        "chat-consent-link",
-        "",
-        "",
-        "The sign-in consent link in a chat",
-        skipped="leg 05's change is click feedback, which a static capture does not show",
     ),
     Surface(
         "mcp-consent-link",
@@ -1479,6 +1481,975 @@ SURFACES += [
 # show the other editors' headers and (for the knowledge base) the armed danger zone.
 
 
+# ── Chat and model-picker surfaces (Mission 31 Flight 6, DD12) ───────────────
+
+# What seed_chat() recorded (the session ids and the group each must land in) and what the
+# Chats-list surface read back from the page; both go into the manifest.
+CHAT_MANIFEST: dict = {}
+
+CHAT_RICH_MD = """## Quarterly summary
+
+Here is what I found. The `config.yaml` key is **deprecated**; see [the docs](https://example.com/docs/guide).
+
+### Steps
+1. Open the editor
+2. Change the value
+   - a nested bullet
+3. Save
+
+> Note: this blockquote spans a reasonably long line so the wrapping inside the reply can be seen.
+
+| Name | Type | Used by | Description | Size | Updated | Owner |
+|---|---|---|---|---|---|---|
+| alpha | provider | 3 agents | A fairly long description cell that goes on for a while | 1.2 GB | 2026-10-01 | operations-team |
+| beta-with-a-long-name | mcp | 0 | short | 12 MB | 2026-09-12 | nobody |
+
+```python
+def hello(name: str) -> str:
+    return f"Hello, {name}! This line is deliberately long so the code block has to scroll sideways in a narrow reply."
+```
+
+Antidisestablishmentarianismsupercalifragilisticexpialidociouspneumonoultramicroscopicsilicovolcanoconiosis_with_more_characters_and_no_breaks_at_all_anywhere.
+
+A bare URL: https://example.com/a/very/long/url/that/has/no/spaces/and/keeps/going/and/going/forever/and/ever
+"""  # noqa: E501
+CHAT_LONG_AGENT = "A very long agent name that keeps going to test truncation in ap"  # 64
+CHAT_LONG_MODEL = "mock-large-model-with-a-very-long-identifier-v2-preview"
+CHAT_RESEARCH = "Research assistant"
+CHAT_STREAMER = "Streamer"
+CHAT_STREAM_TEXT = (
+    "Chunk one of a long streamed reply, which keeps arriving. "
+    "Chunk two follows it with a little more text to read. "
+    "Chunk three is where this capture stops, with no end in sight."
+)
+CHAT_ERROR_TEXT = "Agent error: could not reach the model provider (connection refused)."
+CHAT_GROUP_LABELS = {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "last7": "Last 7 days",
+    "last30": "Last 30 days",
+    "older": "Older",
+}
+
+
+def _chat_png() -> bytes:
+    """A small valid PNG (a colour gradient) for the staged-image surfaces."""
+    import struct
+    import zlib
+
+    w = h = 48
+    raw = b"".join(
+        b"\x00" + b"".join(bytes([(x * 5) % 256, 120, (y * 5) % 256]) for x in range(w))
+        for y in range(h)
+    )
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
+def _ago(**delta) -> str:
+    """An ISO timestamp relative to FIXED_NOW (never the real clock)."""
+    return (FIXED_NOW - timedelta(**delta)).isoformat()
+
+
+def _msg(role: str, content: str, at: str, **extra) -> dict:
+    return {"role": role, "content": content, "created_at": at, **extra}
+
+
+def _rich_history() -> list[dict]:
+    t0 = FIXED_NOW - timedelta(minutes=25)
+
+    def ts(m: int) -> str:
+        return (t0 + timedelta(minutes=m)).isoformat()
+
+    return [
+        _msg("user", "Summarise the quarter, please. Include a table.", ts(0)),
+        _msg(
+            "assistant",
+            "",
+            ts(1),
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "name": "read_file",
+                    "arguments": {"path": "/home/user/reports/q3.md"},
+                },
+                {"id": "c2", "name": "fetch_url", "arguments": {"url": "https://example.com/q3"}},
+            ],
+            thinking=[
+                {
+                    "type": "thinking",
+                    "thinking": "I will read the report first, then fetch the page.",
+                    "signature": "s",
+                }
+            ],
+        ),
+        {
+            "role": "tool",
+            "content": "# Q3\nRevenue up 12%.\nCosts flat.",
+            "tool_result": {
+                "tool_call_id": "c1",
+                "content": "# Q3\nRevenue up 12%.\nCosts flat.",
+                "is_error": False,
+            },
+        },
+        {
+            "role": "tool",
+            "content": "Error: connection refused (http://example.com/q3)",
+            "tool_result": {
+                "tool_call_id": "c2",
+                "content": "Error: connection refused (http://example.com/q3)",
+                "is_error": True,
+            },
+        },
+        _msg(
+            "assistant",
+            CHAT_RICH_MD,
+            ts(2),
+            thinking=[
+                {
+                    "type": "thinking",
+                    "thinking": "Now write the summary with a table.",
+                    "signature": "s",
+                }
+            ],
+            usage={"input_tokens": 150000, "output_tokens": 300},
+        ),
+        _msg("user", "Thanks! One more: a word with no breaks: " + "x" * 160, ts(3)),
+        _msg("assistant", "Here it is: `" + "y" * 120 + "`", ts(4)),
+    ]
+
+
+def _peer_history() -> list[dict]:
+    t0 = FIXED_NOW - timedelta(days=1, hours=1)
+
+    def ts(m: int) -> str:
+        return (t0 + timedelta(minutes=m)).isoformat()
+
+    return [
+        _msg(
+            "user",
+            "hey bot, what's the status of the build?",
+            ts(0),
+            peer_name="alice",
+            channel_name="general",
+        ),
+        _msg("assistant", "The build is green.", ts(1)),
+        _msg(
+            "user",
+            "and the deploy?",
+            ts(2),
+            peer_name="bob_the_builder_with_a_really_long_display_handle",
+            channel_name="general",
+        ),
+        _msg(
+            "assistant",
+            "Deploy is scheduled for 5 PM. (operator-only note follows)",
+            ts(3),
+            visibility="operator",
+        ),
+        _msg("user", "Operator here: keep it short.", ts(4)),
+        _msg("assistant", "Understood.", ts(5)),
+    ]
+
+
+def _short_history(at: str) -> list[dict]:
+    return [_msg("user", "hi", at), _msg("assistant", "Sure. Done.", at)]
+
+
+def seed_chat(base: str, token: str, ids: dict[str, str]) -> None:
+    """The chat and model-picker seed (Flight 6 DD12). Mock providers (rich reply with thinking,
+    streaming, slow), an unreachable openai-compatible provider at a dead loopback port, five
+    agents (one with a long name), and sessions dated RELATIVE TO FIXED_NOW in SEED_ZONE so every
+    Chats-list group shows. Records the sessions and their expected groups in CHAT_MANIFEST and
+    asserts that every one is still listed (the retention purge must not have taken any)."""
+    instance_port = int(base.rsplit(":", 1)[1])
+
+    def mock(name: str, cfg: dict) -> str:
+        cfg = dict(cfg)
+        cfg.setdefault("models", ["mock-default", CHAT_LONG_MODEL])
+        body = {"name": name, "type": "mock", "base_url": "http://mock.invalid", "config": cfg}
+        return _api(base, token, "POST", "/api/providers", body)["id"]
+
+    rich = mock(
+        "Chat rich mock",
+        {
+            "response": {
+                "content": CHAT_RICH_MD,
+                "thinking": [
+                    {"type": "thinking", "thinking": "Write the summary.", "signature": "s"}
+                ],
+            },
+            "input_tokens": 150000,
+        },
+    )
+    plain = mock("Chat plain mock", {"response": {"content": "Sure. Done."}, "input_tokens": 1200})
+    stream = mock(
+        "Chat streaming mock",
+        {"response": {"content": ""}, "stream_chunks": ["Chunk. "] * 3, "delay_ms": 400},
+    )
+    slow = mock("Chat slow mock", {"response": {"content": "Finally."}, "delay_ms": 60000})
+    broken = _api(
+        base,
+        token,
+        "POST",
+        "/api/providers",
+        {
+            "name": "Chat unreachable endpoint",
+            "type": "openai-compatible",
+            "base_url": f"http://127.0.0.1:{free_dead_port(instance_port)}/v1",
+            "api_key": "sk-dummy",
+        },
+    )["id"]
+    ids["chat_plain"] = plain
+    agents = [
+        (CHAT_RESEARCH, rich, "mock-default", "Answers questions with tables, code and links."),
+        (
+            CHAT_LONG_AGENT,
+            plain,
+            CHAT_LONG_MODEL,
+            "An agent whose name is far too long, for truncation checks in the list, header, "
+            "drawer and picker.",
+        ),
+        (CHAT_STREAMER, stream, "mock-default", "Streams a long reply slowly."),
+        ("Slowpoke", slow, "mock-default", ""),
+        ("Broken", broken, "gpt-4o", "Points at an endpoint that refuses connections."),
+    ]
+    for name, prov, model, desc in agents:
+        _api(
+            base,
+            token,
+            "POST",
+            "/api/agents",
+            {
+                "name": name,
+                "provider_config_id": prov,
+                "llm_model": model,
+                "system_prompt": "You are helpful.",
+                "description": desc,
+            },
+        )
+    ids["chat_research"] = quote(CHAT_RESEARCH, safe="")
+    ids["chat_long_agent"] = quote(CHAT_LONG_AGENT, safe="")
+    ids["chat_streamer"] = quote(CHAT_STREAMER, safe="")
+    for text in (
+        "Always answer in British English and keep replies under three hundred words.",
+        "Cite sources.",
+    ):
+        _api(base, token, "POST", f"/api/agents/{ids['chat_research']}/rules", {"text": text})
+
+    def session(key, agent, title, when, group, platform=None, messages=None):
+        body = {
+            "agent_name": agent,
+            "title": title,
+            "updated_at": when,
+            "created_at": when,
+            "platform": platform,
+        }
+        if messages is not None:
+            body["messages"] = json.dumps(messages)
+        sid = _api(base, token, "POST", "/api/chat/sessions", body)["id"]
+        ids[key] = sid
+        CHAT_MANIFEST.setdefault("sessions", {})[sid] = {
+            "key": key,
+            "title": title,
+            "updated_at": when,
+            "expected_group": CHAT_GROUP_LABELS[group],
+        }
+
+    at = _ago(minutes=20)
+    session(
+        "chat_s_rich",
+        CHAT_RESEARCH,
+        "Quarterly summary with tools",
+        at,
+        "today",
+        messages=_rich_history(),
+    )
+    at = _ago(hours=2)
+    session(
+        "chat_s_long",
+        CHAT_LONG_AGENT,
+        "A very long session title that keeps going and going to see how the header and the "
+        "list row truncate it",
+        at,
+        "today",
+        messages=_short_history(at),
+    )
+    session(
+        "chat_s_peer",
+        CHAT_RESEARCH,
+        "#general on Discord",
+        _ago(days=1, hours=1),
+        "yesterday",
+        platform="discord",
+        messages=_peer_history(),
+    )
+    at = _ago(days=3)
+    session(
+        "chat_s_week", CHAT_STREAMER, "Streaming test", at, "last7", messages=_short_history(at)
+    )
+    session("chat_s_untitled", "Broken", "", _ago(days=4), "last7")
+    # An agent that never existed ("Ghost agent"): the foreign key was dropped, so the POST holds.
+    at = _ago(days=5)
+    session(
+        "chat_s_ghost",
+        "Ghost agent",
+        "Chat with a deleted agent",
+        at,
+        "last7",
+        messages=_short_history(at),
+    )
+    at = _ago(days=12)
+    session("chat_s_month", None, "Default agent chat", at, "last30", messages=_short_history(at))
+    at = _ago(days=60)
+    session(
+        "chat_s_old", CHAT_RESEARCH, "Old planning notes", at, "older", messages=_short_history(at)
+    )
+    listed = {s["id"] for s in _api(base, token, "GET", "/api/chat/sessions")}
+    missing = [sid for sid in CHAT_MANIFEST["sessions"] if sid not in listed]
+    if missing:
+        raise CaptureError(f"seed_chat: sessions missing after seeding (purged?): {missing}")
+
+
+class SocketScript:
+    """One shared WebSocket helper for every live and sign-in surface. It connects the page's
+    socket to the real server (so the join and its history are real), then:
+
+    - ``processing``: rewrites the join reply to ``is_processing`` so Stop and the thinking
+      indicator show, the way a turn in flight does;
+    - ``empty_list``: blanks the session list frames (the empty and guidance states);
+    - swallows every ``message`` and ``cancel`` the page sends, so nothing reaches the agent and
+      no session is re-stamped with the real clock;
+    - ``send(frame)`` injects a fixed frame (chunks, ``cancelled``, ``system``, ``auth_required``).
+    """
+
+    def __init__(self, processing: bool = False, empty_list: bool = False) -> None:
+        self.processing = processing
+        self.empty_list = empty_list
+        self.pairs: list[tuple[object, object]] = []  # (page side, server side), per socket
+        self.swallowed: list[str] = []
+
+    def install(self, page) -> None:
+        page.route_web_socket("**/ws", self._on_connect)
+
+    def _on_connect(self, ws) -> None:
+        server = ws.connect_to_server()
+        self.pairs.append((ws, server))
+        server.on_message(lambda message: ws.send(self._rewrite(message)))
+        ws.on_message(lambda message: self._from_page(server, message))
+
+    def _rewrite(self, message):
+        try:
+            data = json.loads(message)
+        except (TypeError, ValueError):
+            return message
+        if not isinstance(data, dict):
+            return message
+        kind = data.get("type")
+        if self.processing and kind == "session_joined":
+            data["is_processing"] = True
+            return json.dumps(data)
+        if self.empty_list and kind in ("session_list", "sessions_changed"):
+            data["sessions"] = []
+            return json.dumps(data)
+        return message
+
+    def _from_page(self, server, message) -> None:
+        try:
+            data = json.loads(message)
+        except (TypeError, ValueError):
+            data = None
+        if isinstance(data, dict) and ("message" in data or data.get("action") == "cancel"):
+            self.swallowed.append(message if isinstance(message, str) else "<bytes>")
+            return
+        server.send(message)
+
+    def send(self, frame: dict) -> None:
+        """To every socket the page opened (the page ignores a superseded one's frames)."""
+        for ws, _server in self.pairs:
+            ws.send(json.dumps(frame))
+
+
+def _chat_setup(processing=False, empty_list=False, oauth=False, empty_store=()):
+    """A Surface.setup: runs after the clock and routes, before ``goto``."""
+
+    def setup(page, state: dict) -> None:
+        script = SocketScript(processing=processing, empty_list=empty_list)
+        script.install(page)
+        state["sock"] = script
+        for name in empty_store:
+            page.route(
+                re.compile(rf".*/api/{name}(\?.*)?$"),
+                lambda r: r.fulfill(json=[]) if r.request.method == "GET" else r.fallback(),
+            )
+        if empty_list:
+            page.route(
+                re.compile(r".*/api/chat/sessions(\?.*)?$"),
+                lambda r: r.fulfill(json=[]) if r.request.method == "GET" else r.fallback(),
+            )
+        if oauth:
+            page.add_init_script("window.open = function () { return null; };")
+            page.route(
+                "**/api/oauth/start",
+                lambda r: r.fulfill(json={"status": "started"}),
+            )
+
+    return setup
+
+
+CHAT_READY = '[data-testid="chat-header"]'
+CHAT_MESSAGES = ".messages"
+
+
+def _scroll_messages(page, where: str) -> None:
+    js = {
+        "top": "e => e.scrollTop = 0",
+        "mid": "e => e.scrollTop = e.scrollHeight / 2.6",
+        "bottom": "e => e.scrollTop = e.scrollHeight",
+    }[where]
+    page.locator(CHAT_MESSAGES).evaluate(js)
+
+
+def _rich_scroll(where: str, open_disclosures: bool = False):
+    def prepare(ctx: Ctx) -> None:
+        page = ctx.page
+        page.locator('[data-testid="message"]').first.wait_for(timeout=15000)
+        if open_disclosures:
+            page.evaluate(
+                "() => document.querySelectorAll('.messages details').forEach(d => d.open = true)"
+            )
+        _scroll_messages(page, where)
+
+    return prepare
+
+
+def _picker_open(query: str | None):
+    def prepare(ctx: Ctx) -> None:
+        page = ctx.page
+        page.locator('[data-testid="chats-new-btn"]').click()
+        page.locator('[data-testid="agent-picker"]').wait_for(timeout=10000)
+        if query is not None:
+            page.locator('[data-testid="agent-picker-search"]').fill(query)
+        page.wait_for_timeout(300)
+
+    return prepare
+
+
+def _chats_row_hover(ctx: Ctx) -> None:
+    """Hover the oldest row. The list repaints once when the socket's first session list lands
+    (a primed store), which can detach a located row mid-action, so the step retries."""
+    page = ctx.page
+    row_sel = f'[data-testid="chat-row"][data-id="{ctx.ids["chat_s_old"]}"]'
+    page.locator(row_sel).wait_for(timeout=15000)
+    page.wait_for_timeout(600)
+    for attempt in range(4):
+        try:
+            row = page.locator("li").filter(has=page.locator(row_sel)).last
+            row.scroll_into_view_if_needed(timeout=5000)
+            row.hover(timeout=5000)
+            break
+        except Exception:
+            if attempt == 3:
+                raise
+            page.wait_for_timeout(500)
+    page.wait_for_timeout(200)
+    ctx.state["row"] = row
+
+
+def _chats_row_armed(ctx: Ctx) -> None:
+    _chats_row_hover(ctx)
+    ctx.state["row"].locator('[data-testid="chat-row-delete"]').click()
+    ctx.page.locator(".confirm-delete").first.wait_for(timeout=5000)
+
+
+def _check_chat_groups(ctx: Ctx) -> None:
+    """Read each seeded row's group heading off the page and compare it with the seed's
+    expectation (the manifest records both)."""
+    page = ctx.page
+    page.locator('[data-testid="chat-row"][data-id]').first.wait_for(timeout=15000)
+    got = page.evaluate(
+        """() => { const caps = Array.from(document.querySelectorAll(
+          '[data-testid="chats-list"] .ui-list-pane-caption')); const out = {};
+          document.querySelectorAll('[data-testid="chat-row"][data-id]').forEach((r) => {
+            let label = null;
+            caps.forEach((c) => {
+              if (c.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING)
+                label = c.textContent.trim();
+            });
+            out[r.dataset.id] = label; });
+          return out; }"""
+    )
+    expected = {sid: v["expected_group"] for sid, v in CHAT_MANIFEST["sessions"].items()}
+    bad = {sid: (got.get(sid), want) for sid, want in expected.items() if got.get(sid) != want}
+    CHAT_MANIFEST["groups_on_page"] = {
+        CHAT_MANIFEST["sessions"][sid]["key"]: label
+        for sid, label in got.items()
+        if sid in expected
+    }
+    if bad:
+        raise CaptureError(f"chats-list: sessions in the wrong group (got, expected): {bad}")
+    CHAT_MANIFEST["groups_checked"] = True
+
+
+def _telemetry_expanded(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="chat-telemetry"]').hover()
+    ctx.page.wait_for_timeout(500)
+
+
+def _composer_focus(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="chat-input"]').click()
+
+
+def _composer_multiline(ctx: Ctx) -> None:
+    page = ctx.page
+    lines = "\n".join(f"Line {n}" for n in range(1, 11))
+    page.locator('[data-testid="chat-input"]').fill(lines)
+    page.evaluate(
+        "() => document.querySelector('[data-testid=chat-input]')"
+        ".dispatchEvent(new Event('input', {bubbles: true}))"
+    )
+    page.wait_for_timeout(300)
+
+
+def _composer_images(ctx: Ctx) -> None:
+    png = _chat_png()
+    ctx.page.locator('[data-testid="chat-image-input"]').set_input_files(
+        [
+            {
+                "name": "screenshot-with-a-long-file-name-2026-10-26.png",
+                "mimeType": "image/png",
+                "buffer": png,
+            },
+            {"name": "b.png", "mimeType": "image/png", "buffer": png},
+        ]
+    )
+    ctx.page.wait_for_timeout(600)
+
+
+def _stream_text(ctx: Ctx) -> None:
+    """Three chunk frames, then wait for the client's pacing queue to drain: the state (the full
+    text shown, no ``done``) is what is captured, never a point on a timer."""
+    page = ctx.page
+    sock: SocketScript = ctx.state["sock"]
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    for part in CHAT_STREAM_TEXT.replace(". ", ". |").split("|"):
+        sock.send({"type": "assistant_chunk", "content": part})
+    page.wait_for_function(
+        "t => { const m = Array.from(document.querySelectorAll('.messages [data-testid=\"message\"].ui-message--assistant'));"  # noqa: E501
+        " return m.length && m[m.length - 1].textContent === t; }",
+        arg=CHAT_STREAM_TEXT,
+        timeout=30000,
+    )
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    _scroll_messages(page, "bottom")
+
+
+def _queued(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    page.locator('[data-testid="chat-input"]').fill(
+        "A queued follow-up message that is long enough to be truncated with an ellipsis in the "
+        "queued chip at narrow widths, surely."
+    )
+    page.keyboard.press("Enter")
+    page.locator('[data-testid="pending-queued-region"]').wait_for(state="visible", timeout=10000)
+    if ctx.state["sock"].swallowed:
+        raise CaptureError("queued: a message reached the socket")
+
+
+def _after_stop(ctx: Ctx) -> None:
+    page = ctx.page
+    _stream_text(ctx)
+    page.locator('[data-testid="chat-stop-btn"]').click()
+    ctx.state["sock"].send({"type": "cancelled"})
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
+    page.wait_for_timeout(300)
+
+
+def _agent_error(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    ctx.state["sock"].send({"type": "system", "content": CHAT_ERROR_TEXT})
+    page.locator('[data-testid="chat-agent-error"]').last.wait_for(timeout=10000)
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
+    _scroll_messages(page, "bottom")
+
+
+def _signin_button(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="message"]').first.wait_for(timeout=15000)
+    ctx.state["sock"].send(
+        {
+            "type": "auth_required",
+            "source_id": "src-docs",
+            "source_name": "Docs server",
+            "consent_url": None,
+        }
+    )
+    page.locator(".login-required-btn").first.wait_for(timeout=10000)
+    _scroll_messages(page, "bottom")
+
+
+def _signin_consent(ctx: Ctx) -> None:
+    page = ctx.page
+    _signin_button(ctx)
+    page.locator(".login-required-btn").first.click()
+    page.wait_for_timeout(300)
+    ctx.state["sock"].send(
+        {
+            "type": "auth_required",
+            "source_id": "src-docs",
+            "source_name": "Docs server",
+            "consent_url": FIXED_CONSENT_URL,
+        }
+    )
+    page.locator('[data-testid="chat-consent-link-open"]').wait_for(timeout=10000)
+    _scroll_messages(page, "bottom")
+
+
+def _code_copy(ctx: Ctx) -> None:
+    page = ctx.page
+    btn = page.locator(".markdown-copy-btn").first
+    btn.wait_for(timeout=15000)
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    # Row 2 (A2/D1): the code Copy confirms in place (check icon, title "Copied"); no toast.
+    page.locator('.markdown-copy-btn[title="Copied"]').first.wait_for(timeout=10000)
+
+
+def _jump_to(ctx: Ctx) -> None:
+    ctx.page.locator('[data-testid="message"]').first.wait_for(timeout=15000)
+    ctx.page.keyboard.press("Control+k")
+    ctx.page.locator('[data-testid="jump-to"]').wait_for(timeout=10000)
+    ctx.page.wait_for_timeout(300)
+
+
+OLLAMA_STREAM_JS = """() => { const of = window.fetch; window.fetch = function (u, o) {
+  if (String(u).indexOf('/models/pull') !== -1) {
+    const enc = new TextEncoder();
+    const body = new ReadableStream({ start(c) { c.enqueue(enc.encode(
+      'data: {"status":"pulling 6a0746a1ec1a","total":100,"completed":42}\\n')); } });
+    return Promise.resolve(new Response(body, {status: 200}));
+  }
+  return of.apply(this, arguments); }; }"""
+
+
+def _ollama_pull(confirm_only: bool):
+    def prepare(ctx: Ctx) -> None:
+        page = ctx.page
+        page.route(
+            "**/api/ollama-library/size*",
+            lambda r: r.fulfill(json={"status": "ok", "size": 2019377376}),
+        )
+        page.evaluate(OLLAMA_STREAM_JS)
+        sel = page.locator('[data-testid="admin-pf-pull-select"]')
+        page.wait_for_function(
+            "() => { const s = document.querySelector('[data-testid=admin-pf-pull-select]');"
+            " return s && Array.from(s.options).some(o => o.value); }",
+            timeout=15000,
+        )
+        val = sel.evaluate("s => Array.from(s.options).map(o => o.value).find(Boolean)")
+        sel.select_option(val)
+        page.wait_for_timeout(200)
+        page.locator('[data-testid="admin-pf-pull-btn"]').click()
+        page.locator('[data-testid="admin-pf-pull-confirm-go"]').wait_for(timeout=10000)
+        if confirm_only:
+            return
+        page.locator('[data-testid="admin-pf-pull-confirm-go"]').click()
+        page.locator('[data-testid="admin-pf-pull-cancel"]').wait_for(timeout=10000)
+        page.wait_for_timeout(500)
+
+    return prepare
+
+
+CHAT_STREAMER_DESCRIPTION = "Streams a long reply slowly."
+
+
+def _flash_agent(ctx: Ctx) -> None:
+    page = ctx.page
+    page.get_by_label("Description", exact=True).first.fill(CHAT_STREAMER_DESCRIPTION + " (edited)")
+    page.locator('[data-testid="save-agent-btn"]').click()
+    page.locator(".app-flash.visible").wait_for(timeout=10000)
+
+
+def _restore_streamer(base: str, token: str, ids: dict[str, str]) -> None:
+    row = _api(base, token, "GET", f"/api/agents/{ids['chat_streamer']}")
+    row["description"] = CHAT_STREAMER_DESCRIPTION
+    _api(base, token, "PUT", f"/api/agents/{ids['chat_streamer']}", row)
+
+
+def _chat_surface(name, hash_, description, ready=CHAT_READY, **kw) -> Surface:
+    return Surface(name, hash_, ready, description, needs_chat=True, **kw)
+
+
+_ROUTE = "#chats/{chat_s_rich}"
+SURFACES += [
+    _chat_surface(
+        "chats-guidance-noprovider",
+        "#chats",
+        "Chats, setup incomplete: no provider, no agent (store routes stubbed; seed untouched)",
+        ready='[data-testid="chat-welcome"]',
+        setup=_chat_setup(empty_list=True, empty_store=("providers", "agents")),
+    ),
+    _chat_surface(
+        "chats-guidance-noagent",
+        "#chats",
+        "Chats, a provider but no agent (agents route stubbed; the seed is untouched)",
+        ready='[data-testid="chat-welcome"]',
+        setup=_chat_setup(empty_list=True, empty_store=("agents",)),
+    ),
+    _chat_surface(
+        "chats-empty",
+        "#chats",
+        "Chats, agents present and no chat to open (the session list frames blanked)",
+        ready='[data-testid="chat-empty-new-btn"]',
+        setup=_chat_setup(empty_list=True),
+    ),
+    _chat_surface(
+        "chat-agent-picker-open",
+        "#chats",
+        "The agent picker open: Recently used, then All agents",
+        ready='[data-testid="chats-new-btn"]',
+        prepare=_picker_open(None),
+    ),
+    _chat_surface(
+        "chat-agent-picker-search",
+        "#chats",
+        "The agent picker with a search ('a')",
+        ready='[data-testid="chats-new-btn"]',
+        prepare=_picker_open("a"),
+    ),
+    _chat_surface(
+        "chat-agent-picker-nomatch",
+        "#chats",
+        "The agent picker with a search that matches nothing",
+        ready='[data-testid="chats-new-btn"]',
+        prepare=_picker_open("zzzz"),
+    ),
+    _chat_surface(
+        "chat-pending-new",
+        "#chats/~new/{chat_research}",
+        "A pending new chat (Research assistant)",
+        ready='[data-testid="chat-new-state"]',
+    ),
+    _chat_surface(
+        "chat-pending-long-name",
+        "#chats/~new/{chat_long_agent}",
+        "A pending new chat with a very long agent name and model",
+        ready='[data-testid="chat-new-state"]',
+    ),
+    _chat_surface(
+        "chat-joined-rich-top",
+        _ROUTE,
+        "A joined chat: rich markdown, tool activity and thinking, scrolled to the top",
+        prepare=_rich_scroll("top"),
+    ),
+    _chat_surface(
+        "chat-joined-rich-mid",
+        _ROUTE,
+        "The rich chat, scrolled to the middle",
+        prepare=_rich_scroll("mid"),
+    ),
+    _chat_surface(
+        "chat-joined-rich-bottom",
+        _ROUTE,
+        "The rich chat, scrolled to the bottom",
+        prepare=_rich_scroll("bottom"),
+    ),
+    _chat_surface(
+        "chat-joined-rich-disclosures-open",
+        _ROUTE,
+        "The rich chat with every thinking and tool-activity disclosure open",
+        prepare=_rich_scroll("top", open_disclosures=True),
+    ),
+    _chat_surface(
+        "chat-joined-long-names",
+        "#chats/{chat_s_long}",
+        "A joined chat with a very long agent name and session title",
+    ),
+    _chat_surface(
+        "chat-joined-peer",
+        "#chats/{chat_s_peer}",
+        "A connector chat: peers, a long handle and an operator-only reply",
+    ),
+    _chat_surface(
+        "chat-joined-ghost-agent",
+        "#chats/{chat_s_ghost}",
+        "A chat whose agent no longer exists (the drawer's context-window fetch 404s)",
+    ),
+    _chat_surface(
+        "chat-joined-empty",
+        "#chats/{chat_s_untitled}",
+        "A joined chat with no messages and no title",
+    ),
+    _chat_surface(
+        "chats-list-row-hover",
+        _ROUTE,
+        "The Chats list with a row hovered (its delete action shown)",
+        prepare=_chats_row_hover,
+    ),
+    _chat_surface(
+        "chats-list-delete-armed",
+        _ROUTE,
+        "The Chats list with a row's delete armed (first click)",
+        prepare=_chats_row_armed,
+    ),
+    _chat_surface(
+        "chat-composer-focused",
+        _ROUTE,
+        "The composer focused and empty",
+        prepare=_composer_focus,
+        shot=".ui-composer",
+    ),
+    _chat_surface(
+        "chat-composer-multiline",
+        _ROUTE,
+        "The composer with ten lines (grown to its cap, then scrolling)",
+        prepare=_composer_multiline,
+        shot=".ui-composer",
+    ),
+    _chat_surface(
+        "chat-composer-staged-images",
+        _ROUTE,
+        "The composer with two images staged",
+        prepare=_composer_images,
+    ),
+    _chat_surface(
+        "chat-telemetry-resting",
+        _ROUTE,
+        "The composer's telemetry readout at rest",
+        shot=".ui-composer",
+    ),
+    _chat_surface(
+        "chat-telemetry-expanded",
+        _ROUTE,
+        "The telemetry readout hovered (expanded)",
+        prepare=_telemetry_expanded,
+        shot=".ui-composer",
+    ),
+    _chat_surface(
+        "chat-live-streaming",
+        "#chats/{chat_s_week}",
+        "A turn streaming: chunk frames injected, Stop visible, no done (scripted, never sent)",
+        prepare=_stream_text,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-live-thinking",
+        "#chats/{chat_s_month}",
+        "The thinking indicator while a turn is in flight (join rewritten to is_processing)",
+        ready='[data-testid="thinking-indicator"]',
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-live-queued",
+        "#chats/{chat_s_week}",
+        "A follow-up held while a turn runs: the queued region above the composer",
+        prepare=_queued,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-live-after-stop",
+        "#chats/{chat_s_week}",
+        "After Stop: the partial reply kept, Stop gone (cancelled frame injected)",
+        prepare=_after_stop,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-live-agent-error",
+        "#chats/{chat_s_untitled}",
+        "An agent error ending a turn (a system frame injected)",
+        prepare=_agent_error,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-code-copy-toast",
+        _ROUTE,
+        "A code block just after Copy (in-place confirmation; the page toast is retired, row 2)",
+        prepare=_code_copy,
+    ),
+    _chat_surface(
+        "chat-signin-button",
+        _ROUTE,
+        "The inline Log in button for an MCP source (injected auth_required frame)",
+        prepare=_signin_button,
+        setup=_chat_setup(oauth=True),
+    ),
+    _chat_surface(
+        "chat-consent-link",
+        _ROUTE,
+        "The sign-in consent block in a chat: open button and copyable link (injected frames)",
+        prepare=_signin_consent,
+        setup=_chat_setup(oauth=True),
+    ),
+    _chat_surface(
+        "chat-jump-to",
+        _ROUTE,
+        "Jump to open over a chat (Ctrl K)",
+        prepare=_jump_to,
+    ),
+    _chat_surface(
+        "ollama-pull-confirm",
+        "#library/providers/{ollama}",
+        "The Ollama panel's Pull confirm step (size lookup stubbed)",
+        ready=".ui-model-row",
+        prepare=_ollama_pull(confirm_only=True),
+        stubs=("ollama",),
+    ),
+    _chat_surface(
+        "ollama-pull-progress",
+        "#library/providers/{ollama}",
+        "The Ollama panel's Pull progress (a stubbed stream, held at 42%)",
+        ready=".ui-model-row",
+        prepare=_ollama_pull(confirm_only=False),
+        stubs=("ollama",),
+    ),
+    _chat_surface(
+        "provider-models-generic",
+        "#library/providers/{chat_plain}",
+        "A mock provider's editor with its generic models list (a long model id)",
+        ready='[data-testid="save-provider-btn"]',
+    ),
+    _chat_surface(
+        "agent-model-picker-long",
+        "#agents/{chat_long_agent}/general",
+        "Agent editor, General tab: a long agent name and a long model id",
+        ready='[data-testid="tab-general"][aria-selected="true"]',
+    ),
+    _chat_surface(
+        "flash-agent-saved",
+        "#agents/{chat_streamer}/general",
+        "The toast after saving an agent",
+        ready='[data-testid="tab-general"][aria-selected="true"]',
+        prepare=_flash_agent,
+        restore=_restore_streamer,
+    ),
+    # LAST: after every live and state-changing surface, the Chats list must still show the seed
+    # unchanged; its prepare also checks each session's group against the seed's expectation.
+    _chat_surface(
+        "chats-list-groups",
+        _ROUTE,
+        "The Chats list with every group (Today to Older), taken after all the live surfaces",
+        ready='[data-testid="chats-list"]',
+        prepare=_check_chat_groups,
+        shot='[data-testid="chats-list"]',
+    ),
+]
+
+
 def print_table() -> None:
     for s in SURFACES:
         tail = f"  SKIPPED: {s.skipped}" if s.skipped else ""
@@ -1630,7 +2601,14 @@ def _api(base: str, token: str, method: str, path: str, body: dict | None = None
         raise CaptureError(f"{method} {path} -> {exc.code}: {exc.read()[:300]!r}") from exc
 
 
-def start_instance(port: int, data_dir: Path, cwd: Path, log: Path, detach: bool = False):
+def start_instance(
+    port: int,
+    data_dir: Path,
+    cwd: Path,
+    log: Path,
+    detach: bool = False,
+    extra_env: dict[str, str] | None = None,
+):
     data_dir.mkdir(parents=True)
     cwd.mkdir(parents=True, exist_ok=True)
     token = write_credential(data_dir)
@@ -1643,6 +2621,7 @@ def start_instance(port: int, data_dir: Path, cwd: Path, log: Path, detach: bool
     env["THE_ONE_STUB_TEST_ENDPOINT"] = "1"
     env["TZ"] = SERVER_TZ  # pins the server's system zone (tzlocal) for system mode
     env["THE_ONE_OLLAMA_LIBRARY_TEST_JSON"] = json.dumps(OLLAMA_CATALOG)
+    env.update(extra_env or {})
     logf = open(log, "wb")  # noqa: SIM115 - closed by the caller via proc lifetime
     proc = subprocess.Popen(
         [
@@ -2022,7 +3001,9 @@ def capture_one(
         locale="en-US",
         color_scheme=theme,
         device_scale_factor=1,
+        permissions=["clipboard-read", "clipboard-write"],
     )
+    state: dict = {}
     try:
         context.add_init_script(
             "try { localStorage.setItem('theme-preference', %s); } catch (e) {}" % json.dumps(theme)
@@ -2051,6 +3032,8 @@ def capture_one(
                     r.fulfill(json=GENERIC_MODELS) if r.request.method == "GET" else r.continue_()
                 ),
             )
+        if s.setup is not None:
+            s.setup(page, state)
         route_hash = s.hash
         for key, value in ids.items():
             route_hash = route_hash.replace("{" + key + "}", value)
@@ -2060,7 +3043,7 @@ def capture_one(
         if "Unauthorized" in text or '"detail"' in text[:200]:
             raise CaptureError(f"{s.name}: the page is the unauthenticated state")
         if s.prepare:
-            s.prepare(Ctx(page, base, ids, theme, token))
+            s.prepare(Ctx(page, base, ids, theme, token, state))
         _mask(page)  # every surface: run-to-run values pinned in their own shape
         page.evaluate("document.fonts.ready")
         page.wait_for_timeout(500)  # transitions settle; the flash is visible for 5 s
@@ -2229,6 +3212,7 @@ def run(argv: list[str]) -> int:
         raise CaptureError(f"unknown surface(s): {', '.join(unknown)} (see --list)")
     todo = [s for s in SURFACES if wanted is None or s.name in wanted]
     needs_mcp = any(s.needs_mcp and not s.skipped for s in todo)
+    needs_chat = any(s.needs_chat and not s.skipped for s in todo)
 
     from playwright.sync_api import sync_playwright
 
@@ -2240,8 +3224,19 @@ def run(argv: list[str]) -> int:
     sandbox_backend: str | None = None
     mcp_seed: dict[str, dict] = {}
     try:
-        base, proc, token = start_instance(port, data_dir, scratch / "cwd", scratch / "serve.log")
+        # Chat sessions are dated against FIXED_NOW (months before the real clock), so the
+        # retention purge would take them: a 30-day check interval means no sweep after the
+        # startup one, which runs on an empty database before seed_chat.
+        base, proc, token = start_instance(
+            port,
+            data_dir,
+            scratch / "cwd",
+            scratch / "serve.log",
+            extra_env={"THE_ONE_PURGE_CHECK_INTERVAL_SECONDS": "2592000"} if needs_chat else None,
+        )
         ids = seed(base, token, scratch / "home")
+        if needs_chat:
+            seed_chat(base, token, ids)
         if needs_mcp:
             for mode in ("ok", "legacy", "401"):
                 fixtures.start(mode, port)
@@ -2301,6 +3296,8 @@ def run(argv: list[str]) -> int:
         "failed": failed,
         "skipped": skipped,
     }
+    if CHAT_MANIFEST:
+        manifest["chat_seed"] = CHAT_MANIFEST
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     for item in skipped:
         print(f"SKIPPED {item['surface']}: {item['reason']}")

@@ -288,7 +288,9 @@ def test_home_end_and_escape_are_not_intercepted(engine_page: Page) -> None:
     ]
 
 
-def test_each_source_call_makes_the_first_option_active(engine_page: Page) -> None:
+def test_a_query_change_makes_the_first_option_active(engine_page: Page) -> None:
+    """A changed query activates the first match (D4, squawk 0185: only a refresh
+    with an unchanged query keeps the active option by identity)."""
     _mount(engine_page)
     p = engine_page
     inp = p.get_by_test_id("sl-input")
@@ -299,8 +301,210 @@ def test_each_source_call_makes_the_first_option_active(engine_page: Page) -> No
     s = _state(p)
     assert s["activeIndex"] == 0 and s["activeLabel"] == "Charlie"  # the first of "{n} matching"
     p.keyboard.press("ArrowDown")
-    p.evaluate("() => window.__sl.refresh()")
+    assert _state(p)["activeIndex"] == 1
+    # The same value dispatched as an input event is still an input, not a refresh.
+    p.evaluate("() => window.__sl.input.dispatchEvent(new Event('input'))")
     assert _state(p)["activeIndex"] == 0
+
+
+# ── D4 (M31 F6 L03b, squawk 0185): a refresh keeps the active option by identity ──
+
+PREPEND_JS = """() => {
+  const orig = window.__source;
+  window.__source = (q) => {
+    const g = orig(q);
+    if (g[0] && g[0].items) g[0].items.unshift({id: 'newcomer', label: 'Newcomer'});
+    return g;
+  };
+}"""
+
+ACTIVE_VISIBLE_JS = """() => {
+  const lb = document.querySelector('.ui-search-list-listbox');
+  const a = document.querySelector('[role=option][aria-selected=true]');
+  const r = a.getBoundingClientRect(), b = lb.getBoundingClientRect();
+  return r.top >= b.top - 1 && r.bottom <= b.bottom + 1;
+}"""
+
+
+def test_refresh_keeps_the_arrowed_to_option_active_and_in_view(engine_page: Page) -> None:
+    _mount(engine_page)
+    p = engine_page
+    p.get_by_test_id("sl-input").focus()
+    for _ in range(2):
+        p.keyboard.press("ArrowDown")
+    assert _state(p)["activeLabel"] == "Kilo"
+    p.evaluate(PREPEND_JS)
+    p.evaluate("() => window.__sl.refresh()")
+    s = _state(p)
+    assert s["activeLabel"] == "Kilo" and s["activeIndex"] == 3, s
+    assert p.evaluate(ACTIVE_VISIBLE_JS) is True
+
+
+def test_a_cold_refresh_with_no_move_keeps_the_highlighted_option(engine_page: Page) -> None:
+    """DD10 is superseded: data landing above the highlighted row never takes over."""
+    _mount(engine_page)
+    p = engine_page
+    assert _state(p)["activeLabel"] == "Charlie"
+    p.evaluate(PREPEND_JS)
+    p.evaluate("() => window.__sl.refresh()")
+    s = _state(p)
+    assert s["activeLabel"] == "Charlie" and s["activeIndex"] == 1, s
+    assert s["getActive"] == "charlie"
+
+
+def test_refresh_keeps_the_active_option_in_its_own_group(engine_page: Page) -> None:
+    _mount(engine_page)
+    p = engine_page
+    p.get_by_test_id("sl-input").focus()
+    for _ in range(5):  # Recently used 0-2, then All agents: Alpha 3, Bravo 4, Charlie 5
+        p.keyboard.press("ArrowDown")
+    where = """() => { const a = document.querySelector('[role=option][aria-selected=true]');
+      return [a.querySelector('.ui-search-list-label').textContent,
+              a.closest('[role=group]').querySelector('.ui-search-list-caption').textContent]; }"""
+    assert p.evaluate(where) == ["Charlie", "All agents"]
+    p.evaluate(PREPEND_JS)
+    p.evaluate("() => window.__sl.refresh()")
+    assert p.evaluate(where) == ["Charlie", "All agents"]
+
+
+def test_refresh_falls_back_to_the_first_option_when_the_active_one_is_gone(
+    engine_page: Page,
+) -> None:
+    _mount(engine_page)
+    p = engine_page
+    p.get_by_test_id("sl-input").focus()
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("ArrowDown")
+    p.evaluate(
+        """() => { window.__source = (q) => [{id: 'g', label: 'Only', items: [
+          {id: 'first', label: 'First'}, {id: 'second', label: 'Second'}]}]; }"""
+    )
+    p.evaluate("() => window.__sl.refresh()")
+    assert _state(p)["activeLabel"] == "First"
+
+
+# ── A9 (ledger row 9): the meta truncates before the label ──────────────────
+
+TRUNC_JS = """([variant, metaText, desc]) => {
+  const root = document.getElementById('harness-root');
+  const host = document.createElement('div');
+  host.style.cssText = 'width: 640px; display: flex; flex-direction: column;';
+  root.appendChild(host);
+  const c = App.ui.searchList({label: 'Pick', variant: variant || undefined,
+    source: () => [{id: 'g', items: [{id: 'a', label: 'An agent label of thirty chars!', description: desc || undefined,
+      meta: metaText || undefined, metaMono: true}]}]});
+  host.appendChild(c.el);
+  const row = host.querySelector('.ui-search-list-row');
+  const q = (s) => row.querySelector(s);
+  const r = (n) => n.getBoundingClientRect();
+  const label = q('.ui-search-list-label'), meta = q('.ui-search-list-meta'), text = q('.ui-search-list-text');
+  const cs = getComputedStyle(row);
+  return {label: [label.scrollWidth, label.clientWidth], meta: meta ? [meta.scrollWidth, meta.clientWidth, getComputedStyle(meta).textOverflow] : null,
+          gap: meta ? r(meta).left - r(text).right : null,
+          metaRight: meta ? r(meta).right : null, rowContentRight: r(row).right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth),
+          textLeft: r(text).left, rowW: r(row).width};
+}"""
+
+
+@pytest.mark.parametrize("variant", ["", "chooser"])
+def test_a_long_meta_truncates_before_the_label(engine_page: Page, variant: str) -> None:
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(TRUNC_JS, [variant, "meta-" + "x" * 65, ""])
+    assert out["label"][0] <= out["label"][1], out  # the label's full text is visible
+    assert out["meta"][0] > out["meta"][1] and out["meta"][2] == "ellipsis", out
+    assert out["meta"][1] >= 64, out  # the floor: never collapsed to nothing
+
+
+@pytest.mark.parametrize("variant", ["", "chooser"])
+def test_a_very_long_label_still_ellipsizes_inside_the_row(engine_page: Page, variant: str) -> None:
+    """The text column can still shrink once the meta is at its floor: a 200-character label
+    ends in the label's own ellipsis and the meta stays whole inside the row."""
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(
+        """([variant]) => {
+          const host = document.createElement('div');
+          host.style.cssText = 'width: 640px; display: flex; flex-direction: column;';
+          document.getElementById('harness-root').appendChild(host);
+          const c = App.ui.searchList({label: 'Pick', variant: variant || undefined,
+            source: () => [{id: 'g', items: [{id: 'a', label: 'L'.repeat(200), meta: 'model-x', metaMono: true}]}]});
+          host.appendChild(c.el);
+          const row = host.querySelector('.ui-search-list-row'), r = (n) => n.getBoundingClientRect();
+          const label = row.querySelector('.ui-search-list-label'), meta = row.querySelector('.ui-search-list-meta');
+          return {labelClipped: label.scrollWidth > label.clientWidth, metaInside: r(meta).right <= r(row).right + 0.5,
+                  metaWhole: meta.scrollWidth <= meta.clientWidth, noOverflow: row.scrollWidth <= row.clientWidth};
+        }""",
+        [variant],
+    )
+    assert out == {
+        "labelClipped": True,
+        "metaInside": True,
+        "metaWhole": True,
+        "noOverflow": True,
+    }, out
+
+
+@pytest.mark.parametrize("variant", ["", "chooser"])
+def test_a_long_description_with_a_short_meta_leaves_the_meta_whole(
+    engine_page: Page, variant: str
+) -> None:
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(TRUNC_JS, [variant, "model-x", "d" * 400])
+    assert out["label"][0] <= out["label"][1], out
+    assert out["meta"][0] <= out["meta"][1], out  # the meta is never ellipsized here
+    assert abs(out["metaRight"] - out["rowContentRight"]) <= 1, out
+
+
+@pytest.mark.parametrize("variant", ["", "chooser"])
+def test_a_short_meta_keeps_the_old_layout(engine_page: Page, variant: str) -> None:
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(TRUNC_JS, [variant, "model-x", "A short description"])
+    assert out["label"][0] <= out["label"][1] and out["meta"][0] <= out["meta"][1], out
+    assert abs(out["metaRight"] - out["rowContentRight"]) <= 1, out
+    assert abs(out["gap"] - 12) <= 1, out  # --space-3 between the text and the meta
+
+
+# ── variant: 'chooser' (M31 F6 L03b): the modal chooser's look, owned by the library ──
+
+
+def test_chooser_variant_owns_the_pickers_look_outside_any_area(engine_page: Page) -> None:
+    load_harness(engine_page, "dark")
+    out = engine_page.evaluate(
+        """() => {
+          const host = document.createElement('div');
+          host.style.cssText = 'width: 600px; display: flex; flex-direction: column;';
+          document.getElementById('harness-root').appendChild(host);
+          const c = App.ui.searchList({label: 'Pick', variant: 'chooser',
+            source: (q) => q === 'zzz' ? [] : [{id: 'g', items: [{id: 'a', label: 'Alpha'}]}]});
+          host.appendChild(c.el);
+          const cs = (sel) => getComputedStyle(c.el.querySelector(sel));
+          const field = cs('.ui-search-list-field'), input = cs('.ui-search-list-field .field-input');
+          const lb = cs('.ui-search-list-listbox');
+          const plain = App.ui.searchList({label: 'Plain', source: () => [{id: 'g', items: [{id: 'a', label: 'A'}]}]});
+          host.appendChild(plain.el);
+          const pcs = (sel) => getComputedStyle(plain.el.querySelector(sel));
+          const lbv = [lb.paddingTop, lb.paddingRight, lb.paddingBottom, lb.paddingLeft, lb.borderTopWidth];
+          c.input.value = 'zzz'; c.input.dispatchEvent(new Event('input'));
+          const empty = cs('.ui-search-list-empty');
+          return {cls: c.el.className, gap: getComputedStyle(c.el).rowGap,
+                  field: field.padding, inputH: c.input.getBoundingClientRect().height, inputFs: input.fontSize,
+                  lb: lbv,
+                  emptyBorder: empty.borderTopWidth,
+                  plainFs: getComputedStyle(plain.input).fontSize, plainBorder: pcs('.ui-search-list-listbox').borderTopWidth,
+                  plainCls: plain.el.className,
+                  bad: (() => { try { App.ui.searchList({label: 'x', variant: 'nope', source: () => []}); return ''; } catch (e) { return e.message; } })()};
+        }"""
+    )
+    assert out["cls"] == "ui-search-list ui-search-list--chooser", out
+    assert out["gap"] == "0px", out
+    assert out["field"] == "0px 20px 12px", out
+    # The old picker rule's `height: 40px` never applied (flex: 1 in a column field
+    # group): the field is the size the picker really had, 34px, with the larger font.
+    assert out["inputH"] == 34 and out["inputFs"] == "14px", out
+    assert out["lb"] == ["0px", "12px", "12px", "12px", "1px"], out
+    assert out["emptyBorder"] == "1px", out
+    assert out["plainFs"] != "14px" and out["plainBorder"] == "0px", out
+    assert out["plainCls"] == "ui-search-list", out
+    assert out["bad"] == 'App.ui.searchList: unknown variant "nope"', out
 
 
 def test_ime_composition_keys_are_ignored(engine_page: Page) -> None:
@@ -693,13 +897,20 @@ def test_keep_scroll_resets_on_a_changed_query_or_a_vanished_id(engine_page: Pag
     assert out[1] == [0, "only"]
 
 
-def test_without_keep_scroll_a_refresh_resets(engine_page: Page) -> None:
+def test_a_refresh_keeps_the_active_item_whatever_keep_scroll_says(engine_page: Page) -> None:
+    """Unified (D4): the identity rule applies to every list; keepScroll only decides
+    whether the scroll offset is restored as it was (true) or the kept row is scrolled
+    into view with 'nearest' (false)."""
     _inline(engine_page, "{keepScroll: false}")
     out = engine_page.evaluate(
         """() => { const lb = document.querySelector('.ui-search-list-listbox');
-          lb.scrollTop = 200; window.__il.refresh(); return [lb.scrollTop, window.__il.getActive().id]; }"""
+          window.__il.setActive('z40', {scroll: 'none'});
+          lb.scrollTop = 0;
+          window.__il.refresh();
+          const r = document.querySelector('[role=option][aria-selected=true]').getBoundingClientRect(), b = lb.getBoundingClientRect();
+          return [window.__il.getActive().id, r.top >= b.top - 1 && r.bottom <= b.bottom + 1]; }"""
     )
-    assert out == [0, "z0"]
+    assert out == ["z40", True]
 
 
 def test_scroll_active_center_nearest_and_none(engine_page: Page) -> None:

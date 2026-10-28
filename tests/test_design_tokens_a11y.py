@@ -27,12 +27,10 @@ can sit on in BOTH themes —
   carve-out is retired)
 
 Badge (``--badge-*``) × ink (``--badge-ink-*``) pairs are GATED here as
-of Mission 17 Flight 03 Leg 04: every provider / tool badge
+of Mission 17 Flight 03 Leg 04: every provider / transport badge
 carries a per-badge ink (light-toned fills take dark ink, dark-toned
 fills take white ink) so its text clears body AA (≥4.5:1) on that fill
-in BOTH themes. web's light-theme fill was darkened (#d63a93 → #cc2d87)
-so its white ink clears the threshold. See the flight log for the final
-measured table.
+in BOTH themes. See the flight log for the final measured table.
 
 WCAG AA thresholds (per WCAG 2.1):
 
@@ -158,7 +156,7 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
     Every fg-ladder tier (faint included) must hold body AA on every ladder
     surface: the tiers are used interchangeably across bg (page prose),
     surface (panels, sidebar), and surface-elevated (chips, code wells —
-    e.g. ``.pending-queued-chip`` puts --fg-muted on --surface-elevated).
+    e.g. the queued chip's text sits on a chip fill).
     """
     palette = _palette(theme)
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
@@ -245,7 +243,7 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         # --accent-fill / --fg-on-accent-fill (gated just below). The pair
         # keeps guarding the token (--fg-on-accent still pairs with --accent
         # for any future accent-coloured surface) but is no longer pinned to a
-        # CSS site. (M17 F04 L02: the chat .msg.user bubble is a tint, see
+        # CSS site. (M17 F04 L02: the chat user bubble (.ui-message--user) is a tint, see
         # test_tinted_user_bubble_text_passes_body_aa.)
         ("fg_on_accent", "accent", 4.5),
         # Deep-violet fills (M25 F1 L3, DD6/DD7): white ink on the solid
@@ -394,24 +392,18 @@ def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Danger glyph on the chip's accent-translucent FILL (≥ 4.5:1) — both themes
-# (M18 F3 L1 A3 fix; review-polish regression gate, obs 1)
+# The chip remove button's icon on the chip's accent-translucent FILL (>= 3:1, a UI
+# component, WCAG 1.4.11) -- both themes. (M31 F6 L05a: the legacy `.chip-remove`
+# danger glyph is gone; its last user, the chat's staged-image chip, is App.ui.chip, whose
+# remove is a ghost small icon-only button at --fg-secondary.)
 # ---------------------------------------------------------------------------
 
-# --accent-translucent is a low-alpha rgba wash (base color --accent) that
-# .chip (components.css) uses as its fill; .chip-remove sits on top of it.
-# Because the wash is an rgba it is NOT mirrored in design_tokens.py (see
-# that module's "Deliberately NOT mirrored" note); the gate reconstructs the
-# rendered fill by compositing --accent at the theme's translucent alpha over
-# each ladder surface, then asserts --status-danger text clears body AA on
-# that fill.
-#
-# This gates `.chip-remove` (components.css, the `.chat-attachment.chip`
-# remove glyph in the chat attach UI): M18 F3 L1's contrast fix retuned its
-# resting color from --status-danger-muted (≈4.14:1 in light theme, failed
-# body AA) to --status-danger. This test is the durable regression net so a
-# future --status-danger / --accent-translucent retune can't silently
-# regress that fix.
+# --accent-translucent is a low-alpha rgba wash (base color --accent) that .chip
+# (components.css) uses as its fill; the remove button sits on top of it. Because the wash is
+# an rgba it is NOT mirrored in design_tokens.py (see that module's "Deliberately NOT
+# mirrored" note); the gate reconstructs the rendered fill by compositing --accent at the
+# theme's translucent alpha over each ladder surface. The same fill holds the queued-message
+# chip's "Queued" lead text (--fg-secondary, caption size), which is body text and needs 4.5:1.
 #
 # Alpha per theme MUST track --accent-translucent in tokens.css.
 _ACCENT_TRANSLUCENT_ALPHA = {"dark": 0.10, "light": 0.08}
@@ -419,17 +411,19 @@ _ACCENT_TRANSLUCENT_ALPHA = {"dark": 0.10, "light": 0.08}
 
 @pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
 @pytest.mark.parametrize("theme", THEMES)
-def test_chip_remove_danger_on_chip_fill_passes_body_aa(theme: str, bg_key: str) -> None:
-    """`--status-danger` glyph text ≥ 4.5:1 on the composited `--accent-translucent`
-    chip fill, over bg AND surface AND surface-elevated, in BOTH themes."""
+def test_chip_remove_icon_on_chip_fill_passes_ui_and_the_queued_lead_passes_body_aa(
+    theme: str, bg_key: str
+) -> None:
+    """`--fg-secondary` on the composited `--accent-translucent` chip fill, over bg AND
+    surface AND surface-elevated, in BOTH themes: the ghost remove icon >= 3:1 (UI
+    component) and the queued chip's lead text >= 4.5:1 (body text)."""
     palette = _palette(theme)
-    danger = palette["status_danger"]
     alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
     fill = _alpha_composite(palette["accent"], alpha, palette[bg_key])
-    ratio = contrast_ratio(danger, fill)
+    ratio = contrast_ratio(palette["fg_secondary"], fill)
     assert ratio >= 4.5, (
-        f"{theme} chip-remove danger fails body AA: status_danger on "
-        f"accent-translucent over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+        f"{theme} chip remove icon / queued lead fails: fg_secondary on accent-translucent "
+        f"over {bg_key} = {ratio:.2f}:1 (need >= 4.5:1 for the lead text, >= 3:1 for the icon)"
     )
 
 
@@ -621,12 +615,9 @@ _FILL_SITES = [
         ("var(--accent)",),
         ("var(--fg-on-accent)",),
     ),
-    (
-        "chat.css",
-        ".area-chat .msg-pending-approval-approve",
-        ("--accent-fill", "--fg-on-accent-fill"),
-        ("var(--accent)", "var(--fg-on-accent)"),
-    ),
+    # M31 F6 L05c (A15): the message timestamp is --fg-faint at full strength (no extra
+    # opacity), gated by test_message_timestamp_passes_body_aa.
+    ("components.css", ".ui-message-attribution-ts", ("--fg-faint",), ("opacity",)),
     # Boundaries and thumbs (DD7).
     ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
     # M25 F1 L4: the indeterminate dash and the library toggle consume the same
@@ -745,10 +736,11 @@ _SURFACE_TRANSLUCENT = {
     "dark": ("#ffffff", 0.03),  # rgba(255,255,255,0.03)
     "light": ("#18181b", 0.03),  # rgba(24,24,27,0.03)
 }
-# Telemetry readout resting opacity (chat.css .telemetry-overlay { opacity }).
-# Since M25 F4 L5 the readout sits in the composer's telemetry row, in the flow
-# over the chat pane's --bg (no longer an absolute overlay); the rule and its
-# 0.7 are unchanged, so the composite over --bg below still describes it.
+# Telemetry readout resting opacity (components.css .ui-telemetry { opacity }, the
+# App.ui.telemetry control since M31 F6 L05c). Since M25 F4 L5 the readout sits in the
+# composer's telemetry row, in the flow over the chat pane's --bg (no longer an absolute
+# overlay); the rule and its 0.7 are unchanged, so the composite over --bg below still
+# describes it.
 _TELEMETRY_RESTING_OPACITY = 0.7
 
 
@@ -1072,6 +1064,41 @@ def test_chats_row_pairs_pass_body_aa(theme: str) -> None:
         assert ratio >= need, f"{theme} chats row {name} = {ratio:.2f}:1 (need >= {need}:1)"
 
 
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_chats_row_activity_pairs_pass_ui_aa(theme: str) -> None:
+    """M31 F6 L10b: the row activity marks (the working ring and the new-reply dot,
+    both --accent, non-text) hold 3:1 on the aside ground, the selected wash and the
+    hover ground, in both themes."""
+    palette = _palette(theme)
+    aside = _sidebar_ground(theme)
+    selected = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], aside)
+    hover = palette["surface_elevated"]
+    for name, ground in (("aside", aside), ("selected wash", selected), ("hover", hover)):
+        ratio = contrast_ratio(palette["accent"], ground)
+        assert ratio >= 3.0, f"{theme} row activity mark (accent on {name}) = {ratio:.2f}:1"
+
+
+def test_chats_row_activity_rules_consume_the_gated_pair() -> None:
+    for selector in (
+        ".ui-list-pane-activity--working::before",
+        ".ui-list-pane-activity--new::before",
+    ):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "var(--accent)" in body, (selector, body)
+    working = " ".join(_rule_bodies("components.css", ".ui-list-pane-activity--working::before"))
+    assert "animation:" in working, working
+    reduced = _reduced_motion_rules("components.css")
+    assert ".ui-list-pane-activity--working::before { animation: none; }" in reduced, reduced
+
+
+def _reduced_motion_rules(css_file: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", (_CSS_DIR / css_file).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(
+        r"@media \(prefers-reduced-motion: reduce\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", css
+    )
+    return " ".join(" ".join(b.split()) for b in blocks)
+
+
 def test_chats_row_rules_consume_the_gated_pairs() -> None:
     time = " ".join(_rule_bodies("components.css", ".ui-list-pane-time"))
     assert "color: var(--fg-muted)" in time and "font-size: var(--font-size-caption)" in time, time
@@ -1111,6 +1138,8 @@ def _forced_colors_rules(css_file: str) -> str:
     ("css_file", "selector", "declaration"),
     [
         ("components.css", ".ui-tool-tile--selected", "outline: 1px solid Highlight"),
+        ("components.css", ".ui-list-pane-activity--new::before", "background: CanvasText"),
+        ("components.css", ".ui-list-pane-activity--working::before", "border-color: CanvasText"),
         ("components.css", ".ui-tool-tile--selected", "border-color: Highlight"),
         (
             "components.css",
@@ -1160,22 +1189,10 @@ def test_forced_colors_keep_a_non_colour_selected_cue(
     raise AssertionError(f"{css_file}: no forced-colors rule {selector!r} {{ {declaration} }}")
 
 
-@pytest.mark.parametrize("kind", ("approved", "dismissed"))
-def test_badge_semantic_kinds_sit_on_the_gated_ladder(kind: str) -> None:
-    """`.badge--approved` / `.badge--dismissed` paint --fg / --fg-secondary on
-    --surface-elevated (both swept by test_body_text_passes_aa), never a novel pair."""
-    body = " ".join(_rule_bodies("components.css", f".badge--{kind}"))
-    assert "var(--surface-elevated)" in body, body
-    assert ("var(--fg)" if kind == "approved" else "var(--fg-secondary)") in body, body
-
-
 _TOKEN_BADGE_KINDS = (
     "anthropic",
     "anthropic-plan",
     "anthropic-plan-token",
-    "connectors",
-    "execution",
-    "filesystem",
     "local",
     "mock",
     "ollama",
@@ -1183,9 +1200,7 @@ _TOKEN_BADGE_KINDS = (
     "openai-compatible",
     "openrouter",
     "remote",
-    "time",
     "unknown",
-    "web",
 )
 
 
@@ -1246,11 +1261,11 @@ def test_translucent_surface_prose_passes_body_aa(theme: str, surface_label: str
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_telemetry_ghost_value_holds_annotation_floor(theme: str) -> None:
-    """F04 L02: the telemetry overlay's --fg-secondary value readout, ghosted
+    """F04 L02: the telemetry readout's (App.ui.telemetry) --fg-secondary value, ghosted
     at the resting opacity (0.7) over --bg, stays ≥ 3.0:1 (the annotation
     floor), both themes.
 
-    The telemetry overlay is DELIBERATELY de-emphasized at rest (opacity 0.7);
+    The telemetry readout is DELIBERATELY de-emphasized at rest (opacity 0.7);
     hover/focus-within lifts it to opacity 1.0, where --fg-secondary on --bg is
     fully body-AA via the fg-ladder sweep. This gate pins the RESTING ghost to
     the same ≥3.0 annotation floor:
@@ -1265,6 +1280,20 @@ def test_telemetry_ghost_value_holds_annotation_floor(theme: str) -> None:
         f"{theme} telemetry-ghost value drops below the annotation floor: "
         f"fg_secondary @ {_TELEMETRY_RESTING_OPACITY} opacity on bg = {ratio:.2f}:1 "
         f"(need ≥ 3.0:1)"
+    )
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_message_timestamp_passes_body_aa(theme: str, bg_key: str) -> None:
+    """M31 F6 L05c (A15): the attribution timestamp (.ui-message-attribution-ts) is --fg-faint
+    at full strength, >= 4.5:1 on the chat pane's --bg (and on --surface), both themes. It
+    used to carry an extra opacity 0.75, which put the pair under body AA."""
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["fg_faint"], palette[bg_key])
+    assert ratio >= 4.5, (
+        f"{theme} message timestamp fails body AA: fg_faint on {bg_key} = {ratio:.2f}:1 "
+        f"(need >= 4.5:1)"
     )
 
 
@@ -1317,10 +1346,9 @@ def test_drawer_text_pairs_pass_body_aa(theme: str) -> None:
 # ---------------------------------------------------------------------------
 
 # Every badge maps to (fill token, ink token). The fill is looked up per
-# theme (tool-badge fills diverge between themes; ink is theme-stable), so
-# each pair is asserted against BOTH themes. This is the "fix THEN gate"
-# contract from the flight DD "Badges": the fix is the per-badge ink (+ the
-# web light-fill tune); this test is the gate.
+# theme, so each pair is asserted against BOTH themes. This is the "fix THEN
+# gate" contract from the flight DD "Badges": the fix is the per-badge ink;
+# this test is the gate.
 _BADGE_INK_PAIRS = (
     ("ollama", "badge_ollama", "badge_ink_ollama"),
     ("openai-compatible", "badge_openai_compatible", "badge_ink_openai_compatible"),
@@ -1331,13 +1359,6 @@ _BADGE_INK_PAIRS = (
     ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
     ("mock", "badge_mock", "badge_ink_mock"),
     ("unknown", "badge_unknown", "badge_ink_unknown"),
-    ("filesystem", "badge_filesystem", "badge_ink_filesystem"),
-    ("execution", "badge_execution", "badge_ink_execution"),
-    ("web", "badge_web", "badge_ink_web"),
-    # connectors (squawk 0032) — admin Tools grid category badge.
-    ("connectors", "badge_connectors", "badge_ink_connectors"),
-    # time (M28) — Built-in tools grid category badge.
-    ("time", "badge_time", "badge_ink_time"),
     # local / remote (M31 F5 HAT) — Library MCP row transport badges.
     ("local", "badge_local", "badge_ink_local"),
     ("remote", "badge_remote", "badge_ink_remote"),
@@ -1349,9 +1370,8 @@ _BADGE_INK_PAIRS = (
 def test_badge_ink_passes_body_aa(theme: str, badge: str, fill_key: str, ink_key: str) -> None:
     """Every badge's ink clears body AA (≥ 4.5:1) on its fill, both themes.
 
-    Provider fills are theme-stable; tool-badge fills diverge by theme
-    (filesystem/execution lighter in light, web darkened for its white
-    ink) — the fill is resolved per theme, the ink is theme-stable.
+    Fills are theme-stable; the fill is resolved per theme and the ink is
+    theme-stable.
     """
     palette = _palette(theme)
     ratio = contrast_ratio(palette[ink_key], palette[fill_key])
@@ -1618,7 +1638,6 @@ _DISABLED_BUTTON_SELECTORS = (
     ".btn-filled-primary:disabled",
     ".btn-ghost:disabled",
     ".btn-muted-destructive:disabled",
-    ".refresh-btn:disabled",
     ".ui-progress-cancel:disabled",
 )
 

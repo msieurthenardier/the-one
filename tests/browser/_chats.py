@@ -86,7 +86,7 @@ _PICKER = '[data-testid="agent-picker"]'
 _PICKER_SEARCH = '[data-testid="agent-picker-search"]'
 _PICKER_ROW = '[data-testid="agent-picker-row"]'
 _INPUT = '[data-testid="chat-input"]'
-_USER_MSG = '[data-testid="message"].user'
+_USER_MSG = '[data-testid="message"].ui-message--user'
 
 # The chat area's current session id (null before the area is initialised).
 _SESSION_ID_JS = (
@@ -137,6 +137,45 @@ _JOINED_ID_JS = (
     " if (!a || !a._sessionState) return false; const st = a._sessionState();"
     " return st.name === 'joined' && st.id === id; }"
 )
+
+
+def message_sel(role: str, *modifiers: str) -> str:
+    """The CSS selector for a transcript message bubble of *role* (``user``,
+    ``assistant``, ``tool`` or ``system``), plus optional modifiers (``api``,
+    ``error``, ``peer``, ``operator-only``). The bubble is ``App.ui.message``
+    (M31 F6 L05c): the role and modifiers are its ``ui-message--*`` classes; the
+    ``message`` testid is unchanged. Every browser test names a bubble through
+    this (or :func:`messages`), never through the control's classes."""
+    return (
+        '[data-testid="message"].ui-message--'
+        + role
+        + "".join(".ui-message--" + m for m in modifiers)
+    )
+
+
+def messages(page: Page, role: str, *modifiers: str) -> Locator:
+    """Every transcript bubble of *role* (see :func:`message_sel`)."""
+    return page.locator(message_sel(role, *modifiers))
+
+
+def telemetry(page: Page) -> Locator:
+    """The telemetry readout (``chat-telemetry``, ``App.ui.telemetry``) in the composer's
+    telemetry row."""
+    return page.locator('[data-testid="chat-telemetry"]')
+
+
+def emit_frame(page: Page, payload: dict[str, Any]) -> None:
+    """Push a synthetic server frame into the chat area's ``ws.onmessage`` handler (the real
+    frame path, without a live turn). The chat must be joined for session-scoped frames to
+    pass the frame gate."""
+    page.evaluate(
+        """(payload) => {
+          const area = window.App.areas.find(a => a.id === 'chat');
+          if (!area || !area._ws || !area._ws()) throw new Error('chat area or ws not available');
+          area._ws().onmessage({ data: JSON.stringify(payload) });
+        }""",
+        payload,
+    )
 
 
 def current_session_id(page: Page) -> str | None:

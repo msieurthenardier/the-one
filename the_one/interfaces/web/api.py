@@ -43,6 +43,7 @@ from the_one.db._notes import (
     parse_notes_block,
     render_note_line_text,
 )
+from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.db._rules import (
     RULE_MAX_CHARS,
     RULES_TOTAL_MAX_CHARS,
@@ -114,6 +115,7 @@ from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
+from the_one.sessions import is_session_busy, turn_seq
 from the_one.vectors import get_vector_store
 
 if TYPE_CHECKING:
@@ -5257,6 +5259,9 @@ def _session_summary(session: ChatSession) -> dict[str, Any]:
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "platform": session.platform,
+        # M31 F6 L10b: same two keys as app.py's ``_session_to_list_payload``.
+        "busy": is_session_busy(session.id),
+        "turn_seq": turn_seq(session.id),
     }
 
 
@@ -5460,17 +5465,21 @@ async def list_provider_types() -> list[dict[str, str]]:
     GET to ``/providers/types`` would resolve to ``get_provider`` with
     ``provider_id="types"`` and 404.
     """
+    # Picker order is fixed; labels come from the one dict (db/_provider_types.py).
     types = [
-        {"value": "ollama", "label": "Ollama"},
-        {"value": "openai-compatible", "label": "OpenAI-Compatible"},
-        {"value": "openai", "label": "OpenAI"},
-        {"value": "anthropic", "label": "Anthropic"},
-        {"value": "anthropic-plan", "label": "Claude Plan (OAuth)"},
-        {"value": "anthropic-plan-token", "label": "Claude Plan (Token)"},
-        {"value": "openrouter", "label": "OpenRouter"},
+        {"value": t, "label": PROVIDER_TYPE_LABELS[t]}
+        for t in (
+            "ollama",
+            "openai-compatible",
+            "openai",
+            "anthropic",
+            "anthropic-plan",
+            "anthropic-plan-token",
+            "openrouter",
+        )
     ]
     if settings.dev_mode:
-        types.append({"value": "mock", "label": "Mock (dev)"})
+        types.append({"value": "mock", "label": PROVIDER_TYPE_LABELS["mock"]})
     return types
 
 

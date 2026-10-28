@@ -152,11 +152,11 @@ def wait_until(page: Page, predicate, timeout_ms: int = 8000) -> None:
 def open_ollama(page: Page, app: dict[str, str]) -> None:
     _nav.goto(page, app["base_url"], f"library/providers/{_nav.seg(app['ollama'])}")
     expect(page.get_by_test_id("admin-pf-pull-select")).to_be_enabled(timeout=15000)
-    expect(page.locator(".admin-pf-model-row")).to_have_count(2, timeout=10000)
+    expect(page.locator(".ui-model-row")).to_have_count(2, timeout=10000)
 
 
 def row(page: Page, name: str):
-    return page.locator(".admin-pf-model-row").filter(has=page.get_by_text(name, exact=True))
+    return page.locator(".ui-model-row").filter(has=page.get_by_text(name, exact=True))
 
 
 def refresh_btn(page: Page):
@@ -191,7 +191,7 @@ def test_refresh_during_a_pull_keeps_the_progress_node_value_and_cancel(
 
     # A Load on another row refreshes the panel while the pull is in progress.
     row(page, "alpha:1b").get_by_role("button", name="Load").click()
-    expect(page.locator(".admin-pf-model-row[data-section=running]")).to_have_count(1)
+    expect(page.locator(".ui-model-row[data-section=running]")).to_have_count(1)
     assert ollama.models_hits > hits
 
     same = page.evaluate(
@@ -285,7 +285,7 @@ def test_focus_on_a_rows_load_survives_a_refresh(
     hits = ollama.models_hits
 
     ollama.release_actions()  # beta loads, the panel refreshes: beta moves to Running
-    expect(page.locator(".admin-pf-model-row[data-section=running]")).to_have_count(1)
+    expect(page.locator(".ui-model-row[data-section=running]")).to_have_count(1)
     assert ollama.models_hits > hits
     expect(row(page, "alpha:1b").get_by_role("button", name="Load")).to_be_focused()
 
@@ -301,7 +301,7 @@ def test_focus_follows_a_row_that_changes_section(
     expect(unload).to_be_visible()
     expect(unload).to_be_enabled()
     expect(unload).to_be_focused()
-    assert [page.locator(".admin-pf-section-label").nth(i).inner_text() for i in range(2)] == [
+    assert [page.locator(".ui-model-section-label").nth(i).inner_text() for i in range(2)] == [
         "Running",
         "Available",
     ]
@@ -427,12 +427,12 @@ def test_basic_list_refresh_reconciles_without_rebuilding(
         lambda r: r.fulfill(json=[{"id": n} for n in models["names"]]),
     )
     _nav.goto(page, patch_app["base_url"], f"library/providers/{_nav.seg(patch_app['basic'])}")
-    items = page.locator(".admin-pf-model-item")
+    items = page.locator(".ui-model-row")
     expect(items).to_have_text(["one", "two"], timeout=10000)
     page.evaluate(
         """() => {
-          window.__shell = document.querySelector('.admin-pf-models-list');
-          window.__two = [...document.querySelectorAll('.admin-pf-model-item')][1];
+          window.__shell = document.querySelector('.provider-models-region');
+          window.__two = [...document.querySelectorAll('.ui-model-row')][1];
         }"""
     )
 
@@ -440,8 +440,8 @@ def test_basic_list_refresh_reconciles_without_rebuilding(
     refresh_btn(page).click()
     expect(items).to_have_text(["two", "three"])
     assert page.evaluate(
-        """() => document.querySelector('.admin-pf-models-list') === window.__shell &&
-                [...document.querySelectorAll('.admin-pf-model-item')][0] === window.__two"""
+        """() => document.querySelector('.provider-models-region') === window.__shell &&
+                [...document.querySelectorAll('.ui-model-row')][0] === window.__two"""
     )
 
     models["names"] = []
@@ -458,6 +458,29 @@ def test_basic_list_error_shows_a_status_line(page: Page, patch_app: dict[str, s
         lambda r: r.fulfill(status=502, json={"detail": "upstream down"}),
     )
     _nav.goto(page, patch_app["base_url"], f"library/providers/{_nav.seg(patch_app['basic'])}")
-    status = page.locator(".admin-pf-models-list .ui-status")
+    status = page.locator(".provider-models-region .ui-status")
     expect(status).to_have_text("upstream down", timeout=10000)
     expect(status).to_have_attribute("data-state", "danger")
+
+
+@pytest.mark.browser
+def test_vram_value_is_plain_secondary_text(
+    page: Page, ollama: Ollama, patch_app: dict[str, str]
+) -> None:
+    """A11: the loaded-VRAM value is plain --fg-secondary text in the summary, no accent span."""
+    ollama.running = ["alpha:1b"]
+    open_ollama(page, patch_app)
+    summary = page.locator(".admin-pf-vram-summary")
+    expect(summary).to_have_text("900 MB loaded", timeout=10000)
+    assert summary.locator("*").count() == 0
+    same = summary.evaluate(
+        """e => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--fg-secondary)';
+          e.appendChild(probe);
+          const want = getComputedStyle(probe).color;
+          probe.remove();
+          return getComputedStyle(e).color === want;
+        }"""
+    )
+    assert same

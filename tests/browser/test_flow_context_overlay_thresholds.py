@@ -2,10 +2,9 @@
 are config-driven and carry a non-color a11y signal.
 
 Proves (DOM / role / aria assertions only — NO pixel snapshots):
-  1. Driving the telemetry overlay (via the exposed ``window.App.chat`` update
-     paths) to ≥ warn and ≥ crit applies the existing ``.warn`` / ``.crit``
-     coloring classes to ``.context-bar`` and ``.t-ctx-pct`` (verify-and-keep
-     the coloring — it already shipped).
+  1. Driving the telemetry readout (through the chat area's ``_telemetry()`` handle) to
+     ≥ warn and ≥ crit applies the ``--warn`` / ``--crit`` modifier classes to
+     ``.ui-telemetry-bar`` and ``.ui-telemetry-pct``.
   2. At those states the overlay container's ``aria-label`` gains the
      non-color state phrase ("approaching limit" / "context nearly full")
      while KEEPING the "Token usage" prefix — a screen-reader-perceivable
@@ -14,11 +13,9 @@ Proves (DOM / role / aria assertions only — NO pixel snapshots):
      transition point: 55% now colors+announces warn where it would have been
      neutral under the 70 default.
 
-The overlay update functions (``updateTelemetry`` / ``setTelemetryMax``) are
-exposed on ``window.App.chat`` and query the overlay by class under whichever
-container they are handed, so we can drive them deterministically with
-synthetic token counts via ``page.evaluate`` — no live LLM turn or specific
-real context fill is needed to land on an exact percentage.
+The handle's ``update`` and ``setMax`` (``App.ui.telemetry``, M31 F6 L05c) take
+synthetic token counts via ``page.evaluate``, so no live LLM turn or specific real
+context fill is needed to land on an exact percentage.
 """
 
 from __future__ import annotations
@@ -41,8 +38,8 @@ def _enter_session(page: Page, base_url: str) -> str:
     inside it) is mounted. Returns the agent name.
 
     Waits for the join-time ``/context-window`` fetch to settle before
-    returning. That fetch fires ``setTelemetryMax(content, max)`` asynchronously
-    on join (chat.js); if a test drove the overlay before it resolved, the late
+    returning. That fetch fires ``setMax(max)`` asynchronously
+    on join (socket.js); if a test drove the overlay before it resolved, the late
     callback would recompute pct from the (zero) retained context_tokens and
     clobber the driven state. Gating on the response makes the drive
     deterministic — nothing else auto-mutates the overlay afterward.
@@ -60,36 +57,29 @@ def _enter_session(page: Page, base_url: str) -> str:
         _chats.start_chat(page, agent_name)
         _chats.send_first(page, "hello")
     # The overlay is mounted inside .chat-chrome once a session is open.
-    expect(page.locator(".telemetry-overlay")).to_have_count(1, timeout=8000)
+    expect(_chats.telemetry(page)).to_have_count(1, timeout=8000)
     # Let the first turn finish (its usage frame updates the overlay) before
     # a test drives it.
-    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     return agent_name
 
 
 def _drive_overlay(page: Page, context_tokens: int, max_context_tokens: int) -> None:
-    """Drive both overlay update paths to a known percentage via the exposed
-    window.App.chat helpers. ``updateTelemetry`` sets the raw values + state;
-    ``setTelemetryMax`` recomputes from retained context_tokens (exercising the
-    second threshold-derivation site too).
-
-    Drives using the chat AREA content element (``.content-panel.area-chat``) —
-    the SAME element the app hands the update functions — so the retained
-    ``__telemetry`` state lives on one element and ``setTelemetryMax`` reads back
-    the context_tokens this call just set.
-    """
+    """Drive both readout update paths to a known percentage through the chat area's telemetry
+    handle (``_telemetry()``, an ``App.ui.telemetry``). ``update`` sets the raw values and
+    state; ``setMax`` recomputes from the retained context_tokens (exercising the second
+    threshold-derivation site too)."""
     page.evaluate(
         """([ctx, max]) => {
-            var root = document.querySelector('.content-panel.area-chat')
-                || document.querySelector('.chat-chrome') || document;
-            window.App.chat.updateTelemetry(root, {
+            const t = window.App.areas.find(a => a.id === 'chat')._telemetry();
+            t.update({
                 input_tokens: ctx,
                 output_tokens: 0,
                 context_tokens: ctx,
                 max_context_tokens: max
             });
-            window.App.chat.setTelemetryMax(root, max);
+            t.setMax(max);
         }""",
         [context_tokens, max_context_tokens],
     )
@@ -102,14 +92,14 @@ def test_overlay_thresholds_color_and_aria_at_defaults(app_clean: str, page: Pag
     """
     _enter_session(page, app_clean)
 
-    bar = page.locator(".context-bar")
-    pct = page.locator(".t-ctx-pct")
-    overlay = page.locator(".telemetry-overlay")
+    bar = page.locator(".ui-telemetry-bar")
+    pct = page.locator(".ui-telemetry-pct")
+    overlay = _chats.telemetry(page)
 
     # ── Neutral: 40% of a 100-token window ───────────────────────────────────
     _drive_overlay(page, 40, 100)
-    expect(bar).not_to_have_class(re.compile(r"\bwarn\b"))
-    expect(bar).not_to_have_class(re.compile(r"\bcrit\b"))
+    expect(bar).not_to_have_class(re.compile(r"\bui-telemetry-bar--warn\b"))
+    expect(bar).not_to_have_class(re.compile(r"\bui-telemetry-bar--crit\b"))
     expect(pct).to_have_text("40%")
     # aria-label has no state phrase, keeps the "Token usage" prefix.
     label = overlay.get_attribute("aria-label") or ""
@@ -118,17 +108,17 @@ def test_overlay_thresholds_color_and_aria_at_defaults(app_clean: str, page: Pag
 
     # ── Warn: 75% ────────────────────────────────────────────────────────────
     _drive_overlay(page, 75, 100)
-    expect(bar).to_have_class(re.compile(r"\bwarn\b"))
-    expect(bar).not_to_have_class(re.compile(r"\bcrit\b"))
-    expect(pct).to_have_class(re.compile(r"\bwarn\b"))
+    expect(bar).to_have_class(re.compile(r"\bui-telemetry-bar--warn\b"))
+    expect(bar).not_to_have_class(re.compile(r"\bui-telemetry-bar--crit\b"))
+    expect(pct).to_have_class(re.compile(r"\bui-telemetry-pct--warn\b"))
     label = overlay.get_attribute("aria-label") or ""
     assert label.startswith("Token usage"), label
     assert "approaching limit" in label, label
 
     # ── Crit: 95% ────────────────────────────────────────────────────────────
     _drive_overlay(page, 95, 100)
-    expect(bar).to_have_class(re.compile(r"\bcrit\b"))
-    expect(pct).to_have_class(re.compile(r"\bcrit\b"))
+    expect(bar).to_have_class(re.compile(r"\bui-telemetry-bar--crit\b"))
+    expect(pct).to_have_class(re.compile(r"\bui-telemetry-pct--crit\b"))
     label = overlay.get_attribute("aria-label") or ""
     assert label.startswith("Token usage"), label
     assert "nearly full" in label, label
@@ -154,18 +144,18 @@ def test_overlay_custom_warn_threshold_moves_transition(tmp_path: Path, page: Pa
 
         _enter_session(page, base_url)
 
-        bar = page.locator(".context-bar")
-        overlay = page.locator(".telemetry-overlay")
+        bar = page.locator(".ui-telemetry-bar")
+        overlay = _chats.telemetry(page)
 
         # 55%: would be neutral under the 70 default; warn under the custom 50.
         _drive_overlay(page, 55, 100)
-        expect(bar).to_have_class(re.compile(r"\bwarn\b"))
+        expect(bar).to_have_class(re.compile(r"\bui-telemetry-bar--warn\b"))
         label = overlay.get_attribute("aria-label") or ""
         assert "approaching limit" in label, label
 
         # 45%: still neutral (below the custom warn).
         _drive_overlay(page, 45, 100)
-        expect(bar).not_to_have_class(re.compile(r"\bwarn\b"))
+        expect(bar).not_to_have_class(re.compile(r"\bui-telemetry-bar--warn\b"))
         label = overlay.get_attribute("aria-label") or ""
         assert "approaching limit" not in label and "nearly full" not in label, label
     finally:

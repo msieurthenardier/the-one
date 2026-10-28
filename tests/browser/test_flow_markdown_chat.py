@@ -58,7 +58,7 @@ def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page
     # Wait for `done` to fire (send button re-enables) and assert the
     # markdown structure is in the assistant bubble.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = _chats.messages(page, "assistant").last
     # The `**world**` chunk renders as <strong>world</strong> after `done`.
     expect(bubble.locator("strong")).to_have_text("world", timeout=5000)
     # And the raw ``**`` markers no longer appear in the visible text —
@@ -85,7 +85,7 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
 
     _chats.send_first(page, "**bold**")
 
-    user_bubble = page.locator('[data-testid="message"].user').first
+    user_bubble = _chats.messages(page, "user").first
     expect(user_bubble).to_have_text("**bold**", timeout=5000)
     # The user bubble must NOT contain a <strong> child — markdown
     # rendering is assistant-only.
@@ -122,7 +122,7 @@ def test_streaming_assistant_code_block_renders_with_copy_button(
     _chats.send_first(page, "show me code")
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = _chats.messages(page, "assistant").last
     expect(bubble.locator("pre code.language-js")).to_have_text("console.log(1);\n", timeout=5000)
     # Presence assertion — the copy button is opacity-controlled, so we
     # assert it exists in the DOM rather than asserting visibility.
@@ -157,14 +157,14 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
 
     # Wait for the streaming round to land — markdown is rendered on done.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = _chats.messages(page, "assistant").last
     expect(bubble.locator("strong")).to_have_text("bold", timeout=5000)
 
     # Reload — the session id is in the URL hash; the client rejoins
     # and replays history through `renderHistory` → `addMsg('assistant', ...)`.
     page.reload()
     _chats.expect_chat(page, agent_name)
-    rejoined_bubble = page.locator('[data-testid="message"].assistant').last
+    rejoined_bubble = _chats.messages(page, "assistant").last
     # Historical assistant bubble re-renders via markdown (leg-05 default).
     expect(rejoined_bubble.locator("strong")).to_have_text("bold", timeout=8000)
 
@@ -196,7 +196,7 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     _chats.send_first(page, "show me a table")
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = _chats.messages(page, "assistant").last
     # GFM table must parse into a <table> element.
     expect(bubble.locator("table")).to_have_count(1, timeout=5000)
     # Header cells render as <th>.
@@ -205,3 +205,31 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     # Data cells render as <td>.
     expect(bubble.locator("td").nth(0)).to_have_text("1")
     expect(bubble.locator("td").nth(1)).to_have_text("2")
+
+
+@pytest.mark.browser
+def test_code_copy_confirms_in_place_with_no_toast(app_clean: str, page: Page) -> None:
+    """The code-block Copy (the library icon button, M31 F6 L07) confirms in place: the
+    accessible name reads "Copied" and the shared status node outside the log announces once.
+    No flash toast appears anywhere, and none inside the transcript (``.messages``)."""
+    base_url = app_clean
+    provider_id = seed_mock_provider(
+        base_url,
+        config={"stream_chunks": ["```js\n", "console.log(1);\n", "```"], "delay_ms": 0},
+    )
+    agent_name = seed_mock_agent(base_url, provider_id)
+    page.goto(base_url)
+    _chats.start_chat(page, agent_name)
+    _chats.send_first(page, "show me code")
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
+    bubble = _chats.messages(page, "assistant").last
+    expect(bubble.locator("pre code.language-js")).to_be_visible(timeout=5000)
+    btn = bubble.locator(".markdown-copy-btn")
+    expect(btn).to_have_attribute("aria-label", "Copy code")
+    btn.click(force=True)
+    expect(btn).to_have_attribute("aria-label", "Copied", timeout=5000)
+    # The announcement goes to the one shared status node outside the role=log list.
+    expect(page.locator('[data-testid="chat-copy-status"]')).to_have_text("Copied")
+    expect(bubble.locator(".markdown-code-wrap [role=status]")).to_have_count(0)
+    expect(page.locator(".app-flash")).to_have_count(0)
+    expect(page.locator(".messages .app-flash")).to_have_count(0)

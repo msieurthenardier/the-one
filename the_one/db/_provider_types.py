@@ -27,3 +27,20 @@ PROVIDER_TYPES: tuple[str, ...] = (
     "anthropic-plan",
     "anthropic-plan-token",
 )
+
+# Human-readable label per type (the UI's provider-type picker and the wording of
+# provider connection errors). Keys must equal ``PROVIDER_TYPES``.
+PROVIDER_TYPE_LABELS: dict[str, str] = {
+    "ollama": "Ollama",
+    "openai-compatible": "OpenAI-compatible",
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "mock": "Mock (dev)",
+    "openrouter": "OpenRouter",
+    "anthropic-plan": "Claude Plan (OAuth)",
+    "anthropic-plan-token": "Claude Plan (Token)",
+}
+
+assert set(PROVIDER_TYPE_LABELS) == set(PROVIDER_TYPES), (
+    "PROVIDER_TYPE_LABELS keys drifted from PROVIDER_TYPES."
+)

@@ -1,8 +1,8 @@
 """Emitted-class guard (M31 F4 L04c, flight DD12).
 
 Every CSS class a ``static/js/ui/*.js`` factory emits is either OWNED (it appears in the
-"Owned classes" column of some ``library:`` row of ``docs/ui-control-inventory.md``, or in the
-"Owned by controls built later" table) or listed in ``EMITTED_EXEMPT`` with a reason. The
+"Owned classes" column of some ``library:`` row of ``docs/ui-control-inventory.md``) or listed
+in ``EMITTED_EXEMPT`` with a reason. The
 ratchet is exact in both directions: a new unowned class fails, and an exempt entry that is
 no longer emitted, or has since become owned, fails. Legs that add a control add its classes
 to the catalogue (DD12), so the owned-list check at the end of the flight is mechanical.

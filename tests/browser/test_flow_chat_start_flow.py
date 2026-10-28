@@ -41,8 +41,8 @@ pytestmark = pytest.mark.browser
 INPUT = '[data-testid="chat-input"]'
 SEND = '[data-testid="chat-send-btn"]'
 STOP = '[data-testid="chat-stop-btn"]'
-USER_MSG = '[data-testid="message"].user'
-ASSISTANT_MSG = '[data-testid="message"].assistant'
+USER_MSG = _chats.message_sel("user")
+ASSISTANT_MSG = _chats.message_sel("assistant")
 THINKING = '[data-testid="thinking-indicator"]'
 CHIP = '[data-testid="pending-queued"]'
 MESSAGES = ".area-chat .messages"
@@ -237,6 +237,26 @@ def test_first_turn_behaves_like_any_turn(app_with_provider: SeededApp, page: Pa
     assert [s["id"] for s in _sessions(base)] == [sid]  # exactly one new session
 
 
+def test_two_sends_while_starting_are_both_held_and_delivered_in_order(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    base = app_with_provider.base_url
+    agent = _slow_agent(base)
+    _nav.goto(page, base, "chats")
+    _chats.start_chat(page, agent)
+    box = page.locator(INPUT)
+    box.fill("first")
+    box.press("Enter")
+    for text in ("two", "three"):
+        box.fill(text)
+        box.press("Enter")
+    expect(page.locator(CHIP)).to_have_count(2)
+    expect(page.locator(USER_MSG)).to_have_text(["first"])
+    expect(page.locator(USER_MSG)).to_have_text(["first", "two", "three"], timeout=30000)
+    expect(page.locator(CHIP)).to_have_count(0)
+    expect(page.locator(ASSISTANT_MSG)).to_have_count(3, timeout=30000)
+
+
 # ── AC6: /reset, a closed socket, Stop while starting ────────────────────────
 
 
@@ -250,7 +270,7 @@ def test_reset_in_a_pending_chat_is_a_client_side_notice(
     box = page.locator(INPUT)
     box.fill("/reset")
     box.press("Enter")
-    expect(page.locator(f"{MESSAGES} .msg.system")).to_have_text(
+    expect(page.locator(f"{MESSAGES} " + _chats.message_sel("system"))).to_have_text(
         "Send a message to start the chat first"
     )
     page.wait_for_timeout(300)
@@ -349,7 +369,7 @@ def test_start_failed_restores_the_text_and_the_staged_image(
     box = page.locator(INPUT)
     box.fill("will fail")
     box.press("Enter")
-    expect(page.locator(f"{MESSAGES} .msg.system")).to_contain_text(
+    expect(page.locator(f"{MESSAGES} " + _chats.message_sel("system"))).to_contain_text(
         "Cannot start chat", timeout=8000
     )
     _wait_state(page, "pending")

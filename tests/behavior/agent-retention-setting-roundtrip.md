@@ -9,7 +9,7 @@
 ## Intent
 
 Verifies that the per-agent chat-history retention setting works end-to-end through the
-Studio web UI: the input renders in the General-tab Behavior section above Max Iterations, a
+Studio web UI: the input renders in the General-tab Behavior section above Max iterations, a
 non-default value persists across save and a full reload, and an out-of-range value is
 rejected with a visible validation error rather than silently accepted or clamped. This is a
 real-environment flow (rendered DOM placement, the save→reload round-trip through the API and
@@ -48,9 +48,9 @@ value is refused at the surface they interact with.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open `http://localhost:8484/`, click the rail's "Agents" link, and open an existing agent's editor on the General tab. | The General tab renders. A "Behavior" section is visible containing a chat-history retention input (a number field) **positioned above** the Max Iterations input. The retention input shows an integer value within 1–365 (a freshly-migrated agent shows `30`). |
-| 2 | In the retention input, replace the value with `90`. Click Save. | A success indication appears (e.g. a "Saved" flash); no validation error is shown. |
-| 3 | Reload the page (full browser reload) and re-open the **same** agent's General tab. | The retention input shows `90` — the value survived the save and a fresh load from the server, confirming it persisted to storage (not just the in-memory form). Max Iterations is unchanged from its prior value. |
+| 1 | Open `http://localhost:8484/`, click the rail's "Agents" link, and open an existing agent's editor on the General tab. | The General tab renders. A "Behavior" section is visible containing a chat-history retention input (a number field) **positioned above** the Max iterations input. The retention input shows an integer value within 1–365 (a freshly-migrated agent shows `30`). |
+| 2 | In the retention input, replace the value with `90`. Click Save. | A success indication appears (e.g. an "Agent saved" flash); no validation error is shown. |
+| 3 | Reload the page (full browser reload) and re-open the **same** agent's General tab. | The retention input shows `90` — the value survived the save and a fresh load from the server, confirming it persisted to storage (not just the in-memory form). Max iterations is unchanged from its prior value. |
 | 4 | In the retention input, set the value to `400` (above the 365 maximum). Click Save. | The save is **rejected**: a validation error is surfaced in the editor (the error text references the retention field / an out-of-range condition). The agent is **not** updated to 400 — neither silently accepted nor clamped to 365. |
 | 5 | Reload the page and re-open the same agent's General tab. | The retention input still shows `90` (the last valid saved value), confirming the rejected `400` was never persisted. |
 | 6 | Via shell, issue a direct `curl -s -o /dev/null -w "%{http_code}" -X PUT http://localhost:8484/api/agents/{name} -H 'Content-Type: application/json' -d '{...config with chat_history_retention_days: 400...}'` (full config body; reuse the GET `/api/agents/{name}` payload with the field overridden). | The response status is `422` — the server authoritatively rejects the out-of-range value at the API layer, independent of the UI. |

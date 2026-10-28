@@ -316,13 +316,13 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
 def test_retention_days_input_renders_above_max_iterations(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Retention-days input renders in the Behavior section above Max Iterations.
+    """Retention-days input renders in the Behavior section above Max iterations.
 
     Asserts:
     - [data-field="chat_history_retention_days"] is visible with the correct
       id, type, min, and max attributes.
     - The retention input precedes [data-field="max_iterations"] in DOM order
-      (compareDocumentPosition idiom — see test_flow_studio_mcp_editor.py).
+      (compareDocumentPosition idiom — see test_flow_studio_mcp_editor_status.py).
     """
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")

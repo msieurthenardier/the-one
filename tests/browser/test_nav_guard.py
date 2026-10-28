@@ -548,7 +548,7 @@ def test_chat_message_links_bare_unknown_and_route(app_clean: str, page: Page) -
     _nav.goto_settled(page, app_clean, "chats")
     _chats.start_chat(page, agent)
     _chats.send_first(page, "hi")
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = _chats.messages(page, "assistant").last
     expect(bubble.locator("a")).to_have_count(3, timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
 

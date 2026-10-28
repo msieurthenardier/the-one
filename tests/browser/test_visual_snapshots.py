@@ -201,7 +201,7 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     # nonexistent flow).
     _chats.start_chat(page, app_with_agent.agent_name)
     _chats.send_first(page, "hello")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_text(
+    expect(_chats.messages(page, "assistant")).to_have_text(
         "Mock response from the mock provider.", timeout=10000
     )
     # Wait for the send button to re-enable (busy=false after `done`).

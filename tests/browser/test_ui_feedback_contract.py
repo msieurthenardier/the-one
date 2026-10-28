@@ -166,36 +166,121 @@ def test_status_line_style_is_body_small_and_muted(engine_page: Page) -> None:
 def test_flash_roles_visible_and_removal(engine_page: Page) -> None:
     page = engine_page
     load_harness(page)
-    page.evaluate(
-        """() => {
-          window.ok = App.ui.flash('Saved', {duration: 400});
-          window.bad = App.ui.flash('Broke', {error: true, duration: 400});
-        }"""
-    )
-    ok = page.locator(".app-flash:not(.error)")
-    bad = page.locator(".app-flash.error")
+    page.evaluate("() => { window.ok = App.ui.flash('Saved', {duration: 400}); }")
+    ok = page.locator(".app-flash")
     expect(ok).to_have_attribute("role", "status")
     expect(ok).to_have_attribute("aria-live", "polite")
-    expect(bad).to_have_attribute("role", "alert")
-    assert bad.get_attribute("aria-live") is None
     expect(ok).to_have_text("Saved")
     expect(ok).to_have_class("app-flash visible")
     expect(page.locator(".app-flash")).to_have_count(0, timeout=3000)
 
 
-def test_flash_container_default_and_detached_container(engine_page: Page) -> None:
+def test_flash_newest_replaces_and_keeps_its_role(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate(
+        """() => {
+          window.ok = App.ui.flash('Saved', {duration: 4000});
+          window.bad = App.ui.flash('Broke', {error: true, duration: 4000});
+        }"""
+    )
+    toasts = page.locator(".app-flash")
+    expect(toasts).to_have_count(1)
+    expect(toasts).to_have_text("Broke")
+    expect(toasts).to_have_attribute("role", "alert")
+    assert toasts.get_attribute("aria-live") is None
+    assert page.evaluate("() => ok.isConnected") is False
+    # the replaced toast's timers are cleared: it never re-adds itself or removes the new one
+    page.wait_for_timeout(500)
+    expect(toasts).to_have_count(1)
+    expect(toasts).to_have_class("app-flash error visible")
+
+
+def test_flash_survives_its_caller_container_and_ignores_the_option(engine_page: Page) -> None:
     out = _mount(
         engine_page,
         """() => {
-          const a = App.ui.flash('Body');
           const holder = document.createElement('div');
-          const b = App.ui.flash('Held', {container: holder, duration: 50});
-          return {inBody: a.parentNode === document.body, inHolder: b.parentNode === holder,
-                  cls: a.className};
+          document.getElementById('harness-root').appendChild(holder);
+          const a = App.ui.flash('Held', {container: holder});
+          holder.remove();
+          return {connected: a.isConnected, inRegion: a.parentNode.classList.contains('app-flash-region'),
+                  regionInBody: a.parentNode.parentNode === document.body};
         }""",
     )
-    assert out == {"inBody": True, "inHolder": True, "cls": "app-flash"}
-    engine_page.wait_for_timeout(600)  # a detached container must not throw on removal
+    assert out == {"connected": True, "inRegion": True, "regionInBody": True}
+    expect(engine_page.locator(".app-flash")).to_be_visible()
+
+
+def test_flash_region_is_reattached_when_detached(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const r1 = App.ui.flash.region();
+          r1.remove();
+          const r2 = App.ui.flash.region();
+          const t = App.ui.flash('Again');
+          return {same: r1 === r2, attached: r2.isConnected, child: t.parentNode === r2,
+                  plain: getComputedStyle(r2).transform === 'none'};
+        }""",
+    )
+    assert out == {"same": True, "attached": True, "child": True, "plain": True}
+
+
+MODAL_FLASH = """() => {
+  window.m = App.ui.modal({title: 'Dlg', body: document.createTextNode('b'),
+                           actions: [{label: 'OK', value: 'ok'}]});
+  m.open();
+}"""
+
+
+def test_flash_inside_a_modal_sits_in_its_dialog_and_survives_its_close(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate(MODAL_FLASH)
+    page.evaluate("() => { window.t = App.ui.flash('In dialog'); }")
+    assert (
+        page.evaluate("() => t.parentNode === App.ui.modal.top() && !!t.closest('dialog')") is True
+    )
+    expect(page.locator("dialog .app-flash")).to_be_visible()
+    page.evaluate("() => m.close()")
+    out = page.evaluate(
+        "() => ({connected: t.isConnected, inRegion: t.parentNode === App.ui.flash.region()})"
+    )
+    assert out == {"connected": True, "inRegion": True}
+    expect(page.locator(".app-flash")).to_be_visible()
+
+
+def test_flash_rehomes_to_the_next_dialog_down(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const a = App.ui.modal({title: 'A', body: document.createTextNode('a'), actions: [{label: 'OK', value: 1}]});
+          const b = App.ui.modal({title: 'B', body: document.createTextNode('b'), actions: [{label: 'OK', value: 1}]});
+          a.open(); const dlgA = App.ui.modal.top(); b.open();
+          const t = App.ui.flash('Up top');
+          const inB = t.parentNode === App.ui.modal.top() && t.parentNode !== dlgA;
+          b.close();
+          return {inB, inA: t.parentNode === dlgA, connected: t.isConnected,
+                  topNull: (a.close(), App.ui.modal.top() === null)};
+        }"""
+    )
+    assert out == {"inB": True, "inA": True, "connected": True, "topNull": True}
+
+
+def test_flash_in_a_modal_is_at_the_same_viewport_position(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    page.evaluate("() => { App.ui.flash('Page'); }")
+    expect(page.locator(".app-flash.visible")).to_be_visible()
+    base = page.locator(".app-flash").bounding_box()
+    page.evaluate(MODAL_FLASH)
+    page.evaluate("() => { App.ui.flash('Page'); }")
+    expect(page.locator("dialog .app-flash.visible")).to_be_visible()
+    inside = page.locator("dialog .app-flash").bounding_box()
+    assert abs(base["x"] - inside["x"]) < 1 and abs(base["y"] - inside["y"]) < 1
+    assert inside["y"] < 40  # top: 16px of the viewport, not of the dialog
 
 
 def test_chip_tones_sizes_and_title(engine_page: Page) -> None:
@@ -317,6 +402,39 @@ def test_chip_dataset_and_warning_tone(engine_page: Page) -> None:
     assert "unknown tone" in out["err"]
 
 
+def test_chip_lead_and_remove_button(engine_page: Page) -> None:
+    """M31 F6 L03c: `lead` precedes the label; `onRemove` adds one named icon-only button."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          window.__removed = 0;
+          const img = document.createElement('img'); img.alt = ''; img.setAttribute('data-x', 'thumb');
+          const a = App.ui.chip({label: 'photo.png', lead: img, onRemove: () => { window.__removed++; },
+                                 removeLabel: 'Remove image 1', removeTestid: 'rm'});
+          const plain = App.ui.chip({label: 'plain'});
+          root.appendChild(a); root.appendChild(plain);
+          let err = '';
+          try { App.ui.chip({label: 'x', onRemove: () => {}}); } catch (e) { err = e.message; }
+          const btns = a.querySelectorAll('button');
+          return {first: a.firstChild.firstChild === img, text: a.querySelector('.chip-label').textContent,
+                  n: btns.length, name: btns[0].getAttribute('aria-label'), tag: a.tagName,
+                  plainHtml: plain.outerHTML, err};
+        }""",
+    )
+    assert out["first"] and out["text"] == "photo.png" and out["n"] == 1
+    assert out["name"] == "Remove image 1" and out["tag"] == "SPAN"
+    assert out["plainHtml"] == '<span class="chip">plain</span>'
+    assert "removeLabel" in out["err"]
+    btn = engine_page.get_by_test_id("rm")
+    engine_page.keyboard.press("Tab")
+    expect(btn).to_be_focused()
+    engine_page.keyboard.press("Enter")
+    engine_page.keyboard.press("Space")
+    btn.click()
+    assert engine_page.evaluate("() => window.__removed") == 3
+
+
 def test_status_led_testid(engine_page: Page) -> None:
     out = _mount(
         engine_page,
@@ -359,3 +477,165 @@ def test_status_text_tone(engine_page: Page) -> None:
         }""",
     )
     assert out == {"tone": True, "plain": True, "warn": True, "ok": True, "idle": True}
+
+
+def test_badge_live_set_patches_in_place_and_empty_text_hides(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const b = App.ui.badge.live({kind: 'unknown', testid: 'bl'});
+          root.appendChild(b.el);
+          const snap = () => ({cls: b.el.className, text: b.el.textContent, hidden: b.el.hidden,
+            shown: getComputedStyle(b.el).display !== 'none'});
+          const first = snap();
+          const node = b.el;
+          b.set({kind: 'ollama', text: 'llama3'});
+          const second = snap();
+          b.set({kind: 'openai', text: ''});
+          const third = snap();
+          b.set({text: 'plain'});
+          const fourth = snap();
+          b.set({kind: 'anthropic', text: null});
+          const fifth = snap();
+          let err = '';
+          try { b.set({kind: 'nope', text: 'x'}); } catch (e) { err = e.message; }
+          let initErr = '';
+          try { App.ui.badge.live({kind: 'nope'}); } catch (e) { initErr = e.message; }
+          return {first, second, third, fourth, fifth, err, initErr, same: b.el === node,
+                  tid: b.el.getAttribute('data-testid'), staticStillThrows: (() => {
+                    try { App.ui.badge({text: ''}); return false; } catch (e) { return true; }
+                  })(), staticNode: App.ui.badge({text: 'x', kind: 'local'}).nodeType};
+        }""",
+    )
+    assert out["first"]["hidden"] is True and out["first"]["shown"] is False
+    assert out["first"]["cls"] == "badge badge--unknown"
+    assert out["second"] == {
+        "cls": "badge badge--ollama",
+        "text": "llama3",
+        "hidden": False,
+        "shown": True,
+    }
+    assert out["third"]["hidden"] is True and out["third"]["text"] == ""
+    assert out["fourth"]["cls"] == "badge" and out["fourth"]["text"] == "plain"
+    assert out["fifth"]["hidden"] is True
+    assert "unknown kind" in out["err"] and "unknown kind" in out["initErr"]
+    assert out["same"] is True and out["tid"] == "bl"
+    assert out["staticStillThrows"] is True and out["staticNode"] == 1
+
+
+def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const f = App.ui.noteFlag({sources: ['web', 'file'], testid: 'nf'});
+          const g = App.ui.noteFlag({});
+          document.getElementById('harness-root').append(f, g);
+          const sentence = "Check this note: it was written after content that didn't come from you (web, file). It may have been planted.";
+          const cs = getComputedStyle(f);
+          const probe = document.createElement('span'); probe.style.color = 'var(--status-warning)';
+          document.getElementById('harness-root').appendChild(probe);
+          return {tag: f.tagName + '.' + f.className, role: f.getAttribute('role'),
+                  named: f.getAttribute('aria-label') === sentence && f.title === sentence,
+                  plain: g.getAttribute('aria-label'), svgs: f.querySelectorAll('svg').length,
+                  svgW: getComputedStyle(f.querySelector('svg')).width, display: cs.display,
+                  color: cs.color === getComputedStyle(probe).color, tid: f.getAttribute('data-testid'),
+                  gone: [typeof App.noteFlag, typeof App.iconNode]};
+        }""",
+    )
+    assert out["tag"] == "SPAN.note-flag" and out["role"] == "img" and out["named"] is True
+    assert (
+        out["plain"]
+        == "Check this note: it was written after content that didn't come from you. It may have been planted."
+    )
+    assert out["svgs"] == 1 and out["svgW"] == "14px" and out["display"] == "inline-flex"
+    assert out["color"] is True and out["tid"] == "nf"
+    assert out["gone"] == ["undefined", "undefined"]
+
+
+def test_layered_note_flag_and_consent_link_styles_are_unchanged(engine_page: Page) -> None:
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const f = App.ui.noteFlag({sources: ['x']});
+          const link = App.ui.consentLink.build('https://auth.example/c', {surface: 'mcp', sourceName: 'S'});
+          root.append(f, link);
+          const open = link.querySelector('.consent-link-open');
+          const fg = document.createElement('span'); fg.style.color = 'var(--fg)'; root.appendChild(fg);
+          const o = getComputedStyle(open), b = getComputedStyle(link), n = getComputedStyle(f);
+          return {open: {color: o.color === getComputedStyle(fg).color, deco: o.textDecorationLine, ws: o.whiteSpace},
+                  block: {display: b.display, dir: b.flexDirection, max: b.maxWidth},
+                  note: {display: n.display, flex: n.flexGrow + ' ' + n.flexShrink}};
+        }""",
+    )
+    assert out == {
+        "open": {"color": True, "deco": "none", "ws": "nowrap"},
+        "block": {"display": "flex", "dir": "column", "max": "560px"},
+        "note": {"display": "inline-flex", "flex": "0 0"},
+    }
+
+
+def test_a_badge_never_shrinks_in_a_narrow_flex_row(engine_page: Page) -> None:
+    """M31 F6 L03b: `.badge { flex-shrink: 0 }` is the base rule (the drawer head's area
+    rule is gone); the badge keeps its full text beside a long name."""
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display: flex; width: 160px; gap: 8px;';
+          const name = document.createElement('span');
+          name.style.cssText = 'min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;';
+          name.textContent = 'A very long agent name that cannot fit';
+          const b = App.ui.badge({text: 'ollama', kind: 'ollama'});
+          row.append(name, b);
+          document.getElementById('harness-root').appendChild(row);
+          return {shrink: getComputedStyle(b).flexShrink, whole: b.scrollWidth <= b.clientWidth,
+                  inside: b.getBoundingClientRect().right <= row.getBoundingClientRect().right + 0.5};
+        }"""
+    )
+    assert out == {"shrink": "0", "whole": True, "inside": True}
+
+
+def test_chip_label_hidden_truncate_and_24px_remove_button(engine_page: Page) -> None:
+    """M31 F6 L05a: `labelHidden` keeps the label as the chip's name but visually hides it;
+    `truncate` is one line with an ellipsis (min-width 0); the remove button is a 24px target
+    with no negative margin (WCAG 2.2 target size) in both layouts."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const root = document.getElementById('harness-root');
+          const wrap = document.createElement('div'); wrap.style.cssText = 'width: 180px; display: flex;';
+          root.appendChild(wrap);
+          const img = document.createElement('img'); img.alt = ''; img.width = 24; img.height = 24;
+          const hid = App.ui.chip({label: 'Staged image 1', labelHidden: true, lead: img, onRemove: () => {},
+                                   removeLabel: 'Remove staged image 1', removeTestid: 'rm-hidden'});
+          const tr = App.ui.chip({label: 'a very long queued message that cannot possibly fit on one line at all',
+                                  truncate: true, lead: document.createTextNode('Queued'), onRemove: () => {},
+                                  removeLabel: 'Cancel queued message', removeTestid: 'rm-trunc'});
+          const plain = App.ui.chip({label: 'tag', onRemove: () => {}, removeLabel: 'Remove tag', removeTestid: 'rm-plain'});
+          wrap.appendChild(hid); wrap.appendChild(tr); wrap.appendChild(plain);
+          const lab = hid.querySelector('.chip-label');
+          const tl = tr.querySelector('.chip-label');
+          const box = (n) => { const r = n.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+          const cs = (n) => getComputedStyle(n);
+          return {
+            hidClass: lab.className, hidText: lab.textContent, hidW: box(lab)[0] <= 1,
+            hidClip: cs(lab).position === 'absolute',
+            trWs: cs(tl).whiteSpace, trOv: cs(tl).overflow, trTo: cs(tl).textOverflow, trMin: cs(tl).minWidth,
+            trFits: tr.getBoundingClientRect().right <= wrap.getBoundingClientRect().right + 1,
+            btnHidden: box(hid.querySelector('button')), btnTrunc: box(tr.querySelector('button')),
+            btnPlain: box(plain.querySelector('button')),
+            margin: cs(plain.querySelector('button')).margin,
+            hidden: (() => { try { App.ui.chip({label: 'x', labelHidden: true, lead: null}); return ''; } catch (e) { return e.message; } })()
+          };
+        }""",
+    )
+    assert "visually-hidden" in out["hidClass"] and out["hidText"] == "Staged image 1"
+    assert out["hidW"] and out["hidClip"]
+    assert out["trWs"] == "nowrap" and out["trOv"] == "hidden" and out["trTo"] == "ellipsis"
+    assert out["trMin"] == "0px" and out["trFits"]
+    assert out["btnHidden"] == [24, 24] and out["btnTrunc"] == [24, 24]
+    assert out["btnPlain"] == [24, 24]
+    assert out["margin"] == "0px"
+    assert engine_page.get_by_role("button", name="Remove staged image 1").count() == 1

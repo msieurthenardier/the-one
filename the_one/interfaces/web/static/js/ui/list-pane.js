@@ -134,7 +134,7 @@
   //     `time` is drawn only in it.
   //   item.dataset: a plain object set as data-* on the row element.
   //   The label span always carries data-confirm-title, so
-  //     App.confirmDelete(li) swaps the label's text.
+  //     App.ui.confirm(li) swaps the label's text.
   //   item.action {label, icon, testid, onClick(item, actionEl, li)}: a
   //     sibling <button type=button class="ui-list-pane-action"> after the
   //     row inside its <li> (never a .ui-list-pane-row), icon only, named by
@@ -157,13 +157,21 @@
   //     previous one -- and becomes the stop. A focused ROW keeps the rule
   //     above unchanged (same id, else selected, else first).
   //
+  // M31 F6 L10b: item.activity, 'working' | 'new' (rowStyle 'chats' only; ignored and
+  //   unrendered in the other styles). Every chats row reserves a fixed 12px
+  //   .ui-list-pane-activity slot beside the time, so nothing shifts when it fills: 'working'
+  //   adds --working (a spinning ring, a static gapped ring under reduced motion), 'new' adds
+  //   --new (a filled dot). The slot is aria-hidden; the state is a separate visually hidden
+  //   run after nameSuffix: ", Working" or ", New reply". setItems patches the slot in place
+  //   when it reuses an armed row.
+  //
   // M25 F4 L6 (DD14): setQuery(q) sets the filter's value and query and
   //   applies the view (rows shown or hidden, the selection, the tab stop and
   //   the count re-derived; rows never rebuilt, so focus survives). It is
   //   SILENT: no live announcement (the polite status region is cleared, not
   //   written, so a stale "N results" never lingers). A no-op without a
   //   filter. App.studio.clearAgentFilter calls it with ''.
-  //   Armed rows: App.confirmDelete arms by adding .confirm-delete to the
+  //   Armed rows: App.ui.confirm arms by adding .confirm-delete to the
   //     <li> and swapping its [data-confirm-title] child's text (ui/confirm.js).
   //     setItems REUSES an armed <li> (row and action nodes, so the armed
   //     title and the revert timer survive) for the same item id, updating
@@ -270,6 +278,19 @@
       return badges;
     }
 
+    // M31 F6 L10b: item.activity ('working' | 'new' | none, rowStyle 'chats' only; ignored in
+    // the other styles) -> the slot's modifier class and the row name's separate text run.
+    var ACTIVITY_TEXT = { working: ', Working', 'new': ', New reply' };
+    function patchActivity(entry) {
+      if (!entry.activityMark) return;
+      var a = entry.item.activity;
+      if (a !== 'working' && a !== 'new') a = '';
+      var cls = 'ui-list-pane-activity' + (a ? ' ui-list-pane-activity--' + a : '');
+      if (entry.activityMark.className !== cls) entry.activityMark.className = cls;
+      var text = a ? ACTIVITY_TEXT[a] : '';
+      if (entry.activityText.textContent !== text) entry.activityText.textContent = text;
+    }
+
     // The row element for an entry. The click handler reads entry.item at
     // click time (an armed row is reused with the entry's item replaced).
     function buildRow(entry) {
@@ -291,9 +312,16 @@
       var hasBadges = item.badges && item.badges.length;
       if (opts.rowStyle === 'chats') {
         var hasTime = item.time !== undefined && item.time !== null && item.time !== '';
+        // M31 F6 L10b: the activity slot (always present, so the row never shifts) and its
+        // hidden name run, patched in place by patchActivity.
+        entry.activityMark = util.el('span', { className: 'ui-list-pane-activity', 'aria-hidden': 'true' });
+        entry.activityText = util.el('span', { className: 'visually-hidden' });
+        patchActivity(entry);
         node.appendChild(util.el('span', { className: 'ui-list-pane-line' }, [
           label,
           suffix,
+          entry.activityText,
+          entry.activityMark,
           hasTime ? util.el('span', { className: 'ui-list-pane-time', text: String(item.time) }) : null
         ]));
         if (item.meta || hasBadges) {
@@ -553,7 +581,7 @@
       // <body> at once, so the restore below must also run synchronously.
       var focused = focusedEntry();
       var scrollTop = body.scrollTop;
-      // Armed rows (App.confirmDelete's .confirm-delete on the li) are
+      // Armed rows (App.ui.confirm's .confirm-delete on the li) are
       // reused for their item id, never rebuilt (DD5).
       var armed = {};
       for (var a = 0; a < entries.length; a++) {
@@ -590,6 +618,7 @@
             entry = armed[item.id];
             entry.item = item;
             entry.group = g;
+            patchActivity(entry);
           } else {
             entry = buildEntry(item, g);
           }

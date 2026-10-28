@@ -115,5 +115,4 @@
   App.ui.consentLink.build = build;
   App.ui.consentLink.isSafeUrl = isSafeUrl;
   App.ui.consentLink.focusTarget = focusTarget;
-  window.App.consentLink = App.ui.consentLink;
 })();

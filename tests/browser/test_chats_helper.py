@@ -87,8 +87,8 @@ def test_chats_helper_send_first(app_with_agent: SeededApp, page: Page) -> None:
     _chats.start_chat(page, app_with_agent.agent_name)
     sid = _chats.send_first(page, "hello")
     assert sid and sid == _chats.current_session_id(page)
-    expect(page.locator('[data-testid="message"].user')).to_have_text("hello")
+    expect(_chats.messages(page, "user")).to_have_text("hello")
     expect(page.locator('[data-testid="chat-input"]')).to_have_value("")
-    expect(page.locator('[data-testid="message"].assistant')).to_have_text(
+    expect(_chats.messages(page, "assistant")).to_have_text(
         "Mock response from the mock provider.", timeout=10000
     )

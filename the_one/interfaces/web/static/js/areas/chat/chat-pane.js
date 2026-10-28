@@ -178,7 +178,7 @@
       header.hidden = false;
     }
 
-    var badge = el('span', { className: 'badge badge--unknown', hidden: true });
+    var badge = App.ui.badge.live({ kind: 'unknown' });
     var agentName = el('h2', { className: 'chat-new-state-agent' });
     var description = el('p', { className: 'chat-new-state-description', hidden: true });
     var pickDifferentButton = App.ui.button({
@@ -189,7 +189,7 @@
       testid: 'chat-pick-different-btn',
       onClick: function () { if (opts.onPickDifferent) opts.onPickDifferent(pickDifferentButton); }
     });
-    var newInner = el('div', { className: 'chat-new-state-inner' }, [badge, agentName, description, pickDifferentButton]);
+    var newInner = el('div', { className: 'chat-new-state-inner' }, [badge.el, agentName, description, pickDifferentButton]);
     var newState = el('div', { className: 'chat-new-state', hidden: true }, [newInner]);
     newState.setAttribute('data-testid', 'chat-new-state');
 
@@ -203,9 +203,7 @@
       // state (the agent may be unknown and heal to #chats).
       newInner.hidden = !!view.blank;
       if (view.blank) return;
-      badge.className = 'badge badge--' + (view.kind || 'unknown');
-      badge.textContent = view.model || '';
-      badge.hidden = !view.model;
+      badge.set({ kind: view.kind || 'unknown', text: view.model });
       agentName.textContent = view.name || '';
       description.textContent = view.description || '';
       description.hidden = !view.description;

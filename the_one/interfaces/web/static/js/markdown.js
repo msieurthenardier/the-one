@@ -3,43 +3,50 @@
  * Public API (all on window.App.markdown):
  *
  *   App.markdown.parse(text)  -> { type: 'document', children: Node[] }
- *   App.markdown.render(text) -> DocumentFragment
- *   App.markdown.NodeType     -> frozen object with all 19 node-type string constants
+ *   App.markdown.render(text[, {copyLiveEl}]) -> DocumentFragment
+ *   App.markdown.NodeType     -> frozen object with all 20 node-type string constants
  *
  * AST node shape:
  *   { type: NodeType_value, children?: Node[], value?: string, meta?: object }
  *
- * Supported subset (v1):
+ * Supported subset:
  *   paragraphs, ATX headers (`#`..`######`), fenced code blocks (triple
- *   backtick + optional language tag), blockquotes (single level),
- *   unordered + ordered lists (one nesting level), horizontal rules
+ *   backtick + optional language tag: only the first token of the info
+ *   string, `^[A-Za-z0-9_+#.-]{1,32}$`, becomes the single `language-x`
+ *   class), blockquotes (single level), unordered + ordered lists (one
+ *   nesting level), task list items (`- [ ] x`, `- [x] x`: a disabled
+ *   checkbox, `meta.task = {checked}` on the LIST_ITEM), horizontal rules
  *   (`---` / `***`), emphasis (`*` / `_`), strong (`**` / `__`),
- *   inline code (backtick), links (`[text](url)`; URLs may contain
- *   balanced parens, e.g. Wikipedia citations), soft breaks (single
+ *   strikethrough (`~~x~~`, double tilde only), inline code (backtick),
+ *   links (`[text](url)`; URLs may contain balanced parens, e.g. Wikipedia
+ *   citations), bare `http://` / `https://` URLs (autolinks: they stop at
+ *   whitespace, `<`, `>`, a backslash or a control character; a trailing
+ *   `.,;:!?*_~` and an unbalanced `)` stay outside), soft breaks (single
  *   `\n`), hard breaks (trailing TWO spaces + `\n`),
  *   GFM-style pipe tables (header row + `| --- |` separator + data rows;
- *   optional leading/trailing pipe; per-cell inline markup).
+ *   optional leading/trailing pipe; per-cell inline markup), rendered
+ *   inside `div.markdown-table-wrap` (a focusable, scrolling region).
+ *   No link label holds another link or an autolink (`noLinks` context).
  *
- * Out of subset (v1 non-goals):
+ * Out of subset:
  *   column alignment (`:---`, `---:`, `:---:`), footnotes, definition
- *   lists, autolinks (bare URLs), reference-style links, HTML passthrough,
- *   recursive nested emphasis.
+ *   lists, `www.` / `mailto:` / `<https://…>` autolinks, reference-style
+ *   links, HTML passthrough, backslash escapes, recursive nested emphasis.
  *
  * XSS guarantee:
  *   The renderer constructs DOM via `document.createElement` +
  *   `document.createTextNode` + `setAttribute` + `appendChild` /
  *   `textContent` exclusively. The library never uses inner-HTML
  *   assignments — a grep for the inner-HTML token across markdown.js
- *   returns zero hits.
- *   The trusted icons.js SVG string for the code-block copy button is
- *   parsed via `DOMParser().parseFromString(svg, 'image/svg+xml').documentElement`
- *   to keep the no-inner-HTML invariant intact. Link href values pass
- *   through a scheme allow-list (`http`, `https`, `mailto`, `tel`,
- *   root-relative `/`, fragment `#`); other schemes (notably `javascript:`,
- *   `data:`, `vbscript:`, `file:`) and protocol-relative `//host` URLs are
- *   stripped to `#`. The allow-list is anchored and fail-closed, so
- *   obfuscated schemes (leading whitespace / control chars, mixed case)
- *   also fall through to `#`.
+ *   returns zero hits. The code-block copy button is App.ui.copyButton.
+ *   Link href values pass through `safeHref` (D3 (a)): any backslash or
+ *   control character (C0, tab, newline, DEL) anywhere rejects the href;
+ *   `http`, `https`, `mailto`, `tel` pass; a root-relative `/` or fragment
+ *   `#` link must resolve to the page's own origin; everything else
+ *   (notably `javascript:`, `data:`, `vbscript:`, `file:`) and
+ *   protocol-relative `//host` URLs become `#`. The check is anchored and
+ *   fail-closed. An autolink never emits `#`: an unsafe candidate stays
+ *   plain text.
  *
  * Robustness:
  *   parse(undefined) / parse(null) / parse('') -> { type: 'document', children: [] }
@@ -50,7 +57,8 @@
  * Nested-emphasis v1 contract (non-recursive):
  *   `***word***` parses to {emphasis > strong > text:'word'} (outer-em-first).
  *   Inside an emphasis or strong run, further emphasis/strong delimiters
- *   are emitted as literal text (the `inEmphasisRun` suppression flag).
+ *   are emitted as literal text (the `noEmphasis` inline context flag);
+ *   strike and autolinks still apply there.
  *   So `**bold *with em***` is `<strong>bold *with em*</strong>` — the
  *   inner `*with em*` is literal text. Recursive emphasis (full
  *   CommonMark left/right flanking delimiter run algorithm) is v2 scope.
@@ -75,6 +83,7 @@
     TEXT: 'text',
     EMPHASIS: 'emphasis',
     STRONG: 'strong',
+    STRIKE: 'strike',
     INLINE_CODE: 'inlineCode',
     LINK: 'link',
     SOFT_BREAK: 'softBreak',
@@ -101,23 +110,32 @@
     return /^\|?[\s]*:?-{1,}:?[\s]*(\|[\s]*:?-{1,}:?[\s]*)*\|?$/.test(line.trim());
   }
 
+  function isSameOrigin(href) {
+    // A `/path` or `#frag` link resolves against the page; keep it only when the
+    // result stays on the page's own origin (an opaque "null" origin is never kept).
+    try {
+      if (typeof location === 'undefined' || !location || !location.origin ||
+          location.origin === 'null') return false;
+      return new URL(href, location.href).origin === location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // The single source of truth for URL safety in the renderer (D3 (a)); the
+  // renderer trusts AST href values. Returns the ORIGINAL string on success.
   function safeHref(href) {
-    // Protocol-relative URLs (`//host/...`) inherit the page's scheme and
-    // resolve OFF-SITE. A markdown author writing `//host` is not clearly
-    // asking for that, so force `#` (M17 F4 L1 hardening decision). Checked
-    // first — a leading `/` would otherwise satisfy the relative-path branch
-    // of the allow-list below. Leading-whitespace variants (` //host`) are
-    // caught too, though they already fail the allow-list independently.
+    // A browser URL parser treats `\` as `/` and drops tab / newline, so
+    // `/\evil` and `/<TAB>/evil` resolve off-site. Reject them (and any other
+    // control character, DEL included) anywhere in the href, whatever the scheme.
+    if (/[\\\u0000-\u001f\u007f]/.test(href)) return '#';
+    // Protocol-relative URLs (`//host/...`) inherit the page's scheme and resolve
+    // OFF-SITE (M17 F4 L1). Leading-whitespace variants fail the allow-list too.
     if (/^\s*\/\//.test(href)) return '#';
-    // Allow http:, https:, mailto:, tel:, root-relative (/), fragment (#).
-    // FAIL-CLOSED: javascript:, data:, vbscript:, file: — and obfuscated
-    // variants (leading whitespace / tab / newline / control chars, mixed
-    // case) — do not match the anchored allow-list and fall through to '#'.
-    // The `i` flag makes the scheme match case-insensitive; the anchor `^`
-    // (with no leading `\s`) means any leading junk defeats the match. This
-    // is the single source of truth for URL safety in the renderer; the
-    // renderer trusts AST href values.
-    if (/^(https?:|mailto:|tel:|\/|#)/i.test(href)) return href;
+    // FAIL-CLOSED: javascript:, data:, vbscript:, file: and obfuscated variants
+    // (leading whitespace, mixed case) match neither branch and fall through to '#'.
+    if (/^(https?:|mailto:|tel:)/i.test(href)) return href;
+    if (/^[\/#]/.test(href) && isSameOrigin(href)) return href;
     return '#';
   }
 
@@ -150,8 +168,10 @@
       // Fenced code block: ```lang
       var fMatch = /^```(.*)$/.exec(line);
       if (fMatch) {
-        var langRaw = fMatch[1].trim();
-        var lang = langRaw.length > 0 ? langRaw : null;
+        // Only the first whitespace-separated token of the info string, and only
+        // from a strict charset, so the class is exactly one safe token.
+        var langTok = fMatch[1].trim().split(/\s+/)[0];
+        var lang = /^[A-Za-z0-9_+#.-]{1,32}$/.test(langTok) ? langTok : null;
         var codeLines = [];
         i++;
         while (i < endIdx && !/^```\s*$/.test(lines[i])) {
@@ -322,10 +342,21 @@
         }
       }
 
-      items.push({
+      // Task marker on the item's first line: `[ ]` / `[x]` / `[X]` followed by
+      // whitespace (or the end of the line). The required whitespace keeps
+      // `- [x](https://a)` a link.
+      var taskMatch = /^\[([ xX])\](?:\s+|$)/.exec(itemLines[0]);
+      var itemMeta = null;
+      if (taskMatch) {
+        itemMeta = { task: { checked: taskMatch[1] !== ' ' } };
+        itemLines[0] = itemLines[0].substring(taskMatch[0].length);
+      }
+      var itemNode = {
         type: NodeType.LIST_ITEM,
         children: parseBlocks(itemLines, 0, itemLines.length)
-      });
+      };
+      if (itemMeta) itemNode.meta = itemMeta;
+      items.push(itemNode);
     }
 
     var node = {
@@ -339,17 +370,20 @@
   // ── Inline parser ───────────────────────────────────────────────────────
 
   function parseInline(text) {
-    return scanInline(text, false);
+    return scanInline(text, {});
   }
 
-  function scanInline(text, inEmphasisRun) {
-    // Walk character-by-character; emit text/emphasis/strong/inlineCode/
-    // link/softBreak/hardBreak nodes. When inEmphasisRun is true, emphasis
-    // and strong delimiters are NOT recognised — they fall through to text.
+  function scanInline(text, ctx) {
+    // Walk character-by-character; emit text/emphasis/strong/strike/inlineCode/
+    // link/softBreak/hardBreak nodes. ctx: { noEmphasis } — emphasis and strong
+    // delimiters are NOT recognised (they fall through to text); { noLinks } —
+    // no `[..](..)` link and no autolink (a link label never holds another link).
     var nodes = [];
     var buf = '';
     var i = 0;
     var n = text.length;
+    // Emphasis bodies keep strike and autolinks but not nested emphasis.
+    var bodyCtx = { noEmphasis: true, noLinks: !!ctx.noLinks };
 
     function flushText() {
       if (buf.length > 0) {
@@ -402,7 +436,7 @@
       }
 
       // Link: [text](url).
-      if (ch === '[') {
+      if (ch === '[' && !ctx.noLinks) {
         var linkEnd = parseLink(text, i);
         if (linkEnd !== null) {
           flushText();
@@ -416,8 +450,46 @@
         continue;
       }
 
+      // Autolink: a bare http(s) URL, only at a word boundary. Before the
+      // `*`/`_` branch so delimiters inside a URL are not eaten.
+      if ((ch === 'h' || ch === 'H') && !ctx.noLinks &&
+          (i === 0 || !/[A-Za-z0-9]/.test(text.charAt(i - 1)))) {
+        var auto = matchAutolink(text, i);
+        if (auto !== null) {
+          flushText();
+          nodes.push({
+            type: NodeType.LINK,
+            meta: { href: auto.url },
+            children: [{ type: NodeType.TEXT, value: auto.url }]
+          });
+          i = auto.next;
+          continue;
+        }
+      }
+
+      // Strikethrough: `~~x~~` (double tilde only; a single `~` stays literal).
+      if (ch === '~') {
+        var tildeEnd = i;
+        while (tildeEnd < n && text.charAt(tildeEnd) === '~') tildeEnd++;
+        if (tildeEnd - i === 2) {
+          var strikeClose = findStrikeClose(text, i + 2);
+          if (strikeClose !== null && strikeClose > i + 2) {
+            flushText();
+            nodes.push({
+              type: NodeType.STRIKE,
+              children: scanInline(text.substring(i + 2, strikeClose), ctx)
+            });
+            i = strikeClose + 2;
+            continue;
+          }
+        }
+        buf += text.substring(i, tildeEnd);
+        i = tildeEnd;
+        continue;
+      }
+
       // Emphasis / strong delimiters — only when NOT inside an emphasis run.
-      if (!inEmphasisRun && (ch === '*' || ch === '_')) {
+      if (!ctx.noEmphasis && (ch === '*' || ch === '_')) {
         var runStart = i;
         var runChar = ch;
         while (i < n && text.charAt(i) === runChar) i++;
@@ -440,7 +512,7 @@
           if (tripleEnd !== null) {
             flushText();
             var inner3 = text.substring(i, tripleEnd);
-            var innerNodes3 = scanInline(inner3, true);
+            var innerNodes3 = scanInline(inner3, bodyCtx);
             if (runLen > 3) {
               nodes.push({
                 type: NodeType.TEXT,
@@ -462,7 +534,7 @@
           if (doubleEnd !== null) {
             flushText();
             var inner2 = text.substring(i, doubleEnd);
-            var innerNodes2 = scanInline(inner2, true);
+            var innerNodes2 = scanInline(inner2, bodyCtx);
             if (runLen > 2) {
               nodes.push({
                 type: NodeType.TEXT,
@@ -483,7 +555,7 @@
           if (singleEnd !== null) {
             flushText();
             var inner1 = text.substring(i, singleEnd);
-            var innerNodes1 = scanInline(inner1, true);
+            var innerNodes1 = scanInline(inner1, bodyCtx);
             if (runLen > 1) {
               nodes.push({
                 type: NodeType.TEXT,
@@ -511,6 +583,57 @@
 
     flushText();
     return nodes;
+  }
+
+  function matchAutolink(text, start) {
+    // `http://` / `https://` at `start`; the URL ends at whitespace, `<`, `>`, a
+    // backslash or a control character. A trailing `.,;:!?*_~` and an unbalanced
+    // `)` are trimmed. Returns { url, next } or null (text stays plain).
+    var scheme = /^https?:\/\//i.exec(text.substring(start, start + 8));
+    if (!scheme) return null;
+    var j = start + scheme[0].length;
+    var n = text.length;
+    while (j < n && !/[\s<>\\\u0000-\u001f\u007f]/.test(text.charAt(j))) j++;
+    var end = j;
+    while (end > start + scheme[0].length) {
+      var last = text.charAt(end - 1);
+      if (/[.,;:!?*_~]/.test(last)) { end--; continue; }
+      if (last === ')') {
+        var seg = text.substring(start, end);
+        var opens = seg.split('(').length - 1;
+        var closes = seg.split(')').length - 1;
+        if (closes > opens) { end--; continue; }
+      }
+      break;
+    }
+    if (end <= start + scheme[0].length) return null;
+    var url = text.substring(start, end);
+    if (safeHref(url) !== url) return null;
+    return { url: url, next: end };
+  }
+
+  function findStrikeClose(text, startIdx) {
+    // The next run of exactly two tildes at or after startIdx, skipping inline
+    // code spans. Returns its index or null.
+    var i = startIdx;
+    var n = text.length;
+    while (i < n) {
+      var c = text.charAt(i);
+      if (c === '`') {
+        var cend = text.indexOf('`', i + 1);
+        if (cend === -1) { i++; continue; }
+        i = cend + 1;
+        continue;
+      }
+      if (c === '~') {
+        var runStart = i;
+        while (i < n && text.charAt(i) === '~') i++;
+        if (i - runStart === 2) return runStart;
+        continue;
+      }
+      i++;
+    }
+    return null;
   }
 
   function findClosingDelim(text, startIdx, delimChar, delimLen) {
@@ -555,6 +678,11 @@
     while (i < n) {
       var c = text.charAt(i);
       if (c === '\\' && i + 1 < n) { i += 2; continue; }
+      if (c === '`') {
+        // A bracket inside a code span does not count toward the label.
+        var codeEnd = text.indexOf('`', i + 1);
+        if (codeEnd !== -1) { i = codeEnd + 1; continue; }
+      }
       if (c === '[') { depth++; i++; continue; }
       if (c === ']') {
         depth--;
@@ -595,7 +723,7 @@
       node: {
         type: NodeType.LINK,
         meta: { href: href },
-        children: scanInline(labelText, false)
+        children: scanInline(labelText, { noLinks: true })
       },
       next: urlEnd + 1
     };
@@ -618,17 +746,16 @@
 
   // ── Renderer ────────────────────────────────────────────────────────────
 
-  function injectIcon(parent, name) {
-    // Trusted icons.js SVG strings are parsed via DOMParser to avoid
-    // inner-HTML assignments. The resulting documentElement is appended
-    // in place of the parent's existing children — keeping the
-    // markdown-library no-inner-HTML invariant intact.
-    var svgString = (window.App && window.App.icon) ? window.App.icon(name) : '';
-    if (!svgString) return;
-    var doc = new DOMParser().parseFromString(svgString, 'image/svg+xml');
-    if (doc && doc.documentElement && doc.documentElement.nodeName.toLowerCase() === 'svg') {
-      parent.appendChild(doc.documentElement);
+  // The plain text of inline nodes (a task checkbox's accessible name).
+  function inlineText(nodes) {
+    var out = '';
+    for (var k = 0; k < nodes.length; k++) {
+      var nd = nodes[k];
+      if (nd.type === NodeType.TEXT || nd.type === NodeType.INLINE_CODE) out += nd.value;
+      else if (nd.type === NodeType.SOFT_BREAK || nd.type === NodeType.HARD_BREAK) out += ' ';
+      else if (nd.children) out += inlineText(nd.children);
     }
+    return out;
   }
 
   function renderNodes(nodes, parent) {
@@ -671,10 +798,23 @@
 
         case NodeType.LIST_ITEM:
           el = document.createElement('li');
+          var kids = node.children || [];
+          if (node.meta && node.meta.task) {
+            // Task item: a disabled checkbox first, named from the FIRST
+            // paragraph's text only (never a nested sublist's).
+            el.setAttribute('class', 'markdown-task');
+            var box = document.createElement('input');
+            box.setAttribute('type', 'checkbox');
+            box.setAttribute('disabled', '');
+            if (node.meta.task.checked) box.setAttribute('checked', '');
+            var taskName = kids.length && kids[0].type === NodeType.PARAGRAPH
+              ? inlineText(kids[0].children || []).trim() : '';
+            box.setAttribute('aria-label', taskName || 'Task');
+            el.appendChild(box);
+          }
           // If the list-item contains a single paragraph, inline its
           // children directly into the <li> (tight-list rendering).
           // Otherwise render block children as-is.
-          var kids = node.children || [];
           if (kids.length === 1 && kids[0].type === NodeType.PARAGRAPH) {
             renderNodes(kids[0].children || [], el);
           } else {
@@ -690,11 +830,11 @@
         case NodeType.TABLE:
           el = document.createElement('table');
           // First child is always TABLE_HEAD; rest are TABLE_ROW.
-          var kids = node.children || [];
-          if (kids.length > 0 && kids[0].type === NodeType.TABLE_HEAD) {
+          var tableKids = node.children || [];
+          if (tableKids.length > 0 && tableKids[0].type === NodeType.TABLE_HEAD) {
             var thead = document.createElement('thead');
             var headerRow = document.createElement('tr');
-            var headCells = kids[0].children || [];
+            var headCells = tableKids[0].children || [];
             for (var hIdx = 0; hIdx < headCells.length; hIdx++) {
               var th = document.createElement('th');
               renderNodes(headCells[hIdx].children || [], th);
@@ -704,10 +844,10 @@
             el.appendChild(thead);
           }
           var tbody = document.createElement('tbody');
-          for (var rIdx = 1; rIdx < kids.length; rIdx++) {
-            if (kids[rIdx].type !== NodeType.TABLE_ROW) continue;
+          for (var rIdx = 1; rIdx < tableKids.length; rIdx++) {
+            if (tableKids[rIdx].type !== NodeType.TABLE_ROW) continue;
             var tr = document.createElement('tr');
-            var rowCells = kids[rIdx].children || [];
+            var rowCells = tableKids[rIdx].children || [];
             for (var cIdx = 0; cIdx < rowCells.length; cIdx++) {
               var td = document.createElement('td');
               renderNodes(rowCells[cIdx].children || [], td);
@@ -716,7 +856,13 @@
             tbody.appendChild(tr);
           }
           el.appendChild(tbody);
-          parent.appendChild(el);
+          var tableWrap = document.createElement('div');
+          tableWrap.setAttribute('class', 'markdown-table-wrap');
+          tableWrap.setAttribute('tabindex', '0');
+          tableWrap.setAttribute('role', 'region');
+          tableWrap.setAttribute('aria-label', 'Table');
+          tableWrap.appendChild(el);
+          parent.appendChild(tableWrap);
           break;
 
         case NodeType.TEXT:
@@ -731,6 +877,12 @@
 
         case NodeType.STRONG:
           el = document.createElement('strong');
+          renderNodes(node.children || [], el);
+          parent.appendChild(el);
+          break;
+
+        case NodeType.STRIKE:
+          el = document.createElement('del');
           renderNodes(node.children || [], el);
           parent.appendChild(el);
           break;
@@ -773,49 +925,55 @@
     wrap.className = 'markdown-code-wrap';
     var pre = document.createElement('pre');
     var code = document.createElement('code');
-    if (node.meta && node.meta.lang) {
+    // Defensive: the parser already sanitised meta.lang; never trust it blindly.
+    if (node.meta && typeof node.meta.lang === 'string' &&
+        /^[A-Za-z0-9_+#.-]{1,32}$/.test(node.meta.lang)) {
       code.setAttribute('class', 'language-' + node.meta.lang);
     }
     code.textContent = node.value || '';
     pre.appendChild(code);
     wrap.appendChild(pre);
 
-    var btn = document.createElement('button');
-    btn.setAttribute('class', 'markdown-copy-btn');
-    btn.setAttribute('aria-label', 'Copy code');
-    btn.setAttribute('type', 'button');
-    injectIcon(btn, 'copy');
-    wrap.appendChild(btn);
-
-    btn.addEventListener('click', function () {
-      var clip = (typeof navigator !== 'undefined') && navigator.clipboard;
-      if (!clip || typeof clip.writeText !== 'function') {
-        if (window.App && window.App.showFlash) {
-          window.App.showFlash(wrap, 'Copy failed', true);
-        }
-        return;
-      }
-      clip.writeText(code.textContent).then(function () {
-        if (window.App && window.App.showFlash) {
-          window.App.showFlash(wrap, 'Copied!');
-        }
-      }).catch(function () {
-        if (window.App && window.App.showFlash) {
-          window.App.showFlash(wrap, 'Copy failed', true);
-        }
-      });
+    // The library copy button (icon only, confirms in place). Its announcement
+    // goes to a status node in the wrap, so the button is the bare root and no
+    // inline box adds space under the code.
+    // With a shared live node (options.copyLiveEl, chat) no per-block status span is
+    // made: a span inside the transcript's role=log would be announced twice.
+    var live = renderOptions && renderOptions.copyLiveEl;
+    var ownLive = !live;
+    if (ownLive) {
+      live = document.createElement('span');
+      live.setAttribute('class', 'visually-hidden');
+      live.setAttribute('role', 'status');
+    }
+    var copy = window.App.ui.copyButton({
+      iconOnly: true,
+      size: 'sm',
+      label: 'Copy code',
+      text: function () { return code.textContent; },
+      className: 'markdown-copy-btn',
+      liveEl: live
     });
-
+    wrap.appendChild(copy.el);
+    if (ownLive) wrap.appendChild(live);
     return wrap;
   }
 
-  function render(text) {
+  // The options of the render call in progress (render is synchronous).
+  var renderOptions = null;
+
+  function render(text, options) {
     var frag = document.createDocumentFragment();
     if (text === null || text === undefined || String(text).length === 0) {
       return frag;
     }
     var ast = parse(text);
-    renderNodes(ast.children || [], frag);
+    renderOptions = options || null;
+    try {
+      renderNodes(ast.children || [], frag);
+    } finally {
+      renderOptions = null;
+    }
     return frag;
   }
 

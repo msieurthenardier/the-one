@@ -676,7 +676,7 @@
         // Destroyed mid-request (a breadcrumb go, a section change): the server state
         // changed, so the invalidation stays, but nothing is written to the page.
         if (!current()) return;
-        App.ui.flash(isCreate ? 'Connector created' : 'Connector saved', { container: container });
+        App.ui.flash(isCreate ? 'Connector created' : 'Connector saved');
         // A create re-mounts in edit mode asynchronously and the editor STAYS BUSY
         // until then (no setBusy(false) here): park the restore for that mount.
         if (isCreate) App.focusAfter.defer(saveTok, newMountTitle);

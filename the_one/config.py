@@ -64,8 +64,8 @@ class Settings(BaseSettings):
 
     # Chat telemetry overlay — context-fullness warn/critical thresholds (percent
     # of the model's context window). Plumbed to the frontend via /api/config and
-    # read by telemetry-overlay.js to color the bar (warn → orange, crit → red)
-    # and emit a non-color a11y signal. Env-overridable
+    # read by the telemetry control (js/ui/telemetry.js) to color the bar (warn → orange,
+    # crit → red) and emit a non-color a11y signal. Env-overridable
     # (THE_ONE_CONTEXT_WARN_PCT / _CRIT_PCT); invalid combinations clamp back to
     # the 70/90 defaults (see the validator below). M16 F08 L05.
     context_warn_pct: int = 70

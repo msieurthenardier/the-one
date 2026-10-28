@@ -91,6 +91,7 @@
       id: 'self-configuration-external-grant-label-input',
       placeholder: 'e.g. staging-deploy-bot',
       disabled: true,
+      minWidth: 160,
       testid: 'self-configuration-external-grant-label'
     });
     grantInput.setAttribute('maxlength', '200');

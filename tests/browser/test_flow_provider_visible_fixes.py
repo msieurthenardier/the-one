@@ -100,10 +100,17 @@ def test_provider_models_section_is_labelled_available_models(
     section = page.locator(".editor-section:has(.provider-models)")
     expect(section.locator(".section-title")).to_have_text("Available models", timeout=8000)
     help_line = section.locator('[data-testid="provider-models-help"]')
-    expect(help_line).to_contain_text("Each agent chooses one of these in its Model section.")
+    # A17: "Agents" is a link inside the sentence, with nothing after the sentence's period.
+    expect(help_line).to_have_text("Each of your Agents chooses one of these in its Model section.")
     link = help_line.locator("a")
     expect(link).to_have_text("Agents")
+    assert help_line.evaluate("e => e.lastChild.nodeType === 3 && e.lastChild.textContent") == (
+        " chooses one of these in its Model section."
+    )
     expect(link).to_have_attribute("href", _nav.href("agents"))
-    item = section.locator(".admin-pf-model-item").first
+    item = section.locator(".ui-model-row").first
     expect(item).to_be_visible(timeout=8000)
     assert item.evaluate("e => getComputedStyle(e).cursor") == "default"
+    # A10: a model id in the plain list is monospace.
+    family = item.locator(".ui-model-name").evaluate("e => getComputedStyle(e).fontFamily")
+    assert "mono" in family.lower()

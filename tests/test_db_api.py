@@ -3899,7 +3899,18 @@ def test_session_summary_keys_are_a_subset_of_the_ws_list_payload() -> None:
     summary = _session_summary(session)
     ws_row = _session_to_list_payload(session)
     assert set(summary) <= set(ws_row), sorted(set(summary) - set(ws_row))
-    assert set(summary) == {"id", "agent_name", "title", "created_at", "updated_at", "platform"}
+    assert set(summary) == {
+        "id",
+        "agent_name",
+        "title",
+        "created_at",
+        "updated_at",
+        "platform",
+        "busy",
+        "turn_seq",
+    }
+    assert summary["busy"] is False
+    assert summary["turn_seq"].endswith(":0")
     for key in summary:
         assert summary[key] == ws_row[key], key
 

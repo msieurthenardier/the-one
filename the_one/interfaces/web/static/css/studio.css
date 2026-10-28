@@ -9,8 +9,6 @@
      scrolls. */
   .area-studio .studio-agents-list,
   .area-studio .studio-library-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .area-studio .studio-agents-list > .ui-list-pane,
-  .area-studio .studio-library-list > .ui-list-pane { flex: 1; }
   /* The detail pane: the section content hosts the Agents empty state (no
      agent open) and the Library detail (an editor, the knowledge-base create
      form or a section root's empty state). */
@@ -21,7 +19,6 @@
      entity-name + description block). Studio keeps only the editor host
      layout + the area-specific tablist/panels framing + form-section paddings. */
   .area-studio .studio-editor { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  .area-studio .tabpanel { padding: 16px 20px 80px; }
   /* `.editor-section` + sibling-adjacent divider lifted to components.css in F6 leg 03 (un-scoped, consumed by admin's provider editor). */
 
   /* === Studio MCP Servers section (post-F2 retrofit, relocated from admin) === */
@@ -29,11 +26,10 @@
      (M07 F1 L5/L6) and moved to studio post-F2 retrofit. The editor mounts
      directly into .studio-section-content (no tablist wrapper), so we scope
      padding + loading-text rules here that mirror the admin equivalents. */
-  .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
   /* F5 L6 HAT R4: friendly description sits flush under each section-title,
      e.g. the agent-editor's Built-in tools tab. body-sm
      muted text, modest bottom margin so it doesn't crowd the first
-     field-row. Currently scoped to .area-studio per F5 scope; if other
+     field row. Currently scoped to .area-studio per F5 scope; if other
      areas adopt the same pattern this rule can be lifted to
      components.css. */
   /* .section-description lifted to components.css (M31 F1 L4). */
@@ -42,7 +38,6 @@
 
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
-  .area-studio .field-model-wrap .field-input { flex: 1; }
   .area-studio .model-loading { font-size: var(--font-size-caption); color: var(--fg-secondary); white-space: nowrap; flex-shrink: 0; }
   /* When the model-loading span is empty (the steady state — no spinner, no
      status text), remove it from the flex layout so its 8px `gap` doesn't
@@ -69,8 +64,8 @@
      tab now uses the library switch (App.ui.toggle) and rows (App.ui.toolRow). */
 
   /* === Studio Area: Actions, Danger Zone === */
-  /* All action-button rules (.save-btn / .back-btn / .test-provider-btn /
-     .delete-btn[.confirm]) and the .danger-zone-title rule were lifted to
+  /* All action-button rules (the save, test-provider and
+     delete buttons) and the danger-zone title rule were lifted to
      components.css in F6 leg 03 (un-scoped, consumed by admin's provider
      editor). Studio markup unchanged — bare class names match the
      canonical rules. */
@@ -83,7 +78,7 @@
   /* Capability panel — surfaces /api/show capabilities under the model
      selector. The danger-coloured `no tools` chip carries the warning by
      itself; no separate banner. F5 L1: the general-tab fields migrated
-     .field-row (100px label gutter) → stacked .field-group, so the caps row
+     a labelled row with a 100px gutter → stacked .field-group, so the caps row
      aligns flush-left under the full-width model control (no gutter pad). */
   .area-studio .model-capabilities { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-studio .model-capabilities:empty { display: none; }
@@ -468,10 +463,6 @@
   .area-studio .self-configuration-external-grant-label-text {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
-  }
-  .area-studio .self-configuration-external-grant .field-input {
-    flex: 1;
-    min-width: 160px;
   }
   .area-studio .self-configuration-external-grant-btn { flex-shrink: 0; }
 
@@ -985,35 +976,19 @@
      when Settings hosted providers). The `admin-pf-*` / `plan-*` class names
      are accepted naming debt. The capability chips are App.ui.chip, the pull progress App.ui.progress. */
   .area-studio .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
-     header, so it does not take the `.section-title` eyebrow-with-rule recipe
-     (sans, body-sm, weight 500, --fg-secondary). */
-  .area-studio .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
-  /* DD10: plain information, not options - no hover, no cursor, a muted separator. */
-  .area-studio .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); cursor: default; }
-  .area-studio .admin-pf-model-item:last-child { border-bottom: none; }
+  /* The model list's scroll region; the rows are App.ui.modelList. */
+  .area-studio .provider-models-region { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
   .area-studio .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
 
   /* === Ollama Lifecycle Panel === */
   .area-studio .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
-  .area-studio .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
-  .area-studio .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
-  .area-studio .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; flex-wrap: wrap; }
-  .area-studio .admin-pf-model-row:last-child { border-bottom: none; }
-  .area-studio .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .area-studio .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
-  .area-studio .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  /* admin-pf-model-btn retained as a JS hook only — styling comes from App.ui.button. */
-  .area-studio .admin-pf-model-led { gap: 0; }
-  .area-studio .admin-pf-model-error { width: 100%; }
   .area-studio .admin-pf-pull-input { display: flex; align-items: stretch; gap: 8px; padding: 8px 0; }
   .area-studio .admin-pf-pull-name { flex: 1; }
   /* The Pull button is the standard button, stretched to the select's height in this row. */
   .area-studio .admin-pf-pull-go { height: auto; }
   .area-studio .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
   .area-studio .admin-pf-pull-size { color: var(--fg-secondary); }
-  /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px dot the
-     retired .test-result-warning retrofit drew. */
+  /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px warning dot. */
   .area-studio .admin-pf-pull-size--warn { color: var(--status-warning); }
   .area-studio .admin-pf-pull-size--warn::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background-color: var(--status-warning); }
   .area-studio .admin-pf-pull-size:empty { padding: 0; }

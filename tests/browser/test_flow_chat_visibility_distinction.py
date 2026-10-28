@@ -1,7 +1,8 @@
+# ruff: noqa: E501  (long selectors and inline JS snippets are evaluated verbatim)
 """Browser test for M10 F05 L05 — chat-ui-render-visibility-distinction.
 
 Verifies that messages persisted with ``Message.visibility == "operator"``
-render with the ``msg-operator-only`` class and an inline
+render with the ``ui-message--operator-only`` class and an inline
 ``[operator-only]`` label, while peer-visible messages render without
 either.
 
@@ -115,8 +116,8 @@ def test_chat_renders_operator_visibility_distinction(
     """A seeded session with mixed visibility renders the operator marker.
 
     Acceptance criteria coverage:
-    - ``.msg-operator-only`` count >= 2 (USER + ASSISTANT, both tagged).
-    - ``.msg-operator-only-label`` count >= 2 with text ``[operator-only]``.
+    - ``.ui-message--operator-only`` count >= 2 (USER + ASSISTANT, both tagged).
+    - ``.ui-message-operator-chip`` count >= 2 with text ``Operator only`` (B5).
     - The TOOL bubble (visibility=None) lacks the operator-only class.
     """
     base_url, data_dir = app_with_data_dir
@@ -156,27 +157,29 @@ def test_chat_renders_operator_visibility_distinction(
     # Wait for the chat chrome (deep-link path renders straight into chrome).
     _chats.expect_chat(page, agent_name)
 
-    # Wait for messages to actually render — at least one .msg bubble.
-    expect(page.locator(".msg").first).to_be_visible(timeout=5000)
+    # Wait for messages to actually render — at least one message bubble.
+    expect(page.locator('[data-testid="message"]').first).to_be_visible(timeout=5000)
 
     # Assertion 1: at least 1 operator-only bubble (the ASSISTANT).
     # M10 F05 L08 HAT: the marker (class + label) is suppressed on
-    # .msg.user bubbles — the operator knows what they typed, so the
+    # .ui-message--user bubbles — the operator knows what they typed, so the
     # marker is noise on their own messages. The marker still applies
     # to assistant + tool bubbles.
-    operator_only = page.locator(".msg-operator-only")
+    operator_only = page.locator(".ui-message--operator-only")
     operator_count = operator_only.count()
     assert operator_count >= 1, (
-        f"expected >= 1 .msg-operator-only bubble (assistant), got {operator_count}"
+        f"expected >= 1 .ui-message--operator-only bubble (assistant), got {operator_count}"
     )
 
     # Assertion 1b: the user bubble does NOT carry the marker — it
     # has visibility=operator persisted (verified via data-visibility)
     # but the JS suppresses the class + label per the L8 HAT decision.
-    user_bubble = page.locator(".msg.user").first
-    user_has_class = user_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
+    user_bubble = _chats.messages(page, "user").first
+    user_has_class = user_bubble.evaluate(
+        "el => el.classList.contains('ui-message--operator-only')"
+    )
     assert user_has_class is False, (
-        "user bubble unexpectedly carries .msg-operator-only — the "
+        "user bubble unexpectedly carries .ui-message--operator-only — the "
         "F5 L8 HAT decision suppresses the marker on the operator's "
         "own user bubbles."
     )
@@ -187,21 +190,25 @@ def test_chat_renders_operator_visibility_distinction(
     )
 
     # Assertion 2: matching label spans with pinned text content.
-    labels = page.locator(".msg-operator-only-label")
+    labels = page.locator(".ui-message-operator-chip")
     label_count = labels.count()
     assert label_count >= 1, (
-        f"expected >= 1 .msg-operator-only-label span (on assistant), got {label_count}"
+        f"expected >= 1 .ui-message-operator-chip (on assistant), got {label_count}"
     )
-    assert labels.first.text_content() == "[operator-only]"
+    assert (
+        labels.first.text_content().strip() == "Operator only"
+    )  # B5: a chip, not "[operator-only]"
 
     # Assertion 3: tool bubble does NOT carry the operator-only class.
     # The codec emits tool_result events with the persisted visibility tag;
     # this tool message has visibility=None so its class set lacks the marker.
-    tool_bubble = page.locator(".msg.tool").first
+    tool_bubble = _chats.messages(page, "tool").first
     expect(tool_bubble).to_be_visible(timeout=2000)
-    has_operator_class = tool_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
+    has_operator_class = tool_bubble.evaluate(
+        "el => el.classList.contains('ui-message--operator-only')"
+    )
     assert has_operator_class is False, (
-        ".msg.tool unexpectedly carries .msg-operator-only — codec or render "
+        ".ui-message--tool unexpectedly carries .ui-message--operator-only — codec or render "
         "path is leaking visibility=None as operator"
     )
 
@@ -291,7 +298,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
 
     _nav.goto(page, base_url, f"chats/{_nav.seg(session_id)}")
     _chats.expect_chat(page, agent_name)
-    expect(page.locator(".msg").first).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="message"]').first).to_be_visible(timeout=5000)
 
     # Both tool calls always route through a trace shell (they're never the
     # successful-send exception themselves) — two turns, two shells.
@@ -299,19 +306,21 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     expect(trace_shells).to_have_count(2, timeout=5000)
 
     # Turn 1's shell: both the call and its result stayed collapsed inside.
-    first_body_count = trace_shells.nth(0).locator(".trace-body .msg").count()
+    first_body_count = trace_shells.nth(0).locator('.ui-trace-body [data-testid="message"]').count()
     assert first_body_count == 2, (
         f"expected turn 1's trace shell to hold 2 collapsed items (call + "
         f"operator-only result), got {first_body_count}"
     )
 
     # Turn 2's shell: only the call — the delivered result was diverted out.
-    second_body_count = trace_shells.nth(1).locator(".trace-body .msg").count()
+    second_body_count = (
+        trace_shells.nth(1).locator('.ui-trace-body [data-testid="message"]').count()
+    )
     assert second_body_count == 1, (
         f"expected turn 2's trace shell to hold only the tool CALL (1 item) "
         f"— the peer-visible result must not collapse into it, got {second_body_count}"
     )
-    trace2_text = trace_shells.nth(1).locator(".trace-body").text_content()
+    trace2_text = trace_shells.nth(1).locator(".ui-trace-body").text_content()
     assert "platform-send-ok" not in (trace2_text or ""), (
         "the delivered tool result leaked into the collapsed accordion "
         "instead of being promoted to a top-level bubble"
@@ -320,7 +329,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     # The delivered result is a DIRECT CHILD of .messages (top-level,
     # sibling to the trace shells and other bubbles) — not nested inside
     # any trace shell — and visible without expanding anything.
-    delivered = page.locator(".messages > .msg.tool")
+    delivered = page.locator(".messages > " + _chats.message_sel("tool"))
     expect(delivered).to_have_count(1, timeout=5000)
     expect(delivered).to_be_visible()
     delivered_text = delivered.text_content() or ""
@@ -328,9 +337,11 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         f"expected the promoted bubble's text to start with the delivered "
         f"prefix, got {delivered_text!r}"
     )
-    has_operator_class = delivered.evaluate("el => el.classList.contains('msg-operator-only')")
+    has_operator_class = delivered.evaluate(
+        "el => el.classList.contains('ui-message--operator-only')"
+    )
     assert has_operator_class is False, (
-        "the promoted (peer-visible) tool result must not carry .msg-operator-only"
+        "the promoted (peer-visible) tool result must not carry .ui-message--operator-only"
     )
 
     # It gets an attribution row like a delivered message, per the fix's
@@ -343,8 +354,8 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         "the promoted tool result should be followed by an attribution "
         "row, like an ordinary assistant reply"
     )
-    assert "from-agent" in delivered_attribution["cls"], (
-        f"expected the attribution row to use the 'from-agent' side, "
+    assert "ui-message-attribution--agent" in delivered_attribution["cls"], (
+        f"expected the attribution row to use the 'agent' side (ui-message-attribution--agent), "
         f"got cls={delivered_attribution['cls']!r}"
     )
 
@@ -363,9 +374,9 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         " nextSiblingClass: el.nextElementSibling ? el.nextElementSibling.className : null,"
         "})"
     )
-    assert structural["className"] == "msg tool", (
-        f"promoted bubble's className should be exactly 'msg tool' — no "
-        f"'msg-operator-only' or other modifier — got "
+    assert structural["className"] == "ui-message ui-message--tool", (
+        f"promoted bubble's className should be exactly 'ui-message ui-message--tool' — no "
+        f"'ui-message--operator-only' or other modifier — got "
         f"{structural['className']!r}"
     )
     assert structural["isDirectChildOfMessages"] is True, (
@@ -375,7 +386,9 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         "promoted bubble is nested inside a [data-testid='trace-shell'] "
         "accordion — it must be a top-level sibling, not collapsed content"
     )
-    assert structural["nextSiblingClass"] == "msg-attribution from-agent", (
+    assert (
+        structural["nextSiblingClass"] == "ui-message-attribution ui-message-attribution--agent"
+    ), (
         f"expected the promoted bubble's nextElementSibling to be exactly "
-        f"'msg-attribution from-agent', got {structural['nextSiblingClass']!r}"
+        f"'ui-message-attribution ui-message-attribution--agent', got {structural['nextSiblingClass']!r}"
     )

@@ -89,7 +89,7 @@
     --fg-secondary: #adafb7;
     --fg-tertiary: #9a9ca4;
     /* muted 6.00/5.64/5.35 on bg/surface/surface-elevated —
-       .pending-queued-chip makes muted-on-surface-elevated a real pair. */
+       the queued chip (App.ui.chip in the composer's queued slot) makes muted-on-surface-elevated a real pair. */
     --fg-muted: #8f9199;
     /* faint is the lowest text tier but still body AA: 5.34/5.02/4.76 on
        bg/surface/surface-elevated. De-emphasized annotations
@@ -170,17 +170,6 @@
     --badge-mock: #888888;
     --badge-unknown: #888888;
 
-    /* tool category badges (F6 leg 02) — semantically distinct from provider
-       badges so the visual grouping reads as "tool category" not "provider type". */
-    --badge-filesystem: #008b8b;  /* dark cyan */
-    --badge-execution: #b8860b;   /* dark goldenrod */
-    --badge-web: #c71585;         /* medium violet red */
-    /* connectors (squawk 0032) — theme-stable like the provider badges
-       (large AA margin at 7.84:1 white-on-fill, so no per-theme tune
-       needed the way filesystem/execution/web got). */
-    --badge-connectors: #0b5394;  /* steel blue */
-    /* time (M28) — theme-stable; white ink on deep forest green (~6.5:1). */
-    --badge-time: #2e6b3f;        /* deep forest green */
     /* MCP row transport (M31 F5 HAT) — theme-stable. Local: slate blue, dark ink (~5.8:1);
        Remote: deep indigo, white ink (~7.9:1). */
     --badge-local: #6f93a8;       /* slate blue */
@@ -200,11 +189,6 @@
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
-    --badge-ink-filesystem: #101114;
-    --badge-ink-execution: #101114;
-    --badge-ink-web: #ffffff;
-    --badge-ink-connectors: #ffffff;
-    --badge-ink-time: #ffffff;
     --badge-ink-local: #101114;
     --badge-ink-remote: #ffffff;
 
@@ -331,18 +315,6 @@
     --badge-mock: #888888;
     --badge-unknown: #888888;
 
-    /* tool category badges (F6 leg 02) — filesystem/execution stay slightly
-       lighter than their dark-theme fills (both take dark ink; see
-       --badge-ink-*). web darkened #d63a93 → #cc2d87 (M17 F3 L4) so its
-       WHITE ink clears body AA (4.89:1; the old #d63a93 sat at 4.30). */
-    --badge-filesystem: #0e8e8e;
-    --badge-execution: #c5912a;
-    --badge-web: #cc2d87;
-    /* connectors (squawk 0032) — theme-stable, same value as the dark
-       block (see that block's rationale comment). */
-    --badge-connectors: #0b5394;
-    /* time (M28) — theme-stable, same value as the dark block. */
-    --badge-time: #2e6b3f;
     /* local / remote (M31 F5 HAT) — theme-stable, same values as the dark block. */
     --badge-local: #6f93a8;
     --badge-remote: #4338ca;
@@ -359,11 +331,6 @@
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
-    --badge-ink-filesystem: #101114;
-    --badge-ink-execution: #101114;
-    --badge-ink-web: #ffffff;
-    --badge-ink-connectors: #ffffff;
-    --badge-ink-time: #ffffff;
     --badge-ink-local: #101114;
     --badge-ink-remote: #ffffff;
 

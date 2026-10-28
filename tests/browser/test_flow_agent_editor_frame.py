@@ -82,6 +82,7 @@ def test_same_identity_save_patches_without_remount(app_with_agent: SeededApp, p
     page.locator(SAVE).click()
     expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
     expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+    expect(page.locator(".app-flash")).to_have_text("Agent saved")  # A14: was "Saved"
     expect(page.locator(".editor-subtitle")).to_have_text("patched description")
     # The frame (the shell header node) was patched, not remounted.
     assert page.evaluate("() => document.querySelector('.editor-header').dataset.mark") == "kept"

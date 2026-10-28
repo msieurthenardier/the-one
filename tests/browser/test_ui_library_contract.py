@@ -1777,3 +1777,34 @@ def test_field_flush_drops_the_trailing_margin(engine_page: Page, ancestor: str)
     )
     assert out["plain"][0] == "field-group" and out["plain"][1] != "0px"
     assert out["flush"][0] == "field-group field-group--flush" and out["flush"][1] == "0px"
+
+
+def test_list_pane_base_rule_fills_a_flex_host_and_is_inert_in_block_flow(
+    engine_page: Page,
+) -> None:
+    """M31 F6 L03b: `.ui-list-pane { flex: 1 1 0 }` replaces the three area rules; in a
+    block-flow host the declaration is ignored, in a column flex host the pane takes the
+    remaining height."""
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const mkPane = () => App.ui.listPane({title: 'P', items: [{id: 'a', label: 'A', onSelect() {}}]}).el;
+          const flexHost = document.createElement('div');
+          flexHost.style.cssText = 'display: flex; flex-direction: column; height: 300px;';
+          const header = document.createElement('div'); header.style.height = '40px'; header.textContent = 'fixed';
+          const pane = mkPane();
+          flexHost.append(header, pane);
+          const blockHost = document.createElement('div');
+          const block = mkPane();
+          blockHost.appendChild(block);
+          root.append(flexHost, blockHost);
+          const s = getComputedStyle(pane);
+          return {grow: s.flexGrow, shrink: s.flexShrink, basis: s.flexBasis, minH: s.minHeight,
+                  fillH: pane.getBoundingClientRect().height, blockH: block.getBoundingClientRect().height};
+        }"""
+    )
+    assert (out["grow"], out["shrink"], out["basis"]) == ("1", "1", "0px"), out
+    assert out["minH"] == "0px", out
+    assert out["fillH"] == 260, out
+    assert out["blockH"] < 300, out

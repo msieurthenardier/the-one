@@ -52,7 +52,7 @@ def test_inventory_matches_factories() -> None:
 def control_table_rows(text: str) -> list[list[str]]:
     """Cells of every row of every control table (a table whose header starts ``| Control |``).
 
-    Other tables (colour tokens, "Owned by controls built later") are not control rows.
+    Other tables (colour tokens, "Retired controls") are not control rows.
     """
     rows: list[list[str]] = []
     in_control_table = False
@@ -70,18 +70,22 @@ def control_table_rows(text: str) -> list[list[str]]:
 
 
 def test_inventory_rows_are_classified() -> None:
-    """Six cells per control row; status is ``library: App.ui.<x>`` or ``not yet defined``;
-    a ``library:`` row lists at least one owned class (M31 F1 L2, DD3)."""
+    """Six cells per control row; status is ``library: App.ui.<x>`` and the row lists at least
+    one owned class (M31 F1 L2, DD3)."""
     rows = control_table_rows(INVENTORY.read_text())
     for cells in rows:
         assert len(cells) == 6, cells
         status, owned = cells[2], cells[4]
-        if status == "not yet defined":
-            assert owned == "\u2014", cells
-        else:
-            assert re.fullmatch(r"library: App\.ui\.\w+", status), cells
-            assert re.fullmatch(r"`[\w-]+`(, `[\w-]+`)*", owned), cells
+        assert re.fullmatch(r"library: App\.ui\.\w+", status), cells
+        assert re.fullmatch(r"`[\w-]+`(, `[\w-]+`)*", owned), cells
     assert len(rows) >= 20
+
+
+def test_no_control_row_is_not_yet_defined() -> None:
+    """No control row says ``not yet defined``; a removed
+    control moves to the Retired controls table (M31 F6 L09a, D5)."""
+    for cells in control_table_rows(INVENTORY.read_text()):
+        assert "not yet defined" not in " ".join(cells).lower(), cells
 
 
 def test_guard_probe_fails_on_missing_row_and_stale_citation(tmp_path: Path) -> None:

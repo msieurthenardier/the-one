@@ -32,7 +32,7 @@
 // callbacks: { onDelete, onPurge, onSave, onCancel, onTabChange, onTestProvider,
 //              toolCategories, allTools, initialTab, ... } (the controller's bag).
 //
-// Editor Delete (General's Danger Zone) uses App.confirmDelete via the controller's
+// Editor Delete (General's Danger Zone) uses App.ui.confirm via the controller's
 // handleDeleteEditor; this module only passes the handler down.
 (function () {
   'use strict';

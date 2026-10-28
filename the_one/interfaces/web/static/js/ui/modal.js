@@ -44,6 +44,10 @@
   //                DocumentFragment to make its items the row's flex children -- it is
   //                copied per open(), so listeners on it are not kept; an item with
   //                .modal-dialog-footer-end is pushed to the end)
+  //   footerEnd    a Node or a string (M31 F6 L03b): placed last in the footer row inside a
+  //                span.modal-dialog-footer-end, pushed to the row's end; the row is created
+  //                when only footerEnd is given. Allowed in every layout (the picker's
+  //                "Enter to start"). A caller no longer builds the class by hand.
   //   layout       'chooser': zero card padding, a flex header row (title, close) padded
   //                16px 20px 12px, the body (a Node) full-bleed in .modal-dialog-body, the
   //                footer as the 11px muted row; NO aria-describedby (a screen reader must
@@ -63,6 +67,10 @@
   // App.ui.modal.anyOpen() (M25 F4 L7) -> true while any modal built here is open, on any
   // controller (stack.length > 0). Every App.confirmDialog is one of them (it is an
   // adapter over this factory), so this is the one source for "is a modal in charge".
+  //
+  // App.ui.modal.top() -> the topmost open <dialog> element, or null (App.ui.flash's
+  // modal exception; a toast open in a closing dialog is moved to the next dialog or the
+  // flash region).
   //
   // The <dialog> is created on open() and removed from the DOM on close. Modals stack:
   // there is no singleton here, and App.confirmDialog (its adapter) stacks too.
@@ -97,6 +105,10 @@
     }
     if (opts.footer !== undefined && opts.footer !== null && !opts.footer.nodeType) {
       throw new Error('App.ui.modal: footer must be a Node');
+    }
+    if (opts.footerEnd !== undefined && opts.footerEnd !== null && opts.footerEnd !== '' &&
+        typeof opts.footerEnd !== 'string' && !opts.footerEnd.nodeType) {
+      throw new Error('App.ui.modal: footerEnd must be a Node or a string');
     }
     if (opts.closeButton && !opts.closeButton.label && !opts.closeButton.ariaLabel) {
       throw new Error('App.ui.modal: closeButton needs a label or an ariaLabel');
@@ -137,6 +149,13 @@
       var i = stack.indexOf(s);
       if (i !== -1) stack.splice(i, 1);
       if (session === s) session = null;
+      // A toast raised while this dialog was open moves (not copied: its timers and
+      // isConnected checks keep working) to the next dialog down, or to the page region.
+      var toasts = s.dlg.querySelectorAll(':scope > .app-flash');
+      if (toasts.length && App.ui.flash && App.ui.flash.region) {
+        var home = App.ui.modal.top() || App.ui.flash.region();
+        for (var t = 0; t < toasts.length; t++) home.appendChild(toasts[t]);
+      }
       if (s.dlg.open) s.dlg.close();
       if (s.dlg.parentNode) s.dlg.parentNode.removeChild(s.dlg);
       restoreFocus(s);
@@ -189,10 +208,20 @@
         }
         children.push(s.bodyEl);
       }
-      if (opts.footer) {
-        // A fragment empties when appended, so each open() gets a copy of it.
-        var footerNode = opts.footer.nodeType === 11 ? opts.footer.cloneNode(true) : opts.footer;
-        children.push(el('div', { className: 'modal-dialog-footer' }, [footerNode]));
+      var hasFooterEnd = opts.footerEnd !== undefined && opts.footerEnd !== null && opts.footerEnd !== '';
+      if (opts.footer || hasFooterEnd) {
+        var footerItems = [];
+        if (opts.footer) {
+          // A fragment empties when appended, so each open() gets a copy of it.
+          footerItems.push(opts.footer.nodeType === 11 ? opts.footer.cloneNode(true) : opts.footer);
+        }
+        if (hasFooterEnd) {
+          var endEl = el('span', { className: 'modal-dialog-footer-end' });
+          if (typeof opts.footerEnd === 'string') endEl.textContent = opts.footerEnd;
+          else endEl.appendChild(opts.footerEnd);
+          footerItems.push(endEl);
+        }
+        children.push(el('div', { className: 'modal-dialog-footer' }, footerItems));
       }
       var buttons = [];
       var autofocusBtn = null;
@@ -337,5 +366,11 @@
   // App.confirmDialog included. The shell's Ctrl K rule asks it (M25 F4 L7, DD9).
   App.ui.modal.anyOpen = function () {
     return stack.length > 0;
+  };
+
+  // The topmost open modal's <dialog> element, or null. App.ui.flash raises a toast
+  // inside it, because the dialog's top layer would hide a toast on the page behind it.
+  App.ui.modal.top = function () {
+    return stack.length ? stack[stack.length - 1].dlg : null;
   };
 })();

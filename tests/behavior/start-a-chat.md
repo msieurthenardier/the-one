@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-05
 **Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-06 (M25 F6 leg 4b, DD14: step 2 Today time reads local 12-hour `h:mm AM/PM`; M25 F6 leg 3, squawk 0122: wording only, no expectation changed: frames judged per step with each step's frame actions listed, a recorder restart's reload sequence, step 11's geometric criterion, step 13's Description selector); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
-**Last Run**: 2026-10-07-11-51-23 — pass (26/26; Light + Dark; M25 F6 mission close, step 2 12-hour Today times)
+**Last Run**: 2026-10-28-02-32-16 — pass (26/26; Light + Dark; M31 F6 close sweep, port 8499; re-author list in the run log)
 
 ## Intent
 

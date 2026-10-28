@@ -969,11 +969,11 @@ class TestNativeApiWiring:
     (``native_api=False``). Both share the OllamaProvider class."""
 
     @pytest.mark.parametrize(
-        ("ptype", "expected_native"),
-        [("ollama", True), ("openai-compatible", False)],
+        ("ptype", "expected_native", "expected_label"),
+        [("ollama", True, "Ollama"), ("openai-compatible", False, "OpenAI-compatible")],
     )
     async def test_native_api_flag_from_provider_type(
-        self, store: InMemoryStore, ptype: str, expected_native: bool
+        self, store: InMemoryStore, ptype: str, expected_native: bool, expected_label: str
     ) -> None:
         captured: dict[str, Any] = {}
 
@@ -1018,6 +1018,8 @@ class TestNativeApiWiring:
 
         assert captured["name"] == "ollama"
         assert captured["kwargs"].get("native_api") is expected_native
+        # M31 F6 L06 (DD11 2): the provider type's label reaches the provider.
+        assert captured["kwargs"].get("server_label") == expected_label
 
 
 class TestSendToolCarveOut:

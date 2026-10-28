@@ -12,6 +12,7 @@ Falls in the ``providers`` lane (``test_flow_provider_*``).
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 
 import httpx
@@ -361,3 +362,46 @@ def test_no_request_reaches_ollama_com(
     )
     assert r.status_code == 200 and r.json()["loading"] is False
     assert [m["name"] for m in r.json()["models"]][:2] == ["kimi-k3", "llama3.2:1b"]
+
+
+@pytest.mark.browser
+def test_empty_list_says_use_pull(page: Page, server: Server, pull_app: tuple[str, str]) -> None:
+    """A12: the Ollama empty state points at the Pull control by its real name."""
+    open_panel(page, pull_app)
+    empty = page.locator(".admin-pf-models-empty")
+    expect(empty).to_be_visible(timeout=10000)
+    expect(empty).to_contain_text("Use Pull to download one.")
+    expect(empty).not_to_contain_text("Pull Model")
+
+
+@pytest.mark.browser
+def test_progress_text_is_the_apps_own_wording_with_a_percentage(
+    page: Page, server: Server, pull_app: tuple[str, str]
+) -> None:
+    """A13: "Pulling {model}… {pct}%" from the first update, never Ollama's raw status."""
+    server.pull_response = (
+        'data: {"status": "pulling manifest"}\n\n'
+        'data: {"status": "pulling abc123", "total": 200, "completed": 50}\n\n'
+        'data: {"status": "verifying sha256 digest", "total": 200, "completed": 200}\n\n'
+    )
+    open_panel(page, pull_app)
+    page.evaluate(
+        """() => {
+          window.__texts = [];
+          const node = document.querySelector('[data-testid=admin-pf-pull-progress]');
+          new MutationObserver(() => {
+            const t = node.textContent.trim();
+            if (t && window.__texts[window.__texts.length - 1] !== t) window.__texts.push(t);
+          }).observe(node, {childList: true, characterData: true, subtree: true});
+        }"""
+    )
+    choose(page, "llama3.2:3b")
+    pull_btn(page).click()
+    page.get_by_test_id("admin-pf-pull-confirm-go").click()
+    page.wait_for_function("() => window.__texts.length >= 2", timeout=8000)
+    texts = page.evaluate("() => window.__texts")
+    assert texts, texts
+    for t in texts:
+        body = re.sub(r"\s*Cancel pull\s*$", "", t).strip()
+        assert re.match(r"^Pulling llama3\.2:3b… \d+%$", body), texts
+    assert not any("manifest" in t or "verifying" in t or "sha256" in t for t in texts), texts

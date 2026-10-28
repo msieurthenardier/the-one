@@ -110,12 +110,16 @@ from the_one.sessions import (
     add_subscriber,
     all_sockets,
     broadcast_to_all,
+    is_session_busy,
     is_session_processing,
     remove_socket,
     remove_subscriber,
     session_locks,
     subscribers_for,
+    track_turn,
+    turn_seq,
 )
+from the_one.sessions._locks import _session_inflight
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 from the_one.vectors import close_vector_store
 
@@ -829,7 +833,7 @@ _inflight_tasks: set[asyncio.Task] = set()
 # the set holds BOTH. A WS `cancel` action cancels every not-done task
 # in the set — "stop = stop everything" (F07 DD4). The done-callback
 # discards the finished task and deletes the key when the set empties.
-_session_inflight: dict[str, set[asyncio.Task]] = {}
+# ``_session_inflight`` lives in ``the_one.sessions._locks`` (same dict object, imported above).
 
 # M25 F6 L2 (squawk 0120): a WS `cancel` can cancel a spawned turn BEFORE its
 # first step (no body code ever runs) or while it waits on the session lock
@@ -1101,7 +1105,8 @@ async def _locked_message_processing(
     exclude_user_echo: WebSocket | None,
 ) -> None:
     """The lock + `_process_and_broadcast` body of `_spawn_message_processing`."""
-    async with session_locks[session.id]:
+    async with track_turn(session.id) as turn:
+        turn.ran = True
         # F05 L01: touch last_activity at the start of message processing
         # so the reaper clock advances on every new user turn.
         session.last_activity = time.monotonic()
@@ -1850,6 +1855,9 @@ def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
         "thread_id": s.thread_id,
         "peer_id": s.peer_id,
         "last_inbound_at": s.last_inbound_at,
+        # M31 F6 L10b: the Chats list's working indicator and new-reply marker.
+        "busy": is_session_busy(s.id),
+        "turn_seq": turn_seq(s.id),
     }
 
 
@@ -2178,8 +2186,15 @@ async def _process_and_broadcast(
     user_input: str | list[ContentBlock],
     source: str = "web",
     exclude_user_echo: WebSocket | None = None,
+    turn_info: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run agent step, broadcast all events, return message list for API."""
+    """Run agent step, broadcast all events, return message list for API.
+
+    ``turn_info`` (M31 F6 leg 06, DD8): optional out-parameter. When a dict is
+    passed, ``turn_info["step_limit"]`` is set to whether the turn ended because
+    the agent ran out of steps, captured once right after the agent loop (the
+    REST handler holds no session lock, so it must never re-read agent state).
+    """
     # Auto-load Ollama model if needed (fast check, safe to run every message)
     await _ensure_ollama_model_loaded(session)
 
@@ -2239,6 +2254,7 @@ async def _process_and_broadcast(
     # block so iteration N+1 starts clean (multi-iteration agent loops).
     chunks_seen = False
     paused = False
+    hit_step_limit = False
     # F5 L02: per-turn discriminator. Set when an ASSISTANT message with
     # tool_calls arrives; reused for the subsequent Role.TOOL messages
     # (including the auth_required pause path) until the next assistant
@@ -2489,6 +2505,10 @@ async def _process_and_broadcast(
                         "is_error": msg.tool_result.is_error,
                     }
                 )
+        # DD8 F2: capture the flag once, right after the loop ends and before
+        # anything else awaits. A pause `break` leaves it False (set only when
+        # the iteration budget runs out).
+        hit_step_limit = bool(session.agent.stopped_at_step_limit)
     except asyncio.CancelledError:
         # F7 L03 (cancel-backend): operator cancelled the task (or lifespan
         # shutdown is tearing down). CancelledError is a BaseException — it
@@ -2578,7 +2598,15 @@ async def _process_and_broadcast(
             session.agent_name or "default", session.agent
         )
 
+        # DD8 F2: broadcast-only (never add_event), so neither Session.history
+        # nor the DB holds it; immediately before ``done``, after the save.
+        if hit_step_limit:
+            await _send_to_session(
+                session, {"type": "step_limit", "steps": session.agent.max_iterations}
+            )
         await _send_to_session(session, {"type": "done"})
+    if turn_info is not None:
+        turn_info["step_limit"] = hit_step_limit
     return result_messages
 
 
@@ -2653,6 +2681,12 @@ async def _resume_paused_session(session: Session) -> None:
             await _self_configuration_pending.apply_pending_revision(
                 session.agent_name or "default", session.agent
             )
+            # DD8 F2: broadcast-only, immediately before this branch's ``done``.
+            if session.agent.stopped_at_step_limit:
+                await _send_to_session(
+                    session,
+                    {"type": "step_limit", "steps": session.agent.max_iterations},
+                )
             await _send_to_session(session, {"type": "done"})
     except Exception:
         logger.exception("Resume after auth failed for session %s", session.id)
@@ -3055,8 +3089,12 @@ async def chat(request: Request) -> dict[str, Any]:
             "messages": [{"role": "system", "content": "Context cleared."}],
         }
 
-    result = await _process_and_broadcast(session, user_input, source=source)
-    return {"session_id": session.id, "messages": result}
+    turn_info: dict[str, Any] = {}
+    result = await _process_and_broadcast(session, user_input, source=source, turn_info=turn_info)
+    response: dict[str, Any] = {"session_id": session.id, "messages": result}
+    if turn_info.get("step_limit"):
+        response["step_limit"] = True
+    return response
 
 
 @app.post("/api/chat/reset")

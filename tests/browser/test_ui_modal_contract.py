@@ -448,10 +448,9 @@ CHOOSER_JS = """(extra) => {
   if (extra && extra.focusRow2) { delete extra.focusRow2; extra.initialFocus = b2; }
   const footer = document.createDocumentFragment();
   const left = document.createElement('span'); left.textContent = 'Picking starts a chat';
-  const right = document.createElement('span'); right.className = 'modal-dialog-footer-end'; right.textContent = 'Enter to start';
-  footer.append(left, right);
+  footer.append(left);
   window.__m = window.__mk(Object.assign({
-    title: 'Start a chat with', layout: 'chooser', body, footer, actions: [],
+    title: 'Start a chat with', layout: 'chooser', body, footer, footerEnd: 'Enter to start', actions: [],
     closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'ch-close'},
   }, extra || {}));
   window.__m.open(window.__opener);
@@ -861,3 +860,45 @@ def test_any_open_counts_the_confirm_dialog_adapter(engine_page: Page) -> None:
     assert _any_open(p) is True and p.evaluate("() => App.confirmDialog.isOpen()") is True
     p.keyboard.press("Escape")  # Stay
     assert _any_open(p) is False and p.evaluate("() => App.confirmDialog.isOpen()") is False
+
+
+# ── footerEnd (M31 F6 L03b): the node pushed to the footer's end, owned by the modal ──
+
+
+def test_footer_end_is_the_last_item_with_and_without_footer(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p, "{footerEnd: 'Right side', footer: undefined}")
+    out = p.evaluate(
+        """() => { const f = document.querySelector('.modal-dialog-footer');
+          const end = f.querySelector('.modal-dialog-footer-end'), r = f.getBoundingClientRect();
+          return {items: Array.from(f.children).map((n) => n.className + ':' + n.textContent),
+                  atEnd: Math.abs((end.getBoundingClientRect().right + parseFloat(getComputedStyle(f).paddingRight)) - r.right) <= 1,
+                  left: end.getBoundingClientRect().left > r.left + r.width / 2}; }"""
+    )
+    assert out["items"] == ["modal-dialog-footer-end:Right side"], (
+        out
+    )  # only footerEnd: the row is created
+    assert out["atEnd"] and out["left"], out
+    # With a footer too: the footer's items first, the end node last.
+    p.evaluate("() => window.__m.close()")
+    _chooser(p, "{footerEnd: 'Enter to start'}")
+    out = p.evaluate(
+        """() => Array.from(document.querySelectorAll('dialog[open] .modal-dialog-footer')[0].children).map((n) => n.className || n.textContent)"""
+    )
+    assert out == ["Picking starts a chat", "modal-dialog-footer-end"], out
+
+
+def test_footer_end_accepts_a_node_and_any_layout(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    out = p.evaluate(
+        """() => { const n = document.createElement('b'); n.textContent = 'Node end';
+          const m = window.__mk({footerEnd: n}); m.open(window.__opener);
+          const f = document.querySelector('.modal-dialog-footer');
+          const end = f && f.querySelector('.modal-dialog-footer-end');
+          const bad = (() => { try { App.ui.modal({title: 'x', body: 'y', footerEnd: 5}); return ''; } catch (e) { return e.message; } })();
+          return {html: end ? end.innerHTML : null, bad}; }"""
+    )
+    assert out["html"] == "<b>Node end</b>", out
+    assert out["bad"] == "App.ui.modal: footerEnd must be a Node or a string", out

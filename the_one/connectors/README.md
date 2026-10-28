@@ -133,6 +133,15 @@ client, `ConnectorClientError`, or any other exception from `send()`) is
 logged and the message's visibility is left as `tag_post_step_visibility`
 tagged it (operator-only) — no retry, no crash; the turn is still persisted.
 
+**Step-limit line (M31 F6 leg 06, DD8 F2)**: when the turn ended because the
+agent ran out of steps (`Agent.stopped_at_step_limit`), `dispatch_inbound`
+sends one more neutral plain line, "(Stopped: reached its step limit for this
+message.)", to the same target through the same client — AFTER the turn is
+persisted, through `_send_step_limit_line`, which never raises. It is sent
+always, including after a `send_to_platform_channel` turn. With no live client,
+or on a send failure, it is logged and dropped. It is not stored, so the
+persisted messages hold no such line.
+
 The operator's own typed message in the same session is unaffected: it is
 tagged `visibility="operator"` at construction time by the WS handler and
 never runs through `dispatch_inbound` at all, so it is never auto-delivered

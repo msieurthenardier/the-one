@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (long selectors and inline JS snippets are evaluated verbatim)
 """End-to-end Playwright flow tests for the MCP OAuth login UX.
 
 These tests drive the chat-area UI through the OAuth login flow by:
@@ -124,7 +125,7 @@ def test_login_button_renders_with_source_name(app_with_agent: SeededApp, page: 
     )
     btn = page.locator(".login-required-btn")
     expect(btn).to_be_visible()
-    expect(btn).to_have_text("Log in to Cloudflare MCP")
+    expect(btn).to_have_text("Sign in to Cloudflare MCP")
 
 
 @pytest.mark.browser
@@ -144,7 +145,7 @@ def test_login_button_falls_back_to_source_id_when_no_name(
     )
     btn = page.locator(".login-required-btn")
     expect(btn).to_be_visible()
-    expect(btn).to_have_text("Log in to src-no-name")
+    expect(btn).to_have_text("Sign in to src-no-name")
 
 
 @pytest.mark.browser
@@ -158,6 +159,9 @@ def test_button_click_opens_popup_with_window_open_features(
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Stubbed for consistency (squawk 0249): this test only reads the synchronous window.open
+    # call, so it cannot race the real 404 answer, but an unstubbed click is the same hazard.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {
@@ -196,6 +200,10 @@ def test_second_auth_required_event_navigates_popup_to_consent_url(
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Squawk 0249: without this stub the click's real POST /api/oauth/start answers 404 for
+    # the made-up source, and abandon() closes and drops the popup; when that 404 beat the
+    # second frame below, the popup was never navigated.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {
@@ -249,6 +257,9 @@ def test_popup_closes_on_auth_resolved_event(app_with_agent: SeededApp, page: Pa
     """
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _install_window_open_stub(page)
+    # Squawk 0249: with the real 404 answering, abandon() closes the popup anyway, so this
+    # test could not tell auth_resolved's close from abandon()'s. The stub makes it mean it.
+    _stub_oauth_start(page)
     _emit_ws_event(
         page,
         {
@@ -329,7 +340,7 @@ def test_null_popup_still_starts_the_flow_and_shows_the_link_block(
     with page.expect_request("**/api/oauth/start"):
         page.locator(".login-required-btn").click()
     _wait_for_posts(page, posts, 1)
-    expect(page.locator(".msg.system", has_text="Popup blocked")).to_have_count(0)
+    expect(_chats.messages(page, "system").filter(has_text="Popup blocked")).to_have_count(0)
     _emit_ws_event(page, _auth_frame("src-n1", CONSENT))
     url = page.locator('[data-testid="chat-consent-link-url"]')
     expect(url).to_have_value(CONSENT)
@@ -388,7 +399,7 @@ def test_replayed_frame_keeps_the_block_and_does_not_reopen(
 
 
 @pytest.mark.browser
-def test_auth_failed_removes_the_block_and_offers_log_in_again(
+def test_auth_failed_removes_the_block_and_offers_sign_in_again(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
@@ -402,8 +413,8 @@ def test_auth_failed_removes_the_block_and_offers_log_in_again(
     _emit_ws_event(page, {"type": "auth_failed", "source_id": "src-f1", "description": "denied"})
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
     expect(page.locator(".login-required-btn")).to_be_visible()
-    expect(page.locator(".msg.system", has_text="OAuth failed: denied")).to_have_count(1)
-    # The flow state is cleared: a replay with no URL shows "Log in", not a block.
+    expect(_chats.messages(page, "system").filter(has_text="OAuth failed: denied")).to_have_count(1)
+    # The flow state is cleared: a replay with no URL shows "Sign in", not a block.
     _emit_ws_event(page, _auth_frame("src-f1", None))
     expect(page.locator(".login-required-btn")).to_be_visible()
     expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
@@ -415,7 +426,7 @@ def test_auth_resolved_clears_the_block(app_with_agent: SeededApp, page: Page) -
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _stub_oauth_start(page)
     _install_null_window_open(page)
-    # The block shows only for a flow this tab started, so click "Log in" first.
+    # The block shows only for a flow this tab started, so click "Sign in" first.
     _emit_ws_event(page, _auth_frame("src-ok1"))
     with page.expect_request("**/api/oauth/start"):
         page.locator(".login-required-btn").click()
@@ -432,7 +443,7 @@ def test_in_band_consent_frame_is_ignored_and_log_in_starts_a_fresh_flow(
 ) -> None:
     """HAT H2: the SDK's in-band flow broadcasts a consent_url this tab did not
     start; it dies at the connect timeout. It must not render a link block, and
-    "Log in" must start a fresh /api/oauth/start rather than reopen it."""
+    "Sign in" must start a fresh /api/oauth/start rather than reopen it."""
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     posts = _stub_oauth_start(page)
     _install_null_window_open(page)
@@ -583,23 +594,81 @@ def test_sign_in_group_sits_after_the_trace_shell_not_inside_it(
             "parent_message_id": "pm-1",
         },
     )
-    shell = page.locator(".trace-shell")
+    shell = page.locator('[data-testid="trace-shell"]')
     expect(shell).to_have_count(1)
     frame = _auth_frame("src-t1") | {"parent_message_id": "pm-1"}
     _emit_ws_event(page, frame)
     group = page.locator(".login-required-group")
     expect(group).to_have_count(1)
-    expect(page.locator(".trace-shell .login-required-group")).to_have_count(0)
-    adjacent = page.locator(".trace-shell + .login-required-group")
+    expect(page.locator('[data-testid="trace-shell"] .login-required-group')).to_have_count(0)
+    adjacent = page.locator('[data-testid="trace-shell"] + .login-required-group')
     expect(adjacent).to_have_count(1)
     # The trace's item count is the tool activity only (the one tool call).
-    expect(page.locator(".trace-count")).to_have_text("1")
+    expect(page.locator('[data-testid="trace-shell"] summary')).to_contain_text("Tool activity · 1")
     # Collapsing the trace leaves the control visible.
-    page.evaluate("() => { document.querySelector('.trace-shell details').open = false; }")
+    page.evaluate(
+        "() => { document.querySelector('[data-testid=\\\"trace-shell\\\"] details').open = false; }"
+    )
     expect(page.locator(".login-required-btn")).to_be_visible()
     # A replay keeps exactly one group, in the same place.
     _emit_ws_event(page, frame)
     expect(group).to_have_count(1)
     expect(adjacent).to_have_count(1)
-    expect(page.locator(".trace-shell .login-required-group")).to_have_count(0)
-    expect(page.locator(".trace-count")).to_have_text("1")
+    expect(page.locator('[data-testid="trace-shell"] .login-required-group')).to_have_count(0)
+    expect(page.locator('[data-testid="trace-shell"] summary')).to_contain_text("Tool activity · 1")
+
+
+def _hold_oauth_start(page: Page) -> dict:
+    """Hold POST /api/oauth/start pending until the test releases it.
+
+    ``state["route"]`` is set once the request is held; the test injects the consent frame
+    first, then fulfils the route (squawk 0215: an immediate failure runs ``abandon()`` before
+    the block exists)."""
+    state: dict = {"route": None}
+
+    def handle(route):
+        state["route"] = route
+
+    page.route("**/api/oauth/start", handle)
+    return state
+
+
+def _wait_held(page: Page, state: dict, timeout_ms: int = 5000) -> None:
+    waited = 0
+    while state["route"] is None and waited < timeout_ms:
+        page.wait_for_timeout(25)
+        waited += 25
+    assert state["route"] is not None, "POST /api/oauth/start was never held"
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("failure", ["http-500", "network-error"])
+def test_failed_oauth_start_removes_the_block_and_offers_sign_in_again(
+    app_with_agent: SeededApp, page: Page, failure: str
+) -> None:
+    """Squawk 0215: the consent frame lands while /api/oauth/start is still pending, then the
+    start fails. The stale link block is removed, "Sign in to {server}" shows again, and a
+    replayed auth_required shows one button beside no block."""
+    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
+    state = _hold_oauth_start(page)
+    _install_null_window_open(page)
+    _emit_ws_event(page, {**_auth_frame("src-0215"), "source_name": "Srv"})
+    page.locator(".login-required-btn").click()
+    _wait_held(page, state)
+    _emit_ws_event(page, {**_auth_frame("src-0215", CONSENT), "source_name": "Srv"})
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_be_visible()
+    expect(page.locator(".login-required-btn")).to_be_hidden()
+    if failure == "http-500":
+        state["route"].fulfill(
+            status=500, content_type="application/json", body='{"detail": "boom"}'
+        )
+    else:
+        state["route"].abort()
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
+    expect(page.locator(".login-required-btn")).to_be_visible()
+    expect(page.locator(".login-required-btn")).to_have_text("Sign in to Srv")
+    # A replayed auth_required renders one button, never beside a stale block.
+    _emit_ws_event(page, {**_auth_frame("src-0215", None), "source_name": "Srv"})
+    expect(page.locator(".login-required-btn")).to_be_visible()
+    expect(page.locator('[data-testid="chat-consent-link-url"]')).to_have_count(0)
+    expect(page.locator(".login-required-group")).to_have_count(1)

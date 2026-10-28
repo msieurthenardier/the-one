@@ -77,6 +77,8 @@ class StubAgent:
         self._resume_messages = resume_messages or []
         self._deferred_tool_calls = deferred_tool_calls
         self.messages: list[Message] = agent_messages or []
+        self.stopped_at_step_limit = False
+        self.max_iterations = 20
 
         # Provide a minimal ``llm`` shim with ``max_context_tokens``.
         class _LLMShim:

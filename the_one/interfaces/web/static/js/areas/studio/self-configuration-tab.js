@@ -75,7 +75,7 @@
 //     (`diffSegments` below) instead of two bare full-text blocks — no
 //     shared diff util exists app-wide, so this is a small new primitive,
 //     intentionally simple (common-prefix/suffix, not a general LCS).
-//   - Timestamps render via a copy of chat/message-bubble.js's relative-time
+//   - Timestamps render via a copy of the chat message control's (js/ui/message.js) relative-time
 //     idiom (there is no shared formatter); the full ISO string stays on
 //     `title=`.
 //

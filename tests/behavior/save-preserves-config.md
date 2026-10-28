@@ -44,7 +44,7 @@ POSTing.
 - http (provider create/PUT/GET response status + body — measured via curl/Bash; used for setup,
   the out-of-band config write, and the final re-fetch verification).
 - browser (rendered Library › Model providers UI (`#library`): the provider editor's `.field-group` fields, the
-  Reasoning Effort `<select>`, the Save button's enabled/disabled state — measured via
+  Reasoning effort `<select>`, the Save button's enabled/disabled state — measured via
   chrome-devtools; a11y-tree + screenshot as primary rendered-state evidence).
 
 ## Steps
@@ -54,9 +54,9 @@ POSTing.
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` for 200. If a provider named `SPC-test-provider` already exists (`GET /api/providers`), `DELETE` it. Via the API, `POST /api/providers` with `{"name": "SPC-test-provider", "type": "openai-compatible", "base_url": "https://example.invalid/v1", "api_key": "sk-test-not-real"}`. | (empty) |
 | 2 | (Setup, no judgment) Via the API, `PUT /api/providers/{id}` (the id from Step 1) with `{"config": {"response_format": "json_object", "stop": ["END"]}}`. | (empty) |
 | 3 | (Setup, no judgment) `GET /api/providers/{id}` and confirm the response's `config` contains `response_format: "json_object"` and `stop: ["END"]` — establishes the out-of-band baseline the rest of the test protects. | (empty) |
-| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#library` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` row's name link in the Model providers group to open its editor (it opens in the detail pane beside the list). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning Effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
-| 5 | In the Reasoning Effort select, choose **"high"**. | The select shows "high" selected; the **Save** button is now enabled (the form is dirty). |
-| 6 | Click **Save**. | The save succeeds (no error flash). The Save button returns to disabled (no unsaved changes); the Reasoning Effort select still shows "high". |
+| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#library` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` row's name link in the Model providers group to open its editor (it opens in the detail pane beside the list). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
+| 5 | In the Reasoning effort select, choose **"high"**. | The select shows "high" selected; the **Save** button is now enabled (the form is dirty). |
+| 6 | Click **Save**. | The save succeeds (no error flash). The Save button returns to disabled (no unsaved changes); the Reasoning effort select still shows "high". |
 | 7 | Via the API, `GET /api/providers/{id}` and inspect the `config` object. | `config.reasoning_effort` is `"high"` (the UI-edited field), AND `config.response_format` is still `"json_object"`, AND `config.stop` is still `["END"]` — all three keys survive the UI-triggered save together. |
 | 8 | (Teardown, no judgment) `DELETE /api/providers/{id}`. Confirm it no longer appears in `GET /api/providers`. | (empty) |
 
@@ -65,7 +65,7 @@ assertion; a failure there (missing `response_format` or `stop`) is the exact se
 regression this test exists to catch.
 
 **Locators (apparatus-agnostic — the Executor maps to its MCP):** Model providers row name link
-`data-testid="provider-card"` (providers-section.js); Reasoning Effort select
+`data-testid="provider-card"` (providers-section.js); Reasoning effort select
 `data-field="config.reasoning_effort"` / `id="pf-reasoning-effort"` (provider-editor.js); Save
 button `data-testid="save-provider-btn"` (provider-editor.js). **Cache discipline:** the rows and
 editor are client-rendered SPA views — hard-reload with `ignoreCache` before re-observing after
@@ -73,7 +73,7 @@ the API-side mutations in Steps 1-3, so a stale in-memory provider list doesn't 
 
 ## Out of Scope
 
-- The **Reasoning Effort** field's functional effect on actual LLM requests (that the resolved
+- The **Reasoning effort** field's functional effect on actual LLM requests (that the resolved
   value reaches the provider's request kwargs) — covered by
   `tests/test_llm_provider_cross_provider_conformance.py` and the per-provider request-kwargs unit
   tests, not this flow.

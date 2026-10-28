@@ -145,20 +145,20 @@ def test_consent_link_safe_default_testids_and_classes(engine_page: Page) -> Non
     page.evaluate(STUB_OK)
     out = page.evaluate(
         """() => {
-          const b = App.consentLink.build('https://auth.example/consent?x=1', {surface: 'mcp', sourceName: 'Goldfinch'});
+          const b = App.ui.consentLink.build('https://auth.example/consent?x=1', {surface: 'mcp', sourceName: 'Goldfinch'});
           document.getElementById('harness-root').appendChild(b);
           const q = (s) => b.querySelector(s);
-          return {same: App.consentLink === App.ui.consentLink, root: b.className,
+          return {root: b.className,
             row: q('.consent-link-row').className, kids: Array.from(q('.consent-link-row').children).map((n) => n.tagName),
             url: q('.consent-link-url').getAttribute('data-testid'), open: q('.consent-link-open').getAttribute('data-testid'),
             copy: q('.consent-link-copy').getAttribute('data-testid'), name: q('.consent-link-url').getAttribute('aria-label'),
             live: q('.consent-link-live').getAttribute('role'), target: q('.consent-link-open').target,
             rel: q('.consent-link-open').rel, helpRef: q('.consent-link-open').getAttribute('aria-describedby') === q('.consent-link-help').id,
-            focus: App.consentLink.focusTarget(b) === q('.consent-link-open'), copyCls: q('.consent-link-copy').className,
-            fns: [typeof App.consentLink.isSafeUrl, typeof App.consentLink.focusTarget, typeof App.consentLink.build]};
+            focus: App.ui.consentLink.focusTarget(b) === q('.consent-link-open'), copyCls: q('.consent-link-copy').className,
+            fns: [typeof App.ui.consentLink.isSafeUrl, typeof App.ui.consentLink.focusTarget, typeof App.ui.consentLink.build]};
         }"""
     )
-    assert out["same"] is True and out["root"] == "consent-link consent-link--mcp"
+    assert out["root"] == "consent-link consent-link--mcp"
     assert out["row"].split() == ["ui-copy-field", "ui-copy-field--mono", "consent-link-row"]
     assert out["kids"] == ["INPUT", "A", "BUTTON"]
     assert (out["url"], out["open"], out["copy"]) == (
@@ -240,9 +240,9 @@ def test_consent_link_unsafe_url_renders_inert_notice(engine_page: Page, bad: st
         """(bad) => {
           const b = App.ui.consentLink(bad, {surface: 'chat'});
           document.getElementById('harness-root').appendChild(b);
-          return {safe: App.consentLink.isSafeUrl(bad), anchors: b.querySelectorAll('a, input, button').length,
+          return {safe: App.ui.consentLink.isSafeUrl(bad), anchors: b.querySelectorAll('a, input, button').length,
                   note: b.querySelector('.consent-link-unsafe').textContent,
-                  focus: App.consentLink.focusTarget(b) === b.querySelector('.consent-link-unsafe')};
+                  focus: App.ui.consentLink.focusTarget(b) === b.querySelector('.consent-link-unsafe')};
         }""",
         bad,
     )
@@ -270,3 +270,82 @@ def test_copy_field_button_label_and_feedback(engine_page: Page) -> None:
     page.clock.run_for(2100)
     expect(page.get_by_role("button", name="Copy pairing code", exact=True)).to_have_count(1)
     assert page.evaluate("() => window.written") == ["ABCD-1234"]
+
+
+def test_copy_button_icon_only_shows_a_visible_confirmation(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    page.evaluate(STUB_OK)
+    page.evaluate(
+        """() => {
+          window.c = App.ui.copyButton({text: 'x', iconOnly: true, label: 'Copy token', testid: 'ic'});
+          document.getElementById('harness-root').appendChild(c.el);
+          window.iconOf = () => { const s = c.button.querySelector('svg');
+            return {n: c.button.querySelectorAll('svg').length, d: s ? s.innerHTML : ''}; };
+          window.before = iconOf();
+        }"""
+    )
+    btn = page.get_by_test_id("ic")
+    assert btn.get_attribute("title") is None
+    btn.click()
+    expect(btn).to_have_attribute("title", "Copied")
+    expect(btn).to_have_attribute("aria-label", "Copied")
+    out = page.evaluate(
+        "() => ({now: iconOf(), before, check: App.ui.util.icon('check').innerHTML, firstChild: c.button.firstChild.tagName})"
+    )
+    assert out["now"]["n"] == 1 and out["now"]["d"] == out["check"] != out["before"]["d"]
+    assert out["firstChild"].lower() == "svg"
+    page.clock.run_for(2100)
+    expect(btn).to_have_attribute("aria-label", "Copy token")
+    assert btn.get_attribute("title") is None
+    assert page.evaluate("() => iconOf()") == page.evaluate("() => before")
+
+
+def test_copy_button_icon_only_failure_keeps_the_copy_icon(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    page.evaluate(STUB_FAIL)
+    page.evaluate("() => { window.execResult = false; }")
+    page.evaluate(
+        """() => {
+          window.c = App.ui.copyButton({text: 'x', iconOnly: true, label: 'Copy', testid: 'ic'});
+          document.getElementById('harness-root').appendChild(c.el);
+          window.before = c.button.querySelector('svg').innerHTML;
+        }"""
+    )
+    btn = page.get_by_test_id("ic")
+    btn.click()
+    expect(btn).to_have_attribute("title", "Copy failed")
+    assert page.evaluate("() => c.button.querySelector('svg').innerHTML === before") is True
+    page.clock.run_for(2100)
+    assert btn.get_attribute("title") is None
+
+
+def test_copy_button_icon_only_announces_once_under_a_log_and_keeps_focus(
+    engine_page: Page,
+) -> None:
+    page = engine_page
+    _load(page)
+    page.evaluate(STUB_OK)
+    page.evaluate(
+        """() => {
+          const log = document.createElement('div'); log.setAttribute('role', 'log'); log.id = 'log';
+          document.getElementById('harness-root').appendChild(log);
+          window.c = App.ui.copyButton({text: 'x', iconOnly: true, label: 'Copy code', testid: 'ic'});
+          log.appendChild(c.el);
+          window.announced = [];
+          const live = c.el.querySelector('[role=status]');
+          new MutationObserver(() => { if (live.textContent) announced.push(live.textContent); })
+            .observe(live, {childList: true, characterData: true, subtree: true});
+        }"""
+    )
+    btn = page.get_by_test_id("ic")
+    btn.focus()
+    btn.click()
+    expect(btn).to_have_attribute("aria-label", "Copied")
+    page.clock.run_for(2100)
+    out = page.evaluate(
+        "() => ({announced, focused: document.activeElement === c.button, inLog: !!c.button.closest('[role=log]'), statusCount: document.querySelectorAll('#log [role=status]').length})"
+    )
+    assert out == {"announced": ["Copied"], "focused": True, "inLog": True, "statusCount": 1}
+    expect(btn).to_have_attribute("aria-label", "Copy code")
