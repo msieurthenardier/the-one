@@ -134,7 +134,7 @@
   //     `time` is drawn only in it.
   //   item.dataset: a plain object set as data-* on the row element.
   //   The label span always carries data-confirm-title, so
-  //     App.confirmDelete(li) swaps the label's text.
+  //     App.ui.confirm(li) swaps the label's text.
   //   item.action {label, icon, testid, onClick(item, actionEl, li)}: a
   //     sibling <button type=button class="ui-list-pane-action"> after the
   //     row inside its <li> (never a .ui-list-pane-row), icon only, named by
@@ -163,7 +163,7 @@
   //   SILENT: no live announcement (the polite status region is cleared, not
   //   written, so a stale "N results" never lingers). A no-op without a
   //   filter. App.studio.clearAgentFilter calls it with ''.
-  //   Armed rows: App.confirmDelete arms by adding .confirm-delete to the
+  //   Armed rows: App.ui.confirm arms by adding .confirm-delete to the
   //     <li> and swapping its [data-confirm-title] child's text (ui/confirm.js).
   //     setItems REUSES an armed <li> (row and action nodes, so the armed
   //     title and the revert timer survive) for the same item id, updating
@@ -553,7 +553,7 @@
       // <body> at once, so the restore below must also run synchronously.
       var focused = focusedEntry();
       var scrollTop = body.scrollTop;
-      // Armed rows (App.confirmDelete's .confirm-delete on the li) are
+      // Armed rows (App.ui.confirm's .confirm-delete on the li) are
       // reused for their item id, never rebuilt (DD5).
       var armed = {};
       for (var a = 0; a < entries.length; a++) {

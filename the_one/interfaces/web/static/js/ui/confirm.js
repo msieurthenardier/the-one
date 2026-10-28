@@ -3,14 +3,14 @@
   window.App = window.App || {};
   App.ui = App.ui || {};
 
-  // App.ui.confirm (alias App.confirmDelete) — canonical two-step in-place confirm helper (F5 leg 02).
+  // App.ui.confirm — canonical two-step in-place confirm helper (F5 leg 02).
   //
   // Extracted from chat.js + studio.js inline implementations so chat session
   // items, studio agent tiles, and any future destructive-affordance site share
   // one source of truth.
   //
   // Signature:
-  //   App.confirmDelete(itemEl, onConfirm, opts?)
+  //   App.ui.confirm(itemEl, onConfirm, opts?)
   //   - itemEl: parent activatable element bearing the confirm-delete class
   //     state and containing the title element identified by titleSelector.
   //   - onConfirm: (itemEl, revertFn) => void  — called on the second click.
@@ -41,7 +41,7 @@
   // arm and a never-armed control were visually identical — a returning
   // operator could not tell "I let it lapse" from "I committed." The fix adds
   // a `.confirm-lapsed` class, marked ONLY by the timer's own expiry callback
-  // and cleared unconditionally on the NEXT call to confirmDelete for this
+  // and cleared unconditionally on the NEXT call to App.ui.confirm for this
   // itemEl (arm or commit branch alike, at the top of the function, before
   // the arm/commit decision is made).
   //
@@ -79,7 +79,7 @@
   // Visual behaviour is unchanged. No call site opts in.
 
   // Moved into the library from static/js/confirm.js (M31 F1 L4); the
-  // behaviour is unchanged. App.confirmDelete stays as the same function.
+  // behaviour is unchanged. 
   var liveRegion = null;
   var livePending = null;
 
@@ -192,5 +192,4 @@
     armChange(true);
     itemEl._confirmRevertTimer = setTimeout(lapse, revertMs);
   };
-  window.App.confirmDelete = App.ui.confirm;
 })();

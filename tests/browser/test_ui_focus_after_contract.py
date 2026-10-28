@@ -36,7 +36,13 @@ def active(page: Page) -> str:
 
 
 def settle(page: Page) -> None:
+    """Let the helper's timer fire, then wait until the engine has let go of any disabled element.
+
+    WebKit blurs a focused element that became disabled lazily (at its next style update), so a
+    fixed wait can read a stale ``btn`` under load; the condition wait removes that timing.
+    """
     page.wait_for_timeout(60)
+    page.wait_for_function("!(document.activeElement && document.activeElement.disabled)")
 
 
 def start(page: Page, focus: bool = True) -> None:

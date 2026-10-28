@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-05
 **Updated**: 2026-10-07 (squawk 0127: wording only, no expectation changed: steps 4, 5, 7, 8 and 9); 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-02 (M25 F3: list and detail; New → `#agents/~new`, list rows, breadcrumb, no Back)
-**Last Run**: 2026-10-07-11-51-23 (pass — LIGHT 9/9 + DARK 9/9; M25 F6 mission close, Agents start page re-authored in leg 4c; wording drift fixed by squawk 0127; see runs/)
+**Last Run**: 2026-10-28-02-59-04 — pass (18/18; Light + Dark; M31 F6 close sweep, port 8503; row 5 re-author: create toast "Agent created", see runs/)
 
 ## Intent
 
@@ -12,7 +12,7 @@ Verify the core Agents-destination CRUD flow end-to-end in the real re-skinned U
 operator can create an agent from the Agents list's "New" (`#agents/~new`), land in the General tab, fill its
 name / description / provider / model, save it, see it appear in the list beside the editor, re-select it,
 edit a field and re-save, then delete it through the General-tab Danger zone's two-step
-`App.confirmDelete` arm-then-fire. This needs a **behavior test** rather than a unit test
+armed-confirm (`App.ui.confirm`) arm-then-fire. This needs a **behavior test** rather than a unit test
 because the observable is the rendered Studio surface across a multi-step navigation flow
 (list → editor beside the list → list) plus a stateful two-click confirm affordance whose armed
 intermediate ("Confirm delete?") state is a rendered, user-perceivable checkpoint — not a
@@ -23,23 +23,22 @@ theme-coupled render regression in the editor surfaces.
 
 ## Preconditions
 
-- the-one is running host-native and reachable on `http://localhost:8485` (the mission dev
-  instance), with `THE_ONE_DEV_MODE=true` (dev mode makes the `mock` provider type
+- the-one is running host-native and reachable on a dedicated dev instance at `http://localhost:{port}` (a dedicated port of 8490 or higher (not 8485, the Flight Director's preview port; never 8484), with a fresh scratch data directory and working directory under `$HOME`; below, `{port}` is that port), with `THE_ONE_DEV_MODE=true` (dev mode makes the `mock` provider type
   *acceptable*; it does not create one). Verify with an active probe:
-  `GET http://localhost:8485/api/providers/types` returns a list that includes
+  `GET http://localhost:{port}/api/providers/types` returns a list that includes
   `{"value":"mock",...}`. If it does not, dev mode is off and the test cannot proceed.
-- **A `mock`-type LLM provider exists on 8485** (agent creation dead-ends on the disabled
+- **A `mock`-type LLM provider exists on the dev instance** (agent creation dead-ends on the disabled
   "No provider — add one in Library" option (literal UI text) — general-tab.js:56 — when none exists). This
   is a **decay-prone fixture** — seed it immediately before the run and remove it after:
-  - Seed: `POST http://localhost:8485/api/providers` with body
+  - Seed: `POST http://localhost:{port}/api/providers` with body
     `{"name":"Mock (studio-agent-crud)","type":"mock","base_url":"http://localhost","config":{"models":["mock-default"]}}`
     (expect `201`). Record the returned `id`.
-  - Clean up (teardown, always): `DELETE http://localhost:8485/api/providers/{id}`.
-- A browser apparatus is attached to 8485 (goldfinch MCP preferred — printToPDF for pixel
+  - Clean up (teardown, always): `DELETE http://localhost:{port}/api/providers/{id}`.
+- A browser apparatus is attached to the dev instance (goldfinch MCP preferred — printToPDF for pixel
   evidence, a11y-tree for rendered-state judgment; CDP for focus). Never touch 8484.
 - Not mid-edit on any agent; the operator can observe the Studio UI in the browser session.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
-  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  "Behavior-test credential convention" — read the long-lived credential from the dev instance's
   data directory, mint a handoff URL for the Step-2 browser navigation (single-use;
   re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
   `curl` calls in steps 1 and 11.
@@ -59,7 +58,7 @@ theme-coupled render regression in the editor surfaces.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` includes `mock`; seed the mock provider via `POST /api/providers` (body above) and record its `id`. | (empty) |
-| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:8485/`, click the rail's **Agents** link (`#agents`). | The Agents destination renders as a list beside a detail pane. The list column shows a list titled "Agents" with a "New" button (`new-agent-btn`, accessible name "New agent"), plus either agent rows or the line "No agents yet.". The detail pane shows the Agents start page (the description "An agent is an assistant you set up for a kind of work." and a "New agent" button), with the line "Pick an agent from the list to edit it." or "No agents yet." matching the list column. No error banner. |
+| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:{port}/`, click the rail's **Agents** link (`#agents`). | The Agents destination renders as a list beside a detail pane. The list column shows a list titled "Agents" with a "New" button (`new-agent-btn`, accessible name "New agent"), plus either agent rows or the line "No agents yet.". The detail pane shows the Agents start page (the description "An agent is an assistant you set up for a kind of work." and a "New agent" button), with the line "Pick an agent from the list to edit it." or "No agents yet." matching the list column. No error banner. |
 | 3 | Click the **New** button (`new-agent-btn`). | The hash is `#agents/~new`. The agent editor opens in create mode in the detail pane, beside the list: <ul><li>the **General** tab (`tab-general`) is the selected tab panel;</li><li>its fields (Name, Description, Provider, Model) are visible and empty or default;</li><li>the Create button (`save-agent-btn`) is present and **disabled** (nothing entered yet).</li></ul> |
 | 4 | In the General tab, type a distinctive Name (e.g. `Behave CRUD Agent`) and a Description; select the seeded **Mock (studio-agent-crud)** provider from the Provider dropdown; then select a Model (e.g. `mock-default`) from the now-populated Model dropdown. With only the one seeded provider and one model, the form pre-selects both, so the selections confirm the defaults and do not prove the Model list refills on a provider change (seed a second provider to prove that). | The Name and Description fields show the typed text; the Provider dropdown shows the mock provider selected (the disabled "No provider" placeholder is gone); the Model dropdown is enabled and shows the chosen model; the Create/Save button (`save-agent-btn`) is now **enabled**. |
 | 5 | Click **Create/Save** (`save-agent-btn`). | The save succeeds (no error flash; a neutral "Agent saved" toast is expected and is not an error). The editor settles into edit mode for the new agent: the button reads "Save" and is disabled again, and there is no "Unsaved changes" text. The hash is `#agents/Behave%20CRUD%20Agent/general` (or the same name with the browser's own encoding of the space). |
@@ -77,8 +76,7 @@ assistive-tech / rendered-state surface for the optional Accessibility Validator
 `data-testid="editor-breadcrumb-link"`; General tab `data-testid="tab-general"`
 (agent-editor.js); Save/Create `data-testid="save-agent-btn"` (agent-editor.js); Delete
 `data-testid="delete-agent-btn"` in the General-tab Danger zone (general-tab.js); the
-two-step arm/fire is `App.confirmDelete` with the `Confirm delete?` label (studio.js
-`handleDeleteEditor`). **List freshness:** since Mission 25 Flight 3 the Agents list re-renders from
+two-step arm/fire is the library's armed-confirm control (`App.ui.confirm`) with the `Confirm delete?` label (the agent editor's General-tab Delete). **List freshness:** since Mission 25 Flight 3 the Agents list re-renders from
 `App.store` after each mutation, so steps 6 and 10 read it without a reload. If a row looks stale,
 the Executor reports it as observed (a stale list is a failure, not something to reload away).
 

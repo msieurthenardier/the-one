@@ -27,12 +27,10 @@ can sit on in BOTH themes —
   carve-out is retired)
 
 Badge (``--badge-*``) × ink (``--badge-ink-*``) pairs are GATED here as
-of Mission 17 Flight 03 Leg 04: every provider / tool badge
+of Mission 17 Flight 03 Leg 04: every provider / transport badge
 carries a per-badge ink (light-toned fills take dark ink, dark-toned
 fills take white ink) so its text clears body AA (≥4.5:1) on that fill
-in BOTH themes. web's light-theme fill was darkened (#d63a93 → #cc2d87)
-so its white ink clears the threshold. See the flight log for the final
-measured table.
+in BOTH themes. See the flight log for the final measured table.
 
 WCAG AA thresholds (per WCAG 2.1):
 
@@ -617,12 +615,6 @@ _FILL_SITES = [
         ("var(--accent)",),
         ("var(--fg-on-accent)",),
     ),
-    (
-        "chat.css",
-        ".area-chat .msg-pending-approval-approve",
-        ("--accent-fill", "--fg-on-accent-fill"),
-        ("var(--accent)", "var(--fg-on-accent)"),
-    ),
     # M31 F6 L05c (A15): the message timestamp is --fg-faint at full strength (no extra
     # opacity), gated by test_message_timestamp_passes_body_aa.
     ("components.css", ".ui-message-attribution-ts", ("--fg-faint",), ("opacity",)),
@@ -1160,22 +1152,10 @@ def test_forced_colors_keep_a_non_colour_selected_cue(
     raise AssertionError(f"{css_file}: no forced-colors rule {selector!r} {{ {declaration} }}")
 
 
-@pytest.mark.parametrize("kind", ("approved", "dismissed"))
-def test_badge_semantic_kinds_sit_on_the_gated_ladder(kind: str) -> None:
-    """`.badge--approved` / `.badge--dismissed` paint --fg / --fg-secondary on
-    --surface-elevated (both swept by test_body_text_passes_aa), never a novel pair."""
-    body = " ".join(_rule_bodies("components.css", f".badge--{kind}"))
-    assert "var(--surface-elevated)" in body, body
-    assert ("var(--fg)" if kind == "approved" else "var(--fg-secondary)") in body, body
-
-
 _TOKEN_BADGE_KINDS = (
     "anthropic",
     "anthropic-plan",
     "anthropic-plan-token",
-    "connectors",
-    "execution",
-    "filesystem",
     "local",
     "mock",
     "ollama",
@@ -1183,9 +1163,7 @@ _TOKEN_BADGE_KINDS = (
     "openai-compatible",
     "openrouter",
     "remote",
-    "time",
     "unknown",
-    "web",
 )
 
 
@@ -1331,10 +1309,9 @@ def test_drawer_text_pairs_pass_body_aa(theme: str) -> None:
 # ---------------------------------------------------------------------------
 
 # Every badge maps to (fill token, ink token). The fill is looked up per
-# theme (tool-badge fills diverge between themes; ink is theme-stable), so
-# each pair is asserted against BOTH themes. This is the "fix THEN gate"
-# contract from the flight DD "Badges": the fix is the per-badge ink (+ the
-# web light-fill tune); this test is the gate.
+# theme, so each pair is asserted against BOTH themes. This is the "fix THEN
+# gate" contract from the flight DD "Badges": the fix is the per-badge ink;
+# this test is the gate.
 _BADGE_INK_PAIRS = (
     ("ollama", "badge_ollama", "badge_ink_ollama"),
     ("openai-compatible", "badge_openai_compatible", "badge_ink_openai_compatible"),
@@ -1345,13 +1322,6 @@ _BADGE_INK_PAIRS = (
     ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
     ("mock", "badge_mock", "badge_ink_mock"),
     ("unknown", "badge_unknown", "badge_ink_unknown"),
-    ("filesystem", "badge_filesystem", "badge_ink_filesystem"),
-    ("execution", "badge_execution", "badge_ink_execution"),
-    ("web", "badge_web", "badge_ink_web"),
-    # connectors (squawk 0032) — admin Tools grid category badge.
-    ("connectors", "badge_connectors", "badge_ink_connectors"),
-    # time (M28) — Built-in tools grid category badge.
-    ("time", "badge_time", "badge_ink_time"),
     # local / remote (M31 F5 HAT) — Library MCP row transport badges.
     ("local", "badge_local", "badge_ink_local"),
     ("remote", "badge_remote", "badge_ink_remote"),
@@ -1363,9 +1333,8 @@ _BADGE_INK_PAIRS = (
 def test_badge_ink_passes_body_aa(theme: str, badge: str, fill_key: str, ink_key: str) -> None:
     """Every badge's ink clears body AA (≥ 4.5:1) on its fill, both themes.
 
-    Provider fills are theme-stable; tool-badge fills diverge by theme
-    (filesystem/execution lighter in light, web darkened for its white
-    ink) — the fill is resolved per theme, the ink is theme-stable.
+    Fills are theme-stable; the fill is resolved per theme and the ink is
+    theme-stable.
     """
     palette = _palette(theme)
     ratio = contrast_ratio(palette[ink_key], palette[fill_key])
@@ -1632,7 +1601,6 @@ _DISABLED_BUTTON_SELECTORS = (
     ".btn-filled-primary:disabled",
     ".btn-ghost:disabled",
     ".btn-muted-destructive:disabled",
-    ".refresh-btn:disabled",
     ".ui-progress-cancel:disabled",
 )
 

@@ -80,14 +80,6 @@
 
   window.App = window.App || {};
   Object.assign(window.App, {
-    icons: Icons,
-    icon: function (name) {
-      var svg = Icons[name];
-      if (!svg) {
-        console.warn('App.icon: unknown icon name "' + name + '"');
-        return '';
-      }
-      return svg;
-    }
+    icons: Icons
   });
 })();

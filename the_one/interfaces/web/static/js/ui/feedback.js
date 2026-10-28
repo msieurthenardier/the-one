@@ -9,11 +9,6 @@
     'anthropic',
     'anthropic-plan',
     'anthropic-plan-token',
-    'approved',
-    'connectors',
-    'dismissed',
-    'execution',
-    'filesystem',
     'local',
     'mock',
     'ollama',
@@ -21,9 +16,7 @@
     'openai-compatible',
     'openrouter',
     'remote',
-    'time',
-    'unknown',
-    'web'
+    'unknown'
   ];
 
   // App.ui.badge(opts) -> HTMLSpanElement (class badge, plus badge--<kind>).

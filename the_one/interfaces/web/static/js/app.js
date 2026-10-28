@@ -237,16 +237,6 @@
       });
   });
 
-  function escapeHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function escapeAttr(s) {
-    if (!s) return '';
-    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
   // Fail-closed URL-scheme allow-list for values that land in a live `href`/
   // `src` attribute and originate from an untrusted third party (e.g. an MCP
   // server's `initialize()` response — `serverInfo.websiteUrl`, `icons[].src`).
@@ -283,11 +273,6 @@
     return (i >= 2 ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
   }
 
-  // App.ui.flash owns the markup, roles and timing; this keeps the old signature.
-  function showFlash(container, msg, isError) {
-    App.ui.flash(msg, { error: !!isError }); // container: kept for callers, ignored
-  }
-
   window.App = window.App || {};
   Object.assign(window.App, {
     registerArea: registerArea,
@@ -300,11 +285,8 @@
     // (``areas: areas``) would mechanically fail. See flight log
     // ``Deviations`` for the rationale.
     areas: order,
-    escapeHtml: escapeHtml,
-    escapeAttr: escapeAttr,
     safeUrl: safeUrl,
     formatBytes: formatBytes,
-    showFlash: showFlash,
     // The Ctrl K shortcut's pure helpers (M25 F4 L7, DD9): the platform
     // detector, the key matcher and the platform-aware copy, shared with the
     // jump-to palette's footer and unit-tested in the browser.

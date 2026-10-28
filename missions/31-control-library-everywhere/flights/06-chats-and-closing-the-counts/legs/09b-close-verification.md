@@ -1,6 +1,6 @@
 # Leg: close-verification
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
 
 ## Objective
@@ -77,3 +77,27 @@ Verify the whole flight before the HAT:
 
 ## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.
+
+## Design Review Amendments (cycle 1, 2026-10-27; these take precedence)
+- **The ledger is rows 1-46.** Rows 39-46 are additive; row 41 has no visible change. After-set surfaces with no before image (for example the step-limit notice, "Stopped.") are judged against their ledger row alone, with no pair. Rows 37 and 38 (toasts) have no per-editor before pair (the before set has `flash-after-save`, `flash-agent-saved` and `chat-code-copy-toast` only), so they rest on their tests. That coverage gap is recorded.
+- **The surface list is derived, not typed:** `sorted({f.split('--')[0] for f in json.load(open('…/m31-f6-before/manifest.json'))['captured']})`, joined with commas for `--surfaces`. All 43 still exist by name (the review diffed them). The after run must match the before manifest's `chat_seed`, `fixed_clock` (2026-03-01T12:00:00+00:00), `viewports` and Chromium build; the comparison records them.
+- **Lane prose:**
+  - every place that names lanes or budgets is updated: `scripts/run-tests.sh` (the `BUDGET` array, the `--help` text, the comment at about `:62`), CLAUDE.md's budget table and its "Lane time budgets" lead paragraph, the "about N minutes … (… s, N lanes)" sentence (now muddled: "1600 s, 15 lanes; 16 …"), and the lane counts (sixteen lanes, fifteen named);
+  - `contracts-chat` and `chats-transcript` are budgeted purely from this run (they had no measured budget);
+  - squawk 0259's Verification is updated to this run.
+- **Squawks:** 0185, 0215, 0249, 0269, 0270 and 0271 already carry their corrective action and verification. Only **0259** (the 09b numbers) and **0272** (its 09a edits and verification) remain to finish. Finished text is not rewritten.
+- **The gate order:** `make test-unit` first, then the single `--parallel 3` run.
+  - The quiet-host check (`uptime` 1-minute load below about 1.0, no other test process) is made at **start and end**. The procedure is in `legs/01-groundwork-and-before-set.md`, with `[BLOCKED:host-not-quiet]`.
+  - Leg 09a's runs must have finished, with no overlap.
+  - The unit skip count is compared with the expected 15 under netns (12 without).
+- **Behavior-spec apparatus** (FD answer): every spec runs on a dedicated port **8497 or higher** (never 8484 or 8485, the FD preview port) with a fresh scratch data dir and working dir **under `$HOME`**, stopped by PID.
+  - **Deliberate pre-run spec edits:** the specs that hard-code port 8485 (`chat-roundtrip`, `studio-agent-crud`, `agent-step-limit-notice`, `stub-connector-round-trip`) and `jump-to-palette`'s port 8488 and `/tmp/the-one-jtp-scratch` are re-authored to "a dedicated port of 8490 or higher (not 8485) and a scratch dir under `$HOME`". This also clears squawk 0213 **for these specs only**, recorded in the squawk's notes without closing it. The `jtp` and `sac` specs keep their fresh-empty-instance precondition.
+  - `studio-agent-crud.md`'s Intent and Locators mention `App.confirmDelete` and `studio.js handleDeleteEditor`; they are updated (the rendered "Confirm delete?" and "Agent saved" are already correct).
+  - `agent-step-limit-notice` step 1 restates the stub connector setup inline (connector create, pairing, admit `peer-1`) instead of cross-referencing `stub-connector-round-trip`, whose Last Run is "never".
+- **The PIL comparison script** is stored in the session scratchpad and writes a table (surface, theme, width, differs, ledger row), summarised in the flight log.
+
+## Design Review
+- **Developer design review, cycle 1 (Sonnet, 2026-10-27): approve with changes.** Applied as the amendments above. FD answers:
+  - specs run on port 8497 or higher with `$HOME` scratch, via deliberate pre-run edits;
+  - the toast coverage gap is recorded.
+- No second cycle for 09b.

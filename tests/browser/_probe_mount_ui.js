@@ -57,7 +57,7 @@ probeRoot.appendChild(App.ui.checkbox({ label: 'Probe mixed', indeterminate: tru
 probeRoot.appendChild(App.ui.toggle({ label: 'Probe toggle off', hint: 'Toggle hint' }).el);
 probeRoot.appendChild(App.ui.toggle({ label: 'Probe toggle on', checked: true }).el);
 probeRoot.appendChild(App.ui.badge({ text: 'ollama', kind: 'ollama' }));
-probeRoot.appendChild(App.ui.badge({ text: 'approved', kind: 'approved' }));
+probeRoot.appendChild(App.ui.badge({ text: 'approved', kind: 'ollama' }));
 probeRoot.appendChild(App.ui.emptyState({ title: 'Probe inline empty', body: 'Nothing to show here' }));
 probeRoot.appendChild(
   App.ui.emptyState({
@@ -71,7 +71,7 @@ var kindPane = App.ui.listPane({
   title: 'Probe kinded list',
   selectedId: 'k1',
   items: [
-    { id: 'k1', label: 'Kinded one', meta: 'selected', href: '#probe-k1', badges: [{ text: 'web', kind: 'web' }, 'tag'], count: 4 },
+    { id: 'k1', label: 'Kinded one', meta: 'selected', href: '#probe-k1', badges: [{ text: 'web', kind: 'local' }, 'tag'], count: 4 },
     { id: 'k2', label: 'Kinded two', meta: 'idle', onSelect: function () {}, count: 9 }
   ]
 });

@@ -103,7 +103,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-attach-btn` | chat | The composer's Attach images (`btn-ghost btn-sm btn-icon`, the paperclip icon, `aria-label="Attach images"`); opens the hidden `chat-image-input` (M25 F4 L5; a plus-icon `btn-outlined-primary` "Attach image" before) |
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
-| `chat-consent-link-url` | chat | The sign-in link block's read-only URL field in a chat's login-required group, shown once the consent URL is known (`App.consentLink.build(url, {surface: 'chat'})`, `consent-link.js`; sortie 04 DD1) |
+| `chat-consent-link-url` | chat | The sign-in link block's read-only URL field in a chat's login-required group, shown once the consent URL is known (`App.ui.consentLink.build(url, {surface: 'chat'})`, `consent-link.js`; sortie 04 DD1) |
 | `chat-consent-link-open` | chat | The block's "Open sign-in page" `<a target="_blank" rel="noopener noreferrer">` styled as a button (sortie 04 DD1) |
 | `chat-consent-link-copy` | chat | The block's Copy button (clipboard, `execCommand` fallback; sortie 04 DD1) |
 | `chat-copy-status` | chat | The one visually hidden `role=status` node (in the chat chrome, outside the `role=log` message list) every "Copy reply" confirmation announces in (M31 F6 L05c) |
@@ -135,7 +135,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-new-state` | chat | The new-chat state (reference spec 5.4), shown only while a chat is pending: a `badge badge--{providerType}` whose text is the model (A20), the agent name (`h2`), the description, and `chat-pick-different-btn` (M25 F4 L4b) |
 | `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
-| `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.confirmDelete`); never on the pending row (M25 F4 L4a) |
+| `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.ui.confirm`); never on the pending row (M25 F4 L4a) |
 | `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
 | `chat-step-limit` | chat | The muted step-limit line after a `step_limit` frame; never stored, so a re-join shows none (M31 F6 L06, DD8) |
 | `chat-step-limit-link` | chat | Its "Max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
@@ -266,7 +266,7 @@ caught — but it cannot see where the attribute is emitted.
 | `library-add-mcp` | studio | Library Add menu item "MCP server" -> `#library/mcp/~new` (M25 F3 L4a) |
 | `library-start` | studio | The Library start page (`#library`, the one Library root: a card per group, each with a `library-start-{group}-add` button) (model-providers sortie, DD6; it replaced `library-empty-{group}`) |
 | `library-list` | studio | Library list column root, the grouped `App.ui.listPane` `<section>` in the aside (M25 F3 L4a, DD5) |
-| `mcp-consent-link-url` | studio | The sign-in link block's read-only URL field in the MCP editor's status panel (`App.consentLink.build(url, {surface: 'mcp'})`; sortie 04 DD1) |
+| `mcp-consent-link-url` | studio | The sign-in link block's read-only URL field in the MCP editor's status panel (`App.ui.consentLink.build(url, {surface: 'mcp'})`; sortie 04 DD1) |
 | `mcp-consent-link-open` | studio | The block's "Open sign-in page" anchor (`target="_blank"`; sortie 04 DD1) |
 | `mcp-consent-link-copy` | studio | The block's Copy button (sortie 04 DD1) |
 | `mcp-command-custom` | studio | |
@@ -326,7 +326,7 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-off-message` | studio | "Notes are off. This agent can't see or write notes. Saved notes are kept." (hidden while on) (M27 F2 L3) |
 | `notes-row` | studio | one note row (`<li>`, `data-id`, `data-number`) (M27 F2 L3) |
 | `notes-row-cancel` | studio | note inline edit Cancel (M27 F2 L3) |
-| `notes-row-delete` | studio | note Delete, two-step through `App.confirmDelete` (M27 F2 L3) |
+| `notes-row-delete` | studio | note Delete, two-step through `App.ui.confirm` (M27 F2 L3) |
 | `notes-row-edit` | studio | note Edit; `data-note-id` (M27 F2 L3) |
 | `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
 | `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
@@ -429,7 +429,7 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-list` | studio | the ordered rule list (`<ol>`) (M27 F1 L2) |
 | `rules-row` | studio | one rule row (`<li>`, `data-id`, `data-enabled`); `.rules-row--off` when disabled (M27 F1 L2) |
 | `rules-row-cancel` | studio | inline edit Cancel; restores the text (M27 F1 L2) |
-| `rules-row-delete` | studio | rule Delete, two-step through `App.confirmDelete` (M27 F1 L2) |
+| `rules-row-delete` | studio | rule Delete, two-step through `App.ui.confirm` (M27 F1 L2) |
 | `rules-row-down` | studio | rule Move down; disabled on the last row (M27 F1 L2) |
 | `rules-row-edit` | studio | rule Edit (opens the inline textarea); `data-rule-id` (M27 F1 L2) |
 | `rules-row-edit-input` | studio | the inline edit textarea (M27 F1 L2) |

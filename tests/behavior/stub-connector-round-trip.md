@@ -30,13 +30,13 @@ Verifies the Mission 23 channel contract end-to-end against a live dev instance,
 - **Dev instance boot** — from a scratch working directory (not the repo root; CLAUDE.md "SAFETY RULE"):
   ```bash
   mkdir -p $HOME/the-one-behavior-test-scratch/cwd && cd $HOME/the-one-behavior-test-scratch/cwd
-  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/data \
+  THE_ONE_PORT=<port> THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/data \
     THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve >serve.log 2>&1 &
   echo $! > serve.pid
   ```
-  Use a fresh scratch `THE_ONE_DATA_DIR` (not the operator's default) and port `8485`
-  (never `8484`, the operator's production instance — see CLAUDE.md's "SAFETY RULE").
-  Verify liveness: `curl http://127.0.0.1:8485/api/live` → HTTP 200. Tear down after
+  Use a fresh scratch `THE_ONE_DATA_DIR` (not the operator's default) and a dedicated `<port>` of 8490 or higher (not `8485`, the Flight Director's preview port;
+  never `8484`, the operator's production instance — see CLAUDE.md's "SAFETY RULE").
+  Verify liveness: `curl http://127.0.0.1:<port>/api/live` → HTTP 200. Tear down after
   the run with `kill $(cat serve.pid)`.
 - **Both gates must be open** for the stub connector to exist at all:
   `THE_ONE_DEV_MODE=true` makes the `stub` connector type *and* the `mock` LLM
@@ -94,12 +94,12 @@ Verifies the Mission 23 channel contract end-to-end against a live dev instance,
   instance.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
   "Behavior-test credential convention" — read
-  `/tmp/the-one-behavior-test-scratch/api-credential`, mint a handoff URL for the
+  `$HOME/the-one-behavior-test-scratch/data/api-credential`, mint a handoff URL for the
   browser navigation (re-mint if a step opens a fresh tab/context), and attach
   `Authorization: Bearer <credential>` to every `curl` call below (the two
   `/api/_test/stub/...` seams and `GET /api/chat/sessions` are ordinary gated
   routes, not the unauthenticated `/api/live`).
-- A browser apparatus (chrome-devtools MCP or similar) attached to the `8485`
+- A browser apparatus (chrome-devtools MCP or similar) attached to the dev instance's
   origin; `curl` available for the seam/session calls. Never touch `8484`.
 
 ## Observables Required

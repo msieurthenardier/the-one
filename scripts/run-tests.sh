@@ -59,14 +59,14 @@ set -euo pipefail
 LANE_LIST="chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
 CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (re-measured in the M31 F6 L01 run 2 --parallel 3 run, after the chats and mcp splits: chats 283 s, chats-transcript 122 s, mcp 254 s, mcp-connection 289 s; earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 # QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
 # other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
 # `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
-  [chats]=360
-  [chats-transcript]=180
+  [chats]=420
+  [chats-transcript]=240
   [agents]=540
   [agent-tabs]=360
   [library]=420
@@ -77,9 +77,9 @@ declare -A BUDGET=(
   [settings]=360
   [settings-tools]=330
   [providers]=420
-  [contracts-overlay]=270
-  [contracts-chat]=300  # PROVISIONAL (M31 F6 L04): never from a solo run; the quiet-host run at 09b replaces it
-  [contracts-controls]=480
+  [contracts-overlay]=330
+  [contracts-chat]=90
+  [contracts-controls]=600
   [shared]=420
 )
 

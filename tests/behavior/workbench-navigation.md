@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-01
 **Updated**: 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-11 (steps 4, 8, 9, 14 and 15: `#library` is the Library root; model-providers sortie); 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: a fresh `window` marker before each step that needs one, step 13's mid-dialog hash, screenshot and accessibility snapshot named as the primary evidence); 2026-10-05 (M25 F3: list and detail shell, steps 3–8 and 10; Providers as tiles, leg 7. M25 F4 leg 8: step 2 re-authored for the Chats list, the empty state and the agent picker)
-**Last Run**: 2026-10-07-11-51-23 — pass (28/28; Light + Dark; M25 F6 mission close, start pages re-authored in leg 4c)
+**Last Run**: 2026-10-28-02-49-04 — pass (28/28; Light + Dark; M31 F6 close sweep, port 8501; tab-strip re-author note, see runs/)
 
 ## Intent
 

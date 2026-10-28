@@ -29,7 +29,7 @@
   /* F5 L6 HAT R4: friendly description sits flush under each section-title,
      e.g. the agent-editor's Built-in tools tab. body-sm
      muted text, modest bottom margin so it doesn't crowd the first
-     field-row. Currently scoped to .area-studio per F5 scope; if other
+     field row. Currently scoped to .area-studio per F5 scope; if other
      areas adopt the same pattern this rule can be lifted to
      components.css. */
   /* .section-description lifted to components.css (M31 F1 L4). */
@@ -64,8 +64,8 @@
      tab now uses the library switch (App.ui.toggle) and rows (App.ui.toolRow). */
 
   /* === Studio Area: Actions, Danger Zone === */
-  /* All action-button rules (.save-btn / .back-btn / .test-provider-btn /
-     .delete-btn[.confirm]) and the .danger-zone-title rule were lifted to
+  /* All action-button rules (the save, test-provider and
+     delete buttons) and the danger-zone title rule were lifted to
      components.css in F6 leg 03 (un-scoped, consumed by admin's provider
      editor). Studio markup unchanged — bare class names match the
      canonical rules. */
@@ -78,7 +78,7 @@
   /* Capability panel — surfaces /api/show capabilities under the model
      selector. The danger-coloured `no tools` chip carries the warning by
      itself; no separate banner. F5 L1: the general-tab fields migrated
-     .field-row (100px label gutter) → stacked .field-group, so the caps row
+     a labelled row with a 100px gutter → stacked .field-group, so the caps row
      aligns flush-left under the full-width model control (no gutter pad). */
   .area-studio .model-capabilities { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-studio .model-capabilities:empty { display: none; }
@@ -988,8 +988,7 @@
   .area-studio .admin-pf-pull-go { height: auto; }
   .area-studio .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
   .area-studio .admin-pf-pull-size { color: var(--fg-secondary); }
-  /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px dot the
-     retired .test-result-warning retrofit drew. */
+  /* The warn state (unowned class + data-state="warn"): the warning colour and the 10px warning dot. */
   .area-studio .admin-pf-pull-size--warn { color: var(--status-warning); }
   .area-studio .admin-pf-pull-size--warn::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; border-radius: 50%; background-color: var(--status-warning); }
   .area-studio .admin-pf-pull-size:empty { padding: 0; }

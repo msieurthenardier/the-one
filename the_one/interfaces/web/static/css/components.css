@@ -120,18 +120,6 @@
   .ui-rail-footer .btn-icon { width: 44px; height: 44px; padding: 0; }
 
   /* === Form Field Primitives (editable form rows) === */
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-  .field-row label {
-    width: 100px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    flex-shrink: 0;
-  }
   .field-input {
     flex: 1;
     background: var(--surface);
@@ -221,9 +209,7 @@
 
   /* === Stacked field group (M17 F3 — the vocabulary field form) ===
      Label ABOVE the control; optional hint and inline validation message
-     below it. This is the v3 field convention; the legacy label-left
-     ``.field-row`` (100px gutter) remains for existing area forms and
-     migrates per-area in the F4-6 re-skins. */
+     below it. This is the only field layout. */
   .field-group {
     display: flex;
     flex-direction: column;
@@ -251,10 +237,7 @@
   }
   /* Inline validation — color + message, never color alone. Set
      ``.is-invalid`` on the control and render the message in a
-     ``.field-error`` element directly below it. (Studio's former area-scoped
-     ``.field-row .field-error`` 100px-gutter variant was retired in F5 L2
-     when its last consumer migrated to ``.field-group``; inline validation
-     now flows through this un-scoped primitive.) */
+     ``.field-error`` element directly below it. (Inline validation flows through this un-scoped primitive.) */
   .field-input.is-invalid,
   .field-textarea.is-invalid,
   .field-select.is-invalid { border-color: var(--status-danger); }
@@ -538,10 +521,10 @@
   .btn-lg { height: 36px; padding: 0 20px; font-size: var(--font-size-body); }
   .btn-xl { height: 40px; padding: 0 28px; font-size: var(--font-size-body-lg); }
 
-  /* Icon sizing inside vocabulary buttons: App.icon() svgs ship 24×24
+  /* Icon sizing inside vocabulary buttons: App.icons svgs ship 24×24
      width/height attributes, so an explicit CSS size is required. 16px
      pairs with the 32px control height. Per-consumer overrides later in
-     the file (e.g. .refresh-btn svg 14px) win by source order. */
+     the file win by source order. */
   .btn-outlined-primary svg,
   .btn-filled-primary svg,
   .btn-ghost svg,
@@ -862,7 +845,7 @@
   .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-time,
   .ui-list-pane-list > li.ui-list-pane-has-action:hover .ui-list-pane-count,
   .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-count { opacity: 0; }
-  /* Armed by App.confirmDelete (.confirm-delete on the <li>, its
+  /* Armed by App.ui.confirm (.confirm-delete on the <li>, its
      [data-confirm-title] label swapped): the danger ink, the action shown. */
   .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row { border-color: var(--status-danger); }
   .ui-list-pane:not(.ui-list-pane-styled) .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row {
@@ -1151,7 +1134,7 @@
      state — agent deletion lives in the editor's Danger Zone (F5 leg 05). */
 
   /* === App.ui.confirm (M31 F1 L4): the armed look and the lapse cue ===
-     Two-step confirm (alias App.confirmDelete) adds .confirm-delete to the
+     Two-step confirm (App.ui.confirm) adds .confirm-delete to the
      armed control. One armed style serves every button: solid danger fill,
      semibold label. The selector list carries :hover and :focus-visible at
      (0,2,1) so no variant's own hover rule (.btn-outlined-primary:hover,
@@ -1171,7 +1154,7 @@
      `revert()` itself, since revert() also runs as the revertFn callers
      invoke on transport failure and (system-page.js's credential rotation)
      on SUCCESS; decorating revert() would mislabel a successful commit as
-     lapsed. Cleared unconditionally on the control's next confirmDelete
+     lapsed. Cleared unconditionally on the control's next App.ui.confirm
      call (arm or commit alike). Element-shape-agnostic on purpose — the 13
      call sites arm a <button>, a list-row <li>, or a <summary>,
      and outline works identically on all three with no assumption about
@@ -1369,30 +1352,12 @@
     white-space: nowrap;
   }
 
-  /* === Test result span (canonical connectivity-test indicator) === */
-  /* Used by the General tab's Test button (F5 leg 03) and admin's provider
-     editor (F6 leg 03). The `.admin-pf-test-ok` / `.admin-pf-test-fail`
-     migration landed in F6 leg 03. */
-  .test-result {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: 8px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-  .test-result-ok { color: var(--status-success); }
-  .test-result-fail { color: var(--status-danger); }
-  .test-result-warning { color: var(--status-warning); }
-  .test-result-pending { color: var(--fg-secondary); }
-
   /* === App.ui.status (M31 F1 L5): the LED and the status line ===
      .ui-status is the line (body-sm, muted); .indicator-led is the LED.
      10px flat round status dot. Color is never the only signal — every
      LED is paired with a text label (see accessibility contract below).
      Use directly as `<span class="indicator-led indicator-led--success">`,
-     or rely on the `.test-result-*` retrofit below which renders the LED
-     as a ::before pseudo on every existing connection-test result.
+     (App.ui.status renders it for the connection-test results).
 
      Accessibility contract (F2 Leg 2, A.9):
        - When adjacent visible text fully conveys the LED's state (e.g.,
@@ -1427,28 +1392,6 @@
   .ui-status--tone[data-state="danger"] .ui-status-text { color: var(--status-danger); }
   .ui-status--tone[data-state="warning"] .ui-status-text { color: var(--status-warning); }
 
-  /* Retrofit: .test-result-* gets the LED dot via ::before so existing
-     connection-test consumers (provider editor, agent editor) pick it up
-     without JS markup changes. The flex+gap on `.test-result` (above)
-     positions the LED before the text. */
-  .test-result-ok::before,
-  .test-result-fail::before,
-  .test-result-warning::before,
-  .test-result-pending::before {
-    content: "";
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    margin-right: 6px;
-    vertical-align: middle;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .test-result-ok::before { background-color: var(--status-success); }
-  .test-result-fail::before { background-color: var(--status-danger); }
-  .test-result-warning::before { background-color: var(--status-warning); }
-  .test-result-pending::before { background-color: var(--fg-muted); }
-
   /* === Save / Cancel button (disabled-SSoT pattern) === */
   /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
      from .area-studio .save-btn in F6 leg 03; consumed by both studio's
@@ -1459,20 +1402,9 @@
      variant (B14); the old opacity transition is dropped with the opacity. */
   .save-btn[disabled] { cursor: not-allowed; }
 
-  /* === Back button (icon + text) === */
-  .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .back-btn svg { width: 14px; height: 14px; }
-
-  /* Refresh button — icon + text affordance, sized like .back-btn / .test-provider-btn.
-     Composed onto .btn-outlined-primary for color/border. Used by admin's
-     provider-models panel header (basic-list + Ollama lifecycle). */
-  .refresh-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .refresh-btn svg { width: 14px; height: 14px; }
-  .refresh-btn:disabled { color: var(--btn-disabled-fg); border-color: var(--btn-disabled-border); cursor: not-allowed; }
-
   /* === Delete button (App.ui.dangerZone's .delete-btn; armed state is App.ui.confirm's) === */
   /* Delete-btn — area-agnostic; cosmetics from .btn-muted-destructive.
-     The armed look (.confirm-delete) is set by App.confirmDelete
+     The armed look (.confirm-delete) is set by App.ui.confirm
      (chat session items, studio agent editor, provider editor — 3 consumers
      post-F6 leg 04). 3-second revert + accessibility behavior owned by the
      helper at ui/confirm.js. The capital-D 'Confirm Delete?' label is
@@ -1960,9 +1892,6 @@
   .badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
   .badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
   .badge--anthropic-plan-token { background: var(--badge-anthropic-plan-token); color: var(--badge-ink-anthropic-plan-token); }
-  .badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
-  .badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
-  .badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
   .badge--local { background: var(--badge-local); color: var(--badge-ink-local); }
   .badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
   .badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
@@ -1970,19 +1899,7 @@
   .badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
   .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
   .badge--remote { background: var(--badge-remote); color: var(--badge-ink-remote); }
-  .badge--time { background: var(--badge-time); color: var(--badge-ink-time); }
   .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
-  .badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
-  .badge--approved {
-    background: var(--surface-elevated);
-    color: var(--fg);
-    box-shadow: inset 0 0 0 1px var(--status-success);
-  }
-  .badge--dismissed {
-    background: var(--surface-elevated);
-    color: var(--fg-secondary);
-    box-shadow: inset 0 0 0 1px var(--border);
-  }
   /* A text-less 8px disc in a kind's fill (reference spec section 6.1: the
      agents list's provider dot, an item.lead). Decorative: always aria-hidden,
      with the meaning carried in text (the row's accessible name). --none is a
@@ -2412,7 +2329,7 @@
      box-shadows are dropped, so state must ride on borders and system colours. */
   @media (forced-colors: active) {
     .btn-outlined-primary:disabled, .btn-filled-primary:disabled, .btn-ghost:disabled,
-    .btn-muted-destructive:disabled, .refresh-btn:disabled, .ui-progress-cancel:disabled {
+    .btn-muted-destructive:disabled, .ui-progress-cancel:disabled {
       color: GrayText; border-color: GrayText;
     }
     .ui-radio-option:has(.ui-radio-input:checked),
@@ -2882,6 +2799,4 @@
   /* Utility classes — !important wins over @layer components / @layer areas
      by design (utility is the explicit override). */
   .is-hidden { display: none !important; }
-  .u-flex { display: flex !important; }
-  .u-block { display: block !important; }
 }

@@ -1,111 +1,182 @@
 # Leg: close-the-counts
 
-**Status**: planning
+**Status**: completed
 **Flight**: [Chats, and closing every count to zero](../flight.md)
+
+*Rewritten after design review cycle 2 (2026-10-27), so the body reads as one current plan. The review history is kept at the end; where it differs, this body is current.*
 
 ## Objective
 Bring every mission count to zero in code and docs (DD14):
-- the retired-API aliases deleted, with their guard lines and test call sites;
-- `OWNERSHIP_ALLOWANCE`, `TOTAL_USES` and `MOVES` empty (the guard machinery stays);
-- the catalogue: no "not yet defined" row, a unit assertion that keeps it so, and the "Data table" row moved to a new Retired table (D5);
-- the orphaned badge kinds deleted (D6);
-- the dead CSS deleted, and the unused-selector report reviewed;
-- `the_one/agents.md`, CLAUDE.md and the catalogue in their final state, including squawk 0272.
+- **the retired-API aliases** deleted, with their guard line set and test call sites. The ownership allowance tables are already empty since legs 05b and 07, so this leg confirms them and clears `START_ROWS`;
+- **the catalogue:** no "not yet defined" row, a unit test that keeps it so, and the "Data table" row moved to a Retired table (D5);
+- **the seven orphaned badge kinds** deleted (D6), with their test-only producers retargeted;
+- **every product-dead CSS family** deleted, and the unused-selector report made trustworthy and clean;
+- **the docs** in their final state, including squawk 0272.
 
 ## Context
-- **Flight decisions:** DD14 (the whole list), D5, D6, DD13 and DD15.
-- **This leg is designed against the tree after batch B4** (legs 06-08). The Citation Audit below is re-run when B4 lands, and the leg goes `ready` only then.
-- **The aliases at design time** (2026-10-27):
+- **Flight decisions:** DD14, D5, D6, DD13 and DD15.
+- **State at HEAD `942c9b5`** (verified at design review cycles 1-2):
+  - `OWNERSHIP_ALLOWANCE = {}`, `TOTAL_USES = {}`, `MOVES = []` (a comment only), `HTML_SINK_ALLOWANCE = {}`, `SINK_TOTAL = 0`;
+  - `START_ROWS` still lists 23 stale keys;
+  - `RETIRED_APIS` (`tests/test_ui_ownership.py:52-59`) scans code with comments stripped.
+- **The aliases still defined:**
   - `window.App.confirmDelete = App.ui.confirm;` (`ui/confirm.js:195`);
   - `window.App.consentLink = App.ui.consentLink;` (`ui/consent-link.js:118`);
-  - `App.showFlash` (`app.js:287`, exported `:307`);
-  - `App.escapeHtml` and `App.escapeAttr` (`app.js:240-250`, exported `:303-304`; dead);
-  - `App.icon` (`icons.js:84`).
-  - `App.iconNode` and `App.noteFlag` were already deleted in leg 03a.
-  - `_ALIAS_LINES` (`tests/test_ui_library_source.py:31-34`) pins the two `window.App.*` lines.
-  - The dead `icon: App.icons.*` fields of the three `registerArea` descriptors are at `chat.js:4`, `studio.js:15` and `admin.js:4`; `registerArea` never reads `icon`.
-  - **The expected callers after B4:** none in app code (05b removes `App.confirmDelete` and `App.consentLink.`; leg 07 removes markdown's `App.icon` and `App.showFlash`). Tests still call the aliases (`test_ui_confirm_contract.py`, `test_ui_list_pane_chats_contract.py`, `test_ui_copy_contract.py`); they move to the `App.ui.*` names.
-- **The catalogue** (`docs/ui-control-inventory.md`):
-  - at design time the "not yet defined" rows were the Provider model picker (leg 08 closes it) and "Data table" (`:104`);
-  - its header prose (`:4`, `:23-34`) describes the two statuses;
-  - `tests/test_ui_control_inventory.py` accepts "not yet defined" today (`:72-84`).
-- **Badge kinds** (`ui/feedback.js:8-27`). D6 deletes `approved`, `connectors`, `dismissed`, `execution`, `filesystem`, `time` and `web` after a grep confirms no producer: no JS builds `badge--{kind}` for them, and no `App.ui.badge({kind})` passes them. Their tokens (`css/tokens.css` `--badge-*`), the contrast rows (`tests/test_design_tokens_a11y.py`), `design_tokens.py` if it lists them, and the `tests/test_ui_badge_kinds.py` pin (18 → 11) move together.
-- **Dead CSS (code survey §9):**
-  - `.test-result*` (`components.css` about `:1330-1347`, `:1390-1400`);
-  - `.msg-pending-approval*` (`chat.css` about `:684-769`), with its contrast row (`test_design_tokens_a11y.py` about `:624-628`);
-  - `.stub-content`, `.stub-sidebar` and their children (`base.css` about `:112-115`);
-  - `.u-flex`, `.u-block` (`components.css` utilities; keep `.is-hidden`).
+  - `app.js`: `escapeHtml` / `escapeAttr` (`:240-250`), `showFlash` (`:287`), exports `:303-307`;
+  - `icons.js:82-90`: `Object.assign(window.App, {icons, icon})`; `icon` and its warning string go, `icons` stays (the rail and `ui/core.js` read it).
 
-  The catalogue's "Owned by controls built later" table lists `test-result`. `scripts/unused_selectors.py` needs `ui-disclosure--` (and any other factory-built prefix) in `DYNAMIC_PREFIXES`.
-- **Docs:**
-  - `the_one/agents.md`: "Control library (`App.ui`)" (the totals, the flight's controls, the closed counts), the chat module map, the composer/transcript/telemetry contracts and the `rescueFlashes` remnant if any is left;
-  - CLAUDE.md: the control-library totals paragraph ("Current whole-app totals …"), the "Chat composer", "Chats pane" and agent-drawer passages, the lane table (budgets are leg 09b's) and squawk 0272's stale lane-time sentence;
-  - squawk 0272's four `agents.md` patterns: flash to the page when the action closes the item; the `.ui-kv-center` strut; the overlay/bubble typography reset; a new badge kind bumps the `test_ui_badge_kinds.py` pin.
+  The dead `icon:` fields of the three `registerArea` descriptors are at `chat.js:4`, `studio.js:15` and `admin.js:4`; nothing reads `descriptor.icon`. **No product code calls any alias.**
+  - **Test callers:** `test_ui_confirm_contract.py` (`:54-273`), `test_ui_list_pane_chats_contract.py` (`:242`, `:449`, `:493`, `:508`, `:527`, `:549`) and `test_ui_copy_contract.py` (`:148-158`, `:243-245`).
+  - `_ALIAS_LINES` is at `tests/test_ui_library_source.py:31`, with its `continue` at `:56`.
+- **D6.** A producer grep over `the_one/` and `tests/` finds **no product producer** for `approved`, `connectors`, `dismissed`, `execution`, `filesystem`, `time` or `web` (`badge--` is built only by `ui/feedback.js` from caller-supplied kinds). Their only producers and mirrors are in tests and fixtures:
+  - `tests/browser/test_ui_tile_contract.py` (`~:598`, `:628`, `:677-700`, `:682`);
+  - `tests/browser/_legacy_tool_css.py:339-346` (a frozen fixture);
+  - `tests/browser/test_ui_list_pane_chats_contract.py:96`;
+  - `tests/browser/_probe_mount_ui.js:60`, `:74`;
+  - `tests/browser/test_ui_choice_contract.py:340-348` (`"kinds": 18`, a throws check with `web`);
+  - both theme dicts in `tests/browser/design_tokens.py` (`~:116-142`, `~:212-233`);
+  - `tests/test_design_tokens_a11y.py` (`_TOKEN_BADGE_KINDS` `~:1170-1190`, `_BADGE_INK_PAIRS` `~:1348-1354`, `test_badge_semantic_kinds_sit_on_the_gated_ladder` `~:1163`);
+  - `tests/test_ui_badge_kinds.py` (18).
+
+  The product side is `BADGE_KINDS` (`ui/feedback.js:8-27`), `components.css:1963-1985` and `tokens.css:175-207`, `:338-368` (both themes). `.msg-pending-approval-badge--approved/--dismissed` (`chat.css:396`, `:400`) are separate classes in the dead `.msg-pending-approval*` family.
+- **Product-dead CSS**, classified by hand (`scripts/unused_selectors.py` today counts behavior run logs and `data-testid` values as users, which masks some):
+  - `.test-result*` (`components.css:1376-1450`; `data-testid="test-result"` in `tools-editor.js:264` is a testid, not the class), plus the `scripts/ui_capture.py:746-748` fallback selector and the comments naming it (`studio.css:992`, `components.css:1394`, `:1430`);
+  - `.msg-pending-approval*` with its `-badge--approved/--dismissed` and the dead base `.msg` rule (`chat.css:327-~410`), plus the contrast row `test_design_tokens_a11y.py:620-624`;
+  - `.stub-content`, `.stub-sidebar` and children (`base.css`);
+  - `.u-flex`, `.u-block` (`components.css` utilities; keep `.is-hidden`);
+  - `.back-btn`, `.refresh-btn` (with its `_DISABLED_BUTTON_SELECTORS` row at `test_design_tokens_a11y.py:1635`), and `.field-row` and children (`components.css:123-129`, `~:225-255`). Their only test users are `to_have_count(0)` negatives, which keep passing, and comments.
+
+  **Dynamic, not dead:** `.banner-error/info/warning` (`'banner banner-' + tone`, `ui/page.js:96`), `ui-disclosure--plain` (`disclosure.js:40`), and the prefix-matched `badge--` (kept kinds), `indicator-led--`, `ui-list-pane-` and `ui-menu-align-`.
+- **The catalogue** (`docs/ui-control-inventory.md`):
+  - `control_table_rows` reads only tables whose header starts `| Control |`;
+  - the only "not yet defined" row is "Data table" (`:104`);
+  - `test_inventory_rows_are_classified` accepts "not yet defined" (`:72-84`);
+  - the header prose describing statuses is at `:4` and `:23-34`;
+  - the "Owned by controls built later" table holds only `test-result`, and `test_ui_ownership.py` `owned_classes()` (`~:222`) reads it.
+- **The line guard:** the remaining `tests/test_area_module_size.py` entry is `studio/provider-editor.js: 896`; the file has 895 lines. Mission criterion 8 holds: `studio.js` 753, `chat.js` 538, `admin.js` 385.
+- **Squawk 0272:** item 1 (the lane-time sentence) was already updated by earlier legs; 09b refines the numbers. Item 2 is the four `agents.md` patterns.
 
 ## Inputs
-- Batch B4 (legs 06-08) landed and committed.
+- Batch B4 committed (HEAD `942c9b5`).
 
 ## Outputs
-- **The aliases deleted:**
-  - the two `window.App.*` alias lines, `App.showFlash`, `App.escapeHtml`, `App.escapeAttr`, `App.icon` and the three `icon:` descriptor fields;
-  - `_ALIAS_LINES` emptied (or removed with its check, if the test then has nothing to pin);
-  - every test call site moved to `App.ui.confirm` / `App.ui.consentLink`;
-  - `App.icons`, the table that `ui/core.js` reads, stays.
-- **The allowances:** `OWNERSHIP_ALLOWANCE = {}`, `TOTAL_USES = {}`, `MOVES = []`. `HTML_SINK_ALLOWANCE = {}` and `SINK_TOTAL = 0` (since leg 01). Any `START_ROWS` entry left is pruned if the guard allows, or documented. `test_chat_area_has_no_baselined_sink`'s docstring is current.
-- **The catalogue:**
-  - no row reads "not yet defined";
-  - the "Data table" row moves to a new **Retired** table, with its history text;
-  - the "Owned by controls built later" table loses `test-result`, and is deleted if then empty;
-  - the header prose describes the final statuses;
-  - `tests/test_ui_control_inventory.py` gains a test that fails on any control row whose status is "not yet defined".
-- **D6:** the seven badge kinds and their tokens, contrast rows and pins are deleted; the catalogue's Badge row is updated.
-- **Dead CSS:** the families above are deleted, with their contrast row. `scripts/unused_selectors.py` learns the dynamic prefixes. The report, run on every stylesheet, is clean apart from documented dynamic users, and its output is recorded in the flight log.
-- **Docs to their final state:** the passages listed above. Squawk 0272's corrective action and verification are recorded (status `in-progress` until the flight commit). The totals read zero.
-- **The mission artifact:** `mission.md`'s "Alias shims" Known Issue gets its closing counts (all zero) and is checked off.
+1. **The aliases:**
+   - delete the two `window.App.*` lines, `App.showFlash`, `App.escapeHtml`, `App.escapeAttr`, `App.icon` (and its warning string) and the three `icon:` descriptor fields;
+   - remove `_ALIAS_LINES`, its comment and the `continue`;
+   - move the test callers to `App.ui.confirm` / `App.ui.consentLink`, and **delete** the two identity assertions (`test_ui_copy_contract.py:151`, `test_ui_confirm_contract.py:273`);
+   - add `escapeHtml` and `escapeAttr` patterns to `RETIRED_APIS`, which stays as the regression guard;
+   - confirm `App.icons` is still defined (`tests/browser/test_shell_rail.py:521` passes).
+2. **The comment scrub (product only):** every comment in `the_one/` that names an alias moves to the `App.ui.*` name, including `components.css` `:541`, `:865`, `:1154`, `:1475`; `dialog.js:7`; `agent-editor.js:35`; `ui/confirm.js:6`, `:13`, `:82`; `ui/core.js:216`; `ui/list-pane.js:137`, `:166`, `:556`; and any other the code-only grep surfaces. Test docstrings and `RETIRED_APIS` strings may keep historical mentions.
+3. **The allowances:** confirm the empty tables; set `START_ROWS = frozenset()`; update `_ui_ownership_allowance.py`'s docstring and comments to the closed state.
+4. **D6:** delete the seven kinds from `BADGE_KINDS`, `components.css` and both themes in `tokens.css`. Retarget every test producer and mirror listed in Context to a kept kind (`ollama` or `local`), **including a deliberate edit of the frozen `_legacy_tool_css.py`**, with the reason in the flight log. `test_ui_choice_contract.py`'s count and `test_ui_badge_kinds.py` become 11, and the `design_tokens.py` dicts and `test_design_tokens_a11y.py` tables are trimmed. Record the producer grep (command and result) in the flight log.
+5. **Dead CSS:** delete every family under "Product-dead CSS", with its contrast rows, the `ui_capture.py` fallback selector and the scrubbed comments.
+6. **The unused-selector script:** it adds the `banner-` and `ui-disclosure--` dynamic prefixes, and skips `tests/behavior/**/runs/` and `data-testid` string values. Its report on every `css/*.css` then lists no unused selector. Prefix-matched dynamic users may still appear under "check by hand" and are documented in the flight log (after D6, `badge--` lists only kept kinds).
+7. **The catalogue:**
+   - move "Data table" to a new **Retired** table with a `| Retired control |` header, whose prose cites no `App.ui.<x>` that is not a factory;
+   - delete the "Owned by controls built later" table, and guard `owned_classes()` against its absence if `test_catalogue_declares_owned_classes` needs it;
+   - rewrite the header prose (`:4`, `:23-34`) for the final statuses;
+   - update the rows that name aliases or dead CSS (`:47`, `:74` Badge, `:76`, `:77`, `:91`, `:114`, `:124`);
+   - in `tests/test_ui_control_inventory.py`, delete the `"not yet defined"` branch (`:72-84`) and add `test_no_control_row_is_not_yet_defined`.
+8. **The line guard:** tighten `studio/provider-editor.js` to 895.
+9. **Docs:**
+   - `docs/ui-testid-registry.md` `:106`, `:138`, `:269`, `:329`, `:432`;
+   - `the_one/agents.md` `:28`, `:925`, `:1438`/`:1442`, `:1813` (check its kinds count), `:1935`, `:1970`, `:2124`, `:2134`, `:2142` ("KINDS (14)"), `:2160-2172` (including "not yet defined"), `:2218`; `:941` is history and may stay;
+   - CLAUDE.md `:99` (`App.confirmDelete`, "13 `App.confirmDelete` call sites") and the totals paragraph (`~:293`), ending at 0 rows / 0 uses / 0 sinks;
+   - squawk 0272: verify and record item 1; add the four patterns to `agents.md`; record its corrective action and verification (status `in-progress` until the flight commit);
+   - `mission.md`'s "Alias shims" Known Issue: closing counts (all zero), checked off.
 
 ## Acceptance Criteria
-- [ ] `git grep -nE "App\.(confirmDelete|consentLink|showFlash|escapeHtml|escapeAttr|icon)\b" -- the_one/ tests/ scripts/` finds no code use. History documents (flight logs, debriefs, squawks, release notes) are excluded by path.
-- [ ] `OWNERSHIP_ALLOWANCE`, `TOTAL_USES`, `MOVES` and `HTML_SINK_ALLOWANCE` are empty, and `tests/test_ui_ownership.py` and `tests/test_ui_guards.py` pass.
-- [ ] The new inventory test passes, and fails when a "not yet defined" row is added (checked once, then reverted). The Retired table holds "Data table".
-- [ ] **D6:** `tests/test_ui_badge_kinds.py` pins 11 kinds, and the contrast and token tests pass.
-- [ ] `scripts/unused_selectors.py` on every `css/*.css` lists nothing unused apart from documented dynamic users. The output is in the flight log.
-- [ ] CLAUDE.md's totals read 0 rows / 0 uses and 0 sinks, squawk 0272's sentence is fixed, and `the_one/agents.md` has the four patterns. A grep for the old totals ("25 ownership rows", "5 HTML-string sinks") finds no live text.
-- [ ] **Lanes:** `contracts-controls`, `contracts-overlay`, `contracts-chat` (`THE_ONE_REQUIRE_WEBKIT=1`), `chats`, `chats-transcript`, `shared` and `settings` (badge kinds in tool categories, if any). `make test-unit` passes, and `ruff` is clean.
+- [ ] **No alias use in code:** a JS-code-only grep over `the_one/` with comments stripped finds no `App.confirmDelete`, `App.consentLink`, `App.showFlash`, `App.escapeHtml`, `App.escapeAttr` or `App.icon(`. `tests/test_ui_ownership.py`'s retired-API scan passes. A plain grep of `the_one/` comments finds none of these names either.
+- [ ] `OWNERSHIP_ALLOWANCE`, `TOTAL_USES`, `MOVES` and `HTML_SINK_ALLOWANCE` are empty, and `START_ROWS` is `frozenset()`. `tests/test_ui_ownership.py`, `tests/test_ui_guards.py` and `tests/test_ui_library_source.py` pass.
+- [ ] **The inventory:** `test_no_control_row_is_not_yet_defined` passes, and fails when a "not yet defined" control row is added (checked once, then reverted). The Retired table holds "Data table", and `test_catalogue_declares_owned_classes` passes.
+- [ ] **D6:** `tests/test_ui_badge_kinds.py` pins 11 kinds. `test_ui_tile_contract.py`, `test_ui_choice_contract.py`, `test_ui_list_pane_chats_contract.py`, `test_design_tokens_a11y.py` and `test_token_definitions.py` pass.
+- [ ] **The improved `scripts/unused_selectors.py`** on every `css/*.css` lists nothing unused. Its "check by hand" items are all documented dynamic users. Its output is in the flight log.
+- [ ] **No sentence states a current total other than 0** in CLAUDE.md, `the_one/agents.md` or the catalogue; history phrasings may stay. Squawk 0272's four patterns are in `agents.md`.
+- [ ] `tests/test_area_module_size.py` passes with 895.
+- [ ] **Lanes:** `contracts-controls`, `contracts-overlay`, `contracts-chat` (`THE_ONE_REQUIRE_WEBKIT=1`), `chats`, `chats-transcript`, `shared`, `settings`, `settings-tools`, `library` and `providers`, at most three at a time. Then `make test-unit` (netns: 15 skipped expected), and `ruff` is clean.
 
 ## Verification Steps
-1. The greps in the criteria.
-2. `.venv/bin/python -m pytest tests/test_ui_ownership.py tests/test_ui_guards.py tests/test_ui_control_inventory.py tests/test_ui_library_source.py tests/test_ui_badge_kinds.py tests/test_design_tokens_a11y.py tests/test_token_definitions.py tests/test_css_layers.py -q -x --timeout 120`.
-3. `.venv/bin/python scripts/unused_selectors.py the_one/interfaces/web/static/css/*.css`.
-4. The lanes, at most three at a time; then `make test-unit`.
+1. **The code-only grep:** a small script in the session scratchpad that strips `//` and `/* */` comments from `the_one/interfaces/web/static/js/**/*.js` and greps the alias names. Also a plain `git grep` of `the_one/` for the names (comments included).
+2. `.venv/bin/python -m pytest tests/test_ui_ownership.py tests/test_ui_guards.py tests/test_ui_control_inventory.py tests/test_ui_library_source.py tests/test_ui_badge_kinds.py tests/test_design_tokens_a11y.py tests/test_token_definitions.py tests/test_css_layers.py tests/test_area_module_size.py -q -x --timeout 120`.
+3. `.venv/bin/python scripts/unused_selectors.py the_one/interfaces/web/static/css/*.css` (after the script change).
+4. The lanes; then `make test-unit`; `ruff check`; `ruff format --check`.
 
 ## Implementation Guidance
-1. **The aliases**, then their test call sites; `_ALIAS_LINES`.
-2. **The allowances** to empty; prune `START_ROWS`.
-3. **The catalogue:** Retired table, header prose, the new inventory test.
-4. **D6**, after the producer grep.
-5. **Dead CSS** and the unused-selector report.
-6. **Docs** and squawk 0272; the mission's Known Issue.
-7. **The lanes** and `make test-unit`.
+1. **The aliases and their tests** (Outputs 1-3), then the guards.
+2. **D6** (Output 4), then `contracts-controls` and the tile contract file at once.
+3. **Dead CSS** (Output 5).
+4. **The unused-selector script** (Output 6), then the report.
+5. **The catalogue** (Output 7), the line guard (8) and docs (9).
+6. **The lanes** and `make test-unit`.
 
 ## Edge Cases
-- **An alias with a remaining caller** found by the grep (for example a comment-only use is fine; a code use is not). Move the caller, don't keep the alias.
-- **A badge kind that still has a producer** (the grep finds one): keep that kind and record why.
-- **The unused-selector script counts `tests/` as a user:** a selector used only by a test is dead product CSS. Check each hit by hand.
+- **A product producer** for a D6 kind surfacing mid-leg: stop, keep that kind, record why (none was found at review).
+- **`owned_classes()` with the "built later" table gone:** guard the parse, and keep the test's other assertions.
+- **The frozen legacy-tile fixture:** edit only the kind, not the comparison logic. Note it in the fixture's header.
 
 ## Files Affected
-- `the_one/interfaces/web/static/js/{app,icons}.js`, `js/ui/{confirm,consent-link,feedback}.js`, the three area entry modules, `css/{components,chat,base,tokens}.css`.
-- `tests/test_ui_library_source.py`, `tests/_ui_ownership_allowance.py`, `tests/test_ui_guards.py`, `tests/test_ui_control_inventory.py`, `tests/test_ui_badge_kinds.py`, `tests/test_design_tokens_a11y.py`, the alias-calling contract tests, `scripts/unused_selectors.py`.
-- `docs/ui-control-inventory.md`, `the_one/agents.md`, CLAUDE.md, `missions/31-control-library-everywhere/mission.md`, `squawks/0272-…`, the flight log.
+- **Product:** `the_one/interfaces/web/static/js/{app,icons,dialog}.js`, `js/ui/{confirm,consent-link,core,feedback,list-pane,page}.js`, `js/areas/{chat,studio,admin}.js`, `js/areas/studio/agent-editor.js`, `css/{components,chat,studio,base,tokens}.css`.
+- **Tests:** `tests/test_ui_library_source.py`, `tests/test_ui_ownership.py`, `tests/_ui_ownership_allowance.py`, `tests/test_ui_guards.py`, `tests/test_ui_control_inventory.py`, `tests/test_ui_badge_kinds.py`, `tests/test_design_tokens_a11y.py`, `tests/test_area_module_size.py`, `tests/browser/{test_ui_confirm_contract,test_ui_list_pane_chats_contract,test_ui_copy_contract,test_ui_tile_contract,_legacy_tool_css,design_tokens,test_ui_choice_contract,test_shell_rail}.py`, `tests/browser/_probe_mount_ui.js`.
+- **Scripts:** `scripts/unused_selectors.py`, `scripts/ui_capture.py`.
+- **Docs:** `docs/ui-control-inventory.md`, `docs/ui-testid-registry.md`, `the_one/agents.md`, CLAUDE.md, `missions/31-control-library-everywhere/mission.md`, `squawks/0272-…`, the flight log.
 
 ## Citation Audit
-- `ui/confirm.js:195`, `ui/consent-link.js:118`, `app.js:240-250`, `:287`, `:303-307`, `icons.js:84`, `tests/test_ui_library_source.py:25-35`, `chat.js:4`, `studio.js:15`, `admin.js:4`, `ui/feedback.js:8-27`, `docs/ui-control-inventory.md:4`, `:23-34`, `:60`, `:104`. FD grep (2026-10-27, after leg 05a).
-- **Re-run after batch B4 landed** (FD grep, 2026-10-27, B4 uncommitted):
-  - `OWNERSHIP_ALLOWANCE`, `TOTAL_USES` and `MOVES` are **already empty** (legs 05b and 07 retired the last rows; `MOVES` holds only a comment), so this leg confirms them and tidies the comments rather than emptying them;
-  - the aliases are still defined: `ui/confirm.js:195`, `ui/consent-link.js:118`, and `app.js` `escapeHtml` / `escapeAttr` `:240-250`, `showFlash` `:287`, exports `:303-307`; `App.icon` is at `icons.js:84` (its only reference left is its own warning string);
-  - no app code calls any alias. Tests still do: `test_ui_confirm_contract.py` (12), `test_ui_list_pane_chats_contract.py` (6), and the guard tests' fixtures (`test_ui_ownership.py`, `_ui_ownership_allowance.py` comments);
-  - the only "not yet defined" control row left is "Data table" (`:104`); the header prose is at `:4`, `:23-34`.
+- **Verified at design review cycles 1-2** (Sonnet, read-only, HEAD `942c9b5`): every line reference in Context, including the D6 producer grep and the unused-selector re-run.
 
 ---
 
 ## Post-Completion
 Completion steps (status transitions, the flight-log update, checking off in the parent flight, and the commit) are Flight Control protocol, driven by the execution workflow. They are not repeated here.
+
+## Design Review Amendments (cycle 1, 2026-10-27, needs rework; these take precedence)
+- **The allowances are already empty.** This leg sets `START_ROWS = frozenset()` (it still lists 23 stale keys) and tidies `_ui_ownership_allowance.py`'s docstring and comments. `OWNERSHIP_ALLOWANCE`, `TOTAL_USES` and `MOVES` are only confirmed. `RETIRED_APIS` in `test_ui_ownership.py`, with its fixtures, **stays** as the regression guard against a re-introduced call; `escapeHtml` and `escapeAttr` patterns are added to it. The `OwnershipMove` machinery tests stay (they use their own fixtures).
+- **`_ALIAS_LINES` is removed, not emptied:** the set, its comment and the `continue` at `test_ui_library_source.py:56`.
+- **Alias callers and assertions:**
+  - `test_ui_confirm_contract.py` (`:54-273`), `test_ui_list_pane_chats_contract.py` (`:242`, `:449`, `:493`, `:508`, `:527`, `:549`) and **`test_ui_copy_contract.py`** (`:148-158`, `:243-245`) move to `App.ui.*`;
+  - the identity assertions `App.consentLink === App.ui.consentLink` (`test_ui_copy_contract.py:151`) and `App.confirmDelete === App.ui.confirm` (`test_ui_confirm_contract.py:273`) are **deleted**;
+  - `icons.js` keeps `App.icons` and drops `icon` and its warning string;
+  - the header comments in `core.js:216` and `ui/confirm.js` move off the alias names;
+  - a check that `App.icons` is still defined (the rail needs it) is added or confirmed, and `tests/browser/test_shell_rail.py:521` passes.
+- **The acceptance grep is redefined.** It is the `test_ui_ownership.py` retired-API scan plus a JS-code-only grep with comments stripped over `the_one/`. **Product comments and CSS comments that name an alias are scrubbed:** `components.css` `:541`, `:865`, `:1154`, `:1475`; `dialog.js:7`; `agent-editor.js:35`; others the grep finds. Test docstrings and the guard strings may keep historical mentions.
+- **D6: all seven kinds are deleted** (the operator approved D6). The producer grep finds **no product producer**; every producer is in tests or fixtures, and this is recorded in the flight log. These change with the deletion:
+  - `tests/browser/test_ui_tile_contract.py` (`~:598`, `:628`, `:677-700`): retargeted to a kept kind (`ollama` or `local`);
+  - the frozen `tests/browser/_legacy_tool_css.py` (`:339-346`): edited **deliberately** to a kept kind, with the reason in the log;
+  - `test_ui_list_pane_chats_contract.py:96`, `_probe_mount_ui.js:60`, `:74`, and `test_ui_choice_contract.py:340-348` (its `"kinds": 18` becomes 11, and its throws check uses a deleted kind);
+  - both theme dicts in `tests/browser/design_tokens.py` (`~:116-142`, `~:212-233`);
+  - `tests/test_design_tokens_a11y.py` (`_TOKEN_BADGE_KINDS` `~:1170-1190`, `_BADGE_INK_PAIRS` `~:1348-1354`, `test_badge_semantic_kinds_sit_on_the_gated_ladder` `~:1163`);
+  - `components.css:1963-1985`, `tokens.css:175-207` and `:338-368` (both themes);
+  - `tests/test_ui_badge_kinds.py` (18 becomes 11);
+  - `agents.md:1970` and `:2142` ("KINDS (14)").
+
+  D6 runs **before** the dead-CSS deletions, then `contracts-controls` and the tile contract file.
+- **Dead CSS, classified by hand** (the script's report was masked: it counts behavior run logs and `data-testid` values as users). Delete:
+  - `.test-result*` (`components.css:1376-1450`), plus the `ui_capture.py:746-748` fallback selector;
+  - `.msg-pending-approval*` and the dead base `.msg` rule (`chat.css:327-~410`), with the contrast row at `test_design_tokens_a11y.py:620-624`;
+  - `.stub-*` (`base.css`);
+  - `.u-flex`, `.u-block`;
+  - **added at review:** `.back-btn`, `.refresh-btn` (with its `_DISABLED_BUTTON_SELECTORS` row at `test_design_tokens_a11y.py:1635`) and `.field-row` and children (`components.css:123-129`, `~:225-255`). These are product-dead; their only test users are `to_have_count(0)` negatives (which keep passing) and comments. The mission criterion requires removing unused style rules (FD answer).
+
+  **Not dead:** `.banner-error/info/warning` (emitted as `'banner banner-' + tone`). `scripts/unused_selectors.py` adds the `banner-` and `ui-disclosure--` prefixes, and **skips `tests/behavior/**/runs/` and `data-testid` string values**, so a "clean" report means something. The acceptance line applies to that improved report.
+- **Catalogue mechanics:**
+  - the Retired table uses a header other than `| Control |` (for example `| Retired control |`), so `control_table_rows` ignores it;
+  - the `"not yet defined"` branch in `test_inventory_rows_are_classified` (`:72-84`) is deleted, and `test_no_control_row_is_not_yet_defined` is added;
+  - the Retired table's prose cites no `App.ui.<x>` that is not a factory (`inventory_citations` scans the whole file);
+  - the "Owned by controls built later" table (only `test-result`) is deleted whole, and `test_ui_ownership::test_catalogue_declares_owned_classes` is re-run;
+  - the header prose at `:4` and `:23-34` is rewritten, without the "migrate to status" paragraph or the "next mission" wording;
+  - rows that name aliases or dead CSS are updated: `:47` (consentLink), `:74` (Badge: the kinds, "per-area badge classes migrate"), `:76`, `:77` (`App.icon`, `showFlash`), `:91`, `:114` (the `.msg-pending-approval*` note), `:124`.
+- **Docs, the full list:**
+  - `docs/ui-testid-registry.md` `:106`, `:138`, `:269`, `:329`, `:432`;
+  - `the_one/agents.md` `:28`, `:925`, `:1438`/`:1442`, `:1935`, `:1970`, `:2124`, `:2134`, `:2142`, `:2160-2172` (including "not yet defined" at `:2164`, `:2167`), `:2218` (`escapeHtml`/`escapeAttr`);
+  - CLAUDE.md `:99` (`App.confirmDelete`; "13 `App.confirmDelete` call sites" in the confirm-lapse section) and the totals paragraph (`~:293`), which ends at 0 rows / 0 uses / 0 sinks. History phrasings ("from 66 / 167", "from 5 at the close of Flight 5") may stay, so the "no live text" check means "no sentence stating a current total other than 0".
+- **Squawk 0272:** item 1 (the lane-time sentence) was already updated by earlier legs; this leg verifies it and records that. The four `agents.md` patterns are added.
+- **The line guard:** `tests/test_area_module_size.py`'s remaining entry `studio/provider-editor.js` is tightened from 896 to its actual 895 (shrink-only). Mission criterion 8 holds (`studio.js` 753, `chat.js` 538, `admin.js` 385), recorded for the mission close-out.
+- **The citations are corrected** to the review's verified line numbers above.
+
+## Design Review
+- **Developer design review, cycle 1** (Sonnet, 2026-10-27, after B4): **needs rework.** Applied as the amendments above. FD answers:
+  - full D6, with deliberate test and fixture retargets;
+  - the three newly found dead families are deleted;
+  - `_ALIAS_LINES` is removed;
+  - the grep is redefined, and product comments are scrubbed.
+- **A second cycle follows** (needs rework).
+- **Developer design review, cycle 2** (Sonnet, 2026-10-27): approve with changes. Every cycle-1 finding was resolved against the code. Its remaining points (contradictions between the original body and the amendments, the under-listed Files Affected, an incomplete comment-scrub list, the `agents.md` `:941`/`:1813` lines, and the dynamic-user note) are folded into the **rewritten body above**. FD answers: the `.test-result` comments are scrubbed; `owned_classes()` is guarded if the table's absence breaks it. This was the final cycle.

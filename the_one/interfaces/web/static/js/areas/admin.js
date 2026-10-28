@@ -1,7 +1,6 @@
 App.registerArea({
   id: 'admin',
   label: 'System',
-  icon: App.icons.admin,
   order: 30,
 
   // The General pages (M25 F3 L5a, DD6): the former single "General" page is

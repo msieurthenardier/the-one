@@ -1,4 +1,7 @@
-"""Frozen allowance for ``tests/test_ui_ownership.py`` (see its docstring for the ratchet).
+"""Allowance for ``tests/test_ui_ownership.py`` (see its docstring for the ratchet).
+
+Closed state (M31 F6 L09a): every table here is empty and stays empty; a use outside ``js/ui/``
+is a failure, not an allowance.
 
 M31 F5 L01 adds the move rule: ``TOTAL_USES`` (exact per-key totals across every file),
 ``START_ROWS`` (the rows that existed at the flight's start) and ``MOVES`` (a file split's
@@ -24,38 +27,12 @@ class OwnershipMove(NamedTuple):
     retire_by: str
 
 
-# Keys of ``OWNERSHIP_ALLOWANCE`` as of M31 F6 L01. A row outside this set is a NEW row and
-# needs ``MOVES`` entries (a split is the only sanctioned way to create one).
-START_ROWS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("css/chat.css", "badge"),
-        ("css/chat.css", "field-input"),
-        ("css/chat.css", "ui-drawer-header"),
-        ("css/chat.css", "ui-list-pane"),
-        ("css/chat.css", "ui-search-list"),
-        ("css/chat.css", "ui-search-list-empty"),
-        ("css/chat.css", "ui-search-list-field"),
-        ("css/chat.css", "ui-search-list-listbox"),
-        ("css/studio.css", "editor-section"),
-        ("css/studio.css", "field-input"),
-        ("css/studio.css", "tabpanel"),
-        ("css/studio.css", "ui-list-pane"),
-        ("js/areas/chat.js", "api:App.confirmDelete("),
-        ("js/areas/chat.js", "api:App.consentLink."),
-        ("js/areas/chat.js", "btn-filled-primary"),
-        ("js/areas/chat.js", "chip"),
-        ("js/areas/chat.js", "confirm-delete"),
-        ("js/areas/chat.js", "consent-link"),
-        ("js/areas/chat/agent-drawer.js", "badge"),
-        ("js/areas/chat/agent-picker.js", "modal-dialog-footer-end"),
-        ("js/areas/chat/chat-pane.js", "badge"),
-        ("js/icons.js", "api:App.icon("),
-        ("js/icons.js", "api:App.iconNode("),
-    }
-)
+# Closed at M31 F6 L09a: there are no allowance rows, so a row outside this (empty) set is a NEW
+# row and needs ``MOVES`` entries (a split is the only sanctioned way to create one).
+START_ROWS: frozenset[tuple[str, str]] = frozenset()
 
 MOVES: list[OwnershipMove] = [
-    # M31 F6 L02: the chat.js split (DD3); the uses move verbatim, then each leg below retires them.
+    # Empty: every move retired by M31 F6 L07; closed for the mission at L09a.
 ]
 
 # Exact total of every key across every file, measured at M31 F5 L01. A key absent here counts 0.

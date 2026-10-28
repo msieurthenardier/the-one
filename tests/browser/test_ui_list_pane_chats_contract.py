@@ -2,7 +2,7 @@
 """Engine-parametrized contract tests for the ``App.ui.listPane`` additions of
 M25 F4 L1 (DD5, DD12, DD14): ``rowStyle: 'chats'``, the header ``block`` slot,
 row actions (the tab policy, the arrow keys, the reveal, focus across
-``setItems``, the armed-row reuse with ``App.confirmDelete``), ``item.dataset``
+``setItems``, the armed-row reuse with ``App.ui.confirm``), ``item.dataset``
 and the label's ``data-confirm-title``.
 
 Every Flight 3 ``listPane`` contract stays in ``test_ui_library_contract.py``.
@@ -93,7 +93,7 @@ def test_chats_row_anatomy(engine_page: Page, theme: str) -> None:
     p = engine_page
     palette = DARK if theme == "dark" else LIGHT
     p.evaluate(
-        "() => { window.__pane.setItems([{label: 'Today', items: window.__mk(['a', 'b'], {a: {badges: [{text: 'discord', kind: 'connectors'}]}})}]);"
+        "() => { window.__pane.setItems([{label: 'Today', items: window.__mk(['a', 'b'], {a: {badges: [{text: 'discord', kind: 'local'}]}})}]);"
         " window.__pane.setSelected('b'); }"
     )
     out = p.evaluate(
@@ -239,7 +239,7 @@ def test_dataset_and_data_confirm_title(engine_page: Page) -> None:
           const label = row.querySelector('.ui-list-pane-label');
           const li = row.parentNode;
           const before = [row.dataset.id, label.hasAttribute('data-confirm-title'), label.textContent];
-          App.confirmDelete(li, () => {});
+          App.ui.confirm(li, () => {});
           return {before, armedText: label.textContent, armed: li.classList.contains('confirm-delete')}; }"""
     )
     assert out == {"before": ["b", True, "Chat b"], "armedText": "Confirm delete?", "armed": True}
@@ -435,7 +435,7 @@ def test_a_focused_row_whose_item_is_gone_keeps_the_selected_then_first_rule(
     assert _focused(p) == "cr-row-e"  # the selected row, not the neighbour c
 
 
-# ── Armed rows (App.confirmDelete) ──────────────────────────────────────────
+# ── Armed rows (App.ui.confirm) ──────────────────────────────────────────
 
 
 def test_an_armed_li_survives_set_items_with_the_new_item(engine_page: Page) -> None:
@@ -446,7 +446,7 @@ def test_an_armed_li_survives_set_items_with_the_new_item(engine_page: Page) -> 
     p.evaluate(
         """() => { const li = document.querySelector('[data-testid=cr-row-b]').parentNode;
           window.__armedLi = li; window.__armedRow = li.firstElementChild; window.__armedAct = li.lastElementChild;
-          App.confirmDelete(li, () => {}); }"""
+          App.ui.confirm(li, () => {}); }"""
     )
     # A rebuild with NEW item objects (tagged), the armed item's label changed.
     p.evaluate(
@@ -490,7 +490,7 @@ def test_a_focused_armed_action_keeps_focus_across_set_items(engine_page: Page) 
     p = engine_page
     p.get_by_test_id("cr-row-b").focus()
     p.keyboard.press("Tab")
-    p.evaluate("() => App.confirmDelete(document.activeElement.parentNode, () => {})")
+    p.evaluate("() => App.ui.confirm(document.activeElement.parentNode, () => {})")
     p.evaluate("() => { window.__act = document.activeElement; }")
     p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'b', 'c']))")
     assert p.evaluate("() => document.activeElement === window.__act")  # the same node, refocused
@@ -505,7 +505,7 @@ def test_an_armed_li_whose_item_is_gone_is_dropped_and_its_timer_is_harmless(
     p.on("pageerror", lambda e: errors.append(str(e)))
     p.evaluate(
         """() => { const li = document.querySelector('[data-testid=cr-row-b]').parentNode;
-          window.__armedLi = li; App.confirmDelete(li, () => {}, {revertMs: 120}); }"""
+          window.__armedLi = li; App.ui.confirm(li, () => {}, {revertMs: 120}); }"""
     )
     p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'c']))")
     assert p.evaluate("() => window.__armedLi.isConnected") is False
@@ -524,7 +524,7 @@ def test_after_it_disarms_the_next_set_items_rebuilds_the_li(engine_page: Page) 
     p = engine_page
     p.evaluate(
         """() => { const li = document.querySelector('[data-testid=cr-row-b]').parentNode;
-          window.__armedLi = li; App.confirmDelete(li, () => {}, {revertMs: 100}); }"""
+          window.__armedLi = li; App.ui.confirm(li, () => {}, {revertMs: 100}); }"""
     )
     p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'b', 'c']))")
     assert p.evaluate(
@@ -546,7 +546,7 @@ def test_the_armed_row_shows_the_danger_cue_and_its_action(engine_page: Page) ->
     p = engine_page
     p.mouse.move(1000, 700)
     p.evaluate(
-        "() => App.confirmDelete(document.querySelector('[data-testid=cr-row-c]').parentNode, () => {})"
+        "() => App.ui.confirm(document.querySelector('[data-testid=cr-row-c]').parentNode, () => {})"
     )
     out = p.evaluate(
         """() => { const row = document.querySelector('[data-testid=cr-row-c]');

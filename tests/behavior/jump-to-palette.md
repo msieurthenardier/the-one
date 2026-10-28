@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-05
 **Updated**: 2026-10-27 (M31 F6 L03b, D4 / squawk 0185: step 2's active-row expectation re-authored, the highlighted row is kept by identity when data lands, no longer "the first row follows the data"; step 3's note on a changed query); 2026-10-24 (M31 F4 L11: the theme options are native radios, so the Theme variant checks `checked`, not `aria-checked`); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: step 8's hash, step 9's Description selector, step 12's dialog count, the Variants' scrim alpha and the element the legibility check reads); 2026-10-06 (M25 F4 leg 9: step 2's empty-query expectation re-authored for the recent-chats/New chat…/recent-agents mix); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
-**Last Run**: 2026-10-06-14-00-21 — pass (a targeted re-run of steps 1, 2 and 14 in Light and Dark after M25 F4 leg 9, the empty-query mix; the full run 2026-10-06-06-01-26 passed 24/24)
+**Last Run**: 2026-10-28-02-56-59 — pass (24/24; Light + Dark; M31 F6 close sweep, port 8502; step-2 evidence-wording follow-up, see runs/)
 
 ## Intent
 
@@ -27,11 +27,11 @@ It runs in both themes (see Variants) and creates data prefixed `jtp-`.
 
 ## Preconditions
 
-- **Instance under test.** A dedicated dev instance with a non-default port AND a **fresh**
+- **Instance under test.** A dedicated dev instance on a dedicated port of 8490 or higher (not 8485, the Flight Director's preview port; never 8484) AND a **fresh**
   scratch data directory, with dev mode on, for example:
 
   ```
-  THE_ONE_PORT=8488 THE_ONE_DATA_DIR=/tmp/the-one-jtp-scratch THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve
+  THE_ONE_PORT=<port> THE_ONE_DATA_DIR=$HOME/the-one-jtp-scratch THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve
   ```
 
   Start it from a scratch working directory, not the repo root (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`; CLAUDE.md "SAFETY RULE"), detached with the PID recorded; stop it by that PID.

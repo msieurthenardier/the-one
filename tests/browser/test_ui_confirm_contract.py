@@ -1,5 +1,5 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
-"""Browser test: `App.confirmDelete`'s own arm/commit/lapse/revert contract
+"""Browser test: `App.ui.confirm`'s own arm/commit/lapse/revert contract
 (`the_one/interfaces/web/static/js/ui/confirm.js`), independent of any one
 call site.
 
@@ -8,7 +8,7 @@ its own — it is a shared helper reached by 14 call sites across 8 files. This
 is the one test of the CONTRACT itself.
 
 M31 F1 L4: the helper moved into the control library as `App.ui.confirm`
-(`App.confirmDelete` is the same function) and this file joined the `contracts`
+and this file joined the `contracts`
 lane, running in Chromium and WebKit through `engine_page` + `load_harness`.
 
 Exercises the helper directly via `page.evaluate` against a synthetic
@@ -51,7 +51,7 @@ def test_first_click_arms_second_click_commits(engine_page: Page) -> None:
         () => {
           var el = document.getElementById('probe');
           var calls = [];
-          window.App.confirmDelete(el, function (itemEl, revertFn) {
+          window.App.ui.confirm(el, function (itemEl, revertFn) {
             calls.push('committed');
           });
           return {
@@ -73,7 +73,7 @@ def test_first_click_arms_second_click_commits(engine_page: Page) -> None:
         () => {
           var el = document.getElementById('probe');
           var calls = [];
-          window.App.confirmDelete(el, function (itemEl, revertFn) {
+          window.App.ui.confirm(el, function (itemEl, revertFn) {
             calls.push('committed');
           });
           return { armed: el.classList.contains('confirm-delete'), calls: calls };
@@ -98,8 +98,8 @@ def test_capture_discipline_only_first_click_captures_original_title(engine_page
         () => {
           var el = document.getElementById('probe');
           var revertFn;
-          window.App.confirmDelete(el, function () {}); // arm
-          window.App.confirmDelete(el, function (itemEl, r) { revertFn = r; }); // commit
+          window.App.ui.confirm(el, function () {}); // arm
+          window.App.ui.confirm(el, function (itemEl, r) { revertFn = r; }); // commit
           revertFn(); // simulate a transport-failure rollback
           return el.querySelector('[data-confirm-title]').textContent;
         }
@@ -120,7 +120,7 @@ def test_lapse_on_a_detached_element_announces_nothing(engine_page: Page) -> Non
     out = page.evaluate(
         """async () => {
           const el = document.getElementById('probe');
-          window.App.confirmDelete(el, function () {}, { revertMs: 300 });
+          window.App.ui.confirm(el, function () {}, { revertMs: 300 });
           await new Promise((r) => setTimeout(r, 50));
           const live = document.querySelector('[data-testid=ui-confirm-live]');
           const armedText = live.textContent;
@@ -149,7 +149,7 @@ def test_lapse_is_visually_distinct_and_clears_on_next_interaction(engine_page: 
         """
         () => {
           var el = document.getElementById('probe');
-          window.App.confirmDelete(el, function () {}, { revertMs: 1500 });
+          window.App.ui.confirm(el, function () {}, { revertMs: 1500 });
         }
         """
     )
@@ -163,14 +163,14 @@ def test_lapse_is_visually_distinct_and_clears_on_next_interaction(engine_page: 
 
     # Next interaction (a fresh arm) clears the lapse cue. This synthetic
     # fixture has no click LISTENER wired (unlike every real call site) —
-    # invoke confirmDelete directly again, the same "next call to
-    # confirmDelete for this itemEl" the helper itself defines as the
+    # invoke App.ui.confirm directly again, the same "next call to
+    # App.ui.confirm for this itemEl" the helper itself defines as the
     # clearing trigger.
     page.evaluate(
         """
         () => {
           var el = document.getElementById('probe');
-          window.App.confirmDelete(el, function () {}, { revertMs: 1500 });
+          window.App.ui.confirm(el, function () {}, { revertMs: 1500 });
         }
         """
     )
@@ -193,8 +193,8 @@ def test_revertfn_success_path_never_marks_lapse(engine_page: Page) -> None:
         () => {
           var el = document.getElementById('probe');
           var revertFn;
-          window.App.confirmDelete(el, function () {}, { revertMs: 60000 }); // arm, long timer
-          window.App.confirmDelete(el, function (itemEl, r) { revertFn = r; }); // commit
+          window.App.ui.confirm(el, function () {}, { revertMs: 60000 }); // arm, long timer
+          window.App.ui.confirm(el, function (itemEl, r) { revertFn = r; }); // commit
           // Simulate a caller's SUCCESS path invoking revertFn (system-page.js
           // precedent) well before the timer could ever fire.
           revertFn();
@@ -223,8 +223,8 @@ def test_revert_is_idempotent(engine_page: Page) -> None:
         () => {
           var el = document.getElementById('probe');
           var revertFn;
-          window.App.confirmDelete(el, function () {});
-          window.App.confirmDelete(el, function (itemEl, r) { revertFn = r; });
+          window.App.ui.confirm(el, function () {});
+          window.App.ui.confirm(el, function (itemEl, r) { revertFn = r; });
           revertFn();
           revertFn(); // second call — must not throw
           return {
@@ -252,7 +252,7 @@ def test_missing_title_element_does_not_throw(engine_page: Page) -> None:
           var el = document.getElementById('probe');
           var threw = false;
           try {
-            window.App.confirmDelete(el, function () {}, { revertMs: 30 });
+            window.App.ui.confirm(el, function () {}, { revertMs: 30 });
           } catch (e) {
             threw = true;
           }
@@ -266,11 +266,6 @@ def test_missing_title_element_does_not_throw(engine_page: Page) -> None:
     probe = page.locator("#probe")
     expect(probe).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=2000)
     expect(probe).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
-
-
-def test_alias_is_the_same_function(engine_page: Page) -> None:
-    load_harness(engine_page)
-    assert engine_page.evaluate("() => App.confirmDelete === App.ui.confirm") is True
 
 
 def test_arms_commits_and_lapses_on_summary_and_li(engine_page: Page) -> None:

@@ -1,8 +1,8 @@
 """Control-ownership reuse check (M31 F1 L2, flight DD3/DD4).
 
 A control owns its CSS classes; ``docs/ui-control-inventory.md`` declares them (the
-"Owned classes" column of each ``library:`` row, plus the "Owned by controls built later"
-table). An owned class token appearing OUTSIDE the library is reuse debt: a hand-built copy
+"Owned classes" column of each ``library:`` row). An owned class token appearing OUTSIDE the
+library is reuse debt: a hand-built copy
 of a control, or a query for one. This test counts every such appearance and compares the
 count with ``OWNERSHIP_ALLOWANCE`` (``tests/_ui_ownership_allowance.py``).
 
@@ -56,6 +56,8 @@ RETIRED_APIS = {
     "api:App.confirmDelete(": re.compile(r"(?<![\w$.])(?:window\.)?App\.confirmDelete\("),
     "api:App.consentLink.": re.compile(r"(?<![\w$.])(?:window\.)?App\.consentLink\."),
     "api:App.tabs(": re.compile(r"(?<![\w$.])(?:window\.)?App\.tabs\("),
+    "api:App.escapeHtml(": re.compile(r"(?<![\w$.])(?:window\.)?App\.escapeHtml\("),
+    "api:App.escapeAttr(": re.compile(r"(?<![\w$.])(?:window\.)?App\.escapeAttr\("),
 }
 
 # ── Tokenizer ───────────────────────────────────────────────────────────────
@@ -220,19 +222,11 @@ def count_retired_api(code: str) -> Counter[str]:
 
 
 def owned_classes(text: str) -> list[str]:
-    """Owned classes of every ``library:`` row, plus the planned (built later) classes."""
+    """Owned classes of every ``library:`` row."""
     names: set[str] = set()
     for cells in control_table_rows(text):
         if cells[2].startswith("library:"):
             names.update(re.findall(r"`([\w-]+)`", cells[4]))
-    in_later = False
-    for line in text.splitlines():
-        if line.startswith("| Class | Owning control (planned) |"):
-            in_later = True
-        elif in_later and line.startswith("| `"):
-            names.add(re.match(r"\| `([\w-]+)`", line).group(1))  # type: ignore[union-attr]
-        elif in_later and not line.startswith("|"):
-            in_later = False
     return sorted(names)
 
 
@@ -463,6 +457,7 @@ def test_retired_api_calls_count_in_code_only() -> None:
         "var b = window.App.icon('x') + App.icon('y') + App.iconNode('z');\n"
         "App.confirmDelete(row, fn); App.consentLink.create(); App.ui.icon('x');\n"
         "var h = window.App.tabs(a, b) + App.tabs(c, d); App.ui.tabs({}); // App.tabs(e)\n"
+        "App.escapeHtml(a) + App.escapeAttr(b) + App.ui.escapeHtml(c);\n"
     )
     counts = count_retired_api(scan_js(js).code)
     assert counts == {
@@ -471,6 +466,8 @@ def test_retired_api_calls_count_in_code_only() -> None:
         "api:App.confirmDelete(": 1,
         "api:App.consentLink.": 1,
         "api:App.tabs(": 2,
+        "api:App.escapeHtml(": 1,
+        "api:App.escapeAttr(": 1,
     }
 
 

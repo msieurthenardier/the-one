@@ -1,9 +1,9 @@
 # Behavior Test: Agent Step-Limit Notice
 
 **Slug**: `agent-step-limit-notice`
-**Status**: draft
+**Status**: active
 **Created**: 2026-10-27
-**Last Run**: never
+**Last Run**: 2026-10-28-02-28-33 — pass (6/6; first run, M31 F6 close sweep, port 8498; draft → active)
 
 ## Intent
 
@@ -11,11 +11,11 @@ Verifies Mission 31 Flight 6's F2 end to end (DD8): when an agent stops because 
 
 ## Preconditions
 
-- **Dev instance**, per CLAUDE.md "Behavior-test credential convention" (never port 8484 or the default data directory): a scratch working directory, a non-default port (`8485`) and a scratch `THE_ONE_DATA_DIR` under `$HOME`, started with `THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1`. Read the credential from `<data_dir>/api-credential`; a browser context goes in through `POST /api/session/handoff` (one mint per fresh context).
+- **Dev instance**, per CLAUDE.md "Behavior-test credential convention" (never port 8484 or the default data directory): a scratch working directory, a dedicated port of 8490 or higher (not 8485, the Flight Director's preview port) and a scratch `THE_ONE_DATA_DIR` and working directory under `$HOME`, started with `THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1`. Read the credential from `<data_dir>/api-credential`; a browser context goes in through `POST /api/session/handoff` (one mint per fresh context).
 - **The seed** (through the REST API, no real model):
   - a `mock` provider whose `config.response` is `{"tool_calls": [{"id": "t1", "name": "current_time", "arguments": {}}]}`, so every reply asks for the `current_time` tool again (the same call id each time is fine for two iterations);
   - an agent `limit-agent` on that provider with `max_iterations` 2;
-  - a `stub` connector `bt-limit` whose `default_agent` is `limit-agent`, with peer `peer-1` admitted. The connector, pairing and admission setup follows the Preconditions and Steps 1-4 of `stub-connector-round-trip.md` (cross-reference; not restated here).
+  - a `stub` connector `bt-limit` whose `default_agent` is `limit-agent`, with peer `peer-1` admitted. Set it up through the REST API (every call with `Authorization: Bearer <credential>`): `POST /api/connectors` with `{"name":"bt-limit","type":"stub","config":{"enabled":true,"default_agent":"limit-agent"},"secrets":{"token":"dummy"}}` (record the returned `id` as `{ID}`; the `stub` type exists only with `THE_ONE_DEV_MODE=true` and `THE_ONE_STUB_TEST_ENDPOINT=1`); `POST /api/connectors/{ID}/pairing-code` (record the code as `{CODE}`); `POST /api/_test/stub/inbound` with `{"connector_id":"{ID}","peer_id":"peer-1","peer_name":"peer-1","text":"{CODE}","is_dm":true}`; then `GET /api/connectors/{ID}` must show `config.allowlist.peers == ["peer-1"]`.
 
 ## Observables Required
 

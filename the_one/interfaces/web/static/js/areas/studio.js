@@ -12,7 +12,6 @@ window.App.studio.clearAgentFilter = function () {};
 App.registerArea({
   id: 'studio',
   label: 'Agent Studio',
-  icon: App.icons.studio,
   order: 20,
 
   // ── Hash-routing serialize/hydrate ──────────────────────────────────

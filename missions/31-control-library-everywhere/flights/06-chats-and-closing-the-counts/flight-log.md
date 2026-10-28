@@ -498,6 +498,141 @@ The telemetry percentage is NOT mono: today's `.telemetry .t-ctx-pct` rule never
 - Stale references updated (config.py, self-config-history.js, self-configuration-tab.js, test_flow_chat_pane.py, agents.md; the CLAUDE.md `--lane` list gained `contracts-chat`). Accepted: bare function-name mentions (`renderMessage`, `updateTelemetry`) in two test comments and an app.py comment.
 - Verification: static guards 467 passed; contracts-chat 146, chats-transcript 63, chats 159 passed; `make test-unit` 7810 passed, 15 skipped (netns); ruff clean.
 
+### Leg 09a: close-the-counts (landed, not committed)
+
+- **Aliases deleted:** `window.App.confirmDelete` (`ui/confirm.js`), `window.App.consentLink` (`ui/consent-link.js`), `App.showFlash`, `App.escapeHtml`, `App.escapeAttr` (`app.js`), `App.icon` and its warning string (`icons.js`; `App.icons` stays); the three dead `icon:` descriptor fields in `chat.js`, `studio.js`, `admin.js`. `_ALIAS_LINES` and its `continue` were removed from `test_ui_library_source.py`. Test callers moved to `App.ui.confirm` / `App.ui.consentLink` (`test_ui_confirm_contract.py`, `test_ui_list_pane_chats_contract.py`, `test_ui_copy_contract.py`); the two identity assertions (`test_alias_is_the_same_function`, `same:` in the copy contract) were deleted. `RETIRED_APIS` gained `escapeHtml` / `escapeAttr` patterns (the fixture test counts them). `START_ROWS = frozenset()`; `_ui_ownership_allowance.py` docstring and comments say closed.
+- **Comment scrub (product):** `components.css` (4 sites plus the `.test-result` / `.field-row` / `.refresh-btn` comments), `dialog.js`, `agent-editor.js`, `ui/confirm.js` (header, signature, lapse note), `ui/core.js`, `ui/list-pane.js` (3), `studio.css`.
+- **Code-only alias grep (comments stripped, `the_one/interfaces/web/static/js/**/*.js`; script `scratchpad/codegrep.py`, regex `App\.(confirmDelete|consentLink|showFlash|escapeHtml|escapeAttr)\b|App\.icon\(`):** `code hits: 0`. **Plain grep** (`git grep -nE` of the same names over `the_one/`, comments included, excluding `agents.md`): no match (rc=1). The remaining mentions in `agents.md` are history or the retired-API guard list. `agent-editor-controller.js:730` defines a local `showFlash` function over `App.ui.flash`; it is not the alias.
+- **D6 (seven kinds deleted: approved, connectors, dismissed, execution, filesystem, time, web).** Producer grep, run before and after: `grep -rnE "badge--(approved|connectors|dismissed|execution|filesystem|time|web)\b|--badge-(ink-)?(approved|connectors|dismissed|execution|filesystem|time|web)\b|kind: *['\"](approved|connectors|dismissed|execution|filesystem|time|web)['\"]" the_one tests scripts docs -I` (excluding behavior `runs/` and `agents.md`): before the deletion every hit was in `components.css`, `tokens.css`, `chat.css` (the dead `.msg-pending-approval-badge--*` family) or in tests and fixtures (`test_ui_tile_contract.py`, `_legacy_tool_css.py`, `test_ui_list_pane_chats_contract.py`, `_probe_mount_ui.js`, `test_ui_choice_contract.py`, `design_tokens.py`, `test_design_tokens_a11y.py`, `test_ui_badge_kinds.py`); no `the_one/**/*.js` file builds any of them (`badge--` is built only by `ui/feedback.js` from caller-supplied kinds). After: **no hit anywhere.** Product: `BADGE_KINDS` is 11, the seven `.badge--*` rules, both themes' `--badge-<kind>` and `--badge-ink-<kind>` tokens and their orphan comments were removed. Tests retargeted to kept kinds: tile contract (`ollama`), list-pane chats (`local`), `_probe_mount_ui.js` (`ollama`, `local`), `test_ui_choice_contract.py` (`"kinds": 11`, throws check on `ollama`), both `design_tokens.py` dicts and the a11y tables trimmed, `test_badge_semantic_kinds_sit_on_the_gated_ladder` deleted, `test_ui_badge_kinds.py` pins 11. **The frozen `tests/browser/_legacy_tool_css.py` was edited deliberately** (D6): its per-category `.admin-tool-badge--<kind>` rules (which read the deleted tokens) became the single `--ollama` rule; only the kind changed, never the comparison logic, and the fixture header says so.
+- **Dead CSS deleted** (hand-classified): `.test-result*` (and the retrofit, with the `ui_capture.py` fallback selector), `.msg-pending-approval*` with its badge modifiers and the contrast row (`test_migrated_site_consumes_the_gated_tokens` row), `.stub-content` / `.stub-sidebar*`, `.u-flex`, `.u-block`, `.back-btn`, `.refresh-btn` (with its `_DISABLED_BUTTON_SELECTORS` and forced-colors rows), `.field-row` and its label rule. `.tools-test-result` (a real class on `tools-editor.js:264`) stays; `.banner-*`, `ui-disclosure--plain` and the prefix classes are dynamic, not dead.
+- **`scripts/unused_selectors.py`:** adds the `banner-` and `ui-disclosure--` dynamic prefixes; skips `tests/behavior/**/runs/` and `data-testid` values (a new `_TESTID_VALUE` strip over JS, HTML and tests); `test_testids_and_behavior_run_logs_are_not_users` added. **Final report over every `css/*.css`:** `unused (0)` for all eight sheets; "check by hand" only on `components.css`, 12 documented dynamic users: `.badge--{anthropic, anthropic-plan, local, openai, openai-compatible, remote}` (kept kinds, `'badge badge--' + kind`), `.indicator-led--warning` (`'indicator-led--' + state`, `ui/feedback.js:246`), `.ui-disclosure--plain` (`disclosure.js:40`), `.ui-list-pane-compact` and `.ui-list-pane-style-{agents, library}` (`'ui-list-pane-style-' + opts.rowStyle`, `list-pane.js:204`), `.ui-menu-align-start` (`menu.js:48`).
+- **Catalogue:** "Data table" moved to a new "Retired controls" table (`| Retired control |` header, so `control_table_rows` ignores it); "Owned by controls built later" deleted (`owned_classes()` no longer reads it; `test_catalogue_declares_owned_classes` passes); header prose rewritten; rows for consentLink, Icon, Flash, Badge, List pane, Message and Two-step confirm updated; `test_inventory_rows_are_classified` loses the "not yet defined" branch and `test_no_control_row_is_not_yet_defined` is added (falsified once by turning the confirm row into "not yet defined": both tests failed; reverted, pass). `tests/test_area_module_size.py`: `studio/provider-editor.js` 896 to 895 (the file has 895 lines); `studio.js` 753, `chat.js` 538, `admin.js` 385 (criterion 8 holds).
+- **Docs:** `docs/ui-testid-registry.md` (5 rows), `the_one/agents.md` (the consent-link, notes, confirm-lapse, badge, catalogue, owned-classes, editor-family, feedback, markdown, fields, disabled-button and util lines; the 0272 patterns; totals "at the close of Flight 6: 0 / 0 and 0"), CLAUDE.md (confirm-lapse paragraph, the control-library totals paragraph now "0 rows / 0 uses / 0 sinks"), `mission.md` ("Alias shims" closing counts, checked off; no success criterion touched). The kinds count line `agents.md` `(14)` is now `(11)`; `:941` and `:1813` are history or generic and unchanged apart from nothing needing a count.
+- **Squawk 0272:** item 1 verified (the sentence is already updated by earlier legs; 09b refines the numbers); item 2 added as one `agents.md` bullet with the four patterns; corrective action and verification recorded; status `in-progress` until the flight commit.
+- **Lanes (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, three at a time, start load 0.41):** `contracts-controls` 1036 passed / 4 skipped, `contracts-overlay` 544 / 1 skipped, `contracts-chat` 146, `chats` 159, `chats-transcript` 67, `shared` 333, `settings` 108, `settings-tools` 169, `library` 104, `providers` 138. Static guards (ownership, guards, inventory, library source, badge kinds, a11y tokens, token definitions, css layers, area size, emitted classes, unused-selector script): green. **Unit:** `make test-unit` 7828 passed, 15 skipped (netns; 7845 before: the deleted alias, identity and `badge_semantic` parametrized tests). `ruff check` and `ruff format --check` clean.
+
+### Leg 09b: close-verification (landed, not committed; behavior-spec sweep done, 8/8 pass)
+
+**After set** (`$HOME/.cache/the-one-ui-capture/m31-f6-after`, 172 images over the 43 derived surfaces; the full 172-row table is `comparison.md` in that directory, scratchpad scripts `cmp.py` and `pair.py`).
+- **Parity with the before set (manifest compare):** viewports 1280x900 and 1024x768, `fixed_clock` 2026-03-01T12:00:00+00:00, themes, locale, `server_time_zone` America/Chicago, `seed_operator_zone` UTC and `full_page` are identical. `chat_seed` differs only in the random session ids (keys, titles, `updated_at`, expected groups and the on-page groups are identical). Chromium 145.0.7632.6 (Playwright 1.58.0, build 1208) in the same venv (the manifest does not record the build; the venv's Playwright pin is unchanged since the before run).
+- **One capture-tool retarget:** `chat-code-copy-toast` waited for `.app-flash.visible`, which row 2 retired, so the first run failed it (4 of 172). `scripts/ui_capture.py::_code_copy` now waits for `.markdown-copy-btn[title="Copied"]` (the in-place confirmation) and the description is reworded; the four images were re-captured with the same code and copied in. The surface name is unchanged so the pair compares.
+- **Result:** 156 of 172 images differ; 16 are pixel-identical (`chat-composer-focused`, `chat-composer-multiline`, `chat-telemetry-expanded`, `chat-telemetry-resting`, all themes and widths). 26 of 43 surfaces differ in full-page height by +15 px (the rich chat: the second thinking disclosure now sits above its reply). **Unmapped differences: 0.**
+- **Per-surface mapping (ledger rows; identical across the four theme/width variants of a surface):**
+
+| Surface | Differs | Rows |
+|---|---|---|
+| agent-general, agent-model-picker-long | yes | 26 |
+| flash-agent-saved | yes | 14, 26 |
+| flash-after-save, provider-edit-mock, provider-models-generic | yes | 10, 17, 46 |
+| ollama-models-panel, ollama-pull-confirm | yes | 10, 11, 17, 46 |
+| ollama-pull-progress, provider-edit-ollama | yes | 10, 11, 13, 17, 26, 46 |
+| chats-empty, chats-guidance-noagent, chats-guidance-noprovider | yes | 23 |
+| chats-list-groups, chat-pending-new, chat-pending-long-name, chat-joined-empty | yes | 16 |
+| chats-list-row-hover, chats-list-delete-armed | yes | 16 (list); chat behind: 15, 20, 21, 29, 30 |
+| chat-agent-picker-open / -search / -nomatch | yes | 9, 16 (+ the chat behind) |
+| chat-jump-to | yes | 9 (32 has no visible pair) (+ the chat behind) |
+| chat-joined-rich-top / -mid / -bottom / -disclosures-open | yes | 1, 15, 16, 19, 20, 21, 29, 30, 45 |
+| chat-joined-peer | yes | 15, 16, 22, 30 |
+| chat-joined-long-names, chat-joined-ghost-agent | yes | 5, 15, 16, 25, 30 |
+| chat-live-streaming / -thinking | yes | 8, 15, 30 (ghost: 5, 25) |
+| chat-live-queued | yes | 7, 8, 30, 40, 42 |
+| chat-live-after-stop | yes | 24, 30 |
+| chat-live-agent-error | yes | 4, 16 |
+| chat-composer-staged-images | yes | 6, 40 (+ the chat behind) |
+| chat-signin-button, chat-consent-link | yes | 3 (+ the chat behind) |
+| chat-code-copy-toast | yes | 2, 44 (+ the chat behind) |
+| chat-composer-focused, -multiline, chat-telemetry-expanded, -resting | no | 18 invisible in these (see gaps) |
+
+- **Judgements (each viewed in a before/after pair, at least one theme and width; light 1280 unless noted):**
+  - Rows 26, 14: sentence-case labels ("Chat history retention (days)", "Max iterations", "Context window", "Reasoning effort") and "Agent saved" (was "Saved"). Match.
+  - Rows 10, 11, 13, 17, 46: model ids in mono, the VRAM readout plain secondary text (the purple mono bold gone), "Pulling llama3.2:1b… 42%", "Each of your Agents chooses…" with Agents linked in the sentence. Match. Row 12 ("Use Pull to download one.") and the full-id tooltip of row 46 do not show in any surface (the empty list and a hover); they rest on their tests.
+  - Rows 20, 21 (rich chat, also disclosures open): the second Thinking disclosure sits above the reply it belongs to (it was below the previous reply); the trace summary keeps mono with the library chevron and "Tool activity · 4". Match.
+  - Rows 29, 30, 15 (rich chat bottom, dark peer chat): the bare URL is a link, each finished reply has the icon-only copy beside the timestamp, and the timestamps are legible. Match. **Note for the HAT:** the partial reply held after Stop (`chat-live-after-stop`) also carries the copy icon; row 30 says "a finished agent reply", and a stopped partial reply is finalised, so this is consistent but worth one look.
+  - Row 24: a muted centred "Stopped." under the held reply. Match.
+  - Row 4: danger-tone "The agent couldn't finish this reply." with a collapsed "Technical details". Match.
+  - Rows 5, 25: the left-ruled warning banner above a dashed, dimmed composer, Attach disabled. Match.
+  - Rows 6, 40: staged-image remove is a grey icon button (24 px target); the chips are a few px taller. Match.
+  - Rows 7, 42: the queued message is a chip ("Queued" in the chip fill, one line with an ellipsis, remove 24 px). It fills the region's width for the long seeded message and so shows no short-chip case; row 42 rests on its test.
+  - Row 3: "Sign-in needed" with the "Sign in to Docs server" primary button; the consent block says "Sign-in needed" with the link row unchanged. Match.
+  - Rows 2, 44: the code block shows a check icon in the (smaller) library button in place and no toast. Match.
+  - Row 22: "Operator only" is a small chip. Match. Row 16: "Discord" (was "discord"). Match.
+  - Row 23: the empty state and both guidance states are centred under the mascot. Match.
+  - Row 9: in the picker and Jump to, the name shows far more of its text and the secondary text truncates first. Match. Row 32 (highlight stays on the same row) has no visible pair (a data-landing behavior).
+  - Row 8: "Thinking …" in sentence case. Match.
+  - Rows 1, 19, 45: headings and the wide table in the rich chat render within the bubble; compared at the top and mid scroll. Match.
+- **Coverage gaps (recorded):** rows 37 and 38 (toast survival and replacement) have no per-editor before pair (the before set has `flash-after-save`, `flash-agent-saved` and `chat-code-copy-toast` only); row 18 (a 2 px focus offset) and row 41 (no visible change) have no pixel witness (the focused-composer and telemetry surfaces are pixel-identical); rows 12, 32 and 46's tooltip, 42's short-chip case: tests only.
+
+**Unit tier** (`THE_ONE_TEST_NETNS=1 make test-unit`, run before the browser tier): 7828 passed, 15 skipped, 3611 deselected, 56 warnings in 370.65 s. The skip count is the expected 15 under netns.
+
+**Quiet-host browser run (second attempt).** The first attempt was blocked: another session's agent-factory suite kept the host busy for about 27 minutes. It exited, and the host settled (1-minute load 0.94 at 20:46, no other test process in `ps`). The unit tier above is the gate's unit half: nothing changed after it except `scripts/ui_capture.py` and spec text (the capture file's unit tests pass).
+- **`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/run-tests.sh --parallel 3 --tb=short`: `PARALLEL_RESULT rc=1 total=1763s lanes=16 failed=contracts-overlay`.** Start load 0.94 (load average 0.94, 1.47, 2.29). End: the 1-minute load read 2.64 right after the run (its own tail), and 0.71 about 14 minutes later; a new agent-factory python process appeared after the run ended, during the isolated re-runs below (not during the run).
+- **Failure and triage:** `tests/browser/test_ui_focus_after_contract.py::test_cancel_after_restore_before_the_timer_cancels_the_focus[webkit]` (`assert 'btn' == 'BODY'`, a timer race). It passed 3 of 3 isolated runs (24 passed each) and a solo `--lane contracts-overlay` re-run (544 passed, 1 skipped). Accepted as a load-dependent timing flake; **no squawk exists for it yet** (raise one at the flight-end sign-off).
+- **Per-lane wall seconds (budget before, new):** routing 569 (600, 600), agents 500 (540, 540), contracts-controls 463 (480, 600), library 361 (420, 420), providers 361 (420, 420), shared 361 (420, 420), chats 329 (360, 420), knowledge 319 (420, 420), mcp-connection 301 (390, 390), agent-tabs 294 (360, 360), settings 271 (360, 360), mcp 263 (330, 330), settings-tools 263 (330, 330), contracts-overlay 241 (270, 330), chats-transcript 191 (180, 240; OVER BUDGET in the run), contracts-chat 71 (300 provisional, 90).
+- **Re-budget by the rules:** the five lanes that moved more than 15% from their last reading were re-budgeted (measured +25%, rounded up to 30 s); `contracts-chat` and `chats-transcript` purely from this run; the other eleven moved under 15% and kept their budgets; no lane is over 1.3x its new budget, so no split. `scripts/run-tests.sh` (BUDGET array, the comment; `--help` reads the array) and CLAUDE.md (table, lead paragraph, "about 29 minutes ... (1763 s, 16 lanes)") updated; the lane counts (sixteen, fifteen named) were already right. A script compared the two tables (16 of 16 equal); `tests/test_run_tests_lanes.py` passes (18).
+
+**Pre-run spec edits (done):** `chat-roundtrip`, `studio-agent-crud`, `agent-step-limit-notice`, `stub-connector-round-trip` (port 8485 and its `/tmp` credential path) and `jump-to-palette` (port 8488 and `/tmp/the-one-jtp-scratch`) now say "a dedicated port of 8490 or higher (not 8485)" with a scratch data and working dir under `$HOME`. `studio-agent-crud`'s Intent and Locators name `App.ui.confirm` (the `App.confirmDelete` / `handleDeleteEditor` text is gone). `agent-step-limit-notice` restates the stub-connector setup inline (create, pairing code, admit `peer-1` through the seam, check the allowlist). Squawk 0213 records these five as cleared and stays open.
+
+**Squawks:** 0213 progress note added. 0259 (the 09b numbers) and 0272 (item 1: the lane-time sentence; item 2 verified in this leg (`grep -c "Four patterns from the Flight 5 HAT" the_one/agents.md` is 1; the badge-kind pin `len(_factory_kinds()) == 11` passes in the unit tier) are finished; both stay in-progress until the flight commit.
+
+**Behavior-spec sweep (Flight Director, 2026-10-28).** Every spec ran through the behavior-test skill with live Sonnet Executor and Validator agents. Each ran on its own dedicated dev instance on ports 8497–8504, with scratch data and a scratch working directory under `$HOME/the-one-bt-m31f6/<slug>/`. The FD started each instance and stopped it by PID, so ports 8484/8485 and the default data dir were never touched. Up to three specs ran at once. Run logs are committed at `tests/behavior/<slug>/runs/`.
+
+| Spec | Result | Run log |
+|---|---|---|
+| chat-roundtrip | pass, 9/9 (Light 1, 3–6; Dark 3–6) | `2026-10-28-02-23-17` |
+| agent-step-limit-notice | pass, 6/6, first run; **draft → active** | `2026-10-28-02-28-33` |
+| start-a-chat | pass, 26/26 (Light + Dark) | `2026-10-28-02-32-16` |
+| list-and-detail | pass, 38/38 (Light + Dark) | `2026-10-28-02-36-39` |
+| workbench-navigation | pass, 28/28 (Light + Dark) | `2026-10-28-02-49-04` |
+| jump-to-palette | pass, 24/24 (Light + Dark) | `2026-10-28-02-56-59` |
+| studio-agent-crud | pass, 18/18 (Light + Dark) | `2026-10-28-02-59-04` |
+| shell-navigation-smoke | pass, 8/8 judged (empty instance) | `2026-10-28-03-02-54` |
+
+That is 157 checkpoints: 157 pass, 0 fail, 0 inconclusive. No failure had to be fixed or accepted.
+
+**Spec re-author list.** These are deliberate later changes, not defects. They go to the spec owners and are not edited at the run (leg Edge Cases).
+- **The theme check.** Every crew-file variant check and the chat-roundtrip Variants should say native `checked`, not `aria-checked`.
+- **Superseded wording, all specs:** the goldfinch wording and the example ports and dirs in the Preconditions (squawk 0213, still open for the specs not yet edited).
+- **Per spec:**
+  - start-a-chat:
+    - step 10: the drawer's Rules, Notes and "Time 1 of 1" lines (M27/M28);
+    - steps 10–12: the drawer footer control is a button;
+    - step 13: say "select all" before typing;
+    - step 14: the second click must land within the arm window.
+  - list-and-detail:
+    - row 11: the Add menu has four items with "Model provider" first (sortie 02), and ArrowDown lands on it;
+    - rows 7 and 14: the "Create" label;
+    - the success toasts.
+  - workbench-navigation: steps 6 and 10–15 need the "Rules and notes" tab, and step 4 the "Model provider" item.
+  - studio-agent-crud:
+    - row 5: a create toast reads "Agent created" (M31 F2);
+    - row 3: the "Create" label.
+  - jump-to-palette, step 2:
+    - the first synchronous read can already include the chat row, so the evidence is the mutation timeline;
+    - "same row" means the same label and kind, because ids are re-minted.
+  - agent-step-limit-notice:
+    - capture the outbound baseline after pairing;
+    - require a poll minimum;
+    - tell sessions apart by `platform`;
+    - name the plain mock;
+    - require rendered evidence for step 4.
+
+**Findings raised from the sweep:**
+- **Squawk 0277** (defect, routine, open): `POST /api/agents` with an unknown `provider_config_id` returns 500 from an uncaught foreign-key error instead of 422. It surfaced through the Executor's own seed-script bug in list-and-detail. It is outside this flight's surfaces.
+- **Squawk 0276** (defect, routine, open): the WebKit `focusAfter` contract flake from the quiet-host run (above).
+
+**HAT watch items from the sweep:**
+- **Tool-activity count.** Each tool-activity disclosure reads "Tool activity · 2" for an iteration with one tool call. The count is entries (the call plus its result; `transcript.js` appends both, and `App.ui.trace` counts body children, "N items"). That is the existing semantics; does the operator want calls instead?
+- **Create-toast lifetime.** In studio-agent-crud Dark, the "Agent created" toast was still fully visible across the next two steps (Light had cleared it). Check the toast lifetime and the newest-replaces rule.
+- **Dark pending-row wash.** The wash (`rgba(167,139,250,0.10)`) is low-contrast but visible with its border; this is advisory.
+
+**Leg 09b's acceptance criteria are met.**
+- The after set and its mapping are recorded.
+- The re-budget is done. One flake in the run is logged as 0276; its lane passed alone. The FD treats the gate as passed and will present it at the flight-end sign-off.
+- `make gate` ran as the unit tier plus the quiet-host run.
+- All eight specs pass, with run logs.
+- Every flight squawk's text is finished.
+
+
 ## Decisions
 Runtime decisions not in the original plan.
 
@@ -740,7 +875,60 @@ Unexpected issues encountered.
   - **Debrief candidates (recorded only):** (3) truncated model names expose the full name only through `title`; (4) the model rows lack list semantics; (5) markdown table regions are all named "Table".
   - **Evidence:** static guards 470 passed; lanes shared 333, chats-transcript 67, providers 138, contracts-controls 1036 (4 skipped), contracts-chat 146; unit 7845 passed / 15 skipped (netns); ruff clean. No ledger row (accessible names are not visible).
 - **Batch B4 fix pass verified.** Its run: guards 470, `shared` 333, `chats-transcript` 67, `providers` 138, `contracts-controls` 1036 / 4 skipped, `contracts-chat` 146, unit 7845 / 15. The Accessibility Reviewer re-reviewed both fixes: `[HANDOFF:confirmed]`. Legs 06, 07 and 08 are `completed`, with checkpoint commit B4.
+- **Design review of 09a and 09b** (Sonnet, read-only, after B4).
+  - **09a: needs rework**, applied as amendments:
+    - D6's seven kinds have only test and fixture producers, so the tests are retargeted deliberately (including the frozen legacy-tile fixture);
+    - the unused-selector report was masked by run logs and testid values; the script is fixed, and the newly found dead `.back-btn`, `.refresh-btn` and `.field-row` are deleted (FD answer);
+    - `START_ROWS` is cleared; `_ALIAS_LINES` is removed; `test_ui_copy_contract.py`'s alias assertions are added to the list;
+    - the grep is redefined, and product comments are scrubbed;
+    - the catalogue-test mechanics, the full docs list and the corrected citations;
+    - 0272 item 1 was already done; the line-guard ceiling is tightened to 895.
+
+    A second cycle is required.
+  - **09b: approve with changes**, applied: rows 1-46; the derived surface list and seed parity; the full lane-prose update; only 0259 and 0272 left to finish; the gate order and start/end quiet checks; **the specs moved off port 8485 and `/tmp` by deliberate pre-run edits** (partially clearing squawk 0213 for those specs); the step-limit setup restated inline. **09b is `ready`.**
+- **Leg 09a design review cycle 2:** approve with changes. The leg was **rewritten as one current body**: no contradiction between the original text and the amendments, the full Files Affected, the complete comment-scrub list, the redefined greps, the work order (aliases, D6, dead CSS, script, catalogue, docs). The review history is kept at the end. **09a is `ready`.** Batch B5 starts with 09a.
+- **Leg 09a landed** (`[LAND:leg]`). The counts are at zero: aliases deleted (code-only grep: 0), allowances empty with `START_ROWS` cleared, no "not yet defined" row (with a falsified assertion), D6 done with test-only producers retargeted, eight dead families deleted, the improved unused-selector report showing `unused (0)` on every stylesheet, docs final.
+  - Ten lanes passed; unit 7828 / 15 (the drop from 7845 is the deleted alias, identity and badge-ladder tests).
+  - Leg 09b's Developer was spawned for its preparation and verification part (captures, the quiet-host run and gate, the re-budget, the pre-run spec edits, squawks 0259 and 0272). The FD then runs the behavior-spec sweep through the behavior-test skill.
+- **09b host wait and gate result.** The first pass stopped at `[BLOCKED:host-not-quiet]` because another session's suite was running. The FD resumed the same Developer once that suite had exited.
+  - **The run:** quiet-host start (load 0.94), `PARALLEL_RESULT rc=1 total=1763s lanes=16 failed=contracts-overlay`.
+  - **The one failure:** `test_ui_focus_after_contract.py::test_cancel_after_restore_before_the_timer_cancels_the_focus[webkit]` (`'btn' == 'BODY'`). It passed 3 of 3 in isolation, and a solo `contracts-overlay` re-run passed (544 / 1 skipped).
+  - **FD call:** a load-dependent test-timing flake, not a product defect. A fixed 60 ms `settle()` races WebKit's lazy blur of a newly disabled focused button. It is logged as **squawk 0276** (defect, routine, open) and left out of this flight; it is outside the flight's surfaces and only a test changes.
+  - **Gate disposition:** every other lane passed in the run, and the failing lane passed alone, so the gate is treated as passed with 0276 recorded. This goes to the operator at the flight-end sign-off, because the 09b criterion asks for rc=0.
+  - **Re-budget:** applied by the rules from this run. The rc=1 does not void the budget reading (Edge Cases). `contracts-chat` is 90 s, `chats-transcript` 240, `chats` 420, `contracts-controls` 600, `contracts-overlay` 330; the other eleven keep their budgets.
+
+- **The 09b behavior-spec sweep (FD-driven, through the behavior-test skill).** Eight specs, live Sonnet Executor and Validator agents, each on its own instance on ports 8497-8504 with `$HOME` scratch; the FD started and stopped each instance by PID. All pass, 157 of 157 checkpoints. Notes:
+  - Each crew agent's first hand-back wrongly said it could not be resumed. `SendMessage` resumed every one of them.
+  - Later steps went out in batches (still judged one at a time) to cut round trips.
+  - Studio-agent-crud's Dark steps 8 and 9 went in one invocation, because the Light arm lapsed during a hand-off and had to be re-armed (disclosed).
+  - Squawks 0276 (WebKit focus flake) and 0277 (agent-create 500 on an unknown provider) were logged and left open: both are outside this flight's surfaces.
+  - **Leg 09b is landed.** Batch B5 review spawned: the code Reviewer on Haiku (no security-sensitive surface) and the Accessibility Reviewer on Sonnet (09a deletes CSS and badge kinds).
+
+- **Batch B5 review.** Accessibility Reviewer (Sonnet): `[HANDOFF:confirmed]`. Code Reviewer (Haiku): one blocking item and five non-blocking.
+  - **Blocking:** 09b requires the quiet-host run to end with rc=0, and it ended rc=1. The end-of-run quiet read was 2.64.
+  - **FD decision:** do not ask for an operator waiver. Squawk 0276 (the WebKit `focusAfter` timing flake) lies in this flight's path, because it blocks the gate. A fix-pass Developer (Sonnet) completes it inside this flight: deterministic waits, test-only, each test falsified once. The Developer then re-runs the quiet-host `--parallel 3` with quiet checks at start and end; that run decides.
+  - **Non-blocking, fixed in the same pass:**
+    - CLAUDE.md: the `contracts-chat` "provisional 300 s" text and the "Time has its own badge" claim (D6 deleted that badge kind);
+    - `system-provider-config.md`: its `App.confirmDelete` mentions become `App.ui.confirm`, noted under squawk 0213;
+    - stale `studio.css` comments.
+  - `env.sh` at the repo root is the operator's own untracked file from 2026-10-24. It is left alone and never staged.
+
+- **B5 fix pass and re-review.**
+  - **Squawk 0276:** completed as a test-only fix. `settle()` adds a condition wait, and the tests were falsified and reverted.
+  - **Deciding quiet-host run:** `PARALLEL_RESULT rc=0 total=1662s lanes=16 failed=-`, start load 0.74, no budget change.
+  - **Unit tier:** 7828 passed, 15 skipped.
+  - **Re-review:** the code Reviewer (Haiku) signalled `[HANDOFF:confirmed]`.
+  - **Accepted, not fixed:** one non-blocking nit. `the_one/agents.md` about `:933`, a historical M28 note, still mentions "the Time badge". `:941` already marks it retired.
+  - **Status:** legs 09a and 09b are `completed`, and checkpoint commit B5 follows.
+  - **Squawks:** 0185, 0215, 0249, 0259, 0269, 0270, 0271, 0272 and 0276 stay `in-progress` until the flight's sign-off (the HAT and landing).
 
 ---
 
 ## Session Notes
+
+- **Batch B5 fix pass (Developer).**
+  - **Squawk 0276 fixed (test-only):** `tests/browser/test_ui_focus_after_contract.py::settle()` now waits 60 ms for the helper's timer, then `wait_for_function("!(document.activeElement && document.activeElement.disabled)")`, so WebKit's lazy blur of a newly disabled button can no longer be read stale. Applies to every test using `settle()`. The file passed 5 of 5 under both engines (24 passed each, 9-17 s), and once more while the unit tier was not running. Falsified: with `App.focusAfter.cancel` a no-op, the three cancel tests failed in both engines (6 failed, 18 passed); reverted (`git diff` on `focus-after.js` empty).
+  - **Unit tier before the run:** `THE_ONE_TEST_NETNS=1 make test-unit`: 7828 passed, 15 skipped, 3611 deselected (the expected 15 under netns).
+  - **Deciding quiet-host run (the first run's record above is kept):** start load 0.74 (1-minute; a 1.03 read a minute earlier, `ps` showed no test process), `PARALLEL_RESULT rc=0 total=1662s lanes=16 failed=-`. End read, taken right after the run's own tail: 1-minute 5.30, 5-minute 5.50, no test process left (the run itself accounts for the load). Per-lane wall seconds: routing 548, contracts-controls 431, agents 476, chats 305, library 339, knowledge 305, providers 339, shared 341, mcp-connection 280, agent-tabs 294, settings 275, mcp 256, settings-tools 255, contracts-overlay 239, chats-transcript 191, contracts-chat 59. Every lane is within its budget.
+  - **Budgets:** checked against this run: no lane moved more than 15% from its budgeted reading except `contracts-chat` (59 s against 71 s, -17%), whose 90 s budget would not change (59 s +25% rounds up to 90 s). No budget changed, so the tables in `scripts/run-tests.sh` and CLAUDE.md agree. CLAUDE.md's run-time sentence and squawk 0259's Verification now cite this run.
+  - **Non-blocking items:** CLAUDE.md's `contracts-chat` bullet (provisional wording replaced), the "own badge" claim for `current_time` (CLAUDE.md, and `the_one/agents.md` marked as retired in M31 F6 L09a), `tests/behavior/system-provider-config.md` (`App.confirmDelete` to `App.ui.confirm`, descriptive only, noted in squawk 0213), and the stale class names in `studio.css` comments (comments only; `scripts/unused_selectors.py` on all stylesheets: unused 0).

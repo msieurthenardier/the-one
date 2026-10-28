@@ -503,7 +503,7 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 - [x] The step-limit notice reaches the web chat, connectors and the CLI. The provider error names the right provider. The new spec is drafted.
 - [x] Markdown: the negative tests are in, the holes are closed, A1, B1 and 0.4 are done and the Copy is on the library.
 - [x] The model list is in the library, and `provider-models.js` is under 800.
-- [ ] Every count is at zero. Docs and the catalogue are final, the after set is reviewed, budgets are re-measured and the full gate is green. The mission-close specs and the new spec pass.
+- [x] Every count is at zero. Docs and the catalogue are final, the after set is reviewed, budgets are re-measured and the full gate is green. The mission-close specs and the new spec pass.
 - [ ] HAT passed, and the close checks re-run after any HAT code change.
 
 ### Adaptation Criteria
@@ -578,11 +578,11 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - the code-block Copy on the library (A2, D1), with `injectIcon` and the `App.icon` / `App.showFlash` calls gone;
   - re-authors `discord-markdown-links`.
 - [x] `model-list` (08): `App.ui.modelList` with contract tests; `provider-models.js` on it and under 800; A10-A13 and A17; the line-guard entry removed.
-- [ ] `close-the-counts` (09a):
+- [x] `close-the-counts` (09a):
   - the aliases deleted; the allowances empty; the catalogue's Retired table and the "no not-yet-defined" assertion;
   - D6's badge kinds; dead CSS; the unused-selector review;
   - docs final, including squawk 0272.
-- [ ] `close-verification` (09b): the after set and its ledger mapping; the quiet-host re-budget; the full gate; the behavior-spec sweep and `agent-step-limit-notice`.
+- [x] `close-verification` (09b): the after set and its ledger mapping; the quiet-host re-budget; the full gate; the behavior-spec sweep and `agent-step-limit-notice`.
 - [ ] `flight-hat` (10) *(interactive)*: the operator walks the ledger in both themes at 1280 and 1024, on a seeded dev instance.
   - The walk includes a state the operator isn't looking at: a connector chat updated while another chat is open, and the step-limit line on the stub connector.
   - The operator approves the before and after set.

@@ -145,20 +145,20 @@ def test_consent_link_safe_default_testids_and_classes(engine_page: Page) -> Non
     page.evaluate(STUB_OK)
     out = page.evaluate(
         """() => {
-          const b = App.consentLink.build('https://auth.example/consent?x=1', {surface: 'mcp', sourceName: 'Goldfinch'});
+          const b = App.ui.consentLink.build('https://auth.example/consent?x=1', {surface: 'mcp', sourceName: 'Goldfinch'});
           document.getElementById('harness-root').appendChild(b);
           const q = (s) => b.querySelector(s);
-          return {same: App.consentLink === App.ui.consentLink, root: b.className,
+          return {root: b.className,
             row: q('.consent-link-row').className, kids: Array.from(q('.consent-link-row').children).map((n) => n.tagName),
             url: q('.consent-link-url').getAttribute('data-testid'), open: q('.consent-link-open').getAttribute('data-testid'),
             copy: q('.consent-link-copy').getAttribute('data-testid'), name: q('.consent-link-url').getAttribute('aria-label'),
             live: q('.consent-link-live').getAttribute('role'), target: q('.consent-link-open').target,
             rel: q('.consent-link-open').rel, helpRef: q('.consent-link-open').getAttribute('aria-describedby') === q('.consent-link-help').id,
-            focus: App.consentLink.focusTarget(b) === q('.consent-link-open'), copyCls: q('.consent-link-copy').className,
-            fns: [typeof App.consentLink.isSafeUrl, typeof App.consentLink.focusTarget, typeof App.consentLink.build]};
+            focus: App.ui.consentLink.focusTarget(b) === q('.consent-link-open'), copyCls: q('.consent-link-copy').className,
+            fns: [typeof App.ui.consentLink.isSafeUrl, typeof App.ui.consentLink.focusTarget, typeof App.ui.consentLink.build]};
         }"""
     )
-    assert out["same"] is True and out["root"] == "consent-link consent-link--mcp"
+    assert out["root"] == "consent-link consent-link--mcp"
     assert out["row"].split() == ["ui-copy-field", "ui-copy-field--mono", "consent-link-row"]
     assert out["kids"] == ["INPUT", "A", "BUTTON"]
     assert (out["url"], out["open"], out["copy"]) == (
@@ -240,9 +240,9 @@ def test_consent_link_unsafe_url_renders_inert_notice(engine_page: Page, bad: st
         """(bad) => {
           const b = App.ui.consentLink(bad, {surface: 'chat'});
           document.getElementById('harness-root').appendChild(b);
-          return {safe: App.consentLink.isSafeUrl(bad), anchors: b.querySelectorAll('a, input, button').length,
+          return {safe: App.ui.consentLink.isSafeUrl(bad), anchors: b.querySelectorAll('a, input, button').length,
                   note: b.querySelector('.consent-link-unsafe').textContent,
-                  focus: App.consentLink.focusTarget(b) === b.querySelector('.consent-link-unsafe')};
+                  focus: App.ui.consentLink.focusTarget(b) === b.querySelector('.consent-link-unsafe')};
         }""",
         bad,
     )

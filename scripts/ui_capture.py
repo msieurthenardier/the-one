@@ -744,8 +744,7 @@ def _tool_test(payload: dict):
         page.locator('[data-testid="test-tool-btn"]').click()
         page.locator(
             '[data-testid="test-result"][data-state="success"], '
-            '[data-testid="test-result"][data-state="warning"], '
-            ".test-result .test-result-ok, .test-result .test-result-fail"
+            '[data-testid="test-result"][data-state="warning"]'
         ).first.wait_for(timeout=10000)
         page.locator('[data-testid="test-tool-btn"]').scroll_into_view_if_needed()
 
@@ -2127,7 +2126,8 @@ def _code_copy(ctx: Ctx) -> None:
     btn.wait_for(timeout=15000)
     btn.scroll_into_view_if_needed()
     btn.click()
-    page.locator(".app-flash.visible").wait_for(timeout=10000)
+    # Row 2 (A2/D1): the code Copy confirms in place (check icon, title "Copied"); no toast.
+    page.locator('.markdown-copy-btn[title="Copied"]').first.wait_for(timeout=10000)
 
 
 def _jump_to(ctx: Ctx) -> None:
@@ -2378,7 +2378,7 @@ SURFACES += [
     _chat_surface(
         "chat-code-copy-toast",
         _ROUTE,
-        "The toast after copying a code block",
+        "A code block just after Copy (in-place confirmation; the page toast is retired, row 2)",
         prepare=_code_copy,
     ),
     _chat_surface(

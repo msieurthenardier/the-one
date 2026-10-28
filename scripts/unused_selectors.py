@@ -7,7 +7,9 @@ For each class token defined in the given stylesheets, look for a user in:
 the static JS (comments stripped), static/index.html, the OTHER stylesheets
 (as ``.token``) and ``tests/``. Class names built at runtime are matched as
 prefixes (DYNAMIC_PREFIXES below); a token under one is listed under
-"dynamic: check by hand" instead of "unused". Always exits 0.
+"dynamic: check by hand" instead of "unused". ``data-testid`` values and the
+behavior-test run logs (``tests/behavior/**/runs/``) do not count as users.
+Always exits 0.
 """
 
 from __future__ import annotations
@@ -32,11 +34,17 @@ DYNAMIC_PREFIXES = (
     "ui-list-pane-",
     "area-",
     "admin-tool-badge--",
+    "banner-",  # 'banner banner-' + tone (ui/page.js)
+    "ui-disclosure--",  # 'ui-disclosure--' + variant (ui/disclosure.js)
 )
 
 _CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 _JS_COMMENT = re.compile(r"/\*.*?\*/|(?<![:\"'\\])//[^\n]*", re.S)
 _CLASS = re.compile(r"(?<![\w-])\.(-?[A-Za-z_][\w-]*)")
+# A data-testid value is an id, not a class: `data-testid="test-result"` is no user of
+# `.test-result`. Covers the HTML attribute, a CSS/Playwright attribute selector and a
+# `data-testid=value` token inside a test's selector string.
+_TESTID_VALUE = re.compile(r"data-testid\s*[=~|^$*]*=\s*\\?[\"']?[\w:.-]+\\?[\"']?")
 _STRING_OR_URL = re.compile(r"\"[^\"]*\"|'[^']*'|url\([^)]*\)")
 
 
@@ -66,14 +74,16 @@ def build_corpus(stylesheets: list[Path], static: Path, tests: Path) -> tuple[st
     """Return (plain corpus for js/html/tests, css corpus of the other stylesheets)."""
     plain: list[str] = []
     for p in sorted((static / "js").rglob("*.js")):
-        plain.append(_JS_COMMENT.sub("", _read(p)))
+        plain.append(_TESTID_VALUE.sub("", _JS_COMMENT.sub("", _read(p))))
     index = static / "index.html"
     if index.exists():
-        plain.append(_read(index))
+        plain.append(_TESTID_VALUE.sub("", _read(index)))
     if tests.exists():
         for p in sorted(tests.rglob("*")):
+            if "runs" in p.relative_to(tests).parts and "behavior" in p.relative_to(tests).parts:
+                continue  # behavior run logs are history, not users
             if p.is_file() and p.suffix in {".py", ".js", ".html", ".md"}:
-                plain.append(_read(p))
+                plain.append(_TESTID_VALUE.sub("", _read(p)))
     own = {p.resolve() for p in stylesheets}
     css: list[str] = []
     css_dir = static / "css"
