@@ -48,21 +48,32 @@ async def get_last_purge_at(conn: aiosqlite.Connection) -> str | None:
 async def run_purge_sweep(conn: aiosqlite.Connection) -> dict:
     """Per-agent age-based purge over all agents. Pure DB logic — does
     NOT touch app-layer _sessions (the app wrapper does). Returns
-    {deleted, ids, last_purge_at}."""
+    {deleted, ids, runs_deleted, last_purge_at}. ``runs_deleted`` counts the
+    agents' finished routine-run rows older than the same per-agent cutoff
+    (M33 F1, DD1; ``running`` rows are never purged)."""
     from the_one.db.repositories import (
         AppMetadataRepository,
         ChatSessionRepository,
         SQLiteAgentStore,
     )
+    from the_one.routines.repository import RoutineRunRepository
 
     agent_store = SQLiteAgentStore(conn)
     chat_repo = ChatSessionRepository(conn)
     meta = AppMetadataRepository(conn)
+    run_repo = RoutineRunRepository(conn)
+    runs_deleted = 0
     now = datetime.now(timezone.utc)
     all_ids: list[str] = []
     for name, days in await agent_store.list_retention_windows():
         cutoff = (now - timedelta(days=days)).isoformat()
         all_ids.extend(await chat_repo.delete_older_than(name, cutoff))
+        runs_deleted += await run_repo.delete_finished_older_than(name, cutoff)
     last_purge_at = now.isoformat()
     await meta.set(LAST_PURGE_KEY, last_purge_at)
-    return {"deleted": len(all_ids), "ids": all_ids, "last_purge_at": last_purge_at}
+    return {
+        "deleted": len(all_ids),
+        "ids": all_ids,
+        "runs_deleted": runs_deleted,
+        "last_purge_at": last_purge_at,
+    }

@@ -38,6 +38,11 @@ async def _insert_agent_children(conn, agent: str) -> None:
         (agent,),
     )
     await conn.execute(
+        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
+        "created_at, updated_at) VALUES ('rt1', ?, 'daily', 'p', '{}', 'new', 't', 't')",
+        (agent,),
+    )
+    await conn.execute(
         "INSERT INTO agent_notes (id, agent_name, number, text, origin_kind, created_at, "
         "updated_at, updated_by) VALUES ('n1', ?, 1, 'note', 'web', 't', 't', 'agent')",
         (agent,),
@@ -151,7 +156,13 @@ async def test_repairs_every_kind_and_carries_references(env, caplog) -> None:
     assert new_tool != seeded.old_tool
     assert new_tool in cfg.disabled_tools and seeded.old_tool not in cfg.disabled_tools
     assert f"mcp__{_normalize_source_name('team tools')}__x" in cfg.disabled_tools
-    for table in ("chat_sessions", "agent_rules", "agent_notes", "agent_revisions"):
+    for table in (
+        "chat_sessions",
+        "agent_rules",
+        "agent_notes",
+        "agent_revisions",
+        "agent_routines",
+    ):
         async with env.conn.execute(f"SELECT agent_name FROM {table}") as cur:
             assert [r["agent_name"] for r in await cur.fetchall()] == ["ops bot 2"]
     conn = await env.connectors.get("c1")

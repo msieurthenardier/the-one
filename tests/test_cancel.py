@@ -682,3 +682,35 @@ class TestCancelNoOps:
         if t and not t.done():
             t.cancel()  # pragma: no cover
         # No exception.
+
+
+class TestCancelInConnectorChat:
+    """M33 F1 L3: the cancel path tags a connector chat's messages operator-only."""
+
+    async def test_cancelled_web_turn_in_connector_chat_is_operator_only(self, monkeypatch) -> None:
+        from the_one.llm.base import OPERATOR_VISIBILITY
+
+        class _Agent(_SlowStreamAgent):
+            async def step(self, user_input, on_chunk=None, on_usage=None):
+                self.messages.append(Message.user(user_input))
+                self.messages.append(Message.assistant("partial reply"))
+                async for _ in super().step(user_input, on_chunk, on_usage):
+                    yield _  # pragma: no cover
+
+        agent = _Agent()
+        session = _make_session("s-conn-cancel")
+        session.agent = agent  # type: ignore[assignment]
+        session.platform = "discord"
+
+        monkeypatch.setattr(web_app, "_send_to_session", _noop_send)
+        monkeypatch.setattr(web_app, "_save_session_to_db", _noop_save)
+        monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", _noop_load)
+
+        task = asyncio.create_task(_process_and_broadcast(session, "trigger", source="web"))
+        await agent._started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert len(agent.messages) >= 2
+        assert all(m.visibility == OPERATOR_VISIBILITY for m in agent.messages)

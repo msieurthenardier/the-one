@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 44
+CURRENT_VERSION = 45
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2781,3 +2781,61 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (44,))
         await conn.commit()
         version = 44
+
+    if version < 45:
+        # Mission 33 Flight 1 (DD1) — operator routines. Two tables, both
+        # idempotent (CREATE ... IF NOT EXISTS). Any future agent-keyed table
+        # must declare ON UPDATE CASCADE too, so a rename carries it.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_routines ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+            "        ON DELETE CASCADE ON UPDATE CASCADE,"
+            "    name TEXT NOT NULL,"
+            "    prompt TEXT NOT NULL,"
+            "    schedule TEXT NOT NULL,"
+            "    enabled INTEGER NOT NULL DEFAULT 1,"
+            "    finished_at TEXT,"
+            "    target_kind TEXT NOT NULL CHECK (target_kind IN ('chat', 'new', 'own')),"
+            "    target_session_id TEXT,"
+            "    target_platform TEXT,"
+            "    target_connector_id TEXT,"
+            "    target_channel_id TEXT,"
+            "    target_thread_id TEXT,"
+            "    target_peer_id TEXT,"
+            "    next_run_at TEXT,"
+            "    anchor_at TEXT,"
+            "    created_by TEXT NOT NULL DEFAULT 'operator'"
+            "        CHECK (created_by IN ('operator', 'agent')),"
+            "    created_at TEXT NOT NULL,"
+            "    updated_at TEXT NOT NULL,"
+            "    UNIQUE (agent_name, name COLLATE NOCASE)"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_routines_due "
+            "ON agent_routines (enabled, next_run_at)"
+        )
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_routine_runs ("
+            "    id TEXT PRIMARY KEY,"
+            "    routine_id TEXT NOT NULL REFERENCES agent_routines(id) ON DELETE CASCADE,"
+            "    trigger_kind TEXT NOT NULL"
+            "        CHECK (trigger_kind IN ('schedule', 'catch_up', 'manual')),"
+            "    outcome TEXT NOT NULL CHECK (outcome IN "
+            "        ('running', 'ok', 'failed', 'skipped', 'missed', 'interrupted', 'stopped')),"
+            "    reason TEXT,"
+            "    due_at TEXT,"
+            "    started_at TEXT,"
+            "    finished_at TEXT,"
+            "    session_id TEXT,"
+            "    new_chat INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_routine_runs_routine "
+            "ON agent_routine_runs (routine_id, started_at DESC)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (45,))
+        await conn.commit()
+        version = 45

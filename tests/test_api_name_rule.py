@@ -31,6 +31,8 @@ CHECKED = {
     ("PUT", "/api/knowledge-bases/{kb_id}"),
     ("POST", "/api/mcp-sources"),
     ("PUT", "/api/mcp-sources/{source_id}"),
+    ("POST", "/api/agents/{name}/routines"),
+    ("PUT", "/api/agents/{name}/routines/{routine_id}"),
 }
 
 _SELF_CONFIG = "never sets a name: the surface row's name is a constant"
@@ -47,6 +49,10 @@ EXEMPT = {
         "/api/agents/{name}/self-configuration/external-credentials/{identifier}/rotate",
     ): _SELF_CONFIG,
     ("PUT", "/api/agents/{name}/self-configuration/approval-mode"): _TOOL_RULES,
+    (
+        "POST",
+        "/api/agents/{name}/routines/{routine_id}/run",
+    ): "acts on the routine in the path and never sets a name",
     ("POST", "/api/agents/{name}/rules"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/order"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/{rule_id}"): _TOOL_RULES,
@@ -314,3 +320,35 @@ class TestAgentCreateAndRename:
         await SQLiteAgentStore(conn).save(AgentConfig(name="legacy.ok"))
         resp = await client.put("/api/agents/legacy.ok", json={"description": "edited"})
         assert resp.status_code == 200
+
+
+class TestRoutineNames:
+    """M33 F1: routine names go through ``check_name`` on POST and PUT."""
+
+    _BODY = {
+        "prompt": "p",
+        "schedule": {"kind": "daily", "time": "09:00"},
+        "target": {"kind": "new"},
+    }
+
+    async def _agent(self, client) -> None:
+        assert (await client.post("/api/agents", json={"name": "ag"})).status_code == 201
+
+    @pytest.mark.parametrize(("name", "msg"), [("a/b", naming.SEPARATOR), ("", naming.EMPTY)])
+    async def test_create_refuses(self, client, name, msg) -> None:
+        await self._agent(client)
+        resp = await client.post("/api/agents/ag/routines", json={**self._BODY, "name": name})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == _rule(msg)
+        assert (await client.get("/api/agents/ag/routines")).json()["routines"] == []
+
+    @pytest.mark.parametrize(("name", "msg"), [("a/b", naming.SEPARATOR), ("", naming.EMPTY)])
+    async def test_put_refuses(self, client, name, msg) -> None:
+        await self._agent(client)
+        made = await client.post("/api/agents/ag/routines", json={**self._BODY, "name": "ok"})
+        rid = made.json()["id"]
+        resp = await client.put(f"/api/agents/ag/routines/{rid}", json={"name": name})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == _rule(msg)
+        got = await client.get(f"/api/agents/ag/routines/{rid}")
+        assert got.json()["name"] == "ok"
