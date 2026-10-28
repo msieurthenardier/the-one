@@ -1,6 +1,6 @@
 # Mission: Every control comes from one library
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 Every control the app shows has exactly one definition in the shared control library: its markup, its class names, its styles and its keyboard and accessibility behaviour. Each surface, in Chats, Agents, Library, Settings and the shell, builds its controls through that library, and nothing re-creates a control by copying its class names. The current look and feel stays as it is. The difference is that it is now written down in code, so a global change to a control, such as a button, toggle, tile or editor header, is one edit that reaches every place it appears. The old in-app Design language page is gone. The control catalogue and each control's own tests are the reference.
