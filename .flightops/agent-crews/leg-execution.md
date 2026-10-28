@@ -23,13 +23,16 @@ The Flight Director (Mission Control) orchestrates this phase using the
   Has NO knowledge of Developer's reasoning — only sees resulting changes.
 - **Actions**: code review
 
-### Accessibility Reviewer (optional)
+### Accessibility Reviewer (required for UI flights)
 - **Context**: project root (current working directory)
 - **Model**: Sonnet
 - **Role**: Reviews UI changes for accessibility compliance. Evaluates against
   WCAG 2.1 AA standards, screen reader compatibility, keyboard navigation,
-  color contrast, ARIA usage, and semantic HTML. Only spawn when the flight
-  involves user-facing interface changes.
+  color contrast, ARIA usage, and semantic HTML. Always spawned when any leg
+  (or a HAT feature promoted through the fix-vs-feature gate) changes a
+  user-facing interface; skipped only for flights with no UI change. (Mission 31:
+  in Flight 1 it found the only blocking issue, and a Flight 3 HAT feature that
+  skipped it shipped without an a11y pass.)
 - **Actions**: review-accessibility
 
 ## Separation Rules
@@ -56,14 +59,26 @@ The Flight Director (Mission Control) orchestrates this phase using the
 ### Code Review (once per flight)
 1. After the last autonomous leg lands, Flight Director spawns **Reviewer** to
    evaluate all uncommitted changes from every leg
-2. If **Accessibility Reviewer** is enabled and any leg involves UI changes,
-   spawn in parallel with Reviewer
+2. If any leg (or HAT feature) involves UI changes, spawn the **Accessibility
+   Reviewer** in parallel with the Reviewer
 3. If issues: Flight Director spawns new **Developer** to fix
 4. Loop until all reviewers signal [HANDOFF:confirmed] — max 3 cycles
 
 ### Commit (once per flight)
 1. Flight Director spawns **Developer** to commit the whole flight
 2. Developer commits code + artifacts in one commit, reports the commit ref
+
+### Batch mode (default for UI migration flights)
+The operator's standing preference (Mission 31, Flights 4-6): the autonomous legs
+run in planned batches with a checkpoint commit at each batch end, and one HAT
+closes the flight.
+1. Each leg runs its own lanes plus the unit-tier static guards before signalling.
+2. At each batch end, grep `tests/`, `scripts/`, `docs/` and `tests/behavior/` for every
+   deleted selector, class, testid and moved path, and for exact pins of any response
+   shape the batch changed, then run the owning lane of each hit.
+3. At each batch end, check every touched lane's wall time against its budget.
+4. Lane budget readings count only from a quiet-host `--parallel 3` run (CLAUDE.md
+   "Quiet-host rule"), never from a solo `--lane` run or a loaded host.
 
 ## Template Variables
 
@@ -161,6 +176,16 @@ files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
 no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
 processes (a `make up` server, another session's tests) (squawk 0160).
 
+When a change renames or deletes a selector, class, testid, symbol or path, or adds
+or removes fields in a response shape, grep the tests (every lane, plus `scripts/` and
+`tests/behavior/`) for its pins, including exact-dict assertions on that shape, and
+update them in this leg.
+
+Shared working tree: other crew and the Flight Director may have uncommitted edits
+in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
+`git reset` or `git clean`; to compare against the base, use `git diff` or
+`git show <ref>:<path>`.
+
 If a test hangs, isolate and fix it — do not paper over with `xfail` or skips
 unless the leg artifact explicitly authorizes that. Update flight log with
 outcomes. Propagate changes to artifacts (flight, mission, leg), CLAUDE.md,
@@ -241,8 +266,17 @@ files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
 no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
 processes (a `make up` server, another session's tests) (squawk 0160).
 
+Shared working tree: other crew and the Flight Director may have uncommitted edits
+in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
+`git reset` or `git clean`; to compare against the base, use `git diff` or
+`git show <ref>:<path>`.
+
 Fix all blocking issues. Non-blocking issues: fix if straightforward, otherwise
-note as accepted. Signal [HANDOFF:review-needed] when fixes are complete.
+note as accepted. Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
+the owning browser lane of every file you touched, and report both results. This
+applies to every fix pass: review fixes, HAT fixes and post-gate changes (Mission 31:
+in Flights 4, 5 and 6 an untested late change failed the next gate). Signal
+[HANDOFF:review-needed] when fixes are complete.
 ```
 
 ### Developer: Commit
