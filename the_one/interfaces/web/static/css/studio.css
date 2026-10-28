@@ -976,27 +976,12 @@
      when Settings hosted providers). The `admin-pf-*` / `plan-*` class names
      are accepted naming debt. The capability chips are App.ui.chip, the pull progress App.ui.progress. */
   .area-studio .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
-     header, so it does not take the `.section-title` eyebrow-with-rule recipe
-     (sans, body-sm, weight 500, --fg-secondary). */
-  .area-studio .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
-  /* DD10: plain information, not options - no hover, no cursor, a muted separator. */
-  .area-studio .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); cursor: default; }
-  .area-studio .admin-pf-model-item:last-child { border-bottom: none; }
+  /* The model list's scroll region; the rows are App.ui.modelList. */
+  .area-studio .provider-models-region { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
   .area-studio .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
 
   /* === Ollama Lifecycle Panel === */
   .area-studio .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
-  .area-studio .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
-  .area-studio .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
-  .area-studio .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; flex-wrap: wrap; }
-  .area-studio .admin-pf-model-row:last-child { border-bottom: none; }
-  .area-studio .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .area-studio .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
-  .area-studio .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  /* admin-pf-model-btn retained as a JS hook only — styling comes from App.ui.button. */
-  .area-studio .admin-pf-model-led { gap: 0; }
-  .area-studio .admin-pf-model-error { width: 100%; }
   .area-studio .admin-pf-pull-input { display: flex; align-items: stretch; gap: 8px; padding: 8px 0; }
   .area-studio .admin-pf-pull-name { flex: 1; }
   /* The Pull button is the standard button, stretched to the select's height in this row. */

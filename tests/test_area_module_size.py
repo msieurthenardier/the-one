@@ -22,7 +22,6 @@ LIMIT = 800
 
 # path relative to js/areas -> ceiling (the line count when the guard landed).
 ALLOWANCE: dict[str, int] = {
-    "studio/provider-models.js": 1014,
     "studio/provider-editor.js": 896,
 }
 

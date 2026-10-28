@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -23,6 +24,21 @@ from the_one.llm.base import Role
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+
+def step_limit_text(steps: int) -> str:
+    """The step-limit wording (the web's, without the link). Below 1 step the count is left out."""
+    used = f"used its {steps} steps" if steps >= 1 else "reached its step limit"
+    return (
+        f"Stopped: this agent {used} for this message. "
+        "Send another message to continue, or raise Max iterations in its settings."
+    )
+
+
+def _print_step_limit_notice(agent: Any) -> None:
+    """M31 F6 leg 06 (DD8): a dimmed line when the turn ended at the step limit."""
+    if getattr(agent, "stopped_at_step_limit", False):
+        console.print(f"[dim]{step_limit_text(agent.max_iterations)}[/dim]")
 
 
 async def _run_cli() -> None:
@@ -103,6 +119,7 @@ async def _run_cli() -> None:
                             output = output[:500] + "..."
                         style = "red" if msg.tool_result.is_error else "green"
                         console.print(f"  [{style}]{output}[/{style}]")
+                _print_step_limit_notice(agent)
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
             finally:

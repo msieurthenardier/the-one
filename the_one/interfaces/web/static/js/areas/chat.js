@@ -495,6 +495,8 @@ App.registerArea({
     self._sessionState = function () { return chatState.state(); };
     // The telemetry handle (App.ui.telemetry), for the threshold and restore tests.
     self._telemetry = function () { return telemetry; };
+    // The turn-frame handler, for tests that feed one frame (the deleted-agent step-limit notice).
+    self._turnFrames = function () { return ctx.turnFrames; };
     // AC4: "the joined or joining id", derived from the state (null while
     // idle, pending or starting).
     Object.defineProperty(self, '_currentSessionId', {

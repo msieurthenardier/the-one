@@ -449,12 +449,8 @@ _STRING_LITERAL_ARG = re.compile(r"^('(?:[^'\\\n]|\\.)*'|\"(?:[^\"\\\n]|\\.)*\")
 # Whitespace-normalized (single spaces). Any OTHER non-literal arg — notably a
 # variable or a call carrying untrusted data — fails the guard.
 #
-# Allowance note (not a sink, do NOT "tighten" into a failure): injectIcon()
-# uses `new DOMParser().parseFromString(svg, 'image/svg+xml')` to turn a
-# TRUSTED icons.js SVG string (App.icon('copy'), a literal name) into DOM
-# without an inner-HTML assignment. That is the sanctioned no-inner-HTML path
-# for the copy-button glyph; it parses no untrusted data and is not scanned by
-# this guard (createElement + the three sink tokens are the only surfaces).
+# Note: the former injectIcon() DOMParser seam is gone (the code-block copy button is
+# App.ui.copyButton since M31 F6 L07), so markdown.js has no parse-from-string path at all.
 MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED: set[str] = {
     "'h' + lvl",
     "ordered ? 'ol' : 'ul'",

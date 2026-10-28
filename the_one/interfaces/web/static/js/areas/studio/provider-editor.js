@@ -233,12 +233,11 @@
       // DD10: the list is information, not a picker; one line of help whose
       // "Agents" word links.
       var modelsHelp = util.el('p', { className: 'admin-pf-models-help', 'data-testid': 'provider-models-help' }, [
-        'Each agent chooses one of these in its Model section. ',
+        'Each of your ',
         util.el('a', {
-          href: window.App.router.href({ destination: 'agents' }),
-          'data-testid': 'provider-models-agents-link',
-          text: 'Agents'
-        })
+          href: window.App.router.href({ destination: 'agents' }), 'data-testid': 'provider-models-agents-link', text: 'Agents'
+        }),
+        ' chooses one of these in its Model section.'
       ]);
       h.modelsHost = util.el('div', { className: 'provider-models' });
       sections.push(App.ui.section({ title: 'Available models', children: [modelsHelp, h.modelsHost] }).el);

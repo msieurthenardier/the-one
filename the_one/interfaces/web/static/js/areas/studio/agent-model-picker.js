@@ -55,9 +55,8 @@
       var modelId = selectEl.value;
       var caps = modelCapsBy[modelId];
       var ctx = modelCtxBy[modelId];
-      var renderer = window.App.studio && window.App.studio.renderCapabilityChips;
-      var chips = (modelId && renderer && caps !== undefined && caps !== null)
-        ? renderer(caps)
+      var chips = (modelId && caps !== undefined && caps !== null)
+        ? App.ui.modelList.capabilityChips(caps)
         : null;
       var ctxLabel = fmtCtxTokens(ctx);
       capsEl.textContent = '';

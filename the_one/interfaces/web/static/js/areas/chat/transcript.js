@@ -49,6 +49,8 @@
     // The one shared role=status node the "Copy reply" confirmations announce in (it lives
     // outside the role=log message list, so the confirmation is not read as a new message).
     function liveEl() { return ctx.copyLiveEl; }
+    // Code-block copy confirmations announce in the same shared node.
+    function mdOpts() { return { copyLiveEl: ctx.copyLiveEl }; }
 
     // The side of a bubble's attribution: a peer-attributed user bubble aligns left (M11 F06
     // L04), an operator-typed one right, every other bubble left.
@@ -69,7 +71,7 @@
         role: role,
         source: tokens.indexOf('api') !== -1 ? 'api' : null,
         tone: tokens.indexOf('error') !== -1 ? 'error' : null,
-        body: role === 'assistant' ? App.markdown.render(text) : null,
+        body: role === 'assistant' ? App.markdown.render(text, mdOpts()) : null,
         text: role === 'assistant' ? null : text,
         visibility: opts.visibility,
         visibilityStyle: App.ui.message.visibilityStyles.chip,
@@ -245,7 +247,7 @@
       var boundary = findSafeRenderBoundary(tail);
       if (boundary <= 0) return;
       var prefix = tail.slice(0, boundary);
-      streamMsg.commit(App.markdown.render(prefix), prefix.length);
+      streamMsg.commit(App.markdown.render(prefix, mdOpts()), prefix.length);
     }
 
     function pacingTick() {
@@ -287,7 +289,7 @@
       streamAttr = null;
       streamSource = '';
       var tail = bubble.tail();
-      bubble.finalize(tail ? App.markdown.render(tail) : null);
+      bubble.finalize(tail ? App.markdown.render(tail, mdOpts()) : null);
       if (attr && source) attr.setCopy(source);
     }
 
@@ -478,6 +480,35 @@
       scrollToBottomIfPinned();
     }
 
+    // DD8 F2: the agent ran out of steps. A muted line after the reply, never stored (a re-join
+    // renders none). "Max iterations" links to the agent's settings only when the agent has a
+    // stored record (the default agent and a deleted agent get plain text).
+    function addStepLimitNotice(steps, agentName) {
+      var n = Number(steps);
+      var used = n >= 1 ? 'used its ' + n + ' steps' : 'reached its step limit';
+      var rows = App.store.peek('agents').value;
+      var hasRecord = false;
+      if (agentName && Array.isArray(rows)) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i] && rows[i].name === agentName) { hasRecord = true; break; }
+        }
+      }
+      var body = document.createDocumentFragment();
+      body.appendChild(document.createTextNode('Stopped: this agent ' + used + ' for this message. Send another message to continue, or raise '));
+      if (hasRecord) {
+        var link = document.createElement('a');
+        link.href = App.router.href({ destination: 'agents', id: agentName });
+        link.textContent = 'Max iterations';
+        link.setAttribute('data-testid', 'chat-step-limit-link');
+        body.appendChild(link);
+      } else {
+        body.appendChild(document.createTextNode('Max iterations'));
+      }
+      body.appendChild(document.createTextNode(' in its settings.'));
+      messagesEl.appendChild(App.ui.notice({ tone: 'muted', body: body, testid: 'chat-step-limit' }).el);
+      scrollToBottomIfPinned();
+    }
+
     function traceShellFor(parentMessageId) {
       var trace = traceShells[parentMessageId];
       return trace ? trace.el : null;
@@ -541,6 +572,7 @@
       addAgentError: addAgentError,
       addStoppedNotice: addStoppedNotice,
       addDiscardedNotice: addDiscardedNotice,
+      addStepLimitNotice: addStepLimitNotice,
       cssEscape: cssEscape,
       traceShellFor: traceShellFor,
       resetTraceShells: resetTraceShells,

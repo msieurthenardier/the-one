@@ -7,10 +7,7 @@ bookkeeping). All paths are relative to ``static/`` (``js/areas/...``, ``css/...
 
 from typing import NamedTuple
 
-OWNERSHIP_ALLOWANCE: dict[tuple[str, str], int] = {
-    ("js/markdown.js", "api:App.icon("): 1,
-    ("js/markdown.js", "api:App.showFlash("): 3,
-}
+OWNERSHIP_ALLOWANCE: dict[tuple[str, str], int] = {}
 
 
 class OwnershipMove(NamedTuple):
@@ -54,8 +51,6 @@ START_ROWS: frozenset[tuple[str, str]] = frozenset(
         ("js/areas/chat/chat-pane.js", "badge"),
         ("js/icons.js", "api:App.icon("),
         ("js/icons.js", "api:App.iconNode("),
-        ("js/markdown.js", "api:App.icon("),
-        ("js/markdown.js", "api:App.showFlash("),
     }
 )
 
@@ -65,7 +60,4 @@ MOVES: list[OwnershipMove] = [
 
 # Exact total of every key across every file, measured at M31 F5 L01. A key absent here counts 0.
 # Lower it in the same change that removes uses; never raise it without a flight-log reason.
-TOTAL_USES: dict[str, int] = {
-    "api:App.icon(": 1,
-    "api:App.showFlash(": 3,
-}
+TOTAL_USES: dict[str, int] = {}

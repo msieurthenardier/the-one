@@ -208,9 +208,10 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
 
 
 @pytest.mark.browser
-def test_code_copy_toast_is_on_the_page_not_in_the_message_log(app_clean: str, page: Page) -> None:
-    """DD9 test 6 / DD11 7: the copy toast lands in the page's flash region, never inside
-    the transcript (``.messages``), where it scrolled and was announced with the log."""
+def test_code_copy_confirms_in_place_with_no_toast(app_clean: str, page: Page) -> None:
+    """The code-block Copy (the library icon button, M31 F6 L07) confirms in place: the
+    accessible name reads "Copied" and the shared status node outside the log announces once.
+    No flash toast appears anywhere, and none inside the transcript (``.messages``)."""
     base_url = app_clean
     provider_id = seed_mock_provider(
         base_url,
@@ -223,7 +224,12 @@ def test_code_copy_toast_is_on_the_page_not_in_the_message_log(app_clean: str, p
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     bubble = _chats.messages(page, "assistant").last
     expect(bubble.locator("pre code.language-js")).to_be_visible(timeout=5000)
-    bubble.locator(".markdown-copy-btn").click(force=True)
-    expect(page.locator(".app-flash")).to_be_visible(timeout=5000)
+    btn = bubble.locator(".markdown-copy-btn")
+    expect(btn).to_have_attribute("aria-label", "Copy code")
+    btn.click(force=True)
+    expect(btn).to_have_attribute("aria-label", "Copied", timeout=5000)
+    # The announcement goes to the one shared status node outside the role=log list.
+    expect(page.locator('[data-testid="chat-copy-status"]')).to_have_text("Copied")
+    expect(bubble.locator(".markdown-code-wrap [role=status]")).to_have_count(0)
+    expect(page.locator(".app-flash")).to_have_count(0)
     expect(page.locator(".messages .app-flash")).to_have_count(0)
-    expect(page.locator(".app-flash-region .app-flash")).to_have_count(1)

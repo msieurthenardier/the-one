@@ -500,9 +500,9 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
 - [x] The flash contract is in, every caller has dropped `container`, and toasts survive modals and remounts. The options that retire the area-CSS rows are in, and the library squawks 0269, 0270 and 0185 and D7 are done. Every editor lane is green.
 - [x] The six chat controls (the five plus the notice) exist in `js/ui` with contract tests in both engines, in the `contracts-chat` lane.
 - [x] The chat area is on the controls. The area renderers and legacy chat classes are deleted, the chat JS allowance rows are gone and defects 1, 3-6 and 9 are fixed. F1 and B9 are in.
-- [ ] The step-limit notice reaches the web chat, connectors and the CLI. The provider error names the right provider. The new spec is drafted.
-- [ ] Markdown: the negative tests are in, the holes are closed, A1, B1 and 0.4 are done and the Copy is on the library.
-- [ ] The model list is in the library, and `provider-models.js` is under 800.
+- [x] The step-limit notice reaches the web chat, connectors and the CLI. The provider error names the right provider. The new spec is drafted.
+- [x] Markdown: the negative tests are in, the holes are closed, A1, B1 and 0.4 are done and the Copy is on the library.
+- [x] The model list is in the library, and `provider-models.js` is under 800.
 - [ ] Every count is at zero. Docs and the catalogue are final, the after set is reviewed, budgets are re-measured and the full gate is green. The mission-close specs and the new spec pass.
 - [ ] HAT passed, and the close checks re-run after any HAT code change.
 
@@ -568,16 +568,16 @@ Verified against the working tree at `2e82aaa` (FD read and grep, 2026-10-26, pl
   - the message, thinking, trace, telemetry and notice moved onto the library: A4, A8, A15, A18, B2 (anchored reorder), B3, B5, B9, F1 (the full received source kept), DD11 4 and 5;
   - the area renderers and legacy classes deleted (`message-bubble.js`, `thinking-indicator.js`, `trace-shell.js`, `telemetry-overlay.js`), with locators retargeted and the contrast audits moved;
   - re-authors `chat-loop-hang-and-cancel`, `extended-thinking-tool-turn`, `stub-connector-round-trip` (step 7) and `agent-governance-and-search` (step 8).
-- [ ] `turn-end-messages` (06), **tier high (the agent loop, the WebSocket protocol, connectors)**:
+- [x] `turn-end-messages` (06), **tier high (the agent loop, the WebSocket protocol, connectors)**:
   - F2 across core, web, connectors, REST and the CLI, with DD8's flag lifecycle and the `step_limit` frame contract;
   - DD11 2's provider error wording;
   - the `agent-step-limit-notice` spec drafted; `agents.md`'s frame table.
-- [ ] `markdown` (07), **tier high (security)**:
+- [x] `markdown` (07), **tier high (security)**:
   - DD9's negative tests first; then `safeHref` (D3) and the fence token;
   - A1, B1 and 0.4 with its negative cases;
   - the code-block Copy on the library (A2, D1), with `injectIcon` and the `App.icon` / `App.showFlash` calls gone;
   - re-authors `discord-markdown-links`.
-- [ ] `model-list` (08): `App.ui.modelList` with contract tests; `provider-models.js` on it and under 800; A10-A13 and A17; the line-guard entry removed.
+- [x] `model-list` (08): `App.ui.modelList` with contract tests; `provider-models.js` on it and under 800; A10-A13 and A17; the line-guard entry removed.
 - [ ] `close-the-counts` (09a):
   - the aliases deleted; the allowances empty; the catalogue's Retired table and the "no not-yet-defined" assertion;
   - D6's badge kinds; dead CSS; the unused-selector review;

@@ -25,7 +25,7 @@ import uuid
 
 import httpx
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import seed_mock_agent, seed_mock_provider, seed_session
 from playwright.sync_api import Page, expect
@@ -266,6 +266,39 @@ def test_copy_reply_copies_the_stored_content_live_and_on_replay(
     page.locator(COPY).click()
     page.wait_for_function("() => window.__copied.length === 1")
     assert page.evaluate("() => window.__copied[0]") == expected
+
+
+def _code_copy_announces_outside_the_log(page: Page) -> None:
+    code_copy = page.locator(f"{MESSAGES} .markdown-copy-btn")
+    expect(code_copy).to_have_count(1)
+    # No per-block status node inside the role=log list.
+    expect(page.locator(f"{MESSAGES} .markdown-code-wrap [role=status]")).to_have_count(0)
+    page.evaluate(_CLIPBOARD_SPY)
+    code_copy.click()
+    page.wait_for_function("() => window.__copied.length === 1")
+    shared = page.locator('[data-testid="chat-copy-status"]')
+    expect(shared).to_have_text("Copied")
+    assert page.evaluate(
+        "() => !document.querySelector('.area-chat .messages').contains("
+        "document.querySelector('[data-testid=\"chat-copy-status\"]'))"
+    )
+    expect(page.locator(f"{MESSAGES} [role=status]")).to_have_count(0)
+
+
+def test_a_code_block_copy_announces_in_the_shared_node_outside_the_log(
+    app_clean: str, page: Page
+) -> None:
+    agent = _agent(app_clean, stream_chunks=_CHUNKS, delay_ms=50)
+    page.goto(app_clean)
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "go")
+    expect(page.locator(SEND)).to_be_enabled(timeout=15000)
+    _code_copy_announces_outside_the_log(page)
+    # The same holds for a replayed reply.
+    page.reload()
+    _chats.expect_chat(page, agent, timeout=10000)
+    expect(_chats.messages(page, "assistant").first).to_contain_text("done", timeout=10000)
+    _code_copy_announces_outside_the_log(page)
 
 
 def test_an_empty_reply_has_no_copy_and_delivered_results_have_none(
@@ -553,3 +586,72 @@ def test_timestamps_are_full_strength_and_the_telemetry_focus_offset_is_two_pixe
         }"""
     )
     assert offset == "2px"
+
+
+# ── M31 F6 L06 (DD8 F2): the step-limit notice ─────────────────────────────────
+
+STEP_LIMIT = '[data-testid="chat-step-limit"]'
+STEP_LIMIT_LINK = '[data-testid="chat-step-limit-link"]'
+_TOOL_REPLY = {
+    "tool_calls": [{"id": "t1", "name": "current_time", "arguments": {}}],
+}
+_STEP_TEXT = (
+    "Stopped: this agent used its 2 steps for this message. "
+    "Send another message to continue, or raise Max iterations in its settings."
+)
+
+
+def _step_limit_agent(base: str) -> str:
+    provider_id = seed_mock_provider(
+        base, name=f"p-{provider_suffix()}", config={"response": _TOOL_REPLY}
+    )
+    return seed_mock_agent(base, provider_id, name=f"sl-{provider_suffix()}", max_iterations=2)
+
+
+def test_the_step_limit_notice_links_to_the_agent_and_is_not_stored(
+    app_clean: str, page: Page
+) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    notice = page.locator(STEP_LIMIT)
+    expect(notice).to_be_visible(timeout=15000)
+    expect(notice).to_have_text(_STEP_TEXT)
+    assert "ui-notice--muted" in (notice.get_attribute("class") or "")
+    link = page.locator(STEP_LIMIT_LINK)
+    expect(link).to_have_text("Max iterations")
+    # After the turn's last tool result, in the log.
+    assert page.evaluate(_KINDS_JS)[-1] == "chat-step-limit"
+    # Not stored: a re-join renders none.
+    page.reload()
+    expect(page.locator(MESSAGES)).to_be_visible(timeout=10000)
+    expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
+    expect(page.locator(STEP_LIMIT)).to_have_count(0)
+
+
+def test_the_step_limit_link_goes_to_the_agent_settings(app_clean: str, page: Page) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    page.locator(STEP_LIMIT_LINK).click()
+    _nav.expect_route(page, f"agents/{_nav.seg(agent)}/general")
+
+
+def test_the_step_limit_notice_for_a_deleted_agent_is_plain_text(
+    app_clean: str, page: Page
+) -> None:
+    agent = _step_limit_agent(app_clean)
+    _joined(page, app_clean, agent)
+    expect(page.locator(STEP_LIMIT)).to_be_visible(timeout=15000)
+    r = httpx.delete(
+        f"{app_clean}/api/agents/{agent}", headers=auth_headers_for(app_clean), timeout=5
+    )
+    assert r.status_code in (200, 204), r.text
+    page.evaluate(
+        """async () => {
+          App.store.invalidate('agents');
+          await App.store.get('agents', {force: true});
+          App.areas.find(a => a.id === 'chat')._turnFrames().handle({type: 'step_limit', steps: 2});
+        }"""
+    )
+    last = page.locator(STEP_LIMIT).last
+    expect(last).to_have_text(_STEP_TEXT)
+    expect(last.locator("a")).to_have_count(0)

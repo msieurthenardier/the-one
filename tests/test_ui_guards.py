@@ -640,10 +640,9 @@ def test_markdown_no_html_string_invariant() -> None:
 
     The ``render()``-returns-a-DocumentFragment leg of the invariant is
     asserted at runtime in ``tests/browser/test_markdown.py`` (see
-    ``test_markdown_render_returns_document_fragment``). injectIcon()'s trusted
-    ``DOMParser().parseFromString(svg, 'image/svg+xml')`` glyph path is the
-    sanctioned no-inner-HTML seam and is deliberately NOT scanned here (see the
-    allowance note in ``_ui_guard_helpers``).
+    ``test_markdown_render_returns_document_fragment``). The old injectIcon()
+    ``DOMParser`` glyph seam is gone (M31 F6 L07: the copy button is
+    ``App.ui.copyButton``), so ``markdown.js`` has no parse-from-string path.
 
     Fails naming the offending line so a reintroduced seam is obvious."""
     lines: list[str] = []

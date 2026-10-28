@@ -580,6 +580,20 @@
      tone danger). .cap-chip-row is their panel layout wrapper. */
   .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 
+  /* === Model list (App.ui.modelList, M31 F6 L08, DD10) ===
+     Keyed rows in sections: status dot, mono name (ellipsis), capability chips, mono size,
+     actions, and a per-row error line. `--compact` is the plain, no-action list. */
+  .ui-model-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
+  .ui-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; flex-wrap: wrap; }
+  .ui-model-row:last-child { border-bottom: none; }
+  .ui-model-list--compact .ui-model-row { padding: 4px 8px; cursor: default; }
+  .ui-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ui-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
+  .ui-model-list--compact .ui-model-size:empty, .ui-model-actions:empty { display: none; }
+  .ui-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .ui-model-led { gap: 0; }
+  .ui-model-error { width: 100%; }
+
   /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
      A navigation list: <section> > header (h2, optional count, actions),
      optional intro and filter, then one <ul> per group. Rows are <a> or
@@ -1665,41 +1679,23 @@
   .markdown-code-wrap {
     position: relative;
   }
+  /* The button's own look is the library icon button (App.ui.copyButton, size sm);
+     this keeps only placement and the quiet-at-rest reveal. The reveal opacity is a
+     visibility affordance, not a disabled state. */
   .markdown-copy-btn {
     position: absolute;
     top: 8px;
     right: 8px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 4px 6px;
-    color: var(--fg-muted);
-    cursor: pointer;
     /* M17 F4 L03: always-visible-but-quiet (F3 CTA lesson — no hover-reveal-only
-       affordance). Resting opacity keeps the copy control visible/findable at
-       rest; wrap-hover / focus-within / the button's own hover+focus lift it to full.
-       The button is keyboard-reachable (a real <button> in the DOM) regardless. */
+       affordance). Wrap-hover / focus-within / the button's own hover+focus lift it. */
     opacity: 0.6;
-    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    transition: opacity 0.15s;
   }
   .markdown-code-wrap:hover .markdown-copy-btn,
-  .markdown-code-wrap:focus-within .markdown-copy-btn {
-    opacity: 1;
-  }
-  .markdown-copy-btn:hover {
-    opacity: 1;
-    color: var(--fg);
-    border-color: var(--accent);
-  }
+  .markdown-code-wrap:focus-within .markdown-copy-btn,
+  .markdown-copy-btn:hover,
   .markdown-copy-btn:focus-visible {
     opacity: 1;
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .markdown-copy-btn svg {
-    width: 14px;
-    height: 14px;
-    display: block;
   }
 
   /* === Modal dialog (F5 leg 04) ===
@@ -2697,6 +2693,22 @@
   .ui-message--assistant p { margin: 0.5em 0; }
   .ui-message--assistant ul,
   .ui-message--assistant ol { margin: 0.5em 0; padding-left: 1.5em; }
+  /* A1: reply headings on the type tokens, capped at the app's page heading (h1 18px). */
+  .ui-message--assistant h1,
+  .ui-message--assistant h2,
+  .ui-message--assistant h3,
+  .ui-message--assistant h4,
+  .ui-message--assistant h5,
+  .ui-message--assistant h6 { margin: 0.5em 0; font-weight: var(--font-weight-semibold); line-height: var(--line-height-normal); }
+  .ui-message--assistant h1 { font-size: var(--font-size-h1); }
+  .ui-message--assistant h2 { font-size: var(--font-size-h2); }
+  .ui-message--assistant h3 { font-size: var(--font-size-h3); }
+  .ui-message--assistant h4 { font-size: var(--font-size-body-lg); }
+  .ui-message--assistant h5,
+  .ui-message--assistant h6 { font-size: var(--font-size-body); }
+  /* Task list item (0.4): the disabled checkbox stands in for the bullet. */
+  .ui-message--assistant li.markdown-task { list-style: none; margin-left: -1.25em; }
+  .ui-message--assistant li.markdown-task > input[type="checkbox"] { margin: 0 0.5em 0 0; vertical-align: middle; }
   .ui-message--assistant pre {
     margin: 0.5em 0;
     background: var(--code-block-bg);
@@ -2722,7 +2734,10 @@
     font-size: 0.9em;
   }
   .ui-message--assistant blockquote { margin: 0.5em 0; padding-left: 1em; border-left: 3px solid var(--border); }
-  .ui-message--assistant table { margin: 0.5em 0; border-collapse: collapse; white-space: normal; font-size: 0.95em; width: auto; max-width: 100%; }
+  /* B1: a wide table scrolls sideways inside its own focusable wrapper, not the bubble. */
+  .ui-message--assistant .markdown-table-wrap { margin: 0.5em 0; max-width: 100%; overflow-x: auto; }
+  .ui-message--assistant .markdown-table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-message--assistant table { margin: 0; border-collapse: collapse; white-space: normal; font-size: 0.95em; width: auto; }
   .ui-message--assistant th,
   .ui-message--assistant td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
   .ui-message--assistant thead th { background: var(--surface); font-weight: var(--font-weight-semibold); }

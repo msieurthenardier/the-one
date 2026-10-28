@@ -29,34 +29,6 @@
   var util = App.ui.util;
   var slot = util.mountSlot();
 
-  var NO_TOOLS_TITLE =
-    'This model does not support tool calling — agents will run in single-shot chat mode.';
-
-  // Render the Ollama capability list as a row of chips. `caps` is the array
-  // returned by /api/show (e.g. ['completion', 'tools', 'vision']); null means the
-  // capability lookup failed (network/missing model) and we render nothing rather
-  // than misleadingly implying "no capabilities". Absence of `tools` adds a danger
-  // "no tools" chip so the operator sees it at a glance. Returns a node, or null.
-  function renderCapabilityChips(caps) {
-    if (!Array.isArray(caps) || caps.length === 0) return null;
-    var row = util.el('span', { className: 'cap-chip-row' });
-    for (var i = 0; i < caps.length; i++) {
-      row.appendChild(App.ui.chip({ label: caps[i], size: 'sm' }));
-    }
-    if (caps.indexOf('tools') === -1) {
-      row.appendChild(App.ui.chip({
-        label: 'no tools',
-        tone: 'danger',
-        size: 'sm',
-        title: NO_TOOLS_TITLE
-      }));
-    }
-    return row;
-  }
-
-  // Exposed so Studio's model selector can reuse the same chip vocabulary.
-  window.App.studio.renderCapabilityChips = renderCapabilityChips;
-
   // Decimal units, like App.formatBytes (matches ollama.com and `ollama pull`). Kept
   // separate on purpose: its output differs (whole MB, '' for an unknown size, one-decimal
   // GB with no TB tier), so it is not a drop-in for App.formatBytes.
@@ -94,9 +66,9 @@
   }
 
   // The list region: loading line, error line and empty state are built once, in this
-  // order, BEFORE the rows (so a row is always the last child while there are rows).
+  // order, BEFORE the model list control (App.ui.modelList), which owns the rows.
   // `mode(m, msg)` shows exactly one of 'loading' | 'error' | 'empty' | 'list'.
-  function buildListRegion(emptyBody) {
+  function buildListRegion(emptyBody, listEl) {
     var loading = util.el('span', { className: 'admin-loading', text: 'Loading models…' });
     var error = App.ui.status({ state: 'danger', text: 'Failed to load models' });
     error.el.hidden = true;
@@ -107,8 +79,8 @@
     });
     empty.classList.add('admin-pf-models-empty');
     empty.hidden = true;
-    var host = util.el('div', { className: 'admin-pf-models-list', 'aria-live': 'polite' },
-      [loading, error.el, empty]);
+    var host = util.el('div', { className: 'provider-models-region', 'aria-live': 'polite' },
+      [loading, error.el, empty, listEl]);
     return {
       el: host,
       anchor: empty,
@@ -159,37 +131,23 @@
   function mountBasic(provider, container) {
     var destroyed = false;
     var generation = 0;
-    var rows = Object.create(null);
     var shown = false; // a result has been applied (the loading line is for the first load)
 
     var refreshBtn = buildRefreshButton(function () { refresh(); });
-    var region = buildListRegion();
+    var list = App.ui.modelList({ label: 'Models', density: 'compact' });
+    var region = buildListRegion(undefined, list.el);
     container.appendChild(util.el('div', { className: 'admin-pf-models-header' }, [refreshBtn]));
     container.appendChild(region.el);
     region.mode('loading');
 
     function showModels(models) {
-      var names = [];
-      var seen = Object.create(null);
-      var i;
-      for (i = 0; i < models.length; i++) {
+      var rowSpecs = [];
+      for (var i = 0; i < models.length; i++) {
         var name = models[i].id || models[i].name;
-        if (!name || seen[name]) continue;
-        seen[name] = true;
-        names.push(name);
+        if (name) rowSpecs.push({ name: name });
       }
-      var desired = [];
-      for (i = 0; i < names.length; i++) {
-        var row = rows[names[i]];
-        if (!row) {
-          row = util.el('div', { className: 'admin-pf-model-item', text: names[i] });
-          rows[names[i]] = row;
-        }
-        desired.push(row);
-      }
-      Object.keys(rows).forEach(function (key) { if (!seen[key]) delete rows[key]; });
-      util.syncChildren(region.el, desired, { after: region.anchor });
-      region.mode(names.length ? 'list' : 'empty');
+      list.reconcile([{ key: 'models', label: null, rows: rowSpecs }]);
+      region.mode(list.el.children.length ? 'list' : 'empty');
     }
 
     function refresh() {
@@ -215,6 +173,7 @@
       destroy: function () {
         destroyed = true;
         generation++;
+        list.destroy();
       }
     };
     refresh();
@@ -237,8 +196,6 @@
     var optionsSignature = null;
 
     // List state
-    var rows = Object.create(null); // model name -> row
-    var order = []; // model names in display order
     var loaded = false;
 
     // ── The shell, built once ─────────────────────────────────────────
@@ -292,9 +249,13 @@
     var vram = util.el('div', { className: 'admin-pf-vram-summary' });
     var vramKey = null;
 
-    var region = buildListRegion('Use Pull Model to download one.');
-    var runningLabel = util.el('div', { className: 'admin-pf-section-label', text: 'Running' });
-    var availableLabel = util.el('div', { className: 'admin-pf-section-label', text: 'Available' });
+    var list = App.ui.modelList({
+      label: 'Models',
+      actions: ['unload', 'load', 'delete'],
+      onAction: function (name, action) { ollamaAction(name, action); },
+      onFocusLost: function () { if (!refreshBtn.disabled) refreshBtn.focus(); }
+    });
+    var region = buildListRegion('Use Pull to download one.', list.el);
 
     container.appendChild(util.el('div', { className: 'admin-pf-models-header' }, [refreshBtn]));
     container.appendChild(util.el('div', { className: 'admin-pf-pull-input' }, [pullSelect, pullBtn]));
@@ -537,7 +498,8 @@
       renderPullButton();
       pullError.el.hidden = true;
       progress.el.hidden = false;
-      progress.set(0, 'Pulling ' + model + '…');
+      var lastPct = 0;
+      progress.set(0, 'Pulling ' + model + '… 0%');
 
       fetch(modelsUrl(provider, '/pull'), {
         method: 'POST',
@@ -576,11 +538,10 @@
                       finishPull(true);
                       return;
                     }
-                    var pct = 0;
                     if (evt.total && evt.total > 0) {
-                      pct = Math.round((evt.completed / evt.total) * 100);
+                      lastPct = Math.min(100, Math.floor(((evt.completed || 0) / evt.total) * 100));
                     }
-                    progress.set(pct / 100, (evt.status || '') + (pct > 0 ? ' — ' + pct + '%' : ''));
+                    progress.set(lastPct / 100, 'Pulling ' + model + '… ' + lastPct + '%');
                   } catch (parseErr) {
                     // skip unparseable lines
                   }
@@ -625,75 +586,12 @@
 
     // ── The list: keyed rows ──────────────────────────────────────────
 
-    function firstAction(row) {
-      var buttons = [row.unloadBtn, row.loadBtn, row.deleteBtn];
-      for (var i = 0; i < buttons.length; i++) {
-        if (!buttons[i].hidden && !buttons[i].disabled) return buttons[i];
-      }
-      return null;
-    }
-
-    function setButtonText(btn, text) {
-      if (btn === undefined || btn === null) return;
-      if (btn._titleEl) {
-        btn._titleEl.textContent = text;
-      } else {
-        btn.textContent = text;
-      }
-    }
-
-    function clearRowError(row) {
-      clearTimeout(row.errorTimer);
-      row.errorTimer = null;
-      if (row.errorLine) row.errorLine.el.hidden = true;
-    }
-
-    function showRowError(row, message) {
-      if (!row.errorLine) {
-        row.errorLine = App.ui.status({ state: 'danger', text: message });
-        row.errorLine.el.classList.add('admin-pf-model-error');
-        row.el.appendChild(row.errorLine.el);
-      }
-      row.errorLine.set('danger', message);
-      row.errorLine.el.hidden = false;
-      clearTimeout(row.errorTimer);
-      row.errorTimer = setTimeout(function () { clearRowError(row); }, 4000);
-    }
-
-    // End a row's in-flight action: its button back to its label and enabled.
-    function clearBusy(row) {
-      var was = row.busy;
-      row.busy = null;
-      row.busyDone = false;
-      if (was === 'unload') {
-        row.unloadBtn.disabled = false;
-        setButtonText(row.unloadBtn, 'Unload');
-      } else if (was === 'load') {
-        row.loadBtn.disabled = false;
-        setButtonText(row.loadBtn, 'Load');
-      } else if (was === 'delete') {
-        row.deleteBtn.disabled = false;
-        if (row.deleteRevert) {
-          row.deleteRevert();
-          row.deleteRevert = null;
-        }
-        setButtonText(row.deleteBtn, 'Delete');
-      }
-    }
-
-    function ollamaAction(row, action) {
-      var btn = action === 'unload' ? row.unloadBtn : action === 'load' ? row.loadBtn : row.deleteBtn;
-      clearRowError(row);
-      row.busy = action;
-      row.busyDone = false;
-      row.heldFocus = document.activeElement === btn;
-      row.focusBtn = btn;
-      btn.disabled = true;
-      setButtonText(btn, action === 'unload' ? 'Unloading…' : action === 'load' ? 'Loading…' : 'Deleting…');
+    // The control sets the row busy and records its held focus; this runs the work.
+    function ollamaAction(name, action) {
       fetch(modelsUrl(provider, '/' + action), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: row.name })
+        body: JSON.stringify({ model: name })
       })
         .then(jsonOrThrow(action + ' failed'))
         .then(function () {
@@ -701,95 +599,14 @@
           flash('Model ' + action + (action === 'delete' ? 'd' : 'ed') + ' successfully');
           // The busy state ends when the refresh that follows lands (the row is
           // re-sectioned or removed then).
-          row.busyDone = true;
+          list.setRowBusy(name, 'done');
           refresh();
         })
         .catch(function (err) {
           if (destroyed) return;
-          clearBusy(row);
-          showRowError(row, err.message);
-          if (row.heldFocus && (!document.activeElement || document.activeElement === document.body)) {
-            btn.focus();
-          }
-          row.heldFocus = false;
+          list.setRowBusy(name, null);
+          list.setRowError(name, err.message);
         });
-    }
-
-    function buildRow(name) {
-      var row = {
-        name: name,
-        section: null,
-        busy: null,
-        busyDone: false,
-        capsKey: null,
-        errorLine: null,
-        errorTimer: null,
-        deleteRevert: null,
-        heldFocus: false,
-        focusBtn: null
-      };
-      row.led = App.ui.status({ state: 'idle', ledLabel: 'Model state', live: 'off' });
-      row.led.el.classList.add('admin-pf-model-led');
-      row.nameEl = util.el('span', { className: 'admin-pf-model-name', text: name });
-      row.capsEl = util.el('span', { className: 'admin-pf-model-caps' });
-      row.capsEl.hidden = true;
-      row.sizeEl = util.el('span', { className: 'admin-pf-model-size' });
-
-      row.unloadBtn = App.ui.button({
-        size: 'sm',
-        label: 'Unload',
-        className: 'admin-pf-model-btn admin-pf-model-unload',
-        onClick: function () { ollamaAction(row, 'unload'); }
-      });
-      row.loadBtn = App.ui.button({
-        size: 'sm',
-        label: 'Load',
-        className: 'admin-pf-model-btn admin-pf-model-load',
-        onClick: function () { ollamaAction(row, 'load'); }
-      });
-      row.deleteBtn = App.ui.button({
-        variant: 'danger',
-        size: 'sm',
-        className: 'admin-pf-model-btn admin-pf-model-delete'
-      });
-      row.deleteBtn._titleEl = util.el('span', { text: 'Delete' });
-      row.deleteBtn._titleEl.setAttribute('data-confirm-title', '');
-      row.deleteBtn.appendChild(row.deleteBtn._titleEl);
-      row.deleteBtn.addEventListener('click', function () {
-        App.ui.confirm(row.deleteBtn, function (itemEl, revert) {
-          row.deleteRevert = revert;
-          ollamaAction(row, 'delete');
-        }, { confirmLabel: 'Confirm delete?' });
-      });
-
-      var actions = util.el('div', { className: 'admin-pf-model-actions' },
-        [row.unloadBtn, row.loadBtn, row.deleteBtn]);
-      row.el = util.el('div', { className: 'admin-pf-model-row' },
-        [row.led.el, row.nameEl, row.capsEl, row.sizeEl, actions]);
-      return row;
-    }
-
-    // Update a row in place for its section ('running' | 'available') and data.
-    function setRowState(row, section, size, caps) {
-      var running = section === 'running';
-      row.section = section;
-      row.el.setAttribute('data-section', section);
-      row.led.set(running ? 'success' : 'idle', '', { ledLabel: running ? 'Running' : 'Not running' });
-      if (row.sizeEl.textContent !== size) row.sizeEl.textContent = size;
-      var capsKey = Array.isArray(caps) ? caps.join('\n') : '';
-      if (capsKey !== row.capsKey) {
-        row.capsKey = capsKey;
-        row.capsEl.textContent = '';
-        var chips = renderCapabilityChips(caps);
-        if (chips) row.capsEl.appendChild(chips);
-        row.capsEl.hidden = !chips;
-      }
-      row.unloadBtn.hidden = !running;
-      row.loadBtn.hidden = running;
-      row.deleteBtn.hidden = running;
-      // The refresh that follows a finished action ends its busy state. An in-flight
-      // action keeps its busy state through any other refresh.
-      if (row.busyDone) clearBusy(row);
     }
 
     function updateVram(running, totalVram) {
@@ -800,150 +617,56 @@
       if (running.length === 0) {
         vram.textContent = 'No models loaded';
       } else if (totalVram > 0) {
-        vram.appendChild(util.el('span', {
-          className: 'admin-pf-vram-value',
-          text: formatSize(totalVram) + ' loaded'
-        }));
+        vram.textContent = formatSize(totalVram) + ' loaded';
       } else {
         vram.textContent = 'VRAM info unavailable';
       }
     }
 
-    // The row that holds keyboard focus. A button this panel just disabled (a row
-    // action in flight) drops focus to the body, so such a row remembers it held focus
-    // (`heldFocus`); that memory only counts while focus is nowhere.
-    function focusedRow() {
-      var active = document.activeElement;
-      var names = Object.keys(rows);
-      var i;
-      if (active && active !== document.body) {
-        for (i = 0; i < names.length; i++) {
-          if (rows[names[i]].el.contains(active)) return { row: rows[names[i]], active: active };
-        }
-        return null;
-      }
-      for (i = 0; i < names.length; i++) {
-        if (rows[names[i]].heldFocus) return { row: rows[names[i]], active: rows[names[i]].focusBtn };
-      }
-      return null;
-    }
-
-    function restoreFocus(row, active, oldOrder, present) {
-      if (present[row.name]) {
-        if (document.activeElement === active) return;
-        if (active.isConnected && !active.hidden && !active.disabled) {
-          active.focus();
-          return;
-        }
-        var action = firstAction(row);
-        if (action) action.focus();
-        return;
-      }
-      // The row is gone: the neighbouring row's first action, else Refresh.
-      var at = oldOrder.indexOf(row.name);
-      var i;
-      for (i = at + 1; i < oldOrder.length; i++) {
-        if (present[oldOrder[i]]) {
-          var after = firstAction(rows[oldOrder[i]]);
-          if (after) { after.focus(); return; }
-        }
-      }
-      for (i = at - 1; i >= 0; i--) {
-        if (present[oldOrder[i]]) {
-          var before = firstAction(rows[oldOrder[i]]);
-          if (before) { before.focus(); return; }
-        }
-      }
-      if (!refreshBtn.disabled) refreshBtn.focus();
-    }
-
-    function clearRows() {
-      Object.keys(rows).forEach(function (name) {
-        clearRowError(rows[name]);
-        delete rows[name];
-      });
-      order = [];
-    }
-
     // Reconcile the list: rows keyed by model name, in two sections.
     function applyModels(allModels, runningModels) {
-      var focused = focusedRow();
-      var oldOrder = order;
-
       var totalVram = 0;
       var capsBy = Object.create(null);
+      var seen = Object.create(null);
+      var running = [];
+      var available = [];
       var i;
       for (i = 0; i < allModels.length; i++) {
         var cm = allModels[i];
         var cname = cm.name || cm.id || '';
         if (cname) capsBy[cname] = cm.capabilities || null;
       }
-
-      var present = Object.create(null);
-      var runningRows = [];
-      var availableRows = [];
-
-      function rowFor(name, section, size, caps) {
-        var row = rows[name];
-        if (!row) {
-          row = buildRow(name);
-          rows[name] = row;
-        }
-        present[name] = true;
-        setRowState(row, section, size, caps);
-        return row;
-      }
-
       for (i = 0; i < runningModels.length; i++) {
         var run = runningModels[i];
         var runName = run.name || run.model || 'unknown';
-        if (present[runName]) continue;
+        if (seen[runName]) continue;
+        seen[runName] = true;
         if (run.size_vram) totalVram += run.size_vram;
-        runningRows.push(rowFor(runName, 'running', run.size_vram ? formatSize(run.size_vram) : '',
-          capsBy[runName]));
+        running.push({
+          name: runName,
+          state: 'running',
+          caps: capsBy[runName],
+          size: run.size_vram ? formatSize(run.size_vram) : ''
+        });
       }
       for (i = 0; i < allModels.length; i++) {
         var am = allModels[i];
         var availName = am.name || am.id || 'unknown';
-        if (present[availName]) continue; // running, or a duplicate
-        availableRows.push(rowFor(availName, 'available', am.size ? formatSize(am.size) : '',
-          capsBy[availName]));
+        if (seen[availName]) continue; // running, or a duplicate
+        seen[availName] = true;
+        available.push({
+          name: availName,
+          state: 'idle',
+          caps: capsBy[availName],
+          size: am.size ? formatSize(am.size) : ''
+        });
       }
-
-      Object.keys(rows).forEach(function (name) {
-        if (present[name]) return;
-        clearRowError(rows[name]);
-        delete rows[name];
-      });
-
-      updateVram(runningRows, totalVram);
-
-      var desired = [];
-      var names = [];
-      var k;
-      if (runningRows.length) {
-        desired.push(runningLabel);
-        for (k = 0; k < runningRows.length; k++) {
-          desired.push(runningRows[k].el);
-          names.push(runningRows[k].name);
-        }
-      }
-      if (availableRows.length) {
-        desired.push(availableLabel);
-        for (k = 0; k < availableRows.length; k++) {
-          desired.push(availableRows[k].el);
-          names.push(availableRows[k].name);
-        }
-      }
-      util.syncChildren(region.el, desired, { after: region.anchor });
-      order = names;
-      region.mode(names.length ? 'list' : 'empty');
-
-      // A row still mid-action keeps its focus memory for the refresh that ends it.
-      if (focused && !(present[focused.row.name] && focused.row.busy && !focused.row.busyDone)) {
-        restoreFocus(focused.row, focused.active, oldOrder, present);
-        focused.row.heldFocus = false;
-      }
+      updateVram(running, totalVram);
+      list.reconcile([
+        { key: 'running', label: 'Running', rows: running },
+        { key: 'available', label: 'Available', rows: available }
+      ]);
+      region.mode(running.length + available.length ? 'list' : 'empty');
     }
 
     // Re-fetch the models and the running set and reconcile. Overlapping calls: a stale
@@ -985,7 +708,7 @@
           pullAbort.abort();
           pullAbort = null;
         }
-        Object.keys(rows).forEach(function (name) { clearRowError(rows[name]); });
+        list.destroy();
       }
     };
     refresh();

@@ -546,7 +546,7 @@ def make_ollama(
         from the_one.llm import ollama_api
 
         async def fake_chat_stream(
-            base_url: str, body: Any, headers: Any = None
+            base_url: str, body: Any, headers: Any = None, server_label: str = "Ollama"
         ) -> AsyncIterator[dict[str, Any]]:
             request_bodies.append(body)
             idx = counter["n"]

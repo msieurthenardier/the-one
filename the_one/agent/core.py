@@ -184,6 +184,12 @@ class Agent:
         # ``resume_after_auth``.
         self._deferred_tool_calls: list[ToolCall] | None = None
         self._remaining_iterations: int = 0
+        # Public: True only when the last turn ended because the iteration
+        # budget ran out (the ``while`` in ``_run_iterations`` ended with no
+        # ``return``). Cleared at the entry of ``step``, ``resume_after_auth``
+        # and ``reset``; set before the generator returns, so a consumer
+        # reading it after its ``async for`` sees it.
+        self.stopped_at_step_limit: bool = False
         # F10 L1: visibility filter. SHARED CONTAINERS with the factory-
         # constructed search-stub tools — mutations from those tools land
         # in these containers; _compute_visible_schemas reads them.
@@ -237,6 +243,7 @@ class Agent:
         providers that never emit interim usage just never fire the
         callback. Defaults to None.
         """
+        self.stopped_at_step_limit = False
         self.messages.append(Message.user(user_input))
         # F5 L3: clear stale pause state at the start of a new step and
         # re-prime the iteration budget. ``_run_iterations`` decrements
@@ -395,6 +402,10 @@ class Agent:
                     if result is not None:
                         executed[_executed_key(tc)] = (result.content, result.is_error)
 
+        # The ``while`` ended with no ``return``: the budget ran out (also the
+        # case for a zero budget on entry). Set before the generator returns.
+        self.stopped_at_step_limit = True
+
     async def _stream_response(
         self,
         *,
@@ -531,6 +542,7 @@ class Agent:
           4. Otherwise continues the iteration loop with the remaining
              iteration budget on ``self._remaining_iterations``.
         """
+        self.stopped_at_step_limit = False
         if self._deferred_tool_calls is None:
             return  # A7 no-op
 
@@ -667,6 +679,7 @@ class Agent:
         # before its own initialization clobbers it.
         self._deferred_tool_calls = None
         self._remaining_iterations = 0
+        self.stopped_at_step_limit = False
         # F10 L1: clear visibility filter so the next step starts blind.
         # Use .clear() (in-place mutation) NOT re-assignment — the same
         # containers may be referenced by the stub tools' closure-captured

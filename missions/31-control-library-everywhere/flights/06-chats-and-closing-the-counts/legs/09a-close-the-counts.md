@@ -99,7 +99,11 @@ Bring every mission count to zero in code and docs (DD14):
 
 ## Citation Audit
 - `ui/confirm.js:195`, `ui/consent-link.js:118`, `app.js:240-250`, `:287`, `:303-307`, `icons.js:84`, `tests/test_ui_library_source.py:25-35`, `chat.js:4`, `studio.js:15`, `admin.js:4`, `ui/feedback.js:8-27`, `docs/ui-control-inventory.md:4`, `:23-34`, `:60`, `:104`. FD grep (2026-10-27, after leg 05a).
-- **To re-run when batch B4 lands,** before the leg goes `ready`.
+- **Re-run after batch B4 landed** (FD grep, 2026-10-27, B4 uncommitted):
+  - `OWNERSHIP_ALLOWANCE`, `TOTAL_USES` and `MOVES` are **already empty** (legs 05b and 07 retired the last rows; `MOVES` holds only a comment), so this leg confirms them and tidies the comments rather than emptying them;
+  - the aliases are still defined: `ui/confirm.js:195`, `ui/consent-link.js:118`, and `app.js` `escapeHtml` / `escapeAttr` `:240-250`, `showFlash` `:287`, exports `:303-307`; `App.icon` is at `icons.js:84` (its only reference left is its own warning string);
+  - no app code calls any alias. Tests still do: `test_ui_confirm_contract.py` (12), `test_ui_list_pane_chats_contract.py` (6), and the guard tests' fixtures (`test_ui_ownership.py`, `_ui_ownership_allowance.py` comments);
+  - the only "not yet defined" control row left is "Data table" (`:104`); the header prose is at `:4`, `:23-34`.
 
 ---
 

@@ -1,5 +1,5 @@
 // App.chat.turnFrames -- the frames that render a turn, behind the socket's frame gate: user,
-// assistant, thinking, tool_call, tool_result, system, usage, done, cancelled, and the sign-in
+// assistant, thinking, tool_call, tool_result, system, usage, step_limit, done, cancelled, and the sign-in
 // frames delegated to App.chat.signIn (M31 F6 L02, split out of areas/chat.js, moved verbatim
 // apart from the ctx./state. prefixes). handle(data) is the old tail of sock.onmessage.
 //
@@ -155,6 +155,15 @@
       else if (data.type === 'auth_required') ctx.signIn.onAuthRequired(data);
       else if (data.type === 'auth_resolved') ctx.signIn.onAuthResolved(data);
       else if (data.type === 'auth_failed') ctx.signIn.onAuthFailed(data);
+      else if (data.type === 'step_limit') {
+        // DD8 F2: arrives immediately before `done`. Seal the reply first (as the assistant and
+        // tool-call branches do), then a muted line after it. Broadcast-only server side, so a
+        // re-join renders none; a held queued message at `done` leaves it in place.
+        ctx.transcript.hideThinking();
+        ctx.transcript.finalizeStreamingBubble();
+        ctx.transcript.clearStreamingVisibility();
+        ctx.transcript.addStepLimitNotice(data.steps, state.currentAgentName);
+      }
       else if (data.type === 'done') {
         ctx.transcript.hideThinking();
         ctx.transcript.dropModelLoading();

@@ -12,6 +12,7 @@ from the_one.agent.platform_prompt import capabilities_from_registry
 from the_one.agent.prompt_layers import build_system_prompts, time_tool_available
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
+from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
 from the_one.time_zones import CURRENT_TIME_TOOL_NAME
@@ -359,6 +360,9 @@ class AgentFactory:
         # the ollama registry to avoid passing an unknown kwarg to others.
         if registry_name == "ollama":
             provider_kwargs["native_api"] = provider_config.type == "ollama"
+            # The name connection errors use: "Ollama", or "OpenAI-compatible" for
+            # the shared-class openai-compatible type (M31 F6 L06, DD11 2).
+            provider_kwargs["server_label"] = PROVIDER_TYPE_LABELS[provider_config.type]
         # M19 F01 L02 (DD-3): plan providers self-resolve their credential
         # source by provider-config id — no static access token is threaded.
         # Scoped to the plan type (mirrors the ``native_api`` scoping above)

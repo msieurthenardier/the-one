@@ -164,6 +164,7 @@ class OllamaProvider(LLMProvider):
         base_url: str = "http://localhost:11434/v1",
         api_key: str | None = None,
         native_api: bool = False,
+        server_label: str = "Ollama",
         **kwargs: Any,
     ):
         super().__init__()
@@ -181,6 +182,9 @@ class OllamaProvider(LLMProvider):
         # False so direct construction (tests, generic OpenAI-compatible
         # back-ends) keeps the historical /v1 behaviour.
         self.native_api = native_api
+        # What connection errors call the server: "Ollama", or "OpenAI-compatible" for the
+        # shared-class openai-compatible type (set by the factory from the provider type).
+        self.server_label = server_label
         # Per-provider runtime window override, read from the free-form provider
         # ``config`` dict (``config.num_ctx``) — the highest-precedence source
         # for ``effective_num_ctx`` (above env + default). Coerced to a positive
@@ -276,7 +280,9 @@ class OllamaProvider(LLMProvider):
         # ``_ensure_ollama_model_loaded`` in the web layer). When the advertised
         # window is unknown we leave the class default (no information → no
         # change), matching historical behaviour.
-        data = await ollama_api.show_model(self.base_url, self.model)
+        data = await ollama_api.show_model(
+            self.base_url, self.model, server_label=self.server_label
+        )
         advertised = ollama_api.extract_ollama_context_length(data)
         # Per-provider ``config.num_ctx`` (if set) takes precedence over env +
         # default, then is clamped to the advertised window. Resolved here at
@@ -333,7 +339,8 @@ class OllamaProvider(LLMProvider):
             if resp.status_code >= 400:
                 detail = resp.text.strip() or "(empty body)"
                 raise httpx.HTTPStatusError(
-                    f"Ollama returned {resp.status_code} from {resp.request.url}: {detail}",
+                    f"{ollama_api.server_phrase(self.server_label, sentence_start=True)} returned "
+                    f"{resp.status_code} from {resp.request.url}: {detail}",
                     request=resp.request,
                     response=resp,
                 )
@@ -423,7 +430,7 @@ class OllamaProvider(LLMProvider):
         acc = _StreamAccumulator(bytes_per_token=self.bytes_per_token)
 
         async for chunk_dict in ollama_api.chat_stream(
-            self.base_url, body, headers=self._auth_headers()
+            self.base_url, body, headers=self._auth_headers(), server_label=self.server_label
         ):
             choices = chunk_dict.get("choices") or []
             if not choices:

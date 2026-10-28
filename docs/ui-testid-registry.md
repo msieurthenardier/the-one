@@ -137,6 +137,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
 | `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.confirmDelete`); never on the pending row (M25 F4 L4a) |
 | `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
+| `chat-step-limit` | chat | The muted step-limit line after a `step_limit` frame; never stored, so a re-join shows none (M31 F6 L06, DD8) |
+| `chat-step-limit-link` | chat | Its "Max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
 | `chat-telemetry` | chat | The context-usage readout (`App.ui.telemetry`) in the composer's telemetry row; `role=status`, `tabindex=0`, shown only while a chat is joined; the chat area's `_telemetry()` is its handle (M31 F6 L05c) |
 | `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
 | `chat-stop-btn` | chat | The composer's Stop (`btn-muted-destructive`), hidden unless the open chat has a turn in flight; just before Send when shown |
