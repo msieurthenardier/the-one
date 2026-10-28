@@ -145,7 +145,7 @@ def test_groups_boundaries_times_and_cross_agent_rows(
     (2 and 6), Last 30 days (7 and 29) and Older (30 and 400), newest first,
     under sentence-case captions, with h:mm AM/PM / weekday / "Mon D" times. The
     rows interleave agents, a null agent reads "Default agent", and a connector
-    row carries its platform as a neutral plain badge."""
+    row carries its platform as a neutral badge pill."""
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     other = seed_mock_agent(base, app_with_agent.provider_id, name="Beta")
     st = _stamps(
@@ -209,10 +209,10 @@ def test_groups_boundaries_times_and_cross_agent_rows(
         assert r["tag"] == "A" and r["pending"] is None, r
         assert r["href"] == _nav.href(f"chats/{_nav.seg(r['id'])}"), r
         assert r["action"] == f"Delete chat: {r['label']}", r
-    # Only the connector row has a badge: its platform, a neutral span whose
-    # class is never built from the value.
+    # Only the connector row has a badge: its platform, the neutral library
+    # badge pill (class never built from the value).
     assert {r["label"]: (r["badges"], r["badgeClasses"]) for r in flat if r["badges"]} == {
-        "Two days": (["Discord"], ["ui-list-pane-badge"])
+        "Two days": (["Discord"], ["badge badge--unknown"])
     }
     # One selected row.
     assert [r["label"] for r in flat if r["current"]] == ["Fresh chat"]

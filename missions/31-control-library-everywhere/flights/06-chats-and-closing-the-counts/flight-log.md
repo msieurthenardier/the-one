@@ -152,6 +152,7 @@ Rows 1-38 at planning (legs updated after Architect cycle 1). Every leg appends 
 | 44 | 07 | Chat reply | The code-block Copy code button is the library icon button at size `sm` (24 x 24, the secondary outlined look, 14px icon); it was a hand-built 28 x 24 button on the surface fill. Same top-right placement and the 0.6 resting opacity with the hover/focus reveal | A2 |
 | 45 | 07 | Chat reply | A task item's disabled checkbox replaces its bullet (`li.markdown-task`, `list-style: none`, checkbox in the bullet's place); a table with unbreakable cell text now overflows into its own focusable "Table" region instead of the bubble (B1; the table's own width is unchanged: auto) | 0.4, B1 |
 | 46 | 08 | Provider models | A model id in either list carries its full id as a tooltip (`title`); the generic list keeps its compact rows (4px padding, default cursor) and only the font changes (row 10) | DD10 |
+| 47 | 10 (HAT) | Chats list | The connector platform marker is the neutral library badge pill ("Discord") | operator, HAT step 1 |
 
 ## Leg Progress
 
@@ -921,6 +922,17 @@ Unexpected issues encountered.
   - **Accepted, not fixed:** one non-blocking nit. `the_one/agents.md` about `:933`, a historical M28 note, still mentions "the Time badge". `:941` already marks it retired.
   - **Status:** legs 09a and 09b are `completed`, and checkpoint commit B5 follows.
   - **Squawks:** 0185, 0215, 0249, 0259, 0269, 0270, 0271, 0272 and 0276 stay `in-progress` until the flight's sign-off (the HAT and landing).
+
+- **Leg 10 (flight-hat) designed** as an interactive leg in eight state-transition steps; see `legs/10-flight-hat.md`.
+  - **Preview instance:** started with `scripts/ui_capture.py --keep-running` on port 56764 (PID 4051743, scratch under `$HOME/.cache/the-one-ui-capture/`), carrying the capture and chat seeds.
+  - **Extra seed (`hat_seed.py` in the scratchpad):** `limit-agent`, `connector-agent`, and the stub connector `hat-stub` with `peer-1` paired.
+
+- **HAT, steps 1 and 2: pass.**
+  - Step 1 inline fix (look and feel, single surface): the Chats list's platform marker becomes the neutral `App.ui.badge` pill. The operator chose the neutral pill over a platform colour. It is ledger row 47. The Developer ran the chats lane: 159 passed. The operator confirmed the pill live.
+- **HAT, step 3: two operator requests ruled features (FD call, made out loud).** Both go through the fix-vs-feature gate.
+  - (a) "Can't send a second message after the first is queued." The one-slot hold queue is design from Mission 9 F09-04, and the FD's step text was wrong to ask for two. The operator chose to queue several. That is leg 10a, `multi-message-queue`.
+  - (b) A working/done indicator on Chats-list rows. The operator chose to build it in this flight. That is leg 10b, `chat-row-status`, which touches the server push and adds a library option.
+  - Both legs are tiered high (the send path, the WebSocket and session-list shape, a shared library control). A Developer design review (Sonnet) is spawned over both. The HAT pauses at step 3 until they land.
 
 ---
 

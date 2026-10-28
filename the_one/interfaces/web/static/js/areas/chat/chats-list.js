@@ -21,8 +21,8 @@
 // every engine and locale draws the same English labels.
 //
 // A row: label = the title, time as above, meta = the agent name ("Default
-// agent" for a null agent_name), a connector row's platform as a plain-string
-// badge (a neutral muted span; no class is built from the value), href =
+// agent" for a null agent_name), a connector row's platform as the neutral
+// library badge pill (App.ui.badge kind 'unknown'; no class is built from the value), href =
 // #chats/{id}, dataset {id}, testid chat-row, and a delete row action (the
 // trash icon, "Delete chat: {title}", testid chat-row-delete) that the chat
 // area drives through App.ui.confirm(li, ...).
@@ -127,8 +127,8 @@
         }
       }
     };
-    // A connector session: its platform as a neutral plain-string badge.
-    if (row.platform) item.badges = [platformName(row.platform)];
+    // A connector session: its platform as the neutral library badge pill.
+    if (row.platform) item.badges = [{ text: platformName(row.platform), kind: 'unknown' }];
     return item;
   }
 
