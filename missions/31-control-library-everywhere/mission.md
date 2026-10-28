@@ -129,3 +129,4 @@ Every control the app shows has exactly one definition in the shared control lib
   - Finish the style ownership cleanup.
   - Bring `agents.md`, CLAUDE.md and the catalogue to the final state.
 - [ ] Flight 7 *(optional)*: **Alignment.** A vibe coding session: the operator and the agent walk the app together, in both themes and in the desktop window, and make hands-on adjustments.
+  - **Skipped** (operator, 2026-10-28, after the Flight 6 debrief). The mission goes to its debrief after Flight 6.

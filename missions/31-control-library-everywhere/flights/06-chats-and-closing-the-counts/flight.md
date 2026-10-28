@@ -1,6 +1,6 @@
 # Flight: Chats, and closing every count to zero
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Every control comes from one library](../../mission.md)
 
 ## Contributing to Criteria
