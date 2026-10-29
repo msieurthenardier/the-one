@@ -20,8 +20,7 @@ from typing import Any
 from the_one import time_zones
 from the_one.db.connection import get_connection
 from the_one.db.repositories import AppMetadataRepository
-from the_one.routines import runner
-from the_one.routines import schedule as routine_schedule
+from the_one.routines import recurrence, runner
 from the_one.routines.limits import MISSED_COUNT_CAP
 from the_one.routines.models import Routine, RoutineRun
 from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
@@ -148,14 +147,55 @@ class RoutineScheduler:
             return
         if stored is not None:
             repo = AgentRoutineRepository(conn)
-            for r in await repo.list_active_wall_clock(now.isoformat()):
+            for r, raw in await repo.list_not_done():
                 try:
-                    nxt = routine_schedule.next_run(r.schedule, after=now, zone=zone.tzinfo)
-                    if nxt is not None and r.next_run_at:
-                        await repo.recompute_next_run(r.id, r.next_run_at, nxt.isoformat())
+                    await self._follow_zone(repo, r, raw, now, zone.tzinfo)
                 except Exception:  # noqa: BLE001
                     logger.exception("routine %s: could not follow the time-zone change", r.id)
         await meta.set(ZONE_KEY, zone.key)
+
+    @staticmethod
+    async def _follow_zone(
+        repo: AgentRoutineRepository, r: Routine, raw: str, now: datetime, tz
+    ) -> None:
+        """DD12 for one routine that is not Done. An instant-anchored schedule (a one-off,
+        minutes or hours) keeps its instant: only the display ``start`` is re-rendered. A
+        wall-clock schedule keeps its wall time: an enabled routine's ``next_run_at`` is
+        recomputed in the new zone (Done when nothing is left). A routine already due is
+        left for the pass, which catches it up."""
+        anchor = _parse(r.anchor_at)
+        try:
+            sched = recurrence.check(r.schedule, anchor)
+        except (recurrence.RoutineScheduleError, KeyError, TypeError, ValueError):
+            # A stored schedule that cannot be read (v48's upgrade_failed) has nothing to follow.
+            logger.debug("routine %s: unreadable schedule, skipped on zone change", r.id)
+            return
+        if recurrence.is_anchored(sched):
+            new = recurrence.rezone(sched, anchor, tz)
+            if new != sched:
+                await repo.follow_zone_change(
+                    r.id,
+                    expect_schedule_text=raw,
+                    expect_anchor_at=r.anchor_at,
+                    expect_next_run_at=r.next_run_at,
+                    schedule=new,
+                    next_run_at=r.next_run_at,
+                )
+            return
+        if not r.enabled or not r.next_run_at:
+            return
+        due = _parse(r.next_run_at)
+        if due is None or due <= now:
+            return
+        nxt = recurrence.next_occurrence(sched, anchor, now, tz)
+        await repo.follow_zone_change(
+            r.id,
+            expect_schedule_text=raw,
+            expect_anchor_at=r.anchor_at,
+            expect_next_run_at=r.next_run_at,
+            next_run_at=nxt.isoformat() if nxt else None,
+            finished_at=None if nxt else now.isoformat(),
+        )
 
     # ── the pass ──
 
@@ -180,39 +220,30 @@ class RoutineScheduler:
         anchor = _parse(r.anchor_at)
         if due is None or due_iso is None:
             return
-        g = routine_schedule.grace(r.schedule, due, zone, anchor)
+        g = recurrence.grace(r.schedule, anchor, due, zone)
         late = now - due
-        once = r.schedule.get("kind") == "once"
         runs_now = late <= g
-        if runs_now:
-            trigger = "schedule" if late < timedelta(seconds=ON_TIME_SECONDS) else "catch_up"
-            nxt = (
-                None
-                if once
-                else routine_schedule.next_run(r.schedule, after=now, zone=zone, anchor=anchor)
-            )
-        else:
-            trigger = "schedule"
-            nxt = (
-                None
-                if once
-                else routine_schedule.next_run(r.schedule, after=now, zone=zone, anchor=anchor)
-            )
-        finished = now.isoformat() if once else None
+        trigger = "schedule"
+        if runs_now and late >= timedelta(seconds=ON_TIME_SECONDS):
+            trigger = "catch_up"
+        # The series' end: no next occurrence finishes the routine (a one-off after its
+        # run, or the last occurrence of an ended series).
+        nxt = recurrence.next_occurrence(r.schedule, anchor, now, zone)
+        finished = now.isoformat() if nxt is None else None
         if not await repo.advance_if_due(r.id, due_iso, nxt.isoformat() if nxt else None, finished):
             return  # edited, disabled or deleted since list_due: the edit wins
         if not runs_now:
-            if once:
+            if r.schedule["repeat"] is None:
                 reason = "The scheduled time passed while the app was closed."
             else:
                 n = max(
                     1,
-                    routine_schedule.occurrences_between(
+                    recurrence.occurrences_between(
                         r.schedule,
+                        anchor,
                         due - timedelta(microseconds=1),
                         now,
                         zone,
-                        anchor,
                         cap=MISSED_COUNT_CAP + 1,
                     ),
                 )
@@ -222,15 +253,7 @@ class RoutineScheduler:
         rid = r.id
         task = self._spawn(rid, lambda: runner.run_routine(rid, trigger, due_iso))
         if task is None:
-            await self._record(
-                runs,
-                rid,
-                trigger,
-                "skipped",
-                "The previous run was still going.",
-                due_iso,
-                now,
-            )
+            await runs.record_still_running_skip(rid, trigger, due_iso, now.isoformat())
 
     @staticmethod
     async def _record(runs, rid, trigger, outcome, reason, due_iso, now) -> None:

@@ -142,6 +142,35 @@
     return controller;
   };
 
+  // One circular day toggle: a native checkbox named by the full label, showing
+  // a short letter. Returns the same {el, control, setChecked, setDisabled} shape
+  // as App.ui.checkbox so the group treats both alike.
+  function dayToggle(o, checked) {
+    var util = App.ui.util;
+    var input = util.el('input', { type: 'checkbox', className: 'ui-day-input' });
+    input.id = util.uid('day');
+    input.setAttribute('data-ui-own-label', 'true');
+    input.checked = !!checked;
+    if (o.disabled) input.disabled = true;
+    if (o.testid) input.setAttribute('data-testid', o.testid);
+    var letter = o.short || String(o.label).charAt(0);
+    var label = util.el('label', { className: 'ui-day' + (o.disabled ? ' is-disabled' : '') }, [
+      input,
+      util.el('span', { className: 'ui-day-letter', 'aria-hidden': 'true', text: letter }),
+      util.el('span', { className: 'visually-hidden', text: o.label })
+    ]);
+    label.htmlFor = input.id;
+    return {
+      el: label,
+      control: input,
+      setChecked: function (v) { input.checked = !!v; },
+      setDisabled: function (v) {
+        input.disabled = !!v;
+        label.classList.toggle('is-disabled', !!v);
+      }
+    };
+  }
+
   // App.ui.checkboxGroup(opts) -> controller {el, value(), setValue(arr),
   // setDisabled(bool), focus(), destroy()}  (M33 F1 L9).
   //   legend (required), legendHidden, options[] of {value, label (both
@@ -152,6 +181,14 @@
   //   value() returns the checked values in option order. setValue and
   //   setDisabled are silent (no onChange); an unknown value is ignored.
   //   onChange(values) fires on a user toggle. destroy() removes the listener.
+  //   variant: 'days' (M33 F3 L6) draws the options as circular toggles in one
+  //   row (fieldset.ui-checkbox-group--days). Each option is label.ui-day around a
+  //   native checkbox (input.ui-day-input), an aria-hidden span.ui-day-letter
+  //   (option.short, default the label's first letter) and the label as visually
+  //   hidden text, so the accessible name is the full label ("Sunday"). Checked is
+  //   a filled circle with bold text and a check-ring, not colour alone. Only
+  //   layout and styling change; value(), setValue and the callbacks are the same.
+  //   The caller supplies the options in display order and their values.
   App.ui.checkboxGroup = function (opts) {
     opts = opts || {};
     if (!opts.legend) throw new Error('App.ui.checkboxGroup: legend is required');
@@ -159,7 +196,13 @@
       throw new Error('App.ui.checkboxGroup: options are required');
     }
     var util = App.ui.util;
-    var fieldset = util.el('fieldset', { className: 'ui-checkbox-group' });
+    if (opts.variant !== undefined && opts.variant !== 'days') {
+      throw new Error('App.ui.checkboxGroup: unknown variant "' + opts.variant + '"');
+    }
+    var days = opts.variant === 'days';
+    var fieldset = util.el('fieldset', {
+      className: 'ui-checkbox-group' + (days ? ' ui-checkbox-group--days' : '')
+    });
     if (opts.testid) fieldset.setAttribute('data-testid', opts.testid);
     fieldset.appendChild(util.el('legend', {
       className: opts.legendHidden ? 'visually-hidden' : 'ui-checkbox-group-legend',
@@ -178,7 +221,7 @@
       var key = String(o.value);
       if (seen[key]) throw new Error('App.ui.checkboxGroup: duplicate value');
       seen[key] = true;
-      var cb = App.ui.checkbox({
+      var cb = days ? dayToggle(o, initial.indexOf(o.value) !== -1) : App.ui.checkbox({
         label: o.label, testid: o.testid, disabled: !!o.disabled,
         checked: initial.indexOf(o.value) !== -1
       });

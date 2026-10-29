@@ -26,7 +26,6 @@ from the_one import time_zones
 from the_one.db._write_lock import write_transaction
 from the_one.routines.limits import (
     AGENT_PENDING_PROPOSALS_MAX,
-    AGENT_PROPOSALS_KEPT,
     RoutineLimitError,
     RoutineNameTaken,
 )
@@ -110,17 +109,6 @@ def _proposal(row: Any) -> RoutineProposal:
     )
 
 
-async def _prune(conn: aiosqlite.Connection, agent_name: str) -> None:
-    """Keep the newest ``AGENT_PROPOSALS_KEPT`` resolved rows; pending rows are never pruned."""
-    await conn.execute(
-        "DELETE FROM agent_routine_proposals WHERE agent_name = ? AND status != 'pending' "
-        "AND id NOT IN (SELECT id FROM agent_routine_proposals WHERE agent_name = ? "
-        "AND status != 'pending' ORDER BY COALESCE(resolved_at, created_at) DESC, id DESC "
-        "LIMIT ?)",
-        (agent_name, agent_name, AGENT_PROPOSALS_KEPT),
-    )
-
-
 async def _insert(conn: aiosqlite.Connection, row: dict[str, Any], status: str, now: str) -> str:
     proposal_id = uuid.uuid4().hex
     sources = list(row.get("untrusted_sources") or [])
@@ -170,7 +158,6 @@ class ProposalOp:
             # delete (the row keeps routine_name only).
             row["routine_id"] = routine_id
             await _insert(conn, row, "applied", _now_iso())
-            await _prune(conn, row["agent_name"])
             return
         assert self.proposal_id is not None
         cur = await conn.execute(
@@ -180,12 +167,6 @@ class ProposalOp:
         )
         if cur.rowcount == 0:
             raise ProposalStateError("That change is no longer waiting for approval.")
-        async with conn.execute(
-            "SELECT agent_name FROM agent_routine_proposals WHERE id = ?", (self.proposal_id,)
-        ) as c:
-            found = await c.fetchone()
-        if found:
-            await _prune(conn, found[0])
 
 
 class RoutineProposalRepository:
@@ -278,7 +259,6 @@ class RoutineProposalRepository:
             if caps_check is not None:
                 caps_check(await AgentRoutineRepository(self.conn).list_for_agent(agent))
             proposal_id = await _insert(self.conn, row, "pending", _now_iso())
-            await _prune(self.conn, agent)
         got = await self.get(proposal_id)
         assert got is not None
         return got, replaced
@@ -311,6 +291,25 @@ class RoutineProposalRepository:
         if got is None:
             raise KeyError(f"Proposal not found: {proposal_id}")
         return got
+
+    async def delete_resolved_older_than(self, agent_name: str, cutoff: str) -> int:
+        """Delete the agent's resolved proposals (never pending) resolved before *cutoff*."""
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "DELETE FROM agent_routine_proposals WHERE agent_name = ? "
+                "AND status != 'pending' AND resolved_at IS NOT NULL AND resolved_at < ?",
+                (agent_name, cutoff),
+            )
+            return cur.rowcount
+
+    async def delete_resolved_for_agent(self, agent_name: str) -> int:
+        """Delete every resolved proposal of the agent (Purge now); pending ones stay."""
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "DELETE FROM agent_routine_proposals WHERE agent_name = ? AND status != 'pending'",
+                (agent_name,),
+            )
+            return cur.rowcount
 
     async def supersede_pending(self, agent_name: str) -> int:
         async with write_transaction(self.conn):

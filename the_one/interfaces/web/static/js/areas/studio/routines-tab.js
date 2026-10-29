@@ -234,7 +234,7 @@
           v.flagSlot.appendChild(flag);
         }
       }
-      v.scheduleEl.textContent = describe.describeSchedule(r.schedule);
+      v.scheduleEl.textContent = r.schedule_text || '';
       v.targetEl.textContent = describe.describeTarget(r.target);
       v.nextEl.textContent = describe.describeNext(r);
       var st = describe.outcomeStatus(r.last_run, r.running);

@@ -231,6 +231,7 @@ async def test_paused_peek_skips_and_keeps_the_pause(routine_app):
     run = await h.last_run(rt["id"])
     assert run["outcome"] == "skipped"
     assert run["reason"] == "The chat is waiting for a sign-in."
+    assert run["reason_code"] == "waiting_sign_in"
     assert appmod._sessions[sid].agent is agent_before
     assert agent_before._deferred_tool_calls is marker
     cached.agent._deferred_tool_calls = None
@@ -291,6 +292,7 @@ async def test_busy_chat_times_out_as_skipped_without_cancelled_frame(routine_ap
     run = await h.last_run(rt["id"])
     assert run["outcome"] == "skipped"
     assert run["reason"].startswith("The chat stayed busy for 1 minute")
+    assert run["reason_code"] == "chat_busy"
     assert not [f for f in ws.frames if f.get("type") == "cancelled"]
 
 

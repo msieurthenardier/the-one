@@ -480,6 +480,19 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-row-up` | studio | rule Move up; disabled on the first row (M27 F1 L2) |
 | `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
 | `routine-delete` | studio | a routine row's Delete, two-step through `App.ui.confirm` (M33 F1 L8) |
+| `routine-custom` | studio | the Custom recurrence `App.ui.modal` opened by the form's Repeat > Custom… (M33 F3 L7) |
+| `routine-custom-cancel` | studio | Custom recurrence Cancel (discards, focus returns to the Repeat select) (M33 F3 L7) |
+| `routine-custom-days` | studio | Custom recurrence "Repeat on" day toggles (`App.ui.checkboxGroup` variant `days`, weeks only; values 0 = Monday ... 6 = Sunday, shown Sunday first) (M33 F3 L7) |
+| `routine-custom-days-error` | studio | the day toggles' error line ("Pick at least one day.") (M33 F3 L7) |
+| `routine-custom-done` | studio | Custom recurrence Done (validates, applies to the form, closes) (M33 F3 L7) |
+| `routine-custom-ends` | studio | Custom recurrence "Ends" radio group (Never / On / After) (M33 F3 L7) |
+| `routine-custom-ends-count` | studio | the "After" occurrences number (1-1000) (M33 F3 L7) |
+| `routine-custom-ends-date` | studio | the "On" end-date `App.ui.datePicker` (inner parts `-input`, `-button`, `-calendar`, `-day`, `-prev`, `-next`) (M33 F3 L7) |
+| `routine-custom-ends-error` | studio | the Ends error line (a bad end date or occurrence count) (M33 F3 L7) |
+| `routine-custom-every` | studio | Custom recurrence "Repeat every" number (the unit's range in the DD1 table) (M33 F3 L7) |
+| `routine-custom-every-error` | studio | the "Repeat every" field's error (M33 F3 L7) |
+| `routine-custom-month-by` | studio | Custom recurrence month choice radio group (On day {d} / On the {nth} {weekday} / On the last {weekday}; months only) (M33 F3 L7) |
+| `routine-custom-unit` | studio | Custom recurrence unit select (minutes, hours, days, weeks, months, years) (M33 F3 L7) |
 | `routine-done-hint` | studio | the visible "Set a new time to run it again." hint on a Done row (its switch is disabled) (M33 F1 L8) |
 | `routine-error` | studio | a routine row's error line (`App.ui.status` danger, `role=alert`; the 409 "This routine is already running.") (M33 F1 L8) |
 | `routine-chat-chooser` | studio | the chat chooser `App.ui.modal` (chooser layout) opened by Choose chat (M33 F1 L9) |
@@ -488,27 +501,21 @@ caught — but it cannot see where the attribute is emitted.
 | `routine-chat-search` | studio | the chooser's search input (M33 F1 L9) |
 | `routine-edit` | studio | a routine row's Edit button; opens the form pre-filled (M33 F1 L8; form L9) |
 | `routine-form` | studio | the inline create/edit form (`<form>`, above the list) (M33 F1 L9) |
-| `routine-form-at-ampm` | studio | Once / At: AM or PM select (M33 F1 L9) |
-| `routine-form-at-day` | studio | Once / At: day select (next 60 days in the operator zone plus the routine's own date) (M33 F1 L9) |
-| `routine-form-at-hour` | studio | Once / At: hour select (1-12) (M33 F1 L9) |
-| `routine-form-at-minute` | studio | Once / At: minute select (five-minute steps plus the routine's own minute) (M33 F1 L9) |
-| `routine-form-ampm` | studio | daily / weekdays / weekly time: AM or PM select (one shared set, moved into the selected kind's slot) (M33 F1 L9) |
 | `routine-form-cancel` | studio | form Cancel (discards unsaved text, focus returns to the opener) (M33 F1 L9) |
 | `routine-form-chat` | studio | the "A chat" target's chosen-chat description ("No chat chosen." until picked) (M33 F1 L9) |
 
-| `routine-form-days` | studio | the Weekly "Days" `App.ui.checkboxGroup` fieldset (M33 F1 L9) |
 | `routine-form-error` | studio | the form's general error line (errors with no field) (M33 F1 L9) |
-| `routine-form-hour` | studio | daily / weekdays / weekly time: hour select (1-12) (M33 F1 L9) |
-| `routine-form-in-amount` | studio | Once / In: amount (number) (M33 F1 L9) |
-| `routine-form-in-unit` | studio | Once / In: unit select (minutes, hours, days) (M33 F1 L9) |
-| `routine-form-interval` | studio | Every N hours: hours input (1-168) (M33 F1 L9) |
-| `routine-form-minute` | studio | daily / weekdays / weekly time: minute select (M33 F1 L9) |
+| `routine-form-in-amount` | studio | "Or start in": amount (number); typing a whole number sets the start date and time from now plus the amount (M33 F1 L9, M33 F3 L7) |
+| `routine-form-in-unit` | studio | "Or start in": unit select (minutes, hours, days) (M33 F1 L9, M33 F3 L7) |
 | `routine-form-name` | studio | form Name input (limit 64) (M33 F1 L9) |
-| `routine-form-once-mode` | studio | the nested Once "When" radio group (In / At) (M33 F1 L9) |
 | `routine-form-prompt` | studio | form Prompt textarea (M33 F1 L9) |
+| `routine-form-preview` | studio | the polite preview line under Repeat: the server's sentence, "Next: …" and, when the series ends, "Last: …" (M33 F3 L7) |
+| `routine-form-repeat` | studio | the Repeat `App.ui.select` (presets computed from the start date, an extra option for a recurrence matching no preset, Custom…) (M33 F3 L7) |
 | `routine-form-save` | studio | form Save (M33 F1 L9) |
-| `routine-form-schedule` | studio | the Schedule `App.ui.radioGroup` (Once, Daily, Weekdays, Weekly, Every N hours) (M33 F1 L9) |
-| `routine-form-schedule-error` | studio | the Schedule group's error line (M33 F1 L9) |
+| `routine-form-schedule-error` | studio | the schedule error line: a missing start, the preview's refusal ("This schedule has no runs left.") or the server's 422 sentence (M33 F1 L9, M33 F3 L7) |
+| `routine-form-schedule-hint` | studio | the Repeat field's hint: the preview's warnings (a month without the start day is skipped), linked to the select by `aria-describedby` (M33 F3 L7) |
+| `routine-form-start-date` | studio | the Starts `App.ui.datePicker` (inner parts `-input`, `-button`, `-calendar`, `-day`, `-prev`, `-next`) (M33 F3 L7) |
+| `routine-form-start-time` | studio | the Starts `App.ui.timeField` (the input is `-input`) (M33 F3 L7) |
 | `routine-form-target` | studio | the "Run in" `App.ui.radioGroup` (A chat, A new chat each run, Its own chat) (M33 F1 L9) |
 | `routine-form-target-error` | studio | the Run in group's error line (M33 F1 L9) |
 | `routine-target-picker` | studio | Choose chat button (opens the chooser) (M33 F1 L9) |
@@ -561,7 +568,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
-| `routine-form-day-` | studio | The routine form's Weekly day checkboxes: `routine-form-day-{0..6}`, Monday = 0 (M33 F1 L9) |
+| `routine-custom-day-` | studio | The Custom recurrence dialog's day toggles: `routine-custom-day-{0..6}`, Monday = 0 (M33 F3 L7) |
 | `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`; one list, in assembly order, the tool-free Identity beside the tools Identity; the tool-free Formatting block is absent while its text equals the tools Formatting text, so only the tools block shows; a retired id cannot sit under a live family prefix, so it is not in the retired table, and `platform-variant-` is the retired entry) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
@@ -608,6 +615,16 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `routine-form-schedule` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Schedule radio group (Once, Daily, Weekdays, Weekly, Every N hours); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-form-schedule-error` and `-hint` are unaffected |
+| `routine-form-schedule-readonly` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the read-only note over a schedule the old form could not express; every stored recurrence now opens in the form (M33 F3 L4 interim, removed in L7) |
+| `routine-form-hour` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the shared daily / weekdays / weekly hour select; the start time is the `routine-form-start-time` field |
+| `routine-form-minute` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the shared minute select |
+| `routine-form-ampm` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the shared AM or PM select |
+| `routine-form-at-` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Once / At day, hour, minute and AM or PM selects (a prefix); the start is `routine-form-start-date` and `-start-time` |
+| `routine-form-once-mode` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Once In / At radio group |
+| `routine-form-interval` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Every N hours input; use the Custom recurrence dialog (`routine-custom-every`, `routine-custom-unit`) |
+| `routine-form-days` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly Days checkbox group; use `routine-custom-days` |
+| `routine-form-day-` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly day checkboxes `routine-form-day-{0..6}` (a prefix); use `routine-custom-day-{0..6}` |
 | `agent-tab-mcps` | studio | M33 F1 L06 — the MCPs tab (its `tab-mcps` testid is covered by the live `tab-` prefix row, so it is fenced in `RETIRED_SELECTORS` only), with its panel `agent-tab-panel-mcps`; folded into the Tools tab |
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |

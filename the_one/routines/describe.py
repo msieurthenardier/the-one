@@ -14,22 +14,12 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
 from the_one import time_zones
+from the_one.routines import recurrence_text
 from the_one.routines import schedule as routine_schedule
-
-_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 def _clock(local: datetime) -> str:
     return time_zones._clock(local)
-
-
-def _hhmm(text: str) -> str:
-    try:
-        h, m = routine_schedule._parse_hhmm(text)
-    except Exception:  # noqa: BLE001
-        return str(text)
-    hour = h % 12 or 12
-    return f"{hour}:{m:02d} {'AM' if h < 12 else 'PM'}"
 
 
 def _short_date(local: datetime) -> str:
@@ -48,31 +38,13 @@ def _parse(raw: str | None) -> datetime | None:
         return None
 
 
-def describe_schedule(schedule: dict[str, Any], zone: tzinfo) -> str:
-    kind = schedule.get("kind")
-    if kind == "once":
-        at = _parse(schedule.get("at"))
-        if at is None:
-            return "once"
-        local = at.astimezone(zone)
-        return f"once, on {_short_date(local)} at {_clock(local)}"
-    if kind == "daily":
-        return f"every day at {_hhmm(schedule.get('time', ''))}"
-    if kind == "weekdays":
-        return f"every weekday at {_hhmm(schedule.get('time', ''))}"
-    if kind == "weekly":
-        days = [_DAYS[d] for d in schedule.get("days", []) if isinstance(d, int) and 0 <= d <= 6]
-        if len(days) > 1:
-            names = ", ".join(days[:-1]) + f" and {days[-1]}"
-        else:
-            names = days[0] if days else "the chosen days"
-        return f"every {names} at {_hhmm(schedule.get('time', ''))}"
-    if kind == "interval":
-        hours = schedule.get("hours")
-        if hours == 1:
-            return "every hour"
-        return f"every {hours} hours"
-    return "on a schedule"
+def schedule_sentence(schedule: Any, anchor_at: str | None, zone: tzinfo) -> str | None:
+    """The schedule as one sentence, or None when it cannot be read (a schedule v48 could
+    not upgrade, or a hand-edited row): the views and tools never fail over it."""
+    try:
+        return recurrence_text.describe(schedule, _parse(anchor_at), zone)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def describe_next(next_run_at: str | None, zone: tzinfo, *, now: datetime | None = None) -> str:

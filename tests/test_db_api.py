@@ -3716,7 +3716,12 @@ class TestChatSessionAPI:
 
         resp = await client.delete("/api/agents/a1/chat/sessions")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok", "deleted": 2, "runs_deleted": 0}
+        assert resp.json() == {
+            "status": "ok",
+            "deleted": 2,
+            "runs_deleted": 0,
+            "proposals_deleted": 0,
+        }
 
         # History is gone for that agent.
         resp = await client.get("/api/chat/sessions?agent_name=a1")
@@ -3727,7 +3732,12 @@ class TestChatSessionAPI:
         await client.post("/api/agents", json={"name": "a-empty"})
         resp = await client.delete("/api/agents/a-empty/chat/sessions")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok", "deleted": 0, "runs_deleted": 0}
+        assert resp.json() == {
+            "status": "ok",
+            "deleted": 0,
+            "runs_deleted": 0,
+            "proposals_deleted": 0,
+        }
 
     async def test_get_session_includes_session_metadata(
         self, client: AsyncClient, tmp_path

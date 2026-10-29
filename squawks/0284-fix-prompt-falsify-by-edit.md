@@ -1,10 +1,10 @@
 # Squawk 0284: The fix prompt should require falsifying a new test by edit, not by a whole-file restore
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-29
-**Completed**: —
+**Completed**: 2026-10-29
 
 ## Report
 In Mission 33 Flight 2's Batch B review fixes, a fix Developer had to prove
@@ -25,17 +25,12 @@ worked.
   `restore`, `reset` and `clean`, but it says nothing on how to falsify.
 
 ## Corrective Action
-*(written at completion)*
+The "Developer: Fix Review Issues" prompt in `.flightops/agent-crews/leg-execution.md` now says a falsification removes the fix by editing and puts it back by editing, never by restoring a whole file or a backup copy. The Implement prompt does not ask for falsification, so it is unchanged.
 
 ## Verification
-*(written at completion)*
-The "Developer: Fix Review Issues" prompt (and the "Implement" prompt, if
-it asks for falsification) states that a falsification removes the fix by
-editing and puts it back by editing, never through a copy of the whole
-file.
+The prompt states the rule (read `.flightops/agent-crews/leg-execution.md`, "Developer: Fix Review Issues").
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Flight 3 Batch A Reviewer (Sonnet), independent of the implementing Developer; Accessibility Reviewer (Sonnet) for 0273
+**Verdict**: confirmed (the batch's only blocking item, a lint failure in another file, was fixed in the review-fix pass)
+**Commit**: the Mission 33 Flight 3 Batch A commit, `flight/3: Batch A - routes moved, caps and retention, recurrence core, date and time controls`

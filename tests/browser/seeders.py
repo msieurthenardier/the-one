@@ -507,6 +507,26 @@ def seed_note(
     return note_id
 
 
+def canonical_schedule(
+    time: str = "09:00",
+    *,
+    repeat: dict | None = "daily",  # type: ignore[assignment]
+    date: str = "2026-01-01",
+    ends: dict | None = None,
+) -> dict:
+    """A stored (canonical, DD1) routine schedule. ``repeat`` is ``"daily"`` (every day),
+    ``"weekdays"`` (every week on Monday-Friday), a repeat dict, or ``None`` (a one-off)."""
+    if repeat == "daily":
+        repeat = {"every": 1, "unit": "day"}
+    elif repeat == "weekdays":
+        repeat = {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
+    return {
+        "start": {"date": date, "time": time},
+        "repeat": repeat,
+        "ends": ends or {"kind": "never"},
+    }
+
+
 def seed_routine_proposal(
     data_dir,
     agent_name: str,
@@ -526,8 +546,9 @@ def seed_routine_proposal(
 
     No REST route creates a proposal (only the agent's tools do), so a browser test that needs
     a pending, stale or resolved one seeds it, the way ``seed_note`` seeds a note. ``payload``
-    is the validated REST request shape; ``base`` the raw stored fields (``name``, ``prompt``,
-    ``schedule``, ``enabled``, ``finished_at``, ``target_kind``, ``target_session_id``).
+    is the validated REST request shape (a canonical ``schedule`` plus ``anchor_at``, null for a
+    wall-clock schedule); ``base`` the raw stored fields (``name``, ``prompt``, ``schedule``,
+    ``anchor_at``, ``enabled``, ``finished_at``, ``target_kind``, ``target_session_id``).
     Timestamps are fixed ISO strings the test passes. Returns the proposal id.
     """
     import sqlite3
@@ -569,6 +590,7 @@ def seed_agent_routine(
     *,
     prompt: str = "Say hello.",
     schedule: dict | None = None,
+    anchor_at: str | None = None,
     created_by: str = "agent",
     untrusted: bool = False,
     sources: list[str] | None = None,
@@ -595,9 +617,9 @@ def seed_agent_routine(
                 agent_name,
                 name,
                 prompt,
-                json.dumps(schedule or {"kind": "daily", "time": "09:00"}),
+                json.dumps(schedule or canonical_schedule("09:00")),
                 "2099-01-01T09:00:00+00:00",
-                created_at,
+                anchor_at,
                 created_by,
                 created_at,
                 created_at,

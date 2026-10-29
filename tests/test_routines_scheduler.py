@@ -23,7 +23,34 @@ from the_one.routines.scheduler import ZONE_KEY, RoutineScheduler, next_sleep
 pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 UTC = timezone.utc
-DAILY = {"kind": "daily", "time": "09:00"}
+NEVER = {"kind": "never"}
+# The stored (canonical) shapes the pass reads. The env zone is UTC.
+DAILY = {
+    "start": {"date": "2026-03-01", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": NEVER,
+}
+
+
+def _every(n, unit, anchor, ends=None):
+    """An instant-anchored series; *anchor* is also passed as ``anchor_at`` by the caller."""
+    return {
+        "start": {"date": anchor.date().isoformat(), "time": anchor.strftime("%H:%M")},
+        "repeat": {"every": n, "unit": unit},
+        "ends": ends or NEVER,
+    }
+
+
+def _once(at):
+    return {
+        "start": {"date": at.date().isoformat(), "time": at.strftime("%H:%M")},
+        "repeat": None,
+        "ends": NEVER,
+    }
+
+
+def _daily(ends=None, time="09:00", start="2026-03-01"):
+    return {**DAILY, "start": {"date": start, "time": time}, "ends": ends or NEVER}
 
 
 def _dt(*a) -> datetime:
@@ -133,7 +160,7 @@ async def test_interval_catch_up(env) -> None:
     anchor = _dt(2026, 3, 1, 0, 0)
     r = await _mk(
         env,
-        schedule={"kind": "interval", "hours": 2},
+        schedule=_every(2, "hour", anchor),
         due=_dt(2026, 3, 1, 2, 0),
         anchor_at=anchor.isoformat(),
     )
@@ -170,7 +197,7 @@ async def test_interval_one_more_than_1000(env) -> None:
     due = _dt(2026, 1, 1, 1)
     r = await _mk(
         env,
-        schedule={"kind": "interval", "hours": 1},
+        schedule=_every(1, "hour", anchor),
         due=due,
         anchor_at=anchor.isoformat(),
     )
@@ -181,7 +208,7 @@ async def test_interval_one_more_than_1000(env) -> None:
 
 async def test_one_off_miss_and_finish(env) -> None:
     at = _dt(2026, 3, 1, 9, 0)
-    r = await _mk(env, schedule={"kind": "once", "at": at.isoformat()}, due=at)
+    r = await _mk(env, schedule=_once(at), due=at, anchor_at=at.isoformat())
     now = at + timedelta(hours=30)
     await env.sched.run_pass(now)
     assert env.spawn.calls == []
@@ -194,7 +221,7 @@ async def test_one_off_miss_and_finish(env) -> None:
 
 async def test_one_off_finished_before_spawn_even_if_run_fails(env) -> None:
     at = _dt(2026, 3, 1, 9, 0)
-    r = await _mk(env, schedule={"kind": "once", "at": at.isoformat()}, due=at)
+    r = await _mk(env, schedule=_once(at), due=at, anchor_at=at.isoformat())
     seen = {}
 
     async def check():
@@ -221,13 +248,62 @@ async def test_overlap_records_skipped(env) -> None:
     (run,) = await _runs(env, r.id)
     assert run.outcome == "skipped" and run.reason == "The previous run was still going."
     assert run.trigger_kind == "schedule" and run.finished_at is not None
+    assert run.reason_code == "still_running" and run.repeats == 1
     assert (await env.repo.get_by_id(r.id)).next_run_at == _dt(2026, 3, 2, 9, 0).isoformat()
+
+
+async def test_consecutive_still_running_skips_collapse(env) -> None:
+    env.spawn.refuse = True
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    await env.sched.run_pass(env.clock[0])
+    (first,) = await _runs(env, r.id)
+    for day in (2, 3):
+        await env.repo.set_next_run(r.id, _dt(2026, 3, day, 9, 0).isoformat())
+        env.clock[0] = _dt(2026, 3, day, 9, 0)
+        await env.sched.run_pass(env.clock[0])
+    (run,) = await _runs(env, r.id)
+    assert run.id == first.id and run.repeats == 3
+    assert run.reason == "Skipped 3 times while the previous run was still going."
+    assert run.started_at == first.started_at and run.trigger_kind == first.trigger_kind
+    assert run.due_at == _dt(2026, 3, 3, 9, 0).isoformat()
+    assert run.finished_at == _dt(2026, 3, 3, 9, 0).isoformat()
+
+
+async def test_still_running_skip_does_not_collapse_across_other_rows(env) -> None:
+    from the_one.routines.models import RoutineRun
+
+    env.spawn.refuse = True
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    other = await _mk(env, name="other", due=_dt(2026, 3, 1, 9, 0))
+    # a pre-v47 style row: same text, no reason code -> never merged into
+    await env.runs.insert(
+        RoutineRun(
+            routine_id=r.id, trigger_kind="schedule", outcome="skipped",
+            reason="The previous run was still going.",
+            started_at=_dt(2026, 2, 28, 9, 0).isoformat(),
+        )
+    )  # fmt: skip
+    await env.sched.run_pass(env.clock[0])
+    assert len(await _runs(env, r.id)) == 2
+    assert len(await _runs(env, other.id)) == 1  # another routine's row is its own
+    # an ok run after the skip breaks the chain
+    await env.runs.insert(
+        RoutineRun(
+            routine_id=r.id, trigger_kind="manual", outcome="ok",
+            started_at=_dt(2026, 3, 1, 9, 30).isoformat(),
+        )
+    )  # fmt: skip
+    await env.repo.set_next_run(r.id, _dt(2026, 3, 2, 9, 0).isoformat())
+    env.clock[0] = _dt(2026, 3, 2, 9, 0)
+    await env.sched.run_pass(env.clock[0])
+    rows = await _runs(env, r.id)
+    assert len(rows) == 4 and all(x.repeats == 1 for x in rows)
 
 
 async def test_one_off_overlap_stays_finished(env) -> None:
     env.spawn.refuse = True
     at = _dt(2026, 3, 1, 9, 0)
-    r = await _mk(env, schedule={"kind": "once", "at": at.isoformat()}, due=at)
+    r = await _mk(env, schedule=_once(at), due=at, anchor_at=at.isoformat())
     await env.sched.run_pass(env.clock[0])
     (run,) = await _runs(env, r.id)
     assert run.outcome == "skipped"
@@ -303,8 +379,9 @@ async def test_startup_order_and_zone_change(env) -> None:
     once = await _mk(
         env,
         name="once",
-        schedule={"kind": "once", "at": _dt(2026, 3, 3, 9, 0).isoformat()},
+        schedule=_once(_dt(2026, 3, 3, 1, 0)),  # rendered in Los Angeles: 01:00 PST
         due=_dt(2026, 3, 3, 9, 0),
+        anchor_at=_dt(2026, 3, 3, 9, 0).isoformat(),
     )
     await env.sched.startup(now)
     assert env.spawn.calls == [past.id]
@@ -379,11 +456,22 @@ def test_poke_scheduler_tolerates_none() -> None:
 @pytest.mark.timeout(60)
 async def test_once_routine_runs_without_waiting_for_the_tick(routine_app) -> None:
     h = routine_app
-    at = datetime.now(UTC) + timedelta(seconds=2)
+    # A one-off made over REST starts at a whole minute at least; so make it for tomorrow,
+    # then pull its stored time to two seconds from now and poke the loop awake.
     r = await h.routine(
-        {"kind": "new"},
-        schedule={"kind": "once", "at": at.isoformat()},
+        {"kind": "new"}, schedule={"kind": "once", "in": {"amount": 1, "unit": "days"}}
     )
+    from the_one.db.connection import get_connection
+    from the_one.routines.scheduler import get_scheduler
+
+    soon = (datetime.now(UTC) + timedelta(seconds=2)).isoformat()
+    conn = await get_connection()
+    await conn.execute(
+        "UPDATE agent_routines SET next_run_at = ?, anchor_at = ? WHERE id = ?",
+        (soon, soon, r["id"]),
+    )
+    await conn.commit()
+    get_scheduler().poke()
     t0 = time.monotonic()
 
     async def ran():
@@ -439,3 +527,275 @@ async def test_stop_interrupts_a_running_run_promptly(routine_app) -> None:
     assert time.monotonic() - t0 < 8
     assert (await h.last_run(r["id"]))["outcome"] == "interrupted"
     assert runner.registry.try_spawn("x", lambda: asyncio.sleep(0)) is None
+
+
+# ── the calendar recurrence (M33 F3 leg 4) ──
+
+
+async def test_after_n_series_finishes_after_its_nth_occurrence(env) -> None:
+    r = await _mk(env, schedule=_daily({"kind": "after", "count": 2}), due=_dt(2026, 3, 1, 9, 0))
+    await env.sched.run_pass(_dt(2026, 3, 1, 9, 0, 30))
+    got = await env.repo.get_by_id(r.id)
+    assert got.finished_at is None and got.next_run_at == _dt(2026, 3, 2, 9, 0).isoformat()
+    await env.sched.run_pass(_dt(2026, 3, 2, 9, 0, 30))
+    assert env.spawn.calls == [r.id, r.id]
+    got = await env.repo.get_by_id(r.id)
+    assert got.finished_at == _dt(2026, 3, 2, 9, 0, 30).isoformat() and got.next_run_at is None
+    await env.sched.run_pass(_dt(2026, 3, 3, 9, 0, 30))
+    assert env.spawn.calls == [r.id, r.id]  # Done: never picked again
+
+
+async def test_ends_on_series_finishes_after_its_last_occurrence(env) -> None:
+    r = await _mk(
+        env, schedule=_daily({"kind": "on", "date": "2026-03-02"}), due=_dt(2026, 3, 2, 9, 0)
+    )
+    await env.sched.run_pass(_dt(2026, 3, 2, 9, 0, 30))
+    assert env.spawn.calls == [r.id]
+    got = await env.repo.get_by_id(r.id)
+    assert got.finished_at is not None and got.next_run_at is None
+
+
+async def test_ended_series_missed_in_an_outage_counts_and_finishes(env) -> None:
+    r = await _mk(env, schedule=_daily({"kind": "after", "count": 3}), due=_dt(2026, 3, 1, 9, 0))
+    now = _dt(2026, 3, 10, 12, 0)
+    await env.sched.run_pass(now)
+    assert env.spawn.calls == []
+    (run,) = await _runs(env, r.id)
+    assert run.outcome == "missed" and run.reason == "Missed 3 runs while the app was closed."
+    got = await env.repo.get_by_id(r.id)
+    assert got.finished_at == now.isoformat() and got.next_run_at is None
+
+
+_MON = _dt(2026, 3, 2, 9, 0)  # a Monday
+
+
+@pytest.mark.parametrize(
+    ("schedule", "anchor", "due", "next_at"),
+    [
+        (
+            {
+                "start": {"date": "2026-03-02", "time": "09:00"},
+                "repeat": {"every": 1, "unit": "week", "days": [0, 3]},
+                "ends": NEVER,
+            },
+            None,
+            _MON,
+            _dt(2026, 3, 5, 9, 0),
+        ),
+        (
+            {
+                "start": {"date": "2026-01-31", "time": "09:00"},
+                "repeat": {"every": 1, "unit": "month", "month_by": {"by": "day"}},
+                "ends": NEVER,
+            },
+            None,
+            _dt(2026, 1, 31, 9, 0),
+            _dt(2026, 3, 31, 9, 0),  # February has no 31st: skipped
+        ),
+        (
+            {
+                "start": {"date": "2026-03-02", "time": "09:00"},
+                "repeat": {"every": 1, "unit": "month", "month_by": {"by": "weekday", "nth": -1}},
+                "ends": NEVER,
+            },
+            None,
+            _dt(2026, 3, 30, 9, 0),
+            _dt(2026, 4, 27, 9, 0),
+        ),
+        (
+            {
+                "start": {"date": "2028-02-29", "time": "09:00"},
+                "repeat": {"every": 1, "unit": "year"},
+                "ends": NEVER,
+            },
+            None,
+            _dt(2028, 2, 29, 9, 0),
+            _dt(2032, 2, 29, 9, 0),
+        ),
+        (
+            {
+                "start": {"date": "2026-03-01", "time": "09:00"},
+                "repeat": {"every": 90, "unit": "minute"},
+                "ends": NEVER,
+            },
+            _dt(2026, 3, 1, 9, 0),
+            _dt(2026, 3, 1, 9, 0),
+            _dt(2026, 3, 1, 10, 30),
+        ),
+    ],
+    ids=["week", "month-skip", "month-last-weekday", "leap-year", "minutes"],
+)
+async def test_each_unit_runs_and_advances_to_its_next_occurrence(
+    env, schedule, anchor, due, next_at
+) -> None:
+    r = await _mk(env, schedule=schedule, due=due, anchor_at=anchor.isoformat() if anchor else None)
+    await env.sched.run_pass(due + timedelta(seconds=30))
+    assert env.spawn.calls == [r.id]
+    got = await env.repo.get_by_id(r.id)
+    assert got.next_run_at == next_at.isoformat() and got.finished_at is None
+
+
+# ── zone changes (DD12) ──
+
+
+async def _switch_zone(e, old: str, new: str) -> None:
+    await AppMetadataRepository(e.conn).set(ZONE_KEY, old)
+    await time_zones.save_setting(e.conn, time_zones.TimeZoneSetting(mode="zone", zone=new))
+
+
+async def test_zone_change_keeps_one_off_instants_on_and_off_and_rerenders_start(env) -> None:
+    at = _dt(2026, 3, 3, 17, 0)  # 09:00 PST
+    on = await _mk(
+        env, name="on", schedule=_once(_dt(2026, 3, 3, 9, 0)), due=at, anchor_at=at.isoformat()
+    )
+    off = await _mk(
+        env,
+        name="off",
+        schedule=_once(_dt(2026, 3, 3, 9, 0)),
+        enabled=False,
+        anchor_at=at.isoformat(),
+    )
+    await _switch_zone(env, "America/Los_Angeles", "Asia/Kolkata")
+    await env.sched._check_zone(env.clock[0])
+    for r in (on, off):
+        got = await env.repo.get_by_id(r.id)
+        assert got.anchor_at == at.isoformat()
+        assert got.schedule["start"] == {"date": "2026-03-03", "time": "22:30"}
+    assert (await env.repo.get_by_id(on.id)).next_run_at == at.isoformat()
+    assert (await env.repo.get_by_id(off.id)).next_run_at is None
+
+
+async def test_zone_change_keeps_a_minute_or_hour_routine_anchor_and_grid(env) -> None:
+    anchor = _dt(2026, 3, 1, 1, 15)
+    nxt = _dt(2026, 3, 5, 3, 15)
+    r = await _mk(
+        env,
+        schedule=_every(2, "hour", anchor),
+        due=nxt,
+        anchor_at=anchor.isoformat(),
+    )
+    await _switch_zone(env, "UTC", "Asia/Kolkata")
+    await env.sched._check_zone(env.clock[0])
+    got = await env.repo.get_by_id(r.id)
+    assert got.anchor_at == anchor.isoformat() and got.next_run_at == nxt.isoformat()
+    assert got.schedule["start"] == {"date": "2026-03-01", "time": "06:45"}
+    assert got.schedule["repeat"] == {"every": 2, "unit": "hour"}
+
+
+async def test_zone_change_keeps_a_daily_wall_time_and_recomputes_next(env) -> None:
+    r = await _mk(env, schedule=DAILY, due=_dt(2026, 3, 2, 17, 0))  # 09:00 Los Angeles
+    off = await _mk(env, name="off", schedule=DAILY, enabled=False)
+    await _switch_zone(env, "America/Los_Angeles", "Europe/London")
+    await env.sched._check_zone(env.clock[0])
+    assert (await env.repo.get_by_id(r.id)).next_run_at == _dt(2026, 3, 2, 9, 0).isoformat()
+    assert (await env.repo.get_by_id(r.id)).schedule == DAILY  # 9:00 AM stays 9:00 AM
+    got = await env.repo.get_by_id(off.id)  # an off routine has no next run to move
+    assert got.next_run_at is None and got.schedule == DAILY
+
+
+async def test_zone_change_makes_a_wall_clock_series_with_nothing_left_done(env) -> None:
+    ends = {"kind": "on", "date": "2026-03-02"}
+    r = await _mk(env, schedule=_daily(ends), due=_dt(2026, 3, 2, 23, 30))  # 15:30 PST
+    await _switch_zone(env, "America/Los_Angeles", "Pacific/Kiritimati")  # UTC+14
+    await env.sched._check_zone(_dt(2026, 3, 2, 12, 0))
+    got = await env.repo.get_by_id(r.id)
+    assert got.finished_at is not None and got.next_run_at is None
+
+
+async def test_zone_change_leaves_done_routines_alone(env) -> None:
+    at = _dt(2026, 3, 3, 17, 0)
+    done = await _mk(
+        env,
+        schedule=_once(_dt(2026, 3, 3, 9, 0)),
+        anchor_at=at.isoformat(),
+        finished_at=_dt(2026, 3, 3, 17, 1).isoformat(),
+    )
+    before = await env.repo.get_by_id(done.id)
+    await _switch_zone(env, "America/Los_Angeles", "Asia/Kolkata")
+    await env.sched._check_zone(env.clock[0])
+    assert await env.repo.get_by_id(done.id) == before
+
+
+async def test_zone_change_skips_an_unreadable_schedule_quietly(env, caplog) -> None:
+    import logging
+
+    bad = await _mk(env, name="bad", schedule=DAILY, due=_dt(2026, 3, 2, 17, 0))
+    good = await _mk(env, name="good", schedule=DAILY, due=_dt(2026, 3, 2, 17, 0))
+    # What an upgrade_failed routine looks like: the old shape, left as is, turned off.
+    await env.conn.execute(
+        "UPDATE agent_routines SET schedule = ?, enabled = 0 WHERE id = ?",
+        ('{"kind": "monthly", "time": "09:00"}', bad.id),
+    )
+    await env.conn.commit()
+    await _switch_zone(env, "America/Los_Angeles", "Europe/London")
+    with caplog.at_level(logging.DEBUG, logger="the_one.routines.scheduler"):
+        await env.sched._check_zone(env.clock[0])
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert (await env.repo.get_by_id(good.id)).next_run_at != _dt(2026, 3, 2, 17, 0).isoformat()
+
+
+async def test_zone_change_defers_to_an_operator_edit_made_mid_pass(env, monkeypatch) -> None:
+    r = await _mk(env, schedule=DAILY, due=_dt(2026, 3, 2, 17, 0))
+    edited = _daily(time="07:30")
+    orig = AgentRoutineRepository.list_not_done
+
+    async def hooked(self):
+        rows = await orig(self)
+        await self.update(
+            "a", r.id, {"schedule": edited, "next_run_at": _dt(2026, 3, 2, 7, 30).isoformat()}
+        )
+        return rows
+
+    monkeypatch.setattr(AgentRoutineRepository, "list_not_done", hooked)
+    await _switch_zone(env, "America/Los_Angeles", "Europe/London")
+    await env.sched._check_zone(env.clock[0])
+    got = await env.repo.get_by_id(r.id)
+    assert got.schedule == edited and got.next_run_at == _dt(2026, 3, 2, 7, 30).isoformat()
+
+
+async def test_zone_change_rebases_a_pending_proposal_so_it_approves_without_a_stale(env) -> None:
+    from the_one.routines import service as svc
+    from the_one.routines.proposals import RoutineProposalRepository
+
+    at = _dt(2026, 3, 3, 17, 0)
+    r = await _mk(env, schedule=_once(_dt(2026, 3, 3, 9, 0)), due=at, anchor_at=at.isoformat())
+    await env.conn.execute("PRAGMA foreign_keys=OFF")
+    store = SQLiteAgentStore(env.conn)
+    await store.set_routines_self_config("a", enabled=True, requires_approval=True)
+    now = env.clock[0]
+
+    async def zone_utc():
+        return (await time_zones.load_effective_zone(env.conn)).tzinfo
+
+    res = await svc.agent_change(
+        env.conn,
+        "a",
+        "update",
+        {"routine": r.id, "prompt": "agent text"},
+        now=now,
+        zone=zone_utc,
+        taint=(False, []),
+        session_id=None,
+    )
+    props = RoutineProposalRepository(env.conn)
+    before = await props.get(res.proposal_id)
+    await _switch_zone(env, "UTC", "Asia/Kolkata")
+    await env.sched._check_zone(now)
+    moved = await env.repo.get_by_id(r.id)
+    assert moved.schedule["start"]["time"] == "22:30"
+    got = await props.get(res.proposal_id)
+    assert got.base["schedule"] == moved.schedule and got.base["anchor_at"] == moved.anchor_at
+    assert (await props.get(res.proposal_id)).base != before.base
+    done = await svc.approve_proposal(
+        env.conn, "a", res.proposal_id, override=False, now=now, zone=zone_utc
+    )
+    assert done.status == "applied"
+    assert (await env.repo.get_by_id(r.id)).prompt == "agent text"
+
+
+async def test_zone_change_leaves_an_already_due_wall_clock_routine_for_the_pass(env) -> None:
+    due = _dt(2026, 3, 1, 8, 0)  # due before the zone check's "now" (09:00:30)
+    r = await _mk(env, schedule=DAILY, due=due)
+    await _switch_zone(env, "America/Los_Angeles", "Europe/London")
+    await env.sched._check_zone(env.clock[0])
+    assert (await env.repo.get_by_id(r.id)).next_run_at == due.isoformat()

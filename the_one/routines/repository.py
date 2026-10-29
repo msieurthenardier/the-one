@@ -25,12 +25,15 @@ from the_one import time_zones
 from the_one.db._notes import SOURCES_CAP
 from the_one.db._write_lock import write_transaction
 from the_one.routines.limits import (
-    ROUTINES_PER_AGENT_MAX,
-    RoutineLimitError,
     RoutineNameTaken,
-    check_agent_caps,
+    check_routine_caps,
 )
 from the_one.routines.models import Routine, RoutineRun
+
+REASON_STILL_RUNNING = "still_running"
+REASON_CHAT_BUSY = "chat_busy"
+REASON_WAITING_SIGN_IN = "waiting_sign_in"
+MSG_STILL_RUNNING = "The previous run was still going."
 
 if TYPE_CHECKING:
     from the_one.routines.proposals import ProposalOp
@@ -170,7 +173,7 @@ class AgentRoutineRepository:
         self, name: str, after_fn: Callable[[list[Routine]], list[Routine]]
     ) -> None:
         before = await self.list_for_agent(name)
-        check_agent_caps(before, after_fn(before), time_zones.utcnow())
+        check_routine_caps(before, after_fn(before))
 
     async def _flag_values(self, name: str, routine_id: str, flag: Flag) -> dict[str, Any]:
         """The ``untrusted`` columns a ``flag`` argument sets (read in the transaction)."""
@@ -188,7 +191,6 @@ class AgentRoutineRepository:
         fields: dict[str, Any],
         *,
         precheck: Callable[[Routine | None], None] | None = None,
-        agent_caps: bool = False,
         flag: Flag = None,
         proposal: ProposalOp | None = None,
     ) -> Routine:
@@ -217,34 +219,25 @@ class AgentRoutineRepository:
             async with write_transaction(self.conn):
                 if precheck is not None:
                     precheck(None)
-                async with self.conn.execute(
-                    "SELECT COUNT(*) FROM agent_routines WHERE agent_name = ?", (name,)
-                ) as cur:
-                    count = int((await cur.fetchone())[0])
-                if count >= ROUTINES_PER_AGENT_MAX:
-                    raise RoutineLimitError(
-                        f"An agent can have at most {ROUTINES_PER_AGENT_MAX} routines."
-                    )
-                if agent_caps:
-                    cand = Routine(
-                        id=routine_id,
-                        agent_name=name,
-                        created_at=now,
-                        updated_at=now,
-                        **{
-                            k: values[k]
-                            for k in (
-                                "name",
-                                "prompt",
-                                "schedule",
-                                "enabled",
-                                "finished_at",
-                                "target_kind",
-                                "next_run_at",
-                            )
-                        },
-                    )
-                    await self._caps_after(name, lambda before: [*before, cand])
+                cand = Routine(
+                    id=routine_id,
+                    agent_name=name,
+                    created_at=now,
+                    updated_at=now,
+                    **{
+                        k: values[k]
+                        for k in (
+                            "name",
+                            "prompt",
+                            "schedule",
+                            "enabled",
+                            "finished_at",
+                            "target_kind",
+                            "next_run_at",
+                        )
+                    },
+                )
+                await self._caps_after(name, lambda before: [*before, cand])
                 await self.conn.execute(
                     f"INSERT INTO agent_routines ({_INSERT_COLS}) VALUES "
                     "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -294,7 +287,6 @@ class AgentRoutineRepository:
         fields: dict[str, Any],
         *,
         precheck: Callable[[Routine | None], None] | None = None,
-        agent_caps: bool = False,
         flag: Flag = None,
         proposal: ProposalOp | None = None,
     ) -> Routine:
@@ -308,12 +300,11 @@ class AgentRoutineRepository:
                     raise KeyError(f"Routine not found: {routine_id}")
                 if precheck is not None:
                     precheck(cur_row)
-                if agent_caps:
-                    changed = cur_row.model_copy(update=fields)
-                    await self._caps_after(
-                        name,
-                        lambda before: [changed if r.id == routine_id else r for r in before],
-                    )
+                changed = cur_row.model_copy(update=fields)
+                await self._caps_after(
+                    name,
+                    lambda before: [changed if r.id == routine_id else r for r in before],
+                )
                 cols = dict(fields)
                 cols.update(await self._flag_values(name, routine_id, flag))
                 sets = [f"{c} = ?" for c in cols] + ["updated_at = ?"]
@@ -339,7 +330,6 @@ class AgentRoutineRepository:
         routine_id: str,
         *,
         precheck: Callable[[Routine | None], None] | None = None,
-        agent_caps: bool = False,
         proposal: ProposalOp | None = None,
     ) -> None:
         async with write_transaction(self.conn):
@@ -348,10 +338,6 @@ class AgentRoutineRepository:
                 raise KeyError(f"Routine not found: {routine_id}")
             if precheck is not None:
                 precheck(cur_row)
-            if agent_caps:
-                await self._caps_after(
-                    name, lambda before: [r for r in before if r.id != routine_id]
-                )
             # Pending proposals for a routine that is going away are superseded (DD4), except
             # the one this delete is resolving.
             await self.conn.execute(
@@ -365,6 +351,27 @@ class AgentRoutineRepository:
             )
             if proposal is not None:
                 await proposal.run(self.conn, None)
+
+    async def delete_done_older_than(self, name: str, cutoff: str) -> int:
+        """Retention (DD4): delete the agent's Done routines finished before *cutoff*, after
+        superseding their pending proposals; their runs cascade. A routine with a ``running``
+        run is left for a later sweep."""
+        where = (
+            "agent_name = ? AND finished_at IS NOT NULL AND finished_at < ? "
+            "AND NOT EXISTS (SELECT 1 FROM agent_routine_runs r "
+            "WHERE r.routine_id = agent_routines.id AND r.outcome = 'running')"
+        )
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_routine_proposals SET status = 'superseded', resolved_at = ? "
+                "WHERE status = 'pending' AND routine_id IN "
+                f"(SELECT id FROM agent_routines WHERE {where})",
+                (_now_iso(), name, cutoff),
+            )
+            cur = await self.conn.execute(
+                f"DELETE FROM agent_routines WHERE {where}", (name, cutoff)
+            )
+            return cur.rowcount
 
     async def list_due(self, now_iso: str) -> list[Routine]:
         """Enabled, unfinished routines whose ``next_run_at`` has arrived (leg 4)."""
@@ -415,28 +422,76 @@ class AgentRoutineRepository:
             row = await cur.fetchone()
         return row[0] if row and row[0] else None
 
-    async def list_active_wall_clock(self, after_iso: str) -> list[Routine]:
-        """Enabled, unfinished daily/weekdays/weekly routines due after *after_iso*."""
+    async def list_not_done(self) -> list[tuple[Routine, str]]:
+        """Every routine that is not Done, on or off, across agents (a time-zone change,
+        DD12), each with its raw stored ``schedule`` text for the compare-and-set."""
         async with self.conn.execute(
-            f"SELECT {_COLS} FROM agent_routines WHERE enabled = 1 AND finished_at IS NULL "
-            "AND next_run_at IS NOT NULL AND next_run_at > ? "
-            "AND json_extract(schedule, '$.kind') IN ('daily', 'weekdays', 'weekly') "
-            "ORDER BY next_run_at, id",
-            (after_iso,),
+            f"SELECT {_COLS}, schedule FROM agent_routines WHERE finished_at IS NULL "
+            "ORDER BY agent_name, id"
         ) as cur:
-            return [_routine(r) for r in await cur.fetchall()]
+            return [(_routine(r), r[-1]) for r in await cur.fetchall()]
 
-    async def recompute_next_run(
-        self, routine_id: str, expected_next_iso: str, new_next_iso: str | None
+    async def follow_zone_change(
+        self,
+        routine_id: str,
+        *,
+        expect_schedule_text: str,
+        expect_anchor_at: str | None,
+        expect_next_run_at: str | None,
+        schedule: dict[str, Any] | None = None,
+        next_run_at: str | None = None,
+        finished_at: str | None = None,
     ) -> bool:
-        """Compare-and-set of ``next_run_at`` alone (a time-zone change)."""
+        """Compare-and-set for a time-zone change (DD12): applies only while the row is
+        still not Done and its raw ``schedule``, ``anchor_at`` and ``next_run_at`` are what
+        the caller read, so an operator edit made mid-pass wins. Writes the rewritten
+        ``schedule`` (when given), ``next_run_at`` and, for a series that ended, ``finished_at``;
+        ``anchor_at`` never changes. In the same transaction, each pending proposal whose
+        base schedule equals the routine's pre-rewrite schedule takes the rewritten one as
+        its base, so a zone change never turns it into a stale 409."""
+        new_text = _encode("schedule", schedule) if schedule is not None else expect_schedule_text
         async with write_transaction(self.conn):
             cur = await self.conn.execute(
-                "UPDATE agent_routines SET next_run_at = ? "
-                "WHERE id = ? AND next_run_at = ? AND enabled = 1 AND finished_at IS NULL",
-                (new_next_iso, routine_id, expected_next_iso),
+                "UPDATE agent_routines SET schedule = ?, next_run_at = ?, "
+                "finished_at = COALESCE(?, finished_at) "
+                "WHERE id = ? AND finished_at IS NULL AND schedule = ? "
+                "AND anchor_at IS ? AND next_run_at IS ?",
+                (
+                    new_text,
+                    next_run_at,
+                    finished_at,
+                    routine_id,
+                    expect_schedule_text,
+                    expect_anchor_at,
+                    expect_next_run_at,
+                ),
             )
-            return cur.rowcount > 0
+            if cur.rowcount == 0:
+                return False
+            if schedule is None:
+                return True
+            try:
+                old = json.loads(expect_schedule_text)
+            except ValueError:
+                return True
+            async with self.conn.execute(
+                "SELECT id, base FROM agent_routine_proposals "
+                "WHERE routine_id = ? AND status = 'pending' AND base IS NOT NULL",
+                (routine_id,),
+            ) as pending:
+                rows = await pending.fetchall()
+            for pid, raw in rows:
+                try:
+                    base = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(base, dict) and base.get("schedule") == old:
+                    base["schedule"] = schedule
+                    await self.conn.execute(
+                        "UPDATE agent_routine_proposals SET base = ? WHERE id = ?",
+                        (json.dumps(base, sort_keys=True), pid),
+                    )
+            return True
 
     async def set_target_session(self, routine_id: str, session_id: str | None) -> None:
         """Retarget a routine at a chat. A missing row is a no-op; ``updated_at`` stays."""
@@ -453,7 +508,7 @@ class RoutineRunRepository:
 
     _COLS = (
         "id, routine_id, trigger_kind, outcome, reason, due_at, started_at, finished_at, "
-        "session_id, new_chat"
+        "session_id, new_chat, repeats, reason_code"
     )
 
     @staticmethod
@@ -469,6 +524,8 @@ class RoutineRunRepository:
             finished_at=row[7],
             session_id=row[8],
             new_chat=bool(row[9]),
+            repeats=row[10],
+            reason_code=row[11],
         )
 
     async def insert(self, run: RoutineRun) -> RoutineRun:
@@ -477,7 +534,7 @@ class RoutineRunRepository:
         async with write_transaction(self.conn):
             await self.conn.execute(
                 f"INSERT INTO agent_routine_runs ({self._COLS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     run.routine_id,
@@ -489,6 +546,8 @@ class RoutineRunRepository:
                     run.finished_at,
                     run.session_id,
                     1 if run.new_chat else 0,
+                    run.repeats,
+                    run.reason_code,
                 ),
             )
         return run.model_copy(update={"id": run_id, "started_at": started})
@@ -500,22 +559,85 @@ class RoutineRunRepository:
         reason: str | None = None,
         session_id: str | None = None,
         new_chat: bool | None = None,
+        reason_code: str | None = None,
     ) -> None:
         """Close a run. A missing row (its routine was deleted mid-run) is a no-op."""
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "UPDATE agent_routine_runs SET outcome = ?, reason = ?, finished_at = ?, "
-                "session_id = COALESCE(?, session_id), new_chat = COALESCE(?, new_chat) "
-                "WHERE id = ?",
+                "session_id = COALESCE(?, session_id), new_chat = COALESCE(?, new_chat), "
+                "reason_code = ? WHERE id = ?",
                 (
                     outcome,
                     reason,
                     _now_iso(),
                     session_id,
                     None if new_chat is None else (1 if new_chat else 0),
+                    reason_code,
                     run_id,
                 ),
             )
+
+    async def record_still_running_skip(
+        self, routine_id: str, trigger: str, due_iso: str, now_iso: str
+    ) -> RoutineRun:
+        """Record a "still running" skip, collapsing into the routine's newest run row when
+        that row is itself a ``still_running`` skip (DD11). Read-then-update in one
+        transaction; ``started_at`` and ``trigger_kind`` of the kept row never move."""
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                f"SELECT {self._COLS} FROM agent_routine_runs WHERE routine_id = ? "
+                "ORDER BY started_at DESC, id DESC LIMIT 1",
+                (routine_id,),
+            ) as cur:
+                row = await cur.fetchone()
+            last = self._row(row) if row else None
+            if (
+                last is not None
+                and last.outcome == "skipped"
+                and last.reason_code == REASON_STILL_RUNNING
+            ):
+                n = last.repeats + 1
+                reason = f"Skipped {n} times while the previous run was still going."
+                await self.conn.execute(
+                    "UPDATE agent_routine_runs SET repeats = ?, reason = ?, finished_at = ?, "
+                    "due_at = ? WHERE id = ?",
+                    (n, reason, now_iso, due_iso, last.id),
+                )
+                changes = {"repeats": n, "reason": reason}
+                changes.update(finished_at=now_iso, due_at=due_iso)
+                return last.model_copy(update=changes)
+            run_id = uuid.uuid4().hex
+            run = RoutineRun(
+                id=run_id,
+                routine_id=routine_id,
+                trigger_kind=trigger,  # type: ignore[arg-type]
+                outcome="skipped",
+                reason=MSG_STILL_RUNNING,
+                reason_code=REASON_STILL_RUNNING,
+                due_at=due_iso,
+                started_at=now_iso,
+                finished_at=now_iso,
+            )
+            await self.conn.execute(
+                f"INSERT INTO agent_routine_runs ({self._COLS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    routine_id,
+                    trigger,
+                    "skipped",
+                    MSG_STILL_RUNNING,
+                    due_iso,
+                    now_iso,
+                    now_iso,
+                    None,
+                    0,
+                    1,
+                    REASON_STILL_RUNNING,
+                ),
+            )
+            return run
 
     async def latest(self, routine_id: str) -> RoutineRun | None:
         async with self.conn.execute(

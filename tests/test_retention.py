@@ -27,6 +27,12 @@ from the_one.retention import (
     run_purge_sweep,
 )
 
+DAILY_SCHEDULE = {
+    "start": {"date": "2026-10-11", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": {"kind": "never"},
+}
+
 
 @pytest.fixture
 async def conn(tmp_path):
@@ -184,6 +190,8 @@ async def test_run_purge_sweep_empty_agents_table_advances_timestamp(conn) -> No
         "deleted": 0,
         "ids": [],
         "runs_deleted": 0,
+        "routines_deleted": 0,
+        "proposals_deleted": 0,
         "last_purge_at": result["last_purge_at"],
     }
     assert await get_last_purge_at(conn) is not None
@@ -206,7 +214,7 @@ async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None
     fields = {
         "name": "r",
         "prompt": "p",
-        "schedule": {"kind": "daily", "time": "09:00"},
+        "schedule": DAILY_SCHEDULE,
         "target_kind": "new",
     }
     ra = await routines.create("a", fields)
@@ -235,18 +243,79 @@ async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None
     assert len(await routines.list_for_agent("a")) == 1  # routines untouched
 
 
-async def test_run_purge_sweep_leaves_routine_proposals(conn) -> None:
-    """M33 F2 DD10: the sweep never touches the agent's routine proposals."""
-    store = SQLiteAgentStore(conn)
-    await store.save(AgentConfig(name="a", chat_history_retention_days=1))
-    old = _aged_iso(400)
+async def _propose(conn, pid, agent, status, resolved, routine_id=None):
     await conn.execute(
-        "INSERT INTO agent_routine_proposals (id, agent_name, routine_name, action, payload, "
-        "status, created_at, resolved_at) VALUES ('p1', 'a', 'n', 'create', '{}', 'applied', "
-        "?, ?)",
-        (old, old),
+        "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name, action, "
+        "payload, status, created_at, resolved_at) VALUES (?, ?, ?, 'n', 'create', '{}', ?, ?, ?)",
+        (pid, agent, routine_id, status, _aged_iso(500), resolved),
     )
+
+
+async def test_run_purge_sweep_deletes_old_resolved_proposals(conn) -> None:
+    """M33 F3 DD4: resolved proposals past the cutoff go; pending and newer ones stay."""
+    store = SQLiteAgentStore(conn)
+    await store.save(AgentConfig(name="a", chat_history_retention_days=7))
+    await _propose(conn, "old-applied", "a", "applied", _aged_iso(30))
+    await _propose(conn, "old-dismissed", "a", "dismissed", _aged_iso(30))
+    await _propose(conn, "new-applied", "a", "applied", _aged_iso(1))
+    await _propose(conn, "pending", "a", "pending", None)
     await conn.commit()
-    await run_purge_sweep(conn)
-    async with conn.execute("SELECT COUNT(*) FROM agent_routine_proposals") as cur:
-        assert (await cur.fetchone())[0] == 1
+    result = await run_purge_sweep(conn)
+    assert result["proposals_deleted"] == 2
+    async with conn.execute("SELECT id FROM agent_routine_proposals ORDER BY id") as cur:
+        assert [r[0] for r in await cur.fetchall()] == ["new-applied", "pending"]
+
+
+async def test_run_purge_sweep_deletes_old_done_routines_only(conn) -> None:
+    """M33 F3 DD4: Done routines past the cutoff go with their runs; live ones stay, and a
+    pending proposal for a swept routine is superseded, never orphaned."""
+    from the_one.routines.models import RoutineRun
+    from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
+
+    store = SQLiteAgentStore(conn)
+    await store.save(AgentConfig(name="a", chat_history_retention_days=7))
+    routines = AgentRoutineRepository(conn)
+    runs = RoutineRunRepository(conn)
+
+    def fields(name, **kw):
+        return {
+            "name": name,
+            "prompt": "p",
+            "schedule": DAILY_SCHEDULE,
+            "target_kind": "new",
+            **kw,
+        }
+
+    old = await routines.create("a", fields("old", finished_at=_aged_iso(30)))
+    await routines.create("a", fields("new", finished_at=_aged_iso(1)))
+    await routines.create("a", fields("live"))
+    await routines.create("a", fields("off", enabled=False))
+    stuck = await routines.create("a", fields("stuck", finished_at=_aged_iso(30)))
+    for rid, run_id, outcome, finished in (
+        (old.id, "old-run", "ok", _aged_iso(30)),
+        (stuck.id, "stuck-run", "running", None),
+    ):
+        await runs.insert(
+            RoutineRun(
+                id=run_id,
+                routine_id=rid,
+                trigger_kind="schedule",
+                outcome=outcome,
+                started_at=_aged_iso(31),
+                finished_at=finished,
+            )
+        )
+    await _propose(conn, "pend", "a", "pending", None, routine_id=old.id)
+    await conn.commit()
+    result = await run_purge_sweep(conn)
+    assert result["routines_deleted"] == 1
+    names = sorted(r.name for r in await routines.list_for_agent("a"))
+    assert names == ["live", "new", "off", "stuck"]  # stuck has a running run: kept
+    async with conn.execute("SELECT id FROM agent_routine_runs ORDER BY id") as cur:
+        assert [r[0] for r in await cur.fetchall()] == ["stuck-run"]
+    async with conn.execute(
+        "SELECT status, routine_id, resolved_at FROM agent_routine_proposals WHERE id = 'pend'"
+    ) as cur:
+        status, routine_id, resolved_at = await cur.fetchone()
+    # Superseded (resolved now, so it survives this sweep); never left pointing at the row.
+    assert status == "superseded" and resolved_at is not None and routine_id is None

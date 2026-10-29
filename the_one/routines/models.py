@@ -47,3 +47,5 @@ class RoutineRun(BaseModel):
     finished_at: str | None = None
     session_id: str | None = None
     new_chat: bool = Field(default=False)
+    repeats: int = 1
+    reason_code: str | None = None

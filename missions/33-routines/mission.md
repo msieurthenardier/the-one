@@ -109,8 +109,11 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
       agent editor, the operator can create, edit, turn on or off, and delete
       named routines. Each routine has:
       - a prompt;
-      - a schedule: once, at a time or after a delay, or repeating daily,
-        on weekdays, weekly on chosen days, or every N hours;
+      - a schedule: once, at a time or after a delay, or a calendar
+        recurrence (every N minutes, hours, days, weeks on chosen days,
+        months or years, ending never, on a date or after N occurrences;
+        Flight 3, replacing the original five kinds: daily, weekdays,
+        weekly, every N hours, once);
       - a target: an existing chat of that agent, a new chat on every run, or
         the routine's own chat, created on its first run and reused after.
 
@@ -373,18 +376,29 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
   - The live behavior test.
 
   This flight carries every untrusted-input decision.
-- [ ] Flight 3: **HAT and alignment.** One guided human acceptance test for the
-      whole mission, with the operator present. Flights 1 and 2 carry no HAT
+- [x] Flight 3: **Schedules and limits.** Added in Flight 3 planning, when
+      the operator reviewed the Flight 1 and 2 judgement calls:
+  - a calendar recurrence (Google Calendar style) replaces the five schedule
+    kinds, in the form and the agent's tools;
+  - one active-routine cap for everyone, a 1-minute floor, no runs-a-day cap;
+  - finished routines and resolved proposals age out with retention;
+  - maintenance on the same surfaces (route and turn-host moves, the agent
+    editor controller split, squawks 0232, 0273, 0284, lane headroom).
+- [ ] Flight 4: **HAT and alignment.** One guided human acceptance test for the
+      whole mission, with the operator present. Flights 1-3 carry no HAT
       legs of their own and land on automated gates and behavior tests
       (operator decision). The walk covers:
-  - an operator daily routine to a connector chat;
+  - an operator daily routine to a connector chat, including a real Discord
+    DM (Flight 1 debrief, Recommendation 4);
   - an agent-scheduled follow-up;
   - approval mode;
-  - the Routines and Self-configuration tabs and the chat panel together.
+  - the Routines and Self-configuration tabs and the chat panel together;
+  - the recurrence form.
 
   Fix what surfaces through the fix-vs-feature gate, and review the
-  judgement calls made while the operator was away (each recorded as a design
-  decision marked *(autonomous judgement call)*).
+  judgement calls still open (Flight 1's *(autonomous judgement call)* and
+  Flight 2's *(J)* decisions not already settled in Flight 3 planning, and
+  Flight 3's *(FD)* calls).
 
 **Pre-declared split point:** Flight 1 is heavy. If the design review finds
 that moving connector delivery out of the inbound pipeline needs more than a

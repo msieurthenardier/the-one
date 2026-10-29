@@ -11,7 +11,8 @@ from the_one import time_zones
 from the_one.agent.config import AgentConfig
 from the_one.db.repositories import SQLiteAgentStore
 from the_one.routines.limits import (
-    ROUTINES_PER_AGENT_MAX,
+    ROUTINES_ACTIVE_MAX,
+    ROUTINES_OPEN_MAX,
     RoutineLimitError,
     RoutineNameTaken,
 )
@@ -31,11 +32,18 @@ async def env(tmp_path):
     await conn.close()
 
 
+DAILY = {
+    "start": {"date": "2026-10-11", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": {"kind": "never"},
+}
+
+
 def _fields(name="Daily", **extra):
     return {
         "name": name,
         "prompt": "do it",
-        "schedule": {"kind": "daily", "time": "09:00"},
+        "schedule": DAILY,
         "target_kind": "new",
         **extra,
     }
@@ -54,7 +62,7 @@ async def test_create_get_list_name_order(env) -> None:
     await repo.create("b", _fields("Alpha"))
     got = await repo.list_for_agent("a")
     assert [r.name for r in got] == ["Alpha", "beta"]
-    assert got[0].schedule == {"kind": "daily", "time": "09:00"}
+    assert got[0].schedule == DAILY
     assert got[0].enabled is True and got[0].created_by == "operator"
     assert await repo.get("b", got[0].id) is None  # another agent's id is a miss
 
@@ -72,13 +80,38 @@ async def test_duplicate_name_is_case_insensitive_per_agent(env) -> None:
         await repo.update("a", other.id, {"name": "daily"})
 
 
-async def test_count_cap_inside_create(env) -> None:
+async def test_active_cap_inside_every_write(env) -> None:
     repo = AgentRoutineRepository(env)
-    for i in range(ROUTINES_PER_AGENT_MAX):
-        await repo.create("a", _fields(f"r{i}"))
-    with pytest.raises(RoutineLimitError):
+    first = None
+    for i in range(ROUTINES_ACTIVE_MAX):
+        first = first or await repo.create("a", _fields(f"r{i}"))
+        if i:
+            await repo.create("a", _fields(f"r{i}"))
+    with pytest.raises(RoutineLimitError, match="50 active routines"):
         await repo.create("a", _fields("one too many"))
     await repo.create("b", _fields("fine"))  # per agent
+    # An off routine is not active; enabling it past the cap is refused, a disable is not.
+    off = await repo.create("a", _fields("off") | {"enabled": False})
+    with pytest.raises(RoutineLimitError, match="50 active routines"):
+        await repo.update("a", off.id, {"enabled": True})
+    await repo.update("a", first.id, {"prompt": "edited", "name": "renamed"})
+    await repo.update("a", first.id, {"enabled": False})
+    await repo.update("a", off.id, {"enabled": True})
+    await repo.delete("a", off.id)
+
+
+async def test_open_cap_and_done_routines_do_not_count(env) -> None:
+    repo = AgentRoutineRepository(env)
+    for i in range(ROUTINES_OPEN_MAX):
+        await repo.create("a", _fields(f"r{i}") | {"enabled": False})
+    with pytest.raises(RoutineLimitError, match="200 routines that are not done"):
+        await repo.create("a", _fields("over") | {"enabled": False})
+    done = await repo.list_for_agent("a")
+    await repo.update("a", done[0].id, {"finished_at": "2026-01-01T00:00:00+00:00"})
+    await repo.create("a", _fields("fits") | {"enabled": False})  # a Done row freed a slot
+    # Reopening the Done one is refused while at the cap.
+    with pytest.raises(RoutineLimitError, match="200 routines that are not done"):
+        await repo.update("a", done[0].id, {"finished_at": None})
 
 
 async def test_update_delete_miss_is_keyerror(env) -> None:

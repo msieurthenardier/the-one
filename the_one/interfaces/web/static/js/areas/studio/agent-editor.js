@@ -208,6 +208,9 @@
     // while clean). On the create form it abandons creation (DD8), so it is
     // enabled from first render (enabledWhenClean); Save still waits for a change.
     h.shell = ui.editorShell({
+      // Save errors in the header are announced (squawk 0273); the load-failure line
+      // drops the role while it shows (setLoadError), since its toast announces it.
+      errorRole: 'alert',
       breadcrumb: {
         label: 'Agents',
         href: window.App.router.href({ destination: 'agents' })
@@ -254,9 +257,16 @@
       on = !!on;
       if (on === h.loadFailed) return;
       h.loadFailed = on;
-      h.shell.setError(on ? LOAD_ERROR_LINE : null);
-      if (on) h.shell.errorEl.setAttribute('data-testid', 'agent-load-error');
-      else h.shell.errorEl.removeAttribute('data-testid');
+      if (on) {
+        // Drop the alert role first so the load line can never be announced.
+        h.shell.errorEl.removeAttribute('role');
+        h.shell.errorEl.setAttribute('data-testid', 'agent-load-error');
+        h.shell.setError(LOAD_ERROR_LINE);
+      } else {
+        h.shell.setError(null);
+        h.shell.errorEl.removeAttribute('data-testid');
+        h.shell.errorEl.setAttribute('role', 'alert');
+      }
       // Tie the disabled Save to its only explanation (WCAG 1.3.1/3.3.1); add or
       // remove just this token so any other description survives.
       var errId = h.shell.errorEl.id;

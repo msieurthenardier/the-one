@@ -19,14 +19,8 @@
   var shared = window.App.studio.rulesNotesShared;
   var el = shared.el;
   var model = window.App.studio.routinesFormModel;
+  var describe = window.App.studio.routinesDescribe;
 
-  var KIND_OPTIONS = [
-    { value: 'once', label: 'Once' },
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekdays', label: 'Weekdays' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'interval', label: 'Every N hours' }
-  ];
   var TARGET_OPTIONS = [
     { value: 'chat', label: 'A chat' },
     { value: 'new', label: 'A new chat each run' },
@@ -34,11 +28,6 @@
   ];
 
   var openForm = null;   // at most one form at a time
-
-  function parseIntOrNaN(v) {
-    var n = parseInt(v, 10);
-    return isNaN(n) ? NaN : n;
-  }
 
   // The caller stamps the select's testid with a literal (the registry guard reads literals).
   function selectField(label, options, value, onChange) {
@@ -51,29 +40,7 @@
     return { el: f.el, select: sel };
   }
 
-  // Hour / minute / AM-PM selects over one prefix of the form state; the testids are unique per
-  // prefix, so a hidden slot never doubles one.
-  function timeRow(fs, keys, groupLabel, onChange) {
-    var opts = model.hourMinuteOptions(fs[keys.minute]);
-    var row = el('div', 'routine-form-time');
-    row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', groupLabel);
-    var hour = selectField('Hour', opts.hours, fs[keys.hour], function (v) {
-      fs[keys.hour] = parseIntOrNaN(v); onChange();
-    });
-    var minute = selectField('Minute', opts.minutes, fs[keys.minute], function (v) {
-      fs[keys.minute] = parseIntOrNaN(v); onChange();
-    });
-    var ampm = selectField('AM or PM',
-      [{ value: 'AM', label: 'AM' }, { value: 'PM', label: 'PM' }], fs[keys.ampm], function (v) {
-        fs[keys.ampm] = v; onChange();
-      });
-    row.appendChild(hour.el);
-    row.appendChild(el('span', 'routine-form-colon', ':'));
-    row.appendChild(minute.el);
-    row.appendChild(ampm.el);
-    return { el: row, hour: hour.select, minute: minute.select, ampm: ampm.select };
-  }
+  var PREVIEW_DELAY_MS = 300;
 
   function open(req) {
     req = req || {};
@@ -89,10 +56,14 @@
       return openForm.promise;
     }
 
-    var today = App.time.parts(new Date());
+    // The operator-zone date, for the pickers' "today" and minimum.
+    function todayIso() {
+      var p = App.time.parts(new Date());
+      return model.isoOf(p.year, p.month, p.day);
+    }
     var initial = mode === 'edit' && routine
-      ? model.bodyToFormState(routine, App.time.parts, today)
-      : model.defaultState(today);
+      ? model.bodyToFormState(routine)
+      : model.defaultState(Date.now(), App.time.parts);
     var fs = JSON.parse(JSON.stringify(initial));
     var ctx = { mode: mode, initial: initial, flagged: !!(routine && routine.untrusted) };
     var done = false;
@@ -126,7 +97,7 @@
     });
     root.appendChild(promptField.el);
 
-    // ── Schedule ──────────────────────────────────────────────────────
+    // ── Schedule: starts, repeat, preview ─────────────────────────────
     var scheduleError = shared.buildErrorLine();
     scheduleError.el.setAttribute('data-testid', 'routine-form-schedule-error');
     var targetError = shared.buildErrorLine();
@@ -134,81 +105,219 @@
     var formError = shared.buildErrorLine();
     formError.el.setAttribute('data-testid', 'routine-form-error');
 
-    function changed() { scheduleError.show(''); refresh(); }
+    var lastStart = fs.startDate;       // the last valid start date (presets follow it)
+    var latest = App.ui.util.latest();
+    var previewTimer = null;
+    var customModal = null;
 
-    var timeParts = timeRow(fs, { hour: 'hour', minute: 'minute', ampm: 'ampm' },
-      'Time of day', changed);
-    timeParts.hour.setAttribute('data-testid', 'routine-form-hour');
-    timeParts.minute.setAttribute('data-testid', 'routine-form-minute');
-    timeParts.ampm.setAttribute('data-testid', 'routine-form-ampm');
-    var timeShared = timeParts.el;
+    var minDate = todayIso();
+    if (mode === 'edit' && fs.startDate && fs.startDate < minDate) minDate = fs.startDate;
 
-    var days = App.ui.checkboxGroup({
-      legend: 'Days', testid: 'routine-form-days', value: fs.days,
-      options: model.DAY_LABELS.map(function (label, i) {
-        return { value: i, label: label, testid: 'routine-form-day-' + i };
-      }),
-      onChange: function (v) { fs.days = v; changed(); }
+    var startDate = App.ui.datePicker({
+      label: 'Start date', value: fs.startDate, min: minDate, today: todayIso,
+      testid: 'routine-form-start-date',
+      onChange: function (iso) {
+        fs.startDate = iso;
+        if (iso) lastStart = iso;
+        startChanged();
+      }
+    });
+    var startTime = App.ui.timeField({
+      label: 'Start time', value: fs.startTime, testid: 'routine-form-start-time',
+      onChange: function (hhmm) { fs.startTime = hhmm; scheduleChanged(); }
     });
 
-    var intervalInput = App.ui.textInput({
-      type: 'number', min: 1, max: limits.interval_hours_max || 168, step: 1, width: 'short',
-      value: String(fs.interval), testid: 'routine-form-interval',
-      onInput: function () { fs.interval = intervalInput.value; changed(); }
-    });
-    var intervalField = App.ui.field({ label: 'Hours between runs', control: intervalInput });
-
-    // Once: "In" or "At"
+    // "Or start in N minutes / hours / days" fills the two fields from now.
     var inAmount = App.ui.textInput({
-      type: 'number', min: 1, step: 1, width: 'short', value: String(fs.inAmount),
-      testid: 'routine-form-in-amount',
-      onInput: function () { fs.inAmount = inAmount.value; changed(); }
+      type: 'number', min: 1, step: 1, width: 'short', value: '',
+      testid: 'routine-form-in-amount', onInput: function () { applyIn(); }
     });
-    var inAmountField = App.ui.field({ label: 'Amount', labelHidden: true, control: inAmount, flush: true });
-    var inUnit = selectField('Unit', [
+    var inAmountField = App.ui.field({ label: 'Start in, amount', labelHidden: true, control: inAmount, flush: true });
+    var inUnit = selectField('Start in, unit', [
       { value: 'minutes', label: 'minutes' }, { value: 'hours', label: 'hours' },
       { value: 'days', label: 'days' }
-    ], fs.inUnit, function (v) { fs.inUnit = v; changed(); });
+    ], 'hours', function () { applyIn(); });
     inUnit.select.setAttribute('data-testid', 'routine-form-in-unit');
     var inRow = el('div', 'routine-form-inline');
+    inRow.appendChild(el('span', 'routine-form-in-text', 'Or start in'));
     inRow.appendChild(inAmountField.el);
     inRow.appendChild(inUnit.el);
 
-    var dayChoices = model.dayOptions(today, mode === 'edit' ? initial.atDay : null);
-    var atDay = selectField('Day', dayChoices, fs.atDay, function (v) {
-      fs.atDay = v; changed();
-    });
-    atDay.select.setAttribute('data-testid', 'routine-form-at-day');
-    var atParts = timeRow(fs, { hour: 'atHour', minute: 'atMinute', ampm: 'atAmpm' }, 'Time',
-      changed);
-    atParts.hour.setAttribute('data-testid', 'routine-form-at-hour');
-    atParts.minute.setAttribute('data-testid', 'routine-form-at-minute');
-    atParts.ampm.setAttribute('data-testid', 'routine-form-at-ampm');
-    var atTime = atParts.el;
-    var atRow = el('div', 'routine-form-inline');
-    atRow.appendChild(atDay.el);
-    atRow.appendChild(atTime);
+    var startRow = el('div', 'routine-form-start');
+    startRow.appendChild(startDate.el);
+    startRow.appendChild(startTime.el);
+    var startGroup = el('div', 'routine-form-starts');
+    startGroup.setAttribute('role', 'group');
+    startGroup.setAttribute('aria-label', 'Starts');
+    startGroup.appendChild(startRow);
+    startGroup.appendChild(inRow);
+    root.appendChild(startGroup);
 
-    var onceMode = App.ui.radioGroup({
-      legend: 'When', name: 'routine-once-mode', value: fs.onceMode, testid: 'routine-form-once-mode',
-      options: [{ value: 'in', label: 'In' }, { value: 'at', label: 'At' }],
-      onChange: function (v) { fs.onceMode = v; changed(); }
+    var repeatSelect = App.ui.select({
+      options: [{ value: 'none', label: 'Does not repeat' }], value: 'none',
+      testid: 'routine-form-repeat',
+      onChange: function (e) {
+        var v = e.target.value;
+        if (v === 'custom') { openCustom(); return; }
+        if (v === 'current') return;
+        fs.mode = v;
+        scheduleChanged();
+      }
     });
-    onceMode.el.classList.add('routine-form-nested');
-    onceMode.optionEl('in').appendChild(inRow);
-    onceMode.optionEl('at').appendChild(atRow);
+    var repeatField = App.ui.field({
+      label: 'Repeat', control: repeatSelect, hintTestid: 'routine-form-schedule-hint'
+    });
+    root.appendChild(repeatField.el);
 
-    var kindGroup = App.ui.radioGroup({
-      legend: 'Schedule', name: 'routine-schedule-kind', value: fs.kind,
-      testid: 'routine-form-schedule', options: KIND_OPTIONS,
-      onChange: function (v) { fs.kind = v; changed(); }
-    });
-    kindGroup.optionEl('once').appendChild(onceMode.el);
-    kindGroup.optionEl('weekly').appendChild(days.el);
-    kindGroup.optionEl('interval').appendChild(intervalField.el);
-    var timeKinds = ['daily', 'weekdays', 'weekly'];
-    root.appendChild(kindGroup.el);
+    var preview = App.ui.status({ state: 'idle', led: false, testid: 'routine-form-preview' });
+    preview.el.classList.add('routine-form-preview');
+    preview.el.hidden = true;
+    root.appendChild(preview.el);
     root.appendChild(scheduleError.el);
+
+    // The schedule error line names the control it concerns: aria-invalid plus its id in
+    // that control's aria-describedby (re-applied after the Repeat field rewrites its own
+    // hint ids).
+    var errorTarget = null;
+    var rawShow = scheduleError.show;
+    var rawSetHint = repeatField.setHint;
+    if (!scheduleError.el.id) scheduleError.el.id = App.ui.util.uid('routine-schedule-error');
+    function errorControl(msg) {
+      if (!fs.startDate) return startDate.input;
+      if (!fs.startTime) return startTime.input;
+      return /\bstart/i.test(msg) ? startDate.input : repeatSelect;
+    }
+    function applyScheduleA11y(msg) {
+      if (errorTarget) {
+        errorTarget.removeAttribute('aria-invalid');
+        App.ui.util.removeDescribedBy(errorTarget, scheduleError.el.id);
+        errorTarget = null;
+      }
+      if (msg) {
+        errorTarget = errorControl(msg);
+        errorTarget.setAttribute('aria-invalid', 'true');
+        App.ui.util.addDescribedBy(errorTarget, scheduleError.el.id);
+      }
+    }
+    var shownMsg = '';
+    scheduleError.show = function (msg) {
+      shownMsg = msg || '';
+      rawShow(msg);
+      applyScheduleA11y(shownMsg);
+    };
+    repeatField.setHint = function (m) {
+      rawSetHint(m);
+      if (errorTarget === repeatSelect) applyScheduleA11y(shownMsg);
+    };
+
+    // The Repeat options follow the start date; the selected preset keeps its meaning.
+    function renderRepeat() {
+      var opts = model.presets(fs.startDate || lastStart);
+      if (fs.mode === 'current') {
+        opts.push({ value: 'current', label: fs.currentLabel || 'Custom recurrence' });
+      }
+      opts.push({ value: 'custom', label: 'Custom…' });
+      repeatSelect.textContent = '';
+      opts.forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        repeatSelect.appendChild(opt);
+      });
+      repeatSelect.value = fs.mode;
+    }
+
+    function startChanged() {
+      fs.mode = model.availableMode(fs.mode, fs.startDate || lastStart);
+      renderRepeat();
+      scheduleChanged();
+    }
+
+    function scheduleChanged() {
+      scheduleError.show('');
+      previewSoon(PREVIEW_DELAY_MS);
+    }
+
+    function applyIn() {
+      var n = /^\d+$/.test(inAmount.value.trim()) ? parseInt(inAmount.value, 10) : 0;
+      if (n < 1) return;
+      var s = model.startFromIn(Date.now(), n, inUnit.select.value, App.time.parts);
+      fs.startDate = s.date;
+      fs.startTime = s.time;
+      lastStart = s.date;
+      startDate.setValue(s.date);
+      startTime.setValue(s.time);
+      startChanged();
+    }
+
+    function openCustom() {
+      var base = fs.startDate || lastStart;
+      customModal = App.studio.routinesCustomRecurrence.open({
+        startDate: base,
+        value: { repeat: model.effectiveRepeat(fs), ends: model.effectiveEnds(fs) },
+        today: todayIso, opener: repeatSelect,
+        onApply: function (v) {
+          var key = model.matchPreset(v.repeat, v.ends, base);
+          fs.mode = key || 'current';
+          fs.repeat = v.repeat;
+          fs.ends = v.ends;
+          fs.currentLabel = '';
+        },
+        onClose: function () {
+          customModal = null;
+          if (done) return;
+          renderRepeat();
+          scheduleChanged();
+        }
+      });
+    }
+
+    // ── The preview line ──────────────────────────────────────────────
+    function previewCall(schedule) {
+      if (typeof cbs.previewSchedule === 'function') return cbs.previewSchedule(req.agent, schedule);
+      return App.api.fetchJson(
+        '/api/agents/' + encodeURIComponent(req.agent) + '/routines/preview',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schedule: schedule }) }
+      );
+    }
+    function clearPreview() {
+      preview.set('idle', '');
+      preview.el.hidden = true;
+      repeatField.setHint(null);
+    }
+    function previewSoon(delay) {
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(runPreview, delay);
+    }
+    function runPreview() {
+      previewTimer = null;
+      if (done) return;
+      if (!fs.startDate || !fs.startTime) {
+        latest.invalidate();
+        clearPreview();
+        return;
+      }
+      var token = latest.next();
+      Promise.resolve(previewCall(model.scheduleBody(fs))).then(function (res) {
+        if (done || !latest.isCurrent(token)) return;
+        scheduleError.show('');
+        preview.set('idle', describe.describePreview(res));
+        preview.el.hidden = false;
+        repeatField.setHint(res.warnings && res.warnings.length ? res.warnings.join(' ') : null);
+        if (fs.mode === 'current' && res.text && fs.currentLabel !== res.text) {
+          fs.currentLabel = res.text;
+          renderRepeat();
+        }
+      }, function (err) {
+        if (done || !latest.isCurrent(token)) return;
+        var mapped = App.api.fieldErrors(err, ['schedule']);
+        clearPreview();
+        scheduleError.show(mapped.fields.schedule || mapped.text);
+      });
+    }
+    renderRepeat();
+    previewSoon(0);
 
     // ── Target ────────────────────────────────────────────────────────
     var chatLine = el('p', 'routine-form-chat', '');
@@ -242,15 +351,8 @@
     root.appendChild(actions);
     root.addEventListener('submit', function (e) { e.preventDefault(); save(); });
 
-    // Show only the selected kind's fields; the one shared time row follows the kind.
+    // Show the chosen-chat line only for the "A chat" target.
     function refresh() {
-      KIND_OPTIONS.forEach(function (o) {
-        kindGroup.optionEl(o.value).hidden = o.value !== fs.kind;
-      });
-      var timeSlot = timeKinds.indexOf(fs.kind) !== -1 ? kindGroup.optionEl(fs.kind) : null;
-      if (timeSlot && timeShared.parentNode !== timeSlot) timeSlot.insertBefore(timeShared, timeSlot.firstChild);
-      onceMode.optionEl('in').hidden = fs.onceMode !== 'in';
-      onceMode.optionEl('at').hidden = fs.onceMode !== 'at';
       chatSlot.hidden = fs.targetKind !== 'chat';
       chatLine.textContent = fs.chatId ? fs.chatLabel : 'No chat chosen.';
       // The button's name carries the choice (visible text stays first, WCAG 2.5.3).
@@ -348,9 +450,11 @@
       done = true;
       if (openForm && openForm.root === root) openForm = null;
       if (root.parentNode) root.parentNode.removeChild(root);
-      days.destroy();
-      kindGroup.destroy();
-      onceMode.destroy();
+      if (previewTimer) clearTimeout(previewTimer);
+      latest.invalidate();
+      if (customModal) customModal.close(null);
+      startDate.destroy();
+      startTime.destroy();
       targetGroup.destroy();
       if (restoreFocus && opener && opener.isConnected && !opener.disabled) opener.focus();
       resolveFn(value);
@@ -362,7 +466,7 @@
       if (errors.prompt) { promptField.setError(errors.prompt); first = first || promptInput; }
       if (errors.schedule) {
         scheduleError.show(errors.schedule);
-        first = first || (fs.kind === 'weekly' && !fs.days.length ? { focus: days.focus } : kindGroup.input(fs.kind));
+        first = first || (!fs.startDate ? startDate : !fs.startTime ? startTime : repeatSelect);
       }
       if (errors.target) { targetError.show(errors.target); first = first || targetGroup.input(fs.targetKind); }
       if (first) first.focus();
@@ -375,7 +479,7 @@
       scheduleError.show('');
       targetError.show('');
       formError.show('');
-      var pre = model.precheck(fs, App.time.parts(new Date()), ctx, limits);
+      var pre = model.precheck(fs, ctx, limits);
       if (Object.keys(pre).length) { showErrors(pre); return; }
       var body = model.formToBody(fs, ctx);
       if (mode === 'edit' && !Object.keys(body).length) { finish(null, true); return; }

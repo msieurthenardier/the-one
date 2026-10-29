@@ -2335,6 +2335,113 @@
   }
   .ui-checkbox-group-options { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 
+  /* Day toggles (M33 F3 L6): the checkboxGroup's variant 'days'. Seven native checkboxes drawn as
+     circles; the checkbox itself is visually hidden but stays the focus target. Checked = the gated
+     --accent-fill / --fg-on-accent-fill pair, bold text and an inset ring, so it is not colour alone. */
+  .ui-checkbox-group--days .ui-checkbox-group-options { flex-wrap: nowrap; gap: var(--space-2); }
+  .ui-day {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px solid var(--control-border);
+    background: var(--surface);
+    color: var(--fg);
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    user-select: none;
+  }
+  .ui-day:hover { border-color: var(--accent); }
+  .ui-day-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .ui-day-letter { pointer-events: none; }
+  .ui-day:has(.ui-day-input:checked) {
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+    font-weight: var(--font-weight-bold);
+    box-shadow: inset 0 0 0 2px var(--surface);
+  }
+  .ui-day:has(.ui-day-input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-day.is-disabled {
+    background: var(--btn-disabled-bg);
+    border-color: var(--btn-disabled-border);
+    color: var(--btn-disabled-fg);
+    cursor: not-allowed;
+  }
+  .ui-day.is-disabled:has(.ui-day-input:checked) {
+    background: var(--btn-disabled-border);
+    border-color: var(--btn-disabled-border);
+    color: var(--btn-disabled-fg);
+    box-shadow: inset 0 0 0 2px var(--surface);
+  }
+  .ui-day.is-disabled .ui-day-input { cursor: not-allowed; }
+
+  /* === App.ui.datePicker / App.ui.timeField (M33 F3 L6) === */
+  .ui-date-picker, .ui-time-field { display: flex; flex-direction: column; gap: var(--space-1); position: relative; }
+  .ui-date-picker-label { font-size: var(--font-size-body); font-weight: var(--font-weight-medium); color: var(--fg); }
+  .ui-date-picker-row { display: flex; align-items: center; gap: var(--space-2); }
+  .ui-date-picker-row .field-input { flex: 1; min-width: 0; }
+  .field-input[aria-invalid="true"] { border-color: var(--status-danger); }
+  .ui-date-cal {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 50;
+    box-sizing: border-box;
+    margin-top: var(--space-1);
+    padding: var(--space-2);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-popover);
+  }
+  .ui-date-cal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .ui-date-cal-title { font-weight: var(--font-weight-medium); color: var(--fg); }
+  .ui-date-cal-prev svg { transform: rotate(180deg); }
+  .ui-date-cal-grid { border-collapse: collapse; }
+  .ui-date-cal-grid th {
+    padding: var(--space-1);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-secondary);
+    text-align: center;
+  }
+  .ui-date-cal-grid td { padding: 1px; text-align: center; }
+  .ui-date-day {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+  }
+  .ui-date-day:hover:not(:disabled) { background: var(--accent-translucent); }
+  .ui-date-day[aria-current="date"] { border-color: var(--accent); font-weight: var(--font-weight-bold); }
+  .ui-date-day--selected {
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+  }
+  .ui-date-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .ui-date-day:disabled { color: var(--btn-disabled-fg); cursor: not-allowed; text-decoration: line-through; }
+
   /* === App.ui.radioGroup (M28 F2 L2): a fieldset of option cards === */
   .ui-radio-group { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
   .ui-radio-legend {
@@ -2382,6 +2489,12 @@
   /* Forced colors (Windows High Contrast, SC 1.4.11): author backgrounds and
      box-shadows are dropped, so state must ride on borders and system colours. */
   @media (forced-colors: active) {
+    .ui-day:has(.ui-day-input:checked) { background: Highlight; border-color: Highlight; color: HighlightText; }
+    .ui-day:has(.ui-day-input:focus-visible) { outline-color: Highlight; }
+    .ui-day.is-disabled, .ui-day.is-disabled:has(.ui-day-input:checked) {
+      background: Canvas; border-color: GrayText; color: GrayText;
+    }
+    .ui-date-day--selected { background: Highlight; border-color: Highlight; color: HighlightText; forced-color-adjust: none; }
     .btn-outlined-primary:disabled, .btn-filled-primary:disabled, .btn-ghost:disabled,
     .btn-muted-destructive:disabled, .ui-progress-cancel:disabled {
       color: GrayText; border-color: GrayText;

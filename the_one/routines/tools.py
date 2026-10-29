@@ -31,11 +31,10 @@ from the_one.agent.tool_names import (
 )
 from the_one.naming import NameRuleError
 from the_one.routines import service
-from the_one.routines.describe import describe_next, describe_schedule, describe_target
+from the_one.routines.describe import describe_next, describe_target, schedule_sentence
 from the_one.routines.limits import (
-    AGENT_ACTIVE_ROUTINES_MAX,
     AGENT_ROUTINE_WRITES_PER_TURN,
-    AGENT_RUNS_PER_DAY_MAX,
+    ROUTINES_ACTIVE_MAX,
     RoutineFieldError,
     RoutineLimitError,
     RoutineNameTaken,
@@ -58,18 +57,19 @@ SHAPE_REFUSAL = "That isn't in the expected shape; pass it as an object, not tex
 TARGET_REFUSAL = 'The target must be "this_chat", "new_chat", "own_chat" or {"chat_id": "..."}.'
 MAX_JSON_ARG_CHARS = 2000
 FLAGGED_NOTE = " It was flagged for your operator to check."
+UNREADABLE_SCHEDULE = "an unreadable schedule"
 
 _LIMITS_SENTENCE = (
-    f"At most {AGENT_ACTIVE_ROUTINES_MAX} active routines, {AGENT_RUNS_PER_DAY_MAX} runs a day "
-    f"and {AGENT_ROUTINE_WRITES_PER_TURN} changes a turn. Your operator may need to approve."
+    f"At most {ROUTINES_ACTIVE_MAX} active routines and {AGENT_ROUTINE_WRITES_PER_TURN} "
+    "changes a turn. Your operator may need to approve."
 )
 _TIMES = "Times are wall-clock in the operator's time zone."
 _SCHEDULE_SHAPES = (
-    '{"kind":"once","in":{"amount":N,"unit":"minutes|hours|days"}}, '
-    '{"kind":"once","on":{"date":"YYYY-MM-DD","time":"HH:MM"}}, '
-    '{"kind":"daily"|"weekdays","time":"HH:MM"}, '
-    '{"kind":"weekly","days":[0-6, 0 is Monday],"time":"HH:MM"} or '
-    '{"kind":"interval","hours":N}.'
+    '{"start":{"in":{"amount":N,"unit":"minutes|hours|days"}}} for a one-off after a delay; '
+    '{"start":{"date":"YYYY-MM-DD","time":"HH:MM"}} for a one-off at a time; add '
+    '"repeat":{"every":N,"unit":"minute|hour|day|week|month|year"} to repeat '
+    '(weeks also take "days":[0-6, 0 is Monday]), and optionally '
+    '"ends":{"kind":"on","date":"YYYY-MM-DD"} or {"kind":"after","count":N}.'
 )
 _TARGET_SHAPES = (
     '"this_chat" (default), "new_chat", "own_chat" or {"chat_id": "<one of your chats>"}.'
@@ -261,7 +261,8 @@ class ListMyRoutinesTool(_RoutineToolBase):
                 state = "on" if r.enabled else "off"
             made = "you" if r.created_by == "agent" else "your operator"
             lines.append(f"Routine '{r.name}' (id {r.id}), made by {made}, {state}.")
-            lines.append(f"  Schedule: {describe_schedule(r.schedule, zone)}.")
+            sentence = schedule_sentence(r.schedule, r.anchor_at, zone) or UNREADABLE_SCHEDULE
+            lines.append(f"  Schedule: {sentence}.")
             if r.finished_at is None and r.enabled:
                 lines.append(f"  Next run: {describe_next(r.next_run_at, zone, now=now)}.")
             lines.append(f"  Runs in: {describe_target(r, session_id)}.")
@@ -285,7 +286,10 @@ def _proposal_words(p: Any, zone: Any, session_id: str | None, now: Any) -> str:
     if p.action == "create":
         bits = []
         if "schedule" in payload:
-            bits.append(describe_schedule(payload["schedule"], zone))
+            bits.append(
+                schedule_sentence(payload["schedule"], payload.get("anchor_at"), zone)
+                or UNREADABLE_SCHEDULE
+            )
         if "target" in payload:
             bits.append("in " + describe_target(payload, session_id))
         if payload.get("enabled") is False:
@@ -299,7 +303,11 @@ def _proposal_words(p: Any, zone: Any, session_id: str | None, now: Any) -> str:
     if "prompt" in payload:
         changes.append(f"new prompt: {payload['prompt']}")
     if "schedule" in payload:
-        changes.append(f"schedule {describe_schedule(payload['schedule'], zone)}")
+        sentence = (
+            schedule_sentence(payload["schedule"], payload.get("anchor_at"), zone)
+            or UNREADABLE_SCHEDULE
+        )
+        changes.append(f"schedule: {sentence}")
     if "target" in payload:
         changes.append("run in " + describe_target(payload, session_id))
     if "enabled" in payload:
