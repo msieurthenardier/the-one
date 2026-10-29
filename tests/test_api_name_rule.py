@@ -70,6 +70,15 @@ EXEMPT = {
         "POST",
         "/api/agents/{name}/self-configuration/revisions/{revision_id}/restore",
     ): "revision restore; writes a description or system prompt, never a name",
+    ("PUT", "/api/agents/{name}/self-configuration/routines"): "two Routines switches; no name",
+    (
+        "POST",
+        "/api/agents/{name}/self-configuration/routines/proposals/{proposal_id}/approve",
+    ): "proposal decision; the name comes from an already-validated proposal",
+    (
+        "POST",
+        "/api/agents/{name}/self-configuration/routines/proposals/{proposal_id}/dismiss",
+    ): "proposal decision; sets no name",
     ("POST", "/api/knowledge-bases/{kb_id}/items"): _ITEM,
     ("POST", "/api/knowledge-bases/{kb_id}/items/{item_id}/retry"): _ITEM,
     ("POST", "/api/knowledge-bases/{kb_id}/reindex"): _ITEM,

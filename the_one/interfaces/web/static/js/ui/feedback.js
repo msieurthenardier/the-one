@@ -189,13 +189,18 @@
   App.ui.flash.region = flashRegionNode;
 
   // App.ui.noteFlag(opts) -> HTMLSpanElement (span.note-flag, role=img): the warning-triangle
-  //   flag on an untrusted note. opts.sources: the origins (an array of strings) named in the
-  //   sentence, which is both the title and the accessible name. The test id option is placed
-  //   on the span (supplied by the caller).
+  //   flag on an untrusted note or routine. opts.sources: the origins (an array of strings)
+  //   named in the sentence, which is both the title and the accessible name. opts.subject:
+  //   'note' (default) or 'routine' (M33 F2 L5); any other value throws. The test id option
+  //   is placed on the span (supplied by the caller).
   App.ui.noteFlag = function (opts) {
     opts = opts || {};
+    var subject = opts.subject === undefined ? 'note' : opts.subject;
+    if (subject !== 'note' && subject !== 'routine') {
+      throw new Error('App.ui.noteFlag: subject must be "note" or "routine"');
+    }
     var list = (opts.sources || []).join(', ');
-    var sentence = 'Check this note: it was written after content that didn\'t come from you' +
+    var sentence = 'Check this ' + subject + ': it was written after content that didn\'t come from you' +
       (list ? ' (' + list + ')' : '') + '. It may have been planted.';
     var flag = App.ui.util.el('span', {
       className: 'note-flag', role: 'img', title: sentence, 'aria-label': sentence

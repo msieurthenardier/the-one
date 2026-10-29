@@ -55,8 +55,15 @@
     var ul = el('ul', { className: 'chat-drawer-list' });
     ul.setAttribute('data-testid', 'chat-drawer-routines');
     for (var i = 0; i < rows.length; i++) {
+      var headKids = [];
+      if (rows[i].untrusted) {
+        var flag = App.ui.noteFlag({ subject: 'routine', sources: arr(rows[i].untrusted_sources) });
+        flag.setAttribute('data-testid', 'chat-drawer-routine-flag');
+        headKids.push(flag);
+      }
+      headKids.push(el('span', { className: 'chat-drawer-item-name', text: String(rows[i].name) }));
       var li = el('li', null, [
-        el('span', { className: 'chat-drawer-item-name', text: String(rows[i].name) }),
+        el('div', { className: 'chat-drawer-note-head' }, headKids),
         el('span', { className: 'chat-drawer-item-meta', text: routineMeta(rows[i]) })
       ]);
       li.setAttribute('title', String(rows[i].name));

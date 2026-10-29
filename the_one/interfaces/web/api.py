@@ -12,7 +12,7 @@ import os
 import re
 import time
 import uuid
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -114,10 +114,15 @@ from the_one.naming import (
 from the_one.platform.paths import canonicalize, is_within
 from the_one.routines import limits as routine_limits
 from the_one.routines import runner as routine_runner
-from the_one.routines import schedule as routine_schedule
-from the_one.routines.limits import RoutineLimitError, RoutineNameTaken, RoutineScheduleError
+from the_one.routines import service as routine_service
+from the_one.routines.limits import RoutineFieldError, RoutineLimitError, RoutineNameTaken
+from the_one.routines.proposals import (
+    ProposalGoneError,
+    ProposalStaleError,
+    ProposalStateError,
+    RoutineProposalRepository,
+)
 from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
-from the_one.routines.scheduler import get_scheduler as _get_routine_scheduler
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
@@ -1010,6 +1015,31 @@ async def get_agent_context_window(name: str) -> dict[str, int]:
     return {"max_context_tokens": agent.llm.max_context_tokens}
 
 
+async def _check_agent_provider(provider_id: str | None) -> None:
+    """Squawk 0277: a provider id that names no provider is a 422 on the field, not a 500
+    from the foreign key. ``None`` (no provider) stays legal; ``""`` never names one."""
+    if provider_id is None:
+        return
+    exists = False
+    if provider_id != "":
+        try:
+            await (await _provider_repo()).get(provider_id)
+            exists = True
+        except KeyError:
+            exists = False
+    if not exists:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["provider_config_id"],
+                    "msg": "That model provider doesn't exist.",
+                }
+            ],
+        )
+
+
 @router.post("/agents", status_code=201)
 async def create_agent(request: Request) -> dict[str, Any]:
     """Create a new agent.
@@ -1025,6 +1055,9 @@ async def create_agent(request: Request) -> dict[str, Any]:
 
     data = await _read_json(request)
     data["name"] = _checked_name(data.get("name"))
+    # M33 F2 DD5: the Routines switches are operator-owned; a create never sets them.
+    data.pop("routines_self_config_enabled", None)
+    data.pop("routines_require_approval", None)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -1054,6 +1087,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    await _check_agent_provider(cfg.provider_config_id)
     store = await _agent_store()
     if await store.exists(cfg.name):
         raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
@@ -1108,6 +1142,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # an agent save that omits it must not reset it.
     if "notes_enabled" not in data:
         data["notes_enabled"] = existing.notes_enabled
+    # M33 F2 DD5: the Routines switches are set only by their own routes; an agent
+    # PUT ignores any incoming value, so the response echoes the stored truth.
+    data["routines_self_config_enabled"] = existing.routines_self_config_enabled
+    data["routines_require_approval"] = existing.routines_require_approval
     # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
     # — mirrors the `self_revision_requires_approval` preserve immediately
     # above. An explicit `kb_ids: []` is NOT an omission and still clears
@@ -1137,6 +1175,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    if cfg.provider_config_id != existing.provider_config_id:
+        # Squawk 0277: only a CHANGED id is checked, so an agent whose provider was
+        # deleted later stays editable (and fixable).
+        await _check_agent_provider(cfg.provider_config_id)
     await store.save(cfg)
     return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
@@ -1606,22 +1648,9 @@ def _routine_422(field: str, message: str) -> HTTPException:
     )
 
 
-def _routines_limits() -> dict[str, int]:
-    return {
-        "prompt_chars": routine_limits.ROUTINE_PROMPT_MAX_CHARS,
-        "routines_per_agent": routine_limits.ROUTINES_PER_AGENT_MAX,
-        "interval_hours_min": routine_limits.INTERVAL_HOURS_MIN,
-        "interval_hours_max": routine_limits.INTERVAL_HOURS_MAX,
-        "once_max_days": routine_limits.ONCE_MAX_AHEAD_DAYS,
-        "run_timeout_seconds": int(routine_runner.routine_run_timeout_seconds()),
-    }
-
-
 def _poke_scheduler() -> None:
-    """Wake the routine scheduler after a routine write (M33 F1 L5); no-op without one."""
-    sched = _get_routine_scheduler()
-    if sched is not None:
-        sched.poke()
+    """Delegate kept for callers that wake the scheduler (the service pokes after writes)."""
+    routine_service.poke_scheduler()
 
 
 async def _routines_agent_or_404(name: str) -> None:
@@ -1645,167 +1674,6 @@ async def _routine_body(request: Request) -> dict[str, Any]:
     return data
 
 
-def _routine_prompt(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise _routine_422("prompt", "The prompt cannot be empty.")
-    text = value.strip()
-    if len(text) > routine_limits.ROUTINE_PROMPT_MAX_CHARS:
-        raise _routine_422(
-            "prompt",
-            f"The prompt is limited to {routine_limits.ROUTINE_PROMPT_MAX_CHARS:,} characters; "
-            f"this one is {len(text):,} characters.",
-        )
-    return text
-
-
-_ROUTINE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-
-def _routine_schedule(raw: object, now: datetime, zone: tzinfo) -> dict[str, Any]:
-    """Validate a schedule from a request: ``once`` may carry ``in`` (converted to an
-    absolute ``at``) or ``on`` (a local date and time in the operator zone, converted with
-    the DST rules), and a ``once`` must lie in the future and within a year."""
-    if isinstance(raw, dict) and raw.get("kind") == "once" and "on" in raw:
-        spec = raw.get("on")
-        if (
-            set(raw) != {"kind", "on"}
-            or not isinstance(spec, dict)
-            or set(spec) != {"date", "time"}
-        ):
-            raise _routine_422("schedule", "A one-time schedule at a local time is {kind, on}.")
-        date_text = spec.get("date")
-        if not isinstance(date_text, str) or not _ROUTINE_DATE_RE.match(date_text):
-            raise _routine_422("schedule", "The date must be written YYYY-MM-DD.")
-        try:
-            day = date.fromisoformat(date_text)
-        except ValueError:
-            raise _routine_422("schedule", "That date doesn't exist.")
-        try:
-            hour, minute = routine_schedule._parse_hhmm(spec.get("time"))
-        except RoutineScheduleError as e:
-            raise _routine_422("schedule", e.detail)
-        try:
-            at = routine_schedule.resolve_wall_time(day, hour, minute, zone)
-        except (ValueError, OverflowError):
-            raise _routine_422("schedule", "That date doesn't exist.")
-        raw = {"kind": "once", "at": at.isoformat()}
-    if isinstance(raw, dict) and raw.get("kind") == "once" and "in" in raw:
-        spec = raw.get("in")
-        if set(raw) != {"kind", "in"} or not isinstance(spec, dict):
-            raise _routine_422("schedule", "A delayed one-time schedule is {kind, in}.")
-        amount, unit = spec.get("amount"), spec.get("unit")
-        if (
-            isinstance(amount, bool)
-            or not isinstance(amount, int)
-            or amount < 1
-            or unit not in ("minutes", "hours", "days")
-            or set(spec) != {"amount", "unit"}
-        ):
-            raise _routine_422(
-                "schedule", "Give a whole number of minutes, hours or days, at least 1."
-            )
-        try:
-            at = now + timedelta(**{unit: amount})
-        except OverflowError:
-            raise _routine_422("schedule", routine_limits.MSG_TOO_FAR)
-        raw = {"kind": "once", "at": at.isoformat()}
-    try:
-        sched = routine_schedule.validate(raw)
-    except RoutineScheduleError as e:
-        raise _routine_422("schedule", e.detail)
-    if sched["kind"] == "once":
-        at = routine_schedule.parse_utc(sched["at"])
-        if at <= now:
-            raise _routine_422("schedule", routine_limits.MSG_PAST)
-        if at > now + timedelta(days=routine_limits.ONCE_MAX_AHEAD_DAYS):
-            raise _routine_422("schedule", routine_limits.MSG_TOO_FAR)
-    return sched
-
-
-async def _routine_target(raw: object, agent_name: str) -> dict[str, Any]:
-    """The target columns for a request ``target``; a ``chat`` snapshots the
-    connector identity from that session row at write time (never refreshed)."""
-    cols: dict[str, Any] = {
-        "target_session_id": None,
-        "target_platform": None,
-        "target_connector_id": None,
-        "target_channel_id": None,
-        "target_thread_id": None,
-        "target_peer_id": None,
-    }
-    if not isinstance(raw, dict) or raw.get("kind") not in ("chat", "new", "own"):
-        raise _routine_422("target", "The target must be a chat, a new chat or its own chat.")
-    kind = raw["kind"]
-    if kind != "chat":
-        return {"target_kind": kind, **cols}
-    sid = raw.get("session_id")
-    if not isinstance(sid, str) or not sid:
-        raise _routine_422("target", "Pick a chat.")
-    repo = await _chat_repo()
-    try:
-        row = await repo.get(sid)
-    except KeyError:
-        raise _routine_422("target", "That chat doesn't exist.")
-    if row.agent_name != agent_name:
-        raise _routine_422("target", "That chat belongs to another agent.")
-    return {
-        "target_kind": "chat",
-        "target_session_id": row.id,
-        "target_platform": row.platform,
-        "target_connector_id": row.connector_id,
-        "target_channel_id": row.channel_id,
-        "target_thread_id": row.thread_id,
-        "target_peer_id": row.peer_id,
-    }
-
-
-async def _routine_view(
-    routine: Any, run_repo: RoutineRunRepository, chat_repo: ChatSessionRepository
-) -> dict[str, Any]:
-    target: dict[str, Any] = {
-        "kind": routine.target_kind,
-        "session_id": routine.target_session_id,
-        "title": None,
-        "platform": routine.target_platform,
-        "missing": False,
-    }
-    if routine.target_session_id:
-        try:
-            row = await chat_repo.get(routine.target_session_id)
-            target["title"] = row.title
-            target["platform"] = row.platform
-        except KeyError:
-            target["missing"] = routine.target_kind == "chat"
-    last = await run_repo.latest(routine.id)
-    last_run = (
-        {
-            "outcome": last.outcome,
-            "reason": last.reason,
-            "trigger_kind": last.trigger_kind,
-            "finished_at": last.finished_at,
-            "session_id": last.session_id,
-        }
-        if last
-        else None
-    )
-    return {
-        "id": routine.id,
-        "agent_name": routine.agent_name,
-        "name": routine.name,
-        "prompt": routine.prompt,
-        "schedule": routine.schedule,
-        "enabled": routine.enabled,
-        "finished_at": routine.finished_at,
-        "next_run_at": routine.next_run_at,
-        "created_by": routine.created_by,
-        "created_at": routine.created_at,
-        "updated_at": routine.updated_at,
-        "target": target,
-        "last_run": last_run,
-        "running": routine_runner.registry.is_running(routine.id),
-    }
-
-
 @router.get("/agents/{name}/routines")
 async def list_agent_routines(name: str) -> dict[str, Any]:
     await _routines_agent_or_404(name)
@@ -1813,8 +1681,8 @@ async def list_agent_routines(name: str) -> dict[str, Any]:
     chat_repo = await _chat_repo()
     routines = await repo.list_for_agent(name)
     return {
-        "routines": [await _routine_view(r, run_repo, chat_repo) for r in routines],
-        "limits": _routines_limits(),
+        "routines": [await routine_service.routine_view(r, run_repo, chat_repo) for r in routines],
+        "limits": routine_service.limits_view(),
     }
 
 
@@ -1824,40 +1692,26 @@ async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Routines need a named agent.")
     data = await _routine_body(request)
     await _load_agent_or_404(name)
-    routine_name = _checked_name(data.get("name"))
-    prompt = _routine_prompt(data.get("prompt"))
-    now = time_zones.utcnow()
     conn = await get_connection()
-    zone = (await time_zones.load_effective_zone(conn)).tzinfo
-    sched = _routine_schedule(data.get("schedule"), now, zone)
-    target = await _routine_target(data.get("target"), name)
-    enabled = data.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise _routine_422("enabled", "Enabled must be true or false.")
-    anchor = now if sched["kind"] == "interval" else None
-    next_at = (
-        routine_schedule.next_run(sched, after=now, zone=zone, anchor=anchor) if enabled else None
-    )
+
+    async def zone() -> tzinfo:
+        return (await time_zones.load_effective_zone(conn)).tzinfo
+
     repo, run_repo = await _routines_repos()
+    chat_repo = await _chat_repo()
     try:
-        routine = await repo.create(
-            name,
-            {
-                "name": routine_name,
-                "prompt": prompt,
-                "schedule": sched,
-                "enabled": enabled,
-                "next_run_at": next_at.isoformat() if next_at else None,
-                "anchor_at": anchor.isoformat() if anchor else None,
-                **target,
-            },
+        routine = await routine_service.create_routine(
+            repo, chat_repo, name, data, now=time_zones.utcnow(), zone=zone
         )
+    except NameRuleError as e:
+        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+    except RoutineFieldError as e:
+        raise _routine_422(e.field, e.message)
     except RoutineNameTaken as e:
         raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
     except RoutineLimitError as e:
         raise HTTPException(status_code=422, detail=e.detail)
-    _poke_scheduler()
-    return await _routine_view(routine, run_repo, await _chat_repo())
+    return await routine_service.routine_view(routine, run_repo, chat_repo)
 
 
 @router.get("/agents/{name}/routines/{routine_id}")
@@ -1867,7 +1721,7 @@ async def get_agent_routine(name: str, routine_id: str) -> dict[str, Any]:
     routine = await repo.get(name, routine_id)
     if routine is None:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    return await _routine_view(routine, run_repo, await _chat_repo())
+    return await routine_service.routine_view(routine, run_repo, await _chat_repo())
 
 
 @router.put("/agents/{name}/routines/{routine_id}")
@@ -1878,60 +1732,33 @@ async def update_agent_routine(name: str, routine_id: str, request: Request) -> 
     cur = await repo.get(name, routine_id)
     if cur is None:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    now = time_zones.utcnow()
-    fields: dict[str, Any] = {}
-    if "name" in data:
-        fields["name"] = _checked_name(data["name"])
-    if "prompt" in data:
-        fields["prompt"] = _routine_prompt(data["prompt"])
-    if "target" in data:
-        fields.update(await _routine_target(data["target"], name))
-    enabled = cur.enabled
-    if "enabled" in data:
-        if not isinstance(data["enabled"], bool):
-            raise _routine_422("enabled", "Enabled must be true or false.")
-        enabled = data["enabled"]
-    # Precedence (leg 1, AC13): any `schedule` key is a schedule change.
-    schedule_changed = "schedule" in data
-    sched = cur.schedule
-    anchor = routine_schedule.parse_utc(cur.anchor_at) if cur.anchor_at else None
-    finished_at = cur.finished_at
-    if schedule_changed:
+
+    async def zone() -> tzinfo:
         conn = await get_connection()
-        zone = (await time_zones.load_effective_zone(conn)).tzinfo
-        sched = _routine_schedule(data["schedule"], now, zone)
-        fields["schedule"] = sched
-        anchor = now if sched["kind"] == "interval" else None
-        fields["anchor_at"] = anchor.isoformat() if anchor else None
-        if finished_at is not None:
-            finished_at = None
-            fields["finished_at"] = None
-    reenabled = "enabled" in data and enabled and not cur.enabled
-    if "enabled" in data and enabled and finished_at is not None:
-        raise _routine_422("enabled", "Set a new time to run it again.")
-    if reenabled and not schedule_changed and sched.get("kind") == "interval":
-        anchor = now
-        fields["anchor_at"] = now.isoformat()
-    if "enabled" in data:
-        fields["enabled"] = enabled
-    if not enabled or finished_at is not None:
-        fields["next_run_at"] = None
-    elif schedule_changed or reenabled:
-        conn = await get_connection()
-        zone = (await time_zones.load_effective_zone(conn)).tzinfo
-        nxt = routine_schedule.next_run(sched, after=now, zone=zone, anchor=anchor)
-        fields["next_run_at"] = nxt.isoformat() if nxt else None
-        if nxt is None and sched.get("kind") == "once":
-            # A re-enabled one-off whose time has passed gets no catch-up: it is Done.
-            fields["finished_at"] = now.isoformat()
+        return (await time_zones.load_effective_zone(conn)).tzinfo
+
+    chat_repo = await _chat_repo()
     try:
-        routine = await repo.update(name, routine_id, fields)
+        routine = await routine_service.update_routine(
+            repo,
+            chat_repo,
+            name,
+            cur,
+            data,
+            now=time_zones.utcnow(),
+            zone=zone,
+            # M33 F2 DD7: an operator prompt edit is the only thing that clears the flag.
+            flag="clear" if "prompt" in data else None,
+        )
+    except NameRuleError as e:
+        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+    except RoutineFieldError as e:
+        raise _routine_422(e.field, e.message)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
     except RoutineNameTaken as e:
         raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
-    _poke_scheduler()
-    return await _routine_view(routine, run_repo, await _chat_repo())
+    return await routine_service.routine_view(routine, run_repo, chat_repo)
 
 
 @router.delete("/agents/{name}/routines/{routine_id}")
@@ -1939,11 +1766,134 @@ async def delete_agent_routine(name: str, routine_id: str) -> dict[str, str]:
     await _routines_agent_or_404(name)
     repo, _ = await _routines_repos()
     try:
-        await repo.delete(name, routine_id)
+        await routine_service.delete_routine(repo, name, routine_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    _poke_scheduler()
     return {"status": "ok"}
+
+
+# ── Agent-written routines: switches and proposals (M33 F2) ─────────────────
+
+
+class _RoutinesSwitchesBody(BaseModel):
+    enabled: StrictBool | None = None
+    requires_approval: StrictBool | None = None
+
+
+async def _routines_switch_agent(name: str) -> "AgentConfig":
+    if name == _DEFAULT_AGENT:
+        raise HTTPException(status_code=422, detail=routine_service.MSG_NAMED_AGENT)
+    _store, config = await _load_agent_or_404(name)
+    return config
+
+
+async def _routines_switches_view(name: str, config: "AgentConfig") -> dict[str, Any]:
+    conn = await get_connection()
+    return {
+        "enabled": config.routines_self_config_enabled,
+        "requires_approval": config.routines_require_approval,
+        "pending_count": await RoutineProposalRepository(conn).pending_count(name),
+    }
+
+
+@router.get("/agents/{name}/self-configuration/routines")
+async def get_agent_routines_switches(name: str) -> dict[str, Any]:
+    config = await _routines_switch_agent(name)
+    return await _routines_switches_view(name, config)
+
+
+@router.put("/agents/{name}/self-configuration/routines")
+async def set_agent_routines_switches(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RoutinesSwitchesBody)
+    config = await _routines_switch_agent(name)
+    if body.enabled is None and body.requires_approval is None:
+        raise HTTPException(status_code=422, detail="Give enabled or requires_approval.")
+    store = await _agent_store()
+    try:
+        await store.set_routines_self_config(
+            name, enabled=body.enabled, requires_approval=body.requires_approval
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    conn = await get_connection()
+    if body.enabled is False and config.routines_self_config_enabled:
+        # Turning Routines off withdraws everything still waiting (DD5).
+        await RoutineProposalRepository(conn).supersede_pending(name)
+    _store, fresh = await _load_agent_or_404(name)
+    return await _routines_switches_view(name, fresh)
+
+
+@router.get("/agents/{name}/self-configuration/routines/proposals")
+async def list_routine_proposals(
+    name: str,
+    status: Literal["pending", "applied", "dismissed", "superseded"] | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    before: str | None = None,
+) -> dict[str, Any]:
+    await _routines_switch_agent(name)
+    repo = RoutineProposalRepository(await get_connection())
+    rows = await repo.list(name, status=status, limit=limit, before=before)
+    return {"proposals": [r.model_dump() for r in rows]}
+
+
+@router.get("/agents/{name}/self-configuration/routines/proposals/pending-count")
+async def get_routine_proposals_pending_count(name: str) -> dict[str, int]:
+    await _routines_switch_agent(name)
+    repo = RoutineProposalRepository(await get_connection())
+    return {"count": await repo.pending_count(name)}
+
+
+@router.post("/agents/{name}/self-configuration/routines/proposals/{proposal_id}/approve")
+async def approve_routine_proposal(
+    name: str, proposal_id: str, override: bool = False
+) -> dict[str, Any]:
+    await _routines_switch_agent(name)
+    conn = await get_connection()
+
+    async def zone() -> tzinfo:
+        return (await time_zones.load_effective_zone(conn)).tzinfo
+
+    try:
+        done = await routine_service.approve_proposal(
+            conn, name, proposal_id, override=override, now=time_zones.utcnow(), zone=zone
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal not found: {proposal_id}")
+    except ProposalStaleError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale",
+                "current_value": e.current,
+                "proposed_value": e.proposed,
+                "base_value": e.base,
+            },
+        )
+    except ProposalGoneError:
+        raise HTTPException(status_code=409, detail={"error": "gone"})
+    except ProposalStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except NameRuleError as e:
+        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+    except RoutineFieldError as e:
+        raise _routine_422(e.field, e.message)
+    except RoutineNameTaken as e:
+        raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
+    except RoutineLimitError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return done.model_dump()
+
+
+@router.post("/agents/{name}/self-configuration/routines/proposals/{proposal_id}/dismiss")
+async def dismiss_routine_proposal(name: str, proposal_id: str) -> dict[str, Any]:
+    await _routines_switch_agent(name)
+    try:
+        done = await routine_service.dismiss_proposal(await get_connection(), name, proposal_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Proposal not found: {proposal_id}")
+    except ProposalStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return done.model_dump()
 
 
 @router.post("/agents/{name}/routines/{routine_id}/run", status_code=202)

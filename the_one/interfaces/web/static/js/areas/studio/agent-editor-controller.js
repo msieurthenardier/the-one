@@ -347,6 +347,11 @@
         deleteRoutine: agentData.deleteRoutine,
         runRoutine: agentData.runRoutine,
         fetchRoutineRuns: agentData.fetchRoutineRuns,
+        fetchRoutinesItem: agentData.fetchRoutinesItem,
+        putRoutinesItem: agentData.putRoutinesItem,
+        fetchRoutineProposals: agentData.fetchRoutineProposals,
+        approveRoutineProposal: agentData.approveRoutineProposal,
+        dismissRoutineProposal: agentData.dismissRoutineProposal,
         openRoutineForm: function (req) {
           var f = App.studio.routinesForm;
           return f && f.open ? f.open(req) : Promise.resolve(null);
@@ -381,6 +386,10 @@
 
     // Named hooks (M33 F1 L8): the Routines tab polls only while it is the shown tab. Both
     // are null-safe and idempotent (the tab guards its own state).
+    function activateSelfConfig() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.selfConfig && d.handle.selfConfig.activate) d.handle.selfConfig.activate();
+    }
     function activateRoutines() {
       var d = currentData_();
       if (d && d.handle && d.handle.routines && d.handle.routines.activate) d.handle.routines.activate();
@@ -403,6 +412,7 @@
         self._selectedMcpAgentSourceId = null;
         self._pendingMcpAgentSourceId = null;
       }
+      var prevTab = self._activeTab;
       var leftRoutines = self._activeTab === 'routines' && tab !== 'routines';
       var leftSelfConfig = self._activeTab === 'self-configuration' && tab !== 'self-configuration';
       self._activeTab = tab;
@@ -410,6 +420,7 @@
       if (leftSelfConfig) deactivateSelfConfig();
       if (leftRoutines) deactivateRoutines();
       if (tab === 'routines') activateRoutines();
+      if (tab === 'self-configuration' && self._activeTab !== prevTab) activateSelfConfig();
       if (state.tabHandle && state.tabHandle.selected() !== tab) {
         state.tabHandle.select(tab);
       }

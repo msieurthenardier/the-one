@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 45
+CURRENT_VERSION = 46
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2839,3 +2839,55 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (45,))
         await conn.commit()
         version = 45
+
+    if version < 46:
+        # Mission 33 Flight 2 (DD4) — agents schedule their own routines. `agents`
+        # gains the two operator-owned Routines switches (never in `save`'s upsert);
+        # `agent_routines` gains the untrusted flag; `agent_routine_proposals` holds
+        # every agent routine change (applied, pending, dismissed, superseded).
+        # Every ALTER is guarded by PRAGMA table_info; the table and index are idempotent.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            agent_cols = {row[1] for row in await cursor.fetchall()}
+        if agent_cols and "routines_self_config_enabled" not in agent_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN "
+                "routines_self_config_enabled INTEGER NOT NULL DEFAULT 0"
+            )
+        if agent_cols and "routines_require_approval" not in agent_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN routines_require_approval INTEGER NOT NULL DEFAULT 1"
+            )
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cursor:
+            routine_cols = {row[1] for row in await cursor.fetchall()}
+        if routine_cols and "untrusted" not in routine_cols:
+            await conn.execute(
+                "ALTER TABLE agent_routines ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0"
+            )
+        if routine_cols and "untrusted_sources" not in routine_cols:
+            await conn.execute("ALTER TABLE agent_routines ADD COLUMN untrusted_sources TEXT")
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_routine_proposals ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+            "        ON DELETE CASCADE ON UPDATE CASCADE,"
+            "    routine_id TEXT REFERENCES agent_routines(id) ON DELETE SET NULL,"
+            "    routine_name TEXT NOT NULL,"
+            "    action TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),"
+            "    payload TEXT NOT NULL,"
+            "    base TEXT,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+            "    untrusted INTEGER NOT NULL DEFAULT 0,"
+            "    untrusted_sources TEXT,"
+            "    session_id TEXT,"
+            "    created_at TEXT NOT NULL,"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_routine_proposals_agent_status "
+            "ON agent_routine_proposals (agent_name, status)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (46,))
+        await conn.commit()
+        version = 46

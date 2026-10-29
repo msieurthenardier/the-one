@@ -328,3 +328,64 @@ async def test_drain_during_run_is_interrupted(routine_app):
     run = await h.last_run(rt["id"])
     assert run["outcome"] == "interrupted"
     assert run["reason"] == "The app stopped during this run."
+
+
+# ── M33 F2 L3: the flag snapshot and a cancel during the run ───────────────
+
+
+async def _saved_run_user(h, rid):
+    from the_one.db.codec import decode_messages
+    from the_one.llm.base import Role
+
+    run = await h.last_run(rid)
+    row = await ChatSessionRepository(await get_connection()).get(run["session_id"])
+    return [m for m in decode_messages(row.messages) if m.role == Role.USER][-1]
+
+
+async def test_run_snapshots_the_flag_onto_its_user_message(routine_app):
+    h = routine_app
+    flagged = await h.routine({"kind": "own"}, name="Flagged")
+    clean = await h.routine({"kind": "own"}, name="Clean")
+    conn = await get_connection()
+    await conn.execute(
+        "UPDATE agent_routines SET untrusted = 1, untrusted_sources = ? WHERE id = ?",
+        ('["web_fetch"]', flagged["id"]),
+    )
+    # an unflagged routine with stale sources must still bind []
+    await conn.execute(
+        "UPDATE agent_routines SET untrusted = 0, untrusted_sources = ? WHERE id = ?",
+        ('["stale"]', clean["id"]),
+    )
+    await conn.commit()
+    await h.run_now(flagged["id"])
+    await h.run_now(clean["id"])
+    assert (await _saved_run_user(h, flagged["id"])).routine_untrusted_sources == ["web_fetch"]
+    assert (await _saved_run_user(h, clean["id"])).routine_untrusted_sources == []
+
+
+async def test_cancelling_the_running_routine_ends_the_run_quietly(routine_app, caplog):
+    import logging
+
+    h = routine_app
+    h.llm.delay = 0.5
+    rt = await h.routine({"kind": "own"})
+    r = await h.api("POST", f"/api/agents/bot/routines/{rt['id']}/run")
+    assert r.status_code == 202
+    from the_one.sessions import is_session_busy
+
+    async def started():
+        runs = await h.runs(rt["id"])
+        return bool(runs) and runs[0]["session_id"] and is_session_busy(runs[0]["session_id"])
+
+    await wait_for(started)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        # the agent (or operator) cancels the routine that is running it
+        assert (await h.api("DELETE", f"/api/agents/bot/routines/{rt['id']}")).status_code in (
+            200,
+            204,
+        )
+        await wait_for(lambda: not runner.registry.is_running(rt["id"]), timeout=15)
+    bad = [x for x in caplog.records if x.levelno >= logging.ERROR]
+    assert not bad, [x.getMessage() for x in bad]
+    assert (await h.api("GET", f"/api/agents/bot/routines/{rt['id']}")).status_code == 404

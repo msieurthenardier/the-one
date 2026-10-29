@@ -41,7 +41,7 @@ from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from evals.checks import CheckDecl, NoteView, RunTrace, TurnTrace
+from evals.checks import CheckDecl, NoteView, RoutineView, RunTrace, TurnTrace
 from evals.fixtures import FIXTURE_HOST, FixtureServer, KBFixtures
 from evals.models import Preset, effective_values, provider_row
 from evals.scenario import Scenario, Variant, expand
@@ -294,7 +294,13 @@ class Harness:
             notes_enabled=sc.notes_enabled,
             **({"max_iterations": sc.max_iterations} if sc.max_iterations else {}),
         )
-        await SQLiteAgentStore(conn).save(cfg)
+        store = SQLiteAgentStore(conn)
+        await store.save(cfg)
+        if sc.routines_enabled:
+            # Operator-owned switches (M33 F2): on, and writes apply so they can be checked.
+            await store.set_routines_self_config(
+                spec.agent_name, enabled=True, requires_approval=False
+            )
         rules = AgentRuleRepository(conn)
         mapping = {**spec.variant.mapping, "fixture_base": self.fixture_base}
         for text in sc.rules:
@@ -317,6 +323,37 @@ class Harness:
             seeded.add(note.id)
         return seeded
 
+    async def _chat_row(self, session_id: str, agent_name: str) -> None:
+        """A real ``chat_sessions`` row for the conversation, so ``"this_chat"`` resolves."""
+        from the_one.db.connection import get_connection
+        from the_one.db.models import ChatSession
+        from the_one.db.repositories import ChatSessionRepository
+
+        repo = ChatSessionRepository(await get_connection())
+        with contextlib.suppress(KeyError):
+            await repo.get(session_id)
+            return
+        await repo.create(ChatSession(id=session_id, agent_name=agent_name, title="eval"))
+
+    async def _collect_routines(self, agent_name: str) -> list[RoutineView]:
+        """The routines the run's agent left in the database (the stored columns)."""
+        from the_one.db.connection import get_connection
+        from the_one.routines.repository import AgentRoutineRepository
+
+        rows = await AgentRoutineRepository(await get_connection()).list_for_agent(agent_name)
+        return [
+            RoutineView(
+                name=r.name,
+                kind=str(r.schedule.get("kind")),
+                next_run_at=r.next_run_at,
+                target_kind=r.target_kind,
+                target_session_id=r.target_session_id,
+                created_by=r.created_by,
+                untrusted=r.untrusted,
+            )
+            for r in rows
+        ]
+
     async def run_once(self, spec: RunSpec) -> Attempt:
         """One attempt at a run. Model and provider exceptions are captured, not raised."""
         from the_one.agent._context import TurnContext, current_turn
@@ -327,7 +364,11 @@ class Harness:
         sc = spec.scenario
         inst = sc.instantiate(spec.variant, self.fixture_base)
         recorder = CallRecorder()
-        trace = RunTrace(date_lines=expected_date_lines(sc, spec.variant))
+        trace = RunTrace(
+            date_lines=expected_date_lines(sc, spec.variant),
+            instant=sc.instant_for(spec.variant),
+            routines_enabled=sc.routines_enabled,
+        )
         attempt = Attempt(trace=trace, recorder=recorder)
         scripted = self.provider_hook(spec, self.fixture_base) if self.provider_hook else None
         fixture_mark = len(self.fixture_server.requests) if self.fixture_server else 0
@@ -347,13 +388,17 @@ class Harness:
                     ):
                         agent = await factory.create(spec.agent_name)
                     trace.system_prompts.append(agent.system_prompt)
+                    session_id = f"ev-{spec.stem}-c{ci}"
+                    if sc.routines_enabled:
+                        await self._chat_row(session_id, spec.agent_name)
+                        trace.session_ids.append(session_id)
                     attempt.effective = effective_values(agent.llm)
                     for text in turns:
                         tt = TurnTrace(conversation=ci, index=turn_index, user=text)
                         trace.turns.append(tt)
                         turn_index += 1
                         t0 = time.monotonic()
-                        token = current_turn.set(TurnContext(session_id=f"ev-{spec.stem}-c{ci}"))
+                        token = current_turn.set(TurnContext(session_id=session_id))
                         try:
                             async with asyncio.timeout(self.turn_timeout):
                                 async for msg in agent.step(text):
@@ -400,6 +445,11 @@ class Harness:
                         )
                 except Exception as exc:  # noqa: BLE001 - note collection must not mask the run
                     attempt.exc = attempt.exc or exc
+                if sc.routines_enabled:
+                    try:
+                        trace.routines = await self._collect_routines(spec.agent_name)
+                    except Exception as exc:  # noqa: BLE001 - must not mask the run
+                        attempt.exc = attempt.exc or exc
         attempt.wall_s = round(time.monotonic() - t_run, 3)
         if self.fixture_server:
             attempt.fixture_requests = list(self.fixture_server.requests[fixture_mark:])

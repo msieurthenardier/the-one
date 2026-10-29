@@ -535,7 +535,13 @@ def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
           const cs = getComputedStyle(f);
           const probe = document.createElement('span'); probe.style.color = 'var(--status-warning)';
           document.getElementById('harness-root').appendChild(probe);
+          const r = App.ui.noteFlag({sources: ['web'], subject: 'routine'});
+          const n = App.ui.noteFlag({subject: 'note'});
+          let err = '';
+          try { App.ui.noteFlag({subject: 'rule'}); } catch (e) { err = String(e.message); }
           return {tag: f.tagName + '.' + f.className, role: f.getAttribute('role'),
+                  routine: r.getAttribute('aria-label'), explicitNote: n.getAttribute('aria-label'),
+                  err: err,
                   named: f.getAttribute('aria-label') === sentence && f.title === sentence,
                   plain: g.getAttribute('aria-label'), svgs: f.querySelectorAll('svg').length,
                   svgW: getComputedStyle(f.querySelector('svg')).width, display: cs.display,
@@ -548,6 +554,12 @@ def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
         out["plain"]
         == "Check this note: it was written after content that didn't come from you. It may have been planted."
     )
+    assert (
+        out["routine"]
+        == "Check this routine: it was written after content that didn't come from you (web). It may have been planted."
+    )
+    assert out["explicitNote"] == out["plain"]
+    assert "subject" in out["err"]
     assert out["svgs"] == 1 and out["svgW"] == "14px" and out["display"] == "inline-flex"
     assert out["color"] is True and out["tid"] == "nf"
     assert out["gone"] == ["undefined", "undefined"]

@@ -41,7 +41,7 @@ should import from here.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 current_chat_session_id: ContextVar[str | None] = ContextVar(
     "current_chat_session_id", default=None
@@ -97,6 +97,12 @@ class TurnContext:
     peer: TurnPeer | None = None
     session_id: str | None = None
     writes: int = 0
+    # M33 F2 L3 (DD7/DD8): the routine run this turn belongs to (None for an ordinary
+    # turn), the sources it was flagged with, and the routine tools' own write budget.
+    routine_id: str | None = None
+    routine_name: str | None = None
+    routine_sources: list[str] = field(default_factory=list)
+    routine_writes: int = 0
 
 
 current_turn: ContextVar[TurnContext | None] = ContextVar("current_turn", default=None)

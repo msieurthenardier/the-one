@@ -94,7 +94,7 @@
       ? model.bodyToFormState(routine, App.time.parts, today)
       : model.defaultState(today);
     var fs = JSON.parse(JSON.stringify(initial));
-    var ctx = { mode: mode, initial: initial };
+    var ctx = { mode: mode, initial: initial, flagged: !!(routine && routine.untrusted) };
     var done = false;
     var busy = false;
     var resolveFn;
@@ -121,7 +121,8 @@
     });
     var promptField = App.ui.field({
       label: 'Prompt', control: promptInput,
-      hint: limits.prompt_chars ? 'Up to ' + String(limits.prompt_chars).replace(/\B(?=(\d{3})+$)/g, ',') + ' characters.' : ''
+      hint: (limits.prompt_chars ? 'Up to ' + String(limits.prompt_chars).replace(/\B(?=(\d{3})+$)/g, ',') + ' characters.' : '') +
+        (ctx.flagged ? (limits.prompt_chars ? ' ' : '') + 'Saving marks this routine as checked.' : '')
     });
     root.appendChild(promptField.el);
 

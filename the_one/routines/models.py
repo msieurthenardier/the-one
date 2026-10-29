@@ -31,6 +31,9 @@ class Routine(BaseModel):
     created_by: Literal["operator", "agent"] = "operator"
     created_at: str
     updated_at: str
+    # M33 F2 DD7: set when an agent write was influenced by untrusted content.
+    untrusted: bool = False
+    untrusted_sources: list[str] = Field(default_factory=list)
 
 
 class RoutineRun(BaseModel):

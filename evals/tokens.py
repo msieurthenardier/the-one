@@ -42,7 +42,10 @@ CONFIGS = ("bare", "all-on", "tool-free")
 # DD13: the bare and all-on configurations again, with a connector row whose
 # ``default_agent`` is the variant's own agent name. name -> (base config, attempt).
 CONNECTOR_VARIANTS = {"bare-connector": ("bare", 90), "all-on-connector": ("all-on", 91)}
-ALL_CONFIGS = (*CONFIGS, *CONNECTOR_VARIANTS)
+# Measured and counted but outside the prompt fingerprint: the all-on agent with Routines on
+# (M33 F2 L4). Loaded only when its file exists, so a custom measure directory needs no copy.
+EXTRA_CONFIGS = ("routines-on",)
+ALL_CONFIGS = (*CONFIGS, *CONNECTOR_VARIANTS, *EXTRA_CONFIGS)
 # the starting tools that exist only for a connector-mapped agent's benefit (DD13 a')
 CONNECTOR_TOOLS = ("send_to_platform_channel", "find_platform_destination")
 CONFIG_FILES = {c: MEASURE_DIR / f"{c}.toml" for c in CONFIGS}
@@ -305,7 +308,8 @@ def load_config_scenarios(measure_dir: Path | None = None) -> dict[str, Any]:
     from evals.scenario import parse_scenario
 
     d = measure_dir or MEASURE_DIR
-    return {c: parse_scenario(d / f"{c}.toml", fixtures_root=d / "fixtures") for c in CONFIGS}
+    names = [*CONFIGS, *(c for c in EXTRA_CONFIGS if (d / f"{c}.toml").is_file())]
+    return {c: parse_scenario(d / f"{c}.toml", fixtures_root=d / "fixtures") for c in names}
 
 
 @contextlib.asynccontextmanager
@@ -564,7 +568,11 @@ async def measure_prompt(opts: MeasureOptions) -> dict[str, Any]:
             "pinned": {"instant": DEFAULT_INSTANT.isoformat(), "zone": DEFAULT_ZONE},
             "configs": measure_configs(raw, counter),
             "kb_tool": kb_tool_entry(raw, counter),
-            "fingerprints": {"prompt": prompt_fingerprint(raw)},
+            "fingerprints": {
+                "prompt": prompt_fingerprint(
+                    {k: v for k, v in raw.items() if k not in EXTRA_CONFIGS}
+                )
+            },
             "model_counts": {},
         }
         if presets:
@@ -622,7 +630,11 @@ def render_tables(doc: dict[str, Any]) -> str:
     if doc.get("model_counts"):
         lines.append("model first-call input_tokens (cold)")
         for model, entry in doc["model_counts"].items():
-            counts = ", ".join(f"{c}={entry['input_tokens'].get(c)}" for c in CONFIGS)
+            counts = ", ".join(
+                f"{c}={entry['input_tokens'].get(c)}"
+                for c in (*CONFIGS, *EXTRA_CONFIGS)
+                if c in entry["input_tokens"]
+            )
             lines.append(f"  {model}: {counts}  {entry.get('server') or ''}".rstrip())
         lines.append("")
     lines.append(f"prompt fingerprint: {doc['fingerprints']['prompt']}")

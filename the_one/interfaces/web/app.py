@@ -2296,6 +2296,14 @@ async def _broadcast_one(
         await _send_to_session(session, tr_event)
 
 
+def _routine_turn_sources(routine: dict[str, Any] | None) -> list[str]:
+    """The flag sources a routine turn carries (``[]`` = unflagged)."""
+    raw = (routine or {}).get("untrusted_sources")
+    if not isinstance(raw, list):
+        return []
+    return [x for x in raw if isinstance(x, str)]
+
+
 def _bind_turn_user_marks(
     session: Session, pre_step_len: int, routine: dict[str, Any] | None
 ) -> None:
@@ -2315,6 +2323,8 @@ def _bind_turn_user_marks(
     if routine is not None:
         msg.routine_id = routine.get("id")
         msg.routine_name = routine.get("name")
+        # M33 F2 L3 (DD7): the flag snapshot; ``[]`` when unflagged, set on routine turns only.
+        msg.routine_untrusted_sources = _routine_turn_sources(routine)
     if session.platform is not None:
         msg.visibility = OPERATOR_VISIBILITY
 
@@ -2477,7 +2487,15 @@ async def _process_and_broadcast(
     # M27 F2 DD5: the notes tools' per-turn context (write budget, origin
     # session). Set HERE, around the one `agent.step`, so the WebSocket path
     # and the REST `/api/chat` handler (which calls this directly) both get it.
-    turn_token = current_turn.set(TurnContext(peer=None, session_id=session.id))
+    turn_token = current_turn.set(
+        TurnContext(
+            peer=None,
+            session_id=session.id,
+            routine_id=routine.get("id") if routine is not None else None,
+            routine_name=routine.get("name") if routine is not None else None,
+            routine_sources=_routine_turn_sources(routine),
+        )
+    )
 
     async def _save_and_notify_cancel() -> None:
         # Shared by both cancel sites. Tags a connector chat's cancelled

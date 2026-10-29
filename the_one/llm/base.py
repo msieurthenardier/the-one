@@ -220,6 +220,10 @@ class Message:
     # a whitelist). Absent in legacy rows (None).
     routine_id: str | None = None
     routine_name: str | None = None
+    # M33 F2 L3 (DD7): the routine's untrusted sources AS THEY WERE when this run was
+    # posted (a snapshot; ``[]`` = unflagged, ``None`` = not a routine turn or a legacy
+    # marker). USER-only; stored; never sent to a provider and not spread into UI events.
+    routine_untrusted_sources: list[str] | None = None
     # Fix: message-timestamp-on-replay. Per-message creation timestamp (ISO
     # 8601, UTC) so historical USER/ASSISTANT turns can render a "You ·
     # HH:MM UTC" / "<agent> · HH:MM UTC" attribution on session replay —

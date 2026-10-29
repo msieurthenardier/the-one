@@ -196,6 +196,73 @@ async def test_routine_on_web_chat_binds_marker_without_delivery(env, monkeypatc
     assert m.routine_id == "r1" and m.visibility is None
 
 
+class _CapturingAgent(_Agent):
+    """Records the TurnContext the app set around ``step`` (M33 F2 L3)."""
+
+    seen = None
+
+    async def step(self, user_input, on_chunk=None, on_usage=None):
+        from the_one.agent._context import current_turn
+
+        self.seen = current_turn.get()
+        async for m in super().step(user_input, on_chunk, on_usage):
+            yield m
+
+
+async def test_flagged_routine_run_binds_snapshot_and_turn_context(env, monkeypatch):
+    _use_manager(monkeypatch, _Client())
+    agent = _CapturingAgent()
+    session = _session(agent)
+    info: dict[str, Any] = {"routine": {**_routine(), "untrusted_sources": ["web_fetch", "peer:x"]}}
+    await web_app._spawn_message_processing(session, "do it", "routine", None, info)
+    m = session.agent.messages[0]
+    assert m.routine_untrusted_sources == ["web_fetch", "peer:x"]
+    ctx = agent.seen
+    assert (ctx.routine_id, ctx.routine_name) == ("r1", "Morning")
+    assert ctx.routine_sources == ["web_fetch", "peer:x"] and ctx.routine_writes == 0
+
+
+async def test_unflagged_routine_run_binds_an_empty_list(env, monkeypatch):
+    _use_manager(monkeypatch, _Client())
+    agent = _CapturingAgent()
+    session = _session(agent)
+    info: dict[str, Any] = {"routine": {**_routine(), "untrusted_sources": []}}
+    await web_app._spawn_message_processing(session, "do it", "routine", None, info)
+    assert session.agent.messages[0].routine_untrusted_sources == []
+    assert agent.seen.routine_sources == [] and agent.seen.routine_id == "r1"
+    # a Flight 1 style routine dict (no key at all) is also unflagged
+    session2 = _session(_CapturingAgent(), sid="s-rt2")
+    await web_app._spawn_message_processing(
+        session2, "do it", "routine", None, {"routine": _routine()}
+    )
+    assert session2.agent.messages[0].routine_untrusted_sources == []
+
+
+async def test_ordinary_turn_has_no_snapshot_and_no_routine_context(env):
+    agent = _CapturingAgent()
+    session = _session(agent)
+    await web_app._spawn_message_processing(session, "hi", "web", None, None)
+    assert session.agent.messages[0].routine_untrusted_sources is None
+    assert agent.seen.routine_id is None and agent.seen.routine_sources == []
+
+
+def test_snapshot_round_trips_through_the_codec_and_stays_out_of_ui_events():
+    from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
+
+    flagged = Message.user("run")
+    flagged.routine_id, flagged.routine_name = "r1", "Morning"
+    flagged.routine_untrusted_sources = ["web_fetch"]
+    empty = Message.user("run 2")
+    empty.routine_untrusted_sources = []
+    plain = Message.user("hello")
+    back = decode_messages(encode_messages([flagged, empty, plain]))
+    assert [m.routine_untrusted_sources for m in back] == [["web_fetch"], [], None]
+    for ev in messages_to_ui_events(back):
+        assert "routine_untrusted_sources" not in ev
+    events = messages_to_ui_events(back)
+    assert events[0]["routine_id"] == "r1"  # the marker still spreads
+
+
 async def test_no_routine_no_extra_keys(env):
     session = _session(_Agent())
     info: dict[str, Any] = {}

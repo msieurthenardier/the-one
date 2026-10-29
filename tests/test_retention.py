@@ -233,3 +233,20 @@ async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None
     async with conn.execute("SELECT id FROM agent_routine_runs ORDER BY id") as cur:
         assert [r[0] for r in await cur.fetchall()] == ["a-new", "a-running", "b-30d"]
     assert len(await routines.list_for_agent("a")) == 1  # routines untouched
+
+
+async def test_run_purge_sweep_leaves_routine_proposals(conn) -> None:
+    """M33 F2 DD10: the sweep never touches the agent's routine proposals."""
+    store = SQLiteAgentStore(conn)
+    await store.save(AgentConfig(name="a", chat_history_retention_days=1))
+    old = _aged_iso(400)
+    await conn.execute(
+        "INSERT INTO agent_routine_proposals (id, agent_name, routine_name, action, payload, "
+        "status, created_at, resolved_at) VALUES ('p1', 'a', 'n', 'create', '{}', 'applied', "
+        "?, ?)",
+        (old, old),
+    )
+    await conn.commit()
+    await run_purge_sweep(conn)
+    async with conn.execute("SELECT COUNT(*) FROM agent_routine_proposals") as cur:
+        assert (await cur.fetchone())[0] == 1

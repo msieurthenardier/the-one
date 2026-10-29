@@ -95,7 +95,9 @@
     }
     var body = {};
     if (name !== String(initial.name || '').trim()) body.name = name;
-    if (prompt !== String(initial.prompt || '').trim()) body.prompt = prompt;
+    // Saving a flagged routine's form is the operator's review (M33 F2 DD7): the prompt is
+    // always sent, so the server clears the flag even when the text is unchanged.
+    if (ctx.flagged || prompt !== String(initial.prompt || '').trim()) body.prompt = prompt;
     if (!same(scheduleBody(state), scheduleBody(initial))) body.schedule = scheduleBody(state);
     if (!same(targetBody(state), targetBody(initial))) body.target = targetBody(state);
     return body;

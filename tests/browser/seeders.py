@@ -505,3 +505,107 @@ def seed_note(
     finally:
         conn.close()
     return note_id
+
+
+def seed_routine_proposal(
+    data_dir,
+    agent_name: str,
+    action: str,
+    payload: dict,
+    *,
+    routine_name: str,
+    created_at: str,
+    base: dict | None = None,
+    status: str = "pending",
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    routine_id: str | None = None,
+    resolved_at: str | None = None,
+) -> str:
+    """INSERT one ``agent_routine_proposals`` row by sync sqlite3 (M33 F2 L5).
+
+    No REST route creates a proposal (only the agent's tools do), so a browser test that needs
+    a pending, stale or resolved one seeds it, the way ``seed_note`` seeds a note. ``payload``
+    is the validated REST request shape; ``base`` the raw stored fields (``name``, ``prompt``,
+    ``schedule``, ``enabled``, ``finished_at``, ``target_kind``, ``target_session_id``).
+    Timestamps are fixed ISO strings the test passes. Returns the proposal id.
+    """
+    import sqlite3
+    import uuid
+
+    proposal_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name,"
+            " action, payload, base, status, untrusted, untrusted_sources, session_id,"
+            " created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                proposal_id,
+                agent_name,
+                routine_id,
+                routine_name,
+                action,
+                json.dumps(payload, sort_keys=True),
+                json.dumps(base, sort_keys=True) if base is not None else None,
+                status,
+                1 if untrusted else 0,
+                json.dumps(sources) if sources else None,
+                None,
+                created_at,
+                resolved_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return proposal_id
+
+
+def seed_agent_routine(
+    data_dir,
+    agent_name: str,
+    name: str,
+    *,
+    prompt: str = "Say hello.",
+    schedule: dict | None = None,
+    created_by: str = "agent",
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    created_at: str = "2026-01-01T10:00:00+00:00",
+) -> str:
+    """INSERT one ``agent_routines`` row by sync sqlite3 (M33 F2 L5).
+
+    REST cannot set ``created_by='agent'`` or the untrusted flag, so a browser test that needs
+    an agent-made or flagged routine seeds it. The next run is far in the future so the
+    scheduler never fires it. Returns the routine id.
+    """
+    import sqlite3
+    import uuid
+
+    routine_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
+            " target_kind, next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, 'new', ?, ?, ?, ?, ?, ?, ?)",
+            (
+                routine_id,
+                agent_name,
+                name,
+                prompt,
+                json.dumps(schedule or {"kind": "daily", "time": "09:00"}),
+                "2099-01-01T09:00:00+00:00",
+                created_at,
+                created_by,
+                created_at,
+                created_at,
+                1 if untrusted else 0,
+                json.dumps(sources) if sources else None,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return routine_id

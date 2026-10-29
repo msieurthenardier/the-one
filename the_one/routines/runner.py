@@ -410,6 +410,9 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
             "name": routine.name,
             "target": keying_to_target(row),
             "connector_id": row.connector_id,
+            # M33 F2 L3 (DD7): the flag at run time. The turn's context and the saved
+            # message snapshot both read it, so later edits of the routine change neither.
+            "untrusted_sources": list(routine.untrusted_sources) if routine.untrusted else [],
         }
     }
     task = host.spawn_turn(session, routine.prompt, turn_info)

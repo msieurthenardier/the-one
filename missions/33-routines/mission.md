@@ -362,7 +362,7 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
   This flight carries the mission's runtime risk: a new background loop, a
   headless run path and the connector delivery refactor. The operator can use
   routines before any agent can create them.
-- [ ] Flight 2: **Agents schedule their own routines.**
+- [x] Flight 2: **Agents schedule their own routines.**
   - The Self-configuration tab split into Agent prompt and Routines, each with
     enable and approval switches, and the upgrade mapping.
   - The agent routine tools, with full control of the agent's routines.

@@ -333,6 +333,35 @@ class SQLiteAgentStore:
                 (int(value), now_iso(), name),
             )
 
+    async def set_routines_self_config(
+        self,
+        name: str,
+        *,
+        enabled: bool | None = None,
+        requires_approval: bool | None = None,
+    ) -> None:
+        """Targeted UPDATE of the operator-owned Routines switches (M33 F2, DD5).
+
+        Sets only the fields given. Raises ``KeyError`` if no agent exists at ``name``.
+        """
+        if not await self.exists(name):
+            raise KeyError(f"Agent config not found: {name}")
+        sets: list[str] = []
+        params: list[Any] = []
+        if enabled is not None:
+            sets.append("routines_self_config_enabled = ?")
+            params.append(int(enabled))
+        if requires_approval is not None:
+            sets.append("routines_require_approval = ?")
+            params.append(int(requires_approval))
+        if not sets:
+            return
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                f"UPDATE agents SET {', '.join(sets)}, updated_at = ? WHERE name = ?",
+                (*params, now_iso(), name),
+            )
+
     async def compare_and_set_field(
         self, name: str, field: str, base_value: str, new_value: str
     ) -> bool:
@@ -486,6 +515,8 @@ class SQLiteAgentStore:
             # M27 F2: the notes switch (v43 `NOT NULL DEFAULT 0`). The counter
             # `notes_next_number` is deliberately never read here.
             notes_enabled=bool(row["notes_enabled"]),
+            routines_self_config_enabled=bool(row["routines_self_config_enabled"]),
+            routines_require_approval=bool(row["routines_require_approval"]),
         )
 
 

@@ -930,7 +930,7 @@ applied):
 ### Completion Checklist
 
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged (#335, `6ed89395`)
 - [x] `make test-unit` green; `make test-browser` green (`THE_ONE_TEST_NETNS=1`)
 - [x] Behavior test `routine-connector-delivery` passed and its run log
       committed

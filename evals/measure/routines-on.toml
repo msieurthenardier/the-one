@@ -1,0 +1,30 @@
+# The all-on configuration with Routines on (M33 F2 L4): the four routine tools join the starting
+# set. Measured beside all-on (which stays Routines-off, so the m30-platform comparison is like
+# for like); the difference is the routine tools' token cost.
+id = "measure-routines-on"
+class = "hold"
+description = "All-on agent with Routines on: the four routine tools join the starting set."
+
+[agent]
+notes_enabled = true
+routines_enabled = true
+rules = [
+  "RULE-ONE: Keep every answer under four sentences.",
+  "RULE-TWO: Never use exclamation marks.",
+]
+
+[[agent.kb]]
+name = "Measurement KB"
+fixture = "measure-kb"
+
+[[agent.seeded_notes]]
+text = "NOTE-ONE: The operator prefers metric units."
+
+[[agent.seeded_notes]]
+text = "NOTE-TWO: The operator's project is called Atlas."
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

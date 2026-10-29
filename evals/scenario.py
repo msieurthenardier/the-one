@@ -1,7 +1,7 @@
 """Declarative scenarios (DD2) read with ``tomllib``.
 
 A scenario file declares: ``id``, ``class`` and ``description``; the agent setup
-(``[agent]``: persona, ``notes_enabled``, rules, seeded notes, knowledge-base
+(``[agent]``: persona, ``notes_enabled``, ``routines_enabled``, rules, seeded notes, knowledge-base
 fixtures, ``tools_off``); the clock (``[clock]``); ``[variants]`` (phrasings x
 facts, DD9); one or more ``[[conversations]]`` (each a list of user ``turns``;
 a new conversation means a freshly built agent); and ``[[checks]]``.
@@ -40,6 +40,7 @@ _AGENT_KEYS = {
     "seeded_notes",
     "kb",
     "max_iterations",
+    "routines_enabled",
 }
 _CLOCK_KEYS = {"instant", "zone", "host_zone"}
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -88,6 +89,7 @@ class Scenario:
     persona: str = ""
     notes_enabled: bool = False
     tools_off: bool = False
+    routines_enabled: bool = False
     rules: list[str] = field(default_factory=list)
     seeded_notes: list[SeedNote] = field(default_factory=list)
     kbs: list[KBRef] = field(default_factory=list)
@@ -147,7 +149,7 @@ class Scenario:
         decls = []
         for i, raw in enumerate(self.raw_checks):
             params = {
-                k: (expand(v, mapping) if isinstance(v, str) else v)
+                k: _expand_value(v, mapping)
                 for k, v in raw.items()
                 if k not in checks_mod.COMMON_KEYS
             }
@@ -174,6 +176,15 @@ def expand(text: str, mapping: dict[str, str]) -> str:
             break
         text = new
     return text
+
+
+def _expand_value(value: Any, mapping: dict[str, str]) -> Any:
+    """Expand placeholders in a string, or in each string of a list (window bounds)."""
+    if isinstance(value, str):
+        return expand(value, mapping)
+    if isinstance(value, list):
+        return [expand(v, mapping) if isinstance(v, str) else v for v in value]
+    return value
 
 
 def _fail(path: Path, field_name: str, message: str) -> ScenarioError:
@@ -253,7 +264,7 @@ def parse_scenario(
             raise _fail(path, f"agent.{key}", "unknown field")
     if "persona" in agent:
         sc.persona = _expect(path, agent, "persona", str, "agent.persona")
-    for flag in ("notes_enabled", "tools_off"):
+    for flag in ("notes_enabled", "tools_off", "routines_enabled"):
         if flag in agent:
             setattr(sc, flag, _expect(path, agent, flag, bool, f"agent.{flag}"))
     if "max_iterations" in agent:

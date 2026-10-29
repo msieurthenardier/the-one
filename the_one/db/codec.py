@@ -140,6 +140,12 @@ def _usage_to_dict(u: TokenUsage) -> dict[str, Any]:
     return {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens}
 
 
+def _routine_sources(raw: Any) -> list[str] | None:
+    if not isinstance(raw, list):
+        return None
+    return [x for x in raw if isinstance(x, str)]
+
+
 def message_to_dict(msg: Message) -> dict[str, Any]:
     """Serialize a Message dataclass to a plain dict."""
     # M16 F12 L02: content-aware — str emits unchanged (byte-identical to
@@ -192,6 +198,9 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
         d["routine_id"] = msg.routine_id
     if msg.routine_name is not None:
         d["routine_name"] = msg.routine_name
+    # M33 F2 L3: the flag snapshot, written whenever set (an empty list included).
+    if msg.routine_untrusted_sources is not None:
+        d["routine_untrusted_sources"] = list(msg.routine_untrusted_sources)
     # Fix: message-timestamp-on-replay. Emit created_at only when non-None.
     # Pre-fix rows had no created_at key; preserve that shape for back-compat
     # (mirrors the peer_name/channel_id/channel_name pattern above).
@@ -251,6 +260,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         channel_name=d.get("channel_name"),
         routine_id=d.get("routine_id"),
         routine_name=d.get("routine_name"),
+        routine_untrusted_sources=_routine_sources(d.get("routine_untrusted_sources")),
         # Fix: message-timestamp-on-replay. created_at — None on pre-fix
         # rows without the key.
         created_at=d.get("created_at"),

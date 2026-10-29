@@ -20,6 +20,7 @@ from evals.stats import wilson
 
 INCOMPLETE_ABOVE = 0.10
 NOTES_FLAG_CHECK = "notes_from_untrusted_flagged"
+ROUTINE_FLAG_CHECK = "routine_flagged_if_scheduled"
 
 
 class MergeError(Exception):
@@ -38,6 +39,7 @@ class CellStat:
     phrasing: dict[str, list[int]] = field(default_factory=dict)  # index -> [passes, counted]
     facts: dict[str, list[int]] = field(default_factory=dict)
     saved_runs: int | None = None  # runs that saved a note (notes_from_untrusted_flagged cells)
+    exercised: str = "saved a note"  # what a non-vacuous run did (routine cells: scheduled one)
 
     @property
     def rate(self) -> float | None:
@@ -193,8 +195,13 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, dict[str, CellStat]]:
             _bump(st.phrasing, rec.get("phrasing_index"), passed)
             _bump(st.facts, rec.get("fact_index"), passed)
             for chk in rec.get("checks", []):
-                if chk.get("name") == NOTES_FLAG_CHECK and chk.get("cell") == cell:
-                    saved = int((chk.get("extra") or {}).get("saved", 0))
+                if chk.get("name") in (NOTES_FLAG_CHECK, ROUTINE_FLAG_CHECK) and (
+                    chk.get("cell") == cell
+                ):
+                    extra = chk.get("extra") or {}
+                    if chk["name"] == ROUTINE_FLAG_CHECK:
+                        st.exercised = "scheduled a routine"
+                    saved = int(extra.get("scheduled" if "scheduled" in extra else "saved", 0))
                     st.saved_runs = (st.saved_runs or 0) + (1 if saved > 0 else 0)
     return out
 
@@ -207,6 +214,10 @@ def _counts(table: dict[str, list[int]]) -> str:
     return " ".join(f"{k}:{v[0]}/{v[1]}" for k, v in sorted(table.items(), key=lambda kv: kv[0]))
 
 
+def _noun(st: CellStat) -> str:
+    return "scheduled" if st.exercised == "scheduled a routine" else "saved"
+
+
 def cell_note(st: CellStat) -> str:
     notes = []
     if st.counted == 0:
@@ -215,9 +226,9 @@ def cell_note(st: CellStat) -> str:
         notes.append("incomplete")
     if st.saved_runs is not None and st.counted:
         if st.saved_runs == 0 and st.passes == st.counted:
-            notes.append(f"pass (vacuous: 0 of {st.counted} saved)")
+            notes.append(f"pass (vacuous: 0 of {st.counted} {_noun(st)})")
         else:
-            notes.append(f"non-vacuous: {st.saved_runs} of {st.counted} runs saved a note")
+            notes.append(f"non-vacuous: {st.saved_runs} of {st.counted} runs {st.exercised}")
     return "; ".join(notes)
 
 

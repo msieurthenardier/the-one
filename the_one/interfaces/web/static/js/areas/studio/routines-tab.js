@@ -153,6 +153,9 @@
       v.nameEl = el('span', 'routine-name');
       v.nameEl.setAttribute('data-testid', 'routine-name');
       head.appendChild(v.nameEl);
+      // The flag slot (M33 F2 L5): holds an App.ui.noteFlag while the routine is flagged.
+      v.flagSlot = el('span', 'routine-flag-slot');
+      head.appendChild(v.flagSlot);
       v.toggle = App.ui.toggle({
         label: 'Run on schedule', labelHidden: true, checked: !!r.enabled, testid: 'routine-toggle',
         onChange: function (checked) { onToggle(v, checked); }
@@ -162,6 +165,8 @@
       li.appendChild(head);
 
       var info = el('div', 'routine-info');
+      v.originEl = el('p', 'routine-line routine-origin', 'Made by the agent');
+      v.originEl.setAttribute('data-testid', 'routine-origin');
       v.scheduleEl = el('p', 'routine-line routine-schedule');
       v.scheduleEl.setAttribute('data-testid', 'routine-schedule');
       v.targetEl = el('p', 'routine-line routine-target');
@@ -172,6 +177,7 @@
       v.last.el.classList.add('routine-line', 'routine-last');
       v.hint = el('p', 'routine-line routine-hint', 'Set a new time to run it again.');
       v.hint.setAttribute('data-testid', 'routine-done-hint');
+      info.appendChild(v.originEl);
       info.appendChild(v.scheduleEl);
       info.appendChild(v.targetEl);
       info.appendChild(v.nextEl);
@@ -217,6 +223,17 @@
       var done = !!r.finished_at;
       v.toggle.setDisabled(v.busy || done);
       v.hint.hidden = !done;
+      v.originEl.hidden = r.created_by !== 'agent';
+      var flagSig = r.untrusted ? JSON.stringify(r.untrusted_sources || []) : '';
+      if (v.flagSig !== flagSig) {
+        v.flagSig = flagSig;
+        v.flagSlot.textContent = '';
+        if (r.untrusted) {
+          var flag = App.ui.noteFlag({ subject: 'routine', sources: r.untrusted_sources || [] });
+          flag.setAttribute('data-testid', 'routine-flag');
+          v.flagSlot.appendChild(flag);
+        }
+      }
       v.scheduleEl.textContent = describe.describeSchedule(r.schedule);
       v.targetEl.textContent = describe.describeTarget(r.target);
       v.nextEl.textContent = describe.describeNext(r);
