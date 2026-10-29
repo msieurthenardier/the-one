@@ -30,7 +30,11 @@ from the_one.routines.repository import AgentRoutineRepository
 
 UTC = timezone.utc
 NOW = datetime(2026, 10, 10, 22, 45, 12, tzinfo=UTC)
-DAILY = {"kind": "daily", "time": "09:00"}
+DAILY = {
+    "start": {"date": "2026-10-11", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": {"kind": "never"},
+}
 
 
 def routine(i=0, schedule=None, enabled=True, finished_at=None, next_run_at=None) -> Routine:

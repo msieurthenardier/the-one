@@ -24,6 +24,7 @@ import pytest
 from browser import _chats, _nav
 from browser._credential_registry import auth_headers_for
 from browser._self_config import click_switch
+from browser.seeders import canonical_schedule as canon
 from browser.seeders import (
     seed_agent_routine,
     seed_mock_agent,
@@ -43,7 +44,8 @@ HISTORY_ROW = '[data-testid="self-config-routine-history-row"]'
 BASE_DAILY = {
     "name": "nightly",
     "prompt": "Say hello.",
-    "schedule": {"kind": "daily", "time": "09:00"},
+    "schedule": canon("09:00"),
+    "anchor_at": None,
     "enabled": True,
     "finished_at": None,
     "target_kind": "new",
@@ -52,7 +54,8 @@ BASE_DAILY = {
 CREATE_PAYLOAD = {
     "name": "morning-check",
     "prompt": "Check the inbox.",
-    "schedule": {"kind": "daily", "time": "08:00"},
+    "schedule": canon("08:00"),
+    "anchor_at": None,
     "target": {"kind": "new"},
     "enabled": True,
 }
@@ -202,7 +205,7 @@ def test_approve_create_change_and_cancel_and_the_routines_tab_reflects_it(env, 
         data_dir,
         AGENT,
         "update",
-        {"schedule": {"kind": "weekdays", "time": "10:00"}},
+        {"schedule": canon("10:00", repeat="weekdays"), "anchor_at": None},
         routine_name="nightly",
         routine_id=rid,
         base=BASE_DAILY,
@@ -227,7 +230,7 @@ def test_approve_create_change_and_cancel_and_the_routines_tab_reflects_it(env, 
     actions = items.locator('[data-testid="self-config-routine-action"]').all_inner_texts()
     assert sorted(actions) == ["Cancel", "Change", "Create"]
     change = page.locator(f'{PROPOSAL}[data-action="update"]')
-    expect(change).to_contain_text("Daily at 9:00 AM → Weekdays at 10:00 AM")
+    expect(change).to_contain_text("Every day at 9:00 AM → Every weekday at 10:00 AM")
     expect(change).not_to_contain_text("Prompt")
 
     for action in ("update", "create", "delete"):
@@ -237,7 +240,8 @@ def test_approve_create_change_and_cancel_and_the_routines_tab_reflects_it(env, 
     expect(items).to_have_count(0, timeout=8000)
     by_name = {r["name"]: r for r in _routines(base)}
     assert set(by_name) == {"nightly", "morning-check"}
-    assert by_name["nightly"]["schedule"] == {"kind": "weekdays", "time": "10:00"}
+    assert by_name["nightly"]["schedule"]["repeat"]["days"] == [0, 1, 2, 3, 4]
+    assert by_name["nightly"]["schedule"]["start"]["time"] == "10:00"
     assert by_name["morning-check"]["created_by"] == "agent"
     statuses = page.locator('[data-testid="self-config-routine-history-status"]').all_inner_texts()
     assert statuses.count("Applied") == 3
@@ -287,7 +291,7 @@ def test_stale_banner_then_approve_anyway(env, page: Page) -> None:
         data_dir,
         AGENT,
         "update",
-        {"schedule": {"kind": "weekdays", "time": "10:00"}},
+        {"schedule": canon("10:00", repeat="weekdays"), "anchor_at": None},
         routine_name="nightly",
         routine_id=rid,
         base=BASE_DAILY,
@@ -295,7 +299,7 @@ def test_stale_banner_then_approve_anyway(env, page: Page) -> None:
     )
     r = httpx.put(
         f"{base}/api/agents/{AGENT}/routines/{rid}",
-        json={"schedule": {"kind": "daily", "time": "07:00"}},
+        json={"schedule": canon("07:00")},
         headers=_headers(base),
         timeout=5,
     )
@@ -305,16 +309,18 @@ def test_stale_banner_then_approve_anyway(env, page: Page) -> None:
     expect(item).to_have_count(1, timeout=8000)
     item.locator('[data-testid="self-config-routine-approve"]').click()
     expect(item).to_contain_text("This routine changed since the agent asked.")
-    expect(item).to_contain_text("Daily at 7:00 AM")
-    expect(item).to_contain_text("Weekdays at 10:00 AM")
+    expect(item).to_contain_text("Every day at 7:00 AM")
+    expect(item).to_contain_text("Every weekday at 10:00 AM")
     override = item.locator('[data-testid="self-config-routine-approve-override"]')
     expect(override).to_be_visible()
-    assert _routines(base)[0]["schedule"] == {"kind": "daily", "time": "07:00"}
+    assert _routines(base)[0]["schedule"]["start"]["time"] == "07:00"
+    assert _routines(base)[0]["schedule"]["repeat"] == {"every": 1, "unit": "day"}
     # WCAG 2.4.3: focus lands on "Approve anyway", not body.
     expect(override).to_be_focused()
     override.click()
     expect(page.locator(PROPOSAL)).to_have_count(0, timeout=8000)
-    assert _routines(base)[0]["schedule"] == {"kind": "weekdays", "time": "10:00"}
+    assert _routines(base)[0]["schedule"]["repeat"]["days"] == [0, 1, 2, 3, 4]
+    assert _routines(base)[0]["schedule"]["start"]["time"] == "10:00"
 
 
 def test_gone_removes_the_item_and_says_so(env, page: Page) -> None:
@@ -324,7 +330,7 @@ def test_gone_removes_the_item_and_says_so(env, page: Page) -> None:
         data_dir,
         AGENT,
         "update",
-        {"schedule": {"kind": "weekdays", "time": "10:00"}},
+        {"schedule": canon("10:00", repeat="weekdays"), "anchor_at": None},
         routine_name="nightly",
         routine_id=rid,
         base=BASE_DAILY,
@@ -345,7 +351,11 @@ def test_gone_removes_the_item_and_says_so(env, page: Page) -> None:
 
 def test_an_invalid_schedule_shows_its_sentence_in_the_item(env, page: Page) -> None:
     base, data_dir = env
-    payload = dict(CREATE_PAYLOAD, schedule={"kind": "once", "at": "2020-01-01T09:00:00+00:00"})
+    payload = dict(
+        CREATE_PAYLOAD,
+        schedule=canon("09:00", repeat=None, date="2020-01-01"),
+        anchor_at="2020-01-01T09:00:00+00:00",
+    )
     seed_routine_proposal(
         data_dir,
         AGENT,
@@ -525,7 +535,7 @@ def test_a_proposal_made_by_the_real_chain_lands_in_the_queue(
     expect(item).to_have_count(1, timeout=8000)
     expect(item).to_contain_text("Create")
     expect(item).to_contain_text("chain-check")
-    expect(item).to_contain_text("Daily at 8:00 AM")
+    expect(item).to_contain_text("Every day at 8:00 AM")
 
 
 def test_form_body_always_carries_the_prompt_for_a_flagged_routine(env, page: Page) -> None:

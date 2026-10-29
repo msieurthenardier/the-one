@@ -33,10 +33,12 @@
   }
 
   // A stored routine's columns -> the view shape the describers read.
-  function baseView(b) {
+  // `scheduleText` is the server's sentence for the schedule (the browser never words one).
+  function baseView(b, scheduleText) {
     b = b || {};
     return {
       name: b.name, prompt: b.prompt, schedule: b.schedule, enabled: b.enabled,
+      scheduleText: scheduleText,
       target: { kind: b.target_kind, session_id: b.target_session_id }
     };
   }
@@ -62,7 +64,7 @@
     if (!view) return '';
     switch (field) {
       case 'name': return String(view.name == null ? '' : view.name);
-      case 'schedule': return describe().describeSchedule(view.schedule);
+      case 'schedule': return view.scheduleText == null ? '' : String(view.scheduleText);
       case 'target': return targetWords(view.target);
       case 'enabled': return view.enabled === false ? 'Off' : 'On';
       default: return '';
@@ -76,8 +78,14 @@
   }
 
   // The view of a stale 409's `current_value` / `base_value` map (stored columns).
-  function columnsView(map) {
-    var v = baseView(map);
+  function columnsView(map, scheduleText) {
+    return baseView(map, scheduleText);
+  }
+
+  // A proposal payload as a view, carrying the server's sentence for its schedule.
+  function payloadView(payload, scheduleText) {
+    var v = { scheduleText: scheduleText };
+    Object.keys(payload || {}).forEach(function (k) { v[k] = payload[k]; });
     return v;
   }
 
@@ -118,16 +126,17 @@
     if (p.action === 'create') {
       var v = {
         name: payload.name, prompt: payload.prompt, schedule: payload.schedule,
-        target: payload.target, enabled: payload.enabled
+        target: payload.target, enabled: payload.enabled, scheduleText: p.payload_schedule_text
       };
       ['schedule', 'target'].forEach(function (f) { body.appendChild(fieldBlock(f, null, v)); });
       if (payload.enabled === false) body.appendChild(fieldBlock('enabled', null, v));
       body.appendChild(fieldBlock('prompt', null, v));
     } else if (p.action === 'update') {
-      var before = baseView(p.base);
-      touchedFields(p).forEach(function (f) { body.appendChild(fieldBlock(f, before, payload)); });
+      var before = baseView(p.base, p.base_schedule_text);
+      var after = payloadView(payload, p.payload_schedule_text);
+      touchedFields(p).forEach(function (f) { body.appendChild(fieldBlock(f, before, after)); });
     } else {
-      var cur = baseView(p.base);
+      var cur = baseView(p.base, p.base_schedule_text);
       body.appendChild(el('p', { className: 'self-config-routine-line',
         text: 'The agent asks to delete this routine and its history.' }));
       ['schedule', 'target'].forEach(function (f) { body.appendChild(fieldBlock(f, null, cur)); });
@@ -281,8 +290,8 @@
         stale.appendChild(App.ui.banner({
           tone: 'warning', role: 'alert', text: 'This routine changed since the agent asked.'
         }).el);
-        var cur = columnsView(detail.current_value);
-        var prop = detail.proposed_value || {};
+        var cur = columnsView(detail.current_value, detail.current_schedule_text);
+        var prop = payloadView(detail.proposed_value, detail.proposed_schedule_text);
         var cols = detail.current_value || {};
         FIELD_ORDER.forEach(function (f) {
           if (!Object.prototype.hasOwnProperty.call(cols, PRIMARY_COLUMN[f])) return;

@@ -11,17 +11,17 @@ time zone come from the caller, and failures are typed errors
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from typing import Any, Literal
 
 from the_one.db.repositories import ChatSessionRepository
 from the_one.naming import check_name
 from the_one.routines import limits as routine_limits
+from the_one.routines import recurrence
 from the_one.routines import runner as routine_runner
-from the_one.routines import schedule as routine_schedule
+from the_one.routines.describe import schedule_sentence
 from the_one.routines.limits import RoutineFieldError, RoutineScheduleError
 from the_one.routines.models import Routine
 from the_one.routines.proposals import (
@@ -41,11 +41,10 @@ from the_one.routines.scheduler import get_scheduler
 
 ZoneLoader = Callable[[], Awaitable[tzinfo]]
 
-MSG_ONCE_TOO_SOON = "A one-time routine must be at least a minute away."
+MSG_NO_RUNS_LEFT = recurrence.MSG_NO_RUNS_LEFT
+MSG_UPGRADE_FAILED = "This schedule could not be upgraded. Edit it to turn the routine back on."
 MSG_SWITCH_OFF = "Routine tools are turned off for this agent."
 MSG_NAMED_AGENT = "Routines need a named agent."
-
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def limits_view() -> dict[str, int]:
@@ -53,9 +52,9 @@ def limits_view() -> dict[str, int]:
         "prompt_chars": routine_limits.ROUTINE_PROMPT_MAX_CHARS,
         "active_max": routine_limits.ROUTINES_ACTIVE_MAX,
         "open_max": routine_limits.ROUTINES_OPEN_MAX,
-        "interval_hours_min": routine_limits.INTERVAL_HOURS_MIN,
-        "interval_hours_max": routine_limits.INTERVAL_HOURS_MAX,
-        "once_max_days": routine_limits.ONCE_MAX_AHEAD_DAYS,
+        "interval_hours_min": 1,
+        "interval_hours_max": recurrence.EVERY_MAX["hour"],
+        "once_max_days": recurrence.START_MAX_AHEAD_DAYS,
         "run_timeout_seconds": int(routine_runner.routine_run_timeout_seconds()),
     }
 
@@ -88,69 +87,43 @@ def validate_enabled(value: object) -> bool:
 
 def validate_schedule(
     raw: object, now: datetime, zone: tzinfo, *, min_ahead: timedelta | None = None
-) -> dict[str, Any]:
-    """Validate a schedule from a request: ``once`` may carry ``in`` (converted to an
-    absolute ``at``) or ``on`` (a local date and time in the operator zone, converted with
-    the DST rules), and a ``once`` must lie in the future and within a year."""
-    if isinstance(raw, dict) and raw.get("kind") == "once" and "on" in raw:
-        spec = raw.get("on")
-        if (
-            set(raw) != {"kind", "on"}
-            or not isinstance(spec, dict)
-            or set(spec) != {"date", "time"}
-        ):
-            raise RoutineFieldError(
-                "schedule", "A one-time schedule at a local time is {kind, on}."
-            )
-        date_text = spec.get("date")
-        if not isinstance(date_text, str) or not _DATE_RE.match(date_text):
-            raise RoutineFieldError("schedule", "The date must be written YYYY-MM-DD.")
-        try:
-            day = date.fromisoformat(date_text)
-        except ValueError:
-            raise RoutineFieldError("schedule", "That date doesn't exist.")
-        try:
-            hour, minute = routine_schedule._parse_hhmm(spec.get("time"))
-        except RoutineScheduleError as e:
-            raise RoutineFieldError("schedule", e.detail)
-        try:
-            at = routine_schedule.resolve_wall_time(day, hour, minute, zone)
-        except (ValueError, OverflowError):
-            raise RoutineFieldError("schedule", "That date doesn't exist.")
-        raw = {"kind": "once", "at": at.isoformat()}
-    if isinstance(raw, dict) and raw.get("kind") == "once" and "in" in raw:
-        spec = raw.get("in")
-        if set(raw) != {"kind", "in"} or not isinstance(spec, dict):
-            raise RoutineFieldError("schedule", "A delayed one-time schedule is {kind, in}.")
-        amount, unit = spec.get("amount"), spec.get("unit")
-        if (
-            isinstance(amount, bool)
-            or not isinstance(amount, int)
-            or amount < 1
-            or unit not in ("minutes", "hours", "days")
-            or set(spec) != {"amount", "unit"}
-        ):
-            raise RoutineFieldError(
-                "schedule", "Give a whole number of minutes, hours or days, at least 1."
-            )
-        try:
-            at = now + timedelta(**{unit: amount})
-        except OverflowError:
-            raise RoutineFieldError("schedule", routine_limits.MSG_TOO_FAR)
-        raw = {"kind": "once", "at": at.isoformat()}
+) -> tuple[dict[str, Any], datetime | None]:
+    """Normalize a schedule from a request (the canonical shape, the relative start or any
+    legacy shape) to ``(schedule, anchor)``. A thin wrapper over ``recurrence.normalize``;
+    it does not check that a run is left (see :func:`_require_future`)."""
     try:
-        sched = routine_schedule.validate(raw)
+        return recurrence.normalize(raw, zone=zone, now=now, min_ahead=min_ahead)
     except RoutineScheduleError as e:
         raise RoutineFieldError("schedule", e.detail)
-    if sched["kind"] == "once":
-        at = routine_schedule.parse_utc(sched["at"])
-        if at <= now:
-            raise RoutineFieldError("schedule", routine_limits.MSG_PAST)
-        if min_ahead is not None and at - now < min_ahead:
-            raise RoutineFieldError("schedule", MSG_ONCE_TOO_SOON)
-        if at > now + timedelta(days=routine_limits.ONCE_MAX_AHEAD_DAYS):
-            raise RoutineFieldError("schedule", routine_limits.MSG_TOO_FAR)
-    return sched
+
+
+def check_schedule_pair(schedule: object, anchor: datetime | None) -> dict[str, Any]:
+    """A stored (canonical) schedule and its anchor, taken verbatim: no start-limit and no
+    agent minimum lead (those were applied when the pair was made)."""
+    try:
+        return recurrence.check(schedule, anchor)
+    except RoutineScheduleError as e:
+        raise RoutineFieldError("schedule", e.detail)
+
+
+def parse_anchor(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else None
+
+
+def _require_future(
+    schedule: dict[str, Any], anchor: datetime | None, now: datetime, zone: tzinfo, field: str
+) -> datetime:
+    """The next occurrence after *now*; a schedule with none is "no runs left"."""
+    nxt = recurrence.next_occurrence(schedule, anchor, now, zone)
+    if nxt is None:
+        raise RoutineFieldError(field, MSG_NO_RUNS_LEFT)
+    return nxt
 
 
 async def resolve_target(
@@ -192,7 +165,10 @@ async def resolve_target(
 
 
 async def routine_view(
-    routine: Any, run_repo: RoutineRunRepository, chat_repo: ChatSessionRepository
+    routine: Any,
+    run_repo: RoutineRunRepository,
+    chat_repo: ChatSessionRepository,
+    zone: tzinfo,
 ) -> dict[str, Any]:
     target: dict[str, Any] = {
         "kind": routine.target_kind,
@@ -226,6 +202,7 @@ async def routine_view(
         "name": routine.name,
         "prompt": routine.prompt,
         "schedule": routine.schedule,
+        "schedule_text": schedule_sentence(routine.schedule, routine.anchor_at, zone),
         "enabled": routine.enabled,
         "finished_at": routine.finished_at,
         "next_run_at": routine.next_run_at,
@@ -258,21 +235,29 @@ async def create_routine(
     agent_caps: bool = False,
     flag: Flag = None,
     proposal: ProposalOp | None = None,
+    schedule_pair: tuple[Any, datetime | None] | None = None,
 ) -> Any:
     """Validate ``data`` and store a new routine. Check order is name, prompt, schedule,
     target, enabled, so a body with several bad fields gets the first error.
     ``created_by``, ``agent_caps``, ``flag`` and ``proposal`` are for agent writes (the
-    operator's callers pass none); the repository applies them in its one transaction."""
+    operator's callers pass none); the repository applies them in its one transaction.
+    ``schedule_pair`` is an already-normalized ``(schedule, anchor)`` (an agent change made
+    its start when it was proposed): it is checked and stored verbatim, with no agent lead
+    time or start limit applied again. A schedule with no run left is refused whether the
+    routine is on or off."""
     routine_name = check_name(data.get("name"))
     prompt = validate_prompt(data.get("prompt"))
     tz = await zone()
-    sched = validate_schedule(data.get("schedule"), now, tz, min_ahead=_min_ahead(agent_caps))
+    if schedule_pair is not None:
+        sched = check_schedule_pair(*schedule_pair)
+        anchor = schedule_pair[1]
+    else:
+        sched, anchor = validate_schedule(
+            data.get("schedule"), now, tz, min_ahead=_min_ahead(agent_caps)
+        )
+    nxt = _require_future(sched, anchor, now, tz, "schedule")
     target = await resolve_target(data.get("target"), agent_name, chat_repo)
     enabled = validate_enabled(data.get("enabled", True))
-    anchor = now if sched["kind"] == "interval" else None
-    next_at = (
-        routine_schedule.next_run(sched, after=now, zone=tz, anchor=anchor) if enabled else None
-    )
     routine = await repo.create(
         agent_name,
         {
@@ -280,7 +265,7 @@ async def create_routine(
             "prompt": prompt,
             "schedule": sched,
             "enabled": enabled,
-            "next_run_at": next_at.isoformat() if next_at else None,
+            "next_run_at": nxt.isoformat() if enabled else None,
             "anchor_at": anchor.isoformat() if anchor else None,
             "created_by": created_by,
             **target,
@@ -305,9 +290,12 @@ async def update_routine(
     flag: Flag = None,
     proposal: ProposalOp | None = None,
     precheck: Callable[[Routine | None], None] | None = None,
+    schedule_pair: tuple[Any, datetime | None] | None = None,
 ) -> Any:
     """Apply a partial update to ``current``. The zone loader is awaited only on a
     schedule change or a re-enable, so a name-only update never reads time settings.
+    ``schedule_pair`` is as for :func:`create_routine` and counts as a schedule change.
+    A schedule or a re-enable that leaves no run is refused (``schedule`` / ``enabled``).
     ``KeyError`` (routine gone) and ``RoutineNameTaken`` propagate."""
     cur = current
     fields: dict[str, Any] = {}
@@ -321,16 +309,22 @@ async def update_routine(
     if "enabled" in data:
         enabled = validate_enabled(data["enabled"])
     # Precedence (leg 1, AC13): any `schedule` key is a schedule change.
-    schedule_changed = "schedule" in data
+    schedule_changed = "schedule" in data or schedule_pair is not None
     sched = cur.schedule
-    anchor = routine_schedule.parse_utc(cur.anchor_at) if cur.anchor_at else None
+    anchor = parse_anchor(cur.anchor_at)
     finished_at = cur.finished_at
+    tz: tzinfo | None = None
     if schedule_changed:
-        sched = validate_schedule(
-            data["schedule"], now, await zone(), min_ahead=_min_ahead(agent_caps)
-        )
+        tz = await zone()
+        if schedule_pair is not None:
+            sched = check_schedule_pair(*schedule_pair)
+            anchor = schedule_pair[1]
+        else:
+            sched, anchor = validate_schedule(
+                data["schedule"], now, tz, min_ahead=_min_ahead(agent_caps)
+            )
+        _require_future(sched, anchor, now, tz, "schedule")
         fields["schedule"] = sched
-        anchor = now if sched["kind"] == "interval" else None
         fields["anchor_at"] = anchor.isoformat() if anchor else None
         if finished_at is not None:
             finished_at = None
@@ -338,19 +332,20 @@ async def update_routine(
     reenabled = "enabled" in data and enabled and not cur.enabled
     if "enabled" in data and enabled and finished_at is not None:
         raise RoutineFieldError("enabled", "Set a new time to run it again.")
-    if reenabled and not schedule_changed and sched.get("kind") == "interval":
-        anchor = now
-        fields["anchor_at"] = now.isoformat()
     if "enabled" in data:
         fields["enabled"] = enabled
     if not enabled or finished_at is not None:
         fields["next_run_at"] = None
     elif schedule_changed or reenabled:
-        nxt = routine_schedule.next_run(sched, after=now, zone=await zone(), anchor=anchor)
-        fields["next_run_at"] = nxt.isoformat() if nxt else None
-        if nxt is None and sched.get("kind") == "once":
-            # A re-enabled one-off whose time has passed gets no catch-up: it is Done.
-            fields["finished_at"] = now.isoformat()
+        tz = tz or await zone()
+        if not schedule_changed:
+            # Re-enabling continues the stored grid (DD2); a stored schedule that cannot be
+            # read (v48's upgrade_failed) must be edited first.
+            try:
+                sched = recurrence.check(sched, anchor)
+            except (RoutineScheduleError, KeyError, TypeError, ValueError):
+                raise RoutineFieldError("enabled", MSG_UPGRADE_FAILED)
+        fields["next_run_at"] = _require_future(sched, anchor, now, tz, "enabled").isoformat()
     routine = await repo.update(
         agent_name,
         cur.id,
@@ -382,6 +377,7 @@ _BASE_KEYS = (
     "name",
     "prompt",
     "schedule",
+    "anchor_at",
     "enabled",
     "finished_at",
     "target_kind",
@@ -391,7 +387,7 @@ _BASE_KEYS = (
 _PAYLOAD_TO_BASE = {
     "name": ("name",),
     "prompt": ("prompt",),
-    "schedule": ("schedule", "finished_at"),
+    "schedule": ("schedule", "anchor_at", "finished_at"),
     "enabled": ("enabled", "finished_at"),
     "target": ("target_kind", "target_session_id"),
 }
@@ -481,6 +477,7 @@ def _hypothetical(
             if key in payload:
                 upd[key] = payload[key]
         if "schedule" in payload:
+            upd["anchor_at"] = payload.get("anchor_at")
             upd["finished_at"] = None
             upd["next_run_at"] = None
         return current.model_copy(update=upd)
@@ -496,6 +493,31 @@ async def require_routine_tools_on(conn: Any, agent_name: str) -> bool:
     if not enabled_switch:
         raise RoutineFieldError("routines", MSG_SWITCH_OFF)
     return requires_approval
+
+
+async def _agent_schedule(raw: object, now: datetime, zone: ZoneLoader) -> dict[str, Any]:
+    """An agent's schedule input made once: normalized with the agent's minimum lead, checked
+    for a run left, and returned as the payload keys ``schedule`` and ``anchor_at`` (ISO or
+    null). The proposal row and the stored routine both carry this exact pair (DD5)."""
+    tz = await zone()
+    sched, anchor = validate_schedule(raw, now, tz, min_ahead=_min_ahead(True))
+    _require_future(sched, anchor, now, tz, "schedule")
+    return {"schedule": sched, "anchor_at": anchor.isoformat() if anchor else None}
+
+
+def _payload_pair(payload: dict[str, Any]) -> tuple[Any, datetime | None]:
+    return payload["schedule"], parse_anchor(payload.get("anchor_at"))
+
+
+async def _approval_pair(
+    payload: dict[str, Any], zone: ZoneLoader
+) -> tuple[dict[str, Any], datetime | None]:
+    """A proposal's stored pair for approval: applied verbatim (the anchor is never
+    re-derived), with ``start`` re-rendered in the current zone so a zone change while the
+    proposal waited leaves no stale display start."""
+    sched, anchor = _payload_pair(payload)
+    sched = check_schedule_pair(sched, anchor)
+    return recurrence.rezone(sched, anchor, await zone()), anchor
 
 
 async def agent_change(
@@ -527,9 +549,7 @@ async def agent_change(
     if action == "create":
         payload["name"] = check_name(data.get("name"))
         payload["prompt"] = validate_prompt(data.get("prompt"))
-        payload["schedule"] = validate_schedule(
-            data.get("schedule"), now, await zone(), min_ahead=_min_ahead(True)
-        )
+        payload.update(await _agent_schedule(data.get("schedule"), now, zone))
         payload["target"] = _target_body(
             await resolve_target(data.get("target"), agent_name, chat_repo)
         )
@@ -540,9 +560,7 @@ async def agent_change(
         if "prompt" in data:
             payload["prompt"] = validate_prompt(data["prompt"])
         if "schedule" in data:
-            payload["schedule"] = validate_schedule(
-                data["schedule"], now, await zone(), min_ahead=_min_ahead(True)
-            )
+            payload.update(await _agent_schedule(data["schedule"], now, zone))
         if "enabled" in data:
             payload["enabled"] = validate_enabled(data["enabled"])
         if "target" in data:
@@ -599,6 +617,7 @@ async def agent_change(
             agent_caps=True,
             flag=flag,
             proposal=op,
+            schedule_pair=_payload_pair(payload),
         )
     elif action == "update":
         assert current is not None
@@ -613,6 +632,7 @@ async def agent_change(
             agent_caps=True,
             flag=flag,
             proposal=op,
+            schedule_pair=_payload_pair(payload) if "schedule" in payload else None,
         )
     else:
         assert current is not None
@@ -622,6 +642,29 @@ async def agent_change(
         routine=routine,
         routine_id=routine.id if routine else (current.id if current else None),
     )
+
+
+def values_schedule_text(values: Any, zone: tzinfo) -> str | None:
+    """The sentence for the ``schedule`` (with its ``anchor_at``) in a dict of proposal or
+    routine values; None when the dict holds no schedule or it cannot be read."""
+    if not isinstance(values, dict) or "schedule" not in values:
+        return None
+    return schedule_sentence(values["schedule"], values.get("anchor_at"), zone)
+
+
+def proposal_view(
+    proposal: RoutineProposal, routines: dict[str, Routine], zone: tzinfo
+) -> dict[str, Any]:
+    """A proposal as the REST dict, plus the sentences for its payload, base and current
+    schedule (null where there is none). *routines* is the agent's routines by id."""
+    out = proposal.model_dump()
+    current = routines.get(proposal.routine_id) if proposal.routine_id else None
+    out["payload_schedule_text"] = values_schedule_text(proposal.payload, zone)
+    out["base_schedule_text"] = values_schedule_text(proposal.base, zone)
+    out["current_schedule_text"] = (
+        schedule_sentence(current.schedule, current.anchor_at, zone) if current else None
+    )
+    return out
 
 
 def _stale_precheck(proposal: RoutineProposal, override: bool) -> Callable[[Routine | None], None]:
@@ -677,6 +720,7 @@ async def approve_proposal(
             agent_caps=True,
             flag=flag,
             proposal=op,
+            schedule_pair=await _approval_pair(proposal.payload, zone),
         )
     else:
         current = await repo.get(agent_name, proposal.routine_id) if proposal.routine_id else None
@@ -698,6 +742,11 @@ async def approve_proposal(
                         flag=flag,
                         proposal=op,
                         precheck=precheck,
+                        schedule_pair=(
+                            await _approval_pair(proposal.payload, zone)
+                            if "schedule" in proposal.payload
+                            else None
+                        ),
                     )
                 else:
                     await delete_routine(

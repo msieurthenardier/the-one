@@ -7,7 +7,8 @@ tests that patch ``the_one.interfaces.web.api.get_connection`` and friends still
 
 from __future__ import annotations
 
-from datetime import tzinfo
+from datetime import datetime, tzinfo
+from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -16,9 +17,14 @@ from pydantic import BaseModel, StrictBool
 from the_one import time_zones
 from the_one.naming import NameRuleError, name_rule_detail
 from the_one.routines import limits as routine_limits
+from the_one.routines import recurrence, recurrence_text
 from the_one.routines import runner as routine_runner
 from the_one.routines import service as routine_service
-from the_one.routines.limits import RoutineFieldError, RoutineLimitError, RoutineNameTaken
+from the_one.routines.limits import (
+    RoutineFieldError,
+    RoutineLimitError,
+    RoutineNameTaken,
+)
 from the_one.routines.proposals import (
     ProposalGoneError,
     ProposalStaleError,
@@ -73,6 +79,50 @@ async def _routines_repos() -> tuple[AgentRoutineRepository, RoutineRunRepositor
     return AgentRoutineRepository(conn), RoutineRunRepository(conn)
 
 
+async def _effective_zone() -> tzinfo:
+    conn = await _api.get_connection()
+    return (await time_zones.load_effective_zone(conn)).tzinfo
+
+
+NEXT_RUNS_SHOWN = 3
+
+
+def schedule_preview(
+    schedule: dict[str, Any], anchor: datetime | None, zone: tzinfo, now: datetime
+) -> dict[str, Any]:
+    """The sentence, the next three runs, the last occurrence and the warnings for a
+    normalized schedule, as the preview route returns them."""
+    nxt = list(islice(recurrence.occurrences(schedule, anchor, zone, now), NEXT_RUNS_SHOWN))
+    last = recurrence.last_occurrence(schedule, anchor, zone)
+    return {
+        "text": recurrence_text.describe(schedule, anchor, zone),
+        "next_runs": [i.isoformat() for i in nxt],
+        "last_occurrence": last.isoformat() if last else None,
+        "warnings": recurrence_text.warnings(schedule),
+    }
+
+
+@router.post("/agents/{name}/routines/preview")
+async def preview_agent_routine_schedule(name: str, request: Request) -> dict[str, Any]:
+    """Preview a schedule (any accepted input) without writing anything (DD7): the same
+    normalization and refusals as create, for the form's live line."""
+    await _routines_agent_or_404(name)
+    data = await _routine_body(request)
+    now = time_zones.utcnow()
+    zone = await _effective_zone()
+    try:
+        sched, anchor = routine_service.validate_schedule(data.get("schedule"), now, zone)
+    except RoutineFieldError as e:
+        raise _routine_422(e.field, e.message)
+    if not recurrence.has_future(sched, anchor, now, zone):
+        raise _routine_422("schedule", recurrence.MSG_NO_RUNS_LEFT)
+    return {
+        "schedule": sched,
+        "anchor_at": anchor.isoformat() if anchor else None,
+        **schedule_preview(sched, anchor, zone, now),
+    }
+
+
 async def _routine_body(request: Request) -> dict[str, Any]:
     try:
         data = await request.json()
@@ -89,8 +139,11 @@ async def list_agent_routines(name: str) -> dict[str, Any]:
     repo, run_repo = await _routines_repos()
     chat_repo = await _api._chat_repo()
     routines = await repo.list_for_agent(name)
+    zone = await _effective_zone()
     return {
-        "routines": [await routine_service.routine_view(r, run_repo, chat_repo) for r in routines],
+        "routines": [
+            await routine_service.routine_view(r, run_repo, chat_repo, zone) for r in routines
+        ],
         "limits": routine_service.limits_view(),
     }
 
@@ -120,7 +173,7 @@ async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=_api._name_conflict_detail(e.detail))
     except RoutineLimitError as e:
         raise HTTPException(status_code=422, detail=e.detail)
-    return await routine_service.routine_view(routine, run_repo, chat_repo)
+    return await routine_service.routine_view(routine, run_repo, chat_repo, await zone())
 
 
 @router.get("/agents/{name}/routines/{routine_id}")
@@ -130,7 +183,9 @@ async def get_agent_routine(name: str, routine_id: str) -> dict[str, Any]:
     routine = await repo.get(name, routine_id)
     if routine is None:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    return await routine_service.routine_view(routine, run_repo, await _api._chat_repo())
+    return await routine_service.routine_view(
+        routine, run_repo, await _api._chat_repo(), await _effective_zone()
+    )
 
 
 @router.put("/agents/{name}/routines/{routine_id}")
@@ -167,7 +222,7 @@ async def update_agent_routine(name: str, routine_id: str, request: Request) -> 
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
     except RoutineNameTaken as e:
         raise HTTPException(status_code=409, detail=_api._name_conflict_detail(e.detail))
-    return await routine_service.routine_view(routine, run_repo, chat_repo)
+    return await routine_service.routine_view(routine, run_repo, chat_repo, await zone())
 
 
 @router.delete("/agents/{name}/routines/{routine_id}")
@@ -240,9 +295,14 @@ async def list_routine_proposals(
     before: str | None = None,
 ) -> dict[str, Any]:
     await _routines_switch_agent(name)
-    repo = RoutineProposalRepository(await _api.get_connection())
-    rows = await repo.list(name, status=status, limit=limit, before=before)
-    return {"proposals": [r.model_dump() for r in rows]}
+    conn = await _api.get_connection()
+    rows = await RoutineProposalRepository(conn).list(
+        name, status=status, limit=limit, before=before
+    )
+    # One routines read per request, never a query per row.
+    routines = {r.id: r for r in await AgentRoutineRepository(conn).list_for_agent(name)}
+    zone = await _effective_zone()
+    return {"proposals": [routine_service.proposal_view(r, routines, zone) for r in rows]}
 
 
 @router.get("/agents/{name}/self-configuration/routines/proposals/pending-count")
@@ -269,6 +329,8 @@ async def approve_routine_proposal(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Proposal not found: {proposal_id}")
     except ProposalStaleError as e:
+        text = routine_service.values_schedule_text
+        stale_zone = await zone()
         raise HTTPException(
             status_code=409,
             detail={
@@ -276,6 +338,9 @@ async def approve_routine_proposal(
                 "current_value": e.current,
                 "proposed_value": e.proposed,
                 "base_value": e.base,
+                "current_schedule_text": text(e.current, stale_zone),
+                "proposed_schedule_text": text(e.proposed, stale_zone),
+                "base_schedule_text": text(e.base, stale_zone),
             },
         )
     except ProposalGoneError:

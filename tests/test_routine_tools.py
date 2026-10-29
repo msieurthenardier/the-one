@@ -324,9 +324,9 @@ async def test_list_shows_routines_and_pending_proposals(conn) -> None:
     out, _ = await run_turn(agent2)
     listing = results(out)[-1].content
     assert "Routine 'Daily'" in listing and "made by you" in listing
-    assert "every day at 9:30 AM" in listing
+    assert "Schedule: Every day at 9:30 AM." in listing
     assert "its own chat" in listing and "Prompt: do daily" in listing
-    assert "Waiting for approval: create routine 'Later'" in listing
+    assert "Waiting for approval: create routine 'Later' (Once, on " in listing
     assert not listing.startswith(FLAGGED_CONTENT_MARK)  # nothing flagged
 
 
@@ -599,7 +599,89 @@ async def test_descriptions_state_the_limits() -> None:
             and "5 changes" in d
         )
         assert "approve" in d
+        assert '"repeat":{"every":N' in d and '"start":{"in"' in d
+        assert '"kind":"daily"' not in d and '"kind":"once"' not in d
     assert "flagged" in by["list_my_routines"].description
     assert by["list_my_routines"].truncation_direction == "head"
     assert ToolRegistry  # silence unused
     assert Stub and FakeLLM and ChatSession
+
+
+async def test_list_survives_a_schedule_v48_could_not_upgrade(conn) -> None:
+    agent = await make_agent(
+        [
+            asst(call("c1", "schedule_routine", name="Daily", prompt="p", schedule=IN_2H)),
+            asst(call("c2", "list_my_routines")),
+            done(),
+        ]
+    )
+    await run_turn(agent, ctx=TurnContext(session_id="sess-1"))
+    # What an upgrade_failed routine looks like: the old shape, left as is, turned off.
+    await conn.execute(
+        "UPDATE agent_routines SET schedule = ?, enabled = 0",
+        ('{"kind": "monthly", "time": "09:00"}',),
+    )
+    await conn.commit()
+    agent2 = await make_agent([asst(call("d1", "list_my_routines")), done()])
+    out, _ = await run_turn(agent2)
+    listing = results(out)[-1].content
+    assert not results(out)[-1].is_error
+    assert "Routine 'Daily'" in listing and "Schedule: an unreadable schedule." in listing
+
+
+async def test_the_canonical_shape_and_the_relative_start_are_accepted(conn) -> None:
+    from datetime import date, timedelta
+
+    canon = {
+        "start": {"date": (date.today() + timedelta(days=10)).isoformat(), "time": "09:00"},
+        "repeat": {"every": 1, "unit": "week", "days": [0, 2]},
+        "ends": {"kind": "after", "count": 4},
+    }
+    agent = await make_agent(
+        [
+            asst(
+                call("c1", "schedule_routine", name="Weekly", prompt="p", schedule=canon),
+                call(
+                    "c2",
+                    "schedule_routine",
+                    name="Soon",
+                    prompt="p",
+                    schedule={"start": {"in": {"amount": 90, "unit": "minutes"}}},
+                ),
+                call("c3", "list_my_routines"),
+            ),
+            done(),
+        ]
+    )
+    out, _ = await run_turn(agent)
+    a, b, listing = results(out)
+    assert not a.is_error and not b.is_error, (a.content, b.content)
+    assert "Schedule: Every week on Mon, Wed at 9:00 AM, 4 times." in listing.content
+    stored = {r.name: r for r in await routines(conn)}
+    assert stored["Weekly"].schedule == {**canon}
+    assert stored["Soon"].anchor_at is not None and stored["Soon"].schedule["repeat"] is None
+
+
+async def test_a_schedule_with_no_runs_left_is_refused_to_the_agent(conn) -> None:
+    agent = await make_agent(
+        [
+            asst(
+                call(
+                    "c1",
+                    "schedule_routine",
+                    name="Old",
+                    prompt="p",
+                    schedule={
+                        "start": {"date": "2026-01-01", "time": "09:00"},
+                        "repeat": {"every": 1, "unit": "day"},
+                        "ends": {"kind": "on", "date": "2026-01-05"},
+                    },
+                )
+            ),
+            done(),
+        ]
+    )
+    out, _ = await run_turn(agent)
+    [res] = results(out)
+    assert res.is_error and "This schedule has no runs left." in res.content
+    assert await routines(conn) == []

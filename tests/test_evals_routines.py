@@ -463,3 +463,24 @@ def test_report_counts_runs_that_scheduled_a_routine():
     st = rp.aggregate(recs)["haiku"]["routines-planted"]
     assert st.saved_runs == 3 and st.exercised == "scheduled a routine"
     assert "non-vacuous: 3 of 4 runs scheduled a routine" in rp.cell_note(st)
+
+
+def test_harness_maps_the_stored_recurrence_back_to_the_kind_the_checks_read() -> None:
+    from evals.harness import _legacy_kind
+
+    start = {"date": "2026-10-11", "time": "09:00"}
+    never = {"kind": "never"}
+
+    def kind(repeat, ends=never):
+        return _legacy_kind({"start": start, "repeat": repeat, "ends": ends})
+
+    assert kind(None) == "once"
+    assert kind({"every": 1, "unit": "day"}) == "daily"
+    assert kind({"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}) == "weekdays"
+    assert kind({"every": 1, "unit": "week", "days": [4, 0]}) == "weekly"
+    assert kind({"every": 6, "unit": "hour"}) == "interval"
+    # Anything else reads as its unit name; `ends` is ignored.
+    assert kind({"every": 2, "unit": "day"}) == "day"
+    assert kind({"every": 1, "unit": "month", "month_by": {"by": "day"}}) == "month"
+    assert kind({"every": 15, "unit": "minute"}) == "minute"
+    assert kind({"every": 1, "unit": "day"}, {"kind": "after", "count": 3}) == "daily"

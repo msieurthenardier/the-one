@@ -53,6 +53,7 @@ EXEMPT = {
         "POST",
         "/api/agents/{name}/routines/{routine_id}/run",
     ): "acts on the routine in the path and never sets a name",
+    ("POST", "/api/agents/{name}/routines/preview"): "previews a schedule; writes nothing",
     ("POST", "/api/agents/{name}/rules"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/order"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/{rule_id}"): _TOOL_RULES,

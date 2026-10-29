@@ -27,6 +27,12 @@ from the_one.retention import (
     run_purge_sweep,
 )
 
+DAILY_SCHEDULE = {
+    "start": {"date": "2026-10-11", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": {"kind": "never"},
+}
+
 
 @pytest.fixture
 async def conn(tmp_path):
@@ -208,7 +214,7 @@ async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None
     fields = {
         "name": "r",
         "prompt": "p",
-        "schedule": {"kind": "daily", "time": "09:00"},
+        "schedule": DAILY_SCHEDULE,
         "target_kind": "new",
     }
     ra = await routines.create("a", fields)
@@ -275,7 +281,7 @@ async def test_run_purge_sweep_deletes_old_done_routines_only(conn) -> None:
         return {
             "name": name,
             "prompt": "p",
-            "schedule": {"kind": "daily", "time": "09:00"},
+            "schedule": DAILY_SCHEDULE,
             "target_kind": "new",
             **kw,
         }

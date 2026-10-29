@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -166,7 +167,10 @@ async def test_list_and_count(client) -> None:
     assert len(rows) == 2 and set(rows[0]) == {
         "id", "agent_name", "routine_id", "routine_name", "action", "payload", "base",
         "status", "untrusted", "untrusted_sources", "session_id", "created_at", "resolved_at",
+        "payload_schedule_text", "base_schedule_text", "current_schedule_text",
     }  # fmt: skip
+    assert rows[0]["payload_schedule_text"] == "Every day at 9:00 AM"
+    assert rows[0]["base_schedule_text"] is None and rows[0]["current_schedule_text"] is None
     assert (await client.get(f"{ITEM}/proposals?limit=1")).json()["proposals"].__len__() == 1
     assert (await client.get(f"{ITEM}/proposals?limit=0")).status_code == 422
     assert (await client.get(f"{ITEM}/proposals?status=bogus")).status_code == 422
@@ -216,6 +220,9 @@ async def test_stale_409_then_override(client) -> None:
         "current_value": {"prompt": "operator"},
         "proposed_value": {"prompt": "agent"},
         "base_value": {"prompt": "p"},
+        "current_schedule_text": None,
+        "proposed_schedule_text": None,
+        "base_schedule_text": None,
     }
     resp = await client.post(base(pid, "approve") + "?override=true")
     assert resp.status_code == 200
@@ -334,3 +341,50 @@ async def test_rename_and_delete_agent_carry_proposals(client) -> None:
     assert (await client.delete("/api/agents/renamed")).status_code == 200
     async with client.conn.execute("SELECT COUNT(*) FROM agent_routine_proposals") as cur:
         assert (await cur.fetchone())[0] == 0
+
+
+# ── schedule sentences (M33 F3 leg 4) ─────────────────────────────────────
+
+
+async def test_stale_409_carries_the_schedule_sentences(client) -> None:
+    r = (await client.post("/api/agents/ag/routines", json=body())).json()
+    weekly = {"kind": "weekly", "days": [1, 3], "time": "07:30"}
+    pid = await propose(client, "update", {"routine": r["id"], "schedule": weekly})
+    await client.put(
+        f"/api/agents/ag/routines/{r['id']}", json={"schedule": {"kind": "interval", "hours": 4}}
+    )
+    resp = await client.post(base(pid, "approve"))
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["base_schedule_text"] == "Every day at 9:00 AM"
+    assert detail["proposed_schedule_text"] == "Every week on Tue, Thu at 7:30 AM"
+    assert detail["current_schedule_text"].startswith("Every 4 hours from Oct 1")
+    assert detail["current_value"]["anchor_at"] is not None
+
+
+async def test_proposals_list_sentences_and_unreadable_schedules_never_500(client) -> None:
+    r = (await client.post("/api/agents/ag/routines", json=body())).json()
+    pid = await propose(client, "update", {"routine": r["id"], "schedule": DAILY})
+    [row] = (await client.get(f"{ITEM}/proposals")).json()["proposals"]
+    assert row["id"] == pid
+    assert row["payload_schedule_text"] == "Every day at 9:00 AM"
+    assert row["base_schedule_text"] == "Every day at 9:00 AM"
+    assert row["current_schedule_text"] == "Every day at 9:00 AM"
+    # A schedule v48 could not upgrade stays in its old shape: the list still answers.
+    await client.conn.execute(
+        "UPDATE agent_routines SET schedule = ? WHERE id = ?", (json.dumps(DAILY), r["id"])
+    )
+    await client.conn.commit()
+    resp = await client.get(f"{ITEM}/proposals")
+    assert resp.status_code == 200
+    assert resp.json()["proposals"][0]["current_schedule_text"] is None
+    # The routine list does not 500 either.
+    out = (await client.get("/api/agents/ag/routines")).json()["routines"]
+    assert out[0]["schedule_text"] is None
+    # A proposal whose routine is gone has no current sentence.
+    await client.conn.execute("PRAGMA foreign_keys=OFF")
+    await client.conn.execute("DELETE FROM agent_routines")
+    await client.conn.commit()
+    assert (await client.get(f"{ITEM}/proposals")).json()["proposals"][0][
+        "current_schedule_text"
+    ] is None

@@ -344,7 +344,7 @@ class Harness:
         return [
             RoutineView(
                 name=r.name,
-                kind=str(r.schedule.get("kind")),
+                kind=_legacy_kind(r.schedule),
                 next_run_at=r.next_run_at,
                 target_kind=r.target_kind,
                 target_session_id=r.target_session_id,
@@ -454,6 +454,25 @@ class Harness:
         if self.fixture_server:
             attempt.fixture_requests = list(self.fixture_server.requests[fixture_mark:])
         return attempt
+
+
+def _legacy_kind(schedule: dict) -> str:
+    """Map the stored calendar recurrence back to the kind name the checks read.
+
+    ``repeat`` null is ``once``; every 1 day is ``daily``; every 1 week on exactly Monday to
+    Friday is ``weekdays``, on other days ``weekly``; every N hours is ``interval``; anything
+    else is the unit name. ``ends`` is ignored, so a series that stops reads as its kind."""
+    repeat = schedule.get("repeat")
+    if repeat is None:
+        return "once"
+    unit, every = repeat.get("unit"), repeat.get("every")
+    if unit == "day" and every == 1:
+        return "daily"
+    if unit == "week" and every == 1:
+        return "weekdays" if repeat.get("days") == [0, 1, 2, 3, 4] else "weekly"
+    if unit == "hour":
+        return "interval"
+    return str(unit)
 
 
 def _first_tool_timeout(tt: TurnTrace) -> str | None:

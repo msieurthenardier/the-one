@@ -14,8 +14,8 @@ every calculation is elapsed time from the anchor. **Wall-clock** schedules (``d
 once at the end of the gap, a repeated time once on its first occurrence).
 
 Nothing here reads the clock or the database: callers pass ``now`` / ``after`` / ``zone``.
-This module sits BESIDE the legacy five-kind calculator in ``schedule.py`` (leg 4 switches the
-callers and deletes the legacy code).
+``schedule.py`` keeps only the wall-time helpers this module needs (``resolve_wall_time``,
+``parse_utc``, ``_parse_hhmm``).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
-from the_one.routines import schedule as legacy
+from the_one.routines import schedule as wall
 from the_one.routines.limits import (
     MISSED_COUNT_CAP,
     ONCE_GRACE,
@@ -152,7 +152,7 @@ def _parse_ends(raw: Any) -> dict[str, Any]:
 
 def _hhmm(value: Any) -> tuple[int, int]:
     try:
-        return legacy._parse_hhmm(value)
+        return wall._parse_hhmm(value)
     except RoutineScheduleError as e:
         raise _err(e.detail)
 
@@ -242,7 +242,7 @@ def _relative(spec: Any, now: datetime) -> datetime:
 
 def _wall_instant(day: date, h: int, m: int, zone: tzinfo) -> datetime:
     try:
-        return legacy.resolve_wall_time(day, h, m, zone)
+        return wall.resolve_wall_time(day, h, m, zone)
     except (ValueError, OverflowError):
         raise _err("That date doesn't exist.")
 
@@ -343,7 +343,7 @@ def _normalize_legacy(
     if kind == "once":
         keys = set(raw) - {"kind"}
         if keys == {"at"}:
-            instant = ceil_minute(legacy.parse_utc(raw["at"]))
+            instant = ceil_minute(wall.parse_utc(raw["at"]))
         elif keys == {"on"}:
             spec = raw["on"]
             if not isinstance(spec, dict) or set(spec) != {"date", "time"}:
@@ -363,9 +363,36 @@ def _normalize_legacy(
             now=now,
             min_ahead=min_ahead,
         )
-    sched = legacy.validate(raw)
+    return _normalize_legacy_calendar(raw, kind, zone=zone, now=now, min_ahead=min_ahead)
+
+
+_LEGACY_KEYS = {
+    "daily": {"kind", "time"},
+    "weekdays": {"kind", "time"},
+    "weekly": {"kind", "days", "time"},
+    "interval": {"kind", "hours"},
+}
+
+
+def _normalize_legacy_calendar(
+    raw: dict[str, Any],
+    kind: Any,
+    *,
+    zone: tzinfo,
+    now: datetime,
+    min_ahead: timedelta | None,
+) -> tuple[dict[str, Any], datetime | None]:
+    """The legacy ``daily`` / ``weekdays`` / ``weekly`` / ``interval`` shapes (DD5)."""
+    if kind not in _LEGACY_KEYS:
+        raise _err("The schedule must be one of: once, daily, weekdays, weekly, interval.")
+    _check_keys(raw, _LEGACY_KEYS[kind], f"{kind} schedule")
+    never = {"kind": "never"}
     if kind == "interval":
-        hours = sched["hours"]
+        hours = raw.get("hours")
+        if not _int(hours):
+            raise _err("Hours must be a whole number.")
+        if not 1 <= hours <= EVERY_MAX["hour"]:
+            raise _err(f"Hours must be between 1 and {EVERY_MAX['hour']}.")
         return _build(
             repeat={"every": hours, "unit": "hour"},
             ends=never,
@@ -375,22 +402,31 @@ def _normalize_legacy(
             now=now,
             min_ahead=min_ahead,
         )
-    # daily / weekdays / weekly: start.date is the local date of the rule's next occurrence
-    # after now; start.time is the legacy field, never the resolved instant's wall time.
-    nxt = legacy.next_run(sched, after=now, zone=zone)
-    if nxt is None:  # pragma: no cover - unreachable for validated schedules
-        raise _err(MSG_NO_RUNS_LEFT)
+    h, m = _hhmm(raw.get("time"))
+    time_text = f"{h:02d}:{m:02d}"
     if kind == "daily":
         repeat: dict[str, Any] = {"every": 1, "unit": "day"}
     elif kind == "weekdays":
         repeat = {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
     else:
-        repeat = {"every": 1, "unit": "week", "days": sched["days"]}
+        repeat = _parse_repeat({"every": 1, "unit": "week", "days": raw.get("days")})  # type: ignore[assignment]
+    # start.date is the local date of the rule's next occurrence after now; start.time is the
+    # legacy field, never the resolved instant's wall time. A provisional series that began
+    # yesterday finds that occurrence (a spring-forward gap resolves later, same date).
+    yesterday = now.astimezone(zone).date() - timedelta(days=1)
+    provisional = {
+        "start": {"date": yesterday.isoformat(), "time": time_text},
+        "repeat": repeat,
+        "ends": never,
+    }
+    nxt = next_occurrence(provisional, None, now, zone)
+    if nxt is None:  # pragma: no cover - unreachable for a valid rule
+        raise _err(MSG_NO_RUNS_LEFT)
     return _build(
         repeat=repeat,
         ends=never,
         instant=None,
-        start={"date": nxt.astimezone(zone).date().isoformat(), "time": sched["time"]},
+        start={"date": nxt.astimezone(zone).date().isoformat(), "time": time_text},
         zone=zone,
         now=now,
         min_ahead=min_ahead,
@@ -535,7 +571,7 @@ def occurrences(
         if end_date is not None and cand > end_date:
             return
         try:
-            inst = legacy.resolve_wall_time(cand, h, m, zone)
+            inst = wall.resolve_wall_time(cand, h, m, zone)
         except (ValueError, OverflowError):
             return
         if inst < start_inst:

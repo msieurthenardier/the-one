@@ -422,28 +422,76 @@ class AgentRoutineRepository:
             row = await cur.fetchone()
         return row[0] if row and row[0] else None
 
-    async def list_active_wall_clock(self, after_iso: str) -> list[Routine]:
-        """Enabled, unfinished daily/weekdays/weekly routines due after *after_iso*."""
+    async def list_not_done(self) -> list[tuple[Routine, str]]:
+        """Every routine that is not Done, on or off, across agents (a time-zone change,
+        DD12), each with its raw stored ``schedule`` text for the compare-and-set."""
         async with self.conn.execute(
-            f"SELECT {_COLS} FROM agent_routines WHERE enabled = 1 AND finished_at IS NULL "
-            "AND next_run_at IS NOT NULL AND next_run_at > ? "
-            "AND json_extract(schedule, '$.kind') IN ('daily', 'weekdays', 'weekly') "
-            "ORDER BY next_run_at, id",
-            (after_iso,),
+            f"SELECT {_COLS}, schedule FROM agent_routines WHERE finished_at IS NULL "
+            "ORDER BY agent_name, id"
         ) as cur:
-            return [_routine(r) for r in await cur.fetchall()]
+            return [(_routine(r), r[-1]) for r in await cur.fetchall()]
 
-    async def recompute_next_run(
-        self, routine_id: str, expected_next_iso: str, new_next_iso: str | None
+    async def follow_zone_change(
+        self,
+        routine_id: str,
+        *,
+        expect_schedule_text: str,
+        expect_anchor_at: str | None,
+        expect_next_run_at: str | None,
+        schedule: dict[str, Any] | None = None,
+        next_run_at: str | None = None,
+        finished_at: str | None = None,
     ) -> bool:
-        """Compare-and-set of ``next_run_at`` alone (a time-zone change)."""
+        """Compare-and-set for a time-zone change (DD12): applies only while the row is
+        still not Done and its raw ``schedule``, ``anchor_at`` and ``next_run_at`` are what
+        the caller read, so an operator edit made mid-pass wins. Writes the rewritten
+        ``schedule`` (when given), ``next_run_at`` and, for a series that ended, ``finished_at``;
+        ``anchor_at`` never changes. In the same transaction, each pending proposal whose
+        base schedule equals the routine's pre-rewrite schedule takes the rewritten one as
+        its base, so a zone change never turns it into a stale 409."""
+        new_text = _encode("schedule", schedule) if schedule is not None else expect_schedule_text
         async with write_transaction(self.conn):
             cur = await self.conn.execute(
-                "UPDATE agent_routines SET next_run_at = ? "
-                "WHERE id = ? AND next_run_at = ? AND enabled = 1 AND finished_at IS NULL",
-                (new_next_iso, routine_id, expected_next_iso),
+                "UPDATE agent_routines SET schedule = ?, next_run_at = ?, "
+                "finished_at = COALESCE(?, finished_at) "
+                "WHERE id = ? AND finished_at IS NULL AND schedule = ? "
+                "AND anchor_at IS ? AND next_run_at IS ?",
+                (
+                    new_text,
+                    next_run_at,
+                    finished_at,
+                    routine_id,
+                    expect_schedule_text,
+                    expect_anchor_at,
+                    expect_next_run_at,
+                ),
             )
-            return cur.rowcount > 0
+            if cur.rowcount == 0:
+                return False
+            if schedule is None:
+                return True
+            try:
+                old = json.loads(expect_schedule_text)
+            except ValueError:
+                return True
+            async with self.conn.execute(
+                "SELECT id, base FROM agent_routine_proposals "
+                "WHERE routine_id = ? AND status = 'pending' AND base IS NOT NULL",
+                (routine_id,),
+            ) as pending:
+                rows = await pending.fetchall()
+            for pid, raw in rows:
+                try:
+                    base = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(base, dict) and base.get("schedule") == old:
+                    base["schedule"] = schedule
+                    await self.conn.execute(
+                        "UPDATE agent_routine_proposals SET base = ? WHERE id = ?",
+                        (json.dumps(base, sort_keys=True), pid),
+                    )
+            return True
 
     async def set_target_session(self, routine_id: str, session_id: str | None) -> None:
         """Retarget a routine at a chat. A missing row is a no-op; ``updated_at`` stays."""

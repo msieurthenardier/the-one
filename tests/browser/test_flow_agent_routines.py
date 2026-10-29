@@ -164,28 +164,28 @@ def test_row_texts(app_with_agent: SeededApp, page: Page) -> None:
     expect(names).to_have_count(5, timeout=8000)
     assert names.all_inner_texts() == ["a-week", "b-daily", "c-int", "d-days", "e-once"]
     expect(_row(page, "a-week").locator('[data-testid="routine-schedule"]')).to_have_text(
-        "Mon, Wed, Fri at 7:30 PM"
+        "Every week on Mon, Wed, Fri at 7:30 PM"
     )
     expect(_row(page, "b-daily").locator('[data-testid="routine-schedule"]')).to_have_text(
-        "Daily at 9:00 AM"
+        "Every day at 9:00 AM"
     )
     expect(_row(page, "b-daily").locator('[data-testid="routine-target"]')).to_have_text(
         "New chat each run"
     )
     expect(_row(page, "c-int").locator('[data-testid="routine-schedule"]')).to_have_text(
-        "Every 2 hours"
+        re.compile(r"^Every 2 hours from \w{3} \d{1,2} at \d{1,2}:\d{2} (AM|PM)$")
     )
     expect(_row(page, "c-int").locator('[data-testid="routine-target"]')).to_have_text(
         "Its own chat"
     )
     expect(_row(page, "d-days").locator('[data-testid="routine-schedule"]')).to_have_text(
-        "Weekdays at 8:15 AM"
+        "Every weekday at 8:15 AM"
     )
     expect(_row(page, "d-days").locator('[data-testid="routine-target"]')).to_have_text(
         "Planning chat"
     )
     expect(_row(page, "e-once").locator('[data-testid="routine-schedule"]')).to_have_text(
-        re.compile(r"^Once, \w{3} \w{3} \d{1,2} at \d{1,2}:\d{2} (AM|PM)$")
+        re.compile(r"^Once, on \w{3}, \w{3} \d{1,2}, \d{4} at \d{1,2}:\d{2} (AM|PM)$")
     )
     expect(_row(page, "b-daily").locator('[data-testid="routine-next"]')).to_have_text(
         re.compile(r"^Next \w{3} \d{1,2}:\d{2} (AM|PM)$")
@@ -213,7 +213,7 @@ def test_describe_helpers_precedence_and_outcomes(app_with_agent: SeededApp, pag
             stopped: d.outcomeStatus({outcome: 'stopped', finished_at: now}),
             none: d.outcomeStatus(null),
             run: d.outcomeStatus({outcome: 'ok'}, true),
-            hour: d.describeSchedule({kind: 'interval', hours: 1}),
+            schedule: typeof d.describeSchedule,
           };
         }"""
     )
@@ -227,7 +227,7 @@ def test_describe_helpers_precedence_and_outcomes(app_with_agent: SeededApp, pag
     assert out["stopped"]["state"] == "idle"
     assert out["none"] == {"state": "idle", "label": "Not run yet"}
     assert out["run"] == {"state": "pending", "label": "Running"}
-    assert out["hour"] == "Every hour"
+    assert out["schedule"] == "undefined"  # the server words schedules
 
 
 def test_toggle_saves_and_row_goes_off(app_with_agent: SeededApp, page: Page) -> None:
@@ -421,11 +421,13 @@ def test_time_zone_change_repaints_times_without_a_refetch(
         lambda r: reqs.append(r.url) if r.url.endswith(f"/{agent}/routines") else None,
     )
     _open_tab(page, base, agent)
-    sched = _row(page, "zoned").locator('[data-testid="routine-schedule"]')
-    expect(sched).to_be_visible(timeout=8000)
-    before = sched.inner_text()
+    # The schedule sentence is the server's (`schedule_text`); the next-run line is the browser's
+    # and follows the operator zone without a refetch.
+    nxt = _row(page, "zoned").locator('[data-testid="routine-next"]')
+    expect(nxt).to_be_visible(timeout=8000)
+    before = nxt.inner_text()
     page.evaluate("() => App.time.setZone('Pacific/Kiritimati')")
-    expect(sched).not_to_have_text(before, timeout=5000)
+    expect(nxt).not_to_have_text(before, timeout=5000)
     assert len(reqs) == 1, reqs
 
 

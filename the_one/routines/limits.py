@@ -13,9 +13,6 @@ ROUTINE_PROMPT_MAX_CHARS = 4000
 # Per-agent counts (Mission 33 F3, DD3). Both are raise-only for every write, operator or agent.
 ROUTINES_ACTIVE_MAX = 50  # enabled and not Done
 ROUTINES_OPEN_MAX = 200  # not Done, on or off
-INTERVAL_HOURS_MIN = 1
-INTERVAL_HOURS_MAX = 168
-ONCE_MAX_AHEAD_DAYS = 365
 RUNS_PAGE_DEFAULT = 50
 RUNS_PAGE_MAX = 200
 REPEATING_GRACE_CAP = timedelta(hours=2)
@@ -35,8 +32,6 @@ MSG_OPEN_CAP = (
     f"This agent already has {ROUTINES_OPEN_MAX} routines that are not done, the most allowed. "
     "Delete some first."
 )
-MSG_PAST = "That time has already passed."
-MSG_TOO_FAR = "That time is more than a year away."
 
 
 class RoutineScheduleError(ValueError):

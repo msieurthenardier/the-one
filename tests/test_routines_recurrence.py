@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from the_one.routines import recurrence as rec
-from the_one.routines import schedule as legacy
 from the_one.routines.limits import RoutineScheduleError
 
 UTC = timezone.utc
@@ -273,26 +272,44 @@ def first(sched, anchor, now, zone=LA):
     return rec.next_occurrence(sched, anchor, now, zone)
 
 
-@pytest.mark.parametrize(
-    "now",
-    [NOW, u(2027, 3, 13, 12, 0, 0), u(2027, 3, 14, 9, 59, 30), u(2026, 10, 31, 20, 0, 5)],
-)
-@pytest.mark.parametrize(
-    "raw",
-    [
+# The first run of each legacy calendar shape, from four "now" values (captured from the
+# retired five-kind calculator in leg 4): the DD5 aliases keep today's first run.
+_LEGACY_NOWS = [NOW, u(2027, 3, 13, 12, 0, 0), u(2027, 3, 14, 9, 59, 30), u(2026, 10, 31, 20, 0, 5)]
+_LEGACY_FIRST_RUNS = [
+    (
         {"kind": "daily", "time": "02:30"},
+        ["2026-10-11T09:30", "2027-03-14T10:00", "2027-03-14T10:00", "2026-11-01T10:30"],
+    ),
+    (
         {"kind": "daily", "time": "09:00"},
+        ["2026-10-11T16:00", "2027-03-13T17:00", "2027-03-14T16:00", "2026-11-01T17:00"],
+    ),
+    (
         {"kind": "weekdays", "time": "02:30"},
+        ["2026-10-12T09:30", "2027-03-15T09:30", "2027-03-15T09:30", "2026-11-02T10:30"],
+    ),
+    (
         {"kind": "weekdays", "time": "17:15"},
+        ["2026-10-13T00:15", "2027-03-16T00:15", "2027-03-16T00:15", "2026-11-03T01:15"],
+    ),
+    (
         {"kind": "weekly", "days": [6, 0], "time": "02:30"},
+        ["2026-10-11T09:30", "2027-03-14T10:00", "2027-03-14T10:00", "2026-11-01T10:30"],
+    ),
+    (
         {"kind": "weekly", "days": [2], "time": "08:00"},
-    ],
-)
-def test_legacy_calendar_kinds_keep_their_first_run(raw, now) -> None:
-    sched, anchor = rec.normalize(raw, zone=LA, now=now)
-    assert anchor is None
-    assert sched["start"]["time"] == raw["time"]
-    assert first(sched, anchor, now) == legacy.next_run(raw, after=now, zone=LA)
+        ["2026-10-14T15:00", "2027-03-17T15:00", "2027-03-17T15:00", "2026-11-04T16:00"],
+    ),
+]
+
+
+@pytest.mark.parametrize(("raw", "expected"), _LEGACY_FIRST_RUNS)
+def test_legacy_calendar_kinds_keep_their_first_run(raw, expected) -> None:
+    for now, want in zip(_LEGACY_NOWS, expected, strict=True):
+        sched, anchor = rec.normalize(raw, zone=LA, now=now)
+        assert anchor is None
+        assert sched["start"]["time"] == raw["time"]
+        assert first(sched, anchor, now) == datetime.fromisoformat(want).replace(tzinfo=UTC)
 
 
 def test_daily_0230_across_spring_forward_keeps_typed_time() -> None:
@@ -319,7 +336,7 @@ def test_legacy_interval_anchors_at_now_plus_n_hours_exactly() -> None:
     sched, anchor = rec.normalize(raw, zone=LA, now=now)
     assert anchor == now + timedelta(hours=3)
     assert sched["repeat"] == {"every": 3, "unit": "hour"}
-    assert first(sched, anchor, now) == legacy.next_run(raw, after=now, zone=LA, anchor=now)
+    assert first(sched, anchor, now) == u(2026, 10, 11, 1, 45, 12, 345678)
     assert first(sched, anchor, anchor) == anchor + timedelta(hours=3)
 
 

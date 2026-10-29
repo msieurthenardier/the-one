@@ -1,5 +1,6 @@
 // App.studio.routinesDescribe -- pure display helpers for a routine (M33 F1 L8). Used by the
-// Routines tab and by the create/edit form (leg 9). Every time goes through App.time (the
+// Routines tab and by the create/edit form (leg 9). The schedule sentence is the server's
+// (`schedule_text`); nothing here words a schedule. Every time goes through App.time (the
 // operator's zone); nothing here reads a Date getter. Output is plain text: callers write it
 // with textContent.
 (function () {
@@ -9,51 +10,11 @@
 
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  // The server numbers days 0 = Monday ... 6 = Sunday.
-  var SCHEDULE_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-  // "09:30" -> "9:30 AM" (a wall time already in the operator zone).
-  function clockOfHhmm(hhmm) {
-    var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
-    if (!m) return String(hhmm || '');
-    var hour = parseInt(m[1], 10);
-    var h = hour % 12;
-    if (h === 0) h = 12;
-    return h + ':' + m[2] + ' ' + (hour < 12 ? 'AM' : 'PM');
-  }
 
   function dateOf(iso) {
     if (!iso) return null;
     var d = new Date(iso);
     return isNaN(d.getTime()) ? null : d;
-  }
-
-  function describeSchedule(schedule) {
-    if (!schedule || typeof schedule !== 'object') return '';
-    switch (schedule.kind) {
-      case 'daily':
-        return 'Daily at ' + clockOfHhmm(schedule.time);
-      case 'weekdays':
-        return 'Weekdays at ' + clockOfHhmm(schedule.time);
-      case 'weekly': {
-        var days = (schedule.days || []).slice().sort(function (a, b) { return a - b; })
-          .map(function (n) { return SCHEDULE_DAYS[n] || String(n); });
-        return days.join(', ') + ' at ' + clockOfHhmm(schedule.time);
-      }
-      case 'interval': {
-        var n = schedule.hours;
-        return n === 1 ? 'Every hour' : 'Every ' + n + ' hours';
-      }
-      case 'once': {
-        var d = dateOf(schedule.at);
-        if (!d) return 'Once';
-        var p = App.time.parts(d);
-        return 'Once, ' + WEEKDAYS[p.weekday] + ' ' + MONTHS[p.month] + ' ' + p.day +
-          ' at ' + App.time.formatClock(d);
-      }
-      default:
-        return '';
-    }
   }
 
   function describeTarget(target) {
@@ -89,6 +50,29 @@
     return 'Next ' + WEEKDAYS[App.time.parts(d).weekday] + ' ' + App.time.formatClock(d);
   }
 
+  // A run instant for the form's preview line: "Fri, Oct 30 at 9:00 AM" (the year joins
+  // when it is not the current one), in the operator zone.
+  function describeRunAt(iso, now) {
+    var d = dateOf(iso);
+    if (!d) return '';
+    var p = App.time.parts(d);
+    var year = App.time.parts(now || new Date()).year;
+    return WEEKDAYS[p.weekday] + ', ' + MONTHS[p.month] + ' ' + p.day +
+      (p.year !== year ? ', ' + p.year : '') + ' at ' + App.time.formatClock(d);
+  }
+
+  // The preview line: the server's sentence, the next run, and the last occurrence when
+  // the series ends: "Every day at 9:00 AM · Next: Fri, Oct 30 at 9:00 AM · Last: Jan 28, 2027".
+  function describePreview(res, now) {
+    if (!res) return '';
+    var out = res.text || '';
+    var next = res.next_runs && res.next_runs[0];
+    if (next) out += (out ? ' \u00b7 ' : '') + 'Next: ' + describeRunAt(next, now);
+    var last = dateOf(res.last_occurrence);
+    if (last) out += ' \u00b7 Last: ' + App.time.formatDate(last);
+    return out;
+  }
+
   // {state, label} for an App.ui.status from a run-shaped value ({outcome, reason, finished_at,
   // started_at}) or null (never run). `running` forces Running (a live row).
   function outcomeStatus(run, running) {
@@ -111,10 +95,11 @@
   function describeTrigger(kind) { return TRIGGERS[kind] || ''; }
 
   window.App.studio.routinesDescribe = {
-    describeSchedule: describeSchedule,
     describeTarget: describeTarget,
     describeNext: describeNext,
     describeWhen: describeWhen,
+    describeRunAt: describeRunAt,
+    describePreview: describePreview,
     describeTrigger: describeTrigger,
     outcomeStatus: outcomeStatus
   };

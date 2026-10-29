@@ -32,11 +32,18 @@ async def env(tmp_path):
     await conn.close()
 
 
+DAILY = {
+    "start": {"date": "2026-10-11", "time": "09:00"},
+    "repeat": {"every": 1, "unit": "day"},
+    "ends": {"kind": "never"},
+}
+
+
 def _fields(name="Daily", **extra):
     return {
         "name": name,
         "prompt": "do it",
-        "schedule": {"kind": "daily", "time": "09:00"},
+        "schedule": DAILY,
         "target_kind": "new",
         **extra,
     }
@@ -55,7 +62,7 @@ async def test_create_get_list_name_order(env) -> None:
     await repo.create("b", _fields("Alpha"))
     got = await repo.list_for_agent("a")
     assert [r.name for r in got] == ["Alpha", "beta"]
-    assert got[0].schedule == {"kind": "daily", "time": "09:00"}
+    assert got[0].schedule == DAILY
     assert got[0].enabled is True and got[0].created_by == "operator"
     assert await repo.get("b", got[0].id) is None  # another agent's id is a miss
 

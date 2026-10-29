@@ -1,6 +1,6 @@
 # Leg: agent-recurrence-tools-and-evals
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Schedules and Limits](../flight.md)
 
 ## Objective

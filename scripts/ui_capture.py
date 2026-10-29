@@ -361,8 +361,7 @@ def _routines_form_open(ctx: Ctx) -> None:
     page.locator('[data-testid="routine-form"]').wait_for(timeout=10000)
     page.locator('[data-testid="routine-form-name"]').fill("Friday digest")
     page.locator('[data-testid="routine-form-prompt"]').fill("List the week's open questions.")
-    page.locator('[data-testid="routine-form"]').get_by_role("radio", name="Weekly").check()
-    page.locator('[data-testid="routine-form-day-4"]').check()
+    page.locator('[data-testid="routine-form-repeat"]').select_option("weekday")
     page.locator('[data-testid="routine-form"]').scroll_into_view_if_needed()
     _mask(page)
 
@@ -2853,7 +2852,13 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
                 TABS_AGENT,
                 "Inbox sweep",
                 "Look through the inbox and list anything urgent.",
-                json.dumps({"kind": "weekdays", "time": "08:30"}),
+                json.dumps(
+                    {
+                        "start": {"date": "2099-01-01", "time": "08:30"},
+                        "repeat": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+                        "ends": {"kind": "never"},
+                    }
+                ),
                 "2099-01-01T08:30:00+00:00",
                 created,
                 created,
@@ -2868,7 +2873,12 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
                 {
                     "name": "Evening digest",
                     "prompt": "Summarize today's changes in three lines.",
-                    "schedule": {"kind": "daily", "time": "18:00"},
+                    "schedule": {
+                        "start": {"date": "2026-01-03", "time": "18:00"},
+                        "repeat": {"every": 1, "unit": "day"},
+                        "ends": {"kind": "never"},
+                    },
+                    "anchor_at": None,
                     "target": {"kind": "new"},
                     "enabled": True,
                 },
@@ -2884,7 +2894,12 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
                 {
                     "name": "Inbox sweep",
                     "prompt": "Look through the inbox and list anything urgent.",
-                    "schedule": {"kind": "weekdays", "time": "08:30"},
+                    "schedule": {
+                        "start": {"date": "2026-01-01", "time": "08:30"},
+                        "repeat": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+                        "ends": {"kind": "never"},
+                    },
+                    "anchor_at": None,
                     "target": {"kind": "new"},
                     "enabled": True,
                 },

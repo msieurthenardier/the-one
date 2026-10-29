@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
+from datetime import datetime, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 
@@ -11,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 47
+CURRENT_VERSION = 48
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -97,6 +101,256 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
+
+
+# ── v48 (Mission 33 F3 DD6): the frozen schedule converter ────────────────
+#
+# Defined here, with its own parsing of the legacy five-kind shapes, so a later change to the
+# live routine normalizer never changes what v48 did (schema history is append-only).
+
+_V48_UPGRADE_FAILED = "upgrade_failed"
+_V48_UPGRADE_FAILED_TEXT = (
+    "This schedule could not be upgraded. Edit it to turn the routine back on."
+)
+
+
+def _v48_dt(value: object) -> datetime:
+    """An aware datetime in UTC from an ISO string; ValueError on anything else."""
+    if not isinstance(value, str):
+        raise ValueError("not a time")
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00") if value.endswith("Z") else value)
+    if dt.tzinfo is None:
+        raise ValueError("not aware")
+    return dt.astimezone(timezone.utc)
+
+
+def _v48_hhmm(value: object) -> str:
+    if not isinstance(value, str) or not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", value):
+        raise ValueError("bad time of day")
+    return value
+
+
+def _v48_render(instant: datetime, zone: tzinfo) -> dict[str, str]:
+    local = instant.astimezone(zone)
+    return {"date": local.date().isoformat(), "time": f"{local.hour:02d}:{local.minute:02d}"}
+
+
+def _v48_is_canonical(schedule: object) -> bool:
+    return isinstance(schedule, dict) and "start" in schedule and "kind" not in schedule
+
+
+def _v48_convert(
+    schedule: object,
+    *,
+    zone: tzinfo,
+    next_run_at: str | None,
+    anchor_at: str | None,
+    live: bool,
+    created_at: str | None,
+) -> tuple[dict, datetime | None]:
+    """A legacy schedule as the DD1 shape plus its anchor (None for wall-clock units).
+
+    *live* is true for an enabled, unfinished routine with a ``next_run_at``: its local date
+    (and an interval's exact next grid point) come from that value. Otherwise the date comes
+    from ``created_at`` and an interval's anchor is ``anchor_at`` (or ``created_at``) plus one
+    step. Raises ValueError for anything unreadable."""
+    if not isinstance(schedule, dict):
+        raise ValueError("not an object")
+    kind = schedule.get("kind")
+    never = {"kind": "never"}
+    if kind == "once":
+        at = _v48_dt(schedule.get("at"))
+        return {"start": _v48_render(at, zone), "repeat": None, "ends": never}, at
+    if kind == "interval":
+        hours = schedule.get("hours")
+        if isinstance(hours, bool) or not isinstance(hours, int) or not 1 <= hours <= 168:
+            raise ValueError("bad hours")
+        if live and next_run_at:
+            anchor = _v48_dt(next_run_at)
+        else:
+            anchor = _v48_dt(anchor_at or created_at) + timedelta(hours=hours)
+        sched = {
+            "start": _v48_render(anchor, zone),
+            "repeat": {"every": hours, "unit": "hour"},
+            "ends": never,
+        }
+        return sched, anchor
+    if kind not in ("daily", "weekdays", "weekly"):
+        raise ValueError("unknown kind")
+    time_text = _v48_hhmm(schedule.get("time"))
+    if kind == "daily":
+        repeat: dict = {"every": 1, "unit": "day"}
+    elif kind == "weekdays":
+        repeat = {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
+    else:
+        days = schedule.get("days")
+        if (
+            not isinstance(days, list)
+            or not days
+            or any(isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6 for d in days)
+        ):
+            raise ValueError("bad days")
+        repeat = {"every": 1, "unit": "week", "days": sorted(set(days))}
+    basis = _v48_dt(next_run_at) if live and next_run_at else _v48_dt(created_at)
+    start = {"date": basis.astimezone(zone).date().isoformat(), "time": time_text}
+    return {"start": start, "repeat": repeat, "ends": never}, None
+
+
+def _v48_anchor_text(anchor: datetime | None) -> str | None:
+    return anchor.isoformat() if anchor is not None else None
+
+
+def _v48_loads(raw: object) -> object:
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+async def _v48_zone(conn: aiosqlite.Connection) -> tzinfo:
+    """The zone the stored ``next_run_at`` values were computed in: the scheduler's
+    ``routines_zone`` key, else the effective zone (imported lazily)."""
+    async with conn.execute("SELECT value FROM app_metadata WHERE key = 'routines_zone'") as cur:
+        row = await cur.fetchone()
+    if row and row[0]:
+        try:
+            return ZoneInfo(str(row[0]))
+        except Exception:  # noqa: BLE001 - a missing or invalid key falls back
+            pass
+    from the_one import time_zones
+
+    return (await time_zones.load_effective_zone(conn)).tzinfo
+
+
+async def _v48_rewrite_routines(conn: aiosqlite.Connection) -> None:
+    """Rewrite every routine schedule and every proposal schedule to the DD1 shape."""
+    from the_one import time_zones
+
+    async with conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name IN ('agent_routines', 'agent_routine_proposals', 'app_metadata')"
+    ) as cur:
+        tables = {r[0] for r in await cur.fetchall()}
+    if "agent_routines" not in tables:
+        return
+    zone = (
+        await _v48_zone(conn)
+        if "app_metadata" in tables
+        else ((await time_zones.load_effective_zone(conn)).tzinfo)
+    )
+    migrated: dict[str, tuple[object, dict, str | None]] = {}
+    async with conn.execute(
+        "SELECT id, schedule, enabled, finished_at, next_run_at, anchor_at, created_at "
+        "FROM agent_routines"
+    ) as cur:
+        routines = await cur.fetchall()
+    unreadable: list[str] = []
+    for rid, raw, enabled, finished_at, next_run_at, anchor_at, created_at in routines:
+        old = _v48_loads(raw)
+        if _v48_is_canonical(old):
+            continue
+        try:
+            sched, anchor = _v48_convert(
+                old,
+                zone=zone,
+                next_run_at=next_run_at,
+                anchor_at=anchor_at,
+                live=bool(enabled) and finished_at is None and next_run_at is not None,
+                created_at=created_at,
+            )
+        except (ValueError, OverflowError):
+            unreadable.append(rid)
+            continue
+        anchor_text = _v48_anchor_text(anchor)
+        migrated[rid] = (old, sched, anchor_text)
+        await conn.execute(
+            "UPDATE agent_routines SET schedule = ?, anchor_at = ? WHERE id = ?",
+            (json.dumps(sched, sort_keys=True), anchor_text, rid),
+        )
+    now_iso = time_zones.utcnow().isoformat()
+    for rid in unreadable:
+        await conn.execute("UPDATE agent_routines SET enabled = 0 WHERE id = ?", (rid,))
+        async with conn.execute(
+            "SELECT 1 FROM agent_routine_runs WHERE routine_id = ? AND reason_code = ? LIMIT 1",
+            (rid, _V48_UPGRADE_FAILED),
+        ) as cur:
+            seen = await cur.fetchone() is not None
+        if not seen:
+            await conn.execute(
+                "INSERT INTO agent_routine_runs (id, routine_id, trigger_kind, outcome, reason, "
+                "started_at, finished_at, reason_code) "
+                "VALUES (?, ?, 'schedule', 'failed', ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    rid,
+                    _V48_UPGRADE_FAILED_TEXT,
+                    now_iso,
+                    now_iso,
+                    _V48_UPGRADE_FAILED,
+                ),
+            )
+    if "agent_routine_proposals" not in tables:
+        return
+    async with conn.execute(
+        "SELECT id, routine_id, payload, base, created_at FROM agent_routine_proposals"
+    ) as cur:
+        proposals = await cur.fetchall()
+    for pid, routine_id, raw_payload, raw_base, created_at in proposals:
+        payload, base = _v48_loads(raw_payload), _v48_loads(raw_base)
+        changed = False
+        if isinstance(payload, dict) and "schedule" in payload:
+            if not _v48_is_canonical(payload["schedule"]):
+                try:
+                    sched, anchor = _v48_convert(
+                        payload["schedule"],
+                        zone=zone,
+                        next_run_at=None,
+                        anchor_at=None,
+                        live=False,
+                        created_at=created_at,
+                    )
+                    payload["schedule"] = sched
+                    payload["anchor_at"] = _v48_anchor_text(anchor)
+                    changed = True
+                except (ValueError, OverflowError):
+                    pass
+        base_changed = False
+        if isinstance(base, dict):
+            if "schedule" in base and not _v48_is_canonical(base["schedule"]):
+                match = migrated.get(routine_id) if routine_id else None
+                if match is not None and match[0] == base["schedule"]:
+                    base["schedule"], base["anchor_at"] = match[1], match[2]
+                    base_changed = True
+                else:
+                    try:
+                        sched, anchor = _v48_convert(
+                            base["schedule"],
+                            zone=zone,
+                            next_run_at=None,
+                            anchor_at=None,
+                            live=False,
+                            created_at=created_at,
+                        )
+                        base["schedule"] = sched
+                        base["anchor_at"] = _v48_anchor_text(anchor)
+                        base_changed = True
+                    except (ValueError, OverflowError):
+                        base.setdefault("anchor_at", None)
+                        base_changed = True
+            elif "anchor_at" not in base:
+                base["anchor_at"] = None
+                base_changed = True
+        if changed or base_changed:
+            await conn.execute(
+                "UPDATE agent_routine_proposals SET payload = ?, base = ? WHERE id = ?",
+                (
+                    json.dumps(payload, sort_keys=True),
+                    json.dumps(base, sort_keys=True) if base is not None else None,
+                    pid,
+                ),
+            )
 
 
 async def _get_version(conn: aiosqlite.Connection) -> int:
@@ -2907,3 +3161,14 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (47,))
         await conn.commit()
         version = 47
+
+    if version < 48:
+        # Mission 33 Flight 3 (DD6) — every stored routine schedule, and the schedules in
+        # every proposal's payload and base, are rewritten to the calendar recurrence
+        # shape by the frozen converter above. `next_run_at` is not recomputed. A schedule
+        # that cannot be read is left, its routine is turned off and one guarded
+        # `upgrade_failed` run row says so. Idempotent: canonical schedules are skipped.
+        await _v48_rewrite_routines(conn)
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (48,))
+        await conn.commit()
+        version = 48
