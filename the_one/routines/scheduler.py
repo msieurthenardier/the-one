@@ -222,15 +222,7 @@ class RoutineScheduler:
         rid = r.id
         task = self._spawn(rid, lambda: runner.run_routine(rid, trigger, due_iso))
         if task is None:
-            await self._record(
-                runs,
-                rid,
-                trigger,
-                "skipped",
-                "The previous run was still going.",
-                due_iso,
-                now,
-            )
+            await runs.record_still_running_skip(rid, trigger, due_iso, now.isoformat())
 
     @staticmethod
     async def _record(runs, rid, trigger, outcome, reason, due_iso, now) -> None:

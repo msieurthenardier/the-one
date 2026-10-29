@@ -221,7 +221,56 @@ async def test_overlap_records_skipped(env) -> None:
     (run,) = await _runs(env, r.id)
     assert run.outcome == "skipped" and run.reason == "The previous run was still going."
     assert run.trigger_kind == "schedule" and run.finished_at is not None
+    assert run.reason_code == "still_running" and run.repeats == 1
     assert (await env.repo.get_by_id(r.id)).next_run_at == _dt(2026, 3, 2, 9, 0).isoformat()
+
+
+async def test_consecutive_still_running_skips_collapse(env) -> None:
+    env.spawn.refuse = True
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    await env.sched.run_pass(env.clock[0])
+    (first,) = await _runs(env, r.id)
+    for day in (2, 3):
+        await env.repo.set_next_run(r.id, _dt(2026, 3, day, 9, 0).isoformat())
+        env.clock[0] = _dt(2026, 3, day, 9, 0)
+        await env.sched.run_pass(env.clock[0])
+    (run,) = await _runs(env, r.id)
+    assert run.id == first.id and run.repeats == 3
+    assert run.reason == "Skipped 3 times while the previous run was still going."
+    assert run.started_at == first.started_at and run.trigger_kind == first.trigger_kind
+    assert run.due_at == _dt(2026, 3, 3, 9, 0).isoformat()
+    assert run.finished_at == _dt(2026, 3, 3, 9, 0).isoformat()
+
+
+async def test_still_running_skip_does_not_collapse_across_other_rows(env) -> None:
+    from the_one.routines.models import RoutineRun
+
+    env.spawn.refuse = True
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    other = await _mk(env, name="other", due=_dt(2026, 3, 1, 9, 0))
+    # a pre-v47 style row: same text, no reason code -> never merged into
+    await env.runs.insert(
+        RoutineRun(
+            routine_id=r.id, trigger_kind="schedule", outcome="skipped",
+            reason="The previous run was still going.",
+            started_at=_dt(2026, 2, 28, 9, 0).isoformat(),
+        )
+    )  # fmt: skip
+    await env.sched.run_pass(env.clock[0])
+    assert len(await _runs(env, r.id)) == 2
+    assert len(await _runs(env, other.id)) == 1  # another routine's row is its own
+    # an ok run after the skip breaks the chain
+    await env.runs.insert(
+        RoutineRun(
+            routine_id=r.id, trigger_kind="manual", outcome="ok",
+            started_at=_dt(2026, 3, 1, 9, 30).isoformat(),
+        )
+    )  # fmt: skip
+    await env.repo.set_next_run(r.id, _dt(2026, 3, 2, 9, 0).isoformat())
+    env.clock[0] = _dt(2026, 3, 2, 9, 0)
+    await env.sched.run_pass(env.clock[0])
+    rows = await _runs(env, r.id)
+    assert len(rows) == 4 and all(x.repeats == 1 for x in rows)
 
 
 async def test_one_off_overlap_stays_finished(env) -> None:

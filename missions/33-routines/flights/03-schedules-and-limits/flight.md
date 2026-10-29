@@ -131,8 +131,9 @@ routine, operator or agent:
 - **A save that leaves no future occurrence is refused** *(FD, cycle 2)*:
   create, a schedule edit and approval of a pending create or schedule change
   fail with "This schedule has no runs left." (422 on REST and the preview, the
-  tool's refusal for the agent, and a 409 at approval that leaves the proposal
-  pending for the operator to dismiss). Today's `MSG_PAST` for a one-off in
+  tool's refusal for the agent, and a 422 at approval that leaves the proposal
+  pending for the operator to dismiss; 422, not 409, per leg 4's design review:
+  the approve route and the queue read a 409 as stale or gone). Today's `MSG_PAST` for a one-off in
   the past becomes this case. The preview says so before Save.
 - **Ranges:**
 

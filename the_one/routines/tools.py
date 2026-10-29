@@ -33,9 +33,8 @@ from the_one.naming import NameRuleError
 from the_one.routines import service
 from the_one.routines.describe import describe_next, describe_schedule, describe_target
 from the_one.routines.limits import (
-    AGENT_ACTIVE_ROUTINES_MAX,
     AGENT_ROUTINE_WRITES_PER_TURN,
-    AGENT_RUNS_PER_DAY_MAX,
+    ROUTINES_ACTIVE_MAX,
     RoutineFieldError,
     RoutineLimitError,
     RoutineNameTaken,
@@ -60,8 +59,8 @@ MAX_JSON_ARG_CHARS = 2000
 FLAGGED_NOTE = " It was flagged for your operator to check."
 
 _LIMITS_SENTENCE = (
-    f"At most {AGENT_ACTIVE_ROUTINES_MAX} active routines, {AGENT_RUNS_PER_DAY_MAX} runs a day "
-    f"and {AGENT_ROUTINE_WRITES_PER_TURN} changes a turn. Your operator may need to approve."
+    f"At most {ROUTINES_ACTIVE_MAX} active routines and {AGENT_ROUTINE_WRITES_PER_TURN} "
+    "changes a turn. Your operator may need to approve."
 )
 _TIMES = "Times are wall-clock in the operator's time zone."
 _SCHEDULE_SHAPES = (

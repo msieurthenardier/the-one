@@ -48,32 +48,43 @@ async def get_last_purge_at(conn: aiosqlite.Connection) -> str | None:
 async def run_purge_sweep(conn: aiosqlite.Connection) -> dict:
     """Per-agent age-based purge over all agents. Pure DB logic — does
     NOT touch app-layer _sessions (the app wrapper does). Returns
-    {deleted, ids, runs_deleted, last_purge_at}. ``runs_deleted`` counts the
-    agents' finished routine-run rows older than the same per-agent cutoff
-    (M33 F1, DD1; ``running`` rows are never purged)."""
+    {deleted, ids, runs_deleted, routines_deleted, proposals_deleted, last_purge_at}.
+    ``runs_deleted`` counts the agents' finished routine-run rows older than the same
+    per-agent cutoff (M33 F1, DD1; ``running`` rows are never purged); ``routines_deleted``
+    the Done routines past it and ``proposals_deleted`` the resolved routine changes past
+    it (M33 F3, DD4)."""
     from the_one.db.repositories import (
         AppMetadataRepository,
         ChatSessionRepository,
         SQLiteAgentStore,
     )
-    from the_one.routines.repository import RoutineRunRepository
+    from the_one.routines.proposals import RoutineProposalRepository
+    from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
 
     agent_store = SQLiteAgentStore(conn)
     chat_repo = ChatSessionRepository(conn)
     meta = AppMetadataRepository(conn)
     run_repo = RoutineRunRepository(conn)
+    routine_repo = AgentRoutineRepository(conn)
+    proposal_repo = RoutineProposalRepository(conn)
     runs_deleted = 0
+    routines_deleted = 0
+    proposals_deleted = 0
     now = datetime.now(timezone.utc)
     all_ids: list[str] = []
     for name, days in await agent_store.list_retention_windows():
         cutoff = (now - timedelta(days=days)).isoformat()
         all_ids.extend(await chat_repo.delete_older_than(name, cutoff))
         runs_deleted += await run_repo.delete_finished_older_than(name, cutoff)
+        routines_deleted += await routine_repo.delete_done_older_than(name, cutoff)
+        proposals_deleted += await proposal_repo.delete_resolved_older_than(name, cutoff)
     last_purge_at = now.isoformat()
     await meta.set(LAST_PURGE_KEY, last_purge_at)
     return {
         "deleted": len(all_ids),
         "ids": all_ids,
         "runs_deleted": runs_deleted,
+        "routines_deleted": routines_deleted,
+        "proposals_deleted": proposals_deleted,
         "last_purge_at": last_purge_at,
     }

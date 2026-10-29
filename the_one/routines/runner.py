@@ -28,6 +28,8 @@ from the_one.db.repositories import ChatSessionRepository, ConnectorRepository
 from the_one.encryption import get_encryptor
 from the_one.routines.models import Routine, RoutineRun
 from the_one.routines.repository import (
+    REASON_CHAT_BUSY,
+    REASON_WAITING_SIGN_IN,
     AgentRoutineRepository,
     RoutineRunRepository,
     _now_iso,
@@ -378,8 +380,8 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
         logger.warning("routine %s: could not record its run", routine_id, exc_info=True)
         return
 
-    async def end(outcome: str, reason: str | None) -> None:
-        await _finish_row(runs, run.id, outcome, reason, sid, new_chat)
+    async def end(outcome: str, reason: str | None, reason_code: str | None = None) -> None:
+        await _finish_row(runs, run.id, outcome, reason, sid, new_chat, reason_code=reason_code)
 
     # 4. The paused peek, before any restore.
     cached = host.peek_session(sid)
@@ -388,7 +390,7 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
         and getattr(cached.agent, "_deferred_tool_calls", None) is not None
         and registry.own_pause(routine_id) != sid
     ):
-        await end("skipped", "The chat is waiting for a sign-in.")
+        await end("skipped", "The chat is waiting for a sign-in.", REASON_WAITING_SIGN_IN)
         return
     registry.clear_pause(routine_id)
 
@@ -449,7 +451,7 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
         await _post_steps(host, chats, routine, sid, turn_info, outcome)
         if note:
             reason = f"{reason} {note}" if reason else note
-        await end(outcome, reason)
+        await end(outcome, reason, REASON_CHAT_BUSY if outcome == "skipped" else None)
     except asyncio.CancelledError:
         # The runner itself was cancelled (drain or shutdown).
         if not task.done():

@@ -51,7 +51,8 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 def limits_view() -> dict[str, int]:
     return {
         "prompt_chars": routine_limits.ROUTINE_PROMPT_MAX_CHARS,
-        "routines_per_agent": routine_limits.ROUTINES_PER_AGENT_MAX,
+        "active_max": routine_limits.ROUTINES_ACTIVE_MAX,
+        "open_max": routine_limits.ROUTINES_OPEN_MAX,
         "interval_hours_min": routine_limits.INTERVAL_HOURS_MIN,
         "interval_hours_max": routine_limits.INTERVAL_HOURS_MAX,
         "once_max_days": routine_limits.ONCE_MAX_AHEAD_DAYS,
@@ -284,7 +285,6 @@ async def create_routine(
             "created_by": created_by,
             **target,
         },
-        agent_caps=agent_caps,
         flag=flag,
         proposal=proposal,
     )
@@ -356,7 +356,6 @@ async def update_routine(
         cur.id,
         fields,
         precheck=precheck,
-        agent_caps=agent_caps,
         flag=flag,
         proposal=proposal,
     )
@@ -575,7 +574,7 @@ async def agent_change(
                 if action == "create"
                 else [hypo if r.id == hypo.id else r for r in before]
             )
-            routine_limits.check_agent_caps(before, after, now)
+            routine_limits.check_routine_caps(before, after)
 
         proposal, replaced = await props.insert_pending(row, caps_check=caps_check)
         return AgentChangeResult(

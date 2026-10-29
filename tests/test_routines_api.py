@@ -109,7 +109,8 @@ async def test_list_has_limits_and_name_order(client) -> None:
     assert [r["name"] for r in out["routines"]] == ["Alpha", "beta"]
     assert out["limits"] == {
         "prompt_chars": 4000,
-        "routines_per_agent": 50,
+        "active_max": 50,
+        "open_max": 200,
         "interval_hours_min": 1,
         "interval_hours_max": 168,
         "once_max_days": 365,
@@ -545,7 +546,7 @@ async def test_runs_newest_first_limit_cursor_and_last_run(client) -> None:
     assert [r["id"] for r in out] == ["u4", "u3", "u2", "u1", "u0"]
     assert set(out[0]) == {
         "id", "routine_id", "trigger_kind", "outcome", "reason", "due_at", "started_at",
-        "finished_at", "session_id", "new_chat",
+        "finished_at", "session_id", "new_chat", "repeats", "reason_code",
     }  # fmt: skip
     assert [r["id"] for r in (await client.get(base + "?limit=2")).json()["runs"]] == ["u4", "u3"]
     page = (await client.get(base + "?limit=2&before=2026-10-03T00:00:00%2B00:00")).json()["runs"]
@@ -578,7 +579,7 @@ async def test_purge_now_deletes_finished_runs_and_keeps_routines(client) -> Non
     )
     resp = await client.delete("/api/agents/ag/chat/sessions")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "deleted": 0, "runs_deleted": 1}
+    assert resp.json() == {"status": "ok", "deleted": 0, "runs_deleted": 1, "proposals_deleted": 0}
     assert [r.id for r in await runs.list(mine["id"], 10)] == ["a2"]  # running row stays
     assert len(await runs.list(theirs["id"], 10)) == 1
     assert len((await client.get("/api/agents/ag/routines")).json()["routines"]) == 1
@@ -602,6 +603,25 @@ async def test_purge_sweep_seam_surfaces_runs_deleted(client, monkeypatch) -> No
         resp = await client.post("/api/_test/purge-sweep")
     assert resp.status_code == 200
     assert resp.json()["runs_deleted"] == 1
+    assert resp.json()["routines_deleted"] == 0 and resp.json()["proposals_deleted"] == 0
+
+
+async def test_purge_now_deletes_resolved_proposals_only(client) -> None:
+    await _agent(client)
+    mine = await _make(client)
+    for pid, status in (("p-done", "dismissed"), ("p-pend", "pending")):
+        await client.conn.execute(
+            "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name, "
+            "action, payload, status, created_at, resolved_at) "
+            "VALUES (?, 'ag', ?, 'n', 'update', '{}', ?, 't', ?)",
+            (pid, mine["id"], status, None if status == "pending" else "t"),
+        )
+    await client.conn.commit()
+    resp = await client.delete("/api/agents/ag/chat/sessions")
+    assert resp.json()["proposals_deleted"] == 1
+    async with client.conn.execute("SELECT id FROM agent_routine_proposals") as cur:
+        assert [r[0] for r in await cur.fetchall()] == ["p-pend"]
+    assert len((await client.get("/api/agents/ag/routines")).json()["routines"]) == 1
 
 
 # ── Run now (M33 F1 L4, AC11) ─────────────────────────────────────────────

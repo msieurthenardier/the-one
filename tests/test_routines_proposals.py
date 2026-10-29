@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -11,14 +11,14 @@ from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.repositories import SQLiteAgentStore
 from the_one.routines.limits import (
-    AGENT_ACTIVE_ROUTINES_MAX,
     AGENT_PENDING_PROPOSALS_MAX,
-    AGENT_PROPOSALS_KEPT,
-    AGENT_RUNS_PER_DAY_MAX,
+    MSG_ACTIVE_CAP,
+    MSG_OPEN_CAP,
+    ROUTINES_ACTIVE_MAX,
+    ROUTINES_OPEN_MAX,
     RoutineLimitError,
     RoutineNameTaken,
-    check_agent_caps,
-    runs_per_day,
+    check_routine_caps,
 )
 from the_one.routines.models import Routine
 from the_one.routines.proposals import (
@@ -49,51 +49,42 @@ def routine(i=0, schedule=None, enabled=True, finished_at=None, next_run_at=None
     )
 
 
-# ── runs_per_day ──────────────────────────────────────────────────────────
+# ── caps ──────────────────────────────────────────────────────────────────
 
 
-def test_runs_per_day_per_kind() -> None:
-    kw = {"now": NOW, "next_run_at": None}
-    assert runs_per_day({"kind": "daily", "time": "09:00"}, **kw) == 1
-    assert runs_per_day({"kind": "weekdays", "time": "09:00"}, **kw) == 1
-    assert runs_per_day({"kind": "weekly", "days": [0, 1, 2], "time": "09:00"}, **kw) == 1
-    assert runs_per_day({"kind": "interval", "hours": 1}, **kw) == 24
-    assert runs_per_day({"kind": "interval", "hours": 5}, **kw) == 5
-    assert runs_per_day({"kind": "interval", "hours": 24}, **kw) == 1
-    assert runs_per_day({"kind": "interval", "hours": 168}, **kw) == 1
-    soon = (NOW + timedelta(hours=3)).isoformat()
-    late = (NOW + timedelta(days=3)).isoformat()
-    assert runs_per_day({"kind": "once", "at": soon}, **kw) == 1
-    assert runs_per_day({"kind": "once", "at": late}, **kw) == 0
-    assert runs_per_day({"kind": "bogus"}, **kw) == 0
-
-
-def test_check_caps_raise_only() -> None:
-    full = [routine(i) for i in range(AGENT_ACTIVE_ROUTINES_MAX)]
-    with pytest.raises(RoutineLimitError, match="at most|most allowed"):
-        check_agent_caps(full, [*full, routine(99)], NOW)
-    # Operator routines already over both caps: an edit that does not raise is accepted.
-    over = [routine(i, {"kind": "interval", "hours": 1}) for i in range(13)]
-    assert len(over) > AGENT_ACTIVE_ROUTINES_MAX
+def test_check_caps_active_raise_only() -> None:
+    full = [routine(i) for i in range(ROUTINES_ACTIVE_MAX)]
+    with pytest.raises(RoutineLimitError) as e:
+        check_routine_caps(full, [*full, routine(99)])
+    assert e.value.detail == MSG_ACTIVE_CAP
+    # Already over the cap: an edit that does not raise the count is accepted.
+    over = [routine(i) for i in range(ROUTINES_ACTIVE_MAX + 3)]
     renamed = [over[0].model_copy(update={"name": "x", "prompt": "q"}), *over[1:]]
-    check_agent_caps(over, renamed, NOW)
-    slower = [over[0].model_copy(update={"schedule": {"kind": "interval", "hours": 6}}), *over[1:]]
-    check_agent_caps(over, slower, NOW)
-    # Turning one off lowers both measures.
-    check_agent_caps(over, [over[0].model_copy(update={"enabled": False}), *over[1:]], NOW)
-    # ... but a faster schedule raises runs-per-day over the cap.
-    ok = [routine(i, {"kind": "interval", "hours": 6}) for i in range(5)]  # 20 runs
-    faster = [ok[0].model_copy(update={"schedule": {"kind": "interval", "hours": 1}}), *ok[1:]]
-    check_agent_caps(ok, faster, NOW)  # 20 - 4 + 24 = 40 <= 48
-    heavy = [routine(i, {"kind": "interval", "hours": 1}) for i in range(2)]  # 48
-    with pytest.raises(RoutineLimitError, match=str(AGENT_RUNS_PER_DAY_MAX)):
-        check_agent_caps(heavy, [*heavy, routine(9)], NOW)
+    check_routine_caps(over, renamed)
+    check_routine_caps(over, [over[0].model_copy(update={"enabled": False}), *over[1:]])
+    check_routine_caps(over, over[1:])
+    # An enable of an off routine, or a reopen of a Done one, raises the count.
+    off = [*full, routine(98, enabled=False)]
+    with pytest.raises(RoutineLimitError):
+        check_routine_caps(off, [*full, routine(98)])
+    done = [*full, routine(97, finished_at="t")]
+    with pytest.raises(RoutineLimitError):
+        check_routine_caps(done, [*full, routine(97)])
 
 
-def test_check_caps_ignores_disabled_and_finished() -> None:
-    inactive = [routine(i, enabled=False) for i in range(15)]
-    inactive += [routine(20 + i, finished_at="t") for i in range(15)]
-    check_agent_caps([], [*inactive, routine(99)], NOW)
+def test_check_caps_open_raise_only() -> None:
+    off = [routine(i, enabled=False) for i in range(ROUTINES_OPEN_MAX)]
+    check_routine_caps([], off[:ROUTINES_ACTIVE_MAX])  # off rows never hit the active cap
+    with pytest.raises(RoutineLimitError) as e:
+        check_routine_caps(off, [*off, routine(999, enabled=False)])
+    assert e.value.detail == MSG_OPEN_CAP
+    over = [*off, routine(998, enabled=False)]
+    check_routine_caps(over, [over[0].model_copy(update={"prompt": "z"}), *over[1:]])
+
+
+def test_check_caps_ignores_finished() -> None:
+    finished = [routine(20 + i, finished_at="t") for i in range(ROUTINES_OPEN_MAX + 20)]
+    check_routine_caps([], [*finished, routine(99)])
 
 
 # ── repository ────────────────────────────────────────────────────────────
@@ -152,15 +143,18 @@ async def test_pending_update_supersedes_older(env) -> None:
     assert await props.pending_count("a") == 1
 
 
-async def test_pending_limit_and_prune(env) -> None:
-    conn, _repo, props = env
+async def test_pending_limit(env) -> None:
+    _conn, _repo, props = env
     for i in range(AGENT_PENDING_PROPOSALS_MAX):
         await props.insert_pending(prow(name=f"n{i}"))
     with pytest.raises(RoutineLimitError, match="You have 20 changes waiting for approval."):
         await props.insert_pending(prow(name="one-too-many"))
     assert await props.pending_count("a") == AGENT_PENDING_PROPOSALS_MAX
-    # Resolved rows beyond the newest 500 are pruned; pending rows never are.
-    for i in range(AGENT_PROPOSALS_KEPT + 5):
+
+
+async def test_resolved_proposals_are_not_pruned_by_count(env) -> None:
+    conn, _repo, props = env
+    for i in range(520):
         stamp = f"2026-01-01T00:{i // 60:02d}:{i % 60:02d}+00:00"
         await conn.execute(
             "INSERT INTO agent_routine_proposals (id, agent_name, routine_name, action, "
@@ -169,34 +163,45 @@ async def test_pending_limit_and_prune(env) -> None:
             (f"d{i:04d}", stamp, stamp),
         )
     await conn.commit()
-    await props.supersede_pending("b")  # no pending for b; a no-op
-    # A fresh applied insert triggers the prune.
     await ProposalOp.insert_applied(prow("delete")).run(conn, None)
     await conn.commit()
     async with conn.execute(
         "SELECT COUNT(*) FROM agent_routine_proposals WHERE status != 'pending'"
     ) as cur:
-        assert (await cur.fetchone())[0] == AGENT_PROPOSALS_KEPT
-    assert await props.pending_count("a") == AGENT_PENDING_PROPOSALS_MAX
-    # The oldest dismissed rows were the ones pruned.
-    assert await props.get("d0000") is None
-    assert await props.get(f"d{AGENT_PROPOSALS_KEPT + 4:04d}") is not None
+        assert (await cur.fetchone())[0] == 521
 
 
 async def test_caps_check_runs_in_insert_pending(env) -> None:
     _conn, repo, props = env
-    for i in range(AGENT_ACTIVE_ROUTINES_MAX):
+    for i in range(ROUTINES_ACTIVE_MAX):
         await repo.create("a", fields(f"r{i}"))
 
     def caps(before):
-        check_agent_caps(before, [*before, routine(99)], limits_now())
-
-    def limits_now():
-        return NOW
+        check_routine_caps(before, [*before, routine(99)])
 
     with pytest.raises(RoutineLimitError):
-        await props.insert_pending(prow(name="eleventh"), caps_check=caps)
+        await props.insert_pending(prow(name="fifty-first"), caps_check=caps)
     assert await props.pending_count("a") == 0
+
+
+async def test_delete_resolved_proposals(env) -> None:
+    conn, _repo, props = env
+    pending, _ = await props.insert_pending(prow(name="keep"))
+    for i, (status, resolved) in enumerate(
+        [("dismissed", "2026-01-01T00:00:00+00:00"), ("applied", "2026-03-01T00:00:00+00:00")]
+    ):
+        await conn.execute(
+            "INSERT INTO agent_routine_proposals (id, agent_name, routine_name, action, "
+            "payload, status, created_at, resolved_at) VALUES (?, 'a', 'n', 'delete', '{}', "
+            "?, ?, ?)",
+            (f"x{i}", status, resolved, resolved),
+        )
+    await conn.commit()
+    assert await props.delete_resolved_older_than("a", "2026-02-01T00:00:00+00:00") == 1
+    assert await props.get("x0") is None and await props.get("x1") is not None
+    assert await props.get(pending.id) is not None
+    assert await props.delete_resolved_for_agent("a") == 1
+    assert await props.get(pending.id) is not None
 
 
 async def test_dismiss_and_supersede(env) -> None:
@@ -234,7 +239,6 @@ async def test_create_applies_flag_and_applied_proposal(env) -> None:
     r = await repo.create(
         "a",
         fields(created_by="agent"),
-        agent_caps=True,
         flag=("merge", ["web:x", "web:y"]),
         proposal=ProposalOp.insert_applied(prow()),
     )
@@ -243,9 +247,7 @@ async def test_create_applies_flag_and_applied_proposal(env) -> None:
     assert p.status == "applied" and p.routine_id == r.id and p.resolved_at
     # merge de-duplicates, keeps order, caps at 10
     more = [f"s{i}" for i in range(15)]
-    r2 = await repo.update(
-        "a", r.id, {"prompt": "z"}, flag=("merge", ["web:y", *more]), agent_caps=True
-    )
+    r2 = await repo.update("a", r.id, {"prompt": "z"}, flag=("merge", ["web:y", *more]))
     assert r2.untrusted_sources == ["web:x", "web:y", *more[:8]]
     r3 = await repo.update("a", r.id, {"prompt": "zz"})
     assert r3.untrusted is True  # None leaves the flag alone

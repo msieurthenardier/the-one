@@ -592,7 +592,12 @@ async def test_descriptions_state_the_limits() -> None:
     by = {t.name: t for t in tools}
     for n in ("schedule_routine", "change_routine"):
         d = by[n].description
-        assert "time zone" in d and "10 active" in d and "48 runs" in d and "5 changes" in d
+        assert (
+            "time zone" in d
+            and "50 active routines" in d
+            and "runs a day" not in d
+            and "5 changes" in d
+        )
         assert "approve" in d
     assert "flagged" in by["list_my_routines"].description
     assert by["list_my_routines"].truncation_direction == "head"

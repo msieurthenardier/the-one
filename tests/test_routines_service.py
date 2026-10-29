@@ -15,7 +15,7 @@ from the_one.routines import scheduler
 from the_one.routines import service as svc
 from the_one.routines.limits import (
     ROUTINE_PROMPT_MAX_CHARS,
-    ROUTINES_PER_AGENT_MAX,
+    ROUTINES_ACTIVE_MAX,
     RoutineFieldError,
     RoutineLimitError,
     RoutineNameTaken,
@@ -193,11 +193,11 @@ async def test_create_error_order(env):
         assert ei.value.field == field
 
 
-async def test_duplicate_and_cap(env, stub):
+async def test_duplicate_and_active_cap(env, stub):
     await make(env)
     with pytest.raises(RoutineNameTaken):
         await make(env)
-    for i in range(ROUTINES_PER_AGENT_MAX - 1):
+    for i in range(ROUTINES_ACTIVE_MAX - 1):
         await make(env, name=f"r{i}")
     pokes = stub.pokes
     with pytest.raises(RoutineLimitError):
@@ -295,7 +295,9 @@ async def test_view_and_limits(env):
     view = await svc.routine_view(r, RoutineRunRepository(repo.conn), chats)
     assert view["name"] == "Morning" and view["last_run"] is None
     assert view["target"]["kind"] == "new" and view["running"] is False
-    assert svc.limits_view()["routines_per_agent"] == ROUTINES_PER_AGENT_MAX
+    limits = svc.limits_view()
+    assert limits["active_max"] == ROUTINES_ACTIVE_MAX and limits["open_max"] == 200
+    assert "routines_per_agent" not in limits
 
 
 def test_poke_without_scheduler():
@@ -306,7 +308,6 @@ def test_poke_without_scheduler():
 # ── agent changes (M33 F2 L2, DD4-DD8) ────────────────────────────────────
 from the_one.agent.config import AgentConfig  # noqa: E402
 from the_one.db.repositories import SQLiteAgentStore  # noqa: E402
-from the_one.routines.limits import AGENT_ACTIVE_ROUTINES_MAX  # noqa: E402
 from the_one.routines.proposals import (  # noqa: E402
     ProposalGoneError,
     ProposalStaleError,
@@ -467,25 +468,17 @@ async def test_call_time_switch(aenv):
 
 async def test_caps_agent_creates(aenv):
     conn, repo, _props, _ = aenv
-    for i in range(AGENT_ACTIVE_ROUTINES_MAX):
+    for i in range(ROUTINES_ACTIVE_MAX):
         await change(conn, "create", body(f"R{i}"))
-    with pytest.raises(RoutineLimitError, match="active routines"):
-        await change(conn, "create", body("R11"))
-
-
-async def test_caps_runs_per_day(aenv):
-    conn, _repo, _props, _ = aenv
-    for i in range(2):
-        await change(conn, "create", body(f"I{i}", schedule={"kind": "interval", "hours": 1}))
-    with pytest.raises(RoutineLimitError, match="48 times a day"):
-        await change(conn, "create", body("I2", schedule={"kind": "interval", "hours": 1}))
+    with pytest.raises(RoutineLimitError, match="50 active routines"):
+        await change(conn, "create", body("R51"))
 
 
 async def test_caps_never_block_lowering_edits(aenv):
     conn, repo, _props, _ = aenv
-    # Operator routines already over both caps.
+    # An agent already over the active cap (the old limit was 50 in total): seed past it.
     ids = []
-    for i in range(13):
+    for i in range(ROUTINES_ACTIVE_MAX):
         r = await repo.create(
             "ag",
             {
@@ -496,6 +489,14 @@ async def test_caps_never_block_lowering_edits(aenv):
             },
         )
         ids.append(r.id)
+    for i in range(3):
+        await conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
+            "created_by, created_at, updated_at) VALUES (?, 'ag', ?, 'p', '{}', 'new', "
+            "'operator', 't', 't')",
+            (f"seed{i}", f"seed{i}"),
+        )
+    await conn.commit()
     await change(conn, "update", {"routine": ids[0], "name": "renamed"})
     await change(conn, "update", {"routine": ids[1], "prompt": "edited"})
     await change(conn, "update", {"routine": ids[2], "schedule": {"kind": "interval", "hours": 6}})
@@ -627,7 +628,7 @@ async def test_approve_name_taken_and_caps_recheck(aenv):
         await approve(conn, pid)
     assert (await props.get(pid)).status == "pending"
     pid2 = await pend(aenv, "create", body("Late"))
-    for i in range(AGENT_ACTIVE_ROUTINES_MAX):
+    for i in range(ROUTINES_ACTIVE_MAX - 1):  # plus the existing 'dup' makes 50
         await repo.create(
             "ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY, "target_kind": "new"}
         )

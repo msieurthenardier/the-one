@@ -12,7 +12,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -112,17 +112,9 @@ from the_one.naming import (
     name_rule_detail,
 )
 from the_one.platform.paths import canonicalize, is_within
-from the_one.routines import limits as routine_limits
-from the_one.routines import runner as routine_runner
 from the_one.routines import service as routine_service
-from the_one.routines.limits import RoutineFieldError, RoutineLimitError, RoutineNameTaken
-from the_one.routines.proposals import (
-    ProposalGoneError,
-    ProposalStaleError,
-    ProposalStateError,
-    RoutineProposalRepository,
-)
-from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
+from the_one.routines.proposals import RoutineProposalRepository
+from the_one.routines.repository import RoutineRunRepository
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
@@ -1630,300 +1622,9 @@ async def delete_agent_rule(name: str, rule_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
-# ── Routines (M33 F1) ───────────────────────────────────────────────────
-#
-# Operator-only: no agent-facing tool reaches these routes (Flight 2 adds the
-# agent's own). The ``default`` agent cannot have routines (its chats store a
-# null agent_name); the name is compared literally, as ``factory.py`` does.
-# Bodies are parsed by hand so a 422 never echoes submitted text. Nothing here
-# runs a routine: the runner, Run now and the scheduler poke come in later legs.
-
-_DEFAULT_AGENT = "default"
-
-
-def _routine_422(field: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=422,
-        detail=[{"type": "value_error", "loc": [field], "msg": message}],
-    )
-
-
 def _poke_scheduler() -> None:
     """Delegate kept for callers that wake the scheduler (the service pokes after writes)."""
     routine_service.poke_scheduler()
-
-
-async def _routines_agent_or_404(name: str) -> None:
-    if name == _DEFAULT_AGENT:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    await _load_agent_or_404(name)
-
-
-async def _routines_repos() -> tuple[AgentRoutineRepository, RoutineRunRepository]:
-    conn = await get_connection()
-    return AgentRoutineRepository(conn), RoutineRunRepository(conn)
-
-
-async def _routine_body(request: Request) -> dict[str, Any]:
-    try:
-        data = await request.json()
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Request body must be JSON")
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=422, detail="Request body must be a JSON object")
-    return data
-
-
-@router.get("/agents/{name}/routines")
-async def list_agent_routines(name: str) -> dict[str, Any]:
-    await _routines_agent_or_404(name)
-    repo, run_repo = await _routines_repos()
-    chat_repo = await _chat_repo()
-    routines = await repo.list_for_agent(name)
-    return {
-        "routines": [await routine_service.routine_view(r, run_repo, chat_repo) for r in routines],
-        "limits": routine_service.limits_view(),
-    }
-
-
-@router.post("/agents/{name}/routines", status_code=201)
-async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
-    if name == _DEFAULT_AGENT:
-        raise HTTPException(status_code=422, detail="Routines need a named agent.")
-    data = await _routine_body(request)
-    await _load_agent_or_404(name)
-    conn = await get_connection()
-
-    async def zone() -> tzinfo:
-        return (await time_zones.load_effective_zone(conn)).tzinfo
-
-    repo, run_repo = await _routines_repos()
-    chat_repo = await _chat_repo()
-    try:
-        routine = await routine_service.create_routine(
-            repo, chat_repo, name, data, now=time_zones.utcnow(), zone=zone
-        )
-    except NameRuleError as e:
-        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
-    except RoutineFieldError as e:
-        raise _routine_422(e.field, e.message)
-    except RoutineNameTaken as e:
-        raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
-    except RoutineLimitError as e:
-        raise HTTPException(status_code=422, detail=e.detail)
-    return await routine_service.routine_view(routine, run_repo, chat_repo)
-
-
-@router.get("/agents/{name}/routines/{routine_id}")
-async def get_agent_routine(name: str, routine_id: str) -> dict[str, Any]:
-    await _routines_agent_or_404(name)
-    repo, run_repo = await _routines_repos()
-    routine = await repo.get(name, routine_id)
-    if routine is None:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    return await routine_service.routine_view(routine, run_repo, await _chat_repo())
-
-
-@router.put("/agents/{name}/routines/{routine_id}")
-async def update_agent_routine(name: str, routine_id: str, request: Request) -> dict[str, Any]:
-    await _routines_agent_or_404(name)
-    data = await _routine_body(request)
-    repo, run_repo = await _routines_repos()
-    cur = await repo.get(name, routine_id)
-    if cur is None:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-
-    async def zone() -> tzinfo:
-        conn = await get_connection()
-        return (await time_zones.load_effective_zone(conn)).tzinfo
-
-    chat_repo = await _chat_repo()
-    try:
-        routine = await routine_service.update_routine(
-            repo,
-            chat_repo,
-            name,
-            cur,
-            data,
-            now=time_zones.utcnow(),
-            zone=zone,
-            # M33 F2 DD7: an operator prompt edit is the only thing that clears the flag.
-            flag="clear" if "prompt" in data else None,
-        )
-    except NameRuleError as e:
-        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
-    except RoutineFieldError as e:
-        raise _routine_422(e.field, e.message)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    except RoutineNameTaken as e:
-        raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
-    return await routine_service.routine_view(routine, run_repo, chat_repo)
-
-
-@router.delete("/agents/{name}/routines/{routine_id}")
-async def delete_agent_routine(name: str, routine_id: str) -> dict[str, str]:
-    await _routines_agent_or_404(name)
-    repo, _ = await _routines_repos()
-    try:
-        await routine_service.delete_routine(repo, name, routine_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    return {"status": "ok"}
-
-
-# ── Agent-written routines: switches and proposals (M33 F2) ─────────────────
-
-
-class _RoutinesSwitchesBody(BaseModel):
-    enabled: StrictBool | None = None
-    requires_approval: StrictBool | None = None
-
-
-async def _routines_switch_agent(name: str) -> "AgentConfig":
-    if name == _DEFAULT_AGENT:
-        raise HTTPException(status_code=422, detail=routine_service.MSG_NAMED_AGENT)
-    _store, config = await _load_agent_or_404(name)
-    return config
-
-
-async def _routines_switches_view(name: str, config: "AgentConfig") -> dict[str, Any]:
-    conn = await get_connection()
-    return {
-        "enabled": config.routines_self_config_enabled,
-        "requires_approval": config.routines_require_approval,
-        "pending_count": await RoutineProposalRepository(conn).pending_count(name),
-    }
-
-
-@router.get("/agents/{name}/self-configuration/routines")
-async def get_agent_routines_switches(name: str) -> dict[str, Any]:
-    config = await _routines_switch_agent(name)
-    return await _routines_switches_view(name, config)
-
-
-@router.put("/agents/{name}/self-configuration/routines")
-async def set_agent_routines_switches(name: str, request: Request) -> dict[str, Any]:
-    body = await _rules_body(request, _RoutinesSwitchesBody)
-    config = await _routines_switch_agent(name)
-    if body.enabled is None and body.requires_approval is None:
-        raise HTTPException(status_code=422, detail="Give enabled or requires_approval.")
-    store = await _agent_store()
-    try:
-        await store.set_routines_self_config(
-            name, enabled=body.enabled, requires_approval=body.requires_approval
-        )
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    conn = await get_connection()
-    if body.enabled is False and config.routines_self_config_enabled:
-        # Turning Routines off withdraws everything still waiting (DD5).
-        await RoutineProposalRepository(conn).supersede_pending(name)
-    _store, fresh = await _load_agent_or_404(name)
-    return await _routines_switches_view(name, fresh)
-
-
-@router.get("/agents/{name}/self-configuration/routines/proposals")
-async def list_routine_proposals(
-    name: str,
-    status: Literal["pending", "applied", "dismissed", "superseded"] | None = None,
-    limit: int = Query(50, ge=1, le=200),
-    before: str | None = None,
-) -> dict[str, Any]:
-    await _routines_switch_agent(name)
-    repo = RoutineProposalRepository(await get_connection())
-    rows = await repo.list(name, status=status, limit=limit, before=before)
-    return {"proposals": [r.model_dump() for r in rows]}
-
-
-@router.get("/agents/{name}/self-configuration/routines/proposals/pending-count")
-async def get_routine_proposals_pending_count(name: str) -> dict[str, int]:
-    await _routines_switch_agent(name)
-    repo = RoutineProposalRepository(await get_connection())
-    return {"count": await repo.pending_count(name)}
-
-
-@router.post("/agents/{name}/self-configuration/routines/proposals/{proposal_id}/approve")
-async def approve_routine_proposal(
-    name: str, proposal_id: str, override: bool = False
-) -> dict[str, Any]:
-    await _routines_switch_agent(name)
-    conn = await get_connection()
-
-    async def zone() -> tzinfo:
-        return (await time_zones.load_effective_zone(conn)).tzinfo
-
-    try:
-        done = await routine_service.approve_proposal(
-            conn, name, proposal_id, override=override, now=time_zones.utcnow(), zone=zone
-        )
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Proposal not found: {proposal_id}")
-    except ProposalStaleError as e:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "stale",
-                "current_value": e.current,
-                "proposed_value": e.proposed,
-                "base_value": e.base,
-            },
-        )
-    except ProposalGoneError:
-        raise HTTPException(status_code=409, detail={"error": "gone"})
-    except ProposalStateError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except NameRuleError as e:
-        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
-    except RoutineFieldError as e:
-        raise _routine_422(e.field, e.message)
-    except RoutineNameTaken as e:
-        raise HTTPException(status_code=409, detail=_name_conflict_detail(e.detail))
-    except RoutineLimitError as e:
-        raise HTTPException(status_code=422, detail=e.detail)
-    return done.model_dump()
-
-
-@router.post("/agents/{name}/self-configuration/routines/proposals/{proposal_id}/dismiss")
-async def dismiss_routine_proposal(name: str, proposal_id: str) -> dict[str, Any]:
-    await _routines_switch_agent(name)
-    try:
-        done = await routine_service.dismiss_proposal(await get_connection(), name, proposal_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Proposal not found: {proposal_id}")
-    except ProposalStateError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return done.model_dump()
-
-
-@router.post("/agents/{name}/routines/{routine_id}/run", status_code=202)
-async def run_agent_routine_now(name: str, routine_id: str) -> dict[str, str]:
-    """Run now (M33 F1 L4, DD9): starts one manual run in the background."""
-    await _routines_agent_or_404(name)
-    repo, _ = await _routines_repos()
-    if await repo.get(name, routine_id) is None:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    task = routine_runner.registry.try_spawn(
-        routine_id, lambda: routine_runner.run_routine(routine_id, "manual")
-    )
-    if task is None:
-        raise HTTPException(status_code=409, detail="This routine is already running.")
-    return {"status": "started"}
-
-
-@router.get("/agents/{name}/routines/{routine_id}/runs")
-async def list_agent_routine_runs(
-    name: str,
-    routine_id: str,
-    limit: int = Query(routine_limits.RUNS_PAGE_DEFAULT, ge=1, le=routine_limits.RUNS_PAGE_MAX),
-    before: str | None = None,
-) -> dict[str, Any]:
-    await _routines_agent_or_404(name)
-    repo, run_repo = await _routines_repos()
-    if await repo.get(name, routine_id) is None:
-        raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    runs = await run_repo.list(routine_id, limit, before)
-    return {"runs": [r.model_dump() for r in runs]}
 
 
 # ── Notes (M27 F2) ──────────────────────────────────────────────────────
@@ -5513,7 +5214,14 @@ async def delete_agent_chat_sessions(name: str) -> dict[str, Any]:
     deleted = await repo.delete_all_for_agent(name)
     # M33 F1 (DD1): run history refers to the chats just deleted; the routines stay.
     runs_deleted = await RoutineRunRepository(repo.conn).delete_all_for_agent(name)
-    return {"status": "ok", "deleted": deleted, "runs_deleted": runs_deleted}
+    # M33 F3 (DD4): resolved routine changes go too; pending ones and routines stay.
+    proposals_deleted = await RoutineProposalRepository(repo.conn).delete_resolved_for_agent(name)
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "runs_deleted": runs_deleted,
+        "proposals_deleted": proposals_deleted,
+    }
 
 
 @router.post("/chat/sessions/{session_id}/purge")
@@ -5543,6 +5251,8 @@ async def trigger_purge_sweep() -> dict[str, Any]:
     return {
         "deleted": result["deleted"],
         "runs_deleted": result["runs_deleted"],
+        "routines_deleted": result["routines_deleted"],
+        "proposals_deleted": result["proposals_deleted"],
         "last_purge_at": result["last_purge_at"],
     }
 
@@ -6917,3 +6627,10 @@ async def rotate_encryption_key() -> dict[str, str]:
     )
 
     return {"status": "ok", "key_file": key_file}
+
+
+# ── Routine routes (M33) live in ``routines_api.py``; attached last so every
+# ``api.router`` route is declared first. ───────────────────────────────────
+from the_one.interfaces.web.routines_api import router as _routines_router  # noqa: E402
+
+router.include_router(_routines_router)

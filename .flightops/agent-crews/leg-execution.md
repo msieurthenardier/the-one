@@ -272,7 +272,10 @@ in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
 `git show <ref>:<path>`.
 
 Fix all blocking issues. Non-blocking issues: fix if straightforward, otherwise
-note as accepted. Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
+note as accepted. When a new test must be shown to fail without its fix (falsified),
+remove the fix by editing, run the test and see it fail, then put the fix back by
+editing; never restore a whole file or put back a backup copy (squawk 0284).
+Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
 the owning browser lane of every file you touched, and report both results. This
 applies to every fix pass: review fixes, HAT fixes and post-gate changes (Mission 31:
 in Flights 4, 5 and 6 an untested late change failed the next gate). Signal

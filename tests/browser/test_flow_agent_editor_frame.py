@@ -198,3 +198,39 @@ def test_save_block_survives_edits_and_cancel(app_with_agent: SeededApp, page: P
     expect(page.locator('[data-testid="agent-load-error"]')).to_be_visible()
     page.locator('[data-field="description"]').fill("blocked again")
     expect(page.locator(SAVE)).to_be_disabled()
+
+
+def test_header_save_error_is_announced_and_load_line_is_silent(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0273: a non-name save error in the header sits in a role=alert slot; the
+    load-failure line (agent-load-error) has no live role, and the role returns after."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    target = f"**/api/agents/{agent}"
+    state = {"fail_get": True}
+
+    def handler(route):  # noqa: ANN001
+        method = route.request.method
+        if method == "GET" and state["fail_get"]:
+            route.abort()
+        elif method == "PUT":
+            route.fulfill(
+                status=500, content_type="application/json", body='{"detail": "Disk is full."}'
+            )
+        else:
+            route.continue_()
+
+    page.route(target, handler)
+    _open(page, base, agent)
+    load = page.locator('[data-testid="agent-load-error"]')
+    expect(load).to_be_visible(timeout=8000)
+    assert load.get_attribute("role") is None
+
+    # Recover the load, then fail a save.
+    state["fail_get"] = False
+    page.reload()
+    page.locator('[data-field="description"]').fill("a new description")
+    page.locator(SAVE).click()
+    err = page.locator(".studio-editor .editor-error")
+    expect(err).to_contain_text("Disk is full", timeout=8000)
+    expect(err).to_have_attribute("role", "alert")

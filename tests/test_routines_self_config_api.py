@@ -264,12 +264,37 @@ async def test_name_taken_409(client) -> None:
 async def test_caps_recheck_422(client) -> None:
     pid = await propose(client, data=body("Late"))
     repo = AgentRoutineRepository(client.conn)
-    for i in range(10):
+    for i in range(50):
         await repo.create(
             "ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY, "target_kind": "new"}
         )
     resp = await client.post(base(pid, "approve"))
-    assert resp.status_code == 422 and "active routines" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == (
+        "This agent already has 50 active routines, the most allowed. "
+        "Turn one off or delete one first."
+    )
+    pending = (await client.get(f"{ITEM}/proposals?status=pending")).json()["proposals"]
+    assert [p["id"] for p in pending] == [pid]
+
+
+async def test_approve_rename_passes_while_over_the_cap(client) -> None:
+    repo = AgentRoutineRepository(client.conn)
+    first = None
+    for i in range(50):
+        r = await repo.create(
+            "ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY, "target_kind": "new"}
+        )
+        first = first or r
+    await client.conn.execute(
+        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
+        "created_by, created_at, updated_at) VALUES ('x1', 'ag', 'x1', 'p', '{}', 'new', "
+        "'operator', 't', 't')"
+    )
+    await client.conn.commit()
+    pid = await propose(client, "update", {"routine": first.id, "name": "renamed"})
+    resp = await client.post(base(pid, "approve"))
+    assert resp.status_code == 200, resp.text
 
 
 # ── the flag ──────────────────────────────────────────────────────────────

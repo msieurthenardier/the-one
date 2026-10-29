@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 46
+CURRENT_VERSION = 47
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2891,3 +2891,19 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (46,))
         await conn.commit()
         version = 46
+
+    if version < 47:
+        # Mission 33 Flight 3 (DD11) — skipped runs carry a stable reason code, and a run
+        # of consecutive "still running" skips collapses into one row counting `repeats`.
+        # Guarded ALTERs; existing rows are not backfilled.
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cursor:
+            run_cols = {row[1] for row in await cursor.fetchall()}
+        if run_cols and "repeats" not in run_cols:
+            await conn.execute(
+                "ALTER TABLE agent_routine_runs ADD COLUMN repeats INTEGER NOT NULL DEFAULT 1"
+            )
+        if run_cols and "reason_code" not in run_cols:
+            await conn.execute("ALTER TABLE agent_routine_runs ADD COLUMN reason_code TEXT")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (47,))
+        await conn.commit()
+        version = 47
