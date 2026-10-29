@@ -5016,7 +5016,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 44
+        assert CURRENT_VERSION == 45
 
         await conn.close()
 
@@ -5372,7 +5372,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 45 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5518,7 +5518,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 45 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5658,14 +5658,14 @@ class TestSchemaV44:
             )
         return conn
 
-    async def test_current_version_is_44(self) -> None:
-        assert CURRENT_VERSION == 44
+    async def test_current_version_is_45(self) -> None:
+        assert CURRENT_VERSION == 45
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44
+            assert (await cur.fetchone())[0] == 45
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5734,4 +5734,152 @@ class TestSchemaV44:
             assert (await cur.fetchone())[0] == _SECRETS_BLOB
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 44") as cur:
             assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+# ── v45 (Mission 33 F1 DD1): agent_routines and agent_routine_runs ─────────
+
+_ROUTINE_COLS = [
+    "id", "agent_name", "name", "prompt", "schedule", "enabled", "finished_at",
+    "target_kind", "target_session_id", "target_platform", "target_connector_id",
+    "target_channel_id", "target_thread_id", "target_peer_id", "next_run_at",
+    "anchor_at", "created_by", "created_at", "updated_at",
+]  # fmt: skip
+_RUN_COLS = [
+    "id", "routine_id", "trigger_kind", "outcome", "reason", "due_at", "started_at",
+    "finished_at", "session_id", "new_chat",
+]  # fmt: skip
+
+
+async def _insert_routine(conn, rid="r1", agent="a", name="Daily", **over) -> None:
+    vals = {
+        "id": rid,
+        "agent_name": agent,
+        "name": name,
+        "prompt": "p",
+        "schedule": "{}",
+        "target_kind": "new",
+        "created_by": "operator",
+        "created_at": "t",
+        "updated_at": "t",
+        **over,
+    }
+    cols = ", ".join(vals)
+    marks = ", ".join("?" for _ in vals)
+    await conn.execute(
+        f"INSERT INTO agent_routines ({cols}) VALUES ({marks})", tuple(vals.values())
+    )
+
+
+async def _insert_run(conn, rid="u1", routine="r1", **over) -> None:
+    vals = {"id": rid, "routine_id": routine, "trigger_kind": "manual", "outcome": "ok", **over}
+    cols = ", ".join(vals)
+    marks = ", ".join("?" for _ in vals)
+    await conn.execute(
+        f"INSERT INTO agent_routine_runs ({cols}) VALUES ({marks})", tuple(vals.values())
+    )
+
+
+class TestSchemaV45:
+    async def test_current_version_is_45(self) -> None:
+        assert CURRENT_VERSION == 45
+
+    async def test_fresh_replay_columns_and_fks(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh.db")
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
+        fk = (await _fk_rows(conn, "agent_routines"))["agent_name"]
+        assert (fk["table"], fk["on_update"], fk["on_delete"]) == ("agents", "CASCADE", "CASCADE")
+        fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
+        assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 45
+        await conn.close()
+
+    async def test_v44_database_migrates(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v44.db")
+        await ensure_schema(conn)
+        await conn.execute("DROP TABLE agent_routine_runs")
+        await conn.execute("DROP TABLE agent_routines")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 45")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # idempotent
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 45") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_rewind_rerun_keeps_rows(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "rewind.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 45")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT COUNT(*) FROM agent_routines") as cur:
+            assert (await cur.fetchone())[0] == 1
+        async with conn.execute("SELECT COUNT(*) FROM agent_routine_runs") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_unique_name_per_agent_nocase_and_checks(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "u.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await conn.execute("INSERT INTO agents (name) VALUES ('b')")
+        await _insert_routine(conn, "r1", "a", "Daily")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r2", "a", "daily")
+        await _insert_routine(conn, "r3", "b", "daily")  # same name, another agent
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r4", "a", "x", target_kind="bogus")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r5", "a", "y", created_by="robot")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_run(conn, "u1", "r1", trigger_kind="cron")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_run(conn, "u2", "r1", outcome="weird")
+        await conn.close()
+
+    async def test_rename_carries_routines_and_runs_delete_removes_both(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "c.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.commit()
+        await store.rename("a", "renamed")
+        async with conn.execute("SELECT agent_name FROM agent_routines") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["renamed"]
+        async with conn.execute("SELECT routine_id FROM agent_routine_runs") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["r1"]
+        await store.delete("renamed")
+        for table in ("agent_routines", "agent_routine_runs"):
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                assert (await cur.fetchone())[0] == 0
+        await conn.close()
+
+    async def test_agent_upsert_leaves_routines_untouched(self, tmp_path) -> None:
+        from the_one.agent.config import AgentConfig
+
+        conn = await _open(tmp_path / "up.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn)
+        await store.save(AgentConfig(name="a"))
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.commit()
+        await store.save(AgentConfig(name="a", description="changed"))
+        for table in ("agent_routines", "agent_routine_runs"):
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                assert (await cur.fetchone())[0] == 1
         await conn.close()

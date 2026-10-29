@@ -1,5 +1,5 @@
 // App.mcpErrorMessage / App.buildMcpError - plain-words MCP connection errors
-// (M25 F6 DD19). Shared by the agent MCPs tab and the Library MCP editor, so they
+// (M25 F6 DD19). Shared by the agent Tools tab and the Library MCP editor, so they
 // live in their own module (squawk 0128) loaded before both.
 (function () {
   'use strict';

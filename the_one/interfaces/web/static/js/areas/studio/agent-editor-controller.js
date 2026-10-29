@@ -315,7 +315,7 @@
         // selectAgent / doSelect / doEnterCreateMode above).
         allKnowledgeBases: self._allKnowledgeBases,
         knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
-        // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
+        // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: agentData.fetchMcpSourceTools,
         // The studio owns the source focus (hydrate applies the URL's value to
@@ -340,6 +340,17 @@
         updateNote: agentData.updateNote,
         deleteNote: agentData.deleteNote,
         clearNotes: agentData.clearNotes,
+        // M33 F1 L8 -- Routines tab network calls.
+        fetchRoutines: agentData.fetchRoutines,
+        createRoutine: agentData.createRoutine,
+        updateRoutine: agentData.updateRoutine,
+        deleteRoutine: agentData.deleteRoutine,
+        runRoutine: agentData.runRoutine,
+        fetchRoutineRuns: agentData.fetchRoutineRuns,
+        openRoutineForm: function (req) {
+          var f = App.studio.routinesForm;
+          return f && f.open ? f.open(req) : Promise.resolve(null);
+        },
         // M21 F01 L02 — Self-configuration tab network calls.
         fetchSelfConfigurationStatus: agentData.fetchSelfConfigurationStatus,
         onEnableSelfConfiguration: agentData.enableSelfConfiguration,
@@ -368,6 +379,17 @@
       }
     }
 
+    // Named hooks (M33 F1 L8): the Routines tab polls only while it is the shown tab. Both
+    // are null-safe and idempotent (the tab guards its own state).
+    function activateRoutines() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.routines && d.handle.routines.activate) d.handle.routines.activate();
+    }
+    function deactivateRoutines() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.routines && d.handle.routines.deactivate) d.handle.routines.deactivate();
+    }
+
     // setActiveTab — analogous to setActiveSection. Updates _activeTab,
     // calls the tab handle's activate (which swaps panel visibility +
     // aria-selected + roving tabindex), writes URL via _writeUrl unless
@@ -375,16 +397,19 @@
     function setActiveTab(tab, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false;
-      // F8 L3: clear per-source selection when leaving the MCPs tab so the
+      // F8 L3: clear per-source selection when leaving the Tools tab so the
       // URL doesn't carry a stale /{source-id} when switching to another tab.
-      if (tab !== 'mcps') {
+      if (tab !== 'tools') {
         self._selectedMcpAgentSourceId = null;
         self._pendingMcpAgentSourceId = null;
       }
+      var leftRoutines = self._activeTab === 'routines' && tab !== 'routines';
       var leftSelfConfig = self._activeTab === 'self-configuration' && tab !== 'self-configuration';
       self._activeTab = tab;
       // Leaving the Self-configuration tab clears a copy-once token still showing.
       if (leftSelfConfig) deactivateSelfConfig();
+      if (leftRoutines) deactivateRoutines();
+      if (tab === 'routines') activateRoutines();
       if (state.tabHandle && state.tabHandle.selected() !== tab) {
         state.tabHandle.select(tab);
       }
@@ -733,6 +758,8 @@
       renderEditor: renderEditor,
       setActiveTab: setActiveTab,
       deactivateSelfConfig: deactivateSelfConfig,
+      activateRoutines: activateRoutines,
+      deactivateRoutines: deactivateRoutines,
       destroyEditor: destroyEditor,
       onSelfConfigChanged: onSelfConfigChanged,
       shell: shell

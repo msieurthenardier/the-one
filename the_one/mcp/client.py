@@ -254,7 +254,7 @@ class MCPClient:
         self._protocol_version: str | None = None
         # F4 L2 (M08): server-declared identity + free-form usage prose from the
         # MCP initialize() response. Optional in the spec (servers MAY omit
-        # either); when present they let the agent-editor MCPs tab surface a
+        # either); when present they let the agent-editor Tools tab surface a
         # subtitle line + hover tooltip without forcing a fresh probe. Stored
         # as model instance / raw str respectively so callers choose how to
         # serialize; the `server_info` property emits the JSON-mode dump.
@@ -747,7 +747,7 @@ class MCPClient:
         if self.record_era:
             _era.remember_era(self.source.id, negotiated)
         # F4 L2 (M08): capture spec-optional serverInfo + instructions so the
-        # agent-editor MCPs tab can surface server-declared identity/usage
+        # agent-editor Tools tab can surface server-declared identity/usage
         # prose without re-probing. Both default to None when omitted.
         self._server_info = session.server_info
         self._instructions = session.instructions

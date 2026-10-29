@@ -62,7 +62,14 @@ def test_frame_dom_shape_and_ids(app_with_agent: SeededApp, page: Page) -> None:
     assert out["kids"][:2] == ["editor-header", "tablist"]
     assert [t[0] for t in out["tabs"]] == [
         f"agent-tab-{t}"
-        for t in ("general", "rules-and-notes", "knowledge", "mcps", "tools", "self-configuration")
+        for t in (
+            "general",
+            "rules-and-notes",
+            "knowledge",
+            "tools",
+            "routines",
+            "self-configuration",
+        )
     ]
     assert out["panels"][0] == "agent-tab-panel-general"
     assert out["tabs"][1][1] == "agent-tab-panel-rules-and-notes"

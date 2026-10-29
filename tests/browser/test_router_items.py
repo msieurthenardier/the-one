@@ -18,7 +18,7 @@ What this file pins (leg 04, ``item-history-and-exact-rendering``):
 * AC5b exactly ONE dialog per converted intent when dirty; Continue proceeds
        without a second prompt.
 * AC6  the Chats session row pushes and joins exactly once.
-* AC7  in-app links use new-scheme hrefs; ``#agents/x/mcps/s2`` while on s1
+* AC7  in-app links use new-scheme hrefs; ``#agents/x/tools/s2`` while on s1
        focuses s2; ``mcps-tab.js`` owns no ``hashchange`` listener.
 """
 
@@ -748,7 +748,7 @@ def test_knowledge_tab_and_mcps_tab_empty_links_use_new_scheme(
     _nav.goto_settled(page, base, f"agents/{_nav.seg(app_with_agent.agent_name)}/knowledge")
     link = page.locator('[data-testid="agent-knowledge-empty-state"] a')
     expect(link).to_have_attribute("href", "#library", timeout=8000)
-    page.locator('[data-testid="tab-mcps"]').click()
+    page.locator('[data-testid="tab-tools"]').click()
     link = page.locator('[data-testid="mcp-empty-state"] a')
     expect(link).to_have_attribute("href", "#library", timeout=8000)
 
@@ -764,16 +764,16 @@ def test_mcp_tab_focus_follows_the_url_for_the_same_agent(
     s2 = _post(
         base, "/api/mcp-sources", {"name": "s-two", "type": "stdio", "config": {"command": "y"}}
     )["id"]
-    _nav.goto_settled(page, base, f"agents/{_nav.seg(name)}/mcps/{_nav.seg(s1)}")
+    _nav.goto_settled(page, base, f"agents/{_nav.seg(name)}/tools/{_nav.seg(s1)}")
     row1 = page.locator(f'[data-testid="mcp-source-expand-{s1}"]')
     row2 = page.locator(f'[data-testid="mcp-source-expand-{s2}"]')
     expect(row1).to_have_attribute("aria-expanded", "true", timeout=8000)
     expect(row2).to_have_attribute("aria-expanded", "false")
 
-    _go(page, f"agents/{_nav.seg(name)}/mcps/{_nav.seg(s2)}")
+    _go(page, f"agents/{_nav.seg(name)}/tools/{_nav.seg(s2)}")
     expect(row2).to_have_attribute("aria-expanded", "true", timeout=8000)
     expect(row1).to_have_attribute("aria-expanded", "false")
-    _nav.expect_route(page, f"agents/{_nav.seg(name)}/mcps/{_nav.seg(s2)}")
+    _nav.expect_route(page, f"agents/{_nav.seg(name)}/tools/{_nav.seg(s2)}")
 
 
 def test_mcps_tab_js_has_no_hashchange_listener_or_hash_read() -> None:

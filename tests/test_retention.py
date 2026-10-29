@@ -183,6 +183,53 @@ async def test_run_purge_sweep_empty_agents_table_advances_timestamp(conn) -> No
     assert result == {
         "deleted": 0,
         "ids": [],
+        "runs_deleted": 0,
         "last_purge_at": result["last_purge_at"],
     }
     assert await get_last_purge_at(conn) is not None
+
+
+# ── routine run history (M33 F1, DD1; AC19) ───────────────────────────────
+
+
+async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None:
+    """Finished runs older than the agent's own window go; newer runs, running
+    rows and other agents' runs (inside their window) stay."""
+    from the_one.routines.models import RoutineRun
+    from the_one.routines.repository import AgentRoutineRepository, RoutineRunRepository
+
+    store = SQLiteAgentStore(conn)
+    await store.save(AgentConfig(name="a", chat_history_retention_days=7))
+    await store.save(AgentConfig(name="b", chat_history_retention_days=90))
+    routines = AgentRoutineRepository(conn)
+    runs = RoutineRunRepository(conn)
+    fields = {
+        "name": "r",
+        "prompt": "p",
+        "schedule": {"kind": "daily", "time": "09:00"},
+        "target_kind": "new",
+    }
+    ra = await routines.create("a", fields)
+    rb = await routines.create("b", fields)
+
+    async def put(routine_id, run_id, finished, outcome="ok"):
+        await runs.insert(
+            RoutineRun(
+                id=run_id,
+                routine_id=routine_id,
+                trigger_kind="schedule",
+                outcome=outcome,
+                started_at=_aged_iso(40),
+                finished_at=finished,
+            )
+        )
+
+    await put(ra.id, "a-old", _aged_iso(30))
+    await put(ra.id, "a-new", _aged_iso(1))
+    await put(ra.id, "a-running", None, "running")
+    await put(rb.id, "b-30d", _aged_iso(30))
+    result = await run_purge_sweep(conn)
+    assert result["runs_deleted"] == 1
+    async with conn.execute("SELECT id FROM agent_routine_runs ORDER BY id") as cur:
+        assert [r[0] for r in await cur.fetchall()] == ["a-new", "a-running", "b-30d"]
+    assert len(await routines.list_for_agent("a")) == 1  # routines untouched

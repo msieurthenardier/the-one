@@ -187,6 +187,11 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     # name not yet cached).
     if msg.channel_name is not None:
         d["channel_name"] = msg.channel_name
+    # M33 F1 L3: routine marker, emitted only when set (legacy rows unchanged).
+    if msg.routine_id is not None:
+        d["routine_id"] = msg.routine_id
+    if msg.routine_name is not None:
+        d["routine_name"] = msg.routine_name
     # Fix: message-timestamp-on-replay. Emit created_at only when non-None.
     # Pre-fix rows had no created_at key; preserve that shape for back-compat
     # (mirrors the peer_name/channel_id/channel_name pattern above).
@@ -244,6 +249,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         channel_id=d.get("channel_id"),
         # M11 F07 L02: channel_name — None on pre-F7 rows without the key.
         channel_name=d.get("channel_name"),
+        routine_id=d.get("routine_id"),
+        routine_name=d.get("routine_name"),
         # Fix: message-timestamp-on-replay. created_at — None on pre-fix
         # rows without the key.
         created_at=d.get("created_at"),
@@ -368,6 +375,11 @@ def messages_to_ui_events(
         # timestamp" (chat.js addMsg falls back to render-time `Date()` only
         # on the LIVE path, which never reaches this projection).
         ts_spread = {"ts": msg.created_at} if msg.created_at is not None else {}
+        routine_spread: dict[str, str] = {}
+        if msg.routine_id is not None:
+            routine_spread["routine_id"] = msg.routine_id
+        if msg.routine_name is not None:
+            routine_spread["routine_name"] = msg.routine_name
         if msg.role == Role.USER:
             # M16 F12 L08: project through content_to_text — msg.content may
             # be a list[ContentBlock] (image-bearing turn). Without this, a
@@ -383,6 +395,7 @@ def messages_to_ui_events(
                     **peer,
                     **channel_id_spread,
                     **channel_name_spread,
+                    **routine_spread,
                     **ts_spread,
                 }
             )

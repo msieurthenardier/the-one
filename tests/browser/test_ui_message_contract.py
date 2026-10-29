@@ -445,3 +445,39 @@ def test_attribution_without_copy_has_no_button_and_a_live_node_is_optional(
     assert (
         json.dumps(page.evaluate("() => document.getElementById('frame').textContent")) == '"You"'
     )
+
+
+def test_marker_chip_on_any_role_and_validation(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    for role in ("user", "assistant"):
+        _msg(page, {"role": role, "text": "Body", "marker": {"label": "Routine"}})
+        assert page.locator(".ui-message-marker-chip .chip").count() == 1
+        expect(page.locator(".ui-message-marker-chip")).to_have_text("Routine")
+        assert page.evaluate("() => __m.el.textContent") == "RoutineBody"
+        page.evaluate("() => __m.el.remove()")
+    # order: operator chip, marker chip, peer label, body
+    _msg(
+        page,
+        {
+            "role": "tool",
+            "visibility": "operator",
+            "visibilityStyle": "chip",
+            "marker": {"label": "Routine"},
+            "peerName": "Dana",
+            "text": "x",
+        },
+    )
+    kids = page.evaluate("() => Array.from(__m.el.children).map(c => c.className.split(' ')[0])")
+    assert kids == ["ui-message-operator-chip", "ui-message-marker-chip", "ui-message-peer-label"]
+    page.evaluate("() => __m.el.remove()")
+    # no marker: nothing extra; null/undefined are no-ops
+    _msg(page, {"role": "user", "text": "Plain", "marker": None})
+    assert page.locator(".ui-message-marker-chip").count() == 0
+    page.evaluate("() => __m.el.remove()")
+    for bad in ({"label": ""}, {"label": 3}, {}, "Routine"):
+        err = page.evaluate(
+            "(bad) => { try { App.ui.message({role: 'user', marker: bad}); return null; } catch (e) { return e.message; } }",
+            bad,
+        )
+        assert err and "marker" in err

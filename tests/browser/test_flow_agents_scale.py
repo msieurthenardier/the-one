@@ -10,7 +10,7 @@
   time is reported; a forced refresh over 300ms is a squawk, not a fix here.
 * 35 agents render intact at 1440x900: the list body scrolls, rows are 48px
   (+-1) and never overlap, and the title row and filter stay fixed.
-* The tab strip at 1024x768, both engines: five tabs, no overflow
+* The tab strip at 1024x768, both engines: six tabs, no overflow
   (``scrollWidth <= clientWidth``), the last tab inside the detail pane; the aside
   is 300px and the detail pane at least 650px.
 

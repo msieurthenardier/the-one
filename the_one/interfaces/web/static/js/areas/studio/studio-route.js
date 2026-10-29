@@ -99,15 +99,15 @@ App.studio.route = {
     if (self._activeSection === 'agents' && self._pendingSelectName) {
       return 'agents/' + agentSeg(self._pendingSelectName) +
         '/' + (self._activeTab || 'general') +
-        (self._activeTab === 'mcps' && self._pendingMcpAgentSourceId
+        (self._activeTab === 'tools' && self._pendingMcpAgentSourceId
           ? '/' + encodeURIComponent(self._pendingMcpAgentSourceId) : '');
     }
     if (self._activeSection === 'agents' && self._selectedAgent) {
       var base = 'agents/' + agentSeg(self._selectedAgent.name) +
         '/' + (self._activeTab || 'general');
-      // F8 L3 Patch B — when on the MCPs tab AND a source-id is selected,
+      // F8 L3 Patch B — when on the Tools tab AND a source-id is selected,
       // append it so refresh preserves the per-attachment editor view.
-      if (self._activeTab === 'mcps' && self._selectedMcpAgentSourceId) {
+      if (self._activeTab === 'tools' && self._selectedMcpAgentSourceId) {
         return base + '/' + encodeURIComponent(self._selectedMcpAgentSourceId);
       }
       return base;
@@ -148,7 +148,7 @@ App.studio.route = {
   // F5 leg 03: extended to parse 'agents/<name>/<tab>'. Four cases:
   //   - 'agents/{name}'         → activeTab='general' (router rewrites URL)
   //   - 'agents/{name}/'        → activeTab='general' (defensive trailing-slash)
-  //   - 'agents/{name}/general|knowledge|mcps|tools' → use that tab
+  //   - 'agents/{name}/general|knowledge|tools' → use that tab
   //   - 'agents/{name}/<other>' → defensively default to 'general'
   // Encoding note: agent names with literal '/' are encoded as '%2F' by
   // encodeURIComponent, so rest.indexOf('/') unambiguously finds the segment
@@ -264,15 +264,15 @@ App.studio.route = {
       } else {
         pending = decodeURIComponent(rest.slice(0, slashIdx));
         var tab = rest.slice(slashIdx + 1);
-        // F8 L3 Patch A — split deeper "mcps/{source-id}" BEFORE the
+        // F8 L3 Patch A — split deeper "tools/{source-id}" BEFORE the
         // four-tab whitelist check. Without this, the whitelist would
-        // reject "mcps/some-uuid" and default to "general", breaking
+        // reject "tools/some-uuid" and default to "general", breaking
         // deep-link navigation (AC L3.6 + Browser Test 6).
-        if (tab.indexOf('mcps/') === 0) {
-          pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
-          tab = 'mcps';
+        if (tab.indexOf('tools/') === 0) {
+          pendingMcpAgentSourceId = decodeURIComponent(tab.slice('tools/'.length));
+          tab = 'tools';
         }
-        if (tab === 'general' || tab === 'rules-and-notes' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools' || tab === 'self-configuration') {
+        if (tab === 'general' || tab === 'rules-and-notes' || tab === 'knowledge' || tab === 'tools' || tab === 'routines' || tab === 'self-configuration') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -307,8 +307,8 @@ App.studio.route = {
     self._pendingConnectorId = pendingConnectorId_local;
     self._pendingConnectorFormMode = pendingConnectorFormMode_local;
     if (self._providersSection) self._providersSection.setPending(pendingProviderMode_local, pendingProviderId_local);
-    // The MCPs tab's source focus: the URL's value (or none) replaces the
-    // previous one, so `#agents/x/mcps/s2` while on s1 focuses s2.
+    // The Tools tab's source focus: the URL's value (or none) replaces the
+    // previous one, so `#agents/x/tools/s2` while on s1 focuses s2.
     self._pendingMcpAgentSourceId = pendingMcpAgentSourceId;
     self._selectedMcpAgentSourceId = pendingMcpAgentSourceId;
 

@@ -89,6 +89,28 @@ App.studio.agentData = {
     }
     function clearNotes(name) { return rulesJson('DELETE', notesUrl(name)); }
 
+    // M33 F1 L8 -- routines network calls (same fetchJson contract: a failure carries
+    // `status` and `detail`).
+    function routinesUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/routines' + (suffix || '');
+    }
+    function fetchRoutines(name) { return App.api.fetchJson(routinesUrl(name)); }
+    function createRoutine(name, body) { return rulesJson('POST', routinesUrl(name), body); }
+    function updateRoutine(name, id, patch) {
+      return rulesJson('PUT', routinesUrl(name, '/' + encodeURIComponent(id)), patch);
+    }
+    function deleteRoutine(name, id) {
+      return rulesJson('DELETE', routinesUrl(name, '/' + encodeURIComponent(id)));
+    }
+    function runRoutine(name, id) {
+      return rulesJson('POST', routinesUrl(name, '/' + encodeURIComponent(id) + '/run'));
+    }
+    function fetchRoutineRuns(name, id, opts) {
+      var q = 'limit=' + encodeURIComponent((opts && opts.limit) || 20);
+      if (opts && opts.before) q += '&before=' + encodeURIComponent(opts.before);
+      return App.api.fetchJson(routinesUrl(name, '/' + encodeURIComponent(id) + '/runs') + '?' + q);
+    }
+
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
     function fetchSelfConfigurationStatus(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
@@ -106,7 +128,7 @@ App.studio.agentData = {
       // created/destroyed server-side) AND the agent itself (its
       // mcp_source_ids just changed server-side, outside the Save flow).
       // The editor controller's onSelfConfigChanged patches the open editor in
-      // place (M31 F2 L10a), so unsaved edits survive and the MCPs tab reflects
+      // place (M31 F2 L10a), so unsaved edits survive and the Tools tab reflects
       // the new/removed row without a reload.
       return Promise.all([
         refreshMcpSourcesCache(),
@@ -478,6 +500,12 @@ App.studio.agentData = {
       fetchAgents: fetchAgents,
       fetchTools: fetchTools,
       fetchMcpSources: fetchMcpSources,
+      fetchRoutines: fetchRoutines,
+      createRoutine: createRoutine,
+      updateRoutine: updateRoutine,
+      deleteRoutine: deleteRoutine,
+      runRoutine: runRoutine,
+      fetchRoutineRuns: fetchRoutineRuns,
       fetchRules: fetchRules,
       createRule: createRule,
       updateRule: updateRule,

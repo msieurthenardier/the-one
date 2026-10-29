@@ -13,6 +13,8 @@ Creating an agent whose `provider_config_id` names no provider returns HTTP **50
 - **How:** the Executor's seed script had a bug and sent `provider_config_id: ""` (and an empty `kb_ids` entry) on 31 agent creates. Every one returned 500.
 - **Impact:** no data was created. The web UI never sends an unknown provider id (the editor's select only offers real providers), so this is an API-boundary robustness gap, not a user-facing flow.
 
+- **Hit again:** Mission 33 Flight 1, leg 10 behavior test (`tests/behavior/routine-connector-delivery/runs/2026-10-29-03-31-37.md`, step 1). The Executor sent `provider_config_id: ""`, and the 500 was logged in duplicate as squawk 0283. That makes three behavior-test runs across two missions. The M33 F1 debrief recommends completing it before Mission 33 Flight 2's behavior test.
+
 ## Evidence
 - The dev instance log for that run (`$HOME/the-one-bt-m31f6/list-and-detail/cwd/serve.log`) shows `POST /api/agents` 500, ending in `the_one/interfaces/web/api.py::create_agent` → `await store.save(cfg)` (about `:1053`) → `the_one/db/repositories.py` `save` (about `:254`) → `sqlite3.IntegrityError: FOREIGN KEY constraint failed`.
 - `create_agent` already maps `AgentConfig` validation errors to 422 (about `:1029-1033`). Referential integrity is only enforced by the database, and nothing catches that failure.

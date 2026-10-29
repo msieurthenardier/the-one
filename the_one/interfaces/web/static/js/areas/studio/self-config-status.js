@@ -36,7 +36,7 @@
     description.className = 'self-configuration-description';
     description.textContent = 'When enabled, this agent can read its own configuration ' +
       'and revise its own description and system prompt through a dedicated MCP source. ' +
-      'The operator’s per-tool controls on the MCPs tab still govern which capabilities ' +
+      'The operator’s per-tool controls on the Tools tab still govern which capabilities ' +
       'the agent can actually use.';
     section.body.appendChild(description);
 

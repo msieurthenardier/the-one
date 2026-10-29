@@ -6,7 +6,7 @@
 // the agent's own client presents to reach a loopback endpoint the
 // platform serves itself — off by default for every agent (mission
 // constraint). This tab is the ONLY place that toggles it; the row's
-// attach checkbox on the MCPs tab renders checked-and-disabled (see
+// attach checkbox on the Tools tab renders checked-and-disabled (see
 // mcps-tab.js) so the operator's per-tool controls still govern individual
 // capabilities from there.
 //

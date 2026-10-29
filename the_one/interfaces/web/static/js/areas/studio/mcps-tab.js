@@ -1,4 +1,4 @@
-// App.studio.renderMcpsTab — agent-editor MCPs tab (rebuilt on the control library in
+// App.studio.renderMcpsTab — agent-editor Tools tab, MCP servers section (rebuilt on the control library in
 // M31 F2 L07b; flight DD3, DD4, DD6, DD7, DD9-1).
 //
 // One App.ui.groupTile per MCP source. The tile's master is the ATTACH switch (a
@@ -9,7 +9,7 @@
 //
 // Public API:
 //   var h = App.studio.renderMcpsTab(panel, agent, allSources, callbacks)
-//     panel       — DOM element (the MCPs tabpanel)
+//     panel       — DOM element (the Tools tabpanel)
 //     agent       — AgentConfig object (null for create mode)
 //     allSources  — array of MCPSource objects from /api/mcp-sources
 //     callbacks   — { fetchMcpSourceTools, onChange, onSelectedSourceChange,
@@ -437,6 +437,11 @@
       if (prev && prev.tile.isExpanded()) prev.tile.setExpanded(false);
       if (!entry.tile.isExpanded()) entry.tile.setExpanded(true);
       if (selectedId !== id) setSelected(id);
+      // The MCP section sits below the built-in categories, so bring the tile
+      // into view (a no-op while the Tools panel is hidden).
+      try {
+        if (entry.tile.el.scrollIntoView) entry.tile.el.scrollIntoView({ block: 'nearest' });
+      } catch (e) { /* best effort */ }
     }
 
     function reconcile() {

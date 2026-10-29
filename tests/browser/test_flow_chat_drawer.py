@@ -360,6 +360,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     assert labels == [
         "Rules",
         "Notes",
+        "Routines",
         "Knowledge bases",
         "MCP servers",
         "Built-in tools",

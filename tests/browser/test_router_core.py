@@ -89,7 +89,7 @@ ROUND_TRIP_SPECS = [
     {"destination": "agents", "id": "a/b", "tab": "tools"},
     {"destination": "agents", "id": "日本語", "tab": "general"},
     {"destination": "agents", "id": "~new", "tab": "knowledge"},
-    {"destination": "agents", "id": "x", "tab": "mcps", "sub": "src/1 é"},
+    {"destination": "agents", "id": "x", "tab": "tools", "sub": "src/1 é"},
     {"destination": "agents", "id": "!'()*", "tab": "self-configuration"},
     {"destination": "library", "section": "providers", "create": True},
     {"destination": "library", "section": "providers", "id": "p/é!'()*~"},
@@ -238,7 +238,9 @@ REDIRECT_ROWS = [
     ("#studio/agents", "agents"),
     ("#studio/agents/foo", "agents/foo"),
     ("#studio/agents/foo/tools", "agents/foo/tools"),
-    ("#studio/agents/foo/mcps/src1", "agents/foo/mcps/src1"),
+    ("#studio/agents/foo/mcps/src1", "agents/foo/tools/src1"),
+    ("#agents/foo/mcps/src1", "agents/foo/tools/src1"),
+    ("#agents/foo/mcps", "agents/foo/tools"),
     ("#studio/agents/new", "agents/new"),  # an agent NAMED "new", not the create segment
     ("#studio/agents/new/general", "agents/new/general"),
     ("#studio/tools", "agents"),
@@ -390,7 +392,9 @@ def test_agents_create_route_boots_without_redirect(app_clean: str, page: Page) 
 
 
 # The corpus for JS <-> _nav parity: every DD2 legacy form + the bare destinations.
-PARITY_CORPUS = [h for h, _ in REDIRECT_ROWS] + [
+# The `agents/{name}/mcps` alias (M33 F1 L06) is a router-only redirect, like the
+# settings/general alias above: `_nav` never folds it, so its rows stay out.
+PARITY_CORPUS = [h for h, _ in REDIRECT_ROWS if "/mcps" not in h] + [
     "#chats",
     "#chats/abc",
     # The pending new chat (M25 F4 L3b): an agent with a space and a leading

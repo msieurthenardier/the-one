@@ -152,7 +152,7 @@
   //   chats:    id = session id, or create:true with agent for the pending
   //             new chat `chats/~new/{agent}` (M25 F4 L3b, DD2); create
   //             without an agent is bare `chats`
-  //   agents:   id = agent name, tab, sub (the MCP source id on the mcps tab),
+  //   agents:   id = agent name, tab, sub (the MCP source id on the tools tab),
   //             or create:true for the `~new` segment
   //   library / settings: section, id, or create:true for the `~new` segment
   function href(spec) {
@@ -322,6 +322,13 @@
         // The agent create route (M25 F3 L3, DD8). Extra segments are dropped.
         return mk('agents/' + RESERVED_NEW, dest, 'agents/' + RESERVED_NEW,
           redirected || segs.length > 2);
+      }
+      // The MCPs tab folded into Tools (M33 F1 L06): `agents/{name}/mcps[/{id}]`
+      // is `agents/{name}/tools[/{id}]`, in the same pass as the legacy table.
+      if (segs[2] === 'mcps') {
+        segs = segs.slice();
+        segs[2] = 'tools';
+        redirected = true;
       }
       route = segs.join('/');
       return mk(route, dest, route, redirected);

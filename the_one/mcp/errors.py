@@ -66,7 +66,7 @@ class MCPCredentialsRejected(MCPConnectionError):  # noqa: N818  (a result, not 
         label = source_name or source_id
         super().__init__(
             f"{label} rejected the configured credentials (401). Check the headers for "
-            "this MCP server in Library \u203a MCP servers, or the agent's MCPs tab if it "
+            "this MCP server in Library \u203a MCP servers, or the agent's Tools tab if it "
             "overrides them."
         )
 

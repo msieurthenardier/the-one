@@ -1,0 +1,424 @@
+"""Async access to ``agent_routines`` and ``agent_routine_runs`` (Mission 33 F1, DD1).
+
+Same shape as ``AgentRuleRepository``: every mutator opens ONE
+``write_transaction`` (the guard is not re-entrant); every agent-facing query
+is scoped by ``agent_name`` and a miss (or another agent's row) is ``KeyError``.
+
+Every timestamp is written through :func:`_now_iso`, which calls
+``time_zones.utcnow()`` through the module namespace so ``frozen_clock`` bites.
+All timestamps are UTC ISO strings with the same ``+00:00`` suffix, so string
+comparison orders them correctly (a zero-microsecond value sorts before a
+fractional one in the same second).
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from typing import Any
+
+import aiosqlite
+
+from the_one import time_zones
+from the_one.db._write_lock import write_transaction
+from the_one.routines.limits import (
+    ROUTINES_PER_AGENT_MAX,
+    RoutineLimitError,
+    RoutineNameTaken,
+)
+from the_one.routines.models import Routine, RoutineRun
+
+
+def _now_iso() -> str:
+    return time_zones.utcnow().isoformat()
+
+
+_COLS = (
+    "id, agent_name, name, prompt, schedule, enabled, finished_at, target_kind, "
+    "target_session_id, target_platform, target_connector_id, target_channel_id, "
+    "target_thread_id, target_peer_id, next_run_at, anchor_at, created_by, "
+    "created_at, updated_at"
+)
+
+# Columns an update may set (``schedule`` is encoded; ``enabled`` is a bool).
+_UPDATABLE = {
+    "name",
+    "prompt",
+    "schedule",
+    "enabled",
+    "finished_at",
+    "target_kind",
+    "target_session_id",
+    "target_platform",
+    "target_connector_id",
+    "target_channel_id",
+    "target_thread_id",
+    "target_peer_id",
+    "next_run_at",
+    "anchor_at",
+}
+
+
+def _encode(column: str, value: Any) -> Any:
+    if column == "schedule":
+        return json.dumps(value, sort_keys=True)
+    if column == "enabled":
+        return 1 if value else 0
+    return value
+
+
+def _routine(row: Any) -> Routine:
+    try:
+        schedule = json.loads(row[4])
+    except ValueError:
+        schedule = {}
+    return Routine(
+        id=row[0],
+        agent_name=row[1],
+        name=row[2],
+        prompt=row[3],
+        schedule=schedule if isinstance(schedule, dict) else {},
+        enabled=bool(row[5]),
+        finished_at=row[6],
+        target_kind=row[7],
+        target_session_id=row[8],
+        target_platform=row[9],
+        target_connector_id=row[10],
+        target_channel_id=row[11],
+        target_thread_id=row[12],
+        target_peer_id=row[13],
+        next_run_at=row[14],
+        anchor_at=row[15],
+        created_by=row[16],
+        created_at=row[17],
+        updated_at=row[18],
+    )
+
+
+def _is_name_clash(exc: sqlite3.IntegrityError) -> bool:
+    return "UNIQUE" in str(exc).upper()
+
+
+class AgentRoutineRepository:
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list_for_agent(self, name: str) -> list[Routine]:
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE agent_name = ? "
+            "ORDER BY name COLLATE NOCASE, id",
+            (name,),
+        ) as cur:
+            return [_routine(r) for r in await cur.fetchall()]
+
+    async def get(self, name: str, routine_id: str) -> Routine | None:
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE agent_name = ? AND id = ?",
+            (name, routine_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return _routine(row) if row else None
+
+    async def get_by_id(self, routine_id: str) -> Routine | None:
+        """Unscoped read for the scheduler and runner (leg 3/4)."""
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE id = ?", (routine_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _routine(row) if row else None
+
+    async def create(self, name: str, fields: dict[str, Any]) -> Routine:
+        """Insert a routine for agent *name*. *fields* holds ``name``, ``prompt``,
+        ``schedule`` (dict), ``target_kind`` and optionally the other columns."""
+        routine_id = uuid.uuid4().hex
+        now = _now_iso()
+        values = {
+            "enabled": True,
+            "finished_at": None,
+            "target_session_id": None,
+            "target_platform": None,
+            "target_connector_id": None,
+            "target_channel_id": None,
+            "target_thread_id": None,
+            "target_peer_id": None,
+            "next_run_at": None,
+            "anchor_at": None,
+            "created_by": "operator",
+            **fields,
+        }
+        try:
+            async with write_transaction(self.conn):
+                async with self.conn.execute(
+                    "SELECT COUNT(*) FROM agent_routines WHERE agent_name = ?", (name,)
+                ) as cur:
+                    count = int((await cur.fetchone())[0])
+                if count >= ROUTINES_PER_AGENT_MAX:
+                    raise RoutineLimitError(
+                        f"An agent can have at most {ROUTINES_PER_AGENT_MAX} routines."
+                    )
+                await self.conn.execute(
+                    f"INSERT INTO agent_routines ({_COLS}) VALUES "
+                    "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        routine_id,
+                        name,
+                        values["name"],
+                        values["prompt"],
+                        _encode("schedule", values["schedule"]),
+                        _encode("enabled", values["enabled"]),
+                        values["finished_at"],
+                        values["target_kind"],
+                        values["target_session_id"],
+                        values["target_platform"],
+                        values["target_connector_id"],
+                        values["target_channel_id"],
+                        values["target_thread_id"],
+                        values["target_peer_id"],
+                        values["next_run_at"],
+                        values["anchor_at"],
+                        values["created_by"],
+                        now,
+                        now,
+                    ),
+                )
+        except sqlite3.IntegrityError as e:
+            if _is_name_clash(e):
+                raise RoutineNameTaken(values["name"]) from e
+            raise
+        got = await self.get(name, routine_id)
+        assert got is not None
+        return got
+
+    async def update(self, name: str, routine_id: str, fields: dict[str, Any]) -> Routine:
+        unknown = set(fields) - _UPDATABLE
+        if unknown:
+            raise ValueError(f"Not updatable: {sorted(unknown)}")
+        try:
+            async with write_transaction(self.conn):
+                if await self.get(name, routine_id) is None:
+                    raise KeyError(f"Routine not found: {routine_id}")
+                sets = [f"{c} = ?" for c in fields] + ["updated_at = ?"]
+                params = [_encode(c, v) for c, v in fields.items()]
+                params += [_now_iso(), name, routine_id]
+                await self.conn.execute(
+                    f"UPDATE agent_routines SET {', '.join(sets)} WHERE agent_name = ? AND id = ?",
+                    params,
+                )
+        except sqlite3.IntegrityError as e:
+            if _is_name_clash(e):
+                raise RoutineNameTaken(str(fields.get("name", ""))) from e
+            raise
+        got = await self.get(name, routine_id)
+        assert got is not None
+        return got
+
+    async def delete(self, name: str, routine_id: str) -> None:
+        async with write_transaction(self.conn):
+            if await self.get(name, routine_id) is None:
+                raise KeyError(f"Routine not found: {routine_id}")
+            await self.conn.execute(
+                "DELETE FROM agent_routines WHERE agent_name = ? AND id = ?",
+                (name, routine_id),
+            )
+
+    async def list_due(self, now_iso: str) -> list[Routine]:
+        """Enabled, unfinished routines whose ``next_run_at`` has arrived (leg 4)."""
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE enabled = 1 AND finished_at IS NULL "
+            "AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at, id",
+            (now_iso,),
+        ) as cur:
+            return [_routine(r) for r in await cur.fetchall()]
+
+    async def set_next_run(
+        self,
+        routine_id: str,
+        next_run_at: str | None,
+        *,
+        finished_at: str | None = None,
+    ) -> None:
+        """Set ``next_run_at`` (and ``finished_at``) without touching ``updated_at``
+        semantics of operator edits; a missing row is a no-op (legs 3 and 4)."""
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_routines SET next_run_at = ?, "
+                "finished_at = COALESCE(?, finished_at) WHERE id = ?",
+                (next_run_at, finished_at, routine_id),
+            )
+
+    async def advance_if_due(
+        self, routine_id: str, due_iso: str, next_iso: str | None, finished_iso: str | None
+    ) -> bool:
+        """Compare-and-set advance (leg 5, DD5): applies only while the row still has
+        ``next_run_at == due_iso`` and is enabled and unfinished. ``False`` means an
+        edit, a disable or a delete got there first, and the edit wins."""
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "UPDATE agent_routines SET next_run_at = ?, "
+                "finished_at = COALESCE(?, finished_at) "
+                "WHERE id = ? AND next_run_at = ? AND enabled = 1 AND finished_at IS NULL",
+                (next_iso, finished_iso, routine_id, due_iso),
+            )
+            return cur.rowcount > 0
+
+    async def earliest_next_run(self) -> str | None:
+        """The soonest ``next_run_at`` among enabled, unfinished routines."""
+        async with self.conn.execute(
+            "SELECT MIN(next_run_at) FROM agent_routines WHERE enabled = 1 "
+            "AND finished_at IS NULL AND next_run_at IS NOT NULL"
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row and row[0] else None
+
+    async def list_active_wall_clock(self, after_iso: str) -> list[Routine]:
+        """Enabled, unfinished daily/weekdays/weekly routines due after *after_iso*."""
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE enabled = 1 AND finished_at IS NULL "
+            "AND next_run_at IS NOT NULL AND next_run_at > ? "
+            "AND json_extract(schedule, '$.kind') IN ('daily', 'weekdays', 'weekly') "
+            "ORDER BY next_run_at, id",
+            (after_iso,),
+        ) as cur:
+            return [_routine(r) for r in await cur.fetchall()]
+
+    async def recompute_next_run(
+        self, routine_id: str, expected_next_iso: str, new_next_iso: str | None
+    ) -> bool:
+        """Compare-and-set of ``next_run_at`` alone (a time-zone change)."""
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "UPDATE agent_routines SET next_run_at = ? "
+                "WHERE id = ? AND next_run_at = ? AND enabled = 1 AND finished_at IS NULL",
+                (new_next_iso, routine_id, expected_next_iso),
+            )
+            return cur.rowcount > 0
+
+    async def set_target_session(self, routine_id: str, session_id: str | None) -> None:
+        """Retarget a routine at a chat. A missing row is a no-op; ``updated_at`` stays."""
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_routines SET target_session_id = ? WHERE id = ?",
+                (session_id, routine_id),
+            )
+
+
+class RoutineRunRepository:
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    _COLS = (
+        "id, routine_id, trigger_kind, outcome, reason, due_at, started_at, finished_at, "
+        "session_id, new_chat"
+    )
+
+    @staticmethod
+    def _row(row: Any) -> RoutineRun:
+        return RoutineRun(
+            id=row[0],
+            routine_id=row[1],
+            trigger_kind=row[2],
+            outcome=row[3],
+            reason=row[4],
+            due_at=row[5],
+            started_at=row[6],
+            finished_at=row[7],
+            session_id=row[8],
+            new_chat=bool(row[9]),
+        )
+
+    async def insert(self, run: RoutineRun) -> RoutineRun:
+        run_id = run.id or uuid.uuid4().hex
+        started = run.started_at or _now_iso()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                f"INSERT INTO agent_routine_runs ({self._COLS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    run.routine_id,
+                    run.trigger_kind,
+                    run.outcome,
+                    run.reason,
+                    run.due_at,
+                    started,
+                    run.finished_at,
+                    run.session_id,
+                    1 if run.new_chat else 0,
+                ),
+            )
+        return run.model_copy(update={"id": run_id, "started_at": started})
+
+    async def finish(
+        self,
+        run_id: str,
+        outcome: str,
+        reason: str | None = None,
+        session_id: str | None = None,
+        new_chat: bool | None = None,
+    ) -> None:
+        """Close a run. A missing row (its routine was deleted mid-run) is a no-op."""
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_routine_runs SET outcome = ?, reason = ?, finished_at = ?, "
+                "session_id = COALESCE(?, session_id), new_chat = COALESCE(?, new_chat) "
+                "WHERE id = ?",
+                (
+                    outcome,
+                    reason,
+                    _now_iso(),
+                    session_id,
+                    None if new_chat is None else (1 if new_chat else 0),
+                    run_id,
+                ),
+            )
+
+    async def latest(self, routine_id: str) -> RoutineRun | None:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} FROM agent_routine_runs WHERE routine_id = ? "
+            "ORDER BY started_at DESC, id DESC LIMIT 1",
+            (routine_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row(row) if row else None
+
+    async def list(
+        self, routine_id: str, limit: int = 50, before: str | None = None
+    ) -> list[RoutineRun]:
+        sql = f"SELECT {self._COLS} FROM agent_routine_runs WHERE routine_id = ?"
+        params: list[Any] = [routine_id]
+        if before is not None:
+            sql += " AND started_at < ?"
+            params.append(before)
+        sql += " ORDER BY started_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        async with self.conn.execute(sql, params) as cur:
+            return [self._row(r) for r in await cur.fetchall()]
+
+    async def mark_running_interrupted(self, reason: str) -> int:
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "UPDATE agent_routine_runs SET outcome = 'interrupted', reason = ?, "
+                "finished_at = ? WHERE outcome = 'running'",
+                (reason, _now_iso()),
+            )
+            return cur.rowcount
+
+    async def delete_finished_older_than(self, agent_name: str, cutoff: str) -> int:
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "DELETE FROM agent_routine_runs WHERE outcome != 'running' "
+                "AND finished_at IS NOT NULL AND finished_at < ? "
+                "AND routine_id IN (SELECT id FROM agent_routines WHERE agent_name = ?)",
+                (cutoff, agent_name),
+            )
+            return cur.rowcount
+
+    async def delete_all_for_agent(self, agent_name: str) -> int:
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "DELETE FROM agent_routine_runs WHERE outcome != 'running' "
+                "AND routine_id IN (SELECT id FROM agent_routines WHERE agent_name = ?)",
+                (agent_name,),
+            )
+            return cur.rowcount

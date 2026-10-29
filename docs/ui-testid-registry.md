@@ -121,6 +121,9 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-notes-kept` | chat | the Notes group's "{n} kept" line, shown only while notes are off and some are stored (M27 F2 L3) |
 | `chat-drawer-notes-off` | chat | the Notes group's "Off" (M27 F2 L3) |
 | `chat-drawer-rule` | chat | one enabled rule in the drawer's Rules group (`<li>`, full text in `title`, text clamped to two lines) (M27 F1 L2) |
+| `chat-drawer-routine` | chat | the drawer's Routine fact value (`<dd>`: "{name} · last ran {day} {time}"), present only when the open chat's join metadata carries a routine (M33 F1 L7) |
+| `chat-drawer-routines` | chat | the drawer Routines group's `<ul>` (M33 F1 L7) |
+| `chat-drawer-routine-item` | chat | one routine in the drawer's Routines group (`<li>`, name + "Next …"/"Off"/"Done" meta, full name in `title`) (M33 F1 L7) |
 | `chat-drawer-rules` | chat | the drawer Rules group's bulleted `<ul>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
@@ -299,6 +302,10 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-server-website` | studio | The "Website" facts row: a link (`target=_blank`, `rel="noopener noreferrer"`) through `App.safeUrl`, inert text when rejected (squawk 0010) (M31 F5 L09) |
 | `mcp-source-card` | studio | Library list MCP-server row (an `<a href="#library/mcp/{id}">`, M25 F3 L4a; was the MCP Servers grid tile) |
 | `mcp-sources-list` | studio | |
+| `agent-tools-builtin-section` | studio | the Tools tab's "Built-in tools" `App.ui.section` (M33 F1 L06) |
+| `agent-tools-builtin-host` | studio | the host div `renderToolsTab` fills inside it |
+| `agent-tools-mcp-section` | studio | the Tools tab's "MCP servers" `App.ui.section` |
+| `agent-tools-mcp-host` | studio | the host div `renderMcpsTab` fills inside it |
 | `mcp-editor-subtitle` | studio | The MCP editor header's subtitle (`editorShell` `subtitleTestid`): "{type label} · {command or URL}", the type label alone without a detail, the raw type for a legacy row; absent on the create form; follows an edit Save (M31 F5 L10, A4, defect 12) |
 | `mcp-test-connection` | studio | The header's Test button (`editorShell` `actions.test`, M31 F5 L10), built only for an edit-mode stdio or streamable-HTTP mount; its state has one writer, `syncTestHold`; reads "Waiting for sign-in…" and is disabled while a consent session runs (M31 F5 L08b, B2) |
 | `mcp-test-status` | studio | The Test result area directly after the status line, in the Connection section; empty and hidden at rest and after a success (M31 F5 L08b, A8) |
@@ -441,6 +448,60 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-row-toggle` | studio | the rule's on/off `App.ui.toggle` input (`role=switch`, name "Rule N enabled") (M27 F1 L2) |
 | `rules-row-up` | studio | rule Move up; disabled on the first row (M27 F1 L2) |
 | `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
+| `routine-delete` | studio | a routine row's Delete, two-step through `App.ui.confirm` (M33 F1 L8) |
+| `routine-done-hint` | studio | the visible "Set a new time to run it again." hint on a Done row (its switch is disabled) (M33 F1 L8) |
+| `routine-error` | studio | a routine row's error line (`App.ui.status` danger, `role=alert`; the 409 "This routine is already running.") (M33 F1 L8) |
+| `routine-chat-chooser` | studio | the chat chooser `App.ui.modal` (chooser layout) opened by Choose chat (M33 F1 L9) |
+| `routine-chat-chooser-close` | studio | the chooser's Esc close button (M33 F1 L9) |
+| `routine-chat-option` | studio | one chat row in the chooser (`data-session-id`) (M33 F1 L9) |
+| `routine-chat-search` | studio | the chooser's search input (M33 F1 L9) |
+| `routine-edit` | studio | a routine row's Edit button; opens the form pre-filled (M33 F1 L8; form L9) |
+| `routine-form` | studio | the inline create/edit form (`<form>`, above the list) (M33 F1 L9) |
+| `routine-form-at-ampm` | studio | Once / At: AM or PM select (M33 F1 L9) |
+| `routine-form-at-day` | studio | Once / At: day select (next 60 days in the operator zone plus the routine's own date) (M33 F1 L9) |
+| `routine-form-at-hour` | studio | Once / At: hour select (1-12) (M33 F1 L9) |
+| `routine-form-at-minute` | studio | Once / At: minute select (five-minute steps plus the routine's own minute) (M33 F1 L9) |
+| `routine-form-ampm` | studio | daily / weekdays / weekly time: AM or PM select (one shared set, moved into the selected kind's slot) (M33 F1 L9) |
+| `routine-form-cancel` | studio | form Cancel (discards unsaved text, focus returns to the opener) (M33 F1 L9) |
+| `routine-form-chat` | studio | the "A chat" target's chosen-chat description ("No chat chosen." until picked) (M33 F1 L9) |
+
+| `routine-form-days` | studio | the Weekly "Days" `App.ui.checkboxGroup` fieldset (M33 F1 L9) |
+| `routine-form-error` | studio | the form's general error line (errors with no field) (M33 F1 L9) |
+| `routine-form-hour` | studio | daily / weekdays / weekly time: hour select (1-12) (M33 F1 L9) |
+| `routine-form-in-amount` | studio | Once / In: amount (number) (M33 F1 L9) |
+| `routine-form-in-unit` | studio | Once / In: unit select (minutes, hours, days) (M33 F1 L9) |
+| `routine-form-interval` | studio | Every N hours: hours input (1-168) (M33 F1 L9) |
+| `routine-form-minute` | studio | daily / weekdays / weekly time: minute select (M33 F1 L9) |
+| `routine-form-name` | studio | form Name input (limit 64) (M33 F1 L9) |
+| `routine-form-once-mode` | studio | the nested Once "When" radio group (In / At) (M33 F1 L9) |
+| `routine-form-prompt` | studio | form Prompt textarea (M33 F1 L9) |
+| `routine-form-save` | studio | form Save (M33 F1 L9) |
+| `routine-form-schedule` | studio | the Schedule `App.ui.radioGroup` (Once, Daily, Weekdays, Weekly, Every N hours) (M33 F1 L9) |
+| `routine-form-schedule-error` | studio | the Schedule group's error line (M33 F1 L9) |
+| `routine-form-target` | studio | the "Run in" `App.ui.radioGroup` (A chat, A new chat each run, Its own chat) (M33 F1 L9) |
+| `routine-form-target-error` | studio | the Run in group's error line (M33 F1 L9) |
+| `routine-target-picker` | studio | Choose chat button (opens the chooser) (M33 F1 L9) |
+| `routine-history` | studio | a routine row's History `App.ui.disclosure` (plain); the first open fetches `…/runs?limit=20` (M33 F1 L8) |
+| `routine-history-empty` | studio | "No runs yet." inside an open History (M33 F1 L8) |
+| `routine-history-list` | studio | the History run list (`<ul>`) (M33 F1 L8) |
+| `routine-history-more` | studio | History "Show older" (pages with `before`); hidden when a page is short (M33 F1 L8) |
+| `routine-last` | studio | the last-outcome `App.ui.status` (`data-state` pending/success/danger/warning/idle) (M33 F1 L8) |
+| `routine-name` | studio | the routine's name (textContent) (M33 F1 L8) |
+| `routine-next` | studio | the next-run line: Running, Done, Off or "Next {weekday} {h:mm AM/PM}" (M33 F1 L8) |
+| `routine-row` | studio | one routine row (`<li>`, `data-routine-id`), sorted by name (M33 F1 L8) |
+| `routine-run` | studio | one History entry (`<li>`: outcome status, trigger, time, "New chat") (M33 F1 L8) |
+| `routine-run-now` | studio | a routine row's Run now; disabled while the row is running (M33 F1 L8) |
+| `routine-schedule` | studio | the schedule sentence ("Daily at 9:00 AM", "Every 2 hours", …) (M33 F1 L8) |
+| `routine-target` | studio | the target line ("{chat title} · {Platform}", "New chat each run", "Its own chat", or the gone notice) (M33 F1 L8) |
+| `routine-toggle` | studio | a routine's on/off `App.ui.toggle` input (`role=switch`, name "Run {name} on schedule"; disabled on a Done row) (M33 F1 L8) |
+| `routines-default-agent` | studio | Routines tab notice for the `default` agent ("Routines need a named agent.") (M33 F1 L8) |
+| `routines-empty` | studio | Routines tab empty state (M33 F1 L8) |
+| `routines-empty-new-btn` | studio | the empty state's New routine action (M33 F1 L8) |
+| `routines-error` | studio | the Routines tab's list-level error line (M33 F1 L8) |
+| `routines-live` | studio | the Routines tab's visually hidden polite status line (Run now start and finish) |
+| `routines-new-btn` | studio | Routines tab New routine (M33 F1 L8) |
+| `routines-save-first` | studio | Routines tab create-mode notice (M33 F1 L8) |
+| `routines-section` | studio | the Routines section of the Routines tab (M33 F1 L8) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
@@ -469,6 +530,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
+| `routine-form-day-` | studio | The routine form's Weekly day checkboxes: `routine-form-day-{0..6}`, Monday = 0 (M33 F1 L9) |
 | `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`; one list, in assembly order, the tool-free Identity beside the tools Identity; the tool-free Formatting block is absent while its text equals the tools Formatting text, so only the tools block shows; a retired id cannot sit under a live family prefix, so it is not in the retired table, and `platform-variant-` is the retired entry) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
@@ -490,7 +552,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
-| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-mcps`, `tab-tools`, `tab-self-configuration` |
+| `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-tools` (label "Tools"), `tab-routines` (label "Routines", route `#agents/{name}/routines`, M33 F1 L8), `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)
 
@@ -515,6 +577,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `agent-tab-mcps` | studio | M33 F1 L06 — the MCPs tab (its `tab-mcps` testid is covered by the live `tab-` prefix row, so it is fenced in `RETIRED_SELECTORS` only), with its panel `agent-tab-panel-mcps`; folded into the Tools tab |
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
 | `mcp-kv-tbody` | studio | M31 F5 L07 — the MCP key-value table is `App.ui.keyValueTable`; reach rows through `[data-testid="mcp-kv-table"] tbody tr` |

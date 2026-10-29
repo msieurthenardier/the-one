@@ -598,6 +598,16 @@ The one-megabyte cap on a single server-sent event (a tool result or listing
 larger than that fails with a plain error naming the limit) also bounds how much
 a hostile server can make the client buffer per event.
 
+## Routines (Mission 33)
+
+A routine is an operator-defined scheduled prompt (`the_one/routines/`). What it adds to the threat model:
+
+- **Unattended turns run with the agent's full tool access.** A scheduled run is an ordinary agent turn started by the scheduler instead of a person, so it can use every tool the agent has (including the shell and file tools under the agent's configured containment) with no human watching. The operator who creates a routine is authorizing that.
+- **A connector routine posts with no human present.** Its reply goes to the connector chat's own platform target. Only the agent's final reply is posted, never the routine's prompt.
+- **The authorized-agent rule.** Before a connector run starts, the target connector must exist, be connected and have the routine's agent as the answering agent for that channel; otherwise the run fails with a recorded reason and no chat is created.
+- **Every outcome is recorded.** Each run, including missed, skipped, interrupted and failed ones, has a row in `agent_routine_runs` with a plain reason; nothing is silently dropped, except the accepted one-occurrence loss in a crash between a routine's advance write and its spawn (`agents.md` "Routines (M33)").
+- **Routines are operator-written only in this flight.** Flight 2 extends this section with agent-authored routines.
+
 ## Ollama library and registry fetches
 
 The Pull Model control makes outbound requests from the server to three URL shapes: `https://ollama.com/library` and `https://ollama.com/api/tags` (the catalog of pullable models; fixed URLs, redirects are followed, and the response is only parsed, never acted on: every name and tag it yields is validated before any manifest URL is built) and `https://registry.ollama.ai/v2/library/{name}/manifests/{tag}` (each entry's exact download size; fixed host, no redirects). The hosts are module constants; no part of any host or path is user-controlled. The model `name` and `tag` that reach a manifest URL, whether parsed from the library page or supplied to `GET /api/ollama-library/size?model=`, must first pass an anchored allowlist (`re.fullmatch`, the operator-supplied-identifier rule above: names `[a-z0-9][a-z0-9._-]{0,127}`, tags `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, a single path segment); a failing entry is dropped and logged, and the size route answers 422. Manifest requests do not follow redirects (a 3xx is treated as "size unknown"); the listing fetches do. Nothing is sent about the operator or their Ollama server, and the pull itself (`POST /api/providers/{id}/models/pull`) is unchanged. Sizes and the listing are cached on disk in `{data_dir}/ollama-sizes.json` (public catalog data, no secrets). See `the_one/agents.md` "Ollama pull catalog".

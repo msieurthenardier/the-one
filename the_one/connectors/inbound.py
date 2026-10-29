@@ -35,10 +35,14 @@ from the_one.agent.factory import (
 )
 from the_one.connectors.base import (
     ChannelTarget,
-    ConnectorClientError,
     InboundEnvelope,
     PeerTarget,
     SendTarget,
+)
+from the_one.connectors.delivery import (  # noqa: F401  (STEP_LIMIT_LINE re-exported)
+    STEP_LIMIT_LINE,
+    deliver_final_reply,
+    send_step_limit_line,
 )
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
@@ -87,6 +91,21 @@ def _resolve_continuation_seconds(override: int | None = None) -> int:
             _DEFAULT_CONTINUATION_SECONDS,
         )
         return _DEFAULT_CONTINUATION_SECONDS
+
+
+def is_continuable(row: ChatSession, continuation_seconds: int, now: datetime) -> bool:
+    """True when ``row`` may take another message: no ``/new`` ``ended_at`` sentinel,
+    a parseable ``last_inbound_at`` (naive reads as UTC) younger than the window."""
+    metadata = row.session_metadata or {}
+    if "ended_at" in metadata or row.last_inbound_at is None:
+        return False
+    try:
+        last = datetime.fromisoformat(row.last_inbound_at)
+    except ValueError:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (now - last).total_seconds() < continuation_seconds
 
 
 def is_admitted(connector: Connector, envelope: InboundEnvelope) -> bool:
@@ -178,19 +197,8 @@ async def resolve_session(
         channel_id=envelope.channel_id,
         thread_id=envelope.thread_id,
     )
-    if existing is not None:
-        metadata = existing.session_metadata or {}
-        if "ended_at" not in metadata and existing.last_inbound_at is not None:
-            try:
-                last = datetime.fromisoformat(existing.last_inbound_at)
-            except ValueError:
-                last = None
-            if last is not None:
-                if last.tzinfo is None:
-                    last = last.replace(tzinfo=timezone.utc)
-                now = datetime.now(timezone.utc)
-                if (now - last).total_seconds() < continuation:
-                    return existing
+    if existing is not None and is_continuable(existing, continuation, datetime.now(timezone.utc)):
+        return existing
 
     current_iso = now_iso()
     title = await _session_title(envelope, connector, dir_repo)
@@ -244,9 +252,6 @@ def _bind_peer_name(messages: list[Message], pre_step_len: int, peer_name: str) 
     messages[pre_step_len].peer_name = peer_name
 
 
-STEP_LIMIT_LINE = "(Stopped: reached its step limit for this message.)"
-
-
 def _reply_target(envelope: InboundEnvelope, connector_id: str) -> SendTarget:
     """The originating target: a ``PeerTarget`` for a DM, else a ``ChannelTarget``."""
     if envelope.is_dm:
@@ -264,22 +269,7 @@ async def _send_step_limit_line(
     stored turn); with no client or on a send failure it is logged and dropped.
     Not stored: ``encode_messages`` has already run.
     """
-    try:
-        client = manager.client_for(connector_id)
-        if client is None:
-            logger.warning(
-                "dispatch_inbound: step-limit line skipped for connector %s (no live client)",
-                connector_id,
-            )
-            return
-        await client.send(_reply_target(envelope, connector_id), STEP_LIMIT_LINE)
-    except ConnectorClientError:
-        logger.exception("dispatch_inbound: step-limit line failed for connector %s", connector_id)
-    except Exception:
-        logger.exception(
-            "dispatch_inbound: unexpected error sending step-limit line for connector %s",
-            connector_id,
-        )
+    await send_step_limit_line(_reply_target(envelope, connector_id), connector_id, manager)
 
 
 async def _auto_deliver_reply(
@@ -320,61 +310,9 @@ async def _auto_deliver_reply(
     (operator-only) — no retry, no raise; the caller's persist still
     happens.
     """
-    new_msgs = messages[pre_step_len:]
-
-    tool_call_names: dict[str, str] = {}
-    for msg in new_msgs:
-        if msg.role == Role.ASSISTANT:
-            for tc in msg.tool_calls:
-                tool_call_names[tc.id] = tc.name
-
-    for msg in new_msgs:
-        if (
-            msg.role == Role.TOOL
-            and msg.tool_result is not None
-            and tool_call_names.get(msg.tool_result.tool_call_id)
-            == _SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
-            and isinstance(msg.content, str)
-            and msg.content.startswith(_PLATFORM_SEND_OK_PREFIX)
-        ):
-            return
-
-    assistant_msgs = [m for m in new_msgs if m.role == Role.ASSISTANT]
-    if not assistant_msgs:
-        return
-    final = assistant_msgs[-1]
-    if not isinstance(final.content, str) or not final.content:
-        return
-
-    target = _reply_target(envelope, connector_id)
-
-    client = manager.client_for(connector_id)
-    if client is None:
-        logger.warning(
-            "dispatch_inbound: auto-reply delivery skipped for connector %s "
-            "(no live client); reply stays operator-only",
-            connector_id,
-        )
-        return
-
-    try:
-        await client.send(target, final.content)
-    except ConnectorClientError:
-        logger.exception(
-            "dispatch_inbound: auto-reply delivery failed for connector %s; "
-            "reply stays operator-only",
-            connector_id,
-        )
-        return
-    except Exception:
-        logger.exception(
-            "dispatch_inbound: unexpected error auto-delivering reply for connector %s; "
-            "reply stays operator-only",
-            connector_id,
-        )
-        return
-
-    final.visibility = None
+    await deliver_final_reply(
+        messages, pre_step_len, _reply_target(envelope, connector_id), connector_id, manager
+    )
 
 
 def _resolve_agent_name(connector: Connector, envelope: InboundEnvelope) -> str | None:

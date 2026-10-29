@@ -2324,6 +2324,17 @@
     .ui-tool-tile--selected { border-color: Highlight; outline: 1px solid Highlight; }
   }
 
+  /* === App.ui.checkboxGroup (M33 F1 L9): a fieldset of checkboxes in a wrapping row === */
+  .ui-checkbox-group { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+  .ui-checkbox-group-legend {
+    padding: 0;
+    margin-block-end: var(--space-2);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg);
+  }
+  .ui-checkbox-group-options { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+
   /* === App.ui.radioGroup (M28 F2 L2): a fieldset of option cards === */
   .ui-radio-group { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
   .ui-radio-legend {
@@ -2340,7 +2351,7 @@
     padding: 12px 14px;
     background: var(--surface);
   }
-  .ui-radio-option:has(.ui-radio-input:checked),
+  .ui-radio-option:has(> .ui-radio-label > .ui-radio-input:checked),
   .ui-radio-option.is-checked {
     border-color: var(--accent);
     background: var(--accent-translucent);
@@ -2375,7 +2386,7 @@
     .btn-muted-destructive:disabled, .ui-progress-cancel:disabled {
       color: GrayText; border-color: GrayText;
     }
-    .ui-radio-option:has(.ui-radio-input:checked),
+    .ui-radio-option:has(> .ui-radio-label > .ui-radio-input:checked),
     .ui-radio-option.is-checked { border-color: Highlight; border-width: 2px; }
     .ui-radio-option.is-disabled { color: GrayText; border-color: GrayText; opacity: 1; }
     .ui-radio-option.is-disabled .ui-radio-label,
@@ -2644,6 +2655,7 @@
   .ui-message.ui-message--operator-only { border-left: 3px solid var(--border-strong); padding-left: 8px; }
   .ui-message-operator-label { display: inline-block; margin-right: 4px; font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); }
   .ui-message-operator-chip { display: inline-block; margin-right: 6px; white-space: normal; }
+  .ui-message-marker-chip { display: inline-block; margin-right: 6px; white-space: normal; }
   /* max-width 100% (the old rule said none): a tool message with an unbreakable word wraps inside the trace. */
   .ui-trace-body .ui-message--tool { max-width: 100%; border-left: 2px solid var(--accent); }
   .ui-trace-body .ui-message--tool.ui-message--error { border-left-color: var(--status-danger); }
