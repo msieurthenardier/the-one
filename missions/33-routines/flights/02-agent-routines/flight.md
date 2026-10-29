@@ -1,6 +1,6 @@
 # Flight: Agents Schedule Their Own Routines
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria
