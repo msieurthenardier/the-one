@@ -394,6 +394,7 @@ def seed_session(
     created_at: str | datetime | None = None,
     platform: str | None = None,
     messages: list | str | None = None,
+    session_metadata: dict | None = None,
 ) -> str:
     """POST a chat session via /api/chat/sessions and return its id.
 
@@ -403,7 +404,8 @@ def seed_session(
     session (``platform``, e.g. ``"discord"``; None is a web session).
     ``messages`` is the stored history: a list (JSON-encoded here) or an
     already-encoded string, as ``the_one.db.codec.encode_messages`` returns;
-    omitted, the session is empty. The server allocates the id.
+    omitted, the session is empty. ``session_metadata`` is stored as given (a routine
+    chat's ``{"routine": {...}}``). The server allocates the id.
     """
     body: dict = {
         "agent_name": agent_name,
@@ -414,6 +416,8 @@ def seed_session(
     }
     if messages is not None:
         body["messages"] = messages if isinstance(messages, str) else json.dumps(messages)
+    if session_metadata is not None:
+        body["session_metadata"] = session_metadata
     r = httpx.post(
         f"{base_url}/api/chat/sessions",
         json=body,

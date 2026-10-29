@@ -30,7 +30,7 @@ DD2_ROWS = [
     ("agents", "#studio"),
     ("agents/foo", "#studio/agents/foo"),
     ("agents/foo/general", "#studio/agents/foo/general"),
-    ("agents/foo/mcps/src1", "#studio/agents/foo/mcps/src1"),
+    ("agents/foo/tools/src1", "#studio/agents/foo/tools/src1"),
     ("agents/foo/self-configuration", "#studio/agents/foo/self-configuration"),
     # A bare Library section (and `library`, whose legacy form is the same
     # alias) folds to `library`: the legacy hash is the alias, the round trip
@@ -415,6 +415,8 @@ RETIRED_SELECTORS = (
     "entity-tile",
     "mcp-tools-last-updated",
     "section-nav-item",
+    "tab-mcps",
+    "agent-tab-mcps",
     "back-agent-btn",
     "back-knowledge-btn",
     "back-mcp-source-btn",

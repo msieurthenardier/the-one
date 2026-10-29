@@ -39,6 +39,9 @@
   //                     value is always recorded in data-visibility
   //   visibilityStyle   'label' (default: a [operator-only] span) or 'chip' (an App.ui.chip)
   //   visibilityLabel   the chip's text (default 'Operator only')
+  //   marker            {label}: an App.ui.chip (size sm) on any role, after the operator
+  //                     chip and before the peer label and the body; null/undefined is a
+  //                     no-op, a missing/empty/non-string label throws
   //   peerName          a peer-attributed user bubble: left-aligned, and a visually hidden
   //                     "From {peer}: " first, for assistive technology
   //   testid            placed on the root (supplied by the caller)
@@ -61,6 +64,11 @@
     }
     if (opts.tone !== undefined && opts.tone !== null && opts.tone !== 'error') {
       throw new Error('App.ui.message: unknown tone "' + opts.tone + '"');
+    }
+    var marker = opts.marker;
+    if (marker !== undefined && marker !== null &&
+        (typeof marker !== 'object' || typeof marker.label !== 'string' || marker.label === '')) {
+      throw new Error('App.ui.message: marker needs a non-empty string label');
     }
     var style = opts.visibilityStyle || 'label';
     if (style !== 'label' && style !== 'chip') {
@@ -88,6 +96,11 @@
           text: opts.visibilityLabel || '[operator-only]'
         }));
       }
+    }
+    if (marker) {
+      root.appendChild(util.el('span', { className: 'ui-message-marker-chip' }, [
+        App.ui.chip({ label: marker.label, size: 'sm' })
+      ]));
     }
     if (opts.peerName) {
       root.appendChild(util.el('span', {

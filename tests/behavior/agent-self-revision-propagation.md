@@ -80,7 +80,7 @@ deferral hook applies only at iteration-loop exit).
   tool-capable model will do), and with a system prompt that does **not** already contain either
   sentinel word used below (`NAUTILUS`, `WOMBAT`).
 - The self-configuration surface is **enabled** on that agent, and its
-  `update_my_system_prompt` capability is left enabled in the agent's MCPs tab.
+  `update_my_system_prompt` capability is left enabled in the agent's Tools tab.
 - A browser apparatus is available and can reach the dev instance.
 
 ## Observables Required

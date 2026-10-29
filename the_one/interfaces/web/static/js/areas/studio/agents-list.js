@@ -330,7 +330,7 @@
       // agent edits). Render-on-resolve so the Tools tab reflects current
       // disabled state from first paint.
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
-      // created on the source-edit page appears in the MCPs tab without
+      // created on the source-edit page appears in the Tools tab without
       // a manual page reload. F6 L3 (L3-D1, L3-D3) adds two more: the
       // knowledge-base list refresh (mirrors the MCP one), and a fresh
       // fetch of THIS agent — needed because `loadAll()` does not re-run
@@ -435,7 +435,7 @@
       // F6 leg 05 — refresh operator-state caches before rendering so the
       // new-agent Tools tab reflects current operator-disabled state.
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
-      // created source is visible from the new-agent MCPs tab without
+      // created source is visible from the new-agent Tools tab without
       // a manual page reload. F6 L3 (L3-D3): the fresh-agent refetch is
       // select-path only — create mode has no agent to fetch — but the
       // knowledge-base refresh goes into both sites.

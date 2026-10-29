@@ -354,6 +354,19 @@ def _tools_override_open(ctx: Ctx) -> None:
     panel.scroll_into_view_if_needed()
 
 
+def _routines_form_open(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="routine-row"]').first.wait_for(timeout=15000)
+    page.locator('[data-testid="routines-new-btn"]').click()
+    page.locator('[data-testid="routine-form"]').wait_for(timeout=10000)
+    page.locator('[data-testid="routine-form-name"]').fill("Friday digest")
+    page.locator('[data-testid="routine-form-prompt"]').fill("List the week's open questions.")
+    page.locator('[data-testid="routine-form"]').get_by_role("radio", name="Weekly").check()
+    page.locator('[data-testid="routine-form-day-4"]').check()
+    page.locator('[data-testid="routine-form"]').scroll_into_view_if_needed()
+    _mask(page)
+
+
 def _admin_tool_chips(ctx: Ctx) -> None:
     ctx.page.locator(".chip-list-editor .chip").first.wait_for(timeout=10000)
 
@@ -400,6 +413,7 @@ MASK_JS = r"""
     '.kb-item-indexed-at', '.kb-folder-indexed-at', '[data-testid="kb-item-indexed-at"]',
     '.connector-pairing-expiry', '[data-testid="connector-pairing-expiry"]',
     '[data-testid^="date-time-preview"]', '[data-testid="date-time-status"]',
+    '[data-testid="routine-next"]', '[data-testid="routine-last"]',
   ].join(', ');
   const SCORE = '.kb-search-hit-score, [data-testid="kb-search-hit-score"]';
   const CODE = '[data-testid="connector-pairing-code"]';
@@ -449,6 +463,9 @@ MASK_JS = r"""
       if (t !== n.textContent) n.textContent = t;
     });
     eachText(TIME, TIME_RULES);
+    // A routine's next run names a weekday that moves with the day the capture runs.
+    eachText('[data-testid="routine-next"]',
+      [[/(?<=Next )(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)/g, () => 'Sun']]);
     eachText(MCP_TIME, TIME_RULES.concat(MCP_RELATIVE));
     eachText('body', ANY_TEXT);
     document.querySelectorAll('input, textarea').forEach((n) => {
@@ -871,9 +888,9 @@ SURFACES += [
     ),
     Surface(
         "agent-mcps",
-        "#agents/{agent}/mcps",
+        "#agents/{agent}/tools",
         '[data-testid^="mcp-source-expand-"]',
-        "Agent editor, MCPs tab: the source expanded, four tools (stubbed)",
+        "Agent editor, Tools tab, MCP servers section: the source expanded, four tools (stubbed)",
         prepare=_mcps_expanded,
     ),
     Surface(
@@ -882,6 +899,19 @@ SURFACES += [
         '.ui-group-tile[data-category="Filesystem"]',
         "Agent editor, Built-in tools tab: Filesystem expanded, read_file Overrides open",
         prepare=_tools_override_open,
+    ),
+    Surface(
+        "agent-routines",
+        "#agents/{agent}/routines",
+        '[data-testid="routine-row"]',
+        "Agent editor, Routines tab: three routines (daily, weekly on its own chat, interval off)",
+    ),
+    Surface(
+        "agent-routines-form",
+        "#agents/{agent}/routines",
+        '[data-testid="routines-section"]',
+        "Routines tab with the New routine form open: Weekly selected, Friday ticked",
+        prepare=_routines_form_open,
     ),
     Surface(
         "agent-self-configuration",
@@ -1442,8 +1472,8 @@ SURFACES += [
     ),
     _mcp(
         "agent-mcps-full",
-        "#agents/{mcp_agent}/mcps",
-        "Agent editor, MCPs tab: Docs search, Billing API and Always fails expanded (real tests)",
+        "#agents/{mcp_agent}/tools",
+        "Agent editor, Tools tab, MCP section: Docs search, Billing API, Always fails (real tests)",
         ready='[data-testid^="mcp-source-expand-"]',
         prepare=_mcp_agent_tab_expanded,
     ),
@@ -2760,6 +2790,25 @@ def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
         {"text": "Never guess a file path.", "enabled": False},
     )
     _api(base, token, "PUT", f"/api/agents/{TABS_AGENT}/notes/settings", {"enabled": True})
+    # Routines (M33 F1 L9): three kinds and two targets, through REST; the next-run text is
+    # masked (MASK_JS), the schedule sentences are stable.
+    for routine in (
+        {"name": "Morning summary", "schedule": {"kind": "daily", "time": "09:00"}},
+        {
+            "name": "Weekly review",
+            "schedule": {"kind": "weekly", "days": [0, 4], "time": "16:30"},
+            "target": {"kind": "own"},
+        },
+        {"name": "Health check", "schedule": {"kind": "interval", "hours": 6}, "enabled": False},
+    ):
+        _api(
+            base,
+            token,
+            "POST",
+            f"/api/agents/{TABS_AGENT}/routines",
+            {"prompt": "Summarize what changed since the last run.", "target": {"kind": "new"}}
+            | routine,
+        )
     _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/self-configuration")
     return ids
 

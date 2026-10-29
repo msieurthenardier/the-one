@@ -1,6 +1,6 @@
 # Leg: routines-tab-form
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Operator Routines, End to End](../flight.md)
 
 ## Objective

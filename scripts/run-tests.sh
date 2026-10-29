@@ -68,7 +68,7 @@ declare -A BUDGET=(
   [chats]=420
   [chats-transcript]=330
   [agents]=540
-  [agent-tabs]=360
+  [agent-tabs]=540
   [library]=420
   [knowledge]=420
   [mcp]=330
@@ -189,7 +189,7 @@ chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py
 chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.py' \
                       'test_flow_chat_queued_render.py' 'test_flow_chat_visibility_distinction.py' \
                       'test_flow_chat_peer_attribution.py' 'test_flow_chat_thinking_disclosure.py' \
-                      'test_flow_chat_time_zone.py' 'test_flow_markdown_chat.py' \
+                      'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
                       'test_flow_chat_drafts.py')
@@ -220,7 +220,7 @@ studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*
 # Agent-tabs (M31 F2 L11, squawk 0217, split from `agents` when it ran 1.3x over
 # budget): the self-configuration, Rules and notes, and Tools-override files.
 agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
-                'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
+                'test_flow_agent_notes*' 'test_flow_agent_routines*' 'test_flow_studio_tools_*' \
                 'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py')
 # Routing (M26 F1 L4): the router, leave guard and client store files.
 routing_pat=('test_router_*' 'test_nav_guard*' 'test_store*')

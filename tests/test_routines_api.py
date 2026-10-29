@@ -655,3 +655,95 @@ async def test_set_target_session_is_narrow(client) -> None:
     got = await repo.get_by_id(row["id"])
     assert got.target_session_id == "abc" and got.updated_at == row["updated_at"]
     await repo.set_target_session("missing", "abc")  # no-op
+
+
+# ── once with a local date and time: {kind: once, on: {date, time}} (M33 F1 L9) ──
+
+
+def _on(date_text: str, time_text: str) -> dict:
+    return {"kind": "once", "on": {"date": date_text, "time": time_text}}
+
+
+async def _post_on(client, sched):
+    return await client.post("/api/agents/ag/routines", json=_body(schedule=sched))
+
+
+async def test_once_on_is_converted_in_the_effective_zone(client) -> None:
+    await _agent(client)
+    resp = await _post_on(client, _on("2026-11-02", "09:00"))
+    assert resp.status_code == 201, resp.text
+    row = resp.json()
+    # America/Los_Angeles is PST (UTC-8) on 2026-11-02.
+    assert row["schedule"] == {"kind": "once", "at": "2026-11-02T17:00:00+00:00"}
+    assert row["next_run_at"] == "2026-11-02T17:00:00+00:00"
+    await client.put("/api/time-settings", json={"mode": "zone", "zone": "Asia/Kolkata"})
+    resp = await client.post(
+        "/api/agents/ag/routines", json=_body(name="k", schedule=_on("2026-11-02", "09:00"))
+    )
+    assert resp.json()["schedule"]["at"] == "2026-11-02T03:30:00+00:00"
+
+
+async def test_once_on_gap_and_repeated_time(client) -> None:
+    await _agent(client)
+    # Spring forward 2027-03-14: 02:30 does not exist; the gap's end is 03:00 PDT = 10:00Z.
+    gap = await client.post(
+        "/api/agents/ag/routines", json=_body(name="gap", schedule=_on("2027-03-14", "02:30"))
+    )
+    assert gap.status_code == 201, gap.text
+    assert gap.json()["schedule"]["at"] == "2027-03-14T10:00:00+00:00"
+    # Fall back 2026-11-01: 01:30 happens twice; the first is PDT = 08:30Z.
+    rep = await client.post(
+        "/api/agents/ag/routines", json=_body(name="rep", schedule=_on("2026-11-01", "01:30"))
+    )
+    assert rep.json()["schedule"]["at"] == "2026-11-01T08:30:00+00:00"
+
+
+async def test_once_on_past_and_too_far(client) -> None:
+    await _agent(client)
+    resp = await _post_on(client, _on("2026-10-10", "09:00"))  # 09:00 PDT is before now
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == [
+        {"type": "value_error", "loc": ["schedule"], "msg": "That time has already passed."}
+    ]
+    resp = await _post_on(client, _on("2027-12-01", "09:00"))
+    assert resp.json()["detail"][0]["msg"] == "That time is more than a year away."
+
+
+@pytest.mark.parametrize(
+    "sched",
+    [
+        _on("2026-13-40", "09:00"),
+        _on("20261102", "09:00"),
+        _on("2026-11-02", "9am"),
+        _on("2026-11-02", "25:00"),
+        {"kind": "once", "on": {"date": "2026-11-02", "time": "09:00", "tz": "UTC"}},
+        {"kind": "once", "on": {"date": "2026-11-02"}},
+        {"kind": "once", "on": "2026-11-02 09:00"},
+        {**_on("2026-11-02", "09:00"), "at": "2026-11-02T17:00:00+00:00"},
+        {**_on("2026-11-02", "09:00"), "in": {"amount": 1, "unit": "hours"}},
+        {"kind": "once", "on": {"date": 20261102, "time": "09:00"}},
+    ],
+)
+async def test_once_on_malformed_is_a_schedule_422(client, sched) -> None:
+    await _agent(client)
+    resp = await _post_on(client, sched)
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list) and detail[0]["loc"] == ["schedule"]
+
+
+async def test_put_on_clears_finished_one_off(client) -> None:
+    await _agent(client)
+    at = (NOW + timedelta(hours=1)).isoformat()
+    row = await _make(client, schedule={"kind": "once", "at": at})
+    url = f"/api/agents/ag/routines/{row['id']}"
+    await client.conn.execute(
+        "UPDATE agent_routines SET finished_at = ?, next_run_at = NULL", (NOW.isoformat(),)
+    )
+    await client.conn.commit()
+    out = await client.put(url, json={"schedule": _on("2026-11-02", "09:00")})
+    assert out.status_code == 200, out.text
+    body = out.json()
+    assert body["finished_at"] is None
+    assert body["schedule"] == {"kind": "once", "at": "2026-11-02T17:00:00+00:00"}
+    assert body["next_run_at"] == "2026-11-02T17:00:00+00:00"

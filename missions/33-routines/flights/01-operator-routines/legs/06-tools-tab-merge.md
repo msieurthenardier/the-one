@@ -1,6 +1,6 @@
 # Leg: tools-tab-merge
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Operator Routines, End to End](../flight.md)
 
 ## Objective

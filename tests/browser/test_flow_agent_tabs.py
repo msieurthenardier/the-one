@@ -68,13 +68,13 @@ def test_tools_tab_reads_built_in_tools_in_sentence_case(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     """A21 (ledger row 21): the tab's visible text and accessible name are
-    "Built-in tools"; the id, testid and route are unchanged."""
+    "Tools"; the id, testid and route are unchanged."""
     _nav.goto(page, app_with_agent.base_url, "agents")
     _wait_editor_ready(page)
     tab = page.locator('[data-testid="tab-tools"]')
-    expect(tab).to_have_text("Built-in tools")
-    expect(page.get_by_role("tab", name="Built-in tools", exact=True)).to_have_count(1)
-    assert page.get_by_role("tab", name="Built-in Tools", exact=True).count() == 0
+    expect(tab).to_have_text("Tools")
+    expect(page.get_by_role("tab", name="Tools", exact=True)).to_have_count(1)
+    assert page.get_by_role("tab", name="Built-in tools", exact=True).count() == 0
     tab.click()
     _nav.expect_route(page, f"agents/{app_with_agent.agent_name}/tools")
 
@@ -84,10 +84,10 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     """The agent editor renders a tablist with tabs and correct ARIA.
 
     The Self-configuration tab (M21 F01 L02) sits last, so the tablist
-    renders 5 tabs in order: General / Knowledge / MCPs / Built-in tools /
-    Self-configuration. (A Connectors tab sat between MCPs and Built-in
-    tools from M10 through Mission 23 Flight 1, which reset the connector
-    subsystem and removed it.)
+    renders 6 tabs in order: General / Rules and notes / Knowledge / Tools /
+    Routines / Self-configuration (the MCPs tab folded into Tools, M33 F1 L06). (A Connectors
+    tab sat between MCPs and Built-in tools from M10 through Mission 23
+    Flight 1, which reset the connector subsystem and removed it.)
     """
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
@@ -97,7 +97,7 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    # General + Rules and notes + Knowledge + MCPs + Built-in tools + Self-configuration
+    # General + Rules and notes + Knowledge + Tools + Routines + Self-configuration
     expect(tabs).to_have_count(6)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
@@ -107,8 +107,8 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
-    expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute("aria-selected", "false")
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
+    expect(page.locator('[data-testid="tab-routines"]')).to_have_attribute("aria-selected", "false")
     expect(page.locator('[data-testid="tab-self-configuration"]')).to_have_attribute(
         "aria-selected", "false"
     )

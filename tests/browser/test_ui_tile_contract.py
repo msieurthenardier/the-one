@@ -425,7 +425,7 @@ LEGACY_ROWS = """<div class="tools-category-tile"><div class="tools-category-til
   <div class="mcp-tool-text"><span class="mcp-tool-toggle-name">read_file</span><span class="mcp-tool-description"> — %s</span></div></label></div>"""
 
 
-# The legacy MCP tool-row rules, inlined as a fixture (M31 F2 L07b): the MCPs tab no longer uses
+# The legacy MCP tool-row rules, inlined as a fixture (M31 F2 L07b): the Tools tab no longer uses
 # them, so they are gone from studio.css, and this comparison keeps its reference here.
 LEGACY_MCP_ROW_CSS = """<style>
 .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 6px; }

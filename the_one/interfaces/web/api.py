@@ -12,7 +12,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -1658,9 +1658,37 @@ def _routine_prompt(value: object) -> str:
     return text
 
 
-def _routine_schedule(raw: object, now: datetime) -> dict[str, Any]:
+_ROUTINE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _routine_schedule(raw: object, now: datetime, zone: tzinfo) -> dict[str, Any]:
     """Validate a schedule from a request: ``once`` may carry ``in`` (converted to an
-    absolute ``at``), and a ``once`` must lie in the future and within a year."""
+    absolute ``at``) or ``on`` (a local date and time in the operator zone, converted with
+    the DST rules), and a ``once`` must lie in the future and within a year."""
+    if isinstance(raw, dict) and raw.get("kind") == "once" and "on" in raw:
+        spec = raw.get("on")
+        if (
+            set(raw) != {"kind", "on"}
+            or not isinstance(spec, dict)
+            or set(spec) != {"date", "time"}
+        ):
+            raise _routine_422("schedule", "A one-time schedule at a local time is {kind, on}.")
+        date_text = spec.get("date")
+        if not isinstance(date_text, str) or not _ROUTINE_DATE_RE.match(date_text):
+            raise _routine_422("schedule", "The date must be written YYYY-MM-DD.")
+        try:
+            day = date.fromisoformat(date_text)
+        except ValueError:
+            raise _routine_422("schedule", "That date doesn't exist.")
+        try:
+            hour, minute = routine_schedule._parse_hhmm(spec.get("time"))
+        except RoutineScheduleError as e:
+            raise _routine_422("schedule", e.detail)
+        try:
+            at = routine_schedule.resolve_wall_time(day, hour, minute, zone)
+        except (ValueError, OverflowError):
+            raise _routine_422("schedule", "That date doesn't exist.")
+        raw = {"kind": "once", "at": at.isoformat()}
     if isinstance(raw, dict) and raw.get("kind") == "once" and "in" in raw:
         spec = raw.get("in")
         if set(raw) != {"kind", "in"} or not isinstance(spec, dict):
@@ -1799,13 +1827,13 @@ async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
     routine_name = _checked_name(data.get("name"))
     prompt = _routine_prompt(data.get("prompt"))
     now = time_zones.utcnow()
-    sched = _routine_schedule(data.get("schedule"), now)
+    conn = await get_connection()
+    zone = (await time_zones.load_effective_zone(conn)).tzinfo
+    sched = _routine_schedule(data.get("schedule"), now, zone)
     target = await _routine_target(data.get("target"), name)
     enabled = data.get("enabled", True)
     if not isinstance(enabled, bool):
         raise _routine_422("enabled", "Enabled must be true or false.")
-    conn = await get_connection()
-    zone = (await time_zones.load_effective_zone(conn)).tzinfo
     anchor = now if sched["kind"] == "interval" else None
     next_at = (
         routine_schedule.next_run(sched, after=now, zone=zone, anchor=anchor) if enabled else None
@@ -1869,7 +1897,9 @@ async def update_agent_routine(name: str, routine_id: str, request: Request) -> 
     anchor = routine_schedule.parse_utc(cur.anchor_at) if cur.anchor_at else None
     finished_at = cur.finished_at
     if schedule_changed:
-        sched = _routine_schedule(data["schedule"], now)
+        conn = await get_connection()
+        zone = (await time_zones.load_effective_zone(conn)).tzinfo
+        sched = _routine_schedule(data["schedule"], now, zone)
         fields["schedule"] = sched
         anchor = now if sched["kind"] == "interval" else None
         fields["anchor_at"] = anchor.isoformat() if anchor else None
@@ -3403,7 +3433,7 @@ async def list_mcp_sources(include_agent_surfaces: str | None = None) -> list[di
     """DD3: per-agent self-configuration surface rows are hidden from the
     admin MCP Sources listing by default — the operator manages them from
     the owning agent's own tabs, not this screen. The agent editor's fetch
-    passes ``?include_agent_surfaces=1`` so its MCPs tab (and the
+    passes ``?include_agent_surfaces=1`` so its Tools tab (and the
     self-configuration tab) can still see them. The filter is a
     request-level switch, not a repository change (DD3's constraint: both
     screens call this same endpoint today).
@@ -3900,7 +3930,7 @@ async def _build_and_test_no_auth_mcp(
             tools = await client.list_tools()
             capabilities = client.server_capabilities
             # F4 L2 (M08): capture spec-optional serverInfo + instructions
-            # alongside tools/capabilities so the MCPs tab can render a
+            # alongside tools/capabilities so the Tools tab can render a
             # server-declared subtitle line + hover-tooltip without re-probing.
             server_info = client.server_info
             instructions = client.instructions

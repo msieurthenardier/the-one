@@ -142,6 +142,77 @@
     return controller;
   };
 
+  // App.ui.checkboxGroup(opts) -> controller {el, value(), setValue(arr),
+  // setDisabled(bool), focus(), destroy()}  (M33 F1 L9).
+  //   legend (required), legendHidden, options[] of {value, label (both
+  //   required), disabled, testid (on that option's native input)}, value (the
+  //   initially checked values), onChange(values), testid (on the fieldset).
+  //   el is fieldset.ui-checkbox-group > legend.ui-checkbox-group-legend, then
+  //   div.ui-checkbox-group-options holding one App.ui.checkbox per option.
+  //   value() returns the checked values in option order. setValue and
+  //   setDisabled are silent (no onChange); an unknown value is ignored.
+  //   onChange(values) fires on a user toggle. destroy() removes the listener.
+  App.ui.checkboxGroup = function (opts) {
+    opts = opts || {};
+    if (!opts.legend) throw new Error('App.ui.checkboxGroup: legend is required');
+    if (!opts.options || !opts.options.length) {
+      throw new Error('App.ui.checkboxGroup: options are required');
+    }
+    var util = App.ui.util;
+    var fieldset = util.el('fieldset', { className: 'ui-checkbox-group' });
+    if (opts.testid) fieldset.setAttribute('data-testid', opts.testid);
+    fieldset.appendChild(util.el('legend', {
+      className: opts.legendHidden ? 'visually-hidden' : 'ui-checkbox-group-legend',
+      text: opts.legend
+    }));
+    var list = util.el('div', { className: 'ui-checkbox-group-options' });
+    fieldset.appendChild(list);
+    var rows = [];
+    var seen = {};
+    var initial = opts.value || [];
+    for (var i = 0; i < opts.options.length; i++) {
+      var o = opts.options[i];
+      if (!o || o.value === undefined || o.value === null || !o.label) {
+        throw new Error('App.ui.checkboxGroup: each option needs a value and a label');
+      }
+      var key = String(o.value);
+      if (seen[key]) throw new Error('App.ui.checkboxGroup: duplicate value');
+      seen[key] = true;
+      var cb = App.ui.checkbox({
+        label: o.label, testid: o.testid, disabled: !!o.disabled,
+        checked: initial.indexOf(o.value) !== -1
+      });
+      list.appendChild(cb.el);
+      rows.push({ value: o.value, cb: cb });
+    }
+    function values() {
+      var out = [];
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k].cb.control.checked) out.push(rows[k].value);
+      }
+      return out;
+    }
+    function onChange() {
+      if (typeof opts.onChange === 'function') opts.onChange(values());
+    }
+    fieldset.addEventListener('change', onChange);
+    return {
+      el: fieldset,
+      value: values,
+      setValue: function (arr) {
+        var want = arr || [];
+        for (var k = 0; k < rows.length; k++) rows[k].cb.setChecked(want.indexOf(rows[k].value) !== -1);
+      },
+      setDisabled: function (flag) {
+        for (var k = 0; k < rows.length; k++) rows[k].cb.setDisabled(!!flag);
+      },
+      focus: function () {
+        if (rows.length) rows[0].cb.control.focus();
+      },
+      destroy: function () { fieldset.removeEventListener('change', onChange); }
+    };
+  };
+
   // App.ui.radioGroup(opts) -> controller {el, value(), setValue(v),
   // setDescription(value, text), optionEl(value), input(value), focus(),
   // destroy()}.

@@ -904,18 +904,18 @@ applied):
       catch-up, missed and one-off finishing, the interrupted sweep, and the
       zone-change recompute with `routines_zone` (DD5). Docs: `agents.md`,
       CLAUDE.md, and `SECURITY-MODEL.md` (DD15).
-- [ ] `tools-tab-merge`: MCPs folded into Tools as a section; the `tools/{id}`
+- [x] `tools-tab-merge`: MCPs folded into Tools as a section; the `tools/{id}`
       deep link and the router-level `mcps` alias; retired testids; every pin
       re-pointed; copy updated (DD12 first half).
-- [ ] `message-marker-and-panel`: `App.ui.message` `marker`, the transcript
+- [x] `message-marker-and-panel`: `App.ui.message` `marker`, the transcript
       bubble, the routine in-flight client state (DD7 client), the panel's
       Routine row and Routines group (DD10), registry, browser tests and
       inventory row.
-- [ ] `routines-tab-list` *(8a, split at leg design review)*: the Routines
+- [x] `routines-tab-list` *(8a, split at leg design review)*: the Routines
       tab (the sixth tab) with lazy activation, the list, row controls (toggle,
       Run now, delete, history with paging), polling while it is running, and
       the form hooks; `routines-describe.js`.
-- [ ] `routines-tab-form` *(8b)*: `App.ui.checkboxGroup`; the server
+- [x] `routines-tab-form` *(8b)*: `App.ui.checkboxGroup`; the server
       accepts `once` as `{on: {date, time}}` in the operator zone; the pure
       form model; the inline form for five schedule kinds and three targets;
       the chat chooser; capture surfaces; the agent-tabs lane re-measured.

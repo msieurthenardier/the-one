@@ -371,3 +371,163 @@ retention policy instead.
   - a function-local import in `runner._resolve_target`.
 
   Legs 1-5 are `completed`, and the Batch A checkpoint is committed.
+- **Leg 10 `routine-connector-delivery-behavior-test`: low risk.** It only finalizes and runs an existing spec, and the Flight Director runs it through `/mission-control:behavior-test` after Batch B. No design review; `ready`.
+
+### Leg 6: tools-tab-merge
+
+Status: landed (not committed).
+
+Built: the MCPs tab folded into Tools. `agent-editor.js` has five tabs; `buildPanel('tools')` builds two `App.ui.section`s ("Built-in tools", then "MCP servers", testids `agent-tools-builtin-section` / `agent-tools-mcp-section`), each with its own host div (`…-host`) because both child modules wipe their node; composite handle `{builtin, mcps, setAgent, destroy}`, `h.tools`/`h.mcps` are its children, and `h.destroy` now destroys it. `studio-route.js` splits `tools/{id}`, `agent-editor-controller.js` clears the selection when `tab !== 'tools'`, `router.js` `agents` branch aliases `agents/{name}/mcps[/{id}]` to `tools` (redirected, same pass as the legacy table, so one replaceState). `mcps-tab.js` `focusSource` scrolls the tile into view. "MCPs tab" copy and comments swept (library intro, MCP error copy, self-config status, behavior specs, HAT.md, comments). `scripts/ui_capture.py` surfaces keep their names, routes now `…/tools`. Registry, inventory, agents.md and CLAUDE.md updated.
+
+Tests: re-pointed `test_studio_mcps_tab.py`, self-configuration tab, router items/core, frame, tabs, rules, scale, static contracts (5 tabs), nav helper; `RETIRED_SELECTORS` gains `tab-mcps` and `agent-tab-mcps`. New tests (in `test_studio_mcps_tab.py`): section order, one save across both sections (AC3), rebuild isolation (AC2a), legacy redirects (AC4).
+
+Results (THE_ONE_TEST_NETNS=1, THE_ONE_REQUIRE_WEBKIT=1): agents green 416s; library 311s; mcp-connection 245s; shared 297s; contracts-controls 348s; agent-tabs 126 passed 251s (after fixing `test_flow_agent_rules` tab count 6 to 5); routing 186 passed 478s (after fixing a `test_router_core` parity corpus that pulled the new mcps alias through `_nav`). `make test-unit`: 8076 passed, 15 skipped, 2 failed (raw `location.hash` literals in my new test, and `tab-mcps` in the registry Retired table colliding with the live `tab-` prefix row), both fixed and re-run green (nav helper, ui_guards, token and a11y tests 445 passed). ruff check and format clean.
+
+Measured tablist right edge at 1024px, five tabs: Chromium 893px, WebKit 883px (scroll/client 652/652), recorded in agents.md.
+
+Grep for `mcps`, `tab-mcps`, `MCPs tab` in tests, scripts, docs, behavior: remaining hits are intentional (the retired-selector fence, router redirect rows and their tests, `mcps-tab.js` file name, the registry Retired row, historical release notes).
+
+Deviations: (1) the `tab-mcps` row is not in the registry Retired table (the live `tab-` prefix row collides with the retired-id test); fenced in `RETIRED_SELECTORS` and noted on the `agent-tab-mcps` row. (2) `_nav.py` unchanged as specified, so the router-only mcps alias rows are excluded from `PARITY_CORPUS`. (3) The Tools-tab editor test for the CLAUDE.md "sixth" wording now says fifth; leg 8 raises it to six.
+
+- **Leg 6 landed (FD read of the `[LAND:leg]` report).** The editor now has five tabs, with MCP servers as the second section of Tools. Six lanes and the static guards are green.
+  - **Unit suite:** run before the last two fixes (8076 passed, 2 failed). After the fixes only the six affected unit files were re-run (445 passed), so the leg 7 Developer is told to run the full unit suite and to own any failure in leg 6's files.
+  - **Accepted deviation:** `tab-mcps` is fenced in `RETIRED_SELECTORS` and not in the registry's Retired table, because the live `tab-` prefix row collides with it.
+  - **Tablist width:** the right edge is 893px at 1024px in Chromium, so leg 8's sixth tab has room.
+  - **Spawned:** a leg 7 Developer (Sonnet), standard implement prompt plus the batch overrides.
+
+### Leg 7: message-marker-and-panel
+
+Status: landed (not committed).
+
+Built:
+- **`App.ui.message` `marker: {label}`.** It renders an `App.ui.chip` (sm) in `span.ui-message-marker-chip`, on any role, after the operator chip and before the peer label and body. null and undefined are no-ops, and an empty or non-string label throws. CSS is in `components.css`, and the inventory row is updated.
+- **Transcript.** `transcript.addUserEvent(ev, {ts, history})` is the one place a user event becomes a bubble, for live frames and replay. A routine event gets the routine name as attribution (side `you`), the "Routine" marker and `data-routine-id` (set in `addMsg`), with no prefix. Other sources keep theirs.
+- **In-flight.** `turn-frames.js`: a `user` frame with `source === 'routine'` and `session_id === chatState.boundId()` sets `inFlightSessions[sid]` (never `ownTurn`), then calls `updateStopControl`, `applyComposerState` and `showThinking`, after the bubble.
+- **Drawer.**
+  - `setSessionMetadata(sid, meta)` and `refreshRoutines()` are called from `session_joined` in `socket.js`.
+  - The metadata is kept per session id and dropped when the view's session differs.
+  - A `chat-drawer-routine` fact shows when `session_metadata.routine` is set.
+  - A read-only Routines group follows Notes: A-Z, meta Done over Off over "Next {day} {time}", refreshed without flicker with token, gen and agent guards. The default and deleted agents omit the group.
+- **Seeder and lane.** `seeders.seed_session(..., session_metadata=)`; the new test file is in `chats_transcript_pat`.
+- **Docs.** `docs/ui-testid-registry.md` has three new rows, and `agents.md` and CLAUDE.md are updated.
+
+Tests: new `test_flow_chat_routine_marker.py` (7: replay, live gate and in-flight and hold and done, Stop cancel, `done` idle, api prefix kept, drawer fact and group, no-metadata, no leak to another chat), plus a marker contract case in `test_ui_message_contract.py` (both engines). The drawer label-order assertion in `test_flow_chat_drawer.py` gains "Routines".
+
+Results (THE_ONE_TEST_NETNS=1):
+- `chats-transcript`: 97 passed, 230 s.
+- `chats`: 166 passed, 311 s (after updating the group-order assertion).
+- `contracts-chat` with `THE_ONE_REQUIRE_WEBKIT=1`: 148 passed, 50 s.
+- Static guards (`ui_guards`, `token_definitions`, `design_tokens_a11y`, plus inventory, emitted classes, ownership, nav helper, lanes, `store_static`, `tool_categories`, area size): 493 passed.
+- `make test-unit`: 8078 passed, 15 skipped.
+- ruff check and format: clean.
+
+Deviations:
+1. The 800-line area-module rule failed, because `agent-drawer.js` reached 869 lines. The Routines helpers and the Notes item builders moved to a new `areas/chat/agent-drawer-parts.js` (`App.chat.drawerParts`, with a script tag in `index.html`), and `agent-drawer.js` is now 780.
+2. The fourth facts-pair element was dropped. The testid guard needs a literal `setAttribute('data-testid', ...)`, so the last `dd` is tagged at the call site instead.
+3. The Done and Off meta wording is as specified. The day label is Today, a weekday within 6 days, or `Mon D`.
+4. Leg 6's two unit failures were already fixed before this leg, and the full suite is green.
+
+The "draft survives `session_updated`" case is covered by the existing per-chat draft behaviour. This leg adds no explicit test for it, and the mid-run re-join order is covered by the existing `is_processing` path.
+- **Leg 7 landed (FD read of the `[LAND:leg]` report).** It covers `App.ui.message` `marker`, `transcript.addUserEvent`, the routine in-flight state in `turn-frames.js`, the drawer's routine fact and the Routines group.
+  - **Gates:** `chats-transcript` 97, `chats` 166, `contracts-chat` 148; unit tests 8078 passed, 15 skipped. The full unit run is green, which closes leg 6's open unit re-run.
+  - **Deviations accepted:**
+    - `agent-drawer-parts.js` was split out to stay under the 800-line rule. It adds a script tag to `index.html`, so a running dev instance needs a restart to pick it up.
+    - The optional fourth `facts` pair element was dropped in favour of a call-site testid.
+    - Two re-join edge cases rely on existing per-chat behaviour, with no new test. The Batch B Reviewer should look at them.
+  - **Spawned:** a leg 8 Developer (Sonnet). It was told about the tab-count pins and the 1024px tablist width check.
+
+### Leg 8: routines-tab-list
+
+Status: landed (not committed).
+
+Built:
+- **Routines tab** between Tools and Self-configuration (six tabs). `routines-tab.js` returns `{setAgent, activate, deactivate, destroy}`; `routines-describe.js` is the pure helper set leg 9 reuses.
+- **Rows** are built once per routine and patched in place, so the 3 s poll keeps an open History, an armed Delete and focus. Row controls are the switch, Run now (409 shown inline), armed Delete and a History disclosure that pages with `before`.
+- **Activation.** It is activated at the end of the editor mount when the tab is selected, and from `setActiveTab`. Studio `deactivate` stops the poll and Studio `activate` resumes it.
+- **Form hooks.** New routine and Edit are hidden until `App.studio.routinesForm` exists.
+- Route whitelist, callbacks in `agent-data.js` and the controller, script tags, CSS, 24 registry rows, `agents.md` section, CLAUDE.md "sixth".
+- Pins moved from 5 to 6 in rules, tabs, frame, scale and the static contracts test.
+- Lane: the new `test_flow_agent_routines.py` (17 tests) is in `agent-tabs` via `agent_tabs_pat`.
+
+Tablist right edge at 1024px with six tabs: 979px Chromium, 967.5px WebKit (scroll/client 652/652).
+
+Results (THE_ONE_TEST_NETNS=1, THE_ONE_REQUIRE_WEBKIT=1):
+- `agent-tabs`: 143 passed, 310 s.
+- `agents`: 170 passed, 414 s.
+- `routing`: 186 passed, 478 s.
+- Static guards (ui_guards, token_definitions, design_tokens_a11y, editor contracts, ownership, lanes, area size, nav helper, time getters, emitted classes, inventory): 471 passed.
+- `make test-unit`: 8078 passed, 15 skipped.
+- ruff check and format: clean.
+
+Deviations:
+1. Delete's aria-label is updated by name change (not by the `confirm-delete` class, which the ownership guard forbids).
+2. No browser test for the Done row UI or for paging past 20 runs; Done precedence is covered through the describe helpers.
+3. A poll test leaves to Settings, not Chats, because Chats auto-joins the run's new chat and its drawer fetches `/routines` itself.
+- **Leg 8 landed (FD read of the `[LAND:leg]` report).** The editor now has six tabs, with Routines between Tools and Self-configuration.
+  - **Tablist width:** the right edge at 1024px is 979px in Chromium and 967.5px in WebKit, with no overflow.
+  - **Gates:**
+    - lanes: `agent-tabs` 143 passed, `agents` 170 passed, `routing` 186 passed;
+    - unit tests: 8078 passed, 15 skipped;
+    - the static guards and ruff are clean.
+  - **Deviations accepted:**
+    - Delete's `aria-label` is patched without a class check, because of the ownership guard.
+    - The Done row and paging past 20 runs are covered by the describe helpers only. The Batch B Reviewer should look at this.
+    - The poll-stop test leaves to Settings instead of Chats.
+  - **Spawned:** a leg 9 Developer (Sonnet), the last autonomous leg of Batch B.
+
+### Leg 9: routines-tab-form
+
+Status: landed (not committed).
+
+Built:
+- **`App.ui.checkboxGroup`** (`ui/choice.js`): fieldset, legend and one `App.ui.checkbox` per option; `value()` in option order, silent `setValue`/`setDisabled`, `focus`, `destroy`; missing legend or options throws. Inventory row, CSS, and `test_ui_checkbox_group_contract.py` (both engines, `contracts-controls`).
+- **Nested radio fix (AC2b).** The checked-card rule (and its forced-colors twin) is now `.ui-radio-option:has(> .ui-radio-label > .ui-radio-input:checked)`. A nested-group case is in `test_ui_radio_group_contract.py` (outer card styled checked only for its own radio; nested radios and an inner select never fire the outer `onChange`).
+- **Server `on` input.** `_routine_schedule(raw, now, zone)` accepts `{kind: "once", on: {date, time}}` (exact keys, strict date regex, `_parse_hhmm`, `resolve_wall_time` in the effective zone, then the existing past and one-year checks). POST and PUT load the zone first. Tests in `tests/test_routines_api.py`: zone conversion (LA and Kolkata), gap end (2027-03-14 02:30 -> 10:00Z), repeated hour (first occurrence), past, too far, ten malformed shapes (list 422 on `loc ["schedule"]`), and a PUT with `on` on a Done one-off clearing `finished_at`. The resolver's own DST tests already live in `test_routines_schedule.py` (leg 1), so none were added there.
+- **`routines-form-model.js`** (pure: `defaultState`, `scheduleBody`, `targetBody`, `formToBody`, `bodyToFormState`, `dayOptions`, `hourMinuteOptions`, `precheck`) and **`routines-form.js`** (the inline form, the nested "When" group, one shared time row moved into the selected kind's slot, the chat chooser). `routines-tab.js` hosts it in `.routines-form-host` above the list and discards it on `deactivate`/`destroy`; leg 8's hide-until-form checks are gone (and their test now asserts the buttons show).
+- **Plumbing.** `createRoutine` in `agent-data.js`, the controller bag and `agent-editor.js`' routines callbacks; script tags; `studio.css` form styles.
+- **Docs/tooling.** Registry rows (plus the `routine-form-day-` prefix family), `the_one/agents.md` "Routine form (M33 F1 L9)" and the Form hooks bullet, CLAUDE.md Routines paragraph, `scripts/ui_capture.py` surfaces `agent-routines` and `agent-routines-form` (three seeded routines through REST; the next-run weekday and time are masked) captured to a scratch directory in both themes and widths: 8 PNGs, 0 failed.
+- **Tests.** `tests/browser/test_flow_agent_routines_form.py` (18 tests, `agent-tabs` lane via the `test_flow_agent_routines*` glob, no `run-tests.sh` edit needed): each schedule kind, each target kind, the chooser (filter, platform search, Enter, Escape, focus return, empty and failed-load lines), edit omissions (name-only PUT, reverted field, kind and target change), 409 on Name, field errors, schedule and target group errors, discard on tab leave, and the pure model through `page.evaluate`.
+
+Results (THE_ONE_TEST_NETNS=1, THE_ONE_REQUIRE_WEBKIT=1; one lane at a time, solo):
+- `agent-tabs`: 161 passed, 518 s (up from 143 and 310 s at leg 8 on a different host load).
+- `agents`: 170 passed, 414 s.
+- `contracts-controls`: 1062 passed, 4 skipped, 350 s.
+- Static guards (ui_guards, token_definitions, design_tokens_a11y, control_inventory, ownership, emitted_classes, area_module_size, nav_helper, time_getters, studio_editor_contracts, ui_capture_safety, run_tests_lanes): all passed.
+- `make test-unit`: 8092 passed, 15 skipped, 415 s.
+- ruff check and format: clean.
+
+Deviations:
+1. **Platform badge.** `App.ui.searchList` has no badge slot, so a connector chat's platform name shows on the row's description line (and the day as the meta) instead of a neutral badge.
+2. **Lane re-measure (AC8).** Not done on a quiet-host `--parallel 3` run (the quiet-host rule forbids re-budgeting from a solo run). The solo 518 s is not comparable to the 294 s parallel reading; the 18 new tests are about 42 s solo. The Flight Director should re-measure `agent-tabs` in the next full parallel run and re-budget (360 s now) if it moved more than 15%.
+3. **Form state variable** is `fs` in `routines-form.js`, because `test_studio_editor_contracts_static.py` scans every studio module for `state.x =` writes against the shell's declared keys. Testids on the form's selects are stamped with literal `setAttribute` calls because the registry guard rejects variable testid values.
+4. **The `{kind: "once", on}` precheck for "At" in the past** compares operator-zone wall time as strings (a DST edge is left to the server, which stays the authority).
+- **Leg 9 landed (FD read of the `[LAND:leg]` report).** Batch B's autonomous legs are complete.
+  - **Gates:**
+    - lanes: `agent-tabs` 161 passed, `agents` 170 passed, `contracts-controls` 1062 passed / 4 skipped;
+    - unit tests: 8092 passed, 15 skipped;
+    - the static guards and ruff are clean.
+  - **Deviations accepted:**
+    - A chat's platform shows on the chooser's description line, because `searchList` has no badge slot.
+    - The past-"At" pre-check is wall-clock only; the server decides DST edges.
+    - The literal testids and the `fs` variable name were chosen to fit the guards.
+  - **Re-budget open:** the AC8 lane re-measure is deferred. `agent-tabs` grew by 18 tests and ran 518 s solo, against a 360 s budget. Under the quiet-host rule only a `--parallel 3` reading can re-budget it, so the FD will measure `agent-tabs` in the next quiet `--parallel 3` run and re-budget if it moved more than 15%.
+- **Batch B review.** The Reviewer runs on Sonnet: the diff touches the self-configuration and MCP copy (`the_one/mcp/*`, the self-configuration tab) and an API write boundary (the schedule `on` parsing). The Accessibility Reviewer (Sonnet, required for UI flights) runs in parallel. Each is told to run at most one browser run at a time.
+- **Batch B review results.**
+  - **Code review:** the Reviewer signalled `[HANDOFF:confirmed]` with no blocking issues, and listed stale "MCPs tab" prose in `agents.md` and the control inventory.
+  - **Accessibility review:** no blocking issues, and five non-blocking findings.
+  - **FD call:**
+    - Fix accessibility findings 1-4: focus after Run now, spoken Run now start and finish, the chosen chat announced, and the Days focus on a weekly save with no days.
+    - Fix the stale prose.
+    - Accept finding 5 (h2 versus h3 across tabs): it is a pre-existing pattern and valid either way.
+    - Run-history paging past 20 is already API-tested (`test_routines_api.py`, `limit`/`before`), so no browser test is added for it.
+  - **Spawned:** a fix Developer (Sonnet). These fixes are cosmetic and accessibility work, so there is no re-review; the fix gates (unit tests, `agent-tabs`, the static guards) are the check.
+
+### Batch B review fixes
+- Run now keeps focus in the row (paint moves focus to the row toggle when it disables a focused Run now); a polite `routines-live` line announces "Started {name}" once and "{name}: {outcome}" once when that run settles (polls stay silent).
+- The routine form's Choose chat button name carries the choice ("Choose chat, current: X"); a weekly save with no day focuses the first day checkbox (the `checkboxGroup` handle already had `focus()`).
+- Stale "MCPs tab" prose fixed in `the_one/agents.md` (795, 829, 1184) and `docs/ui-control-inventory.md` (groupTile row). Heading levels across tabs accepted as-is. Tests added in `test_flow_agent_routines.py` and `test_flow_agent_routines_form.py`.
+- **Batch B fixes accepted.** Accessibility findings 1-4 and the stale prose are fixed, with new assertions in the two routines browser files. `agent-tabs` passed 161.
+  - **Unit suite:** it failed 1 (the unregistered `routines-live` testid), which was then registered. The FD runs the batch gate before committing, so the unit suite is re-run there.
+  - **Batch-end gate:** the unit suite, then `--parallel 3` across every lane, on a quiet host (load 0.79 at start). This also gives the quiet-host reading for the `agent-tabs` re-budget that leg 9 AC8 deferred.
+
+- **Batch B gate and checkpoint.** Unit tests: 8092 passed, 15 skipped. `--parallel 3` across all 16 lanes was green (`rc=0 total=1724s`). `agent-tabs` was re-budgeted from 360 to 540 s (it measured 410 s). Legs 6-9 are `completed` and committed as the Batch B checkpoint.
