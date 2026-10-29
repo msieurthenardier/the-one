@@ -1,6 +1,6 @@
 # Flight: Operator Routines, End to End
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria

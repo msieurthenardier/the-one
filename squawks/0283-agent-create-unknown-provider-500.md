@@ -1,10 +1,14 @@
 # Squawk 0283: Creating an agent with an empty or unknown provider id returns 500, not 422
 
 **Status**: deferred
+**Duplicate of**: [0277](0277-create-agent-unknown-provider-500.md)
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-29
 **Completed**: —
+
+## Duplicate
+Closed into squawk 0277 at the Mission 33 Flight 1 debrief (2026-10-29): same route, same root cause (`create_agent` never checks the provider exists before `store.save`). All tracking, the fix and the sign-off live on 0277; this file stays as the record of the third hit.
 
 ## Report
 `POST /api/agents` with `"provider_config_id": ""` (and presumably any id with no `llm_providers` row) returns **500 Internal Server Error** instead of a 422 naming the field. Nothing is persisted. A client sending a stale or blank provider id should get a field error it can show, not a crash.
@@ -25,7 +29,7 @@ The response is 500. The server log shows `sqlite3.IntegrityError: FOREIGN KEY c
 
 ## Deferral
 **Reason**: found mid-flight (Mission 33 Flight 1), outside that flight's charter. It is not grounding, because nothing is created and the UI only ever sends a provider id from its picker.
-**Revisit trigger**: the next squawk turnaround, or the next change to the agent write boundary (`create_agent`/`update_agent` in `api.py`), whichever comes first.
+**Revisit trigger**: closes with squawk 0277. When 0277 is completed, mark this one completed with the same commit reference (duplicate, no separate fix).
 
 ## Corrective Action
 *(written at completion)*
