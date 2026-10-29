@@ -1,6 +1,6 @@
 # Leg: behavior-reruns-and-gate
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Schedules and Limits](../flight.md)
 
 ## Objective

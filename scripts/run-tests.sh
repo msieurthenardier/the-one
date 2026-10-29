@@ -59,7 +59,7 @@ set -euo pipefail
 LANE_LIST="chats|chats-transcript|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
 CANON_LANES=(chats chats-transcript agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 # QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
 # other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
@@ -67,14 +67,14 @@ CANON_LANES=(chats chats-transcript agents agent-tabs agent-routines library kno
 declare -A BUDGET=(
   [chats]=420
   [chats-transcript]=330
-  [agents]=540
+  [agents]=630   # M33 F3 leg 8 quiet-host gate: measured 499 s
   [agent-tabs]=390
   [agent-routines]=240   # M33 F2 Batch B quiet-host gate: measured 171 s
   [library]=420
   [knowledge]=420
   [mcp]=330
   [mcp-connection]=390
-  [routing]=600
+  [routing]=720   # M33 F3 leg 8 quiet-host gate: measured 555 s
   [settings]=360
   [settings-tools]=330
   [providers]=420

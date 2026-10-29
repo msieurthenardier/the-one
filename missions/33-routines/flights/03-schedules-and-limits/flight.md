@@ -1,6 +1,6 @@
 # Flight: Schedules and Limits
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria

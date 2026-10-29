@@ -376,7 +376,7 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
   - The live behavior test.
 
   This flight carries every untrusted-input decision.
-- [ ] Flight 3: **Schedules and limits.** Added in Flight 3 planning, when
+- [x] Flight 3: **Schedules and limits.** Added in Flight 3 planning, when
       the operator reviewed the Flight 1 and 2 judgement calls:
   - a calendar recurrence (Google Calendar style) replaces the five schedule
     kinds, in the form and the agent's tools;

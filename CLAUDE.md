@@ -400,8 +400,8 @@ THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/
 **Lane time budgets** (wall seconds in a `--parallel 3` run, re-measured in M31 Flight 6 leg 09b on a quiet host (start load 0.74, no other test process): `PARALLEL_RESULT rc=0 total=1662s lanes=16` (the deciding run; an earlier run at start load 0.94 failed one WebKit focus-after contract test to a timing flake, fixed by squawk 0276, and set the budgets below; every lane in the deciding run is within 15% of that reading except `contracts-chat` at 59 s against 71 s, which keeps its 90 s budget; squawk 0217's rule). The previous reading (M31 F6 L01 run 2, start load 0.74, `rc=0 total=1600s lanes=15`) was before `contracts-chat` existed. Budgets are measured plus 25% headroom, rounded up to 30 s; the five lanes that moved more than 15% were re-budgeted (`chats` 360 to 420 s, `contracts-controls` 480 to 600 s, `contracts-overlay` 270 to 330 s, `chats-transcript` 180 to 240 s, and `contracts-chat` from its provisional 300 s to 90 s, budgeted purely from this run); every other lane moved less than 15% and kept its budget, and no lane is over 1.3x its new budget. The table in `scripts/run-tests.sh` is the source of truth and the `--parallel` summary flags `OVER BUDGET`, a warning rather than a failure). `chats-transcript` was re-budgeted to 330 s after the HAT batch run (`PARALLEL_RESULT rc=1 total=1679s lanes=16`, start load 0.94, measured 250 s) when the drafts tests landed; the other lanes stayed within 15% and keep their budgets:
 | lane | budget (s) | measured (s) |
 |---|---|---|
-| `routing` | 600 | 569 |
-| `agents` | 540 | 500 |
+| `routing` | 720 | 555 |
+| `agents` | 630 | 499 |
 | `chats` | 420 | 329 |
 | `mcp-connection` | 390 | 301 |
 | `mcp` | 330 | 263 |
@@ -418,7 +418,7 @@ THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/
 | `library` | 420 | 361 |
 | `chats-transcript` | 330 | 250 |
 
-`agent-tabs` was re-budgeted to 540 s at M33 F1 Batch B (`PARALLEL_RESULT rc=0 total=1724s lanes=16`, start load 0.79, measured 410 s) when the routines tab and form tests landed; the other lanes stayed within budget. At M33 F2 Batch B (`PARALLEL_RESULT rc=0 total=1774s lanes=17`, start load 0.73), `agent-routines` was budgeted at 240 s (measured 171 s) and `agent-tabs` re-budgeted to 390 s (measured 293 s), since its routines tests moved to `agent-routines`; the other lanes stayed within 15%.
+`agent-tabs` was re-budgeted to 540 s at M33 F1 Batch B (`PARALLEL_RESULT rc=0 total=1724s lanes=16`, start load 0.79, measured 410 s) when the routines tab and form tests landed; the other lanes stayed within budget. At M33 F2 Batch B (`PARALLEL_RESULT rc=0 total=1774s lanes=17`, start load 0.73), `agent-routines` was budgeted at 240 s (measured 171 s) and `agent-tabs` re-budgeted to 390 s (measured 293 s), since its routines tests moved to `agent-routines`; the other lanes stayed within 15%. At M33 F3 leg 8 (`PARALLEL_RESULT rc=0 total=1885s lanes=17`, start load 1.11), `routing` was re-budgeted to 720 s (measured 555 s) and `agents` to 630 s (measured 499 s) for headroom; the other lanes stayed within 15%.
 
 **Aliases** (the pre-M25 names still work and expand to the union of their lanes): `chat` = `chats` + `chats-transcript`, `studio` = `agents` + `agent-tabs` + `agent-routines` + `library` + `knowledge` + `mcp` + `mcp-connection`, `system` = `settings` + `settings-tools` + `providers`, `contracts` = `contracts-overlay` + `contracts-chat` + `contracts-controls`. `--parallel` schedules only the canonical lanes, so no file runs twice.
 

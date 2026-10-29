@@ -4,7 +4,53 @@
 
 ## Summary
 
-*(Written at landing.)*
+Landed 2026-10-29. All eight legs are `completed`.
+
+**What the flight delivers.**
+- **Recurrence:** the five fixed schedule kinds are replaced by one
+  calendar recurrence (`{start, repeat, ends}`).
+  - It repeats every N minutes, hours, days, weeks (on chosen days), months
+    (on a day or an nth/last weekday) or years.
+  - It ends never, on a date, or after N occurrences, counted from the start.
+  - Schema v48 converts every routine with its next run unchanged, and the
+    old request shapes are still accepted.
+- **The form:** the Routines form follows the Google Calendar pattern:
+  start date and time, Repeat presets, a "Custom recurrence" dialog, and a
+  server preview with warnings.
+  - It is built on three new library controls: `datePicker`, `timeField`
+    and the days variant of `checkboxGroup`.
+- **The agent's tools** document only the new shape.
+- **Limits:**
+  - one active-routine cap (50) and one not-done backstop (200) for every
+    write;
+  - a 1-minute floor and no runs-a-day cap;
+  - Done routines and resolved proposals age out with retention;
+  - repeated "still running" skips collapse into one row.
+- **Maintenance:**
+  - the routine routes move to `routines_api.py`;
+  - the agent editor controller is split;
+  - squawks 0232, 0273 and 0284 are completed;
+  - `routing` and `agents` are re-budgeted.
+
+**Gates.**
+- **Quiet-host gate on `508edca3`:**
+  - unit: 8371 passed, 15 skipped;
+  - browser: `PARALLEL_RESULT rc=0 total=1885s lanes=17`.
+- **Evals:** the routines set against `m33-routines` passed the gate on
+  both models.
+  - The routine tools cost 945 tokens, up from 853.
+  - The routines-off prompt is unchanged against `m30-platform`.
+- **Behavior tests:**
+  - `routine-connector-delivery`: 8/8;
+  - `agent-schedules-follow-up`: 7/7 on `gpt-oss:20b`.
+
+**For Flight 4 (the HAT):**
+- the *(FD)* calls listed in the flight spec;
+- the deviations and notes in this log (the 4a truncation incident, the
+  Custom… open on `change`, the preview announcement at open);
+- the open Flight 1 and 2 judgement calls not settled in this flight's
+  planning;
+- the real Discord DM routine.
 
 ---
 
@@ -309,6 +355,12 @@ confirmed by the `agents` and `chats` lanes in 4b. The behavior spec
 **Gate results.** Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_time_getters_static`, `test_ui_ownership`, `test_area_module_size`, `test_ui_emitted_classes`, `test_nav_helper`, `test_ui_control_inventory`) pass.  `THE_ONE_TEST_NETNS=1 make test-unit`: 8370 passed, 15 skipped (no failure in tools.py or test_routine_tools.py). `agent-routines` lane: 65 passed in 183 s (host load mixed; not a budget reading, against the 240 s budget; leg 8 should re-measure). ruff check and format clean.
 
 **Deviations.** The default Repeat is "Does not repeat" (Google's default; the old form defaulted to Daily). The "in" quick start fills the fields live as the amount or unit changes rather than through a button.
+
+### Leg 8: behavior-reruns-and-gate
+
+**Quiet-host gate on 508edca3.** Unit: 8371 passed, 15 skipped (392 s). Browser: `PARALLEL_RESULT rc=0 total=1885s lanes=17 failed=-`, start load 1.11, no other test process (it ran straight after the unit tier). Per-lane wall seconds: routing 555, contracts-controls 486, agents 499, chats 348, library 343, knowledge 305, providers 356, shared 349, agent-tabs 306, mcp-connection 278, settings 273, chats-transcript 262, mcp 262, settings-tools 251, contracts-overlay 231, agent-routines 191, contracts-chat 53.
+
+**Re-budgets.** `routing` 600 to 720 s (555 measured) and `agents` 540 to 630 s (499 measured), measured plus 25% rounded up to 30 s; both had sat at 90%+ of budget for three flights. Every other lane is within 15% of its table reading; `contracts-chat` fell 71 to 53 s but its 90 s budget already covers it. Rationale for a re-budget rather than a split: the suite total is bounded by the lane sum over 3 workers, not by the `routing` critical path, so splitting a lane would not shorten the gate; a re-budget just gives headroom. `scripts/run-tests.sh` and CLAUDE.md's lane table updated.
 
 ## Decisions
 
