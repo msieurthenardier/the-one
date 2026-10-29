@@ -44,6 +44,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-empty-new` | studio | Agents start page action "New agent" (both variants) -> `#agents/~new` (M25 F3 L3) |
 | `cancel-connector-btn` | studio | Connector-editor header Cancel, from `App.ui.editorShell` (`actions.cancel`); enabled from the first render on the create form, else once the form is dirty (M31 F3 L07a) |
 | `cancel-knowledge-btn` | studio | Knowledge detail view header Cancel, disabled until dirty (`App.ui.editorShell` `cancel`; L6-D1, M24 F06 L06; M31 F3 L05a) |
+| `chat-drawer-routine-flag` | chat | the warning-triangle on a flagged routine in the drawer's Routines group; "Check this routine: it was written after content that didn't come from you ({sources}). It may have been planted." (M33 F2 L5) |
 | `connector-doctor-btn` | studio | Connector-editor Diagnostics "Run doctor" (`App.ui.button`) (M23 F02 L02; M31 F3 L07a) |
 | `kb-create-cancel-btn` | studio | Knowledge-base create form Cancel: discards and replaces to `#library/knowledge`; enabled on a clean form, disabled while Create is in flight (`editorShell` `cancel`; M25 F3 L4a, DD8; M31 F3 L05a) |
 | `kb-create-submit-btn` | studio | Knowledge-base create form Create (enabled on a clean form; busy from submit until the request fails; `editorShell` `save`; M24 F06 L01; M25 F3 L4a; M31 F3 L05a) |
@@ -71,6 +72,8 @@ caught — but it cannot see where the attribute is emitted.
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
 | `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
+| `routine-flag` | studio | the flag (`App.ui.noteFlag`, subject routine) on a flagged routine row (M33 F2 L5) |
+| `routine-origin` | studio | "Made by the agent" on a routine row whose `created_by` is `agent` (M33 F2 L5) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
 | `notes-prompt-content-tool-free` | admin | The Prompts page's read-only notes-layer example for a model without tools (no saving instructions; Flight 2 leg 1c) |
@@ -92,6 +95,34 @@ caught — but it cannot see where the attribute is emitted.
 | `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
 | `save-connector-btn` | studio | Connector-editor header Save / Create, from `App.ui.editorShell` (`actions.save`); busy (disabled) while its request is in flight (M31 F3 L07a) |
 | `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty (`App.ui.editorShell` `save`; L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`; M31 F3 L05a) |
+| `self-config-routine-action` | studio | a waiting item's action word (Create, Change or Cancel) (M33 F2 L5) |
+| `self-config-routine-approve` | studio | a waiting routine change's Approve (M33 F2 L5) |
+| `self-config-routine-approve-override` | studio | a stale routine change's "Approve anyway" (posts `?override=true`) (M33 F2 L5) |
+| `self-config-routine-dismiss` | studio | a waiting routine change's Dismiss (M33 F2 L5) |
+| `self-config-routine-error` | studio | a waiting item's error line (a 422 sentence or a failure) (M33 F2 L5) |
+| `self-config-routine-flag` | studio | the routine flag on a waiting item or history row (M33 F2 L5) |
+| `self-config-routine-history` | studio | the "Changes by the agent" list (`<ul>`) (M33 F2 L5) |
+| `self-config-routine-history-empty` | studio | the history's "No changes yet." line (M33 F2 L5) |
+| `self-config-routine-history-older` | studio | history "Show older" (pages with `before`); hidden when a page is short (M33 F2 L5) |
+| `self-config-routine-history-row` | studio | one resolved change (`<li>`, `data-id`, `data-status`) (M33 F2 L5) |
+| `self-config-routine-history-status` | studio | a history row's status word (Applied, Dismissed or Withdrawn) (M33 F2 L5) |
+| `self-config-routine-name` | studio | the routine's name on a waiting item or history row (textContent) (M33 F2 L5) |
+| `self-config-routine-pending-count` | studio | the waiting-changes count line (hidden at zero; focus target) (M33 F2 L5) |
+| `self-config-routine-prompt-now` | studio | a changed routine's current prompt (`App.ui.codeBlock`) (M33 F2 L5) |
+| `self-config-routine-prompt-proposed` | studio | a proposed routine prompt (`App.ui.codeBlock`) (M33 F2 L5) |
+| `self-config-routine-proposal` | studio | one waiting routine change (`<li>`, `data-id`, `data-action`) (M33 F2 L5) |
+| `self-config-routine-proposals` | studio | the "Waiting for approval" list (`<ul>`) (M33 F2 L5) |
+| `self-config-routine-proposals-empty` | studio | the "Nothing waiting." empty state; takes focus when the queue empties (M33 F2 L5) |
+| `self-config-routine-stale-current` | studio | the stale panel's current prompt (`App.ui.codeBlock`) (M33 F2 L5) |
+| `self-config-routine-stale-proposed` | studio | the stale panel's proposed prompt (`App.ui.codeBlock`) (M33 F2 L5) |
+| `self-config-routine-when` | studio | a waiting item or history row's time (full ISO in `title`) (M33 F2 L5) |
+| `self-config-routines-approval-status` | studio | the Routines item's approval status line (M33 F2 L5) |
+| `self-config-routines-approval-toggle` | studio | "Require approval for routine changes" switch (immediate PUT) (M33 F2 L5) |
+| `self-config-routines-default-agent` | studio | the Routines item's "Routines need a named agent." note on the `default` agent (M33 F2 L5) |
+| `self-config-routines-error` | studio | the Routines item's switch error line (M33 F2 L5) |
+| `self-config-routines-live` | studio | the Routines item's polite live line ("Approved Change of {name}.", "Pending changes were withdrawn.") (M33 F2 L5) |
+| `self-config-routines-status` | studio | the Routines item's enable status line (M33 F2 L5) |
+| `self-config-routines-toggle` | studio | "Let this agent manage its routines" switch (immediate PUT) (M33 F2 L5) |
 | `time-tool-note` | studio | The agent Tools tab's note on the `current_time` tool row: always available, even with a limited tool list (M28 F1 L3) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |

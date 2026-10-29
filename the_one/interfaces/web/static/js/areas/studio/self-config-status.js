@@ -30,14 +30,12 @@
 
     // Error and status lines are App.ui.status without an LED (the words alone, as
     // before); the class on the root keeps the tab's own size, ink and spacing.
-    var section = App.ui.section({ title: 'Self-configuration', titleTag: 'h3' });
+    var section = App.ui.section({ title: 'Agent prompt', titleTag: 'h3' });
 
     var description = document.createElement('p');
     description.className = 'self-configuration-description';
-    description.textContent = 'When enabled, this agent can read its own configuration ' +
-      'and revise its own description and system prompt through a dedicated MCP source. ' +
-      'The operator’s per-tool controls on the Tools tab still govern which capabilities ' +
-      'the agent can actually use.';
+    description.textContent = 'Let this agent read its configuration and rewrite its own ' +
+      'description and system prompt.';
     section.body.appendChild(description);
 
     var statusLine = App.ui.status({
@@ -57,7 +55,7 @@
     // switch), its label beside it. The testid is on the native input, which stays the
     // interactive control; it is inert until the status resolves.
     var toggleCtl = App.ui.toggle({
-      label: 'Enable self-configuration',
+      label: 'Let this agent edit its description and system prompt',
       testid: 'self-configuration-toggle-btn',
       disabled: true
     });
@@ -69,7 +67,7 @@
 
     // ── M21 F02 L02 — approval-mode section ─────────────────────────────
     var approvalSection = App.ui.section({
-      title: 'Approval mode',
+      title: 'Prompt approval',
       titleTag: 'h3',
       className: 'self-configuration-approval-section'
     });
@@ -96,7 +94,7 @@
 
     // Same switch treatment as the enable control above: 2-state, immediate-post.
     var approvalCtl = App.ui.toggle({
-      label: 'Require approval for self-revisions',
+      label: 'Require approval for prompt edits',
       testid: 'approval-mode-toggle-btn',
       disabled: true
     });

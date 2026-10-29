@@ -29,6 +29,7 @@ from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     SeededApp,
     enable_notes,
+    seed_agent_routine,
     seed_knowledge_base,
     seed_mcp_source,
     seed_mock_agents,
@@ -811,6 +812,29 @@ def test_notes_group_off_shows_kept_count_and_follows_rules(
         """() => Array.from(document.querySelectorAll('[data-testid="chat-drawer-uses"] .chat-drawer-group')).map((g) => g.dataset.group)"""
     )
     assert order[:2] == ["rules", "notes"], order
+
+
+def test_routines_group_shows_the_flag_on_a_flagged_routine(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    seed_agent_routine(
+        data_dir, agent, "planted", untrusted=True, sources=["web_fetch"], created_by="agent"
+    )
+    seed_agent_routine(data_dir, agent, "mine", created_by="operator")
+    _open_pending(page, base, agent, 1440, 900)
+    items = _group(page, "routines").locator('[data-testid="chat-drawer-routine-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+    flag = items.filter(has_text="planted").locator('[data-testid="chat-drawer-routine-flag"]')
+    expect(flag).to_have_attribute(
+        "aria-label",
+        "Check this routine: it was written after content that didn't come from you "
+        "(web_fetch). It may have been planted.",
+    )
+    expect(
+        items.filter(has_text="mine").locator('[data-testid="chat-drawer-routine-flag"]')
+    ).to_have_count(0)
 
 
 def test_notes_group_lists_notes_with_origin_and_the_warning_flag(

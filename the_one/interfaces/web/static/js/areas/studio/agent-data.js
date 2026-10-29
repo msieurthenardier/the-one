@@ -111,6 +111,33 @@ App.studio.agentData = {
       return App.api.fetchJson(routinesUrl(name, '/' + encodeURIComponent(id) + '/runs') + '?' + q);
     }
 
+    // M33 F2 L5 -- the Self-configuration tab's Routines item: the two switches and the
+    // agent's routine-change proposals. Same fetchJson contract: a failure carries `status`
+    // and `detail` (the approve 409s keep their `{error, ...}` object on `detail`).
+    function routinesItemUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/self-configuration/routines' +
+        (suffix || '');
+    }
+    function fetchRoutinesItem(name) { return App.api.fetchJson(routinesItemUrl(name)); }
+    function putRoutinesItem(name, patch) {
+      return rulesJson('PUT', routinesItemUrl(name), patch);
+    }
+    function fetchRoutineProposals(name, opts) {
+      opts = opts || {};
+      var q = 'limit=' + encodeURIComponent(opts.limit || 20);
+      if (opts.status) q += '&status=' + encodeURIComponent(opts.status);
+      if (opts.before) q += '&before=' + encodeURIComponent(opts.before);
+      return App.api.fetchJson(routinesItemUrl(name, '/proposals') + '?' + q);
+    }
+    function approveRoutineProposal(name, id, override) {
+      return rulesJson('POST', routinesItemUrl(name, '/proposals/' + encodeURIComponent(id) +
+        '/approve') + (override ? '?override=true' : ''));
+    }
+    function dismissRoutineProposal(name, id) {
+      return rulesJson('POST', routinesItemUrl(name, '/proposals/' + encodeURIComponent(id) +
+        '/dismiss'));
+    }
+
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
     function fetchSelfConfigurationStatus(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
@@ -505,6 +532,11 @@ App.studio.agentData = {
       updateRoutine: updateRoutine,
       deleteRoutine: deleteRoutine,
       runRoutine: runRoutine,
+      fetchRoutinesItem: fetchRoutinesItem,
+      putRoutinesItem: putRoutinesItem,
+      fetchRoutineProposals: fetchRoutineProposals,
+      approveRoutineProposal: approveRoutineProposal,
+      dismissRoutineProposal: dismissRoutineProposal,
       fetchRoutineRuns: fetchRoutineRuns,
       fetchRules: fetchRules,
       createRule: createRule,

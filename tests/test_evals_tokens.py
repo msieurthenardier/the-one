@@ -315,9 +315,14 @@ async def test_model_counts_unload_before_each_ollama_measurement(evals_isolatio
     )
     doc = await tokens.measure_prompt(opts)
     entry = doc["model_counts"]["gpt-oss"]
-    assert entry["input_tokens"] == {"bare": 1234, "all-on": 1234, "tool-free": 1234}
+    assert entry["input_tokens"] == {
+        "bare": 1234,
+        "all-on": 1234,
+        "tool-free": 1234,
+        "routines-on": 1234,  # M33 F2 L4
+    }
     assert entry["server"] == {"server_version": "0.0-test"}
-    assert unloads == ["gpt-oss"] * 3 and infos == ["gpt-oss"]
+    assert unloads == ["gpt-oss"] * 4 and infos == ["gpt-oss"]
 
 
 def test_render_tables_lists_totals_and_fingerprint():
@@ -476,3 +481,15 @@ def test_sections_that_tile_the_platform_text_are_counted_cumulatively():
         platform_sections=lambda t: [("a", t[:1]), ("b", t[1:2]), ("c", t[2:])],
     )
     assert sum(p.tokens for p in parts) == Pairwise().count("abc") == 1
+
+
+async def test_routines_on_adds_the_four_schemas_and_leaves_the_prompt_fingerprint(
+    evals_isolation,
+):
+    """M33 F2 L4: the extra configuration is measured but outside the prompt fingerprint."""
+    doc = await build(evals_isolation, "r1")
+    on, base = doc["configs"]["routines-on"], doc["configs"]["all-on"]
+    assert on["totals"]["tools"] > base["totals"]["tools"]
+    assert on["totals"]["prompt_sections"] == base["totals"]["prompt_sections"]
+    assert "routines-on" in tokens.EXTRA_CONFIGS
+    assert (await build(evals_isolation, "r2"))["fingerprints"] == doc["fingerprints"]

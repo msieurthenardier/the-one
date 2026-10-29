@@ -93,7 +93,11 @@ def test_create_mode_shows_save_first(app_with_provider: SeededApp, page: Page) 
     reqs: list[str] = []
     page.on(
         "request",
-        lambda r: reqs.append(r.url) if "/api/" in r.url and "/routines" in r.url else None,
+        lambda r: (
+            reqs.append(r.url)
+            if "/api/" in r.url and "/routines" in r.url and "/self-configuration/" not in r.url
+            else None
+        ),
     )
     page.wait_for_timeout(300)
     assert reqs == []
@@ -105,7 +109,11 @@ def test_lazy_load_no_request_until_the_tab_opens(app_with_agent: SeededApp, pag
     reqs: list[str] = []
     page.on(
         "request",
-        lambda r: reqs.append(r.url) if "/api/" in r.url and "/routines" in r.url else None,
+        lambda r: (
+            reqs.append(r.url)
+            if "/api/" in r.url and "/routines" in r.url and "/self-configuration/" not in r.url
+            else None
+        ),
     )
     _nav.goto(page, base, f"agents/{_nav.seg(agent)}/general")
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
@@ -438,7 +446,11 @@ def test_default_agent_shows_the_named_agent_notice(app_with_agent: SeededApp, p
     reqs: list[str] = []
     page.on(
         "request",
-        lambda r: reqs.append(r.url) if "/api/" in r.url and "/routines" in r.url else None,
+        lambda r: (
+            reqs.append(r.url)
+            if "/api/" in r.url and "/routines" in r.url and "/self-configuration/" not in r.url
+            else None
+        ),
     )
     _nav.goto(page, base, "agents/default/routines")
     expect(page.locator('[data-testid="routines-default-agent"]')).to_have_text(

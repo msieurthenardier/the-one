@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from playwright.sync_api import Locator, Page
 
-ENABLE_SWITCH = "Enable self-configuration"
-APPROVAL_SWITCH = "Require approval for self-revisions"
+ENABLE_SWITCH = "Let this agent edit its description and system prompt"
+APPROVAL_SWITCH = "Require approval for prompt edits"
 
 
 def switch(page: Page, name: str) -> Locator:

@@ -914,6 +914,13 @@ SURFACES += [
         prepare=_routines_form_open,
     ),
     Surface(
+        "agent-self-config-routines",
+        "#agents/{agent}/self-configuration",
+        '[data-testid="self-config-routine-proposal"]',
+        "Agent editor, Self-configuration tab, Routines item: Routines on with approval, one "
+        "pending create, and one flagged routine applied (M33 F2 L5)",
+    ),
+    Surface(
         "agent-self-configuration",
         "#agents/{agent}/self-configuration",
         '[data-testid="self-configuration-toggle-btn"]',
@@ -2698,7 +2705,9 @@ def stop_instance(proc: subprocess.Popen) -> None:
         proc.wait(timeout=5)
 
 
-def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str]:
+def seed(
+    base: str, token: str, files_root: Path | None = None, data_dir: Path | None = None
+) -> dict[str, str]:
     ids: dict[str, str] = {}
     for ptype, (name, fields) in PROVIDERS.items():
         row = _api(base, token, "POST", "/api/providers", {"name": name, "type": ptype, **fields})
@@ -2720,6 +2729,8 @@ def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str
         },
     )
     seed_tabs_agent(base, token, ids)
+    if data_dir is not None:
+        seed_routines_item(base, token, data_dir)
     if files_root is not None:
         seed_library(base, token, ids, files_root)
     seed_settings(base, token)
@@ -2811,6 +2822,101 @@ def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
         )
     _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/self-configuration")
     return ids
+
+
+def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
+    """The Self-configuration Routines item (M33 F2 L5): Routines on with approval, one pending
+    create, and one flagged agent-made routine with its applied proposal. No REST route
+    creates a proposal or sets the flag, so these are direct inserts (the browser tests'
+    seeders do the same) against the scratch instance's own database."""
+    import sqlite3
+    import uuid
+
+    _api(
+        base,
+        token,
+        "PUT",
+        f"/api/agents/{TABS_AGENT}/self-configuration/routines",
+        {"enabled": True, "requires_approval": True},
+    )
+    created = "2026-01-01T10:00:00+00:00"
+    routine_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
+            " target_kind, next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, 'new', ?, ?, 'agent', ?,"
+            " ?, 1, ?)",
+            (
+                routine_id,
+                TABS_AGENT,
+                "Inbox sweep",
+                "Look through the inbox and list anything urgent.",
+                json.dumps({"kind": "weekdays", "time": "08:30"}),
+                "2099-01-01T08:30:00+00:00",
+                created,
+                created,
+                created,
+                json.dumps(["web_fetch"]),
+            ),
+        )
+        rows = [
+            (
+                "create",
+                "Evening digest",
+                {
+                    "name": "Evening digest",
+                    "prompt": "Summarize today's changes in three lines.",
+                    "schedule": {"kind": "daily", "time": "18:00"},
+                    "target": {"kind": "new"},
+                    "enabled": True,
+                },
+                "pending",
+                0,
+                "2026-01-02T09:00:00+00:00",
+                None,
+                None,
+            ),
+            (
+                "create",
+                "Inbox sweep",
+                {
+                    "name": "Inbox sweep",
+                    "prompt": "Look through the inbox and list anything urgent.",
+                    "schedule": {"kind": "weekdays", "time": "08:30"},
+                    "target": {"kind": "new"},
+                    "enabled": True,
+                },
+                "applied",
+                1,
+                "2026-01-01T10:00:00+00:00",
+                "2026-01-01T10:00:00+00:00",
+                routine_id,
+            ),
+        ]
+        for action, name, payload, status, flagged, created_at, resolved_at, rid in rows:
+            conn.execute(
+                "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name,"
+                " action, payload, base, status, untrusted, untrusted_sources, session_id,"
+                " created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    TABS_AGENT,
+                    rid,
+                    name,
+                    action,
+                    json.dumps(payload, sort_keys=True),
+                    status,
+                    flagged,
+                    json.dumps(["web_fetch"]) if flagged else None,
+                    created_at,
+                    resolved_at,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def seed_library(base: str, token: str, ids: dict[str, str], files_root: Path) -> None:
@@ -3209,7 +3315,7 @@ def keep_running(port: int, scratch: Path) -> int:
         port, data_dir, scratch / "cwd", scratch / "serve.log", detach=True
     )
     try:
-        seed(base, token, scratch / "home")
+        seed(base, token, scratch / "home", data_dir)
     except BaseException:
         stop_instance(proc)
         raise
@@ -3283,7 +3389,7 @@ def run(argv: list[str]) -> int:
             scratch / "serve.log",
             extra_env={"THE_ONE_PURGE_CHECK_INTERVAL_SECONDS": "2592000"} if needs_chat else None,
         )
-        ids = seed(base, token, scratch / "home")
+        ids = seed(base, token, scratch / "home", data_dir)
         if needs_chat:
             seed_chat(base, token, ids)
         if needs_mcp:

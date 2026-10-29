@@ -147,6 +147,7 @@
     gap: var(--space-1);
   }
   .chat-drawer-list li { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+  .chat-drawer-list li > .chat-drawer-note-head { flex: 1 1 auto; align-items: flex-start; }
   .chat-drawer-item-name { min-width: 0; overflow-wrap: anywhere; }
   .chat-drawer-item-meta { flex-shrink: 0; color: var(--fg-muted); }
   .chat-drawer-none,

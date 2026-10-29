@@ -1,6 +1,6 @@
 # Leg: routine-evals
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Agents Schedule Their Own Routines](../flight.md)
 
 ## Objective

@@ -264,7 +264,7 @@ def check_comparable(
 def _stat_line(st: CellStat) -> str:
     line = f"{st.passes}/{st.counted}"
     if st.saved_runs is not None:  # DD14: how many runs actually exercised the check
-        line += f" (non-vacuous: {st.saved_runs} of {st.counted} runs saved a note)"
+        line += f" (non-vacuous: {st.saved_runs} of {st.counted} runs {st.exercised})"
     return line
 
 
