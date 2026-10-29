@@ -647,3 +647,21 @@ rows, since the repository enforces the cap for operators too.
     - `agent-routines`: 65 passed;
     - ruff clean.
   - Legs 4, 5 and 7 are `completed`.
+- **Batch B committed** as `f24ae1f1`. Leg 8 started.
+- **Leg 8 behavior runs** (FD-driven, live mode, dev instance on port 8490
+  with a fresh scratch data dir each run, both instances stopped by PID).
+  Both specs were re-authored for the DD1 shape first.
+  - `routine-connector-delivery`: **8/8 pass**
+    (`tests/behavior/routine-connector-delivery/runs/2026-10-29-20-59-19.md`).
+    - The legacy `daily` and `once.at` requests were accepted and stored
+      canonical.
+    - The one-off rounded up to the minute and fired about 80 s after
+      creation.
+  - `agent-schedules-follow-up`: **7/7 pass** on `gpt-oss:20b`, with no
+    retry and no model switch
+    (`tests/behavior/agent-schedules-follow-up/runs/2026-10-29-21-06-42.md`).
+    - The model used the canonical relative start (`in` 2 minutes) and an
+      absolute start, both first time.
+    - The taint and approval flow held, and the cancel worked by name.
+    - Spec "Reading the run" gained the agent create field names, the full
+      pending-count path, and UTC timing.

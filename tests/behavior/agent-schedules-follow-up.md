@@ -3,8 +3,13 @@
 **Slug**: `agent-schedules-follow-up`
 **Status**: active
 **Created**: 2026-10-29
-**Last Run**: 2026-10-29-10-44-39 (pass, 7/7, `gpt-oss:20b`)
+**Last Run**: 2026-10-29-21-06-42 (pass, 7/7, `gpt-oss:20b`)
 
+> Re-authored at Mission 33 Flight 3 leg 8: schedules are stored in the calendar
+> recurrence shape (`{start, repeat, ends}`, flight DD1); a one-off is `repeat` null.
+> The model is taught only that shape (leg 5); the old `kind` shapes are still
+> accepted on input.
+>
 > Authored at Mission 33 Flight 2 planning (DD13). Finalized by the FD at leg 6
 > against `ee4e8c5b`: the switches are read from `GET .../self-configuration/routines`
 > (`enabled`, `requires_approval`, `pending_count`); the proposals list is
@@ -63,6 +68,11 @@ seeded tool descriptions lead to a follow-up being scheduled.
 
 - **Reading the run (learned at the first run, 2026-10-29-10-44-39):**
   - The stub connector create needs a `name`.
+  - The agent create takes `provider_config_id` and `llm_model` (not
+    `provider_id`/`model`, which are ignored). The pending count is
+    `GET /api/agents/follow-agent/self-configuration/routines/proposals/pending-count`.
+    Timing checks use `next_run_at` (UTC); `schedule.start` is local wall time.
+    (Learned at the 2026-10-29-21-06-42 run.)
   - `POST /api/_test/stub/inbound` blocks until the agent's turn ends, so
     measure every time window from the stored user message's `created_at`.
   - Transcripts and tool calls come from `GET /api/chat/sessions/{id}`.
@@ -91,9 +101,9 @@ seeded tool descriptions lead to a follow-up being scheduled.
 |---|---------|------------------|
 | 1 | Create an `ollama` provider (`base_url` `http://127.0.0.1:11434`). Create agent `follow-agent` on it with model `gpt-oss:20b`. Create a `stub` connector with `config.default_agent` `follow-agent` and `config.allowlist.peers` `["alice"]`; record `{CID}`. | (setup) The provider, agent and connector exist; `GET /api/agents/follow-agent/self-configuration/routines` returns `enabled` false, `requires_approval` true and `pending_count` 0. |
 | 2 | Routines off. Stub inbound DM from `alice`: "I'm waiting on a build to finish. Check back with me in 2 minutes and ask if it finished." Wait for the reply record (at most 120 s). | A reply record exists. `GET /api/agents/follow-agent/routines` is empty. The chat's stored assistant messages contain no `schedule_routine` tool call. |
-| 3 | `PUT /api/agents/follow-agent/self-configuration/routines` `{"enabled": true, "requires_approval": false}`. Send the same DM again and wait for the reply (at most 120 s). | One routine exists with `created_by` `agent`, schedule kind `once`, `next_run_at` between 1 and 5 minutes after the DM, `target.kind` `chat` and `target.session_id` the DM's chat. It has `untrusted` true and `untrusted_sources` containing `peer:alice`. The proposals list holds one `applied` `create` for it. The transcript shows a `schedule_routine` tool call. |
+| 3 | `PUT /api/agents/follow-agent/self-configuration/routines` `{"enabled": true, "requires_approval": false}`. Send the same DM again and wait for the reply (at most 120 s). | One routine exists with `created_by` `agent`, a one-off schedule (`schedule.repeat` null), `next_run_at` between 1 and 5 minutes after the DM, `target.kind` `chat` and `target.session_id` the DM's chat. It has `untrusted` true and `untrusted_sources` containing `peer:alice`. The proposals list holds one `applied` `create` for it. The transcript shows a `schedule_routine` tool call. |
 | 4 | Make no further requests that act on the routine. Poll its runs every 10 s, up to 240 s past its `next_run_at`. | One run appears with `trigger_kind` `schedule` and `outcome` `ok`. Outbound gained a record from the run, and no outbound record contains the routine's prompt text. The routine is Done. |
-| 5 | `PUT …/self-configuration/routines` `{"requires_approval": true}`. Send a DM: "Also check back with me tomorrow at 9 AM about the build." Wait for the reply. | No new routine. The proposals list holds a `pending` `create` with a `once` (or `daily`) schedule, flagged `peer:alice`. `GET …/proposals/pending-count` returns `{"count": 1}`. |
+| 5 | `PUT …/self-configuration/routines` `{"requires_approval": true}`. Send a DM: "Also check back with me tomorrow at 9 AM about the build." Wait for the reply. | No new routine. The proposals list holds a `pending` `create` whose payload schedule is a one-off or a daily recurrence (`repeat` null, or `repeat.every` 1 with `unit` `day`), flagged `peer:alice`. `GET …/proposals/pending-count` returns `{"count": 1}`. |
 | 6 | `POST …/proposals/{id}/approve`. | 200. A routine now exists with `created_by` `agent` and `untrusted` true. The proposal is `applied`. |
 | 7 | `PUT …/self-configuration/routines` `{"requires_approval": false}`. Send a DM: "Cancel that 9 AM check, I don't need it." Wait for the reply. | The routine from step 6 is gone. The proposals list holds an `applied` `delete` for it. The transcript shows a `cancel_routine` (or `list_my_routines` then `cancel_routine`) tool call. |
 

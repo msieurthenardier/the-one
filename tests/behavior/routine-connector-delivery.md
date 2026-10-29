@@ -3,8 +3,13 @@
 **Slug**: `routine-connector-delivery`
 **Status**: active
 **Created**: 2026-10-28
-**Last Run**: 2026-10-29-03-31-37 (pass, 8/8)
+**Last Run**: 2026-10-29-20-59-19 (pass, 8/8)
 
+> Mission 33 Flight 3 leg 8: requests deliberately keep the legacy schedule shapes
+> (steps 3 and 6), which the API still accepts and stores in the calendar
+> recurrence shape (flight DD1/DD5). A one-off `at` is rounded up to the next
+> minute, so step 6 polls for up to 180 s.
+>
 > Authored at Mission 33 Flight 1 planning (DD13). Leg 10 finalized it against
 > the landed code: the routine view in `_routine_view` and the run rows from
 > `RoutineRun.model_dump()` in `the_one/interfaces/web/api.py`,
@@ -66,7 +71,7 @@ real-model check belongs to the Flight 2 behavior test.
 | 3 | `GET /api/time-settings` and note the effective zone. `POST /api/agents/routine-agent/routines` with name `Morning check`, prompt `PROMPT-SECRET-4410 check things`, schedule `{"kind":"daily","time":"09:00"}`, target `{"kind":"chat","session_id":"<the step-2 chat id>"}`. | 201. The body's `next_run_at` is the next 9:00 AM in the noted effective zone, expressed in UTC. Its `target.kind` is `chat` and its `target.session_id` is the step-2 chat. |
 | 4 | Note the routine's `next_run_at`. `POST …/routines/{id}/run` (Run now). Poll `GET …/routines/{id}/runs` until the newest run is not `running` (at most 30 s). | The newest run (first in `runs`) has `outcome` `ok`, `trigger_kind` `manual` and `new_chat` false, and its `session_id` is the step-2 chat. `GET /api/_test/stub/outbound` gained exactly one record, whose `content` is `ROUTINE-REPLY-7731`; note its `connector_id`, `channel_id` and `peer_id`. No record's `content` contains `PROMPT-SECRET-4410`. `GET …/routines/{id}` shows `next_run_at` unchanged by the manual run. |
 | 5 | `GET /api/chat/sessions/{chat id}`. | The stored messages end with a USER message whose content is the prompt, with `routine_name` `Morning check` and `visibility` `operator`. An ASSISTANT message `ROUTINE-REPLY-7731` with no `visibility` (peer-visible) follows it. `session_metadata.routine.name` is `Morning check`. |
-| 6 | Create a second routine, `One-off`, with prompt `ONEOFF-8812`, schedule `{"kind":"once","at":"<UTC ISO time 1 minute from now>"}`, and the same target. Make no further requests that act on it. Poll its runs every 10 s for up to 150 s. | Within 150 s, one run appears with `trigger_kind` `schedule` and `outcome` `ok`, and the outbound `records` gain one more record whose `content` is `ROUTINE-REPLY-7731`. `GET …/routines/{id}` shows the routine Done: `finished_at` set and `next_run_at` null. |
+| 6 | Create a second routine, `One-off`, with prompt `ONEOFF-8812`, schedule `{"kind":"once","at":"<UTC ISO time 1 minute from now>"}`, and the same target. Make no further requests that act on it. Poll its runs every 10 s for up to 180 s. | Within 180 s, one run appears with `trigger_kind` `schedule` and `outcome` `ok`, and the outbound `records` gain one more record whose `content` is `ROUTINE-REPLY-7731`. `GET …/routines/{id}` shows the routine Done: `finished_at` set and `next_run_at` null. |
 | 7 | `POST /api/_test/stub/inbound` a DM from `alice` (as in step 2), text `/new`. Then Run now on `Morning check` and poll as in step 4. | The run's `outcome` is `ok`. Its `session_id` differs from the step-2 chat. The outbound `records` gained one more record whose `content` is `ROUTINE-REPLY-7731`, with `connector_id`, `channel_id` and `peer_id` equal to the ones noted for step 4's routine record. (A routine sends through `keying_to_target` of the chat row, so its record is `channel_id` `""`, `peer_id` null for this stub DM; an inbound DM reply is `channel_id` null, `peer_id` `alice`. Compare with step 4's routine record, never step 2's reply. The connector carries most of the check, as the stub DM has no real channel id.) `GET …/routines/{id}` shows `target.session_id` equal to the run's new `session_id`. |
 | 8 | `POST /api/_test/stub/inbound` a DM from `alice` (as in step 2), text `thanks`. Wait for its reply record, then `GET /api/chat/sessions` and `GET /api/chat/sessions/{step-7 chat id}`. | The peer's `thanks` lands in the step-7 chat (the routine's run kept it current), and no third chat for that channel was created. |
 
