@@ -650,6 +650,18 @@ On the shared, process-wide `aiosqlite` connection (see "Singleton aiosqlite con
 
 Discovered three times independently before being named: two crash windows in Flight 3's knowledge-indexing pipeline (see "Knowledge storage" below) and a third at Flight 5 Leg 1 design review, where an item deleted between `KBChunkRepository.get_many` and the per-item path lookup raised an unhandled `KeyError` out of `the_one/knowledge/retrieval.py::search` — fixed by wrapping the lookup in `try/except KeyError` and dropping the affected hit, mirroring `get_many`'s own missing-id tolerance (AC-6b, `missions/24-knowledge-bases/flights/05-agent-query/legs/01-retrieval-and-fusion.md`). Naming it here means a fourth instance is designed for rather than found at review.
 
+### `verbatim-stored-pair-plus-rezone-at-apply`
+
+When a proposal carries a computed value, it stores the normalized value together with the exact instant it was computed against (for routines, `schedule` plus `anchor_at`). Approval applies that stored pair verbatim and re-renders only the display for the current zone; it never re-normalizes the value against approval time. Re-normalizing at approval shifted recurrence grids and lost the fall-back fold (the repeated hour at a daylight-saving end), so the routine that ran was not the one the operator approved (Mission 33 Flight 3 leg 4 review).
+
+Citation: `the_one/routines/service.py::_agent_schedule` makes the pair once when the agent proposes; `the_one/routines/service.py::approve_proposal` passes `_approval_pair(...)` as `schedule_pair` to `create_routine` and `update_routine`, and `_approval_pair` returns `recurrence.rezone(sched, anchor, zone)` with the stored anchor unchanged (`the_one/routines/recurrence.py::rezone`).
+
+### `frozen-migration-converter-with-guarded-failure-row`
+
+A data migration carries its own converter, with its own parsing of the old shapes, rather than calling the live normalizer. Schema history is append-only, so a later change to live code must not change what an already-shipped migration does. A row the converter cannot read does not fail startup: the migration turns it off and writes one history row recording why, guarded by an existence check so a re-run adds no second row.
+
+Citation: the v48 block in `the_one/db/schema.py`: `_v48_convert` is the frozen converter (with `_v48_dt`, `_v48_hhmm`, `_v48_render`), and `_v48_rewrite_routines` catches `ValueError`/`OverflowError` per row, sets `enabled = 0`, and inserts a single `agent_routine_runs` row with `reason_code` `_V48_UPGRADE_FAILED` only when none exists for that routine.
+
 ### Mission-specific (M16)
 
 Patterns that emerged in Mission 16 (LLM provider hardening) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above, per the same pattern established by `### Mission-specific (M10)` below.
