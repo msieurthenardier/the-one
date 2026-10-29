@@ -273,7 +273,7 @@ def _no_note_matches(params: dict[str, Any], trace: RunTrace) -> Outcome:
 
 def _taint_expected(messages: list[Message], upto: int) -> bool:
     """Was any non-trusted tool result before index ``upto``? (mirrors compute_taint)"""
-    from the_one.notes.tools import TRUSTED_TOOL_NAMES
+    from the_one.agent.taint import TRUSTED_TOOL_NAMES
 
     names: dict[str, str] = {}
     for m in messages[:upto]:

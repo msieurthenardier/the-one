@@ -30,7 +30,8 @@ UPDATE_HINT = (
 )
 
 SCORING_DIGESTS = {
-    "checks.py": "d04ffdc0a5fdc50da5aef39d7c017092ee420d2f3b13ab23fa52ace0836150d1",
+    # Mission 33 F2 L3: checks.py now imports TRUSTED_TOOL_NAMES from the_one.agent.taint (DD7).
+    "checks.py": "c5892d33366eae1106c049ce18775fa1e5f5b24f47ffd9ce0867f62b2243d7fe",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
     "harness.py": "1f6a6bacf1e0f85c4a0658729511352ea17b04233af181cf94fd888a41a91c28",

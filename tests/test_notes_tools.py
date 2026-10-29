@@ -171,6 +171,11 @@ def test_trusted_set_is_exactly_the_documented_names() -> None:
         "save_note",
         "update_note",
         "forget_note",
+        "list_my_routines",
+        "schedule_routine",
+        "change_routine",
+        "cancel_routine",
+        "current_time",
         "search_tools",
         "continue",
     }

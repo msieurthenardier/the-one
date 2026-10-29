@@ -86,7 +86,7 @@ async def test_create_returns_201_row_shape(client) -> None:
     assert set(row) == {
         "id", "agent_name", "name", "prompt", "schedule", "enabled", "finished_at",
         "next_run_at", "created_by", "created_at", "updated_at", "target", "last_run",
-        "running",
+        "running", "untrusted", "untrusted_sources",
     }  # fmt: skip
     assert row["prompt"] == "say hi"  # trimmed
     assert row["agent_name"] == "ag" and row["enabled"] is True

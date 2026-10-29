@@ -16,18 +16,26 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
 
 from the_one import time_zones
+from the_one.db._notes import SOURCES_CAP
 from the_one.db._write_lock import write_transaction
 from the_one.routines.limits import (
     ROUTINES_PER_AGENT_MAX,
     RoutineLimitError,
     RoutineNameTaken,
+    check_agent_caps,
 )
 from the_one.routines.models import Routine, RoutineRun
+
+if TYPE_CHECKING:
+    from the_one.routines.proposals import ProposalOp
+
+Flag = tuple[Literal["merge"], list[str]] | Literal["clear"] | None
 
 
 def _now_iso() -> str:
@@ -38,8 +46,9 @@ _COLS = (
     "id, agent_name, name, prompt, schedule, enabled, finished_at, target_kind, "
     "target_session_id, target_platform, target_connector_id, target_channel_id, "
     "target_thread_id, target_peer_id, next_run_at, anchor_at, created_by, "
-    "created_at, updated_at"
+    "created_at, updated_at, untrusted, untrusted_sources"
 )
+_INSERT_COLS = _COLS.removesuffix(", untrusted, untrusted_sources")
 
 # Columns an update may set (``schedule`` is encoded; ``enabled`` is a bool).
 _UPDATABLE = {
@@ -93,7 +102,27 @@ def _routine(row: Any) -> Routine:
         created_by=row[16],
         created_at=row[17],
         updated_at=row[18],
+        untrusted=bool(row[19]),
+        untrusted_sources=_decode_sources(row[20]),
     )
+
+
+def _decode_sources(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    try:
+        val = json.loads(raw)
+    except ValueError:
+        return []
+    return [str(v) for v in val] if isinstance(val, list) else []
+
+
+def _merge_sources(existing: list[str], new: list[str]) -> list[str]:
+    out = list(existing)
+    for src in new:
+        if src not in out:
+            out.append(src)
+    return out[:SOURCES_CAP]
 
 
 def _is_name_clash(exc: sqlite3.IntegrityError) -> bool:
@@ -120,6 +149,15 @@ class AgentRoutineRepository:
             row = await cur.fetchone()
         return _routine(row) if row else None
 
+    async def get_by_name(self, name: str, routine_name: str) -> Routine | None:
+        """A routine of agent *name* by its (case-insensitive) routine name."""
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM agent_routines WHERE agent_name = ? AND name = ? COLLATE NOCASE",
+            (name, routine_name),
+        ) as cur:
+            row = await cur.fetchone()
+        return _routine(row) if row else None
+
     async def get_by_id(self, routine_id: str) -> Routine | None:
         """Unscoped read for the scheduler and runner (leg 3/4)."""
         async with self.conn.execute(
@@ -128,9 +166,37 @@ class AgentRoutineRepository:
             row = await cur.fetchone()
         return _routine(row) if row else None
 
-    async def create(self, name: str, fields: dict[str, Any]) -> Routine:
+    async def _caps_after(
+        self, name: str, after_fn: Callable[[list[Routine]], list[Routine]]
+    ) -> None:
+        before = await self.list_for_agent(name)
+        check_agent_caps(before, after_fn(before), time_zones.utcnow())
+
+    async def _flag_values(self, name: str, routine_id: str, flag: Flag) -> dict[str, Any]:
+        """The ``untrusted`` columns a ``flag`` argument sets (read in the transaction)."""
+        if flag is None:
+            return {}
+        if flag == "clear":
+            return {"untrusted": 0, "untrusted_sources": None}
+        got = await self.get(name, routine_id)
+        merged = _merge_sources(got.untrusted_sources if got else [], list(flag[1]))
+        return {"untrusted": 1, "untrusted_sources": json.dumps(merged)}
+
+    async def create(
+        self,
+        name: str,
+        fields: dict[str, Any],
+        *,
+        precheck: Callable[[Routine | None], None] | None = None,
+        agent_caps: bool = False,
+        flag: Flag = None,
+        proposal: ProposalOp | None = None,
+    ) -> Routine:
         """Insert a routine for agent *name*. *fields* holds ``name``, ``prompt``,
-        ``schedule`` (dict), ``target_kind`` and optionally the other columns."""
+        ``schedule`` (dict), ``target_kind`` and optionally the other columns.
+
+        Inside the one transaction, in order: ``precheck(None)``, the agent caps over the
+        rows read here, the INSERT (with ``flag`` applied), then the ``proposal`` op."""
         routine_id = uuid.uuid4().hex
         now = _now_iso()
         values = {
@@ -149,6 +215,8 @@ class AgentRoutineRepository:
         }
         try:
             async with write_transaction(self.conn):
+                if precheck is not None:
+                    precheck(None)
                 async with self.conn.execute(
                     "SELECT COUNT(*) FROM agent_routines WHERE agent_name = ?", (name,)
                 ) as cur:
@@ -157,8 +225,28 @@ class AgentRoutineRepository:
                     raise RoutineLimitError(
                         f"An agent can have at most {ROUTINES_PER_AGENT_MAX} routines."
                     )
+                if agent_caps:
+                    cand = Routine(
+                        id=routine_id,
+                        agent_name=name,
+                        created_at=now,
+                        updated_at=now,
+                        **{
+                            k: values[k]
+                            for k in (
+                                "name",
+                                "prompt",
+                                "schedule",
+                                "enabled",
+                                "finished_at",
+                                "target_kind",
+                                "next_run_at",
+                            )
+                        },
+                    )
+                    await self._caps_after(name, lambda before: [*before, cand])
                 await self.conn.execute(
-                    f"INSERT INTO agent_routines ({_COLS}) VALUES "
+                    f"INSERT INTO agent_routines ({_INSERT_COLS}) VALUES "
                     "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         routine_id,
@@ -182,6 +270,15 @@ class AgentRoutineRepository:
                         now,
                     ),
                 )
+                flag_cols = await self._flag_values(name, routine_id, flag)
+                if flag_cols:
+                    await self.conn.execute(
+                        "UPDATE agent_routines SET untrusted = ?, untrusted_sources = ? "
+                        "WHERE id = ?",
+                        (flag_cols["untrusted"], flag_cols["untrusted_sources"], routine_id),
+                    )
+                if proposal is not None:
+                    await proposal.run(self.conn, routine_id)
         except sqlite3.IntegrityError as e:
             if _is_name_clash(e):
                 raise RoutineNameTaken(values["name"]) from e
@@ -190,21 +287,44 @@ class AgentRoutineRepository:
         assert got is not None
         return got
 
-    async def update(self, name: str, routine_id: str, fields: dict[str, Any]) -> Routine:
+    async def update(
+        self,
+        name: str,
+        routine_id: str,
+        fields: dict[str, Any],
+        *,
+        precheck: Callable[[Routine | None], None] | None = None,
+        agent_caps: bool = False,
+        flag: Flag = None,
+        proposal: ProposalOp | None = None,
+    ) -> Routine:
         unknown = set(fields) - _UPDATABLE
         if unknown:
             raise ValueError(f"Not updatable: {sorted(unknown)}")
         try:
             async with write_transaction(self.conn):
-                if await self.get(name, routine_id) is None:
+                cur_row = await self.get(name, routine_id)
+                if cur_row is None:
                     raise KeyError(f"Routine not found: {routine_id}")
-                sets = [f"{c} = ?" for c in fields] + ["updated_at = ?"]
-                params = [_encode(c, v) for c, v in fields.items()]
+                if precheck is not None:
+                    precheck(cur_row)
+                if agent_caps:
+                    changed = cur_row.model_copy(update=fields)
+                    await self._caps_after(
+                        name,
+                        lambda before: [changed if r.id == routine_id else r for r in before],
+                    )
+                cols = dict(fields)
+                cols.update(await self._flag_values(name, routine_id, flag))
+                sets = [f"{c} = ?" for c in cols] + ["updated_at = ?"]
+                params = [_encode(c, v) for c, v in cols.items()]
                 params += [_now_iso(), name, routine_id]
                 await self.conn.execute(
                     f"UPDATE agent_routines SET {', '.join(sets)} WHERE agent_name = ? AND id = ?",
                     params,
                 )
+                if proposal is not None:
+                    await proposal.run(self.conn, routine_id)
         except sqlite3.IntegrityError as e:
             if _is_name_clash(e):
                 raise RoutineNameTaken(str(fields.get("name", ""))) from e
@@ -213,14 +333,38 @@ class AgentRoutineRepository:
         assert got is not None
         return got
 
-    async def delete(self, name: str, routine_id: str) -> None:
+    async def delete(
+        self,
+        name: str,
+        routine_id: str,
+        *,
+        precheck: Callable[[Routine | None], None] | None = None,
+        agent_caps: bool = False,
+        proposal: ProposalOp | None = None,
+    ) -> None:
         async with write_transaction(self.conn):
-            if await self.get(name, routine_id) is None:
+            cur_row = await self.get(name, routine_id)
+            if cur_row is None:
                 raise KeyError(f"Routine not found: {routine_id}")
+            if precheck is not None:
+                precheck(cur_row)
+            if agent_caps:
+                await self._caps_after(
+                    name, lambda before: [r for r in before if r.id != routine_id]
+                )
+            # Pending proposals for a routine that is going away are superseded (DD4), except
+            # the one this delete is resolving.
+            await self.conn.execute(
+                "UPDATE agent_routine_proposals SET status = 'superseded', resolved_at = ? "
+                "WHERE routine_id = ? AND status = 'pending' AND id != ?",
+                (_now_iso(), routine_id, getattr(proposal, "proposal_id", None) or ""),
+            )
             await self.conn.execute(
                 "DELETE FROM agent_routines WHERE agent_name = ? AND id = ?",
                 (name, routine_id),
             )
+            if proposal is not None:
+                await proposal.run(self.conn, None)
 
     async def list_due(self, now_iso: str) -> list[Routine]:
         """Enabled, unfinished routines whose ``next_run_at`` has arrived (leg 4)."""

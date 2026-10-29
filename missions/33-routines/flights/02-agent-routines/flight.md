@@ -1,6 +1,6 @@
 # Flight: Agents Schedule Their Own Routines
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria

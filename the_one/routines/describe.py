@@ -1,0 +1,109 @@
+"""Plain-words descriptions of a routine's schedule, next run and target
+(Mission 33 F2 L3, DD2/DD7).
+
+The server-side twin of the browser's schedule wording, for ``list_my_routines`` and the
+routine tools' results. Times are 12-hour wall-clock in the operator's zone, through the
+``the_one.time_zones`` formatters. These strings go into tool results the model reads, so
+they NEVER include a chat title or channel name (titles derive from conversation content):
+a target reads "this chat", "chat {id}", "a new chat each run" or "its own chat".
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, tzinfo
+from typing import Any
+
+from the_one import time_zones
+from the_one.routines import schedule as routine_schedule
+
+_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def _clock(local: datetime) -> str:
+    return time_zones._clock(local)
+
+
+def _hhmm(text: str) -> str:
+    try:
+        h, m = routine_schedule._parse_hhmm(text)
+    except Exception:  # noqa: BLE001
+        return str(text)
+    hour = h % 12 or 12
+    return f"{hour}:{m:02d} {'AM' if h < 12 else 'PM'}"
+
+
+def _short_date(local: datetime) -> str:
+    return (
+        f"{time_zones._WEEKDAYS[local.weekday()]}, "
+        f"{time_zones._MONTHS[local.month - 1]} {local.day}, {local.year}"
+    )
+
+
+def _parse(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return routine_schedule.parse_utc(raw)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def describe_schedule(schedule: dict[str, Any], zone: tzinfo) -> str:
+    kind = schedule.get("kind")
+    if kind == "once":
+        at = _parse(schedule.get("at"))
+        if at is None:
+            return "once"
+        local = at.astimezone(zone)
+        return f"once, on {_short_date(local)} at {_clock(local)}"
+    if kind == "daily":
+        return f"every day at {_hhmm(schedule.get('time', ''))}"
+    if kind == "weekdays":
+        return f"every weekday at {_hhmm(schedule.get('time', ''))}"
+    if kind == "weekly":
+        days = [_DAYS[d] for d in schedule.get("days", []) if isinstance(d, int) and 0 <= d <= 6]
+        if len(days) > 1:
+            names = ", ".join(days[:-1]) + f" and {days[-1]}"
+        else:
+            names = days[0] if days else "the chosen days"
+        return f"every {names} at {_hhmm(schedule.get('time', ''))}"
+    if kind == "interval":
+        hours = schedule.get("hours")
+        if hours == 1:
+            return "every hour"
+        return f"every {hours} hours"
+    return "on a schedule"
+
+
+def describe_next(next_run_at: str | None, zone: tzinfo, *, now: datetime | None = None) -> str:
+    """The next run as ``today 3:40 PM`` / ``tomorrow 9:00 AM`` / a dated form."""
+    at = _parse(next_run_at)
+    if at is None:
+        return "no run scheduled"
+    now = now or time_zones.utcnow()
+    local = at.astimezone(zone)
+    today = now.astimezone(zone).date()
+    if local.date() == today:
+        return f"today {_clock(local)}"
+    if local.date() == today + timedelta(days=1):
+        return f"tomorrow {_clock(local)}"
+    return f"{_short_date(local)} at {_clock(local)}"
+
+
+def describe_target(routine_or_payload: Any, current_session_id: str | None) -> str:
+    """``this chat`` / ``chat {id}`` / ``a new chat each run`` / ``its own chat``."""
+    if isinstance(routine_or_payload, dict):
+        target = routine_or_payload.get("target", routine_or_payload)
+        kind = target.get("kind") or target.get("target_kind")
+        sid = target.get("session_id") or target.get("target_session_id")
+    else:
+        kind = getattr(routine_or_payload, "target_kind", None)
+        sid = getattr(routine_or_payload, "target_session_id", None)
+    if kind == "new":
+        return "a new chat each run"
+    if kind == "own":
+        return "its own chat"
+    if kind == "chat" and sid:
+        return "this chat" if sid == current_session_id else f"chat {sid}"
+    # An own-chat routine that has run already points at its chat; the kind still wins above.
+    return "a chat"

@@ -1,11 +1,11 @@
 # Squawk 0283: Creating an agent with an empty or unknown provider id returns 500, not 422
 
-**Status**: deferred
+**Status**: completed
 **Duplicate of**: [0277](0277-create-agent-unknown-provider-500.md)
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-29
-**Completed**: —
+**Completed**: 2026-10-29
 
 ## Duplicate
 Closed into squawk 0277 at the Mission 33 Flight 1 debrief (2026-10-29): same route, same root cause (`create_agent` never checks the provider exists before `store.save`). All tracking, the fix and the sign-off live on 0277; this file stays as the record of the third hit.

@@ -5016,7 +5016,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 45
+        assert CURRENT_VERSION == 46
 
         await conn.close()
 
@@ -5372,7 +5372,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 45 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 46 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5518,7 +5518,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 45 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 46 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5659,13 +5659,13 @@ class TestSchemaV44:
         return conn
 
     async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 45
+        assert CURRENT_VERSION == 46
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 45
+            assert (await cur.fetchone())[0] == 46
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5743,7 +5743,7 @@ _ROUTINE_COLS = [
     "id", "agent_name", "name", "prompt", "schedule", "enabled", "finished_at",
     "target_kind", "target_session_id", "target_platform", "target_connector_id",
     "target_channel_id", "target_thread_id", "target_peer_id", "next_run_at",
-    "anchor_at", "created_by", "created_at", "updated_at",
+    "anchor_at", "created_by", "created_at", "updated_at", "untrusted", "untrusted_sources",
 ]  # fmt: skip
 _RUN_COLS = [
     "id", "routine_id", "trigger_kind", "outcome", "reason", "due_at", "started_at",
@@ -5781,8 +5781,8 @@ async def _insert_run(conn, rid="u1", routine="r1", **over) -> None:
 
 
 class TestSchemaV45:
-    async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 45
+    async def test_current_version_is_46_or_later(self) -> None:
+        assert CURRENT_VERSION >= 45
 
     async def test_fresh_replay_columns_and_fks(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh.db")
@@ -5796,12 +5796,13 @@ class TestSchemaV45:
         fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
         assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 45
+            assert (await cur.fetchone())[0] == 46
         await conn.close()
 
     async def test_v44_database_migrates(self, tmp_path) -> None:
         conn = await _open(tmp_path / "v44.db")
         await ensure_schema(conn)
+        await conn.execute("DROP TABLE agent_routine_proposals")
         await conn.execute("DROP TABLE agent_routine_runs")
         await conn.execute("DROP TABLE agent_routines")
         await conn.execute("DELETE FROM schema_version WHERE version >= 45")
@@ -5882,4 +5883,80 @@ class TestSchemaV45:
         for table in ("agent_routines", "agent_routine_runs"):
             async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
                 assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+# ── v46 (Mission 33 F2 DD4): routine switches, flag, proposals ─────────────
+
+
+class TestSchemaV46:
+    async def test_current_version_is_46(self) -> None:
+        assert CURRENT_VERSION == 46
+
+    async def test_fresh_columns_defaults_table_and_index(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh46.db")
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert cols["routines_self_config_enabled"]["dflt_value"] == "0"
+        assert cols["routines_require_approval"]["dflt_value"] == "1"
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        async with conn.execute(
+            "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (0, 1)
+        await _insert_routine(conn)
+        async with conn.execute("SELECT untrusted, untrusted_sources FROM agent_routines") as cur:
+            assert tuple(await cur.fetchone()) == (0, None)
+        async with conn.execute("PRAGMA table_info(agent_routine_proposals)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == [
+                "id", "agent_name", "routine_id", "routine_name", "action", "payload", "base",
+                "status", "untrusted", "untrusted_sources", "session_id", "created_at",
+                "resolved_at",
+            ]  # fmt: skip
+        fks = await _fk_rows(conn, "agent_routine_proposals")
+        assert (fks["agent_name"]["on_update"], fks["agent_name"]["on_delete"]) == (
+            "CASCADE",
+            "CASCADE",
+        )
+        assert fks["routine_id"]["on_delete"] == "SET NULL"
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'idx_agent_routine_proposals_agent_status'"
+        ) as cur:
+            assert await cur.fetchone() is not None
+        base = ("p1", "a", None, "n", "create", "{}", None, "pending", 0, None, None, "t", None)
+        sql = "INSERT INTO agent_routine_proposals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        await conn.execute(sql, base)
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(sql, ("p2", "a", None, "n", "bogus", *base[5:]))
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                sql, ("p3", "a", None, "n", "create", "{}", None, "weird", *base[8:])
+            )
+        await conn.close()
+
+    async def test_v45_database_migrates_and_keeps_rows(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v45.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await conn.execute("DROP TABLE agent_routine_proposals")
+        await conn.execute("ALTER TABLE agents DROP COLUMN routines_self_config_enabled")
+        await conn.execute("ALTER TABLE agents DROP COLUMN routines_require_approval")
+        await conn.execute("ALTER TABLE agent_routines DROP COLUMN untrusted")
+        await conn.execute("ALTER TABLE agent_routines DROP COLUMN untrusted_sources")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 46")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 46
+        async with conn.execute(
+            "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (0, 1)
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("SELECT COUNT(*) FROM agent_routines") as cur:
+            assert (await cur.fetchone())[0] == 1
         await conn.close()
