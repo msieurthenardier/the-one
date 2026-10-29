@@ -410,15 +410,15 @@ THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/
 | `contracts-controls` | 600 | 463 |
 | `contracts-chat` | 90 | 71 |
 | `knowledge` | 420 | 319 |
-| `agent-tabs` | 540 | 410 |
-| `agent-routines` | 300 (provisional until the M33 F2 Batch B gate) | n/a |
+| `agent-tabs` | 390 | 293 |
+| `agent-routines` | 240 | 171 |
 | `settings` | 360 | 271 |
 | `settings-tools` | 330 | 263 |
 | `contracts-overlay` | 330 | 241 |
 | `library` | 420 | 361 |
 | `chats-transcript` | 330 | 250 |
 
-`agent-tabs` was re-budgeted to 540 s at M33 F1 Batch B (`PARALLEL_RESULT rc=0 total=1724s lanes=16`, start load 0.79, measured 410 s) when the routines tab and form tests landed; the other lanes stayed within budget.
+`agent-tabs` was re-budgeted to 540 s at M33 F1 Batch B (`PARALLEL_RESULT rc=0 total=1724s lanes=16`, start load 0.79, measured 410 s) when the routines tab and form tests landed; the other lanes stayed within budget. At M33 F2 Batch B (`PARALLEL_RESULT rc=0 total=1774s lanes=17`, start load 0.73), `agent-routines` was budgeted at 240 s (measured 171 s) and `agent-tabs` re-budgeted to 390 s (measured 293 s), since its routines tests moved to `agent-routines`; the other lanes stayed within 15%.
 
 **Aliases** (the pre-M25 names still work and expand to the union of their lanes): `chat` = `chats` + `chats-transcript`, `studio` = `agents` + `agent-tabs` + `agent-routines` + `library` + `knowledge` + `mcp` + `mcp-connection`, `system` = `settings` + `settings-tools` + `providers`, `contracts` = `contracts-overlay` + `contracts-chat` + `contracts-controls`. `--parallel` schedules only the canonical lanes, so no file runs twice.
 
@@ -439,7 +439,7 @@ Each lane runs independently green under the venv python (always pass `PYTHON=.v
 - **`contracts-overlay`** — an **explicit list** (M31 F3 L01, split from `contracts` when it passed ~1000 tests): `test_ui_modal*`, `test_ui_menu*`, `test_ui_rail*`, `test_ui_list_pane_chats*`, `test_ui_search_list*`, `test_ui_drawer*`, `test_ui_nav_groups*`, `test_ui_confirm*`, `test_ui_focus_after*`, `test_ui_dialog_rule*`, `test_ui_dialog_scroll*` (`contracts_overlay_pat`)
 - **`contracts-chat`** — an **explicit list** (M31 F6 L04, DD15): the six chat-control contract files, `test_ui_composer*`, `test_ui_message*`, `test_ui_thinking*`, `test_ui_trace*`, `test_ui_telemetry*`, `test_ui_notice*` (`contracts_chat_pat`); budget 90 s (measured at 59-71 s in the two leg 09b quiet-host runs)
 - **`contracts-controls`** — `test_ui_*` **minus** the overlay and chat lists: the rest of the `App.ui` control-library contract files (engine-parametrized, Chromium + WebKit) (M25 F4 L1, squawk 0117). Run all three contract lanes with `THE_ONE_REQUIRE_WEBKIT=1` after any library change (or `--lane contracts`, the alias for their union), so a WebKit launch failure fails rather than skips
-- **`agent-routines`** — an **explicit glob** split from `agent-tabs` (M33 F2 L05): `test_flow_agent_routines*` (the Flight 1 Routines tab and form files, which therefore leave `agent-tabs`, and `test_flow_agent_routines_self_config.py`, the Self-configuration tab's Routines item: switches, the waiting-for-approval queue with the stale, gone and 422 paths, history paging, the origin and flag) (`agent_routines_pat`); provisional budget 300 s, set from the Batch B quiet-host gate
+- **`agent-routines`** — an **explicit glob** split from `agent-tabs` (M33 F2 L05): `test_flow_agent_routines*` (the Flight 1 Routines tab and form files, which therefore leave `agent-tabs`, and `test_flow_agent_routines_self_config.py`, the Self-configuration tab's Routines item: switches, the waiting-for-approval queue with the stale, gone and 422 paths, history paging, the origin and flag) (`agent_routines_pat`); budget 240 s (measured 171 s at the M33 F2 Batch B quiet-host gate)
 - **`shared`** — the **complement**: every browser test file not claimed by the sixteen named lanes (smoke, theme sync, markdown, keyboard, hash routing, oauth modal, dirty-confirm, cross-area gate, picker, seeders, app fixture, …)
 
 Lanes are hand-rolled basename globs over `tests/browser/` — no new deps, no per-test markers. Because `shared` is defined as the complement of the sixteen named lanes, the seventeen lanes' union is *always* exactly the whole browser suite and no test file can be orphaned — a newly added `tests/browser/test_*.py` lands in `shared` until it is given a lane glob in `scripts/run-tests.sh`. `--list` (with `--lane`) prints a lane's files and exits 0 without running pytest; `--list` without `--lane` exits 2. `tests/test_run_tests_lanes.py` (unit tier) lists all seventeen lanes and pins that they are pairwise disjoint, that their union is every `tests/browser/test_*.py` except the pixel-only `test_visual_snapshots.py`, the `--parallel`/`--plan` argument errors, the budget table (every canonical lane once) and the parallel exit-code rules.

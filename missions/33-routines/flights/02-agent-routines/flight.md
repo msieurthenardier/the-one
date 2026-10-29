@@ -1,18 +1,18 @@
 # Flight: Agents Schedule Their Own Routines
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **The Self-configuration tab governs two things** (whole criterion)
-- [ ] **An agent schedules its own routines when allowed** (whole criterion;
+- [x] **The Self-configuration tab governs two things** (whole criterion)
+- [x] **An agent schedules its own routines when allowed** (whole criterion;
       behavior-test-backed, `agent-schedules-follow-up`)
-- [ ] **Agent routine changes are overseen** (whole criterion)
-- [ ] **Injected content cannot plant a routine unnoticed, and routines are
+- [x] **Agent routine changes are overseen** (whole criterion)
+- [x] **Injected content cannot plant a routine unnoticed, and routines are
       bounded** (whole criterion; the scripted-tool-call proof is a unit-tier
       test, DD7)
-- [ ] **Routines follow their agent** (the proposals record joins the cascade;
+- [x] **Routines follow their agent** (the proposals record joins the cascade;
       Flight 1 delivered the rest)
 
 Flight 3 is the mission's one HAT. This flight has no HAT leg (operator
@@ -876,8 +876,8 @@ merge).
       exists, and `tiktoken` is installed in the venv.
 - [x] No new external services. The behavior test uses a dev port of 8490 or
       higher, checked free with `ss -ltn` at its leg.
-- [ ] Each leg re-verifies its cited lines at its start.
-- [ ] **External sessions re-checked at leg time**, not trusted from
+- [x] Each leg re-verifies its cited lines at its start.
+- [x] **External sessions re-checked at leg time**, not trusted from
       planning. At the start of the evals leg and of the behavior-test leg:
       - `curl -s 127.0.0.1:11434/api/tags` lists `gpt-oss:20b`;
       - `~/.config/the-one-evals/plan-token` exists (evals leg only).
@@ -923,23 +923,23 @@ merge).
 
 ### Checkpoints
 
-- [ ] REST routine tests pass unedited on the shared service.
-- [ ] v46 migrates fresh and existing databases; every existing agent's
+- [x] REST routine tests pass unedited on the shared service.
+- [x] v46 migrates fresh and existing databases; every existing agent's
       self-configuration is unchanged; rename and delete carry proposals.
-- [ ] Squawk 0277: agent create and update return 422, never 500, for an
+- [x] Squawk 0277: agent create and update return 422, never 500, for an
       empty or unknown provider.
-- [ ] With Routines on, a scripted agent lists, schedules, changes and
+- [x] With Routines on, a scripted agent lists, schedules, changes and
       cancels; with it off, it has no routine tools; caps refuse with a
       reason; approval holds changes as pending; approve, dismiss and stale
       behave as in DD6.
-- [ ] The taint proof (DD7) passes at the unit tier, and notes tests pass
+- [x] The taint proof (DD7) passes at the unit tier, and notes tests pass
       against the moved module.
-- [ ] Evals: `m30-platform` unchanged in size, no gate regression;
+- [x] Evals: `m30-platform` unchanged in size, no gate regression;
       `m33-routines` baselined.
-- [ ] The tab shows two items; the Routines item approves and dismisses;
+- [x] The tab shows two items; the Routines item approves and dismisses;
       flags and origin show on the tab, the drawer and proposals.
-- [ ] `--parallel 3` green with the `agent-routines` lane budgeted.
-- [ ] Behavior test `agent-schedules-follow-up` passes.
+- [x] `--parallel 3` green with the `agent-routines` lane budgeted.
+- [x] Behavior test `agent-schedules-follow-up` passes.
 
 ### Adaptation Criteria
 
@@ -971,10 +971,10 @@ merge).
 >
 > Architect cycle 1 split the old tools leg into legs 3 and 4.
 
-- [ ] `routine-write-service`: extract `routines/service.py` from `api.py`
+- [x] `routine-write-service`: extract `routines/service.py` from `api.py`
       behind `test_routines_api.py` unedited. The service takes `conn` from
       its caller and owns the scheduler poke (DD3).
-- [ ] `agent-routine-store`:
+- [x] `agent-routine-store`:
       - v46 (switches, flag columns, proposals table) and its migration
         tests;
       - `save` leaves the switches out of the update;
@@ -993,7 +993,7 @@ merge).
       - the `agents.md` and CLAUDE.md lines for the new routes.
 
       (DD4-DD6, DD8 caps, DD10, DD14.)
-- [ ] `agent-routine-tools`:
+- [x] `agent-routine-tools`:
       - the taint module move and the leaf names;
       - the `TurnContext` fields;
       - the four tools, with the call-time switch check, and the Python
@@ -1009,7 +1009,7 @@ merge).
       - the `agents.md` and CLAUDE.md lines for the tools.
 
       Unit tier only. (DD1, DD2, DD7, DD9.)
-- [ ] `routine-evals`:
+- [x] `routine-evals`:
       - re-check Ollama and the plan token;
       - the harness chat row and the `routines_enabled` key;
       - three scenarios and three checks;
@@ -1020,7 +1020,7 @@ merge).
       - `evals/README.md`.
 
       (DD12.)
-- [ ] `self-config-routines-item`:
+- [x] `self-config-routines-item`:
       - the tab's two items;
       - the Routines item module;
       - origin and flag on the Routines tab and the drawer;
@@ -1030,7 +1030,7 @@ merge).
         UI.
 
       (DD5, DD11.)
-- [ ] `agent-schedules-follow-up-behavior-test`: re-check Ollama, then
+- [x] `agent-schedules-follow-up-behavior-test`: re-check Ollama, then
       finalize and run DD13's spec.
 
 ---
@@ -1039,13 +1039,13 @@ merge).
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] `make test-unit` green; `make test-browser` green (`THE_ONE_TEST_NETNS=1`)
-- [ ] Evals compared against `m30-platform` and `m33-routines` baselined
-- [ ] Behavior test `agent-schedules-follow-up` passed and its run log
+- [x] `make test-unit` green; `make test-browser` green (`THE_ONE_TEST_NETNS=1`)
+- [x] Evals compared against `m30-platform` and `m33-routines` baselined
+- [x] Behavior test `agent-schedules-follow-up` passed and its run log
       committed
-- [ ] Documentation updated: CLAUDE.md, `the_one/agents.md`,
+- [x] Documentation updated: CLAUDE.md, `the_one/agents.md`,
       `SECURITY-MODEL.md`, `evals/README.md`, the testid registry, the control
       inventory
 

@@ -68,8 +68,8 @@ declare -A BUDGET=(
   [chats]=420
   [chats-transcript]=330
   [agents]=540
-  [agent-tabs]=540
-  [agent-routines]=300   # PROVISIONAL (M33 F2 L5): set from the Batch B quiet-host --parallel 3 gate
+  [agent-tabs]=390
+  [agent-routines]=240   # M33 F2 Batch B quiet-host gate: measured 171 s
   [library]=420
   [knowledge]=420
   [mcp]=330
@@ -224,7 +224,7 @@ agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
                 'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
                 'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py')
 # Agent-routines (M33 F2 L5): the Routines tab and the Self-configuration Routines item. Split
-# from `agent-tabs` with a provisional 300 s budget until the Batch B quiet-host gate. Its glob
+# from `agent-tabs` with a 240 s budget set from the Batch B quiet-host gate. Its glob
 # also matches the Flight 1 Routines tab files, which therefore leave `agent-tabs`.
 agent_routines_pat=('test_flow_agent_routines*')
 # Routing (M26 F1 L4): the router, leave guard and client store files.
