@@ -1,17 +1,17 @@
 # Flight: Operator Routines, End to End
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **The operator manages an agent's routines** (whole criterion)
-- [ ] **Routines run on time, unattended** (whole criterion)
-- [ ] **The reply lands in the target** (whole criterion; behavior-test-backed,
+- [x] **The operator manages an agent's routines** (whole criterion)
+- [x] **Routines run on time, unattended** (whole criterion)
+- [x] **The reply lands in the target** (whole criterion; behavior-test-backed,
       `routine-connector-delivery`)
-- [ ] **A routine's message says it came from the routine** (whole criterion)
-- [ ] **Unattended runs are honest** (whole criterion)
-- [ ] **Routines follow their agent** (whole criterion for operator routines;
+- [x] **A routine's message says it came from the routine** (whole criterion)
+- [x] **Unattended runs are honest** (whole criterion)
+- [x] **Routines follow their agent** (whole criterion for operator routines;
       Flight 2 adds its proposals record to the same cascade)
 
 Flight 2 owns the Self-configuration split, the agent's routine tools,
@@ -796,10 +796,10 @@ applied):
 - [x] No new external services or ports. The behavior test uses a dev
       instance at 8490 or higher, never 8484 (the operator's app) or 8485 (the
       Flight Director's preview).
-- [ ] Branch `flight/01-operator-routines` cut from `main` at execution start.
-- [ ] Each leg re-verifies the cited line numbers at its start (the Citation
+- [x] Branch `flight/01-operator-routines` cut from `main` at execution start.
+- [x] Each leg re-verifies the cited line numbers at its start (the Citation
       Audit is at `c2366221`).
-- [ ] The behavior-test leg re-checks that the dev port is free and runs
+- [x] The behavior-test leg re-checks that the dev port is free and runs
       `the-one rotate-api-credential` against the scratch data dir before the
       first request (squawk 0278).
 
@@ -808,7 +808,7 @@ applied):
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -843,18 +843,18 @@ applied):
 
 ### Checkpoints
 
-- [ ] v45 migrates fresh and existing databases; rename and delete cascade.
-- [ ] Calculator and grace rules pass their frozen-clock tests, DST included.
-- [ ] Delivery characterization tests green before and after the split.
-- [ ] A routine runs headless in a web chat and in a stub connector chat; the
+- [x] v45 migrates fresh and existing databases; rename and delete cascade.
+- [x] Calculator and grace rules pass their frozen-clock tests, DST included.
+- [x] Delivery characterization tests green before and after the split.
+- [x] A routine runs headless in a web chat and in a stub connector chat; the
       reply is delivered and the prompt is not; every outcome branch is pinned.
-- [ ] The scheduler fires a due routine, catches up once, records missed,
+- [x] The scheduler fires a due routine, catches up once, records missed,
       survives restart, and stops promptly.
-- [ ] The editor shows Tools with both sections; no overflow at 1024px.
-- [ ] The transcript marks routine messages; an open chat shows a routine run
+- [x] The editor shows Tools with both sections; no overflow at 1024px.
+- [x] The transcript marks routine messages; an open chat shows a routine run
       as in flight; the panel shows the Routine row and group.
-- [ ] Routines tab creates, edits, toggles, runs now, deletes, shows history.
-- [ ] Behavior test `routine-connector-delivery` passes on a dev instance.
+- [x] Routines tab creates, edits, toggles, runs now, deletes, shows history.
+- [x] Behavior test `routine-connector-delivery` passes on a dev instance.
 
 ### Adaptation Criteria
 
@@ -919,7 +919,7 @@ applied):
       accepts `once` as `{on: {date, time}}` in the operator zone; the pure
       form model; the inline form for five schedule kinds and three targets;
       the chat chooser; capture surfaces; the agent-tabs lane re-measured.
-- [ ] `routine-connector-delivery-behavior-test`: finalize and run
+- [x] `routine-connector-delivery-behavior-test`: finalize and run
       `tests/behavior/routine-connector-delivery.md` on a dedicated dev
       instance (DD13). Fix what it finds through the fix-vs-feature gate.
 
@@ -929,12 +929,12 @@ applied):
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] `make test-unit` green; `make test-browser` green (`THE_ONE_TEST_NETNS=1`)
-- [ ] Behavior test `routine-connector-delivery` passed and its run log
+- [x] `make test-unit` green; `make test-browser` green (`THE_ONE_TEST_NETNS=1`)
+- [x] Behavior test `routine-connector-delivery` passed and its run log
       committed
-- [ ] Documentation updated: CLAUDE.md, `the_one/agents.md`,
+- [x] Documentation updated: CLAUDE.md, `the_one/agents.md`,
       `the_one/connectors/README.md`, `SECURITY-MODEL.md`,
       `docs/ui-testid-registry.md`, `docs/ui-control-inventory.md`
 

@@ -346,7 +346,7 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: **Operator routines, end to end.**
+- [x] Flight 1: **Operator routines, end to end.**
   - The routines store and migration (cascading with the agent).
   - The schedule kinds and next-run calculation in the operator zone.
   - The scheduler loop and the unattended run path. The run path takes the

@@ -4,7 +4,11 @@
 
 ## Summary
 
-In flight on `flight/01-operator-routines`. Batch mode: Batch A (legs 1-4, backend), Batch B (legs 5-7, UI), then leg 8 (behavior test).
+Landed on `flight/01-operator-routines`. Batch mode:
+- Batch A (legs 1-5, backend) was committed as `e8341d88`.
+- Batch B (legs 6-9, UI) was committed as `de27abc4`.
+- Leg 10's behavior test `routine-connector-delivery` passed 8 of 8 checkpoints (`tests/behavior/routine-connector-delivery/runs/2026-10-29-03-31-37.md`).
+- Squawk 0283 was logged and deferred: an out-of-scope agent-create 500 found during the run.
 
 ---
 
@@ -531,3 +535,37 @@ Deviations:
   - **Batch-end gate:** the unit suite, then `--parallel 3` across every lane, on a quiet host (load 0.79 at start). This also gives the quiet-host reading for the `agent-tabs` re-budget that leg 9 AC8 deferred.
 
 - **Batch B gate and checkpoint.** Unit tests: 8092 passed, 15 skipped. `--parallel 3` across all 16 lanes was green (`rc=0 total=1724s`). `agent-tabs` was re-budgeted from 360 to 540 s (it measured 410 s). Legs 6-9 are `completed` and committed as the Batch B checkpoint.
+
+### Leg 10: routine-connector-delivery-behavior-test
+
+- **Spec finalized (AC1).** The FD re-read every step against `_routine_view`, `RoutineRun.model_dump()` and the `/_test/stub/*` seams, then corrected these names:
+  - `trigger_kind`, the target body `{kind, session_id}`, `once` as `{kind, at}`;
+  - the outbound record's `content`, and the inbound body's `connector_id`/`peer_id`/`text`/`is_dm`;
+  - `config.default_agent`.
+
+  It also added a step-1 Expected Result. The spec's status is `active`.
+- **Run (AC2).** `/mission-control:behavior-test routine-connector-delivery` passed 8 of 8 checkpoints, in live mode with Sonnet as Executor and Validator. The run was against port 8490, a scratch data dir under `$HOME` and a scratch cwd, with the credential rotated first.
+  - **Checkpoints:**
+    - The reply reached the connector, and the prompt never did.
+    - The run is stored as the routine's (`routine_name`, `visibility` `operator`, `session_metadata.routine`).
+    - A one-off fired from the scheduler on its own, 0.8 s after its due time, and ended Done.
+    - After `/new`, a run landed in a new chat and the routine re-pointed to it.
+    - The peer's next DM continued that chat.
+  - **Run log:** `tests/behavior/routine-connector-delivery/runs/2026-10-29-03-31-37.md`.
+- **Teardown (AC3).** The instance was stopped by its recorded PID, the scratch dir was removed, and the default data dir's mtimes were identical before and after. Nothing touched 8484 or 8485.
+- **Finding, by design.** A routine delivers through `keying_to_target(row)`, which gives a `ChannelTarget`, while an inbound DM reply uses `PeerTarget`. Real DM rows carry the platform's DM channel id. Only the stub seam leaves it `""`. No product change was needed.
+- **Spec re-authored after the run** from the Validator's feedback. No step's intent changed:
+  - step 1 names `config.default_agent` and the mock provider's `base_url`;
+  - step 7 compares against step 4's routine record and explains the two target shapes;
+  - a Preconditions bullet requires a before-count of outbound before every triggering action.
+- **Squawk 0283 (defect, routine, deferred).** `POST /api/agents` with an empty `provider_config_id` returns 500 (a foreign-key `IntegrityError`) instead of 422. The Executor's unintended step-1 request hit it. It is pre-existing and unrelated to routines.
+
+### Flight landing (FD)
+
+- **All legs `completed`** (1-10), with flight-log entries for every leg.
+- **Docs verified.** CLAUDE.md's "Routines (M33 F1)" paragraph covers the REST routes, the scheduler, the Routines tab and form, the `on` input and `THE_ONE_ROUTINE_RUN_TIMEOUT_SECONDS`. These also cover the flight:
+  - `the_one/agents.md` (44 routine references, including "Routines (M33)", "Routines tab", "Routine form");
+  - `SECURITY-MODEL.md` "Routines (Mission 33)";
+  - `the_one/connectors/README.md`;
+  - the testid registry and the control inventory (`App.ui.checkboxGroup`).
+- **Status:** the flight is `landed`, Flight 1 is checked off in `mission.md`, and a draft PR is opened. A flight debrief (`/mission-control:flight-debrief`) is recommended next, on this branch.

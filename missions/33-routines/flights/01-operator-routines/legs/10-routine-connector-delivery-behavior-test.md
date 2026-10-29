@@ -1,6 +1,6 @@
 # Leg: routine-connector-delivery-behavior-test
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Operator Routines, End to End](../flight.md)
 
 ## Objective
@@ -45,14 +45,14 @@ connector, using `tests/behavior/routine-connector-delivery.md`:
 
 ## Acceptance Criteria
 
-- [ ] AC1. **The spec matches the landed code.** It reads the stub outbound
+- [x] AC1. **The spec matches the landed code.** It reads the stub outbound
       shape, the run row fields and the routine row fields as they really
       are, and its preconditions name a dev port of 8490 or higher, a
       scratch data dir under `$HOME`, a scratch cwd, the two gate env vars
       and the credential rotation.
-- [ ] AC2. `/mission-control:behavior-test routine-connector-delivery`
+- [x] AC2. `/mission-control:behavior-test routine-connector-delivery`
       passes every step, and the run log is committed.
-- [ ] AC3. **The instance is stopped by its recorded PID**, and the scratch
+- [x] AC3. **The instance is stopped by its recorded PID**, and the scratch
       data dir is removed. Ports 8484 and 8485 and the operator's default data
       directory were never touched: check that dir with
       `python -c "from the_one.config import settings; print(settings.data_dir)"`
