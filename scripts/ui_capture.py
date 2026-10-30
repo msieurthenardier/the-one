@@ -366,6 +366,17 @@ def _routines_form_open(ctx: Ctx) -> None:
     _mask(page)
 
 
+def _self_config_expanders_open(ctx: Ctx) -> None:
+    """Open the Routines card's two expanders (collapsed on arrival, M33 F4 L06)."""
+    page = ctx.page
+    for testid in ("self-config-routines-waiting", "self-config-routines-history-details"):
+        details = page.locator(f'[data-testid="{testid}"]')
+        details.wait_for(timeout=15000)
+        if details.get_attribute("open") is None:
+            details.locator("> summary").click()
+    _mask(page)
+
+
 def _admin_tool_chips(ctx: Ctx) -> None:
     ctx.page.locator(".chip-list-editor .chip").first.wait_for(timeout=10000)
 
@@ -464,7 +475,7 @@ MASK_JS = r"""
     eachText(TIME, TIME_RULES);
     // A routine's next run names a weekday that moves with the day the capture runs.
     eachText('[data-testid="routine-next"]',
-      [[/(?<=Next )(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)/g, () => 'Sun']]);
+      [[/^(?:Today|Tomorrow|Mon|Tue|Wed|Thu|Fri|Sat|Sun)/, () => 'Sun']]);
     eachText(MCP_TIME, TIME_RULES.concat(MCP_RELATIVE));
     eachText('body', ANY_TEXT);
     document.querySelectorAll('input, textarea').forEach((n) => {
@@ -903,7 +914,7 @@ SURFACES += [
         "agent-routines",
         "#agents/{agent}/routines",
         '[data-testid="routine-row"]',
-        "Agent editor, Routines tab: three routines (daily, weekly on its own chat, interval off)",
+        "Agent editor, Routines tab: three routines (daily, weekly, interval off)",
     ),
     Surface(
         "agent-routines-form",
@@ -915,9 +926,10 @@ SURFACES += [
     Surface(
         "agent-self-config-routines",
         "#agents/{agent}/self-configuration",
-        '[data-testid="self-config-routine-proposal"]',
-        "Agent editor, Self-configuration tab, Routines item: Routines on with approval, one "
-        "pending create, and one flagged routine applied (M33 F2 L5)",
+        '[data-testid="self-config-routines-waiting"]',
+        "Agent editor, Self-configuration tab, Routines card: Routines on with approval, one "
+        "pending create and one flagged routine applied, both expanders open (M33 F2 L5, F4 L06)",
+        prepare=_self_config_expanders_open,
     ),
     Surface(
         "agent-self-configuration",
@@ -2622,6 +2634,15 @@ def write_credential(data_dir: Path) -> str:
     return token
 
 
+def _routine_schedule(time: str, repeat: dict) -> dict:
+    """A repeating routine schedule in the canonical {start, repeat, ends} shape."""
+    return {
+        "start": {"date": "2026-10-30", "time": time},
+        "repeat": repeat,
+        "ends": {"kind": "never"},
+    }
+
+
 def _api(base: str, token: str, method: str, path: str, body: dict | None = None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
@@ -2800,24 +2821,29 @@ def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
         {"text": "Never guess a file path.", "enabled": False},
     )
     _api(base, token, "PUT", f"/api/agents/{TABS_AGENT}/notes/settings", {"enabled": True})
-    # Routines (M33 F1 L9): three kinds and two targets, through REST; the next-run text is
-    # masked (MASK_JS), the schedule sentences are stable.
+    # Routines (M33 F1 L9): three kinds, through REST; the next-run text is masked (MASK_JS),
+    # the schedule sentences are stable.
     for routine in (
-        {"name": "Morning summary", "schedule": {"kind": "daily", "time": "09:00"}},
+        {
+            "name": "Morning summary",
+            "schedule": _routine_schedule("09:00", {"every": 1, "unit": "day"}),
+        },
         {
             "name": "Weekly review",
-            "schedule": {"kind": "weekly", "days": [0, 4], "time": "16:30"},
-            "target": {"kind": "own"},
+            "schedule": _routine_schedule("16:30", {"every": 1, "unit": "week", "days": [0, 4]}),
         },
-        {"name": "Health check", "schedule": {"kind": "interval", "hours": 6}, "enabled": False},
+        {
+            "name": "Health check",
+            "schedule": _routine_schedule("09:00", {"every": 6, "unit": "hour"}),
+            "enabled": False,
+        },
     ):
         _api(
             base,
             token,
             "POST",
             f"/api/agents/{TABS_AGENT}/routines",
-            {"prompt": "Summarize what changed since the last run.", "target": {"kind": "new"}}
-            | routine,
+            {"prompt": "Summarize what changed since the last run."} | routine,
         )
     _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/self-configuration")
     return ids
@@ -2844,8 +2870,8 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
     try:
         conn.execute(
             "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
-            " target_kind, next_run_at, anchor_at, created_by, created_at, updated_at,"
-            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, 'new', ?, ?, 'agent', ?,"
+            " next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 'agent', ?,"
             " ?, 1, ?)",
             (
                 routine_id,
@@ -2879,7 +2905,6 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
                         "ends": {"kind": "never"},
                     },
                     "anchor_at": None,
-                    "target": {"kind": "new"},
                     "enabled": True,
                 },
                 "pending",
@@ -2900,7 +2925,6 @@ def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
                         "ends": {"kind": "never"},
                     },
                     "anchor_at": None,
-                    "target": {"kind": "new"},
                     "enabled": True,
                 },
                 "applied",

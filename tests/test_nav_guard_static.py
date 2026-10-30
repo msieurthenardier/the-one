@@ -24,14 +24,14 @@ def _code(path: Path) -> str:
     return re.sub(r"(?m)^\s*//.*$|(?<=\s)//\s.*$", "", text)
 
 
-def test_confirm_dialog_called_only_by_nav_and_notes_clear_all():
+def test_confirm_dialog_called_only_by_nav_notes_clear_all_and_routine_delete():
     callers = {
         p.name for p in _files() if re.search(r"App\.confirmDialog\s*\(", _code(p)) is not None
     }
     # notes-section.js (M27 F2 L3, DD10; split from rules-notes-tab.js in M31 F2 L11): the
     # Notes section's Clear all is a blocking "this can't be undone" decision, not a leave
-    # guard.
-    assert callers <= {"notes-section.js"}
+    # guard. routines-tab.js (M33 F4 L03): a routine's Delete asks "Delete {name}?" first.
+    assert callers <= {"notes-section.js", "routines-tab.js"}
     # nav.js reaches it through a lazily-resolved local, never a literal call site.
     assert "window.App.confirmDialog" in (JS / "nav.js").read_text()
 

@@ -95,7 +95,7 @@ def test_menu_api_and_markup(engine_page: Page) -> None:
           };
         }"""
     )
-    assert out["keys"] == "close,destroy,el,isOpen,open,popup,trigger"
+    assert out["keys"] == "close,destroy,el,isOpen,open,popup,setItemDisabled,trigger"
     assert out["wrap"] == "ui-menu-wrap" and out["wrapPos"] == "relative"
     assert out["popRole"] == "menu" and out["popHidden"] is True and out["popParent"] is True
     assert out["idOk"] and out["controls"] and out["labelledby"]
@@ -136,6 +136,33 @@ def test_menu_option_validation(engine_page: Page) -> None:
     assert "align" in _throws(
         p, "App.ui.menu({align: 'middle', items: [{label: 'x', onSelect: () => {}}]})"
     )
+
+
+def test_set_item_disabled_toggles_an_item_without_closing_an_open_menu(
+    engine_page: Page,
+) -> None:
+    """M33 F4 L03: an item's disabled state can change after construction (the Routines
+    row's Run now follows the routine's running state) and an open menu stays open."""
+    p = engine_page
+    _mount(p)
+    p.get_by_test_id("m-trigger").click()
+    assert _expanded(p) == "true"
+    p.evaluate("() => { window.__m.setItemDisabled(0, true); return true; }")
+    assert _expanded(p) == "true"
+    assert p.get_by_test_id("m-rename").get_attribute("aria-disabled") == "true"
+    # The focused item became disabled: focus moved to the first enabled one (the locked
+    # item is skipped), and the arrow keys keep working from there.
+    assert _active(p) == "m-dup"
+    p.keyboard.press("ArrowDown")
+    assert _active(p) == "m-del"
+    p.get_by_test_id("m-rename").click(force=True)
+    assert p.evaluate("() => window.__sel") == []
+    assert _expanded(p) == "true"
+    p.evaluate("() => { window.__m.setItemDisabled(0, false); return true; }")
+    assert p.get_by_test_id("m-rename").get_attribute("aria-disabled") is None
+    p.get_by_test_id("m-rename").click()
+    assert p.evaluate("() => window.__sel") == ["Rename"]
+    assert "index" in _throws(p, "window.__m.setItemDisabled(9, true)")
 
 
 # ── Opening ─────────────────────────────────────────────────────────────────

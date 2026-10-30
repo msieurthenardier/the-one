@@ -323,18 +323,6 @@ class Harness:
             seeded.add(note.id)
         return seeded
 
-    async def _chat_row(self, session_id: str, agent_name: str) -> None:
-        """A real ``chat_sessions`` row for the conversation, so ``"this_chat"`` resolves."""
-        from the_one.db.connection import get_connection
-        from the_one.db.models import ChatSession
-        from the_one.db.repositories import ChatSessionRepository
-
-        repo = ChatSessionRepository(await get_connection())
-        with contextlib.suppress(KeyError):
-            await repo.get(session_id)
-            return
-        await repo.create(ChatSession(id=session_id, agent_name=agent_name, title="eval"))
-
     async def _collect_routines(self, agent_name: str) -> list[RoutineView]:
         """The routines the run's agent left in the database (the stored columns)."""
         from the_one.db.connection import get_connection
@@ -344,10 +332,8 @@ class Harness:
         return [
             RoutineView(
                 name=r.name,
-                kind=_legacy_kind(r.schedule),
+                kind=_schedule_class(r.schedule),
                 next_run_at=r.next_run_at,
-                target_kind=r.target_kind,
-                target_session_id=r.target_session_id,
                 created_by=r.created_by,
                 untrusted=r.untrusted,
             )
@@ -389,9 +375,6 @@ class Harness:
                         agent = await factory.create(spec.agent_name)
                     trace.system_prompts.append(agent.system_prompt)
                     session_id = f"ev-{spec.stem}-c{ci}"
-                    if sc.routines_enabled:
-                        await self._chat_row(session_id, spec.agent_name)
-                        trace.session_ids.append(session_id)
                     attempt.effective = effective_values(agent.llm)
                     for text in turns:
                         tt = TurnTrace(conversation=ci, index=turn_index, user=text)
@@ -456,8 +439,8 @@ class Harness:
         return attempt
 
 
-def _legacy_kind(schedule: dict) -> str:
-    """Map the stored calendar recurrence back to the kind name the checks read.
+def _schedule_class(schedule: dict) -> str:
+    """Classify a stored schedule for the checks: the output name ``RoutineView.kind`` carries.
 
     ``repeat`` null is ``once``; every 1 day is ``daily``; every 1 week on exactly Monday to
     Friday is ``weekdays``, on other days ``weekly``; every N hours is ``interval``; anything

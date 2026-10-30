@@ -32,7 +32,7 @@
     // the tab's status/count lines already use — and moves focus itself.
     var externalSectionCtl = App.ui.section({
       title: 'External access',
-      titleTag: 'h3',
+      titleTag: 'h2',
       className: 'self-configuration-external-section'
     });
     var externalSection = externalSectionCtl.body;

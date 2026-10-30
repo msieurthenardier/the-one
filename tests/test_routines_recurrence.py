@@ -272,100 +272,102 @@ def first(sched, anchor, now, zone=LA):
     return rec.next_occurrence(sched, anchor, now, zone)
 
 
-# The first run of each legacy calendar shape, from four "now" values (captured from the
-# retired five-kind calculator in leg 4): the DD5 aliases keep today's first run.
-_LEGACY_NOWS = [NOW, u(2027, 3, 13, 12, 0, 0), u(2027, 3, 14, 9, 59, 30), u(2026, 10, 31, 20, 0, 5)]
-_LEGACY_FIRST_RUNS = [
-    (
-        {"kind": "daily", "time": "02:30"},
-        ["2026-10-11T09:30", "2027-03-14T10:00", "2027-03-14T10:00", "2026-11-01T10:30"],
-    ),
-    (
-        {"kind": "daily", "time": "09:00"},
-        ["2026-10-11T16:00", "2027-03-13T17:00", "2027-03-14T16:00", "2026-11-01T17:00"],
-    ),
-    (
-        {"kind": "weekdays", "time": "02:30"},
-        ["2026-10-12T09:30", "2027-03-15T09:30", "2027-03-15T09:30", "2026-11-02T10:30"],
-    ),
-    (
-        {"kind": "weekdays", "time": "17:15"},
-        ["2026-10-13T00:15", "2027-03-16T00:15", "2027-03-16T00:15", "2026-11-03T01:15"],
-    ),
-    (
-        {"kind": "weekly", "days": [6, 0], "time": "02:30"},
-        ["2026-10-11T09:30", "2027-03-14T10:00", "2027-03-14T10:00", "2026-11-01T10:30"],
-    ),
-    (
-        {"kind": "weekly", "days": [2], "time": "08:00"},
-        ["2026-10-14T15:00", "2027-03-17T15:00", "2027-03-17T15:00", "2026-11-04T16:00"],
-    ),
-]
-
-
-@pytest.mark.parametrize(("raw", "expected"), _LEGACY_FIRST_RUNS)
-def test_legacy_calendar_kinds_keep_their_first_run(raw, expected) -> None:
-    for now, want in zip(_LEGACY_NOWS, expected, strict=True):
-        sched, anchor = rec.normalize(raw, zone=LA, now=now)
-        assert anchor is None
-        assert sched["start"]["time"] == raw["time"]
-        assert first(sched, anchor, now) == datetime.fromisoformat(want).replace(tzinfo=UTC)
-
-
 def test_daily_0230_across_spring_forward_keeps_typed_time() -> None:
     now = u(2027, 3, 13, 12, 0, 0)
-    sched, _ = rec.normalize({"kind": "daily", "time": "02:30"}, zone=LA, now=now)
+    sched, _ = rec.normalize(
+        {"start": {"date": "2027-03-14", "time": "02:30"}, "repeat": {"every": 1, "unit": "day"}},
+        zone=LA,
+        now=now,
+    )
     assert sched["start"] == {"date": "2027-03-14", "time": "02:30"}
     assert sched["repeat"] == {"every": 1, "unit": "day"}
     assert first(sched, None, now) == u(2027, 3, 14, 10, 0)  # end of the gap, 03:00 PDT
     assert first(sched, None, u(2027, 3, 14, 10, 0)) == u(2027, 3, 15, 9, 30)
 
 
-def test_legacy_weekdays_and_weekly_shapes() -> None:
-    wd, _ = rec.normalize({"kind": "weekdays", "time": "09:00"}, zone=LA, now=NOW)
-    assert wd["repeat"] == {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
-    wk, _ = rec.normalize({"kind": "weekly", "days": [4, 0], "time": "09:00"}, zone=LA, now=NOW)
-    assert wk["repeat"] == {"every": 1, "unit": "week", "days": [0, 4]}
-    # Saturday Oct 10 now -> the next weekday run is Monday Oct 12.
-    assert wd["start"]["date"] == "2026-10-12"
+def test_weekday_and_weekly_repeat_rules() -> None:
+    week = {"every": 1, "unit": "week"}
+    wd, _ = rec.normalize(
+        {
+            "start": {"date": "2026-10-12", "time": "09:00"},
+            "repeat": {**week, "days": [0, 1, 2, 3, 4]},
+        },
+        zone=LA,
+        now=NOW,
+    )
+    assert wd["repeat"] == {**week, "days": [0, 1, 2, 3, 4]}
+    wk, _ = rec.normalize(
+        {"start": {"date": "2026-10-12", "time": "09:00"}, "repeat": {**week, "days": [4, 0]}},
+        zone=LA,
+        now=NOW,
+    )
+    assert wk["repeat"] == {**week, "days": [0, 4]}  # sorted
+    # Saturday Oct 10 now: the Monday start is the first run.
+    assert first(wd, None, NOW) == la(2026, 10, 12, 9)
 
 
-def test_legacy_interval_anchors_at_now_plus_n_hours_exactly() -> None:
+def test_hourly_relative_start_anchors_on_the_rounded_minute() -> None:
     now = u(2026, 10, 10, 22, 45, 12, 345678)
-    raw = {"kind": "interval", "hours": 3}
+    raw = {"start": {"in": {"amount": 3, "unit": "hours"}}, "repeat": {"every": 3, "unit": "hour"}}
     sched, anchor = rec.normalize(raw, zone=LA, now=now)
-    assert anchor == now + timedelta(hours=3)
+    assert anchor == u(2026, 10, 11, 1, 46)  # 01:45:12 rounded up to the minute
     assert sched["repeat"] == {"every": 3, "unit": "hour"}
-    assert first(sched, anchor, now) == u(2026, 10, 11, 1, 45, 12, 345678)
+    assert first(sched, anchor, now) == anchor
     assert first(sched, anchor, anchor) == anchor + timedelta(hours=3)
 
 
-def test_legacy_once_shapes() -> None:
-    at, a1 = rec.normalize({"kind": "once", "at": "2026-12-01T10:00:30Z"}, zone=LA, now=NOW)
-    assert a1 == u(2026, 12, 1, 10, 1)  # rounded up to the minute
-    assert at["repeat"] is None and at["start"] == {"date": "2026-12-01", "time": "02:01"}
-    whole, a2 = rec.normalize({"kind": "once", "at": "2026-12-01T10:00:00+00:00"}, zone=LA, now=NOW)
-    assert a2 == u(2026, 12, 1, 10, 0)
-    on, a3 = rec.normalize(
-        {"kind": "once", "on": {"date": "2026-12-01", "time": "09:15"}}, zone=LA, now=NOW
-    )
-    assert a3 == la(2026, 12, 1, 9, 15) and on["start"]["time"] == "09:15"
-    rel, a4 = rec.normalize(
-        {"kind": "once", "in": {"amount": 2, "unit": "hours"}}, zone=LA, now=NOW
-    )
+def test_one_off_start_forms() -> None:
+    on, a3 = rec.normalize({"start": {"date": "2026-12-01", "time": "09:15"}}, zone=LA, now=NOW)
+    assert a3 == la(2026, 12, 1, 9, 15) and on["start"]["time"] == "09:15" and on["repeat"] is None
+    rel, a4 = rec.normalize({"start": {"in": {"amount": 2, "unit": "hours"}}}, zone=LA, now=NOW)
     assert a4 == u(2026, 10, 11, 0, 46)  # 00:45:12 rounded up
 
 
-def test_legacy_errors_pass_through() -> None:
-    for raw in (
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"start": {"date": "2026-02-30", "time": "09:00"}},
+        {"start": {"date": "2026-12-01"}},
+        {"start": {"in": {"amount": 0, "unit": "hours"}}},
+    ],
+)
+def test_canonical_errors_pass_through(raw) -> None:
+    with pytest.raises(RoutineScheduleError):
+        rec.normalize(raw, zone=LA, now=NOW)
+
+
+KIND_SENTENCE = (
+    "A schedule is {start, repeat, ends}; the older kind-based shape is no longer accepted."
+)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"kind": "once", "in": {"amount": 2, "unit": "hours"}},
+        {"kind": "once", "at": "2026-12-01T10:00:00Z"},
+        {"kind": "once", "on": {"date": "2026-12-01", "time": "09:15"}},
+        {"kind": "daily", "time": "09:00"},
+        {"kind": "weekdays", "time": "09:00"},
+        {"kind": "weekly", "days": [4, 0], "time": "09:00"},
+        {"kind": "interval", "hours": 3},
         {"kind": "monthly"},
         {"kind": "once"},
-        {"kind": "once", "at": "x"},
-        {"kind": "interval", "hours": 0},
-        {"kind": "once", "on": {"date": "2026-02-30", "time": "09:00"}},
-    ):
-        with pytest.raises(RoutineScheduleError):
-            rec.normalize(raw, zone=LA, now=NOW)
+        {"kind": "daily", "start": {"date": "2026-12-01", "time": "09:00"}},
+    ],
+)
+def test_a_kind_based_schedule_is_refused_with_the_canonical_shape(raw) -> None:
+    with pytest.raises(RoutineScheduleError) as ei:
+        rec.normalize(raw, zone=LA, now=NOW)
+    assert ei.value.detail == KIND_SENTENCE
+
+
+@pytest.mark.parametrize("key", ["at", "in", "on"])
+def test_a_stray_top_level_key_keeps_the_generic_refusal(key) -> None:
+    raw = {"start": {"date": "2026-12-01", "time": "09:00"}, key: "x"}
+    with pytest.raises(RoutineScheduleError) as ei:
+        rec.normalize(raw, zone=LA, now=NOW)
+    assert ei.value.detail == f"A schedule does not take '{key}'."
 
 
 def test_relative_start_rounds_up_to_the_next_whole_minute() -> None:
@@ -386,8 +388,8 @@ def test_minimum_lead_applies_to_a_one_off_after_rounding() -> None:
     lead = timedelta(minutes=1)
     with pytest.raises(RoutineScheduleError) as ei:
         rec.normalize(
-            {"kind": "once", "at": "2026-10-10T22:45:42Z"}, zone=LA, now=NOW, min_ahead=lead
-        )
+            {"start": {"date": "2026-10-10", "time": "15:46"}}, zone=LA, now=NOW, min_ahead=lead
+        )  # 15:46 PDT is 48 seconds on
     assert ei.value.detail == "A one-time routine must be at least a minute away."
     with pytest.raises(RoutineScheduleError):
         rec.normalize(
@@ -402,7 +404,7 @@ def test_minimum_lead_applies_to_a_one_off_after_rounding() -> None:
         {"start": {"date": "2026-10-10", "time": "15:46"}, "repeat": {"every": 1, "unit": "day"}},
         zone=LA, now=NOW, min_ahead=lead,
     )  # fmt: skip
-    rec.normalize({"kind": "once", "at": "2026-10-10T22:45:42Z"}, zone=LA, now=NOW)
+    rec.normalize({"start": {"date": "2026-10-10", "time": "15:46"}}, zone=LA, now=NOW)
 
 
 # ── AC3: the occurrence table ─────────────────────────────────────────────
@@ -652,8 +654,13 @@ def test_minute_and_hour_units_keep_exact_spacing_across_dst() -> None:
 
 def test_one_off_in_the_repeated_hour_keeps_its_instant() -> None:
     second = u(2026, 11, 1, 9, 30)  # 01:30 PST, the second pass
-    s, a = rec.normalize({"kind": "once", "at": "2026-11-01T09:30:00Z"}, zone=LA, now=NOW)
-    assert a == second and s["start"] == {"date": "2026-11-01", "time": "01:30"}
+    # A stored pair: the wall time names both passes, the anchor picks the second.
+    s = {
+        "start": {"date": "2026-11-01", "time": "01:30"},
+        "repeat": None,
+        "ends": {"kind": "never"},
+    }
+    a = second
     assert run(s, a, 2) == [second]
     assert first(s, a, second - timedelta(seconds=1)) == second
 

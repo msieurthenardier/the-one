@@ -16,6 +16,7 @@
     var agentDrawer = ctx.agentDrawer;
 
     var NOTE_TOOLS = { save_note: true, update_note: true, forget_note: true };
+    var ROUTINE_TOOLS = { schedule_routine: true, change_routine: true, cancel_routine: true };
 
     function handleSystem(data) {
       if (data.content === 'Loading model...') {
@@ -124,6 +125,9 @@
       else if (data.type === 'tool_result') {
         // M27 F3 L2: a note tool changed the notes; the panel re-fetches.
         if (NOTE_TOOLS[state.liveToolNames[data.tool_call_id]]) agentDrawer.refreshNotes();
+        // M33 F4 L5: a routine tool changed the routines; the group re-fetches.
+        // An error result changed nothing.
+        if (ROUTINE_TOOLS[state.liveToolNames[data.tool_call_id]] && !data.is_error) agentDrawer.refreshRoutines();
         // Iteration boundary — finalize the current streaming bubble.
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();

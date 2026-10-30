@@ -862,6 +862,30 @@ def test_any_open_counts_the_confirm_dialog_adapter(engine_page: Page) -> None:
     assert _any_open(p) is False and p.evaluate("() => App.confirmDialog.isOpen()") is False
 
 
+def test_confirm_dialog_danger_styles_the_confirm_button(engine_page: Page) -> None:
+    """M33 F4 L03: `danger: true` makes the confirm button the danger variant (Delete)."""
+    p = engine_page
+    _mount(p)
+    p.add_script_tag(path=str(STATIC_DIR / "js" / "dialog.js"))
+    out = p.evaluate(
+        """() => {
+          const run = (extra) => {
+            App.confirmDialog(Object.assign({opener: window.__opener, title: 'Delete x?',
+              message: 'Gone.', confirmText: 'Delete', cancelText: 'Cancel'}, extra));
+            const c = document.querySelector('[data-testid="modal-confirm-btn"]').className;
+            const focus = document.activeElement.getAttribute('data-testid');
+            document.querySelector('[data-testid="modal-cancel-btn"]').click();
+            return {c, focus};
+          };
+          return {plain: run({}), danger: run({danger: true})};
+        }"""
+    )
+    assert "btn-muted-destructive" in out["danger"]["c"]
+    assert "btn-muted-destructive" not in out["plain"]["c"]
+    assert "btn-filled-primary" in out["plain"]["c"]
+    assert out["danger"]["focus"] == "modal-cancel-btn"
+
+
 # ── footerEnd (M31 F6 L03b): the node pushed to the footer's end, owned by the modal ──
 
 

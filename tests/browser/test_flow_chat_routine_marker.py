@@ -18,6 +18,7 @@ import pytest
 from browser import _chats, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_session
+from browser.seeders import canonical_schedule as canon
 from playwright.sync_api import Page, expect
 
 from the_one.db.codec import encode_messages
@@ -32,8 +33,7 @@ def _routine(base: str, agent: str, name: str, **over: object) -> dict:
     body = {
         "name": name,
         "prompt": "say hi",
-        "schedule": {"kind": "daily", "time": "09:00"},
-        "target": {"kind": "new"},
+        "schedule": canon("09:00"),
         **over,
     }
     r = httpx.post(

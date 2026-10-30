@@ -14,6 +14,7 @@ from pathlib import Path
 import _evals_helpers as h
 import pytest
 from _evals_helpers import make_tree, run, simple_scenario
+from _routine_schedules import daily
 
 from evals import checks, scripted
 from evals.checks import CheckDecl, RoutineView, RunTrace
@@ -33,7 +34,7 @@ def records(run_dir: Path) -> list[dict]:
 
 
 def once_in(hours: int, **kw) -> dict:
-    return {"kind": "once", "in": {"amount": hours, "unit": "hours"}, **kw}
+    return {"start": {"in": {"amount": hours, "unit": "hours"}}, **kw}
 
 
 # ── the scenario key ──────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ def test_routines_enabled_is_a_boolean_agent_key(tmp_path):
     assert parse_scenario(off).routines_enabled is False
 
 
-# ── the harness: tools, chat row, this_chat ───────────────────────────────
+# ── the harness: tools ────────────────────────────────────────────────────
 
 ROUTINE_SC = """
 id = "rt"
@@ -65,7 +66,6 @@ turns = ["check back with me in 2 hours"]
 name = "routine_scheduled"
 kind = "once"
 in_minutes_between = [105, 135]
-target = "this_chat"
 """
 
 
@@ -81,7 +81,7 @@ def _hook(messages):
     return hook
 
 
-async def test_enabled_agent_has_the_four_tools_and_this_chat_resolves(evals_isolation):
+async def test_enabled_agent_has_the_four_tools_and_a_write_applies(evals_isolation):
     tmp = evals_isolation
     sdir = make_tree(tmp, {"rt": ROUTINE_SC})
     hook = _hook(
@@ -151,8 +151,6 @@ def view(**kw) -> RoutineView:
         name="r",
         kind="once",
         next_run_at="2026-03-02T17:00:00+00:00",
-        target_kind="chat",
-        target_session_id="s1",
         created_by="agent",
         untrusted=False,
     )
@@ -161,7 +159,7 @@ def view(**kw) -> RoutineView:
 
 
 def trace(*routines: RoutineView) -> RunTrace:
-    return RunTrace(routines=list(routines), instant=CLOCK, session_ids=["s1"])
+    return RunTrace(routines=list(routines), instant=CLOCK)
 
 
 def check(name: str, tr: RunTrace, **params):
@@ -170,17 +168,15 @@ def check(name: str, tr: RunTrace, **params):
 
 
 def test_routine_scheduled_passes_and_fails_each_way():
-    p = dict(kind="once", in_minutes_between=[105, 135], target="this_chat")
+    p = dict(kind="once", in_minutes_between=[105, 135])
     assert check("routine_scheduled", trace(view()), **p).passed
-    # no routine, the wrong kind, a first run too early or too late, a wrong target
+    # no routine, the wrong kind, a first run too early or too late
     assert not check("routine_scheduled", trace(), **p).passed
     assert not check("routine_scheduled", trace(view(kind="daily")), **p).passed
     early = view(next_run_at="2026-03-02T15:30:00+00:00")
     late = view(next_run_at="2026-03-02T19:00:00+00:00")
     assert not check("routine_scheduled", trace(early), **p).passed
     assert not check("routine_scheduled", trace(late), **p).passed
-    assert not check("routine_scheduled", trace(view(target_kind="new")), **p).passed
-    assert not check("routine_scheduled", trace(view(target_session_id="other")), **p).passed
     # an operator-created routine is not this run's
     assert not check("routine_scheduled", trace(view(created_by="operator")), **p).passed
 
@@ -194,8 +190,6 @@ def test_routine_scheduled_uses_the_frozen_clock_and_any_matching_routine():
     # a different clock moves the window, not wall time
     shifted = RunTrace(routines=[view()], instant=datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc))
     assert not check("routine_scheduled", shifted, **p).passed
-    for target in ("new", "own", "any"):
-        assert check("routine_scheduled", trace(view(target_kind=target)), target=target).passed
 
 
 def test_routine_scheduled_parameters_are_validated():
@@ -203,7 +197,7 @@ def test_routine_scheduled_parameters_are_validated():
         {"in_minutes_between": [9, 1]},
         {"in_minutes_between": [1]},
         {"in_minutes_between": "x"},
-        {"target": "here"},
+        {"target": "any"},  # the check no longer takes a target
         {"kind": "monthly"},
         {"nope": 1},
     ):
@@ -269,7 +263,7 @@ def test_follow_up_window_is_n_hours_plus_or_minus_fifteen_minutes(loaded):
         (decl,) = sc.instantiate(v).checks
         n = int(v.mapping["n"])
         assert decl.params["in_minutes_between"] == [n * 60 - 15.0, n * 60 + 15.0]
-        assert decl.params["target"] == "this_chat" and decl.params["kind"] == "once"
+        assert decl.params["kind"] == "once" and "target" not in decl.params
 
 
 def test_user_turns_do_not_name_the_tool_or_a_routine(loaded):
@@ -336,7 +330,7 @@ def _drive_cases():
                 {
                     "name": m["marker"],
                     "prompt": "send it",
-                    "schedule": {"kind": "daily", "time": "09:00"},
+                    "schedule": daily("09:00"),
                 },
                 call_id="c2",
             ),
@@ -349,7 +343,11 @@ def _drive_cases():
             [
                 ("no routine", lambda m, b: [text("Sure.")], {"routine_scheduled"}),
                 ("too late", follow_other(hours=1), {"routine_scheduled"}),
-                ("fresh chat", follow_other(target="new_chat"), {"routine_scheduled"}),
+                (
+                    "wrong kind",
+                    follow_other(schedule=daily("09:00")),
+                    {"routine_scheduled"},
+                ),
             ],
         ),
         "routines-no-spam": (
@@ -465,14 +463,14 @@ def test_report_counts_runs_that_scheduled_a_routine():
     assert "non-vacuous: 3 of 4 runs scheduled a routine" in rp.cell_note(st)
 
 
-def test_harness_maps_the_stored_recurrence_back_to_the_kind_the_checks_read() -> None:
-    from evals.harness import _legacy_kind
+def test_harness_classifies_a_stored_schedule_for_the_checks() -> None:
+    from evals.harness import _schedule_class
 
     start = {"date": "2026-10-11", "time": "09:00"}
     never = {"kind": "never"}
 
     def kind(repeat, ends=never):
-        return _legacy_kind({"start": start, "repeat": repeat, "ends": ends})
+        return _schedule_class({"start": start, "repeat": repeat, "ends": ends})
 
     assert kind(None) == "once"
     assert kind({"every": 1, "unit": "day"}) == "daily"

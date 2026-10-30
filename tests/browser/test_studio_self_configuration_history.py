@@ -24,6 +24,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
+from browser._self_config import PROMPT_HISTORY, expander, open_expander
 from playwright.sync_api import Page, expect
 
 
@@ -131,13 +132,17 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
     # collapsible `<details>` (item 10) — closed by default, summary shows
     # the count. Entries exist in the DOM (assertable via count) even while
     # collapsed; open it to also assert visibility.
-    details = page.locator('[data-testid="revision-history-details"]')
+    # M33 F4 L06: the log and the restore list are the body of the Agent prompt card's
+    # "History" expander (collapsed on arrival; no nested disclosure).
+    details = expander(page, PROMPT_HISTORY)
     expect(details).to_be_visible(timeout=8000)
-    summary = page.locator('[data-testid="revision-history-summary"]')
-    expect(summary).to_have_text("History (1)")
+    summary = page.locator('[data-testid="revision-history-details-summary"]')
+    expect(summary).to_have_text(re.compile(r"^History"))
+    expect(summary).to_have_accessible_name("History")
     entries = page.locator('[data-testid="revision-history-entry"]')
     expect(entries).to_have_count(1)
-    summary.click()
+    expect(entries.first).to_be_hidden()
+    open_expander(page, PROMPT_HISTORY)
     expect(page.locator('[data-testid="revision-history"]')).to_be_visible(timeout=8000)
     expect(entries.first).to_be_visible()
     # Two distinct value-nodes (D0 via base, D1 via proposed) → two controls,
@@ -149,8 +154,8 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
 
     # Item 3: the restore list and the chronological log each get their own
     # visible subheading instead of sharing one.
-    expect(page.locator(".self-configuration-subheading")).to_have_text(
-        "Restore to an earlier value"
+    expect(details.locator(".self-configuration-subheading")).to_have_text(
+        ["Restore to an earlier value", "All changes"]
     )
 
     # Item 4: the history entry shows a formatted relative-time timestamp
@@ -227,6 +232,7 @@ def test_restore_updates_field_and_appends_entry(
     _navigate_to_self_configuration_tab(page, base_url, "history-restore-agent")
 
     expect(page.locator('[data-testid="revision-history-entry"]')).to_have_count(1, timeout=8000)
+    open_expander(page, PROMPT_HISTORY)
     # Restore the D0 value-node (the earliest base_value, side=base).
     node = page.locator('[data-testid="revision-restore-node"][data-side="base"]').first
     node.locator('[data-testid="revision-restore-btn"]').click()

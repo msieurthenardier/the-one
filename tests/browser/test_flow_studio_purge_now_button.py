@@ -19,7 +19,7 @@ import re
 
 import pytest
 from browser import _lists, _nav
-from browser.seeders import SeededApp
+from browser.seeders import SeededApp, seed_session
 from playwright.sync_api import Page, expect
 
 
@@ -102,11 +102,9 @@ def test_purge_button_confirm_lapse_is_visually_distinct(
 ) -> None:
     """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Purge-now confirm
     (`studio.js:2116`) is distinguishable on screen from one that was never
-    armed, past the real 3s `revertMs`. Note (leg guidance 4b, pre-existing
-    quirk, not this leg's to fix): a SUCCESSFUL purge never calls
-    `revertFn()` either, so that path is "stuck armed", not lapsed — this
-    test only exercises the timeout path, which never reaches `onConfirm`
-    at all."""
+    armed, past the real 3s `revertMs`. This test only exercises the timeout
+    path, which never reaches `onConfirm` at all (a completed purge reverts
+    the button itself: see `test_purge_button_returns_to_normal_after_purge`)."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
@@ -121,3 +119,42 @@ def test_purge_button_confirm_lapse_is_visually_distinct(
     expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(purge_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     expect(purge_title).to_have_text("Purge now")
+
+
+@pytest.mark.browser
+def test_danger_zone_is_two_stacked_rows_purge_first(app_with_agent: SeededApp, page: Page) -> None:
+    """Operator layout (M33 F4 HAT): Purge row first, then Delete row, each with a heading and
+    a description, the button text and test ids unchanged."""
+    _nav.goto(page, app_with_agent.base_url, "agents")
+    _wait_editor_ready(page)
+    rows = page.locator(".danger-zone .danger-zone-row")
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0).locator(".danger-zone-row-heading")).to_have_text("Purge chats and history")
+    expect(rows.nth(0).locator(".danger-zone-row-desc")).to_have_text(
+        "Deletes this agent's chats, its routines' run history and its finished approval "
+        "history. The agent, its routines, rules, notes and any changes still waiting for "
+        "approval are kept."
+    )
+    expect(rows.nth(0).locator('[data-testid="purge-history-btn"]')).to_have_text("Purge now")
+    expect(rows.nth(1).locator(".danger-zone-row-heading")).to_have_text("Permanently delete agent")
+    expect(rows.nth(1).locator('[data-testid="delete-agent-btn"]')).to_have_text("Delete agent")
+    tops = [r.bounding_box()["y"] for r in rows.all()]
+    assert tops[0] < tops[1], tops  # stacked, Purge above Delete
+
+
+@pytest.mark.browser
+def test_purge_button_returns_to_normal_after_purge(app_with_agent: SeededApp, page: Page) -> None:
+    """F-G-1: after a completed purge the button reads "Purge now" again (not armed)."""
+    base_url = app_with_agent.base_url
+    seed_session(base_url, app_with_agent.agent_name, "to be purged", "2026-01-01T10:00:00+00:00")
+    _nav.goto(page, base_url, "agents")
+    _wait_editor_ready(page)
+    purge_btn = page.locator('[data-testid="purge-history-btn"]')
+    purge_title = purge_btn.locator("[data-confirm-title]")
+    purge_btn.click()
+    expect(purge_title).to_have_text("Confirm purge?")
+    purge_btn.click()
+    expect(page.locator(".app-flash")).to_contain_text("Deleted 1 chat and their history.")
+    expect(purge_title).to_have_text("Purge now")
+    expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"))
+    expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))

@@ -103,7 +103,9 @@ def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page
     M23 F4 L3's `find_platform_destination`, which no copy had, to 22.
     """
     _open_tools_tab(app_with_agent, page)
-    tiles = page.locator(".ui-group-tile")
+    # Only the category tiles: the Self-configuration tab's item cards are group tiles too (M33 F4
+    # L06) and its panel is mounted (hidden) beside this one.
+    tiles = page.locator(".ui-group-tile[data-category]")
     expect(tiles.first).to_be_visible()
     expect(tiles).to_have_count(5)
     for category in ("Filesystem", "Execution", "Web", "Connectors", "Time"):

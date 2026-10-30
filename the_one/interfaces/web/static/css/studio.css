@@ -266,11 +266,51 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-  .area-studio .self-configuration-pending-count {
+
+  /* === Self-configuration item cards (M33 F4 L06, mockup SC2) ==============
+     Each item is an App.ui.groupTile (expand: false) holding the title row, a status
+     area and two bordered disclosures. Content under the title row is indented to the
+     title's left edge (the switch width plus its gap). */
+  .area-studio .self-config-card > .self-config-card-row { flex-wrap: wrap; row-gap: 6px; }
+  /* The name may shrink only to a readable basis, then the approval switch wraps under it. */
+  .area-studio .self-config-card .self-config-card-name { flex: 1 1 10rem; }
+  .area-studio .self-config-approval { font-size: var(--font-size-body-sm); }
+  .area-studio .self-config-card > .self-config-card-status,
+  .area-studio .self-config-card > .self-config-expander,
+  .area-studio .self-config-card > .self-config-waiting-zero {
+    margin-left: calc(var(--toggle-width) + 8px);
+  }
+  .area-studio .self-config-card-status > * { margin-bottom: 4px; }
+  .area-studio .self-config-card-status .self-configuration-status { margin-bottom: 0; }
+  /* The transient action line is empty most of the time: no gap then. */
+  .area-studio .self-config-card-status .self-config-routines-live:empty { margin: 0; }
+  .area-studio .self-config-card-status:empty { display: none; }
+  /* At zero the expander is plain muted text (a disclosure has no disabled state). */
+  .area-studio .self-config-waiting-zero {
+    /* The bordered expander's box (1px border, 8px 12px summary inset), drawn invisible, so the
+       plain line and the disclosures below it share one left edge and one row height. */
+    padding: 8px 12px;
+    border: 1px solid transparent;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
-    margin-bottom: 8px;
   }
+  .area-studio .self-config-card-status .self-config-routines-live { min-height: 0; }
+  .area-studio .self-config-waiting-zero:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-studio .self-config-count-chip {
+    flex-shrink: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--accent-translucent);
+    color: var(--accent);
+  }
+  .area-studio .self-config-items-section { display: flex; flex-direction: column; gap: 12px; }
 
   /* Small caption-style label above a read-only value block ("Current" /
      "Proposed" / "Base" / "Proposed" on a queue card, "Current value now"
@@ -325,14 +365,6 @@
 
   /* Routines item of the Self-configuration tab (M33 F2 L5): the waiting-for-approval items and
      the history rows reuse the revision card's surface; subheadings echo the eyebrow idiom. */
-  .area-studio .self-config-routines-subheading {
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-tertiary, var(--fg-muted));
-    margin: 16px 0 8px;
-  }
   .area-studio .self-config-routine-proposals,
   .area-studio .self-config-routine-history {
     list-style: none;
@@ -342,8 +374,7 @@
     flex-direction: column;
     gap: 8px;
   }
-  .area-studio .self-config-routine-proposal,
-  .area-studio .self-config-routine-history-row {
+  .area-studio .self-config-routine-proposal {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -351,6 +382,43 @@
     background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
+  }
+  /* History: one line per change like the Routines tab's recent runs (time, action, name,
+     outcome and flag), hairlines between rows, one text size, no card inside the expander. */
+  .area-studio .self-config-routine-history { gap: 0; }
+  .area-studio .self-config-routine-history-row {
+    display: grid;
+    grid-template-columns: 7rem 4.5rem minmax(0, 1fr) auto;
+    align-items: baseline;
+    column-gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-studio .self-config-routine-history-row:first-child { border-top: 0; }
+  .area-studio .self-config-routine-history-row .self-config-routine-when {
+    font-variant-numeric: tabular-nums;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  .area-studio .self-config-routine-history-row .self-config-routine-action {
+    font-size: inherit;
+    font-weight: inherit;
+    color: var(--fg-secondary);
+  }
+  .area-studio .self-config-routine-history-row .self-config-routine-name { font-size: inherit; }
+  .area-studio .self-config-routine-outcome {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .area-studio .self-config-routine-history-row .self-config-routine-status {
+    font-size: inherit;
+    color: var(--fg-secondary);
+  }
+  .area-studio .self-config-routine-history-row[data-status="applied"] .self-config-routine-status {
+    color: var(--fg);
   }
   .area-studio .self-config-routine-head {
     display: flex;
@@ -399,12 +467,14 @@
     flex-direction: column;
     gap: 10px;
   }
+  /* Flat rows with hairlines between them (no card inside the History expander). */
+  .area-studio .self-config-card .self-configuration-history-list { gap: 0; }
   .area-studio .self-configuration-history-entry {
-    padding: 10px 12px;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
+    font-size: var(--font-size-body-sm);
   }
+  .area-studio .self-configuration-history-entry:first-child { border-top: 0; }
   /* HAT fix #1: field name + source/status/time now read as one sentence
      ("System prompt — self-revised · dismissed · 3 hours ago") via an
      explicit dash text node (self-configuration-tab.js) — this flex row
@@ -426,7 +496,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: var(--font-size-caption);
+    font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
   .area-studio .history-entry-change {
@@ -442,13 +512,6 @@
     flex-shrink: 0;
   }
 
-  /* Collapsible chronological log (HAT fix #10 — App.ui.disclosure, plain
-     variant; components.css supplies the summary + border-top chrome). The restore-node list above it stays outside this
-     element and is always visible. */
-  .area-studio .self-configuration-history-details { margin-top: 12px; }
-  .area-studio .self-configuration-history-details .self-configuration-history-list {
-    margin-top: 10px;
-  }
 
   /* Restore-node rows: value + Restore button side-by-side (HAT fix #9) —
      the button pins to the right and never shrinks; the value takes the
@@ -457,18 +520,19 @@
   .area-studio .self-configuration-restore-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0;
     margin-bottom: 12px;
   }
   .area-studio .self-configuration-restore-node {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
     flex-wrap: wrap;
+  }
+  .area-studio .self-configuration-restore-group > .self-configuration-restore-node:first-child {
+    border-top: 0;
   }
   .area-studio .self-configuration-restore-node .restore-node-value {
     flex: 1;
@@ -1061,64 +1125,88 @@
 }
 
 /* ── Routines tab (M33 F1 L8): area layout only ─────────────────────── */
+.area-studio .routines-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-3);
+}
 .area-studio .routines-intro,
 .area-studio .routines-loading {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   color: var(--fg-muted);
   font-size: var(--font-size-body-sm);
 }
-.area-studio .routines-toolbar { margin: 0 0 var(--space-3); }
-.area-studio .routines-toolbar[hidden] { display: none; }
+.area-studio .routines-head .routines-intro { flex: 1; min-width: 0; }
+.area-studio .routines-loading { margin-bottom: var(--space-3); }
+/* The routine cards (App.ui.groupTile, as the Tools tab's). The list never clips (no overflow
+   rule), so an open actions menu on the last card stays whole. */
 .area-studio .routines-list {
-  list-style: none;
-  margin: 0 0 var(--space-4);
-  padding: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
 }
-.area-studio .routine-row {
+.area-studio .routines-list[hidden] { display: none; }.area-studio .routine-flag-slot { display: inline-flex; }
+.area-studio .routine-flag-slot:empty { display: none; }
+.area-studio .routine-sub { display: flex; flex-direction: column; gap: 2px; }
+.area-studio .routine-schedule { margin: 0; overflow-wrap: anywhere; }
+.area-studio .routine-times {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-2);
+}
+.area-studio .routine-times-dot { color: var(--fg-tertiary); }
+.area-studio .routine-last { font-size: var(--font-size-caption); color: var(--fg-secondary); }
+.area-studio .routine-row-error:empty { display: none; }
+.area-studio .routine-details {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border);
-}
-.area-studio .routine-row:first-child { border-top: 1px solid var(--border); }
-.area-studio .routine-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.area-studio .routine-name {
   min-width: 0;
-  font-weight: var(--font-weight-medium);
-  color: var(--fg);
-  overflow-wrap: anywhere;
 }
-.area-studio .routine-info { display: flex; flex-direction: column; gap: var(--space-1); }
-.area-studio .routine-line {
+.area-studio .routine-details-label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+.area-studio .routine-details-empty {
   margin: 0;
   color: var(--fg-secondary);
   font-size: var(--font-size-body-sm);
-  overflow-wrap: anywhere;
 }
-.area-studio .routine-flag-slot { display: inline-flex; margin-right: auto; }
-.area-studio .routine-flag-slot:empty { display: none; }
-.area-studio .routine-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.area-studio .routine-runs {
+/* One tidy line per run: time | how | outcome | the chat link at the end. The columns are
+   fixed (time, how) or flexible (outcome) so they align down the list; a long outcome wraps
+   inside its own column, and the link keeps the end of the line. */
+.area-studio .routine-recent-runs {
   list-style: none;
-  margin: var(--space-2) 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
-.area-studio .routine-run-meta {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: var(--font-size-caption);
+.area-studio .routine-recent-run {
+  display: grid;
+  grid-template-columns: 9rem 5.5rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-body-sm);
 }
+.area-studio .routine-recent-run:first-child { border-top: 0; }
+.area-studio .routine-recent-when { font-variant-numeric: tabular-nums; color: var(--fg); }
+.area-studio .routine-recent-how { color: var(--fg-secondary); }
+.area-studio .routine-recent-outcome { min-width: 0; font-size: inherit; color: var(--fg); overflow-wrap: anywhere; }
+.area-studio .routine-recent-chat { justify-self: end; text-align: end; }
+.area-studio .routine-recent-gone { color: var(--fg-secondary); }
+/* The button's own 8px padding is taken off so its text lines up with the list's left edge. */
+.area-studio .routine-more-btn { align-self: flex-start; margin-inline-start: calc(-1 * var(--space-2)); }
 
 /* Routine create/edit form (M33 F1 L9): inline above the list. */
 .area-studio .routine-form {
@@ -1139,11 +1227,10 @@
   gap: var(--space-2);
   margin-block-start: var(--space-2);
 }
-.area-studio .routine-form-chat { margin: 0 0 var(--space-2); color: var(--fg-secondary); font-size: var(--font-size-caption); }
 .area-studio .routine-form-actions { display: flex; gap: var(--space-2); }
-.area-studio .routine-form-starts { display: flex; flex-direction: column; gap: var(--space-2); }
 .area-studio .routine-form-start { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
-.area-studio .routine-form-in-text { color: var(--fg-secondary); font-size: var(--font-size-caption); }
+.area-studio .routine-form-in-result { color: var(--fg-secondary); font-size: var(--font-size-caption); }
+.area-studio .routine-form-in-result:empty { display: none; }
 .area-studio .routine-form-preview { margin: 0; color: var(--fg-secondary); font-size: var(--font-size-caption); }
 .routine-custom-body { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .routine-custom-every { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
@@ -1151,4 +1238,3 @@
 .routine-custom-after { display: flex; align-items: center; gap: var(--space-2); }
 .routine-custom-after-text { color: var(--fg-secondary); }
 .routine-custom-actions { display: flex; gap: var(--space-2); }
-.routine-chat-chooser-body { display: flex; flex-direction: column; min-height: 0; }

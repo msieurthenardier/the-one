@@ -484,12 +484,32 @@ RETIRED_SELECTORS = (
     "routine-form-interval",
     "routine-form-days",
     "routine-form-day-",
+    # M33 F4 HAT: duplicate of routines-new-btn.
+    "routines-empty-new-btn",
+    # M33 F4 L03: every routine run starts a new chat (no target, no chat chooser), and the
+    # list is the compact layout (a details region replaces the History disclosure).
+    # ``routine-run`` is fenced EXACTLY below: the live ``routine-run-now`` extends its name.
+    "routine-chat-chooser",
+    "routine-chat-chooser-close",
+    "routine-chat-option",
+    "routine-chat-search",
+    "routine-form-chat",
+    "routine-form-target",
+    "routine-form-target-error",
+    "routine-target-picker",
+    "routine-target",
+    "routine-history",
+    "routine-history-empty",
+    "routine-history-list",
+    "routine-history-more",
+    "routine-done-hint",
+    "revision-history-summary",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix
 # of the live Flight 3 testid ``agent-select-empty`` (the Agents detail
 # pane's empty state), which must stay usable.
-RETIRED_EXACT = ("agent-select", "routine-form-schedule")
+RETIRED_EXACT = ("agent-select", "routine-form-schedule", "routine-run")
 # RETIRED_SELECTORS take a left boundary only: ``entity-tile-name`` is part of
 # the retired tile, while a longer id that merely ends in one
 # (``feedback-agent-btn``) is not.  RETIRED_EXACT entries take both.

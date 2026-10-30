@@ -1307,12 +1307,12 @@ def test_tools_tab_holds_built_in_and_mcp_sections_in_order(app_clean: str, page
     headings = page.locator(
         '[data-testid="agent-tab-panel-tools"], #agent-tab-panel-tools'
     ).locator("h2.section-title")
-    expect(headings).to_have_text(["Built-in tools", "MCP servers"])
-    # The MCP section sits below the built-in one.
+    expect(headings).to_have_text(["MCP servers", "Built-in tools"])
+    # The MCP section sits above the built-in one (operator decision, M33 F4 HAT A2).
     assert page.evaluate(
         """() => {
-          const a = document.querySelector('[data-testid="agent-tools-builtin-section"]');
-          const b = document.querySelector('[data-testid="agent-tools-mcp-section"]');
+          const a = document.querySelector('[data-testid="agent-tools-mcp-section"]');
+          const b = document.querySelector('[data-testid="agent-tools-builtin-section"]');
           return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
         }"""
     )

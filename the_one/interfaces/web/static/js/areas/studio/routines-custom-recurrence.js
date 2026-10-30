@@ -22,7 +22,7 @@
   var DAY_NAMES = { 0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 4: 'Friday',
     5: 'Saturday', 6: 'Sunday' };
   var END_DEFAULT_DAYS = 30;
-  var COUNT_DEFAULT = 13;
+  var COUNT_DEFAULT = 7;
 
   function unitLabel(unit, n) { return unit + (n === 1 ? '' : 's'); }
 

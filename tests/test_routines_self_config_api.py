@@ -12,6 +12,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._routine_schedules import daily, every_hours, once_in
+from tests._routine_schedules import weekly as weekly_at
 from tests._schema_template import connect_template_db
 from the_one.db.repositories import SQLiteAgentStore
 from the_one.encryption import Encryptor
@@ -21,7 +23,7 @@ from the_one.routines.repository import AgentRoutineRepository
 
 UTC = timezone.utc
 NOW = datetime(2026, 10, 10, 22, 45, 12, tzinfo=UTC)
-DAILY = {"kind": "daily", "time": "09:00"}
+DAILY = daily("09:00")
 ITEM = "/api/agents/ag/self-configuration/routines"
 
 
@@ -47,7 +49,7 @@ async def client(tmp_path, frozen_clock):
 
 
 def body(name="Morning", **over) -> dict:
-    return {"name": name, "prompt": "p", "schedule": DAILY, "target": {"kind": "new"}, **over}
+    return {"name": name, "prompt": "p", "schedule": DAILY, **over}
 
 
 async def zone():
@@ -82,54 +84,69 @@ def base(pid: str, verb: str) -> str:
 async def test_defaults_and_agent_put_cannot_change(client) -> None:
     got = (await client.get("/api/agents/ag")).json()
     assert got["routines_self_config_enabled"] is False
-    assert got["routines_require_approval"] is True
+    assert got["routines_require_approval"] is False
     resp = await client.put(
         "/api/agents/ag",
         json={"description": "d", "routines_self_config_enabled": True,
-              "routines_require_approval": False},
+              "routines_require_approval": True},
     )  # fmt: skip
     assert resp.status_code == 200
     assert resp.json()["routines_self_config_enabled"] is False
-    assert resp.json()["routines_require_approval"] is True
-    await client.store.set_routines_self_config("ag", enabled=True, requires_approval=False)
+    assert resp.json()["routines_require_approval"] is False
+    await client.store.set_routines_self_config("ag", enabled=True, requires_approval=True)
     resp = await client.put("/api/agents/ag", json={"description": "other"})
     assert resp.json()["routines_self_config_enabled"] is True
-    assert resp.json()["routines_require_approval"] is False
+    assert resp.json()["routines_require_approval"] is True
     stored = await client.store.load("ag")
-    assert stored.routines_self_config_enabled and not stored.routines_require_approval
+    assert stored.routines_self_config_enabled and stored.routines_require_approval
+
+
+async def test_new_agent_defaults_approval_off_and_save_keeps_existing(client) -> None:
+    # A new agent through the store reads approval off (L5-DD1).
+    from the_one.agent.config import AgentConfig
+
+    assert AgentConfig(name="x").routines_require_approval is False
+    await client.store.save(AgentConfig(name="viastore", description="d"))
+    assert (await client.store.load("viastore")).routines_require_approval is False
+    # A save never changes an existing row's stored value, either way.
+    await client.store.set_routines_self_config("viastore", requires_approval=True)
+    cfg = await client.store.load("viastore")
+    cfg.routines_require_approval = False
+    await client.store.save(cfg)
+    assert (await client.store.load("viastore")).routines_require_approval is True
 
 
 async def test_post_agent_ignores_switches(client) -> None:
     resp = await client.post(
         "/api/agents",
         json={"name": "fresh", "routines_self_config_enabled": True,
-              "routines_require_approval": False},
+              "routines_require_approval": True},
     )  # fmt: skip
     assert resp.status_code == 201
     assert resp.json()["routines_self_config_enabled"] is False
-    assert resp.json()["routines_require_approval"] is True
-    assert (await client.get("/api/agents/fresh")).json()["routines_require_approval"] is True
+    assert resp.json()["routines_require_approval"] is False
+    assert (await client.get("/api/agents/fresh")).json()["routines_require_approval"] is False
 
 
 async def test_setter_unknown_agent_and_partial(client) -> None:
     with pytest.raises(KeyError):
         await client.store.set_routines_self_config("nope", enabled=True)
-    await client.store.set_routines_self_config("ag", requires_approval=False)
+    await client.store.set_routines_self_config("ag", requires_approval=True)
     got = await client.store.load("ag")
-    assert got.routines_self_config_enabled is False and got.routines_require_approval is False
+    assert got.routines_self_config_enabled is False and got.routines_require_approval is True
 
 
 async def test_item_get_put(client) -> None:
     assert (await client.get(ITEM)).json() == {
         "enabled": False,
-        "requires_approval": True,
+        "requires_approval": False,
         "pending_count": 0,
     }
     resp = await client.put(ITEM, json={"enabled": True})
-    assert resp.json() == {"enabled": True, "requires_approval": True, "pending_count": 0}
-    resp = await client.put(ITEM, json={"requires_approval": False})
     assert resp.json() == {"enabled": True, "requires_approval": False, "pending_count": 0}
-    assert (await client.get(ITEM)).json()["requires_approval"] is False
+    resp = await client.put(ITEM, json={"requires_approval": True})
+    assert resp.json() == {"enabled": True, "requires_approval": True, "pending_count": 0}
+    assert (await client.get(ITEM)).json()["requires_approval"] is True
 
 
 async def test_item_errors(client) -> None:
@@ -247,8 +264,7 @@ async def test_gone_update_409_and_gone_delete_200(client) -> None:
 
 
 async def test_past_at_is_422_and_pending(client) -> None:
-    at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
-    pid = await propose(client, data=body(schedule={"kind": "once", "at": at}))
+    pid = await propose(client, data=body(schedule=once_in(5, "minutes")))
     # Time passes: the stored absolute time is now behind the clock.
     from the_one import time_zones
 
@@ -272,9 +288,7 @@ async def test_caps_recheck_422(client) -> None:
     pid = await propose(client, data=body("Late"))
     repo = AgentRoutineRepository(client.conn)
     for i in range(50):
-        await repo.create(
-            "ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY, "target_kind": "new"}
-        )
+        await repo.create("ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY})
     resp = await client.post(base(pid, "approve"))
     assert resp.status_code == 422
     assert resp.json()["detail"] == (
@@ -289,13 +303,11 @@ async def test_approve_rename_passes_while_over_the_cap(client) -> None:
     repo = AgentRoutineRepository(client.conn)
     first = None
     for i in range(50):
-        r = await repo.create(
-            "ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY, "target_kind": "new"}
-        )
+        r = await repo.create("ag", {"name": f"f{i}", "prompt": "p", "schedule": DAILY})
         first = first or r
     await client.conn.execute(
-        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
-        "created_by, created_at, updated_at) VALUES ('x1', 'ag', 'x1', 'p', '{}', 'new', "
+        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, "
+        "created_by, created_at, updated_at) VALUES ('x1', 'ag', 'x1', 'p', '{}', "
         "'operator', 't', 't')"
     )
     await client.conn.commit()
@@ -315,7 +327,7 @@ async def test_operator_prompt_edit_clears_flag_nothing_else_does(client) -> Non
     got = (await client.get(one)).json()
     assert got["untrusted"] is True and got["untrusted_sources"] == ["web:x"]
     for patch_body in ({"name": "Renamed"}, {"enabled": False}, {"enabled": True},
-                       {"schedule": {"kind": "daily", "time": "10:00"}}):  # fmt: skip
+                       {"schedule": daily("10:00")}):  # fmt: skip
         assert (await client.put(one, json=patch_body)).json()["untrusted"] is True
     # A later approved agent update merges rather than clears.
     pid2 = await propose(client, "update", {"routine": rid, "prompt": "agent edit"},
@@ -348,11 +360,9 @@ async def test_rename_and_delete_agent_carry_proposals(client) -> None:
 
 async def test_stale_409_carries_the_schedule_sentences(client) -> None:
     r = (await client.post("/api/agents/ag/routines", json=body())).json()
-    weekly = {"kind": "weekly", "days": [1, 3], "time": "07:30"}
+    weekly = weekly_at([1, 3], "07:30")
     pid = await propose(client, "update", {"routine": r["id"], "schedule": weekly})
-    await client.put(
-        f"/api/agents/ag/routines/{r['id']}", json={"schedule": {"kind": "interval", "hours": 4}}
-    )
+    await client.put(f"/api/agents/ag/routines/{r['id']}", json={"schedule": every_hours(4)})
     resp = await client.post(base(pid, "approve"))
     assert resp.status_code == 409
     detail = resp.json()["detail"]
@@ -372,7 +382,8 @@ async def test_proposals_list_sentences_and_unreadable_schedules_never_500(clien
     assert row["current_schedule_text"] == "Every day at 9:00 AM"
     # A schedule v48 could not upgrade stays in its old shape: the list still answers.
     await client.conn.execute(
-        "UPDATE agent_routines SET schedule = ? WHERE id = ?", (json.dumps(DAILY), r["id"])
+        "UPDATE agent_routines SET schedule = ? WHERE id = ?",
+        (json.dumps({"unconverted": "yes"}), r["id"]),
     )
     await client.conn.commit()
     resp = await client.get(f"{ITEM}/proposals")

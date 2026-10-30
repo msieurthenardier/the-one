@@ -17,6 +17,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._routine_schedules import daily
 from tests._schema_template import copy_template
 from the_one.agent.config import AgentConfig  # noqa: F401
 from the_one.config import settings
@@ -85,35 +86,11 @@ class Harness:
             ids = [r[0] for r in await cur.fetchall()]
         return [await repo.get(i) for i in ids]
 
-    async def dm(self, text: str = "hello", peer: str = "p1", channel: str = "") -> str:
-        """Inject an inbound DM and wait for its turn to finish; return the chat id."""
-        before = len(StubPlugin.outbound_records)
-        r = await self.api(
-            "POST",
-            "/api/_test/stub/inbound",
-            json={
-                "connector_id": self.connector_id,
-                "peer_id": peer,
-                "text": text,
-                "is_dm": True,
-                "channel_id": channel,
-            },
-        )
-        assert r.status_code == 200, r.text
-        await wait_for(lambda: len(StubPlugin.outbound_records) > before)
-        rows = await self.chat_rows()
-        sid = max((x for x in rows if x.connector_id), key=lambda x: x.updated_at).id
-        from the_one.sessions import is_session_busy
-
-        await wait_for(lambda: not is_session_busy(sid))
-        return sid
-
-    async def routine(self, target: dict, name: str = "Brief", **over) -> dict:
+    async def routine(self, name: str = "Brief", **over) -> dict:
         body = {
             "name": name,
             "prompt": "do the thing",
-            "schedule": {"kind": "daily", "time": "09:00"},
-            "target": target,
+            "schedule": daily("09:00"),
             **over,
         }
         r = await self.api("POST", f"/api/agents/{self.agent}/routines", json=body)

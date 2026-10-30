@@ -7,6 +7,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from _routine_schedules import once_in
 from conftest import FakeLLM
 
 from the_one.agent._context import TurnContext, current_turn
@@ -48,7 +49,7 @@ def done() -> Message:
     return Message.assistant("done")
 
 
-IN_2H = {"kind": "once", "in": {"amount": 2, "unit": "hours"}}
+IN_2H = once_in(2, "hours")
 
 
 async def setup_agent(conn, *, approval: bool = False, name: str = NAME) -> None:

@@ -2,16 +2,14 @@
 
 Delivery of a turn's final reply, the step-limit line and the channel's
 agent-authorization rule, reachable WITHOUT an inbound envelope. The inbound
-pipeline (``inbound.py``), the send tool and the routine runner all call
-these. This module must not import ``inbound.py``, ``app.py`` or
-``tools/``.
+pipeline (``inbound.py``) and the send tool call these. This module must not
+import ``inbound.py``, ``app.py`` or ``tools/``.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from the_one.connectors.base import ConnectorClientError, SendTarget
 from the_one.db.models import Connector
@@ -29,14 +27,6 @@ STEP_LIMIT_LINE = "(Stopped: reached its step limit for this message.)"
 # ``tests/test_connector_send_tool.py::test_shared_constants_pin_inbound_literals``.
 _SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
 _PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"
-
-_ERROR_MAX = 200
-
-
-@dataclass(frozen=True, slots=True)
-class DeliveryResult:
-    status: Literal["delivered", "already_sent", "no_text", "no_client", "send_failed"]
-    error: str | None = None
 
 
 def authorized_agent_for(connector: Connector, *, channel_id: str | None) -> str | None:
@@ -79,29 +69,25 @@ async def send_step_limit_line(
         )
 
 
-def _error_line(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"[:_ERROR_MAX]
-
-
 async def deliver_final_reply(
     messages: list[Message],
     pre_step_len: int,
     target: SendTarget,
     connector_id: str,
     manager: "ConnectorManager",
-) -> DeliveryResult:
+) -> None:
     """Mechanically deliver the turn's final assistant text to ``target`` (DD-10).
 
     Skip rule (no double-send): any message at or after ``pre_step_len`` that
     is a ``Role.TOOL`` result of ``send_to_platform_channel`` starting with
-    the platform-send success prefix means the agent already spoke this turn
-    (``already_sent``), even to a different channel (DD-10's trade-off).
+    the platform-send success prefix means the agent already spoke this turn,
+    even to a different channel (DD-10's trade-off), and nothing is sent.
 
     Otherwise the FINAL ``Role.ASSISTANT`` message with non-empty str content
-    is sent through ``manager.client_for(connector_id)``. Only ``delivered``
-    mutates a message: its ``visibility`` flips to ``None`` (peer-visible) in
-    place. Failures are logged and returned (``no_client``, ``send_failed``);
-    the reply stays operator-only. Never raises.
+    is sent through ``manager.client_for(connector_id)``. Only a successful
+    send mutates a message: its ``visibility`` flips to ``None`` (peer-visible)
+    in place. Failures are logged (no live client, a send error); the reply
+    stays operator-only. Never raises.
     """
     new_msgs = messages[pre_step_len:]
 
@@ -120,14 +106,14 @@ async def deliver_final_reply(
             and isinstance(msg.content, str)
             and msg.content.startswith(_PLATFORM_SEND_OK_PREFIX)
         ):
-            return DeliveryResult("already_sent")
+            return
 
     assistant_msgs = [m for m in new_msgs if m.role == Role.ASSISTANT]
     if not assistant_msgs:
-        return DeliveryResult("no_text")
+        return
     final = assistant_msgs[-1]
     if not isinstance(final.content, str) or not final.content:
-        return DeliveryResult("no_text")
+        return
 
     client = manager.client_for(connector_id)
     if client is None:
@@ -136,24 +122,23 @@ async def deliver_final_reply(
             "(no live client); reply stays operator-only",
             connector_id,
         )
-        return DeliveryResult("no_client")
+        return
 
     try:
         await client.send(target, final.content)
-    except ConnectorClientError as exc:
+    except ConnectorClientError:
         logger.exception(
             "dispatch_inbound: auto-reply delivery failed for connector %s; "
             "reply stays operator-only",
             connector_id,
         )
-        return DeliveryResult("send_failed", _error_line(exc))
-    except Exception as exc:
+        return
+    except Exception:
         logger.exception(
             "dispatch_inbound: unexpected error auto-delivering reply for connector %s; "
             "reply stays operator-only",
             connector_id,
         )
-        return DeliveryResult("send_failed", _error_line(exc))
+        return
 
     final.visibility = None
-    return DeliveryResult("delivered")

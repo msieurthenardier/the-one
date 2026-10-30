@@ -43,7 +43,7 @@
     { id: 'general', label: 'General' },
     { id: 'rules-and-notes', label: 'Rules and notes' },
     { id: 'knowledge', label: 'Knowledge' },
-    // One Tools tab holds two sections: Built-in tools, then MCP servers (M33 F1 L06).
+    // One Tools tab holds two sections: MCP servers, then Built-in tools (M33 F1 L06; order reversed at the F4 HAT).
     { id: 'tools', label: 'Tools' },
     { id: 'routines', label: 'Routines' },
     { id: 'self-configuration', label: 'Self-configuration' }
@@ -106,8 +106,8 @@
           title: 'MCP servers', titleTag: 'h2', testid: 'agent-tools-mcp-section',
           children: [mcpHost]
         });
-        panel.appendChild(builtinSection.el);
         panel.appendChild(mcpSection.el);
+        panel.appendChild(builtinSection.el);
         var mcpsHandle = studio.renderMcpsTab(mcpHost, agent, cb.allMcpSources, {
           fetchMcpSourceTools: cb.fetchMcpSourceTools,
           onChange: cb.onChange,

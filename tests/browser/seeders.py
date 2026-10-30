@@ -548,7 +548,7 @@ def seed_routine_proposal(
     a pending, stale or resolved one seeds it, the way ``seed_note`` seeds a note. ``payload``
     is the validated REST request shape (a canonical ``schedule`` plus ``anchor_at``, null for a
     wall-clock schedule); ``base`` the raw stored fields (``name``, ``prompt``, ``schedule``,
-    ``anchor_at``, ``enabled``, ``finished_at``, ``target_kind``, ``target_session_id``).
+    ``anchor_at``, ``enabled``, ``finished_at``).
     Timestamps are fixed ISO strings the test passes. Returns the proposal id.
     """
     import sqlite3
@@ -595,12 +595,14 @@ def seed_agent_routine(
     untrusted: bool = False,
     sources: list[str] | None = None,
     created_at: str = "2026-01-01T10:00:00+00:00",
+    finished_at: str | None = None,
 ) -> str:
     """INSERT one ``agent_routines`` row by sync sqlite3 (M33 F2 L5).
 
-    REST cannot set ``created_by='agent'`` or the untrusted flag, so a browser test that needs
-    an agent-made or flagged routine seeds it. The next run is far in the future so the
-    scheduler never fires it. Returns the routine id.
+    REST cannot set ``created_by='agent'``, the untrusted flag or a finished one-off, so a
+    browser test that needs an agent-made, flagged or Done routine seeds it. The next run is
+    far in the future (none for a finished one) so the scheduler never fires it. Returns the
+    routine id.
     """
     import sqlite3
     import uuid
@@ -610,21 +612,23 @@ def seed_agent_routine(
     try:
         conn.execute(
             "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
-            " target_kind, next_run_at, anchor_at, created_by, created_at, updated_at,"
-            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, 'new', ?, ?, ?, ?, ?, ?, ?)",
+            " next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources, finished_at)"
+            " VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 routine_id,
                 agent_name,
                 name,
                 prompt,
                 json.dumps(schedule or canonical_schedule("09:00")),
-                "2099-01-01T09:00:00+00:00",
+                None if finished_at else "2099-01-01T09:00:00+00:00",
                 anchor_at,
                 created_by,
                 created_at,
                 created_at,
                 1 if untrusted else 0,
                 json.dumps(sources) if sources else None,
+                finished_at,
             ),
         )
         conn.commit()

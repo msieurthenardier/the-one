@@ -5,7 +5,8 @@
 
   var NOTE_TESTID_DEFAULT = 'time-tool-note';
 
-  // App.ui.groupTile(opts) -> {el, body, setCount(text), setMaster(state),
+  // App.ui.groupTile(opts) -> {el, body, nameEl, expandBtn, toggle (the master's App.ui.toggle
+  // controller or null), setCount(text), setMaster(state),
   // setToolCount(n|label), setExpanded(bool), isExpanded(), setSubtitle(text|node
   // |null), destroy()} (M31 F2 L4, flight DD3). The tile the Built-in tools and
   // MCP tabs share: a master tristate switch, a name, chips, header actions, an
@@ -18,6 +19,9 @@
   //   toolLabel (text when the count is unknown, e.g. "Tools"), expanded,
   //   onExpand(expanded), onFirstExpand(body) (fires once, on the first expand),
   //   testid, dataset (applied to the root), expandTestid, bodyTestid.
+  //   expand: false (M33 F4 L06) omits the expand button and the body: body and expandBtn
+  //   are null, setExpanded/setToolCount are no-ops, and the host appends its own children
+  //   under el (el is then div.ui-group-tile-row and the optional subtitle, nothing else).
   //   expandLabel (function(countText) -> string, M31 F5 L11, A20): names the expand
   //   button by its content plus the owner ("Tools for Docs search", "3 tools for
   //   Docs search"); it sets aria-label, is re-applied by setToolCount, and drops the
@@ -104,33 +108,42 @@
     }
     setSubtitle(opts.subtitle);
 
-    var expandBtn = util.el('button', {
-      type: 'button',
-      className: 'ui-group-tile-expand',
-      'aria-expanded': 'false',
-      // The tile's name joins the button's name through the description, so "3 tools"
-      // is not the whole of what a screen reader hears (SC 2.4.6, 4.1.2).
-      'aria-describedby': typeof opts.expandLabel === 'function' ? undefined : nameEl.id,
-      'data-testid': opts.expandTestid
-    });
-    var labelEl = util.el('span', { className: 'ui-group-tile-expand-label' });
-    var chevron = util.el('span', {
-      className: 'ui-group-tile-chevron',
-      'aria-hidden': 'true',
-      text: '▸'
-    });
-    expandBtn.appendChild(labelEl);
-    expandBtn.appendChild(chevron);
-    root.appendChild(expandBtn);
+    // expand: false (M33 F4 L06) builds the tile without its expand button and body: a card
+    // whose host appends its own children under `el` (the Self-configuration items).
+    var withExpand = opts.expand !== false;
+    var expandBtn = null;
+    var labelEl = null;
+    var body = null;
+    if (withExpand) {
+      expandBtn = util.el('button', {
+        type: 'button',
+        className: 'ui-group-tile-expand',
+        'aria-expanded': 'false',
+        // The tile's name joins the button's name through the description, so "3 tools"
+        // is not the whole of what a screen reader hears (SC 2.4.6, 4.1.2).
+        'aria-describedby': typeof opts.expandLabel === 'function' ? undefined : nameEl.id,
+        'data-testid': opts.expandTestid
+      });
+      labelEl = util.el('span', { className: 'ui-group-tile-expand-label' });
+      var chevron = util.el('span', {
+        className: 'ui-group-tile-chevron',
+        'aria-hidden': 'true',
+        text: '▸'
+      });
+      expandBtn.appendChild(labelEl);
+      expandBtn.appendChild(chevron);
+      root.appendChild(expandBtn);
 
-    var body = util.el('div', {
-      className: 'ui-group-tile-body',
-      hidden: true,
-      'data-testid': opts.bodyTestid
-    });
-    root.appendChild(body);
+      body = util.el('div', {
+        className: 'ui-group-tile-body',
+        hidden: true,
+        'data-testid': opts.bodyTestid
+      });
+      root.appendChild(body);
+    }
 
     function setToolCount(value) {
+      if (!withExpand) return;
       labelEl.textContent = '';
       if (typeof value === 'number') {
         labelEl.appendChild(util.el('strong', { text: String(value) }));
@@ -158,6 +171,7 @@
     var expanded = false;
     var opened = false;
     function setExpanded(value) {
+      if (!withExpand) return;
       expanded = !!value;
       expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       body.hidden = !expanded;
@@ -170,12 +184,17 @@
       setExpanded(!expanded);
       if (typeof opts.onExpand === 'function') opts.onExpand(expanded);
     }
-    expandBtn.addEventListener('click', onExpandClick);
+    if (withExpand) expandBtn.addEventListener('click', onExpandClick);
     if (opts.expanded) setExpanded(true);
 
     return {
       el: root,
       body: body,
+      // The title span, the expand button and the master's App.ui.toggle controller (null
+      // without a master), for hosts that patch them (HAT fix pass 1).
+      nameEl: nameEl,
+      expandBtn: expandBtn,
+      toggle: toggle,
       setCount: function (text) {
         if (!countEl) {
           countEl = util.el('span', { className: 'ui-group-tile-chip' });
@@ -191,7 +210,7 @@
       isExpanded: function () { return expanded; },
       setSubtitle: setSubtitle,
       destroy: function () {
-        expandBtn.removeEventListener('click', onExpandClick);
+        if (withExpand) expandBtn.removeEventListener('click', onExpandClick);
       }
     };
   };

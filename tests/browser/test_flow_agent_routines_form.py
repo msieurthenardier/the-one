@@ -2,22 +2,25 @@
 """The Routines tab's create/edit form on the calendar recurrence (M33 F1 L9; M33 F3 L7, DD7).
 
 One inline form covers the name, the prompt, a start date and time, the Repeat presets and the
-Custom recurrence dialog with its server preview, and the three target kinds with a searchable
-chooser for an existing chat. Falls in the ``agent-routines`` lane via the
-``test_flow_agent_routines*`` glob.
+Custom recurrence dialog with its server preview. Every run starts a new chat, so the form has
+no target. In edit mode Save is disabled until something changes. Falls in the
+``agent-routines`` lane via the ``test_flow_agent_routines*`` glob.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
-from browser.seeders import SeededApp, seed_session
+from browser.seeders import SeededApp, seed_agent_routine, seed_mock_agent, seed_mock_provider
+from browser.seeders import canonical_schedule as canon
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -36,15 +39,10 @@ def _list(base: str, agent: str) -> list[dict]:
     return r.json()["routines"]
 
 
-def _create(base: str, agent: str, name: str, schedule: dict, target: dict | None = None) -> dict:
+def _create(base: str, agent: str, name: str, schedule: dict) -> dict:
     r = httpx.post(
         f"{base}/api/agents/{agent}/routines",
-        json={
-            "name": name,
-            "prompt": "Say hello.",
-            "schedule": schedule,
-            "target": target or {"kind": "new"},
-        },
+        json={"name": name, "prompt": "Say hello.", "schedule": schedule},
         headers=auth_headers_for(base),
         timeout=5,
     )
@@ -80,6 +78,13 @@ def _row(page: Page, name: str):
         '[data-testid="routine-row"]',
         has=page.locator('[data-testid="routine-name"]', has_text=name),
     )
+
+
+def _edit(page: Page, name: str) -> None:
+    """Open a row's actions menu and choose Edit."""
+    row = _row(page, name)
+    row.locator('[data-testid="routine-actions"]').click()
+    row.locator('[data-testid="routine-edit"]').click()
 
 
 def _new_form(page: Page) -> None:
@@ -215,7 +220,9 @@ def test_each_preset_saves_the_canonical_schedule_it_means(
         expect(row.locator('[data-testid="routine-schedule"]')).to_have_text(
             stored["schedule_text"]
         )
-        expect(row.locator('[data-testid="routine-next"]')).to_contain_text("Next")
+        expect(row.locator('[data-testid="routine-next"]')).to_have_text(
+            re.compile(r"\d{1,2}:\d{2} (AM|PM)$")
+        )
 
 
 def test_the_preset_list_follows_the_start_date(app_with_agent: SeededApp, page: Page) -> None:
@@ -369,6 +376,19 @@ def test_custom_ends_choices(
     _save(page)
     expect(_row(page, "Ends")).to_be_visible(timeout=8000)
     assert _list(base, agent)[0]["schedule"]["ends"] == want
+
+
+def test_custom_ends_after_defaults_to_seven_occurrences(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_tab(page, base, agent)
+    _new_form(page)
+    _set_start(page, _future(10))
+    _custom(page, "day", "1")
+    group = _tid(page, "routine-custom-ends")
+    group.get_by_role("radio", name="After", exact=True).check()
+    expect(_tid(page, "routine-custom-ends-count")).to_have_value("7")
 
 
 def test_custom_cancel_discards_and_reopens_with_the_current_recurrence(
@@ -605,6 +625,7 @@ def test_in_quick_start_sets_the_start_fields(app_with_agent: SeededApp, page: P
     _fill(page, "Soon")
     expect(page.get_by_label("Start in, amount")).to_have_count(1)
     expect(page.get_by_label("Start in, unit")).to_have_count(1)
+    _tid(page, "routine-form-start-in").check()
     _tid(page, "routine-form-in-amount").fill("2")
     _tid(page, "routine-form-in-unit").select_option("days")
     got = page.evaluate(
@@ -684,72 +705,150 @@ def test_a_start_time_in_the_spring_forward_gap_runs_at_the_end_of_the_gap(
     expect(_tid(page, "routine-form-start-time-input")).to_have_value("2:30 AM")
 
 
-# ── target: the chat chooser ──────────────────────────────────────────────
+# ── no target: every run starts a new chat ────────────────────────────────
 
 
-def test_chat_chooser_filters_picks_and_returns_focus(
+def test_the_form_has_no_target_and_create_never_sends_one(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
-    sid_a = seed_session(base, agent, "Alpha plans", "2026-10-01T10:00:00Z")
-    seed_session(base, agent, "Beta notes", "2026-10-02T10:00:00Z", platform="discord")
-    seed_session(base, None, "Not mine", "2026-10-03T10:00:00Z")
     _open_tab(page, base, agent)
     _new_form(page)
-    _fill(page, "Chatty")
-    page.locator(FORM).get_by_role("radio", name="A chat").check()
-    expect(_tid(page, "routine-form-chat")).to_have_text("No chat chosen.")
-    # Saving without a chat is blocked on the Run in group.
-    _save(page)
-    expect(_tid(page, "routine-form-target-error")).to_have_text("Pick a chat.")
-    _tid(page, "routine-target-picker").click()
-    chooser = _tid(page, "routine-chat-chooser")
-    expect(chooser).to_be_visible()
-    opts = _tid(page, "routine-chat-option")
-    expect(opts).to_have_count(2)
-    expect(opts.first).to_contain_text("Beta notes")  # newest first
-    expect(opts.first).to_contain_text("Discord")
-    _tid(page, "routine-chat-search").fill("alpha")
-    expect(opts).to_have_count(1)
-    _tid(page, "routine-chat-search").fill("disc")
-    expect(opts).to_have_count(1)
-    expect(opts.first).to_contain_text("Beta notes")
-    _tid(page, "routine-chat-search").fill("alpha")
-    page.keyboard.press("Enter")
-    expect(chooser).to_have_count(0)
-    expect(_tid(page, "routine-target-picker")).to_be_focused()
-    expect(_tid(page, "routine-form-chat")).to_have_text("Alpha plans")
-    # The choice is part of the button's accessible name (visible text comes first).
-    expect(_tid(page, "routine-target-picker")).to_have_attribute(
-        "aria-label", "Choose chat, current: Alpha plans"
+    form = page.locator(FORM)
+    # The only radios are the Starts choice (no target choice).
+    expect(form.get_by_role("radio")).to_have_count(3)
+    expect(form.get_by_role("radio", name="Immediately")).to_have_count(1)
+    expect(form).not_to_contain_text(re.compile(r"runs? in\b|choose chat|own chat", re.I))
+    posts: list[dict] = []
+    page.on(
+        "request",
+        lambda r: (
+            posts.append(json.loads(r.post_data))
+            if r.method == "POST" and r.url.endswith(f"/{agent}/routines")
+            else None
+        ),
     )
+    _fill(page, "No target")
     _save(page)
-    row = _row(page, "Chatty")
-    expect(row.locator('[data-testid="routine-target"]')).to_have_text("Alpha plans", timeout=8000)
-    assert _list(base, agent)[0]["target"]["session_id"] == sid_a
+    expect(_row(page, "No target")).to_be_visible(timeout=8000)
+    assert len(posts) == 1 and set(posts[0]) == {"name", "prompt", "schedule"}, posts
 
 
-def test_chat_chooser_escape_and_empty_line(app_with_agent: SeededApp, page: Page) -> None:
+def test_save_in_edit_mode_is_disabled_until_a_field_changes(
+    app_with_agent: SeededApp, page: Page
+) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _create(base, agent, "Steady", _daily("09:00"))
     _open_tab(page, base, agent)
+    _edit(page, "Steady")
+    save = _tid(page, "routine-form-save")
+    expect(save).to_be_disabled()
+    # A name change enables it; reverting disables it again.
+    name = _tid(page, "routine-form-name")
+    name.fill("Steady 2")
+    expect(save).to_be_enabled()
+    name.fill("Steady")
+    expect(save).to_be_disabled()
+    # The prompt, the Repeat select and the start time each enable it and revert alike.
+    prompt = _tid(page, "routine-form-prompt")
+    prompt.fill("Say hello twice.")
+    expect(save).to_be_enabled()
+    prompt.fill("Say hello.")
+    expect(save).to_be_disabled()
+    repeat = _tid(page, "routine-form-repeat")
+    repeat.select_option("weekday")
+    expect(save).to_be_enabled()
+    repeat.select_option("day")
+    expect(save).to_be_disabled()
+    tm = _tid(page, "routine-form-start-time-input")
+    tm.fill("10:00 AM")
+    tm.press("Tab")
+    expect(save).to_be_enabled()
+    tm.fill("9:00 AM")
+    tm.press("Tab")
+    expect(save).to_be_disabled()
+    # Create mode is not gated.
+    _tid(page, "routine-form-cancel").click()
     _new_form(page)
-    page.locator(FORM).get_by_role("radio", name="A chat").check()
-    _tid(page, "routine-target-picker").click()
-    expect(_tid(page, "routine-chat-chooser")).to_contain_text("This agent has no chats yet.")
-    page.keyboard.press("Escape")
-    expect(_tid(page, "routine-chat-chooser")).to_have_count(0)
-    expect(_tid(page, "routine-target-picker")).to_be_focused()
-    expect(_tid(page, "routine-form-chat")).to_have_text("No chat chosen.")
+    expect(_tid(page, "routine-form-save")).to_be_enabled()
 
 
-def test_chat_chooser_load_failure(app_with_agent: SeededApp, page: Page) -> None:
+def test_edit_replaces_the_card_in_place_and_cancel_and_save_restore_it(
+    app_with_agent: SeededApp, page: Page
+) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _create(base, agent, "aaa", _daily("08:00"))
+    _create(base, agent, "bbb", _daily("09:00"))
+    _create(base, agent, "ccc", _daily("10:00"))
     _open_tab(page, base, agent)
-    _new_form(page)
-    page.locator(FORM).get_by_role("radio", name="A chat").check()
-    page.route("**/api/chat/sessions", lambda route: route.fulfill(status=500, body="boom"))
-    _tid(page, "routine-target-picker").click()
-    expect(_tid(page, "routine-chat-chooser")).to_contain_text("Couldn’t load chats.")
+    names = _tid(page, "routine-name")
+    expect(names).to_have_count(3, timeout=8000)
+    row = _row(page, "bbb")
+    _edit(page, "bbb")
+    form = page.locator(FORM)
+    expect(form).to_be_visible()
+    # The form sits where the card was (between aaa and ccc, not in the top host), and the card
+    # with its menu is not reachable while it is edited.
+    slot = page.locator('[role="listitem"]').nth(1)
+    expect(slot.locator(FORM)).to_have_count(1)
+    expect(page.locator(".routines-form-host " + FORM)).to_have_count(0)
+    expect(row).to_be_hidden()
+    expect(row.locator('[data-testid="routine-actions"]')).to_be_hidden()
+    # A second Edit (or New) while one is open only focuses the open form.
+    _edit(page, "aaa")
+    expect(form).to_have_count(1)
+    expect(_row(page, "aaa")).to_be_visible()
+    expect(_tid(page, "routine-form-name")).to_be_focused()
+    # Cancel: the same card is back in the same place, focus on its actions button.
+    _tid(page, "routine-form-cancel").click()
+    expect(form).to_have_count(0)
+    expect(row).to_be_visible()
+    expect(row.locator('[data-testid="routine-actions"]')).to_be_focused()
+    assert names.all_text_contents() == ["aaa", "bbb", "ccc"]
+    # Save: the card returns in place with the new name, focus on its actions button.
+    _edit(page, "bbb")
+    _tid(page, "routine-form-name").fill("bbb2")
+    _tid(page, "routine-form-save").click()
+    expect(form).to_have_count(0, timeout=8000)
+    expect(names).to_have_text(["aaa", "bbb2", "ccc"], timeout=8000)
+    expect(_row(page, "bbb2").locator('[data-testid="routine-actions"]')).to_be_focused()
+
+
+def test_focus_moves_to_cancel_when_a_revert_disables_the_focused_save(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _create(base, agent, "Steady", _daily("09:00"))
+    _open_tab(page, base, agent)
+    _edit(page, "Steady")
+    save = _tid(page, "routine-form-save")
+    name = _tid(page, "routine-form-name")
+    name.fill("Steady 2")
+    expect(save).to_be_enabled()
+    save.focus()
+    expect(save).to_be_focused()
+    # Revert the name behind the focus (as an undo or a script would): Save disables itself.
+    name.evaluate(
+        "(el) => { el.value = 'Steady'; el.dispatchEvent(new Event('input', {bubbles: true})); }"
+    )
+    expect(save).to_be_disabled()
+    expect(_tid(page, "routine-form-cancel")).to_be_focused()
+
+
+def test_a_flagged_routines_save_is_enabled_and_sends_the_prompt(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base, data_dir = app_with_data_dir
+    agent = seed_mock_agent(base, seed_mock_provider(base))
+    seed_agent_routine(data_dir, agent, "Flagged", untrusted=True, sources=["web_fetch"])
+    _open_tab(page, base, agent)
+    _edit(page, "Flagged")
+    save = _tid(page, "routine-form-save")
+    expect(save).to_be_enabled()
+    bodies = _put_bodies(page)
+    save.click()
+    expect(page.locator(FORM)).to_have_count(0, timeout=8000)
+    assert len(bodies) == 1 and set(bodies[0]) == {"prompt"}, bodies
 
 
 # ── edit ──────────────────────────────────────────────────────────────────
@@ -807,7 +906,7 @@ def test_edit_shows_the_start_and_the_preset_or_the_sentence_of_every_unit(
     stored = {r["name"]: r for r in _list(base, agent)}
     _open_tab(page, base, agent)
     for name, sched, want in EDIT_CASES:
-        _row(page, name).locator('[data-testid="routine-edit"]').click()
+        _edit(page, name)
         expect(_tid(page, "routine-form-name")).to_have_value(name)
         start = date.fromisoformat(stored[name]["schedule"]["start"]["date"])
         expect(_tid(page, "routine-form-start-date-input")).to_have_value(_shown(start))
@@ -839,7 +938,7 @@ def test_edit_sends_only_what_changed(app_with_agent: SeededApp, page: Page) -> 
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     made = _create(base, agent, "Nightly", _daily("21:15"))
     _open_tab(page, base, agent)
-    _row(page, "Nightly").locator('[data-testid="routine-edit"]').click()
+    _edit(page, "Nightly")
     expect(_tid(page, "routine-form-name")).to_have_value("Nightly")
     expect(_tid(page, "routine-form-prompt")).to_have_value("Say hello.")
     expect(_tid(page, "routine-form-start-time-input")).to_have_value("9:15 PM")
@@ -858,32 +957,30 @@ def test_edit_sends_only_what_changed(app_with_agent: SeededApp, page: Page) -> 
     assert bodies == [{"name": "Nightly 2"}]
     assert _list(base, agent)[0]["id"] == made["id"]
     # Cancel returns focus to the opener and discards text.
-    edit = _row(page, "Nightly 2").locator('[data-testid="routine-edit"]')
-    edit.click()
+    actions = _row(page, "Nightly 2").locator('[data-testid="routine-actions"]')
+    _edit(page, "Nightly 2")
     _tid(page, "routine-form-name").fill("scribble")
     _tid(page, "routine-form-cancel").click()
     expect(page.locator(FORM)).to_have_count(0)
-    expect(edit).to_be_focused()
+    expect(actions).to_be_focused()
     expect(_row(page, "Nightly 2")).to_be_visible()
 
 
-def test_edit_changes_the_recurrence_and_target(app_with_agent: SeededApp, page: Page) -> None:
+def test_edit_changes_the_recurrence(app_with_agent: SeededApp, page: Page) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     _create(base, agent, "Flip", _daily("09:00"))
     _open_tab(page, base, agent)
-    _row(page, "Flip").locator('[data-testid="routine-edit"]').click()
+    _edit(page, "Flip")
     _custom(page, "hour", "12")
     _done(page)
-    page.locator(FORM).get_by_role("radio", name="Its own chat").check()
     bodies = _put_bodies(page)
     _save(page)
     expect(_row(page, "Flip").locator('[data-testid="routine-schedule"]')).to_contain_text(
         "Every 12 hours from", timeout=8000
     )
-    assert len(bodies) == 1 and set(bodies[0]) == {"schedule", "target"}
+    assert len(bodies) == 1 and set(bodies[0]) == {"schedule"}
     assert bodies[0]["schedule"]["repeat"] == {"every": 12, "unit": "hour"}
     assert bodies[0]["schedule"]["start"] == {"date": "2026-01-01", "time": "09:00"}
-    assert bodies[0]["target"] == {"kind": "own"}
 
 
 def test_a_schedule_the_old_form_could_not_express_is_editable(
@@ -895,7 +992,7 @@ def test_a_schedule_the_old_form_could_not_express_is_editable(
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     _create(base, agent, "Ahead", _daily("09:00", tomorrow))
     _open_tab(page, base, agent)
-    _row(page, "Alternate").locator('[data-testid="routine-edit"]').click()
+    _edit(page, "Alternate")
     expect(_tid(page, "routine-form-repeat")).to_be_enabled()
     assert _selected_repeat_text(page) == "Every 2 days at 9:00 AM"
     bodies = _put_bodies(page)
@@ -907,7 +1004,7 @@ def test_a_schedule_the_old_form_could_not_express_is_editable(
         "every": 2,
         "unit": "day",
     }
-    _row(page, "Ahead").locator('[data-testid="routine-edit"]').click()
+    _edit(page, "Ahead")
     assert _selected_repeat_text(page) == "Every day"
     expect(_tid(page, "routine-form-start-date-input")).to_have_value(
         _shown(date.today() + timedelta(days=1))
@@ -925,7 +1022,7 @@ def test_editing_a_one_off_into_the_past_shows_the_refusal_on_save(
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     _create(base, agent, "Once", {"start": {"in": {"amount": 1, "unit": "days"}}})
     _open_tab(page, base, agent)
-    _row(page, "Once").locator('[data-testid="routine-edit"]').click()
+    _edit(page, "Once")
     assert _selected_repeat_text(page) == "Does not repeat"
     _set_start(page, date.today(), "12:00 AM")
     _save(page)
@@ -943,7 +1040,7 @@ def test_editing_a_one_off_into_the_past_shows_the_refusal_on_save(
 
 def test_duplicate_name_is_shown_on_the_name_field(app_with_agent: SeededApp, page: Page) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
-    _create(base, agent, "Taken", {"kind": "daily", "time": "09:00"})
+    _create(base, agent, "Taken", canon("09:00"))
     _open_tab(page, base, agent)
     _new_form(page)
     _fill(page, "taken")
@@ -998,24 +1095,6 @@ def test_an_unreadable_start_blocks_the_save_on_its_field(
     )
     expect(tm).to_be_focused()
     assert [u for u in posts if "/routines" in u and "/preview" not in u] == []
-
-
-def test_deleted_chat_error_lands_on_the_target_group(
-    app_with_agent: SeededApp, page: Page
-) -> None:
-    base, agent = app_with_agent.base_url, app_with_agent.agent_name
-    sid = seed_session(base, agent, "Doomed", "2026-10-01T10:00:00Z")
-    _open_tab(page, base, agent)
-    _new_form(page)
-    _fill(page, "Gone")
-    page.locator(FORM).get_by_role("radio", name="A chat").check()
-    _tid(page, "routine-target-picker").click()
-    _tid(page, "routine-chat-option").first.click()
-    httpx.delete(f"{base}/api/chat/sessions/{sid}", headers=auth_headers_for(base), timeout=5)
-    _save(page)
-    expect(_tid(page, "routine-form-target-error")).to_have_text(
-        "That chat doesn't exist.", timeout=8000
-    )
 
 
 def test_unsaved_form_is_discarded_when_the_tab_is_left(
@@ -1083,12 +1162,12 @@ def test_form_model_rules(app_with_agent: SeededApp, page: Page) -> None:
           const st = M.defaultState(now, zp);
           res.state = [st.startDate, st.startTime, st.mode];
           res.createBody = M.formToBody(Object.assign({}, st, {name: ' N ', prompt: ' p ', mode: 'weekly'}), {mode: 'create'});
-          const row = {name: 'R', prompt: 'p', target: {kind: 'chat', session_id: 's1', title: 'T'},
+          const row = {name: 'R', prompt: 'p',
             schedule_text: 'Every 2 weeks on Tue, Thu at 9:00 AM',
             schedule: {start: {date: '2026-01-01', time: '09:00'},
                        repeat: {unit: 'week', every: 2, days: [3, 1]}, ends: {kind: 'never'}}};
           const init = M.bodyToFormState(row);
-          res.initial = [init.mode, init.currentLabel, init.chatId, init.targetKind, init.startTime];
+          res.initial = [init.mode, init.currentLabel, init.startTime, Object.keys(init).sort().join(',')];
           res.untouched = M.formToBody(JSON.parse(JSON.stringify(init)), {mode: 'edit', initial: init});
           res.touched = M.formToBody(Object.assign({}, init, {startTime: '10:30'}), {mode: 'edit', initial: init});
           res.toPreset = M.formToBody(Object.assign({}, init, {mode: 'day'}), {mode: 'edit', initial: init});
@@ -1180,14 +1259,13 @@ def test_form_model_rules(app_with_agent: SeededApp, page: Page) -> None:
             "repeat": {"every": 1, "unit": "week", "days": [4]},
             "ends": {"kind": "never"},
         },
-        "target": {"kind": "new"},
     }
+    # The form state holds no target fields.
     assert out["initial"] == [
         "current",
         "Every 2 weeks on Tue, Thu at 9:00 AM",
-        "s1",
-        "chat",
         "09:00",
+        "currentLabel,ends,mode,name,prompt,repeat,startDate,startMode,startTime",
     ]
     assert out["untouched"] == {}
     assert out["touched"] == {
@@ -1231,3 +1309,126 @@ def test_form_model_rules(app_with_agent: SeededApp, page: Page) -> None:
         {"schedule": "Choose a start date."},
         {"schedule": "Enter a start time like 9:30 AM."},
     ]
+
+
+# ── starts: On / In / Immediately (M33 F4 L4) ───────────────────────────────
+
+
+def _runs_of(base: str, agent: str, rid: str) -> list[dict]:
+    r = httpx.get(
+        f"{base}/api/agents/{agent}/routines/{rid}/runs",
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["runs"]
+
+
+def _wait_runs(page: Page, base: str, agent: str, rid: str, n: int = 1) -> list[dict]:
+    runs: list[dict] = []
+    for _ in range(40):
+        runs = _runs_of(base, agent, rid)
+        if len(runs) >= n and all(x.get("outcome") for x in runs):
+            return runs
+        page.wait_for_timeout(500)
+    return runs
+
+
+def test_starts_radio_group_enables_only_the_chosen_option(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_tab(page, base, agent)
+    _new_form(page)
+    on, in_, now = (_tid(page, f"routine-form-start-{k}") for k in ("on", "in", "now"))
+    date_in, time_in = (_tid(page, f"routine-form-start-{k}-input") for k in ("date", "time"))
+    amount, unit, result = (
+        _tid(page, f"routine-form-in-{k}") for k in ("amount", "unit", "result")
+    )
+    expect(page.get_by_role("group", name="Starts")).to_have_count(1)
+    expect(on).to_be_checked()
+    expect(date_in).to_be_enabled()
+    expect(time_in).to_be_enabled()
+    expect(amount).to_be_disabled()
+    expect(unit).to_be_disabled()
+    expect(page.get_by_text("The first run starts when you save")).to_be_visible()
+    in_.check()
+    expect(date_in).to_be_disabled()
+    expect(time_in).to_be_disabled()
+    expect(amount).to_be_enabled()
+    expect(unit).to_be_enabled()
+    expect(result).to_have_text("")
+    amount.fill("2")
+    expect(result).to_have_text(re.compile(r"(Today|Tomorrow) at \d+:\d\d (AM|PM)|, \d{4}|at \d"))
+    amount.fill("")
+    expect(result).to_have_text("")
+    now.check()
+    for ctl in (date_in, time_in, amount, unit):
+        expect(ctl).to_be_disabled()
+    on.check()
+    expect(date_in).to_be_enabled()
+    expect(amount).to_be_disabled()
+
+
+def test_immediately_runs_a_repeating_routine_at_once(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_tab(page, base, agent)
+    _new_form(page)
+    _fill(page, "Right now")
+    _tid(page, "routine-form-start-now").check()
+    _tid(page, "routine-form-repeat").select_option("day")
+    expect(_tid(page, "routine-form-preview")).to_contain_text(
+        "First run: when you save", timeout=8000
+    )
+    _save(page)
+    row = _row(page, "Right now")
+    expect(row).to_be_visible(timeout=8000)
+    saved = next(r for r in _list(base, agent) if r["name"] == "Right now")
+    runs = _wait_runs(page, base, agent, saved["id"])
+    assert len(runs) == 1 and runs[0]["outcome"] == "ok" and runs[0]["trigger_kind"] == "schedule"
+    after = next(r for r in _list(base, agent) if r["name"] == "Right now")
+    assert after["finished_at"] is None
+    assert after["next_run_at"] > saved["created_at"]
+
+
+def test_immediately_runs_a_one_off_once_and_it_is_done(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_tab(page, base, agent)
+    _new_form(page)
+    _fill(page, "Once now")
+    _tid(page, "routine-form-start-now").check()
+    _save(page)
+    expect(_row(page, "Once now")).to_be_visible(timeout=8000)
+    saved = next(r for r in _list(base, agent) if r["name"] == "Once now")
+    runs = _wait_runs(page, base, agent, saved["id"])
+    assert len(runs) == 1 and runs[0]["outcome"] == "ok"
+    expect(_row(page, "Once now").locator('[data-testid="routine-next"]')).to_have_text(
+        "Done", timeout=8000
+    )
+
+
+def test_immediately_in_edit_is_a_change_and_flipping_back_is_clean(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _create(base, agent, "Edit me", _daily("09:00", "2026-01-01"))
+    _open_tab(page, base, agent)
+    _edit(page, "Edit me")
+    save = _tid(page, "routine-form-save")
+    expect(_tid(page, "routine-form-start-on")).to_be_checked()
+    expect(save).to_be_disabled()
+    _tid(page, "routine-form-start-now").check()
+    expect(save).to_be_enabled()
+    _tid(page, "routine-form-start-on").check()
+    expect(_tid(page, "routine-form-start-date-input")).to_have_value(_shown(date(2026, 1, 1)))
+    expect(_tid(page, "routine-form-start-time-input")).to_have_value("9:00 AM")
+    expect(save).to_be_disabled()
+    _tid(page, "routine-form-start-in").check()
+    _tid(page, "routine-form-in-amount").fill("3")
+    expect(save).to_be_enabled()
+    _tid(page, "routine-form-in-amount").fill("")
+    expect(save).to_be_disabled()

@@ -7,9 +7,15 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests._routine_schedules import (
+    daily,
+    every_hours,
+    once_at,
+    once_in,
+    weekdays,
+    weekly,
+)
 from tests._schema_template import connect_template_db
-from the_one.db.models import ChatSession
-from the_one.db.repositories import ChatSessionRepository
 from the_one.naming import NameRuleError
 from the_one.routines import scheduler
 from the_one.routines import service as svc
@@ -25,12 +31,22 @@ from the_one.routines.repository import AgentRoutineRepository
 UTC = timezone.utc
 NOW = datetime(2026, 10, 10, 22, 45, 12, tzinfo=UTC)
 ZONE = ZoneInfo("America/Los_Angeles")
-DAILY = {"kind": "daily", "time": "09:00"}
+DAILY = daily("09:00", "2026-10-11")
+# A stored schedule the reader cannot understand (a row v48 could not upgrade).
+UNREADABLE = {"unconverted": "yes"}
 CANON_DAILY = {
     "start": {"date": "2026-10-11", "time": "09:00"},
     "repeat": {"every": 1, "unit": "day"},
     "ends": {"kind": "never"},
 }
+
+
+def in_hours(base: datetime, hours: int) -> str:
+    """*hours* after *base*, rounded up to the next whole minute (a relative start's rule)."""
+    t = base + timedelta(hours=hours)
+    if t.second or t.microsecond:
+        t = t.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return t.isoformat()
 
 
 class StubScheduler:
@@ -53,7 +69,7 @@ def stub():
 async def env(tmp_path):
     conn = await connect_template_db(tmp_path / "t.db")
     await conn.execute("PRAGMA foreign_keys=OFF")
-    yield AgentRoutineRepository(conn), ChatSessionRepository(conn)
+    yield AgentRoutineRepository(conn)
     await conn.close()
 
 
@@ -69,12 +85,11 @@ def zone_loader():
 
 
 def body(name="Morning", **over):
-    return {"name": name, "prompt": " hi ", "schedule": DAILY, "target": {"kind": "new"}, **over}
+    return {"name": name, "prompt": " hi ", "schedule": DAILY, **over}
 
 
 async def make(env, **over):
-    repo, chats = env
-    return await svc.create_routine(repo, chats, "ag", body(**over), now=NOW, zone=zone_loader())
+    return await svc.create_routine(env, "ag", body(**over), now=NOW, zone=zone_loader())
 
 
 def field_error(fn, *a):
@@ -107,38 +122,39 @@ def test_schedule_refusals():
         assert e.field == "schedule"
         return e.message
 
-    assert msg({"kind": "once", "on": 1}) == "A one-time schedule at a local time is {kind, on}."
-    on = lambda d, t="09:00": {"kind": "once", "on": {"date": d, "time": t}}  # noqa: E731
+    assert msg({"start": 1}) == "The schedule needs a start with a date and a time."
+    on = lambda d, t="09:00": once_at(d, t)  # noqa: E731
     assert msg(on("2026/12/01")) == "The date must be written YYYY-MM-DD."
     assert msg(on("2026-02-30")) == "That date doesn't exist."
     assert msg(on("2028-10-01")) == "That time is more than a year away."
-    assert msg({"kind": "once", "in": 3}) == (
+    assert msg({"start": {"in": 3}}) == (
         "Give a whole number of minutes, hours or days, at least 1."
     )
-    bad = {"kind": "once", "in": {"amount": 0, "unit": "hours"}}
+    bad = once_in(0, "hours")
     assert msg(bad) == "Give a whole number of minutes, hours or days, at least 1."
+    assert msg({"kind": "daily", "time": "09:00"}) == (
+        "A schedule is {start, repeat, ends}; the older kind-based shape is no longer accepted."
+    )
 
 
 ONCE_ENDS = {"kind": "never"}
 
 
 def test_schedule_conversions():
-    s, anchor = svc.validate_schedule(
-        {"kind": "once", "in": {"amount": 2, "unit": "hours"}}, NOW, ZONE
-    )
+    s, anchor = svc.validate_schedule(once_in(2, "hours"), NOW, ZONE)
     assert anchor == NOW + timedelta(hours=2) + timedelta(seconds=48)  # rounded up a minute
     assert s == {
         "start": {"date": "2026-10-10", "time": "17:46"},
         "repeat": None,
         "ends": ONCE_ENDS,
     }
-    on = {"kind": "once", "on": {"date": "2026-12-01", "time": "09:00"}}
+    on = once_at("2026-12-01", "09:00")
     s, anchor = svc.validate_schedule(on, NOW, ZONE)
     assert anchor == datetime(2026, 12, 1, 17, 0, tzinfo=UTC)
     assert s["start"] == {"date": "2026-12-01", "time": "09:00"}
     s, anchor = svc.validate_schedule(DAILY, NOW, ZONE)
     assert anchor is None and s["repeat"] == {"every": 1, "unit": "day"}
-    # The canonical shape and every alias land on the same stored form.
+    # A schedule with and without the optional ends land on the same stored form.
     canon = {
         "start": {"date": "2026-10-11", "time": "09:00"},
         "repeat": {"every": 1, "unit": "day"},
@@ -146,93 +162,66 @@ def test_schedule_conversions():
     assert svc.validate_schedule(canon, NOW, ZONE) == svc.validate_schedule(DAILY, NOW, ZONE)
 
 
-def test_normalize_then_verbatim_check_round_trips_for_every_alias():
-    aliases = [
-        {"kind": "once", "at": "2026-12-01T10:00:00+00:00"},
-        {"kind": "once", "on": {"date": "2026-12-01", "time": "09:00"}},
-        {"kind": "once", "in": {"amount": 90, "unit": "minutes"}},
-        {"kind": "daily", "time": "02:30"},
-        {"kind": "weekdays", "time": "09:00"},
-        {"kind": "weekly", "days": [4, 0], "time": "09:00"},
-        {"kind": "interval", "hours": 5},
+def test_normalize_then_verbatim_check_round_trips_for_every_form():
+    forms = [
+        once_at("2026-12-01", "09:00"),
+        once_in(90, "minutes"),
+        daily("02:30", "2026-10-11"),
+        weekdays("09:00", "2026-10-11"),
+        weekly([4, 0], "09:00", "2026-10-11"),
+        every_hours(5),
     ]
-    for raw in aliases:
+    for raw in forms:
         sched, anchor = svc.validate_schedule(raw, NOW, ZONE)
         assert svc.check_schedule_pair(sched, anchor) == sched
 
 
-async def test_resolve_target(env):
-    repo, chats = env
-    assert (await svc.resolve_target({"kind": "own"}, "ag", chats))["target_kind"] == "own"
-    for raw, msg in [
-        (None, "The target must be a chat, a new chat or its own chat."),
-        ({"kind": "chat"}, "Pick a chat."),
-        ({"kind": "chat", "session_id": "nope"}, "That chat doesn't exist."),
-    ]:
-        with pytest.raises(RoutineFieldError) as ei:
-            await svc.resolve_target(raw, "ag", chats)
-        assert (ei.value.field, ei.value.message) == ("target", msg)
-    await chats.create(ChatSession(id="s1", agent_name="other", title="t"))
-    await chats.create(ChatSession(id="s2", agent_name="ag", title="t"))
-    with pytest.raises(RoutineFieldError) as ei:
-        await svc.resolve_target({"kind": "chat", "session_id": "s1"}, "ag", chats)
-    assert ei.value.message == "That chat belongs to another agent."
-    t = await svc.resolve_target({"kind": "chat", "session_id": "s2"}, "ag", chats)
-    assert t["target_kind"] == "chat" and t["target_session_id"] == "s2"
-
-
 # ── create ───────────────────────────────────────────────────────────────
-async def test_create_targets_and_pokes(env, stub):
-    _, chats = env
-    await chats.create(ChatSession(id="s2", agent_name="ag", title="t"))
-    r = await make(env, name="a", target={"kind": "new"})
-    assert r.target_kind == "new" and r.prompt == "hi" and r.created_by
-    r = await make(env, name="b", target={"kind": "own"})
-    assert r.target_kind == "own"
-    r = await make(env, name="c", target={"kind": "chat", "session_id": "s2"})
-    assert r.target_session_id == "s2"
-    assert stub.pokes == 3
+async def test_create_ignores_a_stray_target_and_pokes(env, stub):
+    r = await make(env, name="a")
+    assert r.prompt == "hi" and r.created_by
+    # A request that still carries ``target`` is read like any unknown key (leg 02, AC4).
+    r = await make(env, name="b", target={"kind": "chat", "session_id": "s2"})
+    assert not any(k.startswith("target") for k in r.model_dump()) and r.name == "b"
+    assert stub.pokes == 2
 
 
 async def test_create_interval_anchor_and_next(env):
-    r = await make(env, schedule={"kind": "interval", "hours": 3})
-    # The legacy alias anchors at now plus N hours, exactly: the first run is unchanged.
-    assert r.anchor_at == (NOW + timedelta(hours=3)).isoformat()
-    assert r.next_run_at == (NOW + timedelta(hours=3)).isoformat()
+    r = await make(env, schedule=every_hours(3))
+    # A relative start anchors at now plus N hours, rounded up to the next whole minute.
+    assert r.anchor_at == in_hours(NOW, 3)
+    assert r.next_run_at == in_hours(NOW, 3)
     assert r.schedule["repeat"] == {"every": 3, "unit": "hour"}
     r = await make(env, name="d", enabled=False)
     assert r.next_run_at is None and r.anchor_at is None
-    off = await make(env, name="e", enabled=False, schedule={"kind": "interval", "hours": 3})
+    off = await make(env, name="e", enabled=False, schedule=every_hours(3))
     assert off.next_run_at is None and off.anchor_at is not None
 
 
 async def test_create_refusals_do_not_poke(env, stub):
-    repo, chats = env
     for over, exc in [
         ({"name": "  "}, NameRuleError),
         ({"prompt": ""}, RoutineFieldError),
     ]:
         with pytest.raises(exc):
-            await svc.create_routine(repo, chats, "ag", body(**over), now=NOW, zone=zone_loader())
+            await svc.create_routine(env, "ag", body(**over), now=NOW, zone=zone_loader())
     assert stub.pokes == 0
 
 
 async def test_create_error_order(env):
-    repo, chats = env
-    bad = {"name": "", "prompt": "", "schedule": 1, "target": 1, "enabled": 1}
+    bad = {"name": "", "prompt": "", "schedule": 1, "enabled": 1}
     with pytest.raises(NameRuleError):
-        await svc.create_routine(repo, chats, "ag", bad, now=NOW, zone=zone_loader())
+        await svc.create_routine(env, "ag", bad, now=NOW, zone=zone_loader())
     bad["name"] = "ok"
     with pytest.raises(RoutineFieldError) as ei:
-        await svc.create_routine(repo, chats, "ag", bad, now=NOW, zone=zone_loader())
+        await svc.create_routine(env, "ag", bad, now=NOW, zone=zone_loader())
     assert ei.value.field == "prompt"
     bad["prompt"] = "p"
-    for field in ("schedule", "target", "enabled"):
+    for field in ("schedule", "enabled"):
         bad["schedule"] = DAILY if field != "schedule" else 1
-        bad["target"] = {"kind": "new"} if field != "target" else 1
         bad["enabled"] = True if field != "enabled" else 1
         with pytest.raises(RoutineFieldError) as ei:
-            await svc.create_routine(repo, chats, "ag", bad, now=NOW, zone=zone_loader())
+            await svc.create_routine(env, "ag", bad, now=NOW, zone=zone_loader())
         assert ei.value.field == field
 
 
@@ -250,10 +239,7 @@ async def test_duplicate_and_active_cap(env, stub):
 
 # ── update ───────────────────────────────────────────────────────────────
 async def upd(env, cur, data, zone=None, now=NOW):
-    repo, chats = env
-    return await svc.update_routine(
-        repo, chats, "ag", cur, data, now=now, zone=zone or zone_loader()
-    )
+    return await svc.update_routine(env, "ag", cur, data, now=now, zone=zone or zone_loader())
 
 
 async def test_update_name_only_skips_zone(env, stub):
@@ -264,16 +250,16 @@ async def test_update_name_only_skips_zone(env, stub):
 
 
 async def test_update_schedule_change_clears_done(env):
-    repo, _ = env
-    r = await make(env, schedule={"kind": "once", "in": {"amount": 1, "unit": "hours"}})
+    repo = env
+    r = await make(env, schedule=once_in(1, "hours"))
     done = await repo.update("ag", r.id, {"finished_at": NOW.isoformat(), "next_run_at": None})
     out = await upd(env, done, {"schedule": DAILY})
     assert out.finished_at is None and out.next_run_at is not None
 
 
 async def test_update_reenable_done_refused(env, stub):
-    repo, _ = env
-    r = await make(env, schedule={"kind": "once", "in": {"amount": 1, "unit": "hours"}})
+    repo = env
+    r = await make(env, schedule=once_in(1, "hours"))
     done = await repo.update(
         "ag", r.id, {"finished_at": NOW.isoformat(), "next_run_at": None, "enabled": False}
     )
@@ -285,7 +271,7 @@ async def test_update_reenable_done_refused(env, stub):
 
 
 async def test_update_interval_reenable_continues_the_grid(env):
-    r = await make(env, schedule={"kind": "interval", "hours": 2})
+    r = await make(env, schedule=every_hours(2))
     anchor = r.anchor_at
     off = await upd(env, r, {"enabled": False})
     assert off.next_run_at is None
@@ -293,12 +279,12 @@ async def test_update_interval_reenable_continues_the_grid(env):
     on = await upd(env, off, {"enabled": True}, now=later)
     assert on.anchor_at == anchor  # never re-anchored
     # anchor = NOW + 2h; the grid is every 2h from there; the next after NOW + 5h is NOW + 6h.
-    assert on.next_run_at == (NOW + timedelta(hours=6)).isoformat()
+    assert on.next_run_at == in_hours(NOW, 6)
 
 
 async def test_update_reenable_past_oneoff_is_refused(env):
-    repo, _ = env
-    r = await make(env, schedule={"kind": "once", "in": {"amount": 1, "unit": "hours"}})
+    repo = env
+    r = await make(env, schedule=once_in(1, "hours"))
     off = await repo.update("ag", r.id, {"enabled": False})
     later = NOW + timedelta(hours=3)
     with pytest.raises(RoutineFieldError) as ei:
@@ -326,11 +312,11 @@ async def test_create_and_schedule_edit_with_no_runs_left_are_refused_on_or_off(
 
 
 async def test_reenable_a_routine_with_an_unreadable_schedule_is_refused(env):
-    repo, _ = env
+    repo = env
     r = await make(env)
-    legacy = await repo.update("ag", r.id, {"schedule": DAILY, "enabled": False})
+    unreadable = await repo.update("ag", r.id, {"schedule": UNREADABLE, "enabled": False})
     with pytest.raises(RoutineFieldError) as ei:
-        await upd(env, legacy, {"enabled": True})
+        await upd(env, unreadable, {"enabled": True})
     assert ei.value.field == "enabled" and "could not be upgraded" in ei.value.message
 
 
@@ -341,9 +327,7 @@ async def test_update_refusals_and_missing(env):
         await upd(env, r, {"name": ""})
     with pytest.raises(RoutineNameTaken):
         await upd(env, r, {"name": "other"})
-    with pytest.raises(RoutineFieldError):
-        await upd(env, r, {"target": {"kind": "chat"}})
-    repo, _ = env
+    repo = env
     await svc.delete_routine(repo, "ag", r.id)
     with pytest.raises(KeyError):
         await upd(env, r, {"name": "zzz"})
@@ -351,7 +335,7 @@ async def test_update_refusals_and_missing(env):
 
 # ── delete, view, limits ─────────────────────────────────────────────────
 async def test_delete_pokes_once(env, stub):
-    repo, _ = env
+    repo = env
     r = await make(env)
     stub.pokes = 0
     assert await svc.delete_routine(repo, "ag", r.id) is None
@@ -364,15 +348,15 @@ async def test_delete_pokes_once(env, stub):
 async def test_view_and_limits(env):
     from the_one.routines.repository import RoutineRunRepository
 
-    repo, chats = env
+    repo = env
     r = await make(env)
-    view = await svc.routine_view(r, RoutineRunRepository(repo.conn), chats, ZONE)
+    view = await svc.routine_view(r, RoutineRunRepository(repo.conn), ZONE)
     assert view["name"] == "Morning" and view["last_run"] is None
     assert view["schedule_text"] == "Every day at 9:00 AM"
-    legacy = r.model_copy(update={"schedule": DAILY})  # a schedule v48 could not upgrade
-    bad = await svc.routine_view(legacy, RoutineRunRepository(repo.conn), chats, ZONE)
+    unreadable = r.model_copy(update={"schedule": UNREADABLE})  # v48 could not upgrade it
+    bad = await svc.routine_view(unreadable, RoutineRunRepository(repo.conn), ZONE)
     assert bad["schedule_text"] is None
-    assert view["target"]["kind"] == "new" and view["running"] is False
+    assert "target" not in view and view["running"] is False
     limits = svc.limits_view()
     assert limits["active_max"] == ROUTINES_ACTIVE_MAX and limits["open_max"] == 200
     assert "routines_per_agent" not in limits
@@ -429,11 +413,7 @@ async def approve(conn, pid, override=False, agent="ag", now=NOW):
 
 async def test_agent_create_applied(aenv, stub):
     conn, repo, props, _ = aenv
-    res = await change(
-        conn,
-        "create",
-        body(schedule={"kind": "once", "in": {"amount": 2, "unit": "hours"}}),
-    )
+    res = await change(conn, "create", body(schedule=once_in(2, "hours")))
     assert res.pending is False and res.routine.created_by == "agent"
     assert res.routine.untrusted is False
     [p] = await props.list("ag")
@@ -442,7 +422,7 @@ async def test_agent_create_applied(aenv, stub):
     assert p.payload["schedule"] == res.routine.schedule
     assert p.payload["schedule"]["start"] == {"date": "2026-10-10", "time": "17:46"}
     assert p.payload["anchor_at"] == res.routine.anchor_at == "2026-10-11T00:46:00+00:00"
-    assert p.payload["target"] == {"kind": "new"} and p.session_id == "s1"
+    assert "target" not in p.payload and p.session_id == "s1"
     assert stub.pokes == 1
 
 
@@ -472,9 +452,7 @@ async def test_agent_delete_applied(aenv, stub):
 
 async def test_agent_change_failure_leaves_no_partial_row(aenv):
     conn, repo, props, _ = aenv
-    r = await repo.create(
-        "ag", {**{"name": "x", "prompt": "p", "schedule": DAILY}, "target_kind": "new"}
-    )
+    r = await repo.create("ag", {"name": "x", "prompt": "p", "schedule": DAILY})
 
     class Boom:
         proposal_id = None
@@ -485,7 +463,6 @@ async def test_agent_change_failure_leaves_no_partial_row(aenv):
     with pytest.raises(RuntimeError):
         await svc.create_routine(
             repo,
-            ChatSessionRepository(conn),
             "ag",
             body("Y"),
             now=NOW,
@@ -564,22 +541,21 @@ async def test_caps_never_block_lowering_edits(aenv):
             {
                 "name": f"op{i}",
                 "prompt": "p",
-                "schedule": {"kind": "interval", "hours": 1},
-                "target_kind": "new",
+                "schedule": every_hours(1),
             },
         )
         ids.append(r.id)
     for i in range(3):
         await conn.execute(
-            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
-            "created_by, created_at, updated_at) VALUES (?, 'ag', ?, 'p', '{}', 'new', "
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, "
+            "created_by, created_at, updated_at) VALUES (?, 'ag', ?, 'p', '{}', "
             "'operator', 't', 't')",
             (f"seed{i}", f"seed{i}"),
         )
     await conn.commit()
     await change(conn, "update", {"routine": ids[0], "name": "renamed"})
     await change(conn, "update", {"routine": ids[1], "prompt": "edited"})
-    await change(conn, "update", {"routine": ids[2], "schedule": {"kind": "interval", "hours": 6}})
+    await change(conn, "update", {"routine": ids[2], "schedule": every_hours(6)})
     await change(conn, "update", {"routine": ids[3], "enabled": False})
     with pytest.raises(RoutineLimitError):
         await change(conn, "create", body("one more"))
@@ -587,16 +563,15 @@ async def test_caps_never_block_lowering_edits(aenv):
 
 async def test_once_minimum_ahead_for_agent_only(aenv):
     conn, repo, _props, _ = aenv
-    soon = {"kind": "once", "in": {"amount": 1, "unit": "minutes"}}
-    # exactly one minute is allowed ("at least a minute"); under a minute is not
-    sub = {"kind": "once", "at": (NOW + timedelta(seconds=30)).isoformat()}
+    soon = once_in(1, "minutes")
+    # a minute away is allowed ("at least a minute"); under a minute is not (15:46 PDT is 48 s on)
+    sub = once_at("2026-10-10", "15:46")
     with pytest.raises(RoutineFieldError, match="at least a minute away"):
         await change(conn, "create", body(schedule=sub))
     await change(conn, "create", body("Ok", schedule=soon))
     # the operator path accepts it
     await svc.create_routine(
-        repo, ChatSessionRepository(conn), "ag", body("Op", schedule=sub), now=NOW,
-        zone=zone_loader(),
+        repo, "ag", body("Op", schedule=sub), now=NOW, zone=zone_loader()
     )  # fmt: skip
 
 
@@ -679,9 +654,7 @@ async def test_approve_gone(aenv):
         await approve(conn, pid)
     assert (await props.get(pid)).status == "superseded"
     # a gone delete is a no-op that supersedes and returns
-    r2 = await repo.create(
-        "ag", {"name": "Second", "prompt": "p", "schedule": CANON_DAILY, "target_kind": "new"}
-    )
+    r2 = await repo.create("ag", {"name": "Second", "prompt": "p", "schedule": CANON_DAILY})
     pid2 = await pend(aenv, "delete", {"routine": r2.id})
     await conn.execute("DELETE FROM agent_routines WHERE id = ?", (r2.id,))
     await conn.commit()
@@ -691,9 +664,7 @@ async def test_approve_gone(aenv):
 
 async def test_approve_past_at_stays_pending(aenv):
     conn, _repo, props, _ = aenv
-    pid = await pend(
-        aenv, "create", body(schedule={"kind": "once", "in": {"amount": 2, "unit": "hours"}})
-    )
+    pid = await pend(aenv, "create", body(schedule=once_in(2, "hours")))
     with pytest.raises(RoutineFieldError) as ei:
         await approve(conn, pid, now=NOW + timedelta(hours=3))
     assert (ei.value.field, ei.value.message) == ("schedule", "This schedule has no runs left.")
@@ -702,15 +673,11 @@ async def test_approve_past_at_stays_pending(aenv):
 
 async def test_approve_no_runs_left_wins_over_a_stale_conflict(aenv):
     conn, repo, props, _ = aenv
-    r = (
-        await change(
-            conn, "create", body(schedule={"kind": "once", "in": {"amount": 2, "unit": "hours"}})
-        )
-    ).routine
+    r = (await change(conn, "create", body(schedule=once_in(2, "hours")))).routine
     pid = await pend(
         aenv,
         "update",
-        {"routine": r.id, "schedule": {"kind": "once", "in": {"amount": 5, "unit": "hours"}}},
+        {"routine": r.id, "schedule": once_in(5, "hours")},
     )
     await repo.update("ag", r.id, {"prompt": "operator edit"})
     await repo.update("ag", r.id, {"anchor_at": (NOW + timedelta(hours=1)).isoformat()})
@@ -722,21 +689,19 @@ async def test_approve_no_runs_left_wins_over_a_stale_conflict(aenv):
 
 async def test_approve_applies_the_proposed_pair_verbatim(aenv):
     conn, repo, props, _ = aenv
-    pid = await pend(aenv, "create", body(schedule={"kind": "interval", "hours": 3}))
+    pid = await pend(aenv, "create", body(schedule=every_hours(3)))
     payload = (await props.get(pid)).payload
-    assert payload["anchor_at"] == (NOW + timedelta(hours=3)).isoformat()
+    assert payload["anchor_at"] == in_hours(NOW, 3)
     # Approved much later: the grid still starts where the proposal fixed it (not at approval).
     await approve(conn, pid, now=NOW + timedelta(hours=4))
     [got] = await repo.list_for_agent("ag")
     assert got.anchor_at == payload["anchor_at"] and got.schedule == payload["schedule"]
-    assert got.next_run_at == (NOW + timedelta(hours=6)).isoformat()
+    assert got.next_run_at == in_hours(NOW, 6)
 
 
 async def test_approve_rerenders_start_in_the_current_zone(aenv):
     conn, repo, props, _ = aenv
-    pid = await pend(
-        aenv, "create", body(schedule={"kind": "once", "in": {"amount": 2, "unit": "hours"}})
-    )
+    pid = await pend(aenv, "create", body(schedule=once_in(2, "hours")))
     payload = (await props.get(pid)).payload
     assert payload["schedule"]["start"] == {"date": "2026-10-10", "time": "17:46"}  # Los Angeles
     tokyo = ZoneInfo("Asia/Tokyo")
@@ -752,7 +717,7 @@ async def test_approve_rerenders_start_in_the_current_zone(aenv):
 
 async def test_schedule_stale_check_includes_the_anchor(aenv):
     conn, repo, props, _ = aenv
-    r = (await change(conn, "create", body(schedule={"kind": "interval", "hours": 2}))).routine
+    r = (await change(conn, "create", body(schedule=every_hours(2)))).routine
     pid = await pend(aenv, "update", {"routine": r.id, "schedule": DAILY})
     # The operator re-anchors the same recurrence: only anchor_at differs.
     await repo.update("ag", r.id, {"anchor_at": (NOW + timedelta(hours=1)).isoformat()})
@@ -765,17 +730,13 @@ async def test_schedule_stale_check_includes_the_anchor(aenv):
 async def test_approve_name_taken_and_caps_recheck(aenv):
     conn, repo, props, _ = aenv
     pid = await pend(aenv, "create", body("Dup"))
-    await repo.create(
-        "ag", {"name": "dup", "prompt": "p", "schedule": CANON_DAILY, "target_kind": "new"}
-    )
+    await repo.create("ag", {"name": "dup", "prompt": "p", "schedule": CANON_DAILY})
     with pytest.raises(RoutineNameTaken):
         await approve(conn, pid)
     assert (await props.get(pid)).status == "pending"
     pid2 = await pend(aenv, "create", body("Late"))
     for i in range(ROUTINES_ACTIVE_MAX - 1):  # plus the existing 'dup' makes 50
-        await repo.create(
-            "ag", {"name": f"f{i}", "prompt": "p", "schedule": CANON_DAILY, "target_kind": "new"}
-        )
+        await repo.create("ag", {"name": f"f{i}", "prompt": "p", "schedule": CANON_DAILY})
     with pytest.raises(RoutineLimitError):
         await approve(conn, pid2)
     assert (await props.get(pid2)).status == "pending"
@@ -818,3 +779,66 @@ async def test_operator_delete_supersedes_pending_via_service(aenv):
     pid = await pend(aenv, "update", {"routine": r.id, "prompt": "x"})
     await svc.delete_routine(repo, "ag", r.id)
     assert (await props.get(pid)).status == "superseded"
+
+
+# ── "Immediately" (M33 F4 L4): the operator's now-start ─────────────────────
+def _now_schedule(repeat, ends=None):
+    return {"start": {"now": True}, "repeat": repeat, "ends": ends or {"kind": "never"}}
+
+
+async def test_now_start_repeating_is_due_at_the_save_instant(env):
+    daily = await make(env, schedule=_now_schedule({"every": 1, "unit": "day"}))
+    # The grid starts at the save minute (15:45 PDT), the first run is the exact instant.
+    assert daily.schedule["start"] == {"date": "2026-10-10", "time": "15:45"}
+    assert daily.next_run_at == NOW.isoformat() and daily.anchor_at is None
+    hourly = await make(env, name="h", schedule=_now_schedule({"every": 2, "unit": "hour"}))
+    assert hourly.anchor_at == NOW.replace(second=0).isoformat()
+    assert hourly.next_run_at == NOW.isoformat()
+
+
+async def test_now_start_one_off_is_due_now_and_keeps_the_save_minute(env):
+    r = await make(env, schedule=_now_schedule(None))
+    assert r.schedule["repeat"] is None
+    assert r.schedule["start"] == {"date": "2026-10-10", "time": "15:45"}
+    assert r.next_run_at == NOW.isoformat()
+
+
+async def test_now_start_with_an_ended_rule_and_twice(env):
+    # Saturday the save day; a Monday-only rule that ends today has no run left.
+    past = _now_schedule(
+        {"every": 1, "unit": "week", "days": [0]}, {"kind": "on", "date": "2026-10-10"}
+    )
+    with pytest.raises(RoutineFieldError, match="no runs left"):
+        await make(env, schedule=past)
+    a = await make(env, name="a", schedule=_now_schedule(None))
+    b = await make(env, name="b", schedule=_now_schedule(None))
+    assert a.next_run_at == b.next_run_at == NOW.isoformat() and a.id != b.id
+
+
+async def test_now_start_on_update_reruns_done_and_not_disabled(env):
+    r = await make(env, schedule=_now_schedule(None))
+    done = await env.update("ag", r.id, {"finished_at": NOW.isoformat(), "next_run_at": None})
+    later = NOW + timedelta(hours=1)
+    out = await upd(env, done, {"schedule": _now_schedule(None)}, now=later)
+    assert out.finished_at is None and out.next_run_at == later.isoformat()
+    off = await make(env, name="off", enabled=False, schedule=DAILY)
+    out = await upd(env, off, {"schedule": _now_schedule({"every": 1, "unit": "day"})})
+    assert out.enabled is False and out.next_run_at is None
+    assert out.schedule["start"] == {"date": "2026-10-10", "time": "15:45"}
+
+
+async def test_the_agent_path_refuses_a_now_start(aenv):
+    conn, repo, props, _ = aenv
+    for action, data in (
+        ("create", body(schedule={"start": {"now": True}})),
+        ("update", None),
+    ):
+        if action == "update":
+            made = await change(conn, "create", body("target"))
+            data = {"routine": made.routine.id, "schedule": {"start": {"now": True}}}
+        with pytest.raises(
+            RoutineFieldError, match="The schedule needs a start with a date and a time."
+        ):
+            await change(conn, action, data)
+    # Only the setup create left rows: the refusals wrote nothing.
+    assert len(await repo.list_for_agent("ag")) == 1 and len(await props.list("ag")) == 1

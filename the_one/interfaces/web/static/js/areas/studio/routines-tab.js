@@ -1,7 +1,10 @@
-// App.studio.renderRoutinesTab -- the agent editor's "Routines" tab (M33 F1 L8, flight DD12).
-// Lists the agent's routines (schedule, target, next run, last outcome) with a per-row switch,
-// Run now, Delete and a History disclosure. Built with DOM APIs on the control library; every
-// string from the server (names, titles, reasons) is written with textContent only.
+// App.studio.renderRoutinesTab -- the agent editor's "Routines" tab (M33 F1 L8, flight DD12;
+// the list is cards of M33 F4, built as the Tools tab's). Lists the agent's routines as
+// App.ui.groupTile cards: the enable switch, name, flag and an actions menu (Run now, Edit,
+// Delete) on top, the schedule and the next and last runs under it, and a "Details" expander
+// at the bottom (the prompt and the recent runs, routines-row-details.js).
+// Built with DOM APIs on the control library; every string from the server (names, titles,
+// reasons) is written with textContent only.
 //
 // Save model (as the Rules tab): every action saves at once through the REST API, then
 // refetches. Nothing here joins General's dirty state or App.nav.
@@ -36,10 +39,14 @@
   var el = shared.el;
   var messageOf = shared.messageOf;
   var describe = window.App.studio.routinesDescribe;
+  var rowDetails = window.App.studio.routinesRowDetails;
 
   var POLL_MS = 3000;
-  var HISTORY_PAGE = 20;
   var DEFAULT_RUN_TIMEOUT_S = 900;
+  // The actions menu's items, by index (the menu's setItemDisabled addresses them).
+  var ITEM_RUN = 0;
+  var ITEM_EDIT = 1;
+  var ITEM_DELETE = 2;
 
   function noop() {}
   var INERT = { setAgent: noop, activate: noop, deactivate: noop, destroy: noop };
@@ -70,17 +77,15 @@
     });
     panel.appendChild(section.el);
 
-    var intro = el('p', 'routines-intro',
-      'A routine sends a prompt to this agent on a schedule, even while you are away.');
-    section.el.appendChild(intro);
-
-    var toolbar = el('div', 'routines-toolbar');
+    var head = el('div', 'routines-head');
+    head.appendChild(el('p', 'routines-intro',
+      'A routine sends a prompt to this agent on a schedule. Each run starts a new chat.'));
     var newBtn = App.ui.button({
       variant: 'primary', label: 'New routine', testid: 'routines-new-btn',
       onClick: function () { openForm('create', null, newBtn); }
     });
-    toolbar.appendChild(newBtn);
-    section.el.appendChild(toolbar);
+    head.appendChild(newBtn);
+    section.el.appendChild(head);
 
     var errorLine = shared.buildErrorLine();
     errorLine.el.setAttribute('data-testid', 'routines-error');
@@ -96,11 +101,14 @@
 
     var listWrap = el('div', 'routines-list-wrap');
     section.el.appendChild(listWrap);
-    var listEl = el('ul', 'routines-list');
+    // The routine cards, one App.ui.groupTile each. Nothing clips the list (no overflow rule),
+    // so a card's open actions menu is never cut off at the last card.
+    var listEl = el('div', 'routines-list');
     listEl.setAttribute('role', 'list');
     listEl.setAttribute('aria-label', 'Routines');
+    listEl.hidden = true;
     var emptyEl = null;
-    var loadingEl = el('p', 'routines-loading', 'Loading\u2026');
+    var loadingEl = el('p', 'routines-loading', 'Loading…');
     listWrap.appendChild(loadingEl);
 
     var views = {};          // id -> row view
@@ -122,107 +130,149 @@
       if (p && p.close) p.close();
     }
 
+    // New routine keeps its form at the top of the list. Edit swaps that routine's card for
+    // the form in the card's own slot (the card is hidden, so its menu is unreachable); Save
+    // and Cancel bring the card back in place. One form at a time: opening another (New or
+    // Edit) while one is open focuses the open one and changes nothing.
     function openForm(mode, routine, opener) {
       if (typeof cb.openRoutineForm !== 'function') return;
-      if (formPromise && formPromise.focus && formHost.firstChild) { formPromise.focus(); return; }
+      if (formPromise && formPromise.focus) { formPromise.focus(); return; }
+      var editing = mode === 'edit' && routine && views[routine.id] ? views[routine.id] : null;
+      var host = editing ? editing.editHost : formHost;
+      if (editing) editing.tile.el.hidden = true;
       var result = cb.openRoutineForm({
-        mode: mode, routine: routine, opener: opener, agent: name, panelHost: formHost,
+        mode: mode, routine: routine, opener: opener, agent: name, panelHost: host,
         limits: limits, callbacks: { createRoutine: cb.createRoutine, updateRoutine: cb.updateRoutine }
       });
       formPromise = result;
       Promise.resolve(result).then(function (saved) {
         if (formPromise === result) formPromise = null;
+        if (editing) {
+          editing.tile.el.hidden = false;
+          // Cancel: the form gave focus back to a control that was hidden at that moment.
+          if (active && !destroyed && (!document.activeElement || document.activeElement === document.body)) {
+            editing.menu.trigger.focus();
+          }
+        }
         if (destroyed || saved === false || saved === null || saved === undefined) return;
         var savedId = saved && saved.id ? saved.id : (routine ? routine.id : null);
         return load().then(function () {
           var v = savedId && views[savedId];
-          if (v) v.edit.focus();
+          if (v) v.menu.trigger.focus();
         });
       }).catch(noop);
     }
 
     // ── Rows ──────────────────────────────────────────────────────────
+    // A routine is one App.ui.groupTile card, as the Tools tab's categories: the enable switch,
+    // the name (and the "Made by the agent" chip), the flag and the "⋯" menu on the title row;
+    // the schedule and the next and last runs under it; the "Details" expander at the bottom,
+    // whose body is the prompt and the recent runs.
     function buildView(r) {
-      var v = { id: r.id, row: r, busy: false, starting: false, histLoaded: false, histCursor: null };
-      var li = el('li', 'routine-row');
-      li.setAttribute('data-testid', 'routine-row');
-      li.setAttribute('data-routine-id', r.id);
-      v.el = li;
+      var v = { id: r.id, row: r, busy: false, starting: false };
 
-      var head = el('div', 'routine-head');
-      v.nameEl = el('span', 'routine-name');
-      v.nameEl.setAttribute('data-testid', 'routine-name');
-      head.appendChild(v.nameEl);
+      v.details = rowDetails.create({
+        fetchRuns: function (opts) { return cb.fetchRoutineRuns(name, v.id, opts); }
+      });
+
       // The flag slot (M33 F2 L5): holds an App.ui.noteFlag while the routine is flagged.
       v.flagSlot = el('span', 'routine-flag-slot');
-      head.appendChild(v.flagSlot);
-      v.toggle = App.ui.toggle({
-        label: 'Run on schedule', labelHidden: true, checked: !!r.enabled, testid: 'routine-toggle',
-        onChange: function (checked) { onToggle(v, checked); }
-      });
-      v.toggle.control.setAttribute('data-routine-id', r.id);
-      head.appendChild(v.toggle.el);
-      li.appendChild(head);
 
-      var info = el('div', 'routine-info');
-      v.originEl = el('p', 'routine-line routine-origin', 'Made by the agent');
-      v.originEl.setAttribute('data-testid', 'routine-origin');
-      v.scheduleEl = el('p', 'routine-line routine-schedule');
+      var sub = el('div', 'routine-sub');
+      v.scheduleEl = el('p', 'routine-schedule');
       v.scheduleEl.setAttribute('data-testid', 'routine-schedule');
-      v.targetEl = el('p', 'routine-line routine-target');
-      v.targetEl.setAttribute('data-testid', 'routine-target');
-      v.nextEl = el('p', 'routine-line routine-next');
+      sub.appendChild(v.scheduleEl);
+      var times = el('p', 'routine-times');
+      times.appendChild(document.createTextNode('Next run: '));
+      v.nextEl = el('span', 'routine-next');
       v.nextEl.setAttribute('data-testid', 'routine-next');
+      times.appendChild(v.nextEl);
+      var dot = el('span', 'routine-times-dot', '·');
+      dot.setAttribute('aria-hidden', 'true');
+      times.appendChild(dot);
+      times.appendChild(document.createTextNode('Last run: '));
       v.last = App.ui.status({ state: 'idle', live: 'off', testid: 'routine-last' });
-      v.last.el.classList.add('routine-line', 'routine-last');
-      v.hint = el('p', 'routine-line routine-hint', 'Set a new time to run it again.');
-      v.hint.setAttribute('data-testid', 'routine-done-hint');
-      info.appendChild(v.originEl);
-      info.appendChild(v.scheduleEl);
-      info.appendChild(v.targetEl);
-      info.appendChild(v.nextEl);
-      info.appendChild(v.last.el);
-      info.appendChild(v.hint);
-      li.appendChild(info);
+      v.last.el.classList.add('routine-last');
+      times.appendChild(v.last.el);
+      sub.appendChild(times);
+
+      v.menu = App.ui.menu({
+        trigger: {
+          variant: 'ghost', size: 'sm', iconOnly: true, icon: 'more', ariaLabel: 'Actions',
+          testid: 'routine-actions'
+        },
+        align: 'end', testid: 'routine-menu',
+        items: [
+          { label: 'Run now', icon: 'play', testid: 'routine-run-now', onSelect: function () { onRunNow(v); } },
+          { label: 'Edit', icon: 'edit', testid: 'routine-edit',
+            onSelect: function () { openForm('edit', v.row, v.menu.trigger); } },
+          { label: 'Delete', icon: 'trash', danger: true, testid: 'routine-delete',
+            onSelect: function () { askDelete(v); } }
+        ]
+      });
+      v.tile = App.ui.groupTile({
+        name: r.name || '',
+        testid: 'routine-row',
+        dataset: { routineId: r.id },
+        master: {
+          label: 'Enable ' + (r.name || ''), tristate: false, state: r.enabled ? 'on' : 'off',
+          testid: 'routine-toggle', dataset: { routineId: r.id },
+          onChange: function (checked) { onToggle(v, checked); }
+        },
+        actions: [v.flagSlot, v.menu.el],
+        subtitle: sub,
+        toolLabel: 'Details',
+        expandLabel: function () { return 'Details for ' + (v.row.name || 'routine'); },
+        expandTestid: 'routine-details-toggle',
+        bodyTestid: 'routine-details',
+        onExpand: function (open) { v.details.setOpen(open); }
+      });
+      // The list item holds the card and, while it is edited, the form in its place.
+      v.el = el('div', 'routine-item');
+      v.el.setAttribute('role', 'listitem');
+      v.editHost = el('div', 'routine-edit-host');
+      v.el.appendChild(v.tile.el);
+      v.el.appendChild(v.editHost);
+      v.nameEl = v.tile.nameEl;
+      v.nameEl.setAttribute('data-testid', 'routine-name');
+      // The master's switch, for the paint-time state the tile has no setter for.
+      v.toggleInput = v.tile.toggle.control;
+      v.expandBtn = v.tile.expandBtn;
+      v.tile.body.id = App.ui.util.uid('routine-details');
+      v.expandBtn.setAttribute('aria-controls', v.tile.body.id);
+      v.originEl = App.ui.chip({ label: 'Made by the agent', size: 'sm', testid: 'routine-origin' });
+      v.nameEl.parentNode.insertBefore(v.originEl, v.nameEl.nextSibling);
+      v.tile.body.appendChild(v.details.el);
 
       v.errorLine = shared.buildErrorLine();
       v.errorLine.el.setAttribute('data-testid', 'routine-error');
-      li.appendChild(v.errorLine.el);
-
-      var actions = el('div', 'routine-actions');
-      v.runBtn = App.ui.button({
-        variant: 'secondary', size: 'sm', label: 'Run now', testid: 'routine-run-now',
-        onClick: function () { onRunNow(v); }
-      });
-      v.edit = App.ui.button({
-        variant: 'ghost', size: 'sm', label: 'Edit', testid: 'routine-edit',
-        onClick: function () { openForm('edit', v.row, v.edit); }
-      });
-      v.del = shared.buildDeleteButton({
-        ariaLabel: 'Delete routine',
-        onConfirm: function (revert) { onDelete(v, revert); }
-      });
-      v.del.setAttribute('data-testid', 'routine-delete');
-      actions.appendChild(v.runBtn);
-      actions.appendChild(v.edit);
-      actions.appendChild(v.del);
-      li.appendChild(actions);
-
-      buildHistory(v);
-      li.appendChild(v.history.el);
+      v.errorLine.el.classList.add('routine-row-error');
+      v.tile.el.insertBefore(v.errorLine.el, v.expandBtn);
       return v;
     }
 
-    // Patch a row's text and control states from `v.row` (no rebuild, so focus, an armed
-    // Delete and an open History survive a refresh).
+    // Patch a row's text and control states from `v.row` (no rebuild, so focus, an open
+    // menu and an open details region survive a refresh).
     function paint(v) {
       var r = v.row;
-      v.nameEl.textContent = r.name || '';
-      v.toggle.control.setAttribute('aria-label', 'Run ' + (r.name || '') + ' on schedule');
-      v.toggle.setChecked(!!r.enabled);
+      var rname = r.name || '';
+      v.nameEl.textContent = rname;
+      v.toggleInput.setAttribute('aria-label', 'Enable ' + rname);
       var done = !!r.finished_at;
-      v.toggle.setDisabled(v.busy || done);
-      v.hint.hidden = !done;
+      // A Done routine cannot run: its switch stays, disabled and off, with the reason.
+      v.tile.setMaster(r.enabled && !done ? 'on' : 'off');
+      v.tile.setToolCount('Details');   // re-applies the expand button's "Details for {name}"
+      v.tile.toggle.setDisabled(v.busy || done);
+      if (done) {
+        if (!v.doneNote) {
+          v.doneNote = el('span', 'visually-hidden', 'Done: edit the schedule to run it again.');
+          v.doneNote.id = App.ui.util.uid('routine-done');
+          v.el.appendChild(v.doneNote);
+        }
+        v.toggleInput.setAttribute('aria-describedby', v.doneNote.id);
+      } else {
+        v.toggleInput.removeAttribute('aria-describedby');
+      }
       v.originEl.hidden = r.created_by !== 'agent';
       var flagSig = r.untrusted ? JSON.stringify(r.untrusted_sources || []) : '';
       if (v.flagSig !== flagSig) {
@@ -235,24 +285,16 @@
         }
       }
       v.scheduleEl.textContent = r.schedule_text || '';
-      v.targetEl.textContent = describe.describeTarget(r.target);
       v.nextEl.textContent = describe.describeNext(r);
+      v.nextEl.title = done ? 'Edit the schedule to run it again.' : '';
       var st = describe.outcomeStatus(r.last_run, r.running);
-      v.last.set(st.state, st.label);
-      var runWasFocused = document.activeElement === v.runBtn;
-      v.runBtn.disabled = v.busy || v.starting || !!r.running;
-      // A disabled button drops focus to the body; keep it in the row instead.
-      if (runWasFocused && v.runBtn.disabled) v.toggle.control.focus();
-      v.edit.disabled = v.busy;
-      v.del.disabled = v.busy;
-      // The Delete label follows a rename (leg 9); App.ui.confirm owns it while armed.
-      if (v.delLabelFor !== r.name) {
-        v.delLabelFor = r.name;
-        v.del.setAttribute('aria-label', 'Delete routine ' + (r.name || ''));
-      }
-      v.runBtn.setAttribute('aria-label', 'Run ' + (r.name || '') + ' now');
-      v.edit.setAttribute('aria-label', 'Edit ' + (r.name || ''));
-      v.history.summary.setAttribute('aria-label', 'History for ' + (r.name || ''));
+      v.last.set(st.state, st.label);   // the stored reason is in the details' run list
+      v.menu.trigger.setAttribute('aria-label', 'Actions for ' + rname);
+      v.menu.popup.setAttribute('aria-label', 'Actions for ' + rname);
+      v.menu.setItemDisabled(ITEM_RUN, v.busy || v.starting || !!r.running || done);
+      v.menu.setItemDisabled(ITEM_EDIT, v.busy);
+      v.menu.setItemDisabled(ITEM_DELETE, v.busy);
+      v.details.update(r);
     }
 
     function setRowError(v, msg) { v.errorLine.show(msg); }
@@ -272,7 +314,7 @@
         return load().then(noop, noop);
       }).then(function () {
         var live = views[v.id];
-        if (live) { paint(live); live.toggle.control.focus(); }
+        if (live) { paint(live); live.toggleInput.focus(); }
       });
     }
 
@@ -301,7 +343,17 @@
       });
     }
 
-    function onDelete(v, revert) {
+    // Delete asks first; Cancel or Escape returns focus to the row's actions button.
+    function askDelete(v) {
+      App.confirmDialog({
+        title: 'Delete ' + (v.row.name || 'this routine') + '?',
+        message: 'Its run history goes with it. The chats its runs started stay.',
+        confirmText: 'Delete', cancelText: 'Cancel', danger: true, opener: v.menu.trigger,
+        onConfirm: function () { onDelete(v); }
+      });
+    }
+
+    function onDelete(v) {
       if (v.busy) return;
       setRowError(v, '');
       var idx = data.findIndex(function (x) { return x.id === v.id; });
@@ -314,96 +366,25 @@
         delete pending[v.id];
         return load().then(noop, noop).then(function () {
           var nv = neighbour && views[neighbour.id];
-          if (nv) nv.toggle.control.focus();
+          if (nv) nv.expandBtn.focus();
           else if (!newBtn.hidden) newBtn.focus();
         });
       }, function (err) {
-        revert();
         v.busy = false;
         setRowError(v, messageOf(err));
+        paint(v);
         return load().then(noop, noop);
       });
-    }
-
-    // ── History ───────────────────────────────────────────────────────
-    function buildHistory(v) {
-      v.history = App.ui.disclosure({
-        variant: 'plain', summary: 'History', testid: 'routine-history',
-        onFirstOpen: function () { loadHistory(v, false); }
-      });
-      v.runsList = el('ul', 'routine-runs');
-      v.runsList.setAttribute('role', 'list');
-      v.runsList.setAttribute('aria-label', 'Run history');
-      v.runsList.setAttribute('data-testid', 'routine-history-list');
-      v.histEmpty = el('p', 'routine-line', 'No runs yet.');
-      v.histEmpty.setAttribute('data-testid', 'routine-history-empty');
-      v.histEmpty.hidden = true;
-      v.histError = shared.buildErrorLine();
-      v.moreBtn = App.ui.button({
-        variant: 'ghost', size: 'sm', label: 'Show older', testid: 'routine-history-more',
-        onClick: function () { loadHistory(v, true); }
-      });
-      v.moreBtn.hidden = true;
-      v.history.body.appendChild(v.histError.el);
-      v.history.body.appendChild(v.histEmpty);
-      v.history.body.appendChild(v.runsList);
-      v.history.body.appendChild(v.moreBtn);
-    }
-
-    function runEntry(run) {
-      var li = el('li', 'routine-run');
-      li.setAttribute('data-testid', 'routine-run');
-      var st = describe.outcomeStatus(run, false);
-      var status = App.ui.status({ state: st.state, text: st.label, live: 'off' });
-      status.el.classList.add('routine-run-outcome');
-      li.appendChild(status.el);
-      var bits = [];
-      var trig = describe.describeTrigger(run.trigger_kind);
-      if (trig) bits.push(trig);
-      var at = run.started_at || run.due_at;
-      if (at) bits.push(App.time.formatDateTime(at));
-      if (run.new_chat) bits.push('New chat');
-      var meta = el('p', 'routine-run-meta', bits.join(' · '));
-      li.appendChild(meta);
-      return li;
-    }
-
-    // First page replaces the list; "Show older" appends the next page.
-    function loadHistory(v, older) {
-      var mine = older ? v.histGen : (v.histGen = (v.histGen || 0) + 1);
-      var before = older ? v.histCursor : null;
-      v.histError.show('');
-      v.moreBtn.disabled = true;
-      return Promise.resolve().then(function () {
-        return cb.fetchRoutineRuns(name, v.id, { limit: HISTORY_PAGE, before: before });
-      }).then(function (body) {
-        if (destroyed || mine !== v.histGen || !views[v.id]) return;
-        var runs = (body && body.runs) || [];
-        if (!older) v.runsList.textContent = '';
-        runs.forEach(function (run) { v.runsList.appendChild(runEntry(run)); });
-        v.histLoaded = true;
-        var last = runs.length ? runs[runs.length - 1] : null;
-        v.histCursor = last ? last.started_at : v.histCursor;
-        v.moreBtn.hidden = !(runs.length >= HISTORY_PAGE && last && last.started_at);
-        v.histEmpty.hidden = v.runsList.children.length > 0;
-      }, function (err) {
-        if (!destroyed) v.histError.show('Couldn’t load the history: ' + messageOf(err));
-      }).then(function () { v.moreBtn.disabled = false; });
     }
 
     // ── The list ──────────────────────────────────────────────────────
     function renderEmpty() {
       var none = data.length === 0 && loaded;
       if (none && !emptyEl) {
-        var add = App.ui.button({
-          variant: 'secondary', label: 'New routine', testid: 'routines-empty-new-btn',
-          onClick: function () { openForm('create', null, add); }
-        });
         emptyEl = App.ui.emptyState({
           title: 'No routines yet.', titleTag: 'p', variant: 'flush',
-          testid: 'routines-empty', action: add
+          testid: 'routines-empty'
         });
-        emptyEl._add = add;
         listWrap.insertBefore(emptyEl, listWrap.firstChild);
       } else if (!none && emptyEl) {
         listWrap.removeChild(emptyEl);
@@ -425,22 +406,25 @@
       rows.forEach(function (r) {
         seen[r.id] = true;
         var v = views[r.id];
-        var prevSig = v ? runSig(v.row.last_run) : null;
         if (!v) {
           v = views[r.id] = buildView(r);
         }
         v.row = r;
         paint(v);
-        var sig = runSig(r.last_run);
-        if (v.histLoaded && v.history.isOpen() && prevSig !== null && prevSig !== sig) {
-          loadHistory(v, false);
-        }
         settlePending(v);
       });
       Object.keys(views).forEach(function (id) {
         if (seen[id]) return;
-        if (views[id].el.parentNode) views[id].el.parentNode.removeChild(views[id].el);
-        views[id].history.destroy();
+        var gone = views[id];
+        // A routine removed under the operator (the agent cancelled it): focus must not fall
+        // to the body.
+        if (gone.el.contains(document.activeElement)) newBtn.focus();
+        // The agent cancelled the routine under an open edit form: the form goes with it.
+        if (formPromise && gone.editHost.firstChild) closeForm();
+        if (gone.el.parentNode) gone.el.parentNode.removeChild(gone.el);
+        gone.menu.destroy();
+        gone.tile.destroy();
+        gone.details.destroy();
         delete views[id];
         delete pending[id];
       });
@@ -518,9 +502,7 @@
     var offTime = App.time.onChange(function () {
       if (destroyed) return;
       data.forEach(function (r) { if (views[r.id]) paint(views[r.id]); });
-      Object.keys(views).forEach(function (id) {
-        if (views[id].history.isOpen() && views[id].histLoaded) loadHistory(views[id], false);
-      });
+      Object.keys(views).forEach(function (id) { views[id].details.reload(); });
     }, panel);
 
     // ── The handle ────────────────────────────────────────────────────
@@ -545,7 +527,11 @@
         gen++;
         document.removeEventListener('visibilitychange', onVisibility);
         if (offTime) offTime();
-        Object.keys(views).forEach(function (id) { views[id].history.destroy(); });
+        Object.keys(views).forEach(function (id) {
+          views[id].menu.destroy();
+          views[id].tile.destroy();
+          views[id].details.destroy();
+        });
       }
     };
   }

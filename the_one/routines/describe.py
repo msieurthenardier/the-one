@@ -1,11 +1,10 @@
-"""Plain-words descriptions of a routine's schedule, next run and target
+"""Plain-words descriptions of a routine's schedule and next run
 (Mission 33 F2 L3, DD2/DD7).
 
 The server-side twin of the browser's schedule wording, for ``list_my_routines`` and the
 routine tools' results. Times are 12-hour wall-clock in the operator's zone, through the
 ``the_one.time_zones`` formatters. These strings go into tool results the model reads, so
-they NEVER include a chat title or channel name (titles derive from conversation content):
-a target reads "this chat", "chat {id}", "a new chat each run" or "its own chat".
+they NEVER include a chat title or channel name (titles derive from conversation content).
 """
 
 from __future__ import annotations
@@ -60,22 +59,3 @@ def describe_next(next_run_at: str | None, zone: tzinfo, *, now: datetime | None
     if local.date() == today + timedelta(days=1):
         return f"tomorrow {_clock(local)}"
     return f"{_short_date(local)} at {_clock(local)}"
-
-
-def describe_target(routine_or_payload: Any, current_session_id: str | None) -> str:
-    """``this chat`` / ``chat {id}`` / ``a new chat each run`` / ``its own chat``."""
-    if isinstance(routine_or_payload, dict):
-        target = routine_or_payload.get("target", routine_or_payload)
-        kind = target.get("kind") or target.get("target_kind")
-        sid = target.get("session_id") or target.get("target_session_id")
-    else:
-        kind = getattr(routine_or_payload, "target_kind", None)
-        sid = getattr(routine_or_payload, "target_session_id", None)
-    if kind == "new":
-        return "a new chat each run"
-    if kind == "own":
-        return "its own chat"
-    if kind == "chat" and sid:
-        return "this chat" if sid == current_session_id else f"chat {sid}"
-    # An own-chat routine that has run already points at its chat; the kind still wins above.
-    return "a chat"

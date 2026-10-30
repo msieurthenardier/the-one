@@ -260,6 +260,7 @@ App.registerArea({
     });
     self._setActiveTab = controller.setActiveTab;
     self._deactivateSelfConfig = controller.deactivateSelfConfig;
+    self._activateSelfConfig = controller.activateSelfConfig;
     self._activateRoutines = controller.activateRoutines;
     self._deactivateRoutines = controller.deactivateRoutines;
 
@@ -730,6 +731,10 @@ App.registerArea({
     if (this._refresh) this._refresh();
     // The Routines tab stopped polling when the area was left; resume if it is still shown.
     if (this._activeTab === 'routines' && this._activateRoutines) this._activateRoutines();
+    // The Self-configuration queues are refetched on a return to the area too (F-E3-1).
+    if (this._activeTab === 'self-configuration' && this._activateSelfConfig) {
+      this._activateSelfConfig();
+    }
   },
   // Flight 6 leg 1 (L1-D2 site 2): app.js's mountArea calls
   // this on EVERY cross-area transition. Without it, opening a Knowledge

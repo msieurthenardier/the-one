@@ -9,7 +9,8 @@
   var ITEM_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"])';
 
   // App.ui.menu(opts) -> controller {el, trigger, popup, open(focus),
-  //   close(restoreFocus), isOpen(), destroy()}.  WAI-ARIA menu button.
+  //   close(restoreFocus), isOpen(), setItemDisabled(index, bool), destroy()}.
+  //   WAI-ARIA menu button.
   //   trigger: options for App.ui.button (iconOnly + ariaLabel allowed); its
   //     test id option lands on the trigger button.
   //   items: [{label, onSelect, icon, danger, disabled, ...}] (required, not
@@ -108,6 +109,7 @@
       item.onSelect(item);
     }
 
+    var itemNodes = [];
     items.forEach(function (item) {
       var children = [];
       if (item.icon) children.push(util.el('span', { className: 'ui-menu-item-icon' }, [util.icon(item.icon)]));
@@ -124,6 +126,7 @@
         children
       );
       if (item.testid) node.setAttribute('data-testid', item.testid);
+      itemNodes.push(node);
       node.addEventListener('click', function () {
         activate(item, node);
       });
@@ -189,6 +192,21 @@
       close: close,
       isOpen: function () {
         return isOpen;
+      },
+      // Set the disabled state of the item at `index` after construction (no rebuild, so an
+      // open menu stays open). A disabled item is skipped by arrow keys and ignores activation; if it
+      // held focus, focus moves to the first enabled item.
+      setItemDisabled: function (index, disabled) {
+        var node = itemNodes[index];
+        if (!node) throw new Error('App.ui.menu: no item at index ' + index);
+        if (disabled) node.setAttribute('aria-disabled', 'true');
+        else node.removeAttribute('aria-disabled');
+        // The item holding focus just became unreachable: move focus to the first enabled
+        // item (or the popup) so arrow keys keep working.
+        if (disabled && document.activeElement === node) {
+          var enabled = enabledItems();
+          (enabled[0] || popup).focus();
+        }
       },
       destroy: function () {
         close(false);

@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._routine_schedules import daily
 from tests._schema_template import connect_template_db
 from the_one import naming
 from the_one.db.models import MCPSource
@@ -337,8 +338,7 @@ class TestRoutineNames:
 
     _BODY = {
         "prompt": "p",
-        "schedule": {"kind": "daily", "time": "09:00"},
-        "target": {"kind": "new"},
+        "schedule": daily("09:00"),
     }
 
     async def _agent(self, client) -> None:

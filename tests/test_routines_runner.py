@@ -1,261 +1,102 @@
 """End-to-end routine runs through the real app lifespan (M33 F1 leg 4, AC2-AC10).
 
-The ``routine_app`` fixture and ``Harness`` live in ``tests/_routine_app.py``.
+Every run starts a new web chat (M33 F4 leg 2). The ``routine_app`` fixture and
+``Harness`` live in ``tests/_routine_app.py``.
 """
 
 # ruff: noqa: F811
 from __future__ import annotations
 
-import asyncio
-import time  # noqa: F401
-
 import pytest
 
-from tests._routine_app import (  # noqa: F401
-    WS,
-    Harness,
-    ScriptLLM,
-    routine_app,
-    wait_for,
-)
-from the_one.agent.config import AgentConfig  # noqa: F401
-from the_one.config import settings  # noqa: F401
+from tests._routine_app import routine_app, wait_for  # noqa: F401
 from the_one.connectors.stub import StubPlugin
 from the_one.db.connection import get_connection
 from the_one.db.repositories import ChatSessionRepository
-from the_one.llm.base import Message, ToolCall  # noqa: F401
+from the_one.llm.base import Message
 from the_one.routines import runner
-from the_one.sessions import add_subscriber, remove_subscriber
 
 pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
-# ── Run now in a connector DM ──────────────────────────────────────────────
+# ── a run starts a new chat ────────────────────────────────────────────────
 
 
-async def test_run_now_in_connector_dm(routine_app):
+async def test_run_now_starts_a_new_chat(routine_app):
     h = routine_app
-    sid = await h.dm("hello")
-    r = await h.routine({"kind": "chat", "session_id": sid})
-    StubPlugin.outbound_records.clear()
-    ws = WS()
-    add_subscriber(sid, ws)
+    r = await h.routine()
     h.llm.script = [Message.assistant(content="the brief")]
     await h.run_now(r["id"])
-    remove_subscriber(sid, ws)
 
     run = await h.last_run(r["id"])
     assert run["outcome"] == "ok", run
-    assert run["trigger_kind"] == "manual" and run["new_chat"] is False
-    assert run["session_id"] == sid
-
-    # exactly the final reply, to the chat's own target; the prompt is never sent
-    assert len(StubPlugin.outbound_records) == 1
-    target, content = StubPlugin.outbound_records[0]
-    assert content == "the brief"
-    assert target.connector_id == h.connector_id and target.channel_id == ""
-    assert "do the thing" not in content
+    assert run["trigger_kind"] == "manual"
+    assert run["chat_exists"] is True
+    sid = run["session_id"]
 
     from the_one.db.codec import decode_messages
     from the_one.llm.base import Role
 
     row = await ChatSessionRepository(await get_connection()).get(sid)
+    assert row.title == "Brief" and row.agent_name == "bot" and row.platform is None
     msgs = decode_messages(row.messages)
     user = [m for m in msgs if m.role == Role.USER and m.content == "do the thing"]
-    assert len(user) == 1
-    assert user[0].routine_name == "Brief" and user[0].visibility == "operator"
-    replies = [m for m in msgs if m.role == Role.ASSISTANT and m.content == "the brief"]
-    assert len(replies) == 1 and replies[0].visibility is None
+    assert len(user) == 1 and user[0].routine_name == "Brief"
+    assert [m.content for m in msgs if m.role == Role.ASSISTANT] == ["the brief"]
     assert row.session_metadata["routine"]["name"] == "Brief"
-
-    updated = [f for f in ws.frames if f.get("type") == "session_updated"]
-    assert updated and updated[0]["session_id"] == sid
-    types = [f.get("type") for f in ws.frames]
-    assert types.index("session_updated") > types.index("done")
     # the route never touched the schedule
     got = (await h.api("GET", f"/api/agents/bot/routines/{r['id']}")).json()
     assert got["next_run_at"] == r["next_run_at"] and got["finished_at"] is None
     assert got["running"] is False
+    assert "target" not in got and "target" not in r
 
 
-async def test_already_sent_has_no_second_send(routine_app):
+async def test_each_trigger_starts_a_separate_chat(routine_app):
+    """AC2: a scheduled run, a Run now and a catch-up run use three distinct chats."""
     h = routine_app
-    sid = await h.dm("hello", channel="dm-1")
-    r = await h.routine({"kind": "chat", "session_id": sid})
-    StubPlugin.outbound_records.clear()
-    before = (await ChatSessionRepository(await get_connection()).get(sid)).last_inbound_at
-    await asyncio.sleep(0.01)
-    h.llm.script = [
-        Message.assistant(
-            content="",
-            tool_calls=[
-                ToolCall(
-                    id="t1", name="send_to_platform_channel", arguments={"content": "via tool"}
-                )
-            ],
-        ),
-        Message.assistant(content="all done"),
-    ]
-    await h.run_now(r["id"])
-    run = await h.last_run(r["id"])
-    assert run["outcome"] == "ok", run
-    assert [c for _, c in StubPlugin.outbound_records] == ["via tool"]
-    after = (await ChatSessionRepository(await get_connection()).get(sid)).last_inbound_at
-    assert after > before
-
-
-# ── target resolution ──────────────────────────────────────────────────────
-
-
-async def test_new_then_run_now_creates_connector_chat_and_retargets(routine_app):
-    h = routine_app
-    sid = await h.dm("hello")
-    r = await h.routine({"kind": "chat", "session_id": sid})
-    # /new ends the chat
-    await h.api(
-        "POST",
-        "/api/_test/stub/inbound",
-        json={"connector_id": h.connector_id, "peer_id": "p1", "text": "/new", "is_dm": True},
-    )
-    repo = ChatSessionRepository(await get_connection())
-    await wait_for(lambda: _ended(repo, sid))
-    await h.run_now(r["id"])
-    run = await h.last_run(r["id"])
-    assert run["outcome"] == "ok", run
-    assert run["new_chat"] is True and run["session_id"] != sid
-    new = await repo.get(run["session_id"])
-    old = await repo.get(sid)
-    for col in ("platform", "connector_id", "channel_id", "thread_id", "peer_id", "agent_name"):
-        assert getattr(new, col) == getattr(old, col)
-    got = (await h.api("GET", f"/api/agents/bot/routines/{r['id']}")).json()
-    assert got["target"]["session_id"] == new.id
-    assert [c for _, c in StubPlugin.outbound_records][-1] == "routine reply"
-
-
-async def _ended(repo, sid):
-    return "ended_at" in ((await repo.get(sid)).session_metadata or {})
-
-
-async def test_deleted_web_chat_target_starts_new_chat(routine_app):
-    h = routine_app
-    r = await h.api("POST", "/api/chat/sessions", json={"agent_name": "bot", "title": "mine"})
-    assert r.status_code in (200, 201), r.text
-    sid = r.json()["id"]
-    rt = await h.routine({"kind": "chat", "session_id": sid})
-    await h.api("DELETE", f"/api/chat/sessions/{sid}")
+    rt = await h.routine()
+    await runner.run_routine(rt["id"], "schedule", "2026-01-01T09:00:00+00:00")
     await h.run_now(rt["id"])
-    run = await h.last_run(rt["id"])
-    assert run["outcome"] == "ok" and run["new_chat"] is True
-    assert "The chosen chat was gone" in run["reason"]
-    row = await ChatSessionRepository(await get_connection()).get(run["session_id"])
-    assert row.title == "Brief" and row.connector_id is None
+    await runner.run_routine(rt["id"], "catch_up", "2026-01-01T09:00:00+00:00")
 
-
-async def test_new_target_creates_a_chat_every_run(routine_app):
-    h = routine_app
-    rt = await h.routine({"kind": "new"})
-    await h.run_now(rt["id"])
-    await h.run_now(rt["id"])
     runs = await h.runs(rt["id"])
-    assert len(runs) == 2 and all(x["new_chat"] and x["outcome"] == "ok" for x in runs)
-    assert runs[0]["session_id"] != runs[1]["session_id"]
+    assert sorted(x["trigger_kind"] for x in runs) == ["catch_up", "manual", "schedule"]
+    assert all(x["outcome"] == "ok" for x in runs)
+    sids = {x["session_id"] for x in runs}
+    assert len(sids) == 3
+    repo = ChatSessionRepository(await get_connection())
+    assert {(await repo.get(s)).title for s in sids} == {"Brief"}
+
+
+async def test_a_run_never_delivers_to_a_connector(routine_app):
+    """The agent is a connector's default agent; a run still posts nothing to it."""
+    h = routine_app
+    rt = await h.routine()
+    StubPlugin.outbound_records.clear()
+    await h.run_now(rt["id"])
+    await h.run_now(rt["id"])
     assert StubPlugin.outbound_records == []
+    repo = ChatSessionRepository(await get_connection())
+    for run in await h.runs(rt["id"]):
+        row = await repo.get(run["session_id"])
+        assert row.platform is None and row.connector_id is None
 
 
-async def test_own_target_reuses_its_chat(routine_app):
+async def test_runs_report_whether_their_chat_still_exists(routine_app):
     h = routine_app
-    rt = await h.routine({"kind": "own"})
+    rt = await h.routine()
     await h.run_now(rt["id"])
     await h.run_now(rt["id"])
-    first, second = (await h.runs(rt["id"]))[::-1]
-    assert first["new_chat"] is True and second["new_chat"] is False
-    assert first["session_id"] == second["session_id"]
+    newest, oldest = await h.runs(rt["id"])
+    assert newest["chat_exists"] is True and oldest["chat_exists"] is True
+    await h.api("DELETE", f"/api/chat/sessions/{oldest['session_id']}")
+    newest, oldest = await h.runs(rt["id"])
+    assert newest["chat_exists"] is True and oldest["chat_exists"] is False
+    assert oldest["session_id"]  # the id is kept; leg 03 decides the link
 
 
-# ── pre-checks, degraded, paused ───────────────────────────────────────────
-
-
-async def test_precheck_connector_disabled(routine_app):
+async def test_agent_deleted_after_the_chat_was_created(routine_app):
     h = routine_app
-    sid = await h.dm("hello")
-    r = await h.routine({"kind": "chat", "session_id": sid})
-    n = len(await h.chat_rows())
-    resp = await h.api(
-        "PUT",
-        f"/api/connectors/{h.connector_id}",
-        json={"config": {"default_agent": "bot", "enabled": False}},
-    )
-    assert resp.status_code == 200, resp.text
-    from the_one.connectors.manager import get_manager
-
-    await wait_for(lambda: get_manager().client_for(h.connector_id) is None)
-    await h.run_now(r["id"])
-    run = await h.last_run(r["id"])
-    assert run["outcome"] == "failed" and run["session_id"] is None
-    assert run["reason"] == "Stubby isn't connected."
-    assert len(await h.chat_rows()) == n
-
-
-async def test_precheck_wrong_agent(routine_app):
-    h = routine_app
-    sid = await h.dm("hello")
-    r = await h.routine({"kind": "chat", "session_id": sid})
-    resp = await h.api(
-        "PUT",
-        f"/api/connectors/{h.connector_id}",
-        json={"config": {"default_agent": "other", "allowlist": {"peers": ["p1"]}}},
-    )
-    assert resp.status_code == 200, resp.text
-    from the_one.connectors.manager import get_manager
-
-    await wait_for(lambda: get_manager().client_for(h.connector_id) is not None)
-    n = len(await h.chat_rows())
-    await h.run_now(r["id"])
-    run = await h.last_run(r["id"])
-    assert run["outcome"] == "failed" and run["session_id"] is None
-    assert run["reason"] == "This channel is now answered by other."
-    assert len(await h.chat_rows()) == n
-
-
-async def test_paused_peek_skips_and_keeps_the_pause(routine_app):
-    h = routine_app
-    rt = await h.routine({"kind": "own"})
-    await h.run_now(rt["id"])
-    sid = (await h.last_run(rt["id"]))["session_id"]
-    from the_one.interfaces.web import app as appmod
-
-    cached = appmod._sessions[sid]
-    marker = [object()]
-    cached.agent._deferred_tool_calls = marker
-    agent_before = cached.agent
-    await h.run_now(rt["id"])
-    run = await h.last_run(rt["id"])
-    assert run["outcome"] == "skipped"
-    assert run["reason"] == "The chat is waiting for a sign-in."
-    assert run["reason_code"] == "waiting_sign_in"
-    assert appmod._sessions[sid].agent is agent_before
-    assert agent_before._deferred_tool_calls is marker
-    cached.agent._deferred_tool_calls = None
-
-
-async def test_own_pause_does_not_block(routine_app):
-    h = routine_app
-    rt = await h.routine({"kind": "own"})
-    await h.run_now(rt["id"])
-    sid = (await h.last_run(rt["id"]))["session_id"]
-    from the_one.interfaces.web import app as appmod
-
-    appmod._sessions[sid].agent._deferred_tool_calls = [object()]
-    runner.registry.remember_pause(rt["id"], sid)
-    await h.run_now(rt["id"])
-    assert (await h.last_run(rt["id"]))["outcome"] == "ok"
-    assert runner.registry.own_pause(rt["id"]) is None
-
-
-async def test_agent_deleted_after_target_resolved(routine_app):
-    h = routine_app
-    rt = await h.routine({"kind": "own"})
-    await h.run_now(rt["id"])
-    sid = (await h.last_run(rt["id"]))["session_id"]
+    rt = await h.routine()
     from the_one.interfaces.web import app as appmod
 
     async def gone(sid_):
@@ -269,31 +110,75 @@ async def test_agent_deleted_after_target_resolved(routine_app):
         appmod._get_or_restore_session = orig
     run = await h.last_run(rt["id"])
     assert run["outcome"] == "failed" and run["reason"] == "The agent no longer exists."
-    assert run["session_id"] == sid
+    assert run["session_id"]
+
+
+async def test_restore_racing_a_routine_turn_does_not_swap_its_agent(routine_app, monkeypatch):
+    """F-H1-1: a browser join that passed the in-flight check and is still building its
+    agent when the routine's turn starts must not replace the turn's agent; the run's
+    chat keeps its user message and reply."""
+    import asyncio
+
+    from the_one.db.codec import decode_messages
+    from the_one.interfaces.web import app as appmod
+    from the_one.llm.base import Role
+
+    h = routine_app
+    rt = await h.routine()
+    h.llm.delay = 0.3
+    factory = appmod._get_factory()
+    real_create = factory.create
+    gate, blocked = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def create(name, *a, **kw):
+        calls.append(name)
+        if len(calls) == 2:  # call 1 is the new chat; call 2 is the "browser join"
+            blocked.set()
+            await gate.wait()
+        return await real_create(name, *a, **kw)
+
+    monkeypatch.setattr(factory, "create", create)
+    real_get = appmod._RoutineTurnHost.get_or_restore
+    joins = []
+
+    async def get_or_restore(self, sid):
+        joins.append(asyncio.create_task(appmod._restore_session(sid)))
+        await asyncio.wait_for(blocked.wait(), 5)
+        return await real_get(self, sid)
+
+    monkeypatch.setattr(appmod._RoutineTurnHost, "get_or_restore", get_or_restore)
+    r = await h.api("POST", f"/api/agents/bot/routines/{rt['id']}/run")
+    assert r.status_code == 202
+    await wait_for(lambda: len(h.llm.calls) > 0)  # the turn is running
+    gate.set()  # the join now finishes its agent build mid-turn
+    await wait_for(lambda: not runner.registry.is_running(rt["id"]))
+    await asyncio.gather(*joins)
+
+    run = await h.last_run(rt["id"])
+    assert run["outcome"] == "ok", run
+    row = await ChatSessionRepository(await get_connection()).get(run["session_id"])
+    roles = [m.role for m in decode_messages(row.messages)]
+    assert Role.USER in roles and Role.ASSISTANT in roles
+
+
+async def test_a_run_whose_message_was_not_saved_is_failed(routine_app, monkeypatch):
+    """F-H1-1 safety net: a turn that reports started but left no user message stored."""
+    from the_one.interfaces.web import app as appmod
+
+    h = routine_app
+    rt = await h.routine()
+
+    async def no_save(session):
+        return None
+
+    monkeypatch.setattr(appmod, "_save_session_to_db", no_save)
+    await h.run_now(rt["id"])
+    run = await h.last_run(rt["id"])
+    assert run["outcome"] == "failed" and run["reason"] == runner.NOT_SAVED_REASON
 
 
 # ── timeouts and drain ─────────────────────────────────────────────────────
-
-
-async def test_busy_chat_times_out_as_skipped_without_cancelled_frame(routine_app, monkeypatch):
-    h = routine_app
-    monkeypatch.setattr(runner, "_TIMEOUT_FLOOR_SECONDS", 0.1)
-    monkeypatch.setenv("THE_ONE_ROUTINE_RUN_TIMEOUT_SECONDS", "0.3")
-    rt = await h.routine({"kind": "own"})
-    await h.run_now(rt["id"])
-    sid = (await h.last_run(rt["id"]))["session_id"]
-    from the_one.sessions import session_locks
-
-    ws = WS()
-    add_subscriber(sid, ws)
-    async with session_locks[sid]:
-        await h.run_now(rt["id"])
-    remove_subscriber(sid, ws)
-    run = await h.last_run(rt["id"])
-    assert run["outcome"] == "skipped"
-    assert run["reason"].startswith("The chat stayed busy for 1 minute")
-    assert run["reason_code"] == "chat_busy"
-    assert not [f for f in ws.frames if f.get("type") == "cancelled"]
 
 
 async def test_long_run_times_out_as_failed_with_partial(routine_app, monkeypatch):
@@ -301,7 +186,7 @@ async def test_long_run_times_out_as_failed_with_partial(routine_app, monkeypatc
     monkeypatch.setattr(runner, "_TIMEOUT_FLOOR_SECONDS", 0.1)
     monkeypatch.setenv("THE_ONE_ROUTINE_RUN_TIMEOUT_SECONDS", "0.3")
     h.llm.delay = 5.0
-    rt = await h.routine({"kind": "own"})
+    rt = await h.routine()
     await h.run_now(rt["id"])
     run = await h.last_run(rt["id"])
     assert run["outcome"] == "failed", run
@@ -315,7 +200,7 @@ async def test_long_run_times_out_as_failed_with_partial(routine_app, monkeypatc
 async def test_drain_during_run_is_interrupted(routine_app):
     h = routine_app
     h.llm.delay = 30.0
-    rt = await h.routine({"kind": "own"})
+    rt = await h.routine()
     r = await h.api("POST", f"/api/agents/bot/routines/{rt['id']}/run")
     assert r.status_code == 202
     from the_one.sessions import is_session_busy
@@ -346,8 +231,8 @@ async def _saved_run_user(h, rid):
 
 async def test_run_snapshots_the_flag_onto_its_user_message(routine_app):
     h = routine_app
-    flagged = await h.routine({"kind": "own"}, name="Flagged")
-    clean = await h.routine({"kind": "own"}, name="Clean")
+    flagged = await h.routine(name="Flagged")
+    clean = await h.routine(name="Clean")
     conn = await get_connection()
     await conn.execute(
         "UPDATE agent_routines SET untrusted = 1, untrusted_sources = ? WHERE id = ?",
@@ -370,7 +255,7 @@ async def test_cancelling_the_running_routine_ends_the_run_quietly(routine_app, 
 
     h = routine_app
     h.llm.delay = 0.5
-    rt = await h.routine({"kind": "own"})
+    rt = await h.routine()
     r = await h.api("POST", f"/api/agents/bot/routines/{rt['id']}/run")
     assert r.status_code == 202
     from the_one.sessions import is_session_busy

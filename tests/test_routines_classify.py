@@ -4,48 +4,26 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from the_one.connectors.delivery import DeliveryResult
 from the_one.routines import runner
 from the_one.routines.runner import RunRegistry, classify
 
 
-def c(state="done", info=None, *, timed_out=False, timeout=900.0, name="Disc"):
-    return classify(
-        state, info or {}, timed_out=timed_out, timeout_seconds=timeout, connector_name=name
-    )
+def c(state="done", info=None, *, timed_out=False, timeout=900.0):
+    return classify(state, info or {}, timed_out=timed_out, timeout_seconds=timeout)
 
 
 def test_clean_ok():
-    assert c() == ("ok", None)
+    assert c(info={"started": True}) == ("ok", None)
 
 
-@pytest.mark.parametrize("status", ["delivered", "already_sent"])
-def test_delivered_ok(status):
-    assert c(info={"delivery": DeliveryResult(status)}) == ("ok", None)
+def test_a_turn_that_never_started_is_failed_not_ok():
+    """F-H1-1: no turn means no message and no reply; fail closed."""
+    assert c() == ("failed", runner.NO_TURN_REASON)
+    assert c(info={"step_limit": True})[0] == "failed"
 
 
 def test_step_limit_ok():
-    assert c(info={"step_limit": True}) == ("ok", "Stopped at the step limit.")
-
-
-def test_no_text():
-    assert c(info={"delivery": DeliveryResult("no_text")}) == (
-        "ok",
-        "The agent gave no reply to send.",
-    )
-
-
-def test_send_failed_and_no_client():
-    assert c(info={"delivery": DeliveryResult("send_failed", "boom")}) == (
-        "failed",
-        "Couldn't send to Disc: boom.",
-    )
-    assert c(info={"delivery": DeliveryResult("no_client")}) == (
-        "failed",
-        "Couldn't send to Disc: not connected.",
-    )
+    assert c(info={"started": True, "step_limit": True}) == ("ok", "Stopped at the step limit.")
 
 
 def test_paused():
@@ -59,10 +37,10 @@ def test_error():
     assert c(info={"error": "kaput"}) == ("failed", "kaput")
 
 
-def test_timeout_before_start_is_skipped():
+def test_timeout_before_start_is_failed():
     assert c("cancelled", timed_out=True, timeout=900) == (
-        "skipped",
-        "The chat stayed busy for 15 minutes.",
+        "failed",
+        "The run took longer than 15 minutes.",
     )
 
 
@@ -74,8 +52,8 @@ def test_timeout_after_start_is_failed():
 
 
 def test_minutes_floor_and_rounding():
-    assert c(timed_out=True, timeout=20)[1] == "The chat stayed busy for 1 minute."
-    assert c(timed_out=True, timeout=150)[1] == "The chat stayed busy for 2 minutes."
+    assert c(timed_out=True, timeout=20)[1] == "The run took longer than 1 minute."
+    assert c(timed_out=True, timeout=150)[1] == "The run took longer than 2 minutes."
 
 
 def test_stop():
@@ -119,15 +97,6 @@ async def test_registry_try_spawn_is_synchronous_and_exclusive():
     assert not reg.is_running("r")
     assert reg.try_spawn("r", work) is not None
     await reg.drain(1)
-
-
-async def test_registry_pause_memory():
-    reg = RunRegistry()
-    assert reg.own_pause("r") is None
-    reg.remember_pause("r", "s1")
-    assert reg.own_pause("r") == "s1"
-    reg.clear_pause("r")
-    assert reg.own_pause("r") is None
 
 
 async def test_registry_drain_cancels_and_bounds():

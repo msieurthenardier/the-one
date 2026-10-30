@@ -10,8 +10,9 @@
 //
 // Signature:
 //   App.confirmDialog({title, message, confirmText, cancelText,
-//                      opener, onConfirm, onCancel})
-//   - All fields optional; defaults below.
+//                      opener, danger, onConfirm, onCancel})
+//   - All fields optional; defaults below. `danger: true` styles the confirm button as the
+//     danger variant (a destructive confirm, e.g. Delete); Stay/cancel stays focused.
 //   - Returns void (callback-driven, NOT a promise).
 //
 // Defaults — wording avoids the false-promise of "Discard" because this
@@ -87,7 +88,7 @@
         },
         {
           label: opts.confirmText || 'Continue',
-          variant: 'primary',
+          variant: opts.danger ? 'danger' : 'primary',
           value: 'confirm',
           testid: 'modal-confirm-btn'
         }

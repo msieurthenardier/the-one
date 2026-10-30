@@ -7,7 +7,7 @@ tests that patch ``the_one.interfaces.web.api.get_connection`` and friends still
 
 from __future__ import annotations
 
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -111,15 +111,22 @@ async def preview_agent_routine_schedule(name: str, request: Request) -> dict[st
     now = time_zones.utcnow()
     zone = await _effective_zone()
     try:
-        sched, anchor = routine_service.validate_schedule(data.get("schedule"), now, zone)
+        raw, immediate = routine_service.resolve_now_start(data.get("schedule"), now, zone)
+        sched, anchor = routine_service.validate_schedule(raw, now, zone)
     except RoutineFieldError as e:
         raise _routine_422(e.field, e.message)
-    if not recurrence.has_future(sched, anchor, now, zone):
+    after = now.replace(second=0, microsecond=0) - timedelta(microseconds=1) if immediate else now
+    if not recurrence.has_future(sched, anchor, after, zone):
         raise _routine_422("schedule", recurrence.MSG_NO_RUNS_LEFT)
+    out = schedule_preview(sched, anchor, zone, now)
+    if immediate:
+        # The first run is the save instant; the grid occurrences follow it.
+        out["next_runs"] = [now.isoformat(), *out["next_runs"][: NEXT_RUNS_SHOWN - 1]]
     return {
         "schedule": sched,
         "anchor_at": anchor.isoformat() if anchor else None,
-        **schedule_preview(sched, anchor, zone, now),
+        "immediate": immediate,
+        **out,
     }
 
 
@@ -137,13 +144,10 @@ async def _routine_body(request: Request) -> dict[str, Any]:
 async def list_agent_routines(name: str) -> dict[str, Any]:
     await _routines_agent_or_404(name)
     repo, run_repo = await _routines_repos()
-    chat_repo = await _api._chat_repo()
     routines = await repo.list_for_agent(name)
     zone = await _effective_zone()
     return {
-        "routines": [
-            await routine_service.routine_view(r, run_repo, chat_repo, zone) for r in routines
-        ],
+        "routines": [await routine_service.routine_view(r, run_repo, zone) for r in routines],
         "limits": routine_service.limits_view(),
     }
 
@@ -160,10 +164,9 @@ async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
         return (await time_zones.load_effective_zone(conn)).tzinfo
 
     repo, run_repo = await _routines_repos()
-    chat_repo = await _api._chat_repo()
     try:
         routine = await routine_service.create_routine(
-            repo, chat_repo, name, data, now=time_zones.utcnow(), zone=zone
+            repo, name, data, now=time_zones.utcnow(), zone=zone
         )
     except NameRuleError as e:
         raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
@@ -173,7 +176,7 @@ async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=_api._name_conflict_detail(e.detail))
     except RoutineLimitError as e:
         raise HTTPException(status_code=422, detail=e.detail)
-    return await routine_service.routine_view(routine, run_repo, chat_repo, await zone())
+    return await routine_service.routine_view(routine, run_repo, await zone())
 
 
 @router.get("/agents/{name}/routines/{routine_id}")
@@ -183,9 +186,7 @@ async def get_agent_routine(name: str, routine_id: str) -> dict[str, Any]:
     routine = await repo.get(name, routine_id)
     if routine is None:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
-    return await routine_service.routine_view(
-        routine, run_repo, await _api._chat_repo(), await _effective_zone()
-    )
+    return await routine_service.routine_view(routine, run_repo, await _effective_zone())
 
 
 @router.put("/agents/{name}/routines/{routine_id}")
@@ -201,11 +202,9 @@ async def update_agent_routine(name: str, routine_id: str, request: Request) -> 
         conn = await _api.get_connection()
         return (await time_zones.load_effective_zone(conn)).tzinfo
 
-    chat_repo = await _api._chat_repo()
     try:
         routine = await routine_service.update_routine(
             repo,
-            chat_repo,
             name,
             cur,
             data,
@@ -222,7 +221,7 @@ async def update_agent_routine(name: str, routine_id: str, request: Request) -> 
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
     except RoutineNameTaken as e:
         raise HTTPException(status_code=409, detail=_api._name_conflict_detail(e.detail))
-    return await routine_service.routine_view(routine, run_repo, chat_repo, await zone())
+    return await routine_service.routine_view(routine, run_repo, await zone())
 
 
 @router.delete("/agents/{name}/routines/{routine_id}")
@@ -399,4 +398,5 @@ async def list_agent_routine_runs(
     if await repo.get(name, routine_id) is None:
         raise HTTPException(status_code=404, detail=f"Routine not found: {routine_id}")
     runs = await run_repo.list(routine_id, limit, before)
-    return {"runs": [r.model_dump() for r in runs]}
+    alive = await (await _api._chat_repo()).existing_ids(r.session_id for r in runs)
+    return {"runs": [{**r.model_dump(), "chat_exists": r.session_id in alive} for r in runs]}

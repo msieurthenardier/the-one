@@ -85,10 +85,7 @@ envelope through, in order:
    titled `f"DM: {peer_name}"` (DM) or the channel id.
    The continuation rule itself is `inbound.is_continuable(row, seconds, now)`
    (no `ended_at`, a parseable `last_inbound_at` — naive reads as UTC — younger
-   than the window); the routine runner (Mission 33) reuses it to decide
-   whether a routine aimed at a connector chat continues that row or starts a
-   fresh one. A delivered routine reply bumps `last_inbound_at` just as an
-   inbound message does.
+   than the window).
 5. **Dispatch** — under a per-session lock (`the_one.sessions.session_locks`),
    rebuilds the agent from the session's stored history, runs
    `agent.step(envelope.text)`, tags post-step message visibility (see
@@ -150,9 +147,8 @@ persisted messages hold no such line.
 
 **Delivery primitives (M33 F1 L2).** `connectors/delivery.py` holds the
 envelope-free pieces: `deliver_final_reply(messages, pre_step_len, target,
-connector_id, manager) -> DeliveryResult` (the skip rule and the send above,
-returning `delivered`/`already_sent`/`no_text`/`no_client`/`send_failed`),
-`send_step_limit_line(target, ...)` and `authorized_agent_for(connector,
+connector_id, manager)` (the skip rule and the send above; it returns nothing
+and never raises), `send_step_limit_line(target, ...)` and `authorized_agent_for(connector,
 channel_id=...)` (the send tool's authorization rule). It has no dependency on
 `inbound.py`; `_auto_deliver_reply` and `_send_step_limit_line` are thin
 wrappers that build the target from the envelope.

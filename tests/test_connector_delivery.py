@@ -137,35 +137,26 @@ async def test_char_step_limit_line_sends_and_swallows():
 # ---- Part 2: the primitives -------------------------------------------------
 
 
-async def test_deliver_statuses():
+async def test_deliver_outcomes():
     d = _d()
     ch = ChannelTarget("conn-1", "ch-1", "t-9")
     c = _Client()
-    r = await d.deliver_final_reply(_turn(), 0, ch, "conn-1", _Manager(c))
-    assert r.status == "no_text" and r.error is None
+    assert await d.deliver_final_reply(_turn(), 0, ch, "conn-1", _Manager(c)) is None
+    assert c.sent == []  # no assistant text: nothing to send
     msgs = _turn(*_tool_send(True), _final())
-    r = await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(c))
-    assert r.status == "already_sent"
+    await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(c))
+    assert c.sent == []  # already sent through the tool
     assert msgs[-1].visibility == OPERATOR_VISIBILITY
-    r = await d.deliver_final_reply(_turn(_final()), 0, ch, "conn-1", _Manager(None))
-    assert r.status == "no_client"
+    msgs = _turn(_final())
+    await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(None))  # no client: no raise
+    assert msgs[-1].visibility == OPERATOR_VISIBILITY
     for exc in (ConnectorClientError("down"), ValueError("bad")):
         msgs = _turn(_final("SECRET"))
-        r = await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(_Client(exc)))
-        assert r.status == "send_failed"
-        assert r.error == f"{type(exc).__name__}: {exc}"
-        assert "SECRET" not in r.error
-        assert msgs[-1].visibility == OPERATOR_VISIBILITY
+        await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(_Client(exc)))
+        assert msgs[-1].visibility == OPERATOR_VISIBILITY  # a failed send never raises
     msgs = _turn(_final())
-    r = await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(c))
-    assert r.status == "delivered" and msgs[-1].visibility is None
-
-
-async def test_send_failed_error_truncated():
-    msgs = _turn(_final())
-    mgr = _Manager(_Client(RuntimeError("x" * 500)))
-    r = await _d().deliver_final_reply(msgs, 0, ChannelTarget("c", "d"), "c", mgr)
-    assert len(r.error) == 200
+    await d.deliver_final_reply(msgs, 0, ch, "conn-1", _Manager(c))
+    assert c.sent == [(ch, "the reply")] and msgs[-1].visibility is None
 
 
 @pytest.mark.parametrize(

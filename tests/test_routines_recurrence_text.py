@@ -195,7 +195,9 @@ def test_anchored_sentences_follow_the_anchor_in_the_zone() -> None:
 
 
 def test_one_off_in_a_later_zone_date() -> None:
-    sched, anchor = rec.normalize({"kind": "once", "at": "2026-10-30T02:00:00Z"}, zone=LA, now=NOW)
+    sched, anchor = rec.normalize(
+        {"start": {"date": "2026-10-29", "time": "19:00"}}, zone=LA, now=NOW
+    )
     assert text.describe(sched, anchor, LA) == "Once, on Thu, Oct 29, 2026 at 7:00 PM"
 
 
