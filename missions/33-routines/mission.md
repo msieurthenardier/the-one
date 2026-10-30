@@ -1,6 +1,6 @@
 # Mission: Routines
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
