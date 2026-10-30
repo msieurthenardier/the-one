@@ -31,8 +31,6 @@ from the_one.routines.limits import (
 from the_one.routines.models import Routine, RoutineRun
 
 REASON_STILL_RUNNING = "still_running"
-REASON_CHAT_BUSY = "chat_busy"
-REASON_WAITING_SIGN_IN = "waiting_sign_in"
 MSG_STILL_RUNNING = "The previous run was still going."
 
 if TYPE_CHECKING:
@@ -46,10 +44,8 @@ def _now_iso() -> str:
 
 
 _COLS = (
-    "id, agent_name, name, prompt, schedule, enabled, finished_at, target_kind, "
-    "target_session_id, target_platform, target_connector_id, target_channel_id, "
-    "target_thread_id, target_peer_id, next_run_at, anchor_at, created_by, "
-    "created_at, updated_at, untrusted, untrusted_sources"
+    "id, agent_name, name, prompt, schedule, enabled, finished_at, next_run_at, "
+    "anchor_at, created_by, created_at, updated_at, untrusted, untrusted_sources"
 )
 _INSERT_COLS = _COLS.removesuffix(", untrusted, untrusted_sources")
 
@@ -60,13 +56,6 @@ _UPDATABLE = {
     "schedule",
     "enabled",
     "finished_at",
-    "target_kind",
-    "target_session_id",
-    "target_platform",
-    "target_connector_id",
-    "target_channel_id",
-    "target_thread_id",
-    "target_peer_id",
     "next_run_at",
     "anchor_at",
 }
@@ -93,20 +82,13 @@ def _routine(row: Any) -> Routine:
         schedule=schedule if isinstance(schedule, dict) else {},
         enabled=bool(row[5]),
         finished_at=row[6],
-        target_kind=row[7],
-        target_session_id=row[8],
-        target_platform=row[9],
-        target_connector_id=row[10],
-        target_channel_id=row[11],
-        target_thread_id=row[12],
-        target_peer_id=row[13],
-        next_run_at=row[14],
-        anchor_at=row[15],
-        created_by=row[16],
-        created_at=row[17],
-        updated_at=row[18],
-        untrusted=bool(row[19]),
-        untrusted_sources=_decode_sources(row[20]),
+        next_run_at=row[7],
+        anchor_at=row[8],
+        created_by=row[9],
+        created_at=row[10],
+        updated_at=row[11],
+        untrusted=bool(row[12]),
+        untrusted_sources=_decode_sources(row[13]),
     )
 
 
@@ -195,7 +177,7 @@ class AgentRoutineRepository:
         proposal: ProposalOp | None = None,
     ) -> Routine:
         """Insert a routine for agent *name*. *fields* holds ``name``, ``prompt``,
-        ``schedule`` (dict), ``target_kind`` and optionally the other columns.
+        ``schedule`` (dict) and optionally the other columns.
 
         Inside the one transaction, in order: ``precheck(None)``, the agent caps over the
         rows read here, the INSERT (with ``flag`` applied), then the ``proposal`` op."""
@@ -204,12 +186,6 @@ class AgentRoutineRepository:
         values = {
             "enabled": True,
             "finished_at": None,
-            "target_session_id": None,
-            "target_platform": None,
-            "target_connector_id": None,
-            "target_channel_id": None,
-            "target_thread_id": None,
-            "target_peer_id": None,
             "next_run_at": None,
             "anchor_at": None,
             "created_by": "operator",
@@ -232,7 +208,6 @@ class AgentRoutineRepository:
                             "schedule",
                             "enabled",
                             "finished_at",
-                            "target_kind",
                             "next_run_at",
                         )
                     },
@@ -240,7 +215,7 @@ class AgentRoutineRepository:
                 await self._caps_after(name, lambda before: [*before, cand])
                 await self.conn.execute(
                     f"INSERT INTO agent_routines ({_INSERT_COLS}) VALUES "
-                    "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         routine_id,
                         name,
@@ -249,13 +224,6 @@ class AgentRoutineRepository:
                         _encode("schedule", values["schedule"]),
                         _encode("enabled", values["enabled"]),
                         values["finished_at"],
-                        values["target_kind"],
-                        values["target_session_id"],
-                        values["target_platform"],
-                        values["target_connector_id"],
-                        values["target_channel_id"],
-                        values["target_thread_id"],
-                        values["target_peer_id"],
                         values["next_run_at"],
                         values["anchor_at"],
                         values["created_by"],
@@ -493,14 +461,6 @@ class AgentRoutineRepository:
                     )
             return True
 
-    async def set_target_session(self, routine_id: str, session_id: str | None) -> None:
-        """Retarget a routine at a chat. A missing row is a no-op; ``updated_at`` stays."""
-        async with write_transaction(self.conn):
-            await self.conn.execute(
-                "UPDATE agent_routines SET target_session_id = ? WHERE id = ?",
-                (session_id, routine_id),
-            )
-
 
 class RoutineRunRepository:
     def __init__(self, conn: aiosqlite.Connection) -> None:
@@ -508,7 +468,7 @@ class RoutineRunRepository:
 
     _COLS = (
         "id, routine_id, trigger_kind, outcome, reason, due_at, started_at, finished_at, "
-        "session_id, new_chat, repeats, reason_code"
+        "session_id, repeats, reason_code"
     )
 
     @staticmethod
@@ -523,9 +483,8 @@ class RoutineRunRepository:
             started_at=row[6],
             finished_at=row[7],
             session_id=row[8],
-            new_chat=bool(row[9]),
-            repeats=row[10],
-            reason_code=row[11],
+            repeats=row[9],
+            reason_code=row[10],
         )
 
     async def insert(self, run: RoutineRun) -> RoutineRun:
@@ -534,7 +493,7 @@ class RoutineRunRepository:
         async with write_transaction(self.conn):
             await self.conn.execute(
                 f"INSERT INTO agent_routine_runs ({self._COLS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     run.routine_id,
@@ -545,7 +504,6 @@ class RoutineRunRepository:
                     started,
                     run.finished_at,
                     run.session_id,
-                    1 if run.new_chat else 0,
                     run.repeats,
                     run.reason_code,
                 ),
@@ -558,21 +516,18 @@ class RoutineRunRepository:
         outcome: str,
         reason: str | None = None,
         session_id: str | None = None,
-        new_chat: bool | None = None,
         reason_code: str | None = None,
     ) -> None:
         """Close a run. A missing row (its routine was deleted mid-run) is a no-op."""
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "UPDATE agent_routine_runs SET outcome = ?, reason = ?, finished_at = ?, "
-                "session_id = COALESCE(?, session_id), new_chat = COALESCE(?, new_chat), "
-                "reason_code = ? WHERE id = ?",
+                "session_id = COALESCE(?, session_id), reason_code = ? WHERE id = ?",
                 (
                     outcome,
                     reason,
                     _now_iso(),
                     session_id,
-                    None if new_chat is None else (1 if new_chat else 0),
                     reason_code,
                     run_id,
                 ),
@@ -621,7 +576,7 @@ class RoutineRunRepository:
             )
             await self.conn.execute(
                 f"INSERT INTO agent_routine_runs ({self._COLS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     routine_id,
@@ -632,7 +587,6 @@ class RoutineRunRepository:
                     now_iso,
                     now_iso,
                     None,
-                    0,
                     1,
                     REASON_STILL_RUNNING,
                 ),

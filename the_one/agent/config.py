@@ -149,11 +149,13 @@ class AgentConfig(BaseModel):
     notes_enabled: bool = False
     # Operator-owned Routines switches (M33 F2 DD4). Stored in
     # `agents.routines_self_config_enabled` (default 0) and
-    # `agents.routines_require_approval` (default 1). `save` never writes them,
-    # and agent create/update ignore incoming values, so only the Routines item
-    # routes (the targeted setter) can change them.
+    # `agents.routines_require_approval` (DDL default 1, but `save`'s INSERT
+    # writes this model's default, off, for a new agent: M33 F4 L5). `save`
+    # never changes an existing row's value, and agent create/update ignore
+    # incoming values, so only the Routines item routes (the targeted setter)
+    # can change them.
     routines_self_config_enabled: bool = False
-    routines_require_approval: bool = True
+    routines_require_approval: bool = False
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """Check if a specific tool should be available to this agent.

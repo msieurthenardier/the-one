@@ -50,6 +50,9 @@ MSG_ONCE_TOO_SOON = "A one-time routine must be at least a minute away."
 MSG_TOO_FAR = "That time is more than a year away."
 MSG_NO_END_FOR_ONCE = "A routine that does not repeat has no end to set."
 MSG_NO_RUNS_LEFT = "This schedule has no runs left."
+MSG_KIND_SHAPE = (
+    "A schedule is {start, repeat, ends}; the older kind-based shape is no longer accepted."
+)
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _REL_UNITS = {"minutes": "minutes", "hours": "hours", "days": "days"}
@@ -287,19 +290,18 @@ def normalize(
     now: datetime,
     min_ahead: timedelta | None = None,
 ) -> tuple[dict[str, Any], datetime | None]:
-    """Normalize any accepted input (DD5) to ``(canonical schedule, anchor or None)``.
+    """Normalize an input to ``(canonical schedule, anchor or None)``.
 
-    Accepts the canonical shape (``repeat``/``ends`` optional; ``start`` either
-    ``{date, time}`` or the relative ``{"in": {amount, unit}}``) and the legacy shapes
-    (``once`` with ``at`` / ``on`` / ``in``, ``daily``, ``weekdays``, ``weekly``,
-    ``interval``). *min_ahead* (agent writes) is the least lead for a one-off's first run,
-    checked after rounding. Raises :class:`RoutineScheduleError` with one plain sentence.
+    Accepts only the canonical shape (``repeat``/``ends`` optional; ``start`` either
+    ``{date, time}`` or the relative ``{"in": {amount, unit}}``). *min_ahead* (agent writes)
+    is the least lead for a one-off's first run, checked after rounding. Raises
+    :class:`RoutineScheduleError` with one plain sentence.
     """
     now = now.astimezone(_UTC)
     if not isinstance(raw, dict):
         raise _err("The schedule must be an object.")
     if "kind" in raw:
-        return _normalize_legacy(raw, zone=zone, now=now, min_ahead=min_ahead)
+        raise _err(MSG_KIND_SHAPE)
     _check_keys(raw, {"start", "repeat", "ends"}, "schedule")
     start = raw.get("start")
     repeat = _parse_repeat(raw.get("repeat"))
@@ -329,104 +331,6 @@ def normalize(
         ends=ends,
         instant=None,
         start=clean_start,
-        zone=zone,
-        now=now,
-        min_ahead=min_ahead,
-    )
-
-
-def _normalize_legacy(
-    raw: dict[str, Any], *, zone: tzinfo, now: datetime, min_ahead: timedelta | None
-) -> tuple[dict[str, Any], datetime | None]:
-    kind = raw.get("kind")
-    never = {"kind": "never"}
-    if kind == "once":
-        keys = set(raw) - {"kind"}
-        if keys == {"at"}:
-            instant = ceil_minute(wall.parse_utc(raw["at"]))
-        elif keys == {"on"}:
-            spec = raw["on"]
-            if not isinstance(spec, dict) or set(spec) != {"date", "time"}:
-                raise _err("A one-time schedule at a local time is {kind, on}.")
-            h, m = _hhmm(spec.get("time"))
-            instant = _wall_instant(_parse_date(spec.get("date")), h, m, zone)
-        elif keys == {"in"}:
-            instant = _relative(raw["in"], now)
-        else:
-            raise _err("A one-time schedule needs exactly one of at, on or in.")
-        return _build(
-            repeat=None,
-            ends=never,
-            instant=instant,
-            start=None,
-            zone=zone,
-            now=now,
-            min_ahead=min_ahead,
-        )
-    return _normalize_legacy_calendar(raw, kind, zone=zone, now=now, min_ahead=min_ahead)
-
-
-_LEGACY_KEYS = {
-    "daily": {"kind", "time"},
-    "weekdays": {"kind", "time"},
-    "weekly": {"kind", "days", "time"},
-    "interval": {"kind", "hours"},
-}
-
-
-def _normalize_legacy_calendar(
-    raw: dict[str, Any],
-    kind: Any,
-    *,
-    zone: tzinfo,
-    now: datetime,
-    min_ahead: timedelta | None,
-) -> tuple[dict[str, Any], datetime | None]:
-    """The legacy ``daily`` / ``weekdays`` / ``weekly`` / ``interval`` shapes (DD5)."""
-    if kind not in _LEGACY_KEYS:
-        raise _err("The schedule must be one of: once, daily, weekdays, weekly, interval.")
-    _check_keys(raw, _LEGACY_KEYS[kind], f"{kind} schedule")
-    never = {"kind": "never"}
-    if kind == "interval":
-        hours = raw.get("hours")
-        if not _int(hours):
-            raise _err("Hours must be a whole number.")
-        if not 1 <= hours <= EVERY_MAX["hour"]:
-            raise _err(f"Hours must be between 1 and {EVERY_MAX['hour']}.")
-        return _build(
-            repeat={"every": hours, "unit": "hour"},
-            ends=never,
-            instant=now + timedelta(hours=hours),
-            start=None,
-            zone=zone,
-            now=now,
-            min_ahead=min_ahead,
-        )
-    h, m = _hhmm(raw.get("time"))
-    time_text = f"{h:02d}:{m:02d}"
-    if kind == "daily":
-        repeat: dict[str, Any] = {"every": 1, "unit": "day"}
-    elif kind == "weekdays":
-        repeat = {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
-    else:
-        repeat = _parse_repeat({"every": 1, "unit": "week", "days": raw.get("days")})  # type: ignore[assignment]
-    # start.date is the local date of the rule's next occurrence after now; start.time is the
-    # legacy field, never the resolved instant's wall time. A provisional series that began
-    # yesterday finds that occurrence (a spring-forward gap resolves later, same date).
-    yesterday = now.astimezone(zone).date() - timedelta(days=1)
-    provisional = {
-        "start": {"date": yesterday.isoformat(), "time": time_text},
-        "repeat": repeat,
-        "ends": never,
-    }
-    nxt = next_occurrence(provisional, None, now, zone)
-    if nxt is None:  # pragma: no cover - unreachable for a valid rule
-        raise _err(MSG_NO_RUNS_LEFT)
-    return _build(
-        repeat=repeat,
-        ends=never,
-        instant=None,
-        start={"date": nxt.astimezone(zone).date().isoformat(), "time": time_text},
         zone=zone,
         now=now,
         min_ahead=min_ahead,

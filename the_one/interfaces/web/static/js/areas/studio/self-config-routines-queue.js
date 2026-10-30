@@ -13,13 +13,13 @@
   var ACTION_WORDS = { create: 'Create', update: 'Change', delete: 'Cancel' };
   var ACTION_NOUNS = { create: 'creation', update: 'change', delete: 'cancellation' };
   var FIELD_LABELS = {
-    name: 'Name', prompt: 'Prompt', schedule: 'Schedule', target: 'Runs in', enabled: 'Switch'
+    name: 'Name', prompt: 'Prompt', schedule: 'Schedule', enabled: 'Switch'
   };
-  var FIELD_ORDER = ['name', 'schedule', 'target', 'enabled', 'prompt'];
+  var FIELD_ORDER = ['name', 'schedule', 'enabled', 'prompt'];
   // The stale 409's maps are keyed by the stored columns; each field's primary column says
   // whether the proposal touched it (schedule and enabled also carry finished_at).
   var PRIMARY_COLUMN = {
-    name: 'name', prompt: 'prompt', schedule: 'schedule', target: 'target_kind', enabled: 'enabled'
+    name: 'name', prompt: 'prompt', schedule: 'schedule', enabled: 'enabled'
   };
 
   function el(tag, attrs, children) { return App.ui.util.el(tag, attrs, children); }
@@ -38,25 +38,8 @@
     b = b || {};
     return {
       name: b.name, prompt: b.prompt, schedule: b.schedule, enabled: b.enabled,
-      scheduleText: scheduleText,
-      target: { kind: b.target_kind, session_id: b.target_session_id }
+      scheduleText: scheduleText
     };
-  }
-
-  function targetWords(t) {
-    if (!t || !t.kind) return '';
-    if (t.kind === 'chat') {
-      var title = '';
-      try {
-        var rows = App.store.peek('sessions');
-        rows = rows && rows.rows ? rows.rows : rows;
-        (Array.isArray(rows) ? rows : []).forEach(function (s) {
-          if (s && s.id === t.session_id) title = s.title || 'Untitled chat';
-        });
-      } catch (e) { title = ''; }
-      return title ? 'Chat: ' + title : 'A chosen chat';
-    }
-    return describe().describeTarget({ kind: t.kind });
   }
 
   // One field of a routine view in words (never the prompt: that is a code block).
@@ -65,7 +48,6 @@
     switch (field) {
       case 'name': return String(view.name == null ? '' : view.name);
       case 'schedule': return view.scheduleText == null ? '' : String(view.scheduleText);
-      case 'target': return targetWords(view.target);
       case 'enabled': return view.enabled === false ? 'Off' : 'On';
       default: return '';
     }
@@ -126,9 +108,9 @@
     if (p.action === 'create') {
       var v = {
         name: payload.name, prompt: payload.prompt, schedule: payload.schedule,
-        target: payload.target, enabled: payload.enabled, scheduleText: p.payload_schedule_text
+        enabled: payload.enabled, scheduleText: p.payload_schedule_text
       };
-      ['schedule', 'target'].forEach(function (f) { body.appendChild(fieldBlock(f, null, v)); });
+      body.appendChild(fieldBlock('schedule', null, v));
       if (payload.enabled === false) body.appendChild(fieldBlock('enabled', null, v));
       body.appendChild(fieldBlock('prompt', null, v));
     } else if (p.action === 'update') {
@@ -139,7 +121,7 @@
       var cur = baseView(p.base, p.base_schedule_text);
       body.appendChild(el('p', { className: 'self-config-routine-line',
         text: 'The agent asks to delete this routine and its history.' }));
-      ['schedule', 'target'].forEach(function (f) { body.appendChild(fieldBlock(f, null, cur)); });
+      body.appendChild(fieldBlock('schedule', null, cur));
     }
     return body;
   }
@@ -189,31 +171,20 @@
 
   function build(ctx) {
     var cb = ctx.callbacks;
-    var section = ctx.routinesSection;
+    // The card's "Waiting for approval" expander body; its count chip and the plain
+    // "(0)" line (the focus target when the queue empties) belong to the card.
+    var queueCard = ctx.cards.routines.queue;
+    var body = queueCard.body;
 
-    section.body.appendChild(el('h4', { className: 'self-config-routines-subheading', text: 'Waiting for approval' }));
-    section.body.appendChild(el('p', { className: 'self-configuration-description',
+    body.appendChild(el('p', { className: 'self-configuration-description',
       text: 'Changes the agent asked for. A one-off whose time has passed can only be dismissed.' }));
-
-    var countStatus = App.ui.status({
-      state: 'idle', text: '', led: false, live: 'off', testid: 'self-config-routine-pending-count'
-    });
-    countStatus.el.classList.add('self-configuration-pending-count');
-    countStatus.el.tabIndex = -1;
-    countStatus.el.hidden = true;
-    section.body.appendChild(countStatus.el);
 
     var list = el('ul', { className: 'self-config-routine-proposals' });
     list.setAttribute('role', 'list');
     list.setAttribute('data-testid', 'self-config-routine-proposals');
-    section.body.appendChild(list);
+    body.appendChild(list);
 
-    var empty = App.ui.emptyState({
-      title: 'Nothing waiting.', titleTag: 'p', variant: 'plain',
-      testid: 'self-config-routine-proposals-empty'
-    });
-    empty.tabIndex = -1;
-    section.body.appendChild(empty);
+    var empty = queueCard.zero;
 
     var views = {};
 
@@ -261,6 +232,8 @@
         if (override) override.disabled = b;
       }
       function showError(msg) {
+        // An error that lands after the operator collapsed the expander opens it again.
+        if (msg) queueCard.open();
         err.el.hidden = !msg;
         err.set('danger', msg || '');
       }
@@ -285,6 +258,7 @@
       }
 
       function renderStale(detail) {
+        queueCard.open();
         stale.hidden = false;
         stale.textContent = '';
         stale.appendChild(App.ui.banner({
@@ -381,17 +355,11 @@
     function renderRoutineQueue(proposals) {
       var pending = (proposals || []).filter(function (p) { return p.status === 'pending'; });
       reconcile(list, pending, views, buildItem);
-      empty.hidden = pending.length > 0;
       list.hidden = pending.length === 0;
-      countStatus.el.hidden = pending.length === 0;
-      countStatus.set('idle', pending.length === 1
-        ? '1 change waiting for your approval.'
-        : pending.length + ' changes waiting for your approval.');
+      queueCard.setCount(pending.length);
     }
 
     ctx.renderRoutineQueue = renderRoutineQueue;
-    ctx.routineQueueEmpty = empty;
-    ctx.routineQueueCount = countStatus;
   }
 
   window.App.studio.selfConfigRoutinesQueue = {

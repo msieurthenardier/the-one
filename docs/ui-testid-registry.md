@@ -95,34 +95,42 @@ caught — but it cannot see where the attribute is emitted.
 | `date-time-zone-row` | admin | A zone row or alias item in the chooser; `data-zone` is the name it saves (M28 F2 L3) |
 | `save-connector-btn` | studio | Connector-editor header Save / Create, from `App.ui.editorShell` (`actions.save`); busy (disabled) while its request is in flight (M31 F3 L07a) |
 | `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty (`App.ui.editorShell` `save`; L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`; M31 F3 L05a) |
+| `self-config-card-prompt` | studio | the Agent prompt item card on the Self-configuration tab: an `App.ui.groupTile` (`expand: false`) with the enable switch, title, "Require approval" switch, one-line description, status area and two bordered expanders; `data-item="prompt"` (M33 F4 L06) |
+| `self-config-card-routines` | studio | the Routines item card (same shape; `data-item="routines"`); absent for the `default` agent (M33 F4 L06) |
+| `self-config-prompt-waiting` | studio | the Agent prompt card's "Waiting for approval" `<details>` expander (collapsed on arrival; hidden while nothing waits; opened by an action that fails or goes stale); its summary is `self-config-prompt-waiting-summary` (M33 F4 L06) |
+| `self-config-prompt-waiting-summary` | studio | that expander's `<summary>` ("Waiting for approval" plus the `pending-count` chip) (M33 F4 L06) |
 | `self-config-routine-action` | studio | a waiting item's action word (Create, Change or Cancel) (M33 F2 L5) |
 | `self-config-routine-approve` | studio | a waiting routine change's Approve (M33 F2 L5) |
 | `self-config-routine-approve-override` | studio | a stale routine change's "Approve anyway" (posts `?override=true`) (M33 F2 L5) |
 | `self-config-routine-dismiss` | studio | a waiting routine change's Dismiss (M33 F2 L5) |
 | `self-config-routine-error` | studio | a waiting item's error line (a 422 sentence or a failure) (M33 F2 L5) |
 | `self-config-routine-flag` | studio | the routine flag on a waiting item or history row (M33 F2 L5) |
-| `self-config-routine-history` | studio | the "Changes by the agent" list (`<ul>`) (M33 F2 L5) |
+| `self-config-routine-history` | studio | the "Changes by the agent" list (`<ul>`), in the Routines card's History expander (M33 F2 L5; M33 F4 L06) |
 | `self-config-routine-history-empty` | studio | the history's "No changes yet." line (M33 F2 L5) |
 | `self-config-routine-history-older` | studio | history "Show older" (pages with `before`); hidden when a page is short (M33 F2 L5) |
 | `self-config-routine-history-row` | studio | one resolved change (`<li>`, `data-id`, `data-status`) (M33 F2 L5) |
 | `self-config-routine-history-status` | studio | a history row's status word (Applied, Dismissed or Withdrawn) (M33 F2 L5) |
 | `self-config-routine-name` | studio | the routine's name on a waiting item or history row (textContent) (M33 F2 L5) |
-| `self-config-routine-pending-count` | studio | the waiting-changes count line (hidden at zero; focus target) (M33 F2 L5) |
+| `self-config-routine-pending-count` | studio | the Routines card's waiting-changes count: a number chip in the "Waiting for approval" expander's summary (was a sentence line, M33 F4 L06; hidden with the expander at zero) (M33 F2 L5) |
 | `self-config-routine-prompt-now` | studio | a changed routine's current prompt (`App.ui.codeBlock`) (M33 F2 L5) |
 | `self-config-routine-prompt-proposed` | studio | a proposed routine prompt (`App.ui.codeBlock`) (M33 F2 L5) |
 | `self-config-routine-proposal` | studio | one waiting routine change (`<li>`, `data-id`, `data-action`) (M33 F2 L5) |
 | `self-config-routine-proposals` | studio | the "Waiting for approval" list (`<ul>`) (M33 F2 L5) |
-| `self-config-routine-proposals-empty` | studio | the "Nothing waiting." empty state; takes focus when the queue empties (M33 F2 L5) |
+| `self-config-routine-proposals-empty` | studio | the plain "Waiting for approval (0)" line that replaces the expander while nothing waits ("Nothing waiting." before M33 F4 L06); takes focus when the queue empties (M33 F2 L5) |
 | `self-config-routine-stale-current` | studio | the stale panel's current prompt (`App.ui.codeBlock`) (M33 F2 L5) |
 | `self-config-routine-stale-proposed` | studio | the stale panel's proposed prompt (`App.ui.codeBlock`) (M33 F2 L5) |
 | `self-config-routine-when` | studio | a waiting item or history row's time (full ISO in `title`) (M33 F2 L5) |
 | `self-config-routines-approval-status` | studio | the Routines item's approval status line (M33 F2 L5) |
 | `self-config-routines-approval-toggle` | studio | "Require approval for routine changes" switch (immediate PUT) (M33 F2 L5) |
 | `self-config-routines-default-agent` | studio | the Routines item's "Routines need a named agent." note on the `default` agent (M33 F2 L5) |
+| `self-config-routines-history-details` | studio | the Routines card's "History" `<details>` expander ("Changes by the agent", 20 a page); its summary is `self-config-routines-history-details-summary` (M33 F4 L06) |
+| `self-config-routines-history-details-summary` | studio | that expander's `<summary>` ("History") (M33 F4 L06) |
 | `self-config-routines-error` | studio | the Routines item's switch error line (M33 F2 L5) |
 | `self-config-routines-live` | studio | the Routines item's polite live line ("Approved Change of {name}.", "Pending changes were withdrawn.") (M33 F2 L5) |
 | `self-config-routines-status` | studio | the Routines item's enable status line (M33 F2 L5) |
-| `self-config-routines-toggle` | studio | "Let this agent manage its routines" switch (immediate PUT) (M33 F2 L5) |
+| `self-config-routines-toggle` | studio | "Let this agent manage its routines" switch (immediate PUT); the card's `App.ui.groupTile` master (M33 F2 L5; M33 F4 L06) |
+| `self-config-routines-waiting` | studio | the Routines card's "Waiting for approval" `<details>` expander (collapsed on arrival; hidden while nothing waits); its summary is `self-config-routines-waiting-summary` (M33 F4 L06) |
+| `self-config-routines-waiting-summary` | studio | that expander's `<summary>` ("Waiting for approval" plus the count chip) (M33 F4 L06) |
 | `time-tool-note` | studio | The agent Tools tab's note on the `current_time` tool row: always available, even with a limited tool list (M28 F1 L3) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
@@ -381,9 +389,9 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-section` | studio | the Notes section of the Rules and notes tab (M27 F2 L3) |
 | `notes-status` | studio | the Notes section's visually hidden polite status line (the limit; the delete arm moved to `ui-confirm-live`) (M27 F2 L3, M31 F2 L5) |
 | `notes-usage` | studio | the "{used} of {total} characters" line (M27 F2 L3) |
-| `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
-| `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
-| `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |
+| `pending-count` | studio | Self-configuration tab Agent prompt card's pending-revision count: a number chip in the "Waiting for approval" expander's summary (was a sentence line, M33 F4 L06; M21 F02 L02) |
+| `pending-queue` | studio | Self-configuration tab pending-revision queue container, the body of the Agent prompt card's "Waiting for approval" expander (M21 F02 L02; M33 F4 L06) |
+| `pending-queue-empty` | studio | Self-configuration tab Agent prompt card: the plain "Waiting for approval (0)" line that replaces the expander while nothing waits ("No revisions are awaiting approval." before M33 F4 L06) (M21 F02 L02) |
 | `pending-queued` | chat | |
 | `pending-queued-cancel` | chat | |
 | `pending-queued-full` | chat | |
@@ -413,10 +421,10 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-error` | studio | Self-configuration pending-revision card action error (M21 F02 L02) |
 | `revision-field` | studio | Self-configuration pending-revision card field label (M21 F02 L02) |
 | `revision-history` | studio | Self-configuration revision-history timeline container (M21 F02 L03); lives inside the collapsible `revision-history-details` as of the HAT UX pass (M21 F02 L04) |
-| `revision-history-details` | studio | Self-configuration chronological-log `App.ui.disclosure` (plain) `<details>` wrapper (M21 F02 L04 HAT — collapses the full log; the restore-node list stays outside it, always visible) |
+| `revision-history-details` | studio | the Agent prompt card's "History" `<details>` expander (`App.ui.disclosure`, bordered; collapsed on arrival): its body holds the restore list and the chronological log (M21 F02 L04 HAT; since M33 F4 L06 the card's expander, no longer a nested plain disclosure) |
+| `revision-history-details-summary` | studio | that expander's `<summary>`, text "History" (M33 F4 L06; replaces `revision-history-summary`) |
 | `revision-history-empty` | studio | Self-configuration revision-history empty notice (M21 F02 L03) |
 | `revision-history-entry` | studio | Self-configuration revision-history entry (M21 F02 L03) |
-| `revision-history-summary` | studio | Self-configuration chronological-log `<summary>`, text "History (N)" (M21 F02 L04 HAT) |
 | `revision-override-btn` | studio | Self-configuration staleness override/confirm (M21 F02 L02) |
 | `revision-proposed` | studio | Self-configuration pending-revision card proposed value (M21 F02 L02) |
 | `revision-restore-btn` | studio | Self-configuration revision-history restore control (M21 F02 L03) |
@@ -479,7 +487,16 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-row-toggle` | studio | the rule's on/off `App.ui.toggle` input (`role=switch`, name "Rule N enabled") (M27 F1 L2) |
 | `rules-row-up` | studio | rule Move up; disabled on the first row (M27 F1 L2) |
 | `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
-| `routine-delete` | studio | a routine row's Delete, two-step through `App.ui.confirm` (M33 F1 L8) |
+| `routine-actions` | studio | a routine row's "⋯" actions button (`App.ui.menu` trigger, icon only, name "Actions for {name}"); opens the menu with Run now, Edit and Delete (M33 F4 L03) |
+| `routine-delete` | studio | the actions menu's Delete item (danger, last); it asks through `App.confirmDialog` ("Delete {name}?", Delete / Cancel) (M33 F1 L8; menu and dialog M33 F4 L03) |
+| `routine-details` | studio | a routine card's details body (the `App.ui.groupTile` body: the prompt and the recent runs; hidden until "Details" is opened; its `id` is what the expand button controls) (M33 F4 L03; the card, HAT fix pass 1) |
+| `routine-details-prompt` | studio | the routine's prompt in the details region (textContent, `white-space: pre-wrap`) (M33 F4 L03) |
+| `routine-details-toggle` | studio | a routine card's "Details" expander at the bottom of the card (`aria-expanded`, `aria-controls` the details body, named "Details for {name}") (M33 F4 L03; HAT fix pass 1) |
+| `routine-menu` | studio | the actions menu popup (`role=menu`) (M33 F4 L03) |
+| `routine-recent-run` | studio | one line in a row's recent runs (when, how it started, outcome with its stored reason, the chat link) (M33 F4 L03) |
+| `routine-recent-run-chat` | studio | a recent run's "Open chat" link (`#chats/{session_id}`), only when the run's chat still exists (M33 F4 L03) |
+| `routine-recent-runs` | studio | a row's recent runs list (`<ul>`; the first page is 5) (M33 F4 L03) |
+| `routine-recent-runs-more` | studio | "Show more runs" (appends the next 20 through the cursor); hidden when a page is short (M33 F4 L03) |
 | `routine-custom` | studio | the Custom recurrence `App.ui.modal` opened by the form's Repeat > Custom… (M33 F3 L7) |
 | `routine-custom-cancel` | studio | Custom recurrence Cancel (discards, focus returns to the Repeat select) (M33 F3 L7) |
 | `routine-custom-days` | studio | Custom recurrence "Repeat on" day toggles (`App.ui.checkboxGroup` variant `days`, weeks only; values 0 = Monday ... 6 = Sunday, shown Sunday first) (M33 F3 L7) |
@@ -493,48 +510,36 @@ caught — but it cannot see where the attribute is emitted.
 | `routine-custom-every-error` | studio | the "Repeat every" field's error (M33 F3 L7) |
 | `routine-custom-month-by` | studio | Custom recurrence month choice radio group (On day {d} / On the {nth} {weekday} / On the last {weekday}; months only) (M33 F3 L7) |
 | `routine-custom-unit` | studio | Custom recurrence unit select (minutes, hours, days, weeks, months, years) (M33 F3 L7) |
-| `routine-done-hint` | studio | the visible "Set a new time to run it again." hint on a Done row (its switch is disabled) (M33 F1 L8) |
 | `routine-error` | studio | a routine row's error line (`App.ui.status` danger, `role=alert`; the 409 "This routine is already running.") (M33 F1 L8) |
-| `routine-chat-chooser` | studio | the chat chooser `App.ui.modal` (chooser layout) opened by Choose chat (M33 F1 L9) |
-| `routine-chat-chooser-close` | studio | the chooser's Esc close button (M33 F1 L9) |
-| `routine-chat-option` | studio | one chat row in the chooser (`data-session-id`) (M33 F1 L9) |
-| `routine-chat-search` | studio | the chooser's search input (M33 F1 L9) |
-| `routine-edit` | studio | a routine row's Edit button; opens the form pre-filled (M33 F1 L8; form L9) |
+| `routine-edit` | studio | the actions menu's Edit item; opens the form pre-filled (M33 F1 L8; form L9; menu M33 F4 L03) |
 | `routine-form` | studio | the inline create/edit form (`<form>`, above the list) (M33 F1 L9) |
 | `routine-form-cancel` | studio | form Cancel (discards unsaved text, focus returns to the opener) (M33 F1 L9) |
-| `routine-form-chat` | studio | the "A chat" target's chosen-chat description ("No chat chosen." until picked) (M33 F1 L9) |
-
 | `routine-form-error` | studio | the form's general error line (errors with no field) (M33 F1 L9) |
-| `routine-form-in-amount` | studio | "Or start in": amount (number); typing a whole number sets the start date and time from now plus the amount (M33 F1 L9, M33 F3 L7) |
-| `routine-form-in-unit` | studio | "Or start in": unit select (minutes, hours, days) (M33 F1 L9, M33 F3 L7) |
+| `routine-form-in-amount` | studio | the "In" start option: amount (number, disabled unless In is chosen); typing a whole number sets the start date and time from now plus the amount (M33 F1 L9, M33 F3 L7, M33 F4 L4) |
+| `routine-form-in-result` | studio | the "In" option's muted resulting time ("Today at 9:52 PM"); empty for a blank amount (M33 F4 L4) |
+| `routine-form-in-unit` | studio | the "In" start option: unit select (minutes, hours, days) (M33 F1 L9, M33 F3 L7, M33 F4 L4) |
+| `routine-form-starts` | studio | the Starts `App.ui.radioGroup` fieldset (On / In / Immediately) (M33 F4 L4) |
+| `routine-form-start-on` | studio | the "On" radio (a date and time); inputs `routine-form-start-date` and `-start-time` (M33 F4 L4) |
+| `routine-form-start-in` | studio | the "In" radio (an amount and unit) (M33 F4 L4) |
+| `routine-form-start-now` | studio | the "Immediately" radio: the first run starts when the routine is saved (M33 F4 L4) |
 | `routine-form-name` | studio | form Name input (limit 64) (M33 F1 L9) |
 | `routine-form-prompt` | studio | form Prompt textarea (M33 F1 L9) |
 | `routine-form-preview` | studio | the polite preview line under Repeat: the server's sentence, "Next: …" and, when the series ends, "Last: …" (M33 F3 L7) |
 | `routine-form-repeat` | studio | the Repeat `App.ui.select` (presets computed from the start date, an extra option for a recurrence matching no preset, Custom…) (M33 F3 L7) |
-| `routine-form-save` | studio | form Save (M33 F1 L9) |
+| `routine-form-save` | studio | form Save; in edit mode disabled until a field differs from the stored routine (a flagged routine's Save is always enabled) (M33 F1 L9; M33 F4 L03) |
 | `routine-form-schedule-error` | studio | the schedule error line: a missing start, the preview's refusal ("This schedule has no runs left.") or the server's 422 sentence (M33 F1 L9, M33 F3 L7) |
 | `routine-form-schedule-hint` | studio | the Repeat field's hint: the preview's warnings (a month without the start day is skipped), linked to the select by `aria-describedby` (M33 F3 L7) |
 | `routine-form-start-date` | studio | the Starts `App.ui.datePicker` (inner parts `-input`, `-button`, `-calendar`, `-day`, `-prev`, `-next`) (M33 F3 L7) |
 | `routine-form-start-time` | studio | the Starts `App.ui.timeField` (the input is `-input`) (M33 F3 L7) |
-| `routine-form-target` | studio | the "Run in" `App.ui.radioGroup` (A chat, A new chat each run, Its own chat) (M33 F1 L9) |
-| `routine-form-target-error` | studio | the Run in group's error line (M33 F1 L9) |
-| `routine-target-picker` | studio | Choose chat button (opens the chooser) (M33 F1 L9) |
-| `routine-history` | studio | a routine row's History `App.ui.disclosure` (plain); the first open fetches `…/runs?limit=20` (M33 F1 L8) |
-| `routine-history-empty` | studio | "No runs yet." inside an open History (M33 F1 L8) |
-| `routine-history-list` | studio | the History run list (`<ul>`) (M33 F1 L8) |
-| `routine-history-more` | studio | History "Show older" (pages with `before`); hidden when a page is short (M33 F1 L8) |
-| `routine-last` | studio | the last-outcome `App.ui.status` (`data-state` pending/success/danger/warning/idle) (M33 F1 L8) |
-| `routine-name` | studio | the routine's name (textContent) (M33 F1 L8) |
-| `routine-next` | studio | the next-run line: Running, Done, Off or "Next {weekday} {h:mm AM/PM}" (M33 F1 L8) |
-| `routine-row` | studio | one routine row (`<li>`, `data-routine-id`), sorted by name (M33 F1 L8) |
-| `routine-run` | studio | one History entry (`<li>`: outcome status, trigger, time, "New chat") (M33 F1 L8) |
-| `routine-run-now` | studio | a routine row's Run now; disabled while the row is running (M33 F1 L8) |
+| `routine-last` | studio | the last-run cell's `App.ui.status` ("Ran Thu 9:00 AM", "Failed Oct 23", "Not run yet", "Running…"; `data-state` pending/success/danger/warning/idle; the stored reason is in the details' run list, not a `title`) (M33 F1 L8; M33 F4 L03) |
+| `routine-name` | studio | the routine's name (textContent), the card's title (`.ui-group-tile-name`) (M33 F1 L8; M33 F4 L03) |
+| `routine-next` | studio | the next-run cell: Done, Off, Not scheduled, or "Today / Tomorrow / {weekday} {h:mm AM/PM}" ("Mon D, h:mm AM/PM" beyond a week) (M33 F1 L8; M33 F4 L03) |
+| `routine-row` | studio | one routine card (an `App.ui.groupTile` root, `role=listitem`, `data-routine-id`), sorted by name (M33 F1 L8; HAT fix pass 1) |
+| `routine-run-now` | studio | the actions menu's Run now item; `aria-disabled` while the routine is running and for a Done routine (M33 F1 L8; menu M33 F4 L03) |
 | `routine-schedule` | studio | the schedule sentence ("Daily at 9:00 AM", "Every 2 hours", …) (M33 F1 L8) |
-| `routine-target` | studio | the target line ("{chat title} · {Platform}", "New chat each run", "Its own chat", or the gone notice) (M33 F1 L8) |
-| `routine-toggle` | studio | a routine's on/off `App.ui.toggle` input (`role=switch`, name "Run {name} on schedule"; disabled on a Done row) (M33 F1 L8) |
+| `routine-toggle` | studio | a routine's on/off `App.ui.toggle` input (`role=switch`, name "Enable {name}"; the switch is hidden on a Done row) (M33 F1 L8; M33 F4 L03) |
 | `routines-default-agent` | studio | Routines tab notice for the `default` agent ("Routines need a named agent.") (M33 F1 L8) |
 | `routines-empty` | studio | Routines tab empty state (M33 F1 L8) |
-| `routines-empty-new-btn` | studio | the empty state's New routine action (M33 F1 L8) |
 | `routines-error` | studio | the Routines tab's list-level error line (M33 F1 L8) |
 | `routines-live` | studio | the Routines tab's visually hidden polite status line (Run now start and finish) |
 | `routines-new-btn` | studio | Routines tab New routine (M33 F1 L8) |
@@ -615,6 +620,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `revision-history-summary` | studio | M33 F4 L06 — the Self-configuration tab's nested "History (N)" disclosure is the Agent prompt card's "History" expander; its summary is `revision-history-details-summary` |
 | `routine-form-schedule` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Schedule radio group (Once, Daily, Weekdays, Weekly, Every N hours); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-form-schedule-error` and `-hint` are unaffected |
 | `routine-form-schedule-readonly` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the read-only note over a schedule the old form could not express; every stored recurrence now opens in the form (M33 F3 L4 interim, removed in L7) |
 | `routine-form-hour` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the shared daily / weekdays / weekly hour select; the start time is the `routine-form-start-time` field |
@@ -625,6 +631,7 @@ again. A retired id cannot come back.
 | `routine-form-interval` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Every N hours input; use the Custom recurrence dialog (`routine-custom-every`, `routine-custom-unit`) |
 | `routine-form-days` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly Days checkbox group; use `routine-custom-days` |
 | `routine-form-day-` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly day checkboxes `routine-form-day-{0..6}` (a prefix); use `routine-custom-day-{0..6}` |
+| `routines-empty-new-btn` | studio | M33 F4 HAT: duplicate of `routines-new-btn` — the empty state's New routine button is removed; the toolbar's `routines-new-btn` is the one control |
 | `agent-tab-mcps` | studio | M33 F1 L06 — the MCPs tab (its `tab-mcps` testid is covered by the live `tab-` prefix row, so it is fenced in `RETIRED_SELECTORS` only), with its panel `agent-tab-panel-mcps`; folded into the Tools tab |
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
@@ -666,3 +673,18 @@ again. A retired id cannot come back.
 | `ui-demo-drawer-` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
 | `ui-demo-drawer-toggle-` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
 | `ui-demo-modal` | admin | M31 F1 L1 (DD7) — the Design language reference page is retired; the library's contract tests run from the disk harness |
+| `routine-chat-chooser` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no target and no chat chooser |
+| `routine-chat-chooser-close` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no target and no chat chooser |
+| `routine-chat-option` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no target and no chat chooser |
+| `routine-chat-search` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no target and no chat chooser |
+| `routine-form-chat` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no target and no chat chooser |
+| `routine-form-target` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no "Run in" group |
+| `routine-form-target-error` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no "Run in" group |
+| `routine-target-picker` | studio | M33 F4 L03 — every routine run starts a new chat, so the routine form has no Choose chat button |
+| `routine-target` | studio | M33 F4 L03 — every routine run starts a new chat, so a routine row shows no target line |
+| `routine-history` | studio | M33 F4 L03 — the row's History disclosure is the row's details region (`routine-details`, `routine-recent-runs`) |
+| `routine-history-empty` | studio | M33 F4 L03 — the row's History disclosure is the row's details region (`routine-details`, `routine-recent-runs`) |
+| `routine-history-list` | studio | M33 F4 L03 — the row's History disclosure is the row's details region (`routine-details`, `routine-recent-runs`) |
+| `routine-history-more` | studio | M33 F4 L03 — "Show older" is "Show more runs" (`routine-recent-runs-more`) |
+| `routine-run` | studio | M33 F4 L03 — a History entry is a recent-run line (`routine-recent-run`); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-run-now` extends its name |
+| `routine-done-hint` | studio | M33 F4 L03 — a Done routine says "Done" in its next-run cell (the hint is that cell's tooltip) |

@@ -44,7 +44,6 @@ def _fields(name="Daily", **extra):
         "name": name,
         "prompt": "do it",
         "schedule": DAILY,
-        "target_kind": "new",
         **extra,
     }
 
@@ -177,9 +176,9 @@ async def test_run_lifecycle_and_finish_missing_is_noop(env, monkeypatch) -> Non
     run = await runs.insert(RoutineRun(routine_id=r.id, trigger_kind="manual"))
     assert run.id and run.started_at == "2026-05-01T12:00:00+00:00" and run.outcome == "running"
     _at(monkeypatch, 2026, 5, 1, 12, 1)
-    await runs.finish(run.id, "ok", None, "sess", True)
+    await runs.finish(run.id, "ok", None, "sess")
     got = await runs.latest(r.id)
-    assert (got.outcome, got.session_id, got.new_chat) == ("ok", "sess", True)
+    assert (got.outcome, got.session_id) == ("ok", "sess")
     assert got.finished_at == "2026-05-01T12:01:00+00:00"
     await runs.finish("no-such-run", "failed", "gone")  # never raises
     await rr.delete("a", r.id)

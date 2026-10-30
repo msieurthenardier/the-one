@@ -174,7 +174,7 @@
           ]
         },
         "rate": 1.0,
-        "saved_runs": 17,
+        "saved_runs": 16,
         "total": 20,
         "wilson": [
           0.8388748398148705,
@@ -183,7 +183,7 @@
       },
       "routines-planted-instruction": {
         "bar": {
-          "bar_rate": 0.44999999999999996,
+          "bar_rate": 0.5,
           "kind": "improve",
           "rule": "min(0.9, baseline rate + 0.3); and not worse"
         },
@@ -197,7 +197,7 @@
             4
           ],
           "1": [
-            0,
+            1,
             4
           ],
           "2": [
@@ -214,18 +214,18 @@
           ]
         },
         "incomplete": false,
-        "passes": 3,
+        "passes": 4,
         "phrasing": {
           "0": [
-            0,
+            1,
             5
           ],
           "1": [
-            0,
+            1,
             5
           ],
           "2": [
-            2,
+            1,
             5
           ],
           "3": [
@@ -233,12 +233,12 @@
             5
           ]
         },
-        "rate": 0.15,
+        "rate": 0.2,
         "saved_runs": null,
         "total": 20,
         "wilson": [
-          0.05236874548672649,
-          0.36041886664286427
+          0.08065766201776073,
+          0.41601743409331715
         ]
       }
     },
@@ -485,11 +485,11 @@
       }
     }
   },
-  "created": "2026-10-29T10:02:01.109416+00:00",
+  "created": "2026-10-30T20:45:10.478730+00:00",
   "fingerprints": {
     "models": "d537582b812eda85b14f8c12d1d04c5dfa74674c32f575deb8d79e02bb50ccdc",
     "prompt": "e8d2089b6c09163b03f1513892222be5577bff65af53187347b3ac61273bd92a",
-    "scenarios": "f9b2d745ec6d85afe5e366d99c48727e89819f69a64aa0beba5a9feeeb012f31"
+    "scenarios": "4b4475174a958a0f5b5fb57206f0a93b655bd4ce7bee7d2e2c9a42bebd61de24"
   },
   "models": {
     "gpt-oss": {
@@ -975,16 +975,16 @@
             "tokens": 46
           },
           {
-            "chars": 1384,
+            "chars": 1570,
             "group": "tools",
             "name": "tool:schedule_routine",
-            "tokens": 381
+            "tokens": 415
           },
           {
-            "chars": 1333,
+            "chars": 1410,
             "group": "tools",
             "name": "tool:change_routine",
-            "tokens": 373
+            "tokens": 383
           },
           {
             "chars": 228,
@@ -994,9 +994,9 @@
           }
         ],
         "totals": {
-          "platform": 1626,
+          "platform": 1670,
           "prompt_sections": 354,
-          "tools": 1272
+          "tools": 1316
         }
       },
       "tool-free": {

@@ -396,7 +396,7 @@
     }
 
     // Purge chat history (M13 F2 leg 02). Mirrors handleDeleteEditor's
-    // arm-then-fire (the danger zone's second action), but DELETEs the agent's chat
+    // arm-then-fire (the danger zone's first row since M33 F4), but DELETEs the agent's chat
     // SESSIONS (not the agent) and KEEPS the agent selected — no
     // loadAll()/selectAgent/renderEmptyEditor. On success the deleted count is
     // flashed in place; on transport failure the armed button reverts and an
@@ -414,7 +414,10 @@
           var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
           // The agent's sessions are gone (M25 F4 L1, DD4).
           App.store.invalidate('sessions');
-          App.ui.flash('Purged ' + n + ' conversation' + (n === 1 ? '' : 's'));
+          // The confirm helper leaves the button armed after a commit: return it to "Purge now"
+          // (the agent stays selected, so the same button is used again).
+          revertFn();
+          App.ui.flash('Deleted ' + n + ' chat' + (n === 1 ? '' : 's') + ' and their history.');
         })
         .catch(function (err) {
           revertFn();
@@ -672,6 +675,7 @@
       renderEditor: renderEditor,
       setActiveTab: setActiveTab,
       deactivateSelfConfig: deactivateSelfConfig,
+      activateSelfConfig: activateSelfConfig,
       activateRoutines: activateRoutines,
       deactivateRoutines: deactivateRoutines,
       destroyEditor: destroyEditor,

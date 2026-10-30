@@ -34,11 +34,16 @@ SCORING_DIGESTS = {
     # Mission 33 F2 L4: checks.py gains the routine checks, harness.py the routines_enabled setup
     # (additive; the scenarios under evals/scenarios/ and their scoring are unchanged).
     # Mission 33 F3 L4: harness.py maps the stored calendar recurrence back to the kind name
-    # the routine checks read (`_legacy_kind`); the scenarios and their scoring are unchanged.
-    "checks.py": "80f81a667434c7e93e9eff6c0be6ef04e707e90757218a14603319bc5f7bf395",
+    # the routine checks read; the scenarios and their scoring are unchanged.
+    # Mission 33 F4 L07: that helper is renamed `_schedule_class` (an output classification, not
+    # input support); no behaviour change.
+    # Mission 33 F4 L02: routines lose their target, so checks.py drops the `target` param and
+    # RoutineView/RunTrace target fields, and harness.py drops the chat-row setup and target copies
+    # (routine scenarios only; the evals/scenarios/ scoring is unchanged).
+    "checks.py": "bc1c762076de52210bd99007d785d6e0dda01ef954092b06446a084f00f52733",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "31c1390e427c82d4ed240e65d714d75fd231b0a54444e1df16e667c850cb8fde",
+    "harness.py": "0da8f0b411a32800c60503eeabb5a9ce95bfa1c90674109982b36af74293b055",
 }
 MEASURE_DIGESTS = {
     "all-on.toml": "b5a2276d0717896ec1103ba7a2a1e6f2f2927672b27249543818439e1d35f8db",

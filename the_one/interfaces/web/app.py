@@ -48,7 +48,6 @@ from the_one.agent.factory import (
 from the_one.agent.platform_prompt import platform_sections_for_ui
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
-from the_one.connectors.delivery import DeliveryResult, deliver_final_reply, send_step_limit_line
 from the_one.connectors.manager import ConnectorManager
 from the_one.connectors.manager import set_manager as _set_module_connector_manager
 from the_one.db import _session_changes as _db_session_changes
@@ -1775,6 +1774,16 @@ async def _restore_session(session_id: str) -> RestoredSession:
     ui_events = messages_to_ui_events(messages)
 
     async with _sessions_lock:
+        # F-H1-1: the in-flight check above ran BEFORE `factory.create` awaited. A turn
+        # (a startup catch-up routine run, restoring at the same time as a browser join)
+        # may have been spawned meanwhile; swapping the agent now would replace the
+        # one the turn is writing to, and its save would persist a bare system prompt.
+        racing = _sessions.get(session_id)
+        if racing is not None and (
+            is_session_processing(session_id) or bool(_session_inflight.get(session_id))
+        ):
+            racing.last_activity = time.monotonic()
+            return RestoredSession(racing, SESSION_STATUS_OK, db_session)
         if session_id in _sessions:
             # Update existing Session in place — keeps identity. Subscribers
             # live in the neutral session registry keyed by session id, so
@@ -1858,9 +1867,6 @@ async def _get_or_restore_session(session_id: str) -> RestoredSession:
 class _RoutineTurnHost:
     """The runner's window onto this module (M33 F1 L4); keeps ``routines/`` free of
     any import from ``interfaces/``."""
-
-    def peek_session(self, sid: str) -> Session | None:
-        return _sessions.get(sid)
 
     async def get_or_restore(self, sid: str) -> tuple[Session | None, str]:
         restored = await _get_or_restore_session(sid)
@@ -2344,10 +2350,9 @@ async def _process_and_broadcast(
     REST handler holds no session lock, so it must never re-read agent state).
 
     M33 F1 L3 extends it as the routine outcome channel. In: ``routine``
-    (``{id, name, target, connector_id}``; ``target`` a ``SendTarget`` or
-    ``None``). Out (besides ``step_limit``): ``started`` (set by
-    ``_locked_message_processing``), ``error`` (one line), ``paused`` (the MCP
-    server name), ``cancelled`` and ``delivery`` (a ``DeliveryResult``).
+    (``{id, name, untrusted_sources}``). Out (besides ``step_limit``): ``started``
+    (set by ``_locked_message_processing``), ``error`` (one line), ``paused`` (the
+    MCP server name) and ``cancelled``.
     """
     routine = (turn_info or {}).get("routine")
     if not isinstance(routine, dict):
@@ -2416,9 +2421,6 @@ async def _process_and_broadcast(
     chunks_seen = False
     paused = False
     hit_step_limit = False
-    # M33 F1 L3: True only when the step loop ended with no exception, pause
-    # or cancel; the one condition under which a routine reply is delivered.
-    step_clean = True
     # F5 L02: per-turn discriminator. Set when an ASSISTANT message with
     # tool_calls arrives; reused for the subsequent Role.TOOL messages
     # (including the auth_required pause path) until the next assistant
@@ -2656,7 +2658,6 @@ async def _process_and_broadcast(
                     event["parent_message_id"] = current_turn_parent_id
                     await _send_to_session(session, event)
                     paused = True
-                    step_clean = False
                     if turn_info is not None:
                         turn_info["paused"] = (
                             event.get("source_name") or event.get("source_id") or "an MCP server"
@@ -2733,7 +2734,6 @@ async def _process_and_broadcast(
         # `agent.step` (e.g. a provider 4xx) would propagate up and crash the
         # WS handler before the closing `done` event fires.
         logger.exception("Agent step failed for session %s", session.id)
-        step_clean = False
         if turn_info is not None:
             turn_info["error"] = str(exc)[:200]
         await _send_to_session(
@@ -2752,36 +2752,6 @@ async def _process_and_broadcast(
     # The helper SKIPS USER messages; it binds the operator mark (connector
     # chat) and the routine marker onto the typed message at pre_step_len.
     _bind_turn_user_marks(session, pre_step_len, routine)
-
-    # M33 F1 L3: deliver a routine's final reply, only after a clean step on a
-    # connector chat with a resolved target. Cancel-safe: a cancel during the
-    # send saves, notifies once and re-raises, like a step-loop cancel.
-    delivery_result: DeliveryResult | None = None
-    if (
-        routine is not None
-        and step_clean
-        and session.platform is not None
-        and routine.get("target") is not None
-    ):
-        try:
-            if _connector_manager is None:
-                delivery_result = DeliveryResult("no_client")
-            else:
-                delivery_result = await deliver_final_reply(
-                    session.agent.messages,
-                    pre_step_len,
-                    routine["target"],
-                    routine.get("connector_id"),
-                    _connector_manager,
-                )
-        except asyncio.CancelledError:
-            await _save_and_notify_cancel()
-            raise
-        except Exception as exc:
-            logger.exception("Routine delivery failed for session %s", session.id)
-            delivery_result = DeliveryResult("send_failed", f"{type(exc).__name__}: {exc}"[:200])
-        if turn_info is not None:
-            turn_info["delivery"] = delivery_result
 
     # Save to DB after each complete exchange
     try:
@@ -2825,16 +2795,6 @@ async def _process_and_broadcast(
                 session, {"type": "step_limit", "steps": session.agent.max_iterations}
             )
         await _send_to_session(session, {"type": "done"})
-    if (
-        hit_step_limit
-        and delivery_result is not None
-        and delivery_result.status in ("delivered", "already_sent")
-        and routine is not None
-        and _connector_manager is not None
-    ):
-        await send_step_limit_line(
-            routine["target"], routine.get("connector_id"), _connector_manager
-        )
     if turn_info is not None:
         turn_info["step_limit"] = hit_step_limit
     return result_messages

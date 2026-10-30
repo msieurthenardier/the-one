@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 48
+CURRENT_VERSION = 49
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -351,6 +351,85 @@ async def _v48_rewrite_routines(conn: aiosqlite.Connection) -> None:
                     pid,
                 ),
             )
+
+
+# ── v49 (Mission 33 F4): routines lose their target ───────────────────────
+#
+# Every run starts a new web chat, so the seven target columns of ``agent_routines`` and
+# ``agent_routine_runs.new_chat`` are dropped, and every proposal loses its target. Frozen
+# like v48: it reads no live routine code, so a later change never changes what v49 did.
+
+_V49_ROUTINE_COLUMNS = (
+    "target_kind",
+    "target_session_id",
+    "target_platform",
+    "target_connector_id",
+    "target_channel_id",
+    "target_thread_id",
+    "target_peer_id",
+)
+_V49_BASE_KEYS = ("target_kind", "target_session_id")
+
+
+async def _v49_drop_columns(conn: aiosqlite.Connection) -> None:
+    """Guarded ``DROP COLUMN``s (the v38 idiom); absent tables are a no-op."""
+    async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+        routine_cols = {row[1] for row in await cur.fetchall()}
+    for col in _V49_ROUTINE_COLUMNS:
+        if col in routine_cols:
+            await conn.execute(f"ALTER TABLE agent_routines DROP COLUMN {col}")
+    async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+        run_cols = {row[1] for row in await cur.fetchall()}
+    if "new_chat" in run_cols:
+        await conn.execute("ALTER TABLE agent_routine_runs DROP COLUMN new_chat")
+
+
+async def _v49_strip_proposals(conn: aiosqlite.Connection) -> None:
+    """Remove the target from every proposal's payload and base. A pending ``update``
+    left with an empty payload had only a target to change, so it is ``superseded``.
+    A row whose JSON cannot be read is left as it is."""
+    from the_one import time_zones
+
+    async with conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = 'agent_routine_proposals'"
+    ) as cur:
+        if await cur.fetchone() is None:
+            return
+    async with conn.execute(
+        "SELECT id, action, status, payload, base FROM agent_routine_proposals"
+    ) as cur:
+        rows = await cur.fetchall()
+    now_iso = time_zones.utcnow().isoformat()
+    for pid, action, status, raw_payload, raw_base in rows:
+        try:
+            payload = json.loads(raw_payload)
+            base = json.loads(raw_base) if raw_base is not None else None
+        except (TypeError, ValueError):
+            logger.warning("v49: proposal %s has unreadable JSON; left untouched", pid)
+            continue
+        changed = False
+        if isinstance(payload, dict) and "target" in payload:
+            del payload["target"]
+            changed = True
+        if isinstance(base, dict):
+            for key in _V49_BASE_KEYS:
+                if key in base:
+                    del base[key]
+                    changed = True
+        if not changed:
+            continue
+        supersede = action == "update" and status == "pending" and not payload
+        await conn.execute(
+            "UPDATE agent_routine_proposals SET payload = ?, base = ?, status = ?, "
+            "resolved_at = COALESCE(?, resolved_at) WHERE id = ?",
+            (
+                json.dumps(payload, sort_keys=True),
+                json.dumps(base, sort_keys=True) if base is not None else None,
+                "superseded" if supersede else status,
+                now_iso if supersede else None,
+                pid,
+            ),
+        )
 
 
 async def _get_version(conn: aiosqlite.Connection) -> int:
@@ -3172,3 +3251,13 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (48,))
         await conn.commit()
         version = 48
+
+    if version < 49:
+        # Mission 33 Flight 4 — every routine run starts a new chat, so the routine target
+        # (seven `agent_routines` columns) and `agent_routine_runs.new_chat` are dropped
+        # and every proposal loses its target, by the frozen helpers above. Idempotent.
+        await _v49_drop_columns(conn)
+        await _v49_strip_proposals(conn)
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (49,))
+        await conn.commit()
+        version = 49

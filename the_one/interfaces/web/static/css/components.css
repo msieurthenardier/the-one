@@ -1510,6 +1510,15 @@
   /* Several actions (App.ui.dangerZone actions, M31 F2 L4) sit side by side. */
   .danger-zone .delete-btn + .delete-btn { margin-left: var(--space-2); }
   .danger-zone-title { color: var(--status-danger); }
+  /* Opt-in rows (an action with a heading / description): stacked, text left, button right. */
+  .danger-zone-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-4, 16px); flex-wrap: wrap; padding: 12px 0;
+  }
+  .danger-zone-row + .danger-zone-row { border-top: 1px solid var(--border); }
+  .danger-zone-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 280px; min-width: 0; }
+  .danger-zone-row-heading { font-weight: var(--font-weight-semibold); color: var(--fg); }
+  .danger-zone-row-desc { font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
   /* D3: the rule is decorative, so it takes the danger colour too. */
   .danger-zone-title::after { background: var(--status-danger); }
 

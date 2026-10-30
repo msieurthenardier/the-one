@@ -9,8 +9,7 @@
 //     mode,                a Repeat preset key (PRESET_KEYS) or 'current'
 //     repeat, ends,        the recurrence held when mode is 'current' (a Custom result or an
 //                          existing routine that matches no preset); ignored for a preset
-//     currentLabel,        the sentence shown for mode 'current'
-//     targetKind 'chat'|'new'|'own', chatId, chatLabel }
+//     currentLabel }       the sentence shown for mode 'current'
 // A preset is stored as a KEY, not a value, so it keeps its meaning when the start date moves
 // ("Weekly on Thursday" follows the new weekday, as Google Calendar does).
 (function () {
@@ -182,9 +181,12 @@
   }
 
   // Now plus an amount, rounded up to the minute, as {date, time} in the operator zone.
-  function startFromIn(nowMs, amount, unit, zoneParts) {
+  function instantFromIn(nowMs, amount, unit) {
     var ms = unit === 'minutes' ? 60000 : unit === 'hours' ? 3600000 : 86400000;
-    var t = Math.ceil((nowMs + amount * ms) / 60000) * 60000;
+    return Math.ceil((nowMs + amount * ms) / 60000) * 60000;
+  }
+  function startFromIn(nowMs, amount, unit, zoneParts) {
+    var t = instantFromIn(nowMs, amount, unit);
     var q = zoneParts(new Date(t));
     return { date: isoOf(q.year, q.month, q.day), time: pad2(q.hour) + ':' + pad2(q.minute) };
   }
@@ -195,26 +197,24 @@
     var st = defaultStart(nowMs, zoneParts);
     return {
       name: '', prompt: '', startDate: st.date, startTime: st.time,
-      mode: 'none', repeat: null, ends: { kind: 'never' }, currentLabel: '',
-      targetKind: 'new', chatId: null, chatLabel: ''
+      startMode: 'on', mode: 'none', repeat: null, ends: { kind: 'never' }, currentLabel: ''
     };
   }
 
-  // The schedule part of a request body for the form state: always the canonical shape.
+  // The schedule part of a request body for the form state: always the canonical shape,
+  // except an "Immediately" start, which is the server's now-start {now: true} (M33 F4 L4).
+  // `startMode` is 'on' (the date and time), 'in' (a quick fill of them) or 'now'; the date
+  // and time are sent for 'on' and 'in' alike. While 'now' is chosen they hold the current
+  // time, so the presets and the Custom dialog still have a start date to work from.
   function scheduleBody(s) {
     return {
-      start: { date: s.startDate, time: s.startTime },
+      start: s.startMode === 'now' ? { now: true } : { date: s.startDate, time: s.startTime },
       repeat: effectiveRepeat(s),
       ends: effectiveEnds(s)
     };
   }
 
-  function targetBody(s) {
-    if (s.targetKind === 'chat') return { kind: 'chat', session_id: s.chatId };
-    return { kind: s.targetKind };
-  }
-
-  // The request body. Create sends name, prompt, schedule and target. Edit sends only what
+  // The request body. Create sends name, prompt and schedule. Edit sends only what
   // changed against `initial` (the state the form opened with): a changed-then-reverted
   // field counts as untouched, so a stored schedule is never re-sent unchanged.
   function formToBody(state, ctx) {
@@ -223,7 +223,7 @@
     var name = String(state.name || '').trim();
     var prompt = String(state.prompt || '').trim();
     if (mode !== 'edit' || !initial) {
-      return { name: name, prompt: prompt, schedule: scheduleBody(state), target: targetBody(state) };
+      return { name: name, prompt: prompt, schedule: scheduleBody(state) };
     }
     var body = {};
     if (name !== String(initial.name || '').trim()) body.name = name;
@@ -231,7 +231,6 @@
     // always sent, so the server clears the flag even when the text is unchanged.
     if (ctx.flagged || prompt !== String(initial.prompt || '').trim()) body.prompt = prompt;
     if (!same(scheduleBody(state), scheduleBody(initial))) body.schedule = scheduleBody(state);
-    if (!same(targetBody(state), targetBody(initial))) body.target = targetBody(state);
     return body;
   }
 
@@ -242,20 +241,12 @@
     var rep = cleanRepeat(sch.repeat);
     var ends = cleanEnds(sch.ends);
     var key = matchPreset(rep, ends, start.date);
-    var s = {
+    return {
       name: row.name || '', prompt: row.prompt || '',
-      startDate: start.date || null, startTime: start.time || null,
+      startDate: start.date || null, startTime: start.time || null, startMode: 'on',
       mode: key || 'current', repeat: rep, ends: ends,
-      currentLabel: key ? '' : (row.schedule_text || ''),
-      targetKind: 'new', chatId: null, chatLabel: ''
+      currentLabel: key ? '' : (row.schedule_text || '')
     };
-    var tg = row.target || {};
-    s.targetKind = tg.kind || 'new';
-    if (s.targetKind === 'chat') {
-      s.chatId = tg.session_id || null;
-      s.chatLabel = tg.missing ? 'Chat gone' : (tg.title || 'Untitled chat');
-    }
-    return s;
   }
 
   // Check a Custom recurrence's numbers against the DD1 ranges. `v` is
@@ -298,7 +289,7 @@
   }
 
   // Client-side checks run before a send (the server stays the authority). Returns
-  // {name, prompt, schedule, target} messages; empty object when fine. `ctx` is formToBody's.
+  // {name, prompt, schedule} messages; empty object when fine. `ctx` is formToBody's.
   function precheck(state, ctx, limits) {
     var errors = {};
     var body = formToBody(state, ctx);
@@ -316,9 +307,6 @@
     if (body.schedule) {
       if (!state.startDate) errors.schedule = 'Choose a start date.';
       else if (!state.startTime) errors.schedule = 'Enter a start time like 9:30 AM.';
-    }
-    if (body.target && body.target.kind === 'chat' && !body.target.session_id) {
-      errors.target = 'Pick a chat.';
     }
     return errors;
   }
@@ -347,9 +335,9 @@
     monthByOptions: monthByOptions,
     defaultStart: defaultStart,
     startFromIn: startFromIn,
+    instantFromIn: instantFromIn,
     defaultState: defaultState,
     scheduleBody: scheduleBody,
-    targetBody: targetBody,
     formToBody: formToBody,
     bodyToFormState: bodyToFormState,
     validateCustom: validateCustom,

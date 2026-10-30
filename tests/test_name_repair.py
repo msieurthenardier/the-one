@@ -38,8 +38,8 @@ async def _insert_agent_children(conn, agent: str) -> None:
         (agent,),
     )
     await conn.execute(
-        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, target_kind, "
-        "created_at, updated_at) VALUES ('rt1', ?, 'daily', 'p', '{}', 'new', 't', 't')",
+        "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, "
+        "created_at, updated_at) VALUES ('rt1', ?, 'daily', 'p', '{}', 't', 't')",
         (agent,),
     )
     await conn.execute(

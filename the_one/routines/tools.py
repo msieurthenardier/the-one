@@ -31,7 +31,7 @@ from the_one.agent.tool_names import (
 )
 from the_one.naming import NameRuleError
 from the_one.routines import service
-from the_one.routines.describe import describe_next, describe_target, schedule_sentence
+from the_one.routines.describe import describe_next, schedule_sentence
 from the_one.routines.limits import (
     AGENT_ROUTINE_WRITES_PER_TURN,
     ROUTINES_ACTIVE_MAX,
@@ -52,9 +52,7 @@ NO_TURN_REFUSAL = "Routine changes need a chat turn."
 BUDGET_REFUSAL = (
     f"Routine change limit for this turn reached ({AGENT_ROUTINE_WRITES_PER_TURN} changes)."
 )
-NO_CHAT_REFUSAL = "There's no chat to target here; use new_chat or own_chat."
 SHAPE_REFUSAL = "That isn't in the expected shape; pass it as an object, not text."
-TARGET_REFUSAL = 'The target must be "this_chat", "new_chat", "own_chat" or {"chat_id": "..."}.'
 MAX_JSON_ARG_CHARS = 2000
 FLAGGED_NOTE = " It was flagged for your operator to check."
 UNREADABLE_SCHEDULE = "an unreadable schedule"
@@ -71,17 +69,10 @@ _SCHEDULE_SHAPES = (
     '(weeks also take "days":[0-6, 0 is Monday]), and optionally '
     '"ends":{"kind":"on","date":"YYYY-MM-DD"} or {"kind":"after","count":N}.'
 )
-_TARGET_SHAPES = (
-    '"this_chat" (default), "new_chat", "own_chat" or {"chat_id": "<one of your chats>"}.'
-)
 
 _SCHEDULE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "description": "When to run. " + _SCHEDULE_SHAPES,
-}
-_TARGET_SCHEMA: dict[str, Any] = {
-    "type": ["string", "object"],
-    "description": "Where it runs: " + _TARGET_SHAPES,
 }
 
 
@@ -109,25 +100,6 @@ def _json_arg(value: Any) -> Any:
 
 def coerce_schedule(value: Any) -> Any:
     return _json_arg(value)
-
-
-def coerce_target(value: Any) -> dict[str, Any]:
-    """Map the tool target onto the REST ``{kind, session_id}`` body (the session id of
-    ``this_chat`` is resolved by the caller)."""
-    if isinstance(value, str) and value.strip().startswith("{"):
-        value = _json_arg(value)
-    if isinstance(value, str):
-        key = value.strip().lower()
-        if key == "this_chat":
-            return {"kind": "chat", "session_id": None, "_this": True}
-        if key == "new_chat":
-            return {"kind": "new"}
-        if key == "own_chat":
-            return {"kind": "own"}
-        raise ValueError(TARGET_REFUSAL)
-    if isinstance(value, dict) and set(value) == {"chat_id"} and isinstance(value["chat_id"], str):
-        return {"kind": "chat", "session_id": value["chat_id"].strip()}
-    raise ValueError(TARGET_REFUSAL)
 
 
 def coerce_enabled(value: Any) -> bool:
@@ -179,14 +151,6 @@ class _RoutineToolBase(Tool):
     @staticmethod
     def _session_id(turn: TurnContext) -> str | None:
         return turn.session_id or current_chat_session_id.get()
-
-    def _resolve_target(self, raw: Any, session_id: str | None) -> dict[str, Any]:
-        body = coerce_target(raw)
-        if body.pop("_this", False):
-            if not session_id:
-                raise ValueError(NO_CHAT_REFUSAL)
-            body["session_id"] = session_id
-        return body
 
     async def _change(
         self,
@@ -241,10 +205,6 @@ class ListMyRoutinesTool(_RoutineToolBase):
             await service.require_routine_tools_on(conn, name)
         except RoutineFieldError as e:
             raise ValueError(e.message) from None
-        turn = current_turn.get()
-        session_id = (
-            turn.session_id if turn is not None else None
-        ) or current_chat_session_id.get()
         eff = await time_zones.load_effective_zone(conn)
         zone = eff.tzinfo
         now = time_zones.utcnow()
@@ -265,20 +225,19 @@ class ListMyRoutinesTool(_RoutineToolBase):
             lines.append(f"  Schedule: {sentence}.")
             if r.finished_at is None and r.enabled:
                 lines.append(f"  Next run: {describe_next(r.next_run_at, zone, now=now)}.")
-            lines.append(f"  Runs in: {describe_target(r, session_id)}.")
             if r.untrusted:
                 srcs = ", ".join(r.untrusted_sources) or "unknown"
                 lines.append(f"  Flagged for your operator to check (sources: {srcs}).")
             lines.append(f"  Prompt: {r.prompt}")
         for p in pending:
-            lines.append(f"Waiting for approval: {_proposal_words(p, zone, session_id, now)}")
+            lines.append(f"Waiting for approval: {_proposal_words(p, zone)}")
             if p.untrusted:
                 srcs = ", ".join(p.untrusted_sources) or "unknown"
                 lines.append(f"  Flagged for your operator to check (sources: {srcs}).")
         return "\n".join(lines)
 
 
-def _proposal_words(p: Any, zone: Any, session_id: str | None, now: Any) -> str:
+def _proposal_words(p: Any, zone: Any) -> str:
     payload = p.payload or {}
     label = f"'{p.routine_name}'"
     if p.action == "delete":
@@ -290,8 +249,6 @@ def _proposal_words(p: Any, zone: Any, session_id: str | None, now: Any) -> str:
                 schedule_sentence(payload["schedule"], payload.get("anchor_at"), zone)
                 or UNREADABLE_SCHEDULE
             )
-        if "target" in payload:
-            bits.append("in " + describe_target(payload, session_id))
         if payload.get("enabled") is False:
             bits.append("starting off")
         prompt = payload.get("prompt")
@@ -308,8 +265,6 @@ def _proposal_words(p: Any, zone: Any, session_id: str | None, now: Any) -> str:
             or UNREADABLE_SCHEDULE
         )
         changes.append(f"schedule: {sentence}")
-    if "target" in payload:
-        changes.append("run in " + describe_target(payload, session_id))
     if "enabled" in payload:
         changes.append("turn on" if payload["enabled"] else "turn off")
     return f"change routine {label}: " + "; ".join(changes or ["no fields"]) + "."
@@ -330,9 +285,13 @@ class ScheduleRoutineTool(_RoutineToolBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "A short name, unique among your routines."},
-            "prompt": {"type": "string", "description": "What to do when it runs."},
+            "prompt": {
+                "type": "string",
+                "description": "What to do when it runs. Each run starts a new chat that sees "
+                "only this, so make it stand alone: what to check and what to do with the "
+                "result, including any message to a platform.",
+            },
             "schedule": _SCHEDULE_SCHEMA,
-            "target": _TARGET_SCHEMA,
             "enabled": {"type": "boolean", "description": "Start on (default true)."},
         },
         "required": ["name", "prompt", "schedule"],
@@ -343,7 +302,6 @@ class ScheduleRoutineTool(_RoutineToolBase):
         name: Any,
         prompt: Any,
         schedule: Any,
-        target: Any = "this_chat",
         enabled: Any = True,
     ) -> str:
         turn = self._turn_for_write()
@@ -352,7 +310,6 @@ class ScheduleRoutineTool(_RoutineToolBase):
             "name": name,
             "prompt": prompt,
             "schedule": coerce_schedule(schedule),
-            "target": self._resolve_target(target, session_id),
             "enabled": coerce_enabled(enabled),
         }
         result, flagged, zone = await self._change("create", data, turn, session_id)
@@ -360,10 +317,7 @@ class ScheduleRoutineTool(_RoutineToolBase):
         if result.pending:
             return f"Asked your operator to approve '{label}'. It won't run until they do."
         r = result.routine
-        text = (
-            f"Scheduled '{label}' (id {r.id}) for "
-            f"{describe_next(r.next_run_at, zone)} in {describe_target(r, session_id)}."
-        )
+        text = f"Scheduled '{label}' (id {r.id}) for {describe_next(r.next_run_at, zone)}."
         return text + (FLAGGED_NOTE if flagged else "")
 
 
@@ -382,9 +336,11 @@ class ChangeRoutineTool(_RoutineToolBase):
         "properties": {
             "routine": {"type": "string", "description": "The routine's name or id."},
             "name": {"type": "string", "description": "A new name."},
-            "prompt": {"type": "string", "description": "A new prompt."},
+            "prompt": {
+                "type": "string",
+                "description": "A new prompt. Each run starts a new chat that sees only it.",
+            },
             "schedule": _SCHEDULE_SCHEMA,
-            "target": _TARGET_SCHEMA,
             "enabled": {"type": "boolean", "description": "Turn it on or off."},
         },
         "required": ["routine"],
@@ -396,7 +352,6 @@ class ChangeRoutineTool(_RoutineToolBase):
         name: Any = None,
         prompt: Any = None,
         schedule: Any = None,
-        target: Any = None,
         enabled: Any = None,
     ) -> str:
         turn = self._turn_for_write()
@@ -408,8 +363,6 @@ class ChangeRoutineTool(_RoutineToolBase):
             data["prompt"] = prompt
         if schedule is not None:
             data["schedule"] = coerce_schedule(schedule)
-        if target is not None:
-            data["target"] = self._resolve_target(target, session_id)
         if enabled is not None:
             data["enabled"] = coerce_enabled(enabled)
         if len(data) == 1:

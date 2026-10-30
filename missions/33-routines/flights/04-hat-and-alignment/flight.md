@@ -1,6 +1,6 @@
 # Flight: HAT and Alignment
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria
@@ -342,9 +342,38 @@ data dir deleted (DD2), then the closing gate and any re-runs DD5 requires.
 
 ### Legs
 
-- [ ] `hat-and-alignment` *(interactive)*: the guided walk below, the
+- [x] `hat-and-alignment` *(interactive)*: the guided walk below, the
       judgement-call verdicts, inline fixes, and the closing gate.
-- *(Legs added at the HAT for features through the gate are listed here.)*
+- [x] `new-chat-every-run-backend` *(added at the HAT, B3; a FEATURE through
+      the gate, high-risk, design-reviewed)*: no routine targets; every run
+      starts a new web chat; schema v49; no routine connector delivery; the
+      agent tools lose `target` (tool text, evals re-run); dead code removed.
+- [x] `new-chat-every-run-ui` *(added at the HAT, B3/B5; with the above)*: the
+      Routines list on mockup A (caption row, ⋯ menu, expandable details,
+      runs linked to their chats, reasons shown); the form without targets
+      and with Save disabled until changed; the approval queue without
+      "Runs in"; retired testids.
+- [x] `start-immediately` *(added at the HAT, after C4; a FEATURE through the
+      gate, high-risk, design-reviewed)*: the form's "Starts" radio group
+      (On / In / Immediately, mockup S1) and an operator-only now-start whose
+      first run is the save instant.
+- [x] `approval-default-and-drawer` *(added at the HAT, E1/E2; split from the
+      tab rebuild at design review)*: Routines approval off for new agents
+      (C8 reversed); the drawer refreshes on a live routine tool write.
+- [x] `self-config-tiles` *(added at the HAT, E1/E2; mockup SC2,
+      design-reviewed)*: the Self-configuration tab as two cards with inline
+      approval switches and Waiting/History expanders; External access at the
+      bottom.
+- [x] `remove-legacy-schedule-shapes` *(added at the HAT, Part J: C6
+      reversed)*: canonical-only schedule input; fixtures, scripts and evals
+      moved; the v48 frozen converter kept.
+
+> **HAT pivot (2026-10-29, operator):** routine targets and routine connector
+> delivery are removed, and Part D (a real Discord DM) is dropped. The walk's
+> Parts C and E, DD4 rows C7, C10, C11 and C14, and DD5's
+> `routine-connector-delivery` contract are read against that decision; see
+> the flight log, "Operator decision: every run starts a new chat". The
+> original text below is kept as planned.
 
 #### Draft walk (state transitions)
 

@@ -46,7 +46,6 @@ def routine(i=0, schedule=None, enabled=True, finished_at=None, next_run_at=None
         schedule=schedule or DAILY,
         enabled=enabled,
         finished_at=finished_at,
-        target_kind="new",
         next_run_at=next_run_at,
         created_at="t",
         updated_at="t",
@@ -120,7 +119,7 @@ def prow(action="create", name="Morning", routine_id=None, agent="a", **over) ->
 
 
 def fields(name="Morning", **over) -> dict:
-    return {"name": name, "prompt": "p", "schedule": DAILY, "target_kind": "new", **over}
+    return {"name": name, "prompt": "p", "schedule": DAILY, **over}
 
 
 async def test_pending_create_refuses_duplicates(env) -> None:

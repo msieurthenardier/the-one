@@ -7,6 +7,7 @@ app's real ``_bind_turn_user_marks`` for the run-time flag snapshot.
 from __future__ import annotations
 
 import pytest
+from _routine_schedules import daily
 from _routine_tools_env import (
     IN_2H,
     NAME,
@@ -140,17 +141,14 @@ async def test_clearing_or_deleting_the_routine_does_not_unflag_the_chat(conn) -
         return ZoneInfo("UTC")
 
     repo = AgentRoutineRepository(conn)
-    from the_one.db.repositories import ChatSessionRepository
 
     rt = await service.create_routine(
         repo,
-        ChatSessionRepository(conn),
         NAME,
         {
             "name": "Planted",
             "prompt": "p",
-            "schedule": {"kind": "daily", "time": "08:00"},
-            "target": {"kind": "own"},
+            "schedule": daily("08:00"),
         },
         now=utcnow(),
         zone=zone,
@@ -165,7 +163,6 @@ async def test_clearing_or_deleting_the_routine_does_not_unflag_the_chat(conn) -
     cleared = await repo.get(NAME, rt.id)
     await service.update_routine(
         repo,
-        ChatSessionRepository(conn),
         NAME,
         cleared,
         {"prompt": "reviewed"},

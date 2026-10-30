@@ -3,7 +3,7 @@
 The REST routes and (later) the agent's routine tools both write routines through
 this module, so the operator's rules are enforced identically. It owns validation,
 the create anchor and next run, and the update state machine. It never opens a
-connection or builds an HTTP response: repositories, the chat repository and the
+connection or builds an HTTP response: repositories and the
 time zone come from the caller, and failures are typed errors
 (``RoutineFieldError``, ``RoutineScheduleError``, ``RoutineLimitError``,
 ``RoutineNameTaken``, ``NameRuleError``) that the caller maps.
@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
 from typing import Any, Literal
 
-from the_one.db.repositories import ChatSessionRepository
 from the_one.naming import check_name
 from the_one.routines import limits as routine_limits
 from the_one.routines import recurrence
@@ -88,9 +87,9 @@ def validate_enabled(value: object) -> bool:
 def validate_schedule(
     raw: object, now: datetime, zone: tzinfo, *, min_ahead: timedelta | None = None
 ) -> tuple[dict[str, Any], datetime | None]:
-    """Normalize a schedule from a request (the canonical shape, the relative start or any
-    legacy shape) to ``(schedule, anchor)``. A thin wrapper over ``recurrence.normalize``;
-    it does not check that a run is left (see :func:`_require_future`)."""
+    """Normalize a schedule from a request (the canonical shape, with a date-and-time
+    start or the relative start) to ``(schedule, anchor)``. A thin wrapper over
+    ``recurrence.normalize``; it does not check that a run is left (see :func:`_require_future`)."""
     try:
         return recurrence.normalize(raw, zone=zone, now=now, min_ahead=min_ahead)
     except RoutineScheduleError as e:
@@ -116,6 +115,32 @@ def parse_anchor(value: str | None) -> datetime | None:
     return dt if dt.tzinfo is not None else None
 
 
+def resolve_now_start(raw: object, now: datetime, zone: tzinfo) -> tuple[object, bool]:
+    """An operator's "Immediately" start (Mission 33 F4 L4). ``{"start": {"now": true}, ...}``
+    (exact dict equality on the start) is rewritten to the canonical ``{date, time}`` of the
+    floor minute of *now* in *zone*, so the grid is "save minute plus k periods"; everything
+    else is returned unchanged with ``False``. Operator routes only: the agent path never
+    calls this, so ``normalize`` refuses the now-start there."""
+    if isinstance(raw, dict) and raw.get("start") == {"now": True}:
+        floor = now.replace(second=0, microsecond=0)
+        return {**raw, "start": recurrence.render_start(floor, zone)}, True
+    return raw, False
+
+
+def _require_now_start(
+    schedule: dict[str, Any], anchor: datetime | None, now: datetime, zone: tzinfo, field: str
+) -> datetime:
+    """Check that a now-start schedule has a run at or after its save minute (an ``ends``
+    already past is "no runs left") and return the exact save instant as the first run."""
+    floor = now.replace(second=0, microsecond=0)
+    if (
+        recurrence.next_occurrence(schedule, anchor, floor - timedelta(microseconds=1), zone)
+        is None
+    ):
+        raise RoutineFieldError(field, MSG_NO_RUNS_LEFT)
+    return now
+
+
 def _require_future(
     schedule: dict[str, Any], anchor: datetime | None, now: datetime, zone: tzinfo, field: str
 ) -> datetime:
@@ -126,64 +151,11 @@ def _require_future(
     return nxt
 
 
-async def resolve_target(
-    raw: object, agent_name: str, chat_repo: ChatSessionRepository
-) -> dict[str, Any]:
-    """The target columns for a request ``target``; a ``chat`` snapshots the
-    connector identity from that session row at write time (never refreshed)."""
-    cols: dict[str, Any] = {
-        "target_session_id": None,
-        "target_platform": None,
-        "target_connector_id": None,
-        "target_channel_id": None,
-        "target_thread_id": None,
-        "target_peer_id": None,
-    }
-    if not isinstance(raw, dict) or raw.get("kind") not in ("chat", "new", "own"):
-        raise RoutineFieldError("target", "The target must be a chat, a new chat or its own chat.")
-    kind = raw["kind"]
-    if kind != "chat":
-        return {"target_kind": kind, **cols}
-    sid = raw.get("session_id")
-    if not isinstance(sid, str) or not sid:
-        raise RoutineFieldError("target", "Pick a chat.")
-    try:
-        row = await chat_repo.get(sid)
-    except KeyError:
-        raise RoutineFieldError("target", "That chat doesn't exist.")
-    if row.agent_name != agent_name:
-        raise RoutineFieldError("target", "That chat belongs to another agent.")
-    return {
-        "target_kind": "chat",
-        "target_session_id": row.id,
-        "target_platform": row.platform,
-        "target_connector_id": row.connector_id,
-        "target_channel_id": row.channel_id,
-        "target_thread_id": row.thread_id,
-        "target_peer_id": row.peer_id,
-    }
-
-
 async def routine_view(
     routine: Any,
     run_repo: RoutineRunRepository,
-    chat_repo: ChatSessionRepository,
     zone: tzinfo,
 ) -> dict[str, Any]:
-    target: dict[str, Any] = {
-        "kind": routine.target_kind,
-        "session_id": routine.target_session_id,
-        "title": None,
-        "platform": routine.target_platform,
-        "missing": False,
-    }
-    if routine.target_session_id:
-        try:
-            row = await chat_repo.get(routine.target_session_id)
-            target["title"] = row.title
-            target["platform"] = row.platform
-        except KeyError:
-            target["missing"] = routine.target_kind == "chat"
     last = await run_repo.latest(routine.id)
     last_run = (
         {
@@ -211,7 +183,6 @@ async def routine_view(
         "updated_at": routine.updated_at,
         "untrusted": routine.untrusted,
         "untrusted_sources": routine.untrusted_sources,
-        "target": target,
         "last_run": last_run,
         "running": routine_runner.registry.is_running(routine.id),
     }
@@ -225,7 +196,6 @@ def _min_ahead(agent_caps: bool) -> timedelta | None:
 
 async def create_routine(
     repo: AgentRoutineRepository,
-    chat_repo: ChatSessionRepository,
     agent_name: str,
     data: dict[str, Any],
     *,
@@ -238,7 +208,7 @@ async def create_routine(
     schedule_pair: tuple[Any, datetime | None] | None = None,
 ) -> Any:
     """Validate ``data`` and store a new routine. Check order is name, prompt, schedule,
-    target, enabled, so a body with several bad fields gets the first error.
+    enabled, so a body with several bad fields gets the first error.
     ``created_by``, ``agent_caps``, ``flag`` and ``proposal`` are for agent writes (the
     operator's callers pass none); the repository applies them in its one transaction.
     ``schedule_pair`` is an already-normalized ``(schedule, anchor)`` (an agent change made
@@ -248,15 +218,19 @@ async def create_routine(
     routine_name = check_name(data.get("name"))
     prompt = validate_prompt(data.get("prompt"))
     tz = await zone()
+    is_now = False
     if schedule_pair is not None:
         sched = check_schedule_pair(*schedule_pair)
         anchor = schedule_pair[1]
     else:
-        sched, anchor = validate_schedule(
-            data.get("schedule"), now, tz, min_ahead=_min_ahead(agent_caps)
-        )
-    nxt = _require_future(sched, anchor, now, tz, "schedule")
-    target = await resolve_target(data.get("target"), agent_name, chat_repo)
+        raw_schedule = data.get("schedule")
+        if not agent_caps:
+            raw_schedule, is_now = resolve_now_start(raw_schedule, now, tz)
+        sched, anchor = validate_schedule(raw_schedule, now, tz, min_ahead=_min_ahead(agent_caps))
+    if is_now:
+        nxt = _require_now_start(sched, anchor, now, tz, "schedule")
+    else:
+        nxt = _require_future(sched, anchor, now, tz, "schedule")
     enabled = validate_enabled(data.get("enabled", True))
     routine = await repo.create(
         agent_name,
@@ -268,7 +242,6 @@ async def create_routine(
             "next_run_at": nxt.isoformat() if enabled else None,
             "anchor_at": anchor.isoformat() if anchor else None,
             "created_by": created_by,
-            **target,
         },
         flag=flag,
         proposal=proposal,
@@ -279,7 +252,6 @@ async def create_routine(
 
 async def update_routine(
     repo: AgentRoutineRepository,
-    chat_repo: ChatSessionRepository,
     agent_name: str,
     current: Any,
     data: dict[str, Any],
@@ -303,8 +275,6 @@ async def update_routine(
         fields["name"] = check_name(data["name"])
     if "prompt" in data:
         fields["prompt"] = validate_prompt(data["prompt"])
-    if "target" in data:
-        fields.update(await resolve_target(data["target"], agent_name, chat_repo))
     enabled = cur.enabled
     if "enabled" in data:
         enabled = validate_enabled(data["enabled"])
@@ -314,16 +284,24 @@ async def update_routine(
     anchor = parse_anchor(cur.anchor_at)
     finished_at = cur.finished_at
     tz: tzinfo | None = None
+    now_start: datetime | None = None
     if schedule_changed:
         tz = await zone()
+        is_now = False
         if schedule_pair is not None:
             sched = check_schedule_pair(*schedule_pair)
             anchor = schedule_pair[1]
         else:
+            raw_schedule = data["schedule"]
+            if not agent_caps:
+                raw_schedule, is_now = resolve_now_start(raw_schedule, now, tz)
             sched, anchor = validate_schedule(
-                data["schedule"], now, tz, min_ahead=_min_ahead(agent_caps)
+                raw_schedule, now, tz, min_ahead=_min_ahead(agent_caps)
             )
-        _require_future(sched, anchor, now, tz, "schedule")
+        if is_now:
+            now_start = _require_now_start(sched, anchor, now, tz, "schedule")
+        else:
+            _require_future(sched, anchor, now, tz, "schedule")
         fields["schedule"] = sched
         fields["anchor_at"] = anchor.isoformat() if anchor else None
         if finished_at is not None:
@@ -345,7 +323,11 @@ async def update_routine(
                 sched = recurrence.check(sched, anchor)
             except (RoutineScheduleError, KeyError, TypeError, ValueError):
                 raise RoutineFieldError("enabled", MSG_UPGRADE_FAILED)
-        fields["next_run_at"] = _require_future(sched, anchor, now, tz, "enabled").isoformat()
+        if now_start is not None:
+            # An "Immediately" save: the exact save instant is due now (checked above).
+            fields["next_run_at"] = now_start.isoformat()
+        else:
+            fields["next_run_at"] = _require_future(sched, anchor, now, tz, "enabled").isoformat()
     routine = await repo.update(
         agent_name,
         cur.id,
@@ -380,8 +362,6 @@ _BASE_KEYS = (
     "anchor_at",
     "enabled",
     "finished_at",
-    "target_kind",
-    "target_session_id",
 )
 # Which base keys a payload key touches (for the stale check).
 _PAYLOAD_TO_BASE = {
@@ -389,7 +369,6 @@ _PAYLOAD_TO_BASE = {
     "prompt": ("prompt",),
     "schedule": ("schedule", "anchor_at", "finished_at"),
     "enabled": ("enabled", "finished_at"),
-    "target": ("target_kind", "target_session_id"),
 }
 
 
@@ -428,13 +407,6 @@ async def _agent_switches(conn: Any, agent_name: str) -> tuple[bool, bool]:
     return bool(row[0]), bool(row[1])
 
 
-def _target_body(cols: dict[str, Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {"kind": cols["target_kind"]}
-    if cols["target_kind"] == "chat":
-        body["session_id"] = cols["target_session_id"]
-    return body
-
-
 async def _resolve_routine(
     repo: AgentRoutineRepository,
     props: RoutineProposalRepository,
@@ -467,7 +439,6 @@ def _hypothetical(
             prompt=payload["prompt"],
             schedule=payload["schedule"],
             enabled=payload.get("enabled", True),
-            target_kind=payload["target"]["kind"],
             created_at=now.isoformat(),
             updated_at=now.isoformat(),
         )
@@ -535,7 +506,6 @@ async def agent_change(
     once (approval off) or held as a pending proposal (approval on)."""
     requires_approval = await require_routine_tools_on(conn, agent_name)
     repo = AgentRoutineRepository(conn)
-    chat_repo = ChatSessionRepository(conn)
     props = RoutineProposalRepository(conn)
     untrusted, sources = taint
     sources = list(sources)
@@ -550,9 +520,6 @@ async def agent_change(
         payload["name"] = check_name(data.get("name"))
         payload["prompt"] = validate_prompt(data.get("prompt"))
         payload.update(await _agent_schedule(data.get("schedule"), now, zone))
-        payload["target"] = _target_body(
-            await resolve_target(data.get("target"), agent_name, chat_repo)
-        )
         payload["enabled"] = validate_enabled(data.get("enabled", True))
     elif action == "update":
         if "name" in data:
@@ -563,10 +530,6 @@ async def agent_change(
             payload.update(await _agent_schedule(data["schedule"], now, zone))
         if "enabled" in data:
             payload["enabled"] = validate_enabled(data["enabled"])
-        if "target" in data:
-            payload["target"] = _target_body(
-                await resolve_target(data["target"], agent_name, chat_repo)
-            )
         if not payload:
             raise RoutineFieldError("routine", "Say what to change.")
 
@@ -608,7 +571,6 @@ async def agent_change(
     if action == "create":
         routine = await create_routine(
             repo,
-            chat_repo,
             agent_name,
             payload,
             now=now,
@@ -623,7 +585,6 @@ async def agent_change(
         assert current is not None
         routine = await update_routine(
             repo,
-            chat_repo,
             agent_name,
             current,
             payload,
@@ -693,7 +654,7 @@ async def approve_proposal(
     now: datetime,
     zone: ZoneLoader,
 ) -> RoutineProposal:
-    """Apply a pending proposal. The zone and the target chat are resolved before the write
+    """Apply a pending proposal. The zone is resolved before the write
     lock; the name, caps and stale checks run inside the repository's transaction against a
     routine re-read at approval."""
     props = RoutineProposalRepository(conn)
@@ -705,13 +666,11 @@ async def approve_proposal(
     if proposal.status != "pending":
         raise ProposalStateError(f"That change is {proposal.status}.")
     repo = AgentRoutineRepository(conn)
-    chat_repo = ChatSessionRepository(conn)
     op = ProposalOp.resolve(proposal.id)
     flag: Flag = ("merge", list(proposal.untrusted_sources)) if proposal.untrusted else None
     if proposal.action == "create":
         await create_routine(
             repo,
-            chat_repo,
             agent_name,
             dict(proposal.payload),
             now=now,
@@ -732,7 +691,6 @@ async def approve_proposal(
                     assert current is not None
                     await update_routine(
                         repo,
-                        chat_repo,
                         agent_name,
                         current,
                         dict(proposal.payload),

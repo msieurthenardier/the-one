@@ -16,7 +16,13 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
-from browser._self_config import APPROVAL_SWITCH, ENABLE_SWITCH, click_switch
+from browser._self_config import (
+    APPROVAL_SWITCH,
+    ENABLE_SWITCH,
+    PROMPT_WAITING,
+    click_switch,
+    open_expander,
+)
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -68,6 +74,8 @@ def _tab(page: Page, tab: str) -> None:
 
 
 def _card(page: Page, field_label: str):  # noqa: ANN202
+    # The cards are inside the card's "Waiting for approval" expander (collapsed on arrival).
+    open_expander(page, PROMPT_WAITING)
     return page.locator('[data-testid="revision-card"]').filter(
         has=page.locator('[data-testid="revision-field"]', has_text=field_label)
     )

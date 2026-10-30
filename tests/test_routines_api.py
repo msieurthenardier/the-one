@@ -12,9 +12,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._routine_schedules import daily, every_hours, once_at, once_in, weekly
 from tests._schema_template import connect_template_db
-from the_one.db.models import ChatSession
-from the_one.db.repositories import ChatSessionRepository
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.routines.models import RoutineRun
@@ -24,13 +23,21 @@ UTC = timezone.utc
 # frozen_clock default: 2026-10-10T22:45:12Z, America/Los_Angeles (system mode).
 NOW = datetime(2026, 10, 10, 22, 45, 12, tzinfo=UTC)
 
-DAILY = {"kind": "daily", "time": "09:00"}  # a legacy alias, still accepted on input
+DAILY = daily("09:00", "2026-10-11")
 # What DAILY is stored (and returned) as at the frozen clock: the next 09:00 PDT is Oct 11.
 CANON_DAILY = {
     "start": {"date": "2026-10-11", "time": "09:00"},
     "repeat": {"every": 1, "unit": "day"},
     "ends": {"kind": "never"},
 }
+
+
+def _in_hours(base: datetime, hours: int) -> str:
+    """*hours* after *base*, rounded up to the next whole minute (a relative start's rule)."""
+    t = base + timedelta(hours=hours)
+    if t.second or t.microsecond:
+        t = t.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return t.isoformat()
 
 
 @pytest.fixture
@@ -67,7 +74,6 @@ def _body(name="Morning", **over) -> dict:
         "name": name,
         "prompt": "  say hi  ",
         "schedule": DAILY,
-        "target": {"kind": "new"},
         **over,
     }
 
@@ -78,12 +84,6 @@ async def _make(client, agent="ag", **over) -> dict:
     return resp.json()
 
 
-async def _chat(client, sid, agent="ag", **extra) -> None:
-    await ChatSessionRepository(client.conn).create(
-        ChatSession(id=sid, agent_name=agent, title=f"title {sid}", **extra)
-    )
-
-
 # ── create / shape ────────────────────────────────────────────────────────
 
 
@@ -92,7 +92,7 @@ async def test_create_returns_201_row_shape(client) -> None:
     row = await _make(client)
     assert set(row) == {
         "id", "agent_name", "name", "prompt", "schedule", "schedule_text", "enabled", "finished_at",
-        "next_run_at", "created_by", "created_at", "updated_at", "target", "last_run",
+        "next_run_at", "created_by", "created_at", "updated_at", "last_run",
         "running", "untrusted", "untrusted_sources",
     }  # fmt: skip
     assert row["schedule"] == CANON_DAILY and row["schedule_text"] == "Every day at 9:00 AM"
@@ -100,9 +100,6 @@ async def test_create_returns_201_row_shape(client) -> None:
     assert row["agent_name"] == "ag" and row["enabled"] is True
     assert row["created_by"] == "operator" and row["finished_at"] is None
     assert row["running"] is False and row["last_run"] is None
-    assert row["target"] == {
-        "kind": "new", "session_id": None, "title": None, "platform": None, "missing": False,
-    }  # fmt: skip
     # daily 09:00 PDT after 2026-10-10 15:45 PDT -> Oct 11 09:00 PDT = 16:00Z
     assert row["next_run_at"] == "2026-10-11T16:00:00+00:00"
     assert row["created_at"] == NOW.isoformat()
@@ -136,12 +133,12 @@ async def test_next_run_moves_with_the_clock_and_zone(client, frozen_clock, monk
 
 async def test_interval_sets_anchor_and_next(client) -> None:
     await _agent(client)
-    row = await _make(client, schedule={"kind": "interval", "hours": 6})
-    assert row["next_run_at"] == (NOW + timedelta(hours=6)).isoformat()
+    row = await _make(client, schedule=every_hours(6))
+    assert row["next_run_at"] == _in_hours(NOW, 6)
     assert row["schedule"]["repeat"] == {"every": 6, "unit": "hour"}
     async with client.conn.execute("SELECT anchor_at FROM agent_routines") as cur:
-        # The alias anchors at now plus N hours, exactly: its first run is unchanged.
-        assert (await cur.fetchone())[0] == (NOW + timedelta(hours=6)).isoformat()
+        # A relative start anchors at now plus N hours, rounded up to the next whole minute.
+        assert (await cur.fetchone())[0] == _in_hours(NOW, 6)
 
 
 async def test_disabled_create_has_no_next_run(client) -> None:
@@ -152,7 +149,7 @@ async def test_disabled_create_has_no_next_run(client) -> None:
 
 async def test_once_in_converts_to_absolute_at(client) -> None:
     await _agent(client)
-    row = await _make(client, schedule={"kind": "once", "in": {"amount": 90, "unit": "minutes"}})
+    row = await _make(client, schedule=once_in(90, "minutes"))
     at = "2026-10-11T00:16:00+00:00"  # now + 90 minutes, rounded up to the next whole minute
     assert row["schedule"] == {
         "start": {"date": "2026-10-10", "time": "17:16"},
@@ -161,9 +158,7 @@ async def test_once_in_converts_to_absolute_at(client) -> None:
     }
     assert row["next_run_at"] == at
     assert row["schedule_text"] == "Once, on Sat, Oct 10, 2026 at 5:16 PM"
-    row2 = await _make(
-        client, name="d", schedule={"kind": "once", "in": {"amount": 2, "unit": "days"}}
-    )
+    row2 = await _make(client, name="d", schedule=once_in(2, "days"))
     assert row2["next_run_at"] == "2026-10-12T22:46:00+00:00"
     # The relative start inside the canonical shape resolves the same way.
     row3 = await _make(
@@ -281,16 +276,15 @@ async def test_routine_count_cap(client) -> None:
     "sched",
     [
         None,
-        {"kind": "monthly"},
-        {"kind": "daily", "time": "9am"},
-        {"kind": "weekly", "days": [], "time": "09:00"},
-        {"kind": "interval", "hours": 0},
-        {"kind": "interval", "hours": 169},
-        {"kind": "once", "at": "2026-11-01T10:00:00"},
-        {"kind": "once", "in": {"amount": 0, "unit": "hours"}},
-        {"kind": "once", "in": {"amount": 1, "unit": "weeks"}},
-        {"kind": "once", "in": {"amount": 1.5, "unit": "hours"}},
-        {"kind": "once", "in": {"amount": True, "unit": "hours"}},
+        {"start": {"date": "2026-10-11", "time": "9am"}},
+        {**weekly([], "09:00", "2026-10-11")},
+        every_hours(0),
+        every_hours(169),
+        {"start": {"date": "2026-11-01", "time": "10:00:00"}},
+        once_in(0, "hours"),
+        once_in(1, "weeks"),
+        once_in(1.5, "hours"),
+        once_in(True, "hours"),
     ],
 )
 async def test_bad_schedules_are_422_on_schedule(client, sched) -> None:
@@ -302,26 +296,26 @@ async def test_bad_schedules_are_422_on_schedule(client, sched) -> None:
 
 async def test_once_past_and_too_far(client) -> None:
     await _agent(client)
-    past = {"kind": "once", "at": (NOW - timedelta(minutes=2)).isoformat()}
+    past = once_at("2026-10-10", "15:43")  # 15:43 PDT, before now (15:45:12)
     resp = await client.post("/api/agents/ag/routines", json=_body(schedule=past))
     assert resp.json()["detail"] == [
         {"type": "value_error", "loc": ["schedule"], "msg": "This schedule has no runs left."}
     ]
-    now_exact = {"kind": "once", "at": (NOW - timedelta(minutes=1)).isoformat()}
+    now_exact = once_at("2026-10-10", "15:45")  # 15:45:00 PDT, a few seconds behind now
     assert (
         await client.post("/api/agents/ag/routines", json=_body(schedule=now_exact))
     ).status_code == 422
-    far = {"kind": "once", "at": (NOW + timedelta(days=366)).isoformat()}
+    far = once_at("2027-10-11", "15:45")  # 22:45Z a year and a day on, past the limit
     resp = await client.post("/api/agents/ag/routines", json=_body(schedule=far))
     assert resp.status_code == 422
     assert resp.json()["detail"][0]["msg"] == "That time is more than a year away."
-    far_in = {"kind": "once", "in": {"amount": 400, "unit": "days"}}
+    far_in = once_in(400, "days")
     resp = await client.post("/api/agents/ag/routines", json=_body(schedule=far_in))
     assert resp.json()["detail"][0]["msg"] == "That time is more than a year away."
-    huge = {"kind": "once", "in": {"amount": 10**12, "unit": "days"}}
+    huge = once_in(10**12, "days")
     resp = await client.post("/api/agents/ag/routines", json=_body(schedule=huge))
     assert resp.json()["detail"][0]["msg"] == "That time is more than a year away."
-    edge = {"kind": "once", "at": (NOW + timedelta(days=365, minutes=-1)).isoformat()}
+    edge = once_at("2027-10-10", "15:44")  # 22:44Z, a minute inside the limit
     assert (
         await client.post("/api/agents/ag/routines", json=_body(schedule=edge))
     ).status_code == 201
@@ -336,85 +330,35 @@ async def test_non_object_bodies_are_422(client, body) -> None:
     assert resp.status_code == 422
 
 
-async def test_bad_enabled_and_target_shapes(client) -> None:
+async def test_bad_enabled_shape(client) -> None:
     await _agent(client)
     assert (
         await client.post("/api/agents/ag/routines", json=_body(enabled="yes"))
     ).status_code == 422
-    for t in (None, "new", {"kind": "bogus"}, {"kind": "chat"}, {"kind": "chat", "session_id": 3}):
-        resp = await client.post("/api/agents/ag/routines", json=_body(target=t))
-        assert resp.status_code == 422
-        assert resp.json()["detail"][0]["loc"] == ["target"]
 
 
-# ── targets ───────────────────────────────────────────────────────────────
+# ── a stray ``target`` key (leg 02, AC4) ──────────────────────────────────
 
 
-async def test_chat_target_web_and_view(client) -> None:
+async def test_a_stray_target_key_is_ignored_like_any_unknown_key(client) -> None:
     await _agent(client)
-    await _chat(client, "s1")
-    row = await _make(client, target={"kind": "chat", "session_id": "s1"})
-    assert row["target"] == {
-        "kind": "chat", "session_id": "s1", "title": "title s1", "platform": None,
-        "missing": False,
-    }  # fmt: skip
-    async with client.conn.execute(
-        "SELECT target_platform, target_connector_id, target_channel_id, target_thread_id, "
-        "target_peer_id FROM agent_routines"
-    ) as cur:
-        assert tuple(await cur.fetchone()) == (None, None, None, None, None)
-    await client.delete("/api/chat/sessions/s1")
-    got = (await client.get(f"/api/agents/ag/routines/{row['id']}")).json()
-    assert got["target"]["missing"] is True and got["target"]["session_id"] == "s1"
-    assert got["target"]["title"] is None
-
-
-async def test_connector_chat_target_snapshots_identity(client) -> None:
-    await _agent(client)
-    await _chat(
-        client,
-        "dm1",
-        platform="stub",
-        connector_id="c1",
-        channel_id="ch1",
-        thread_id="th1",
-        peer_id="p1",
-    )
-    row = await _make(client, target={"kind": "chat", "session_id": "dm1"})
-    assert row["target"]["platform"] == "stub"
-    async with client.conn.execute(
-        "SELECT target_platform, target_connector_id, target_channel_id, target_thread_id, "
-        "target_peer_id FROM agent_routines"
-    ) as cur:
-        assert tuple(await cur.fetchone()) == ("stub", "c1", "ch1", "th1", "p1")
-    # re-pointing at a web chat clears the snapshot
-    await _chat(client, "web1")
-    out = await client.put(
-        f"/api/agents/ag/routines/{row['id']}",
-        json={"target": {"kind": "chat", "session_id": "web1"}},
-    )
-    assert out.status_code == 200 and out.json()["target"]["platform"] is None
-    async with client.conn.execute(
-        "SELECT target_connector_id, target_peer_id FROM agent_routines"
-    ) as cur:
-        assert tuple(await cur.fetchone()) == (None, None)
-    out = await client.put(f"/api/agents/ag/routines/{row['id']}", json={"target": {"kind": "own"}})
-    assert out.json()["target"]["kind"] == "own" and out.json()["target"]["session_id"] is None
-
-
-async def test_chat_target_must_exist_and_belong_to_the_agent(client) -> None:
-    await _agent(client)
-    await _agent(client, "other")
-    await _chat(client, "theirs", agent="other")
-    resp = await client.post(
-        "/api/agents/ag/routines", json=_body(target={"kind": "chat", "session_id": "theirs"})
-    )
-    assert resp.status_code == 422
-    assert resp.json()["detail"][0]["msg"] == "That chat belongs to another agent."
-    resp = await client.post(
-        "/api/agents/ag/routines", json=_body(target={"kind": "chat", "session_id": "nope"})
-    )
-    assert resp.json()["detail"][0]["msg"] == "That chat doesn't exist."
+    stray = {"kind": "chat", "session_id": "s1"}
+    resp = await client.post("/api/agents/ag/routines", json=_body(target=stray, bogus=1))
+    assert resp.status_code == 201
+    row = resp.json()
+    assert "target" not in row and "bogus" not in row
+    url = f"/api/agents/ag/routines/{row['id']}"
+    # A PUT whose only key is ``target`` is an empty update: 200, nothing changed but the
+    # touch of ``updated_at``; the prompt, schedule and state stay as they were.
+    out = await client.put(url, json={"target": stray})
+    assert out.status_code == 200
+    kept = out.json()
+    assert "target" not in kept
+    for key in ("name", "prompt", "schedule", "enabled", "next_run_at", "finished_at"):
+        assert kept[key] == row[key]
+    # alongside a real change, the real change applies and the target is dropped
+    out = await client.put(url, json={"target": stray, "prompt": "new"})
+    assert out.status_code == 200 and out.json()["prompt"] == "new"
 
 
 # ── PUT precedence (AC13) ─────────────────────────────────────────────────
@@ -437,19 +381,19 @@ async def test_put_schedule_recomputes_and_re_anchors_an_interval(client, monkey
     from the_one import time_zones
 
     await _agent(client)
-    row = await _make(client, schedule={"kind": "interval", "hours": 6})
+    row = await _make(client, schedule=every_hours(6))
     later = NOW + timedelta(hours=1)
     monkeypatch.setattr(time_zones, "utcnow", lambda: later)
     # identical schedule still counts as a schedule change
     out = (
         await client.put(
             f"/api/agents/ag/routines/{row['id']}",
-            json={"schedule": {"kind": "interval", "hours": 6}},
+            json={"schedule": every_hours(6)},
         )
     ).json()
-    assert out["next_run_at"] == (later + timedelta(hours=6)).isoformat()
+    assert out["next_run_at"] == _in_hours(later, 6)
     async with client.conn.execute("SELECT anchor_at FROM agent_routines") as cur:
-        assert (await cur.fetchone())[0] == (later + timedelta(hours=6)).isoformat()
+        assert (await cur.fetchone())[0] == _in_hours(later, 6)
     out = (
         await client.put(f"/api/agents/ag/routines/{row['id']}", json={"schedule": DAILY})
     ).json()
@@ -464,7 +408,7 @@ async def test_put_disable_nulls_next_and_enable_recomputes_without_catch_up(
     from the_one import time_zones
 
     await _agent(client)
-    row = await _make(client, schedule={"kind": "interval", "hours": 2})
+    row = await _make(client, schedule=every_hours(2))
     url = f"/api/agents/ag/routines/{row['id']}"
     off = (await client.put(url, json={"enabled": False})).json()
     assert off["enabled"] is False and off["next_run_at"] is None
@@ -473,9 +417,9 @@ async def test_put_disable_nulls_next_and_enable_recomputes_without_catch_up(
     on = (await client.put(url, json={"enabled": True})).json()
     assert on["enabled"] is True
     # The grid continues from the stored anchor (NOW + 2h): no catch-up and no re-anchor.
-    assert on["next_run_at"] == (NOW + timedelta(hours=2 + 2 * 36)).isoformat()
+    assert on["next_run_at"] == _in_hours(NOW, 72)  # the anchor's 35th step, just after "later"
     async with client.conn.execute("SELECT anchor_at FROM agent_routines") as cur:
-        assert (await cur.fetchone())[0] == (NOW + timedelta(hours=2)).isoformat()
+        assert (await cur.fetchone())[0] == _in_hours(NOW, 2)
     # enabled: true on an already-enabled routine is a no-op
     again = (await client.put(url, json={"enabled": True})).json()
     assert again["next_run_at"] == on["next_run_at"]
@@ -483,8 +427,7 @@ async def test_put_disable_nulls_next_and_enable_recomputes_without_catch_up(
 
 async def test_finished_one_off_enable_rules(client) -> None:
     await _agent(client)
-    at = (NOW + timedelta(hours=1)).isoformat()
-    row = await _make(client, schedule={"kind": "once", "at": at})
+    row = await _make(client, schedule=once_in(1, "hours"))
     url = f"/api/agents/ag/routines/{row['id']}"
     await client.conn.execute(
         "UPDATE agent_routines SET finished_at = ?, next_run_at = NULL", (NOW.isoformat(),)
@@ -496,10 +439,7 @@ async def test_finished_one_off_enable_rules(client) -> None:
     # a body without `schedule` never revalidates, and name edits work while Done
     assert (await client.put(url, json={"name": "Still done"})).json()["finished_at"] is not None
     # a new future time re-arms it
-    new_at = (NOW + timedelta(hours=5)).isoformat()
-    out = (
-        await client.put(url, json={"schedule": {"kind": "once", "at": new_at}, "enabled": True})
-    ).json()
+    out = (await client.put(url, json={"schedule": once_in(5, "hours"), "enabled": True})).json()
     assert out["finished_at"] is None and out["next_run_at"] == "2026-10-11T03:46:00+00:00"
     # a finished one-off switched to a repeating kind is also re-armed
     await client.conn.execute("UPDATE agent_routines SET finished_at = ?", (NOW.isoformat(),))
@@ -510,8 +450,7 @@ async def test_finished_one_off_enable_rules(client) -> None:
 
 async def test_overdue_once_awaiting_catch_up_is_not_revalidated(client) -> None:
     await _agent(client)
-    at = (NOW + timedelta(hours=1)).isoformat()
-    row = await _make(client, schedule={"kind": "once", "at": at})
+    row = await _make(client, schedule=once_in(1, "hours"))
     url = f"/api/agents/ag/routines/{row['id']}"
     past = {
         "start": {"date": "2026-09-30", "time": "17:00"},
@@ -528,25 +467,20 @@ async def test_overdue_once_awaiting_catch_up_is_not_revalidated(client) -> None
     assert ok.json()["schedule"] == past
     assert ok.json()["next_run_at"] == row["next_run_at"]
     # but an explicit schedule key is validated, so the past is refused
-    resp = await client.put(url, json={"schedule": {"kind": "once", "at": "2026-10-01T00:00:00Z"}})
+    resp = await client.put(url, json={"schedule": once_at("2026-09-30", "17:00")})
     assert resp.status_code == 422
     assert resp.json()["detail"][0]["msg"] == "This schedule has no runs left."
 
 
-async def test_put_missing_target_not_revalidated_and_bad_values_refused(client) -> None:
+async def test_put_bad_values_refused(client) -> None:
     await _agent(client)
-    await _chat(client, "s1")
-    row = await _make(client, target={"kind": "chat", "session_id": "s1"})
+    row = await _make(client)
     url = f"/api/agents/ag/routines/{row['id']}"
-    await client.delete("/api/chat/sessions/s1")
     ok = await client.put(url, json={"prompt": "still fine"})
-    assert ok.status_code == 200 and ok.json()["target"]["missing"] is True
+    assert ok.status_code == 200
     assert (await client.put(url, json={"enabled": "x"})).status_code == 422
     assert (await client.put(url, json={"prompt": ""})).status_code == 422
     assert (await client.put(url, json={"schedule": {"kind": "x"}})).status_code == 422
-    assert (
-        await client.put(url, json={"target": {"kind": "chat", "session_id": "gone"}})
-    ).status_code == 422
 
 
 # ── runs ──────────────────────────────────────────────────────────────────
@@ -574,8 +508,9 @@ async def test_runs_newest_first_limit_cursor_and_last_run(client) -> None:
     assert [r["id"] for r in out] == ["u4", "u3", "u2", "u1", "u0"]
     assert set(out[0]) == {
         "id", "routine_id", "trigger_kind", "outcome", "reason", "due_at", "started_at",
-        "finished_at", "session_id", "new_chat", "repeats", "reason_code",
+        "finished_at", "session_id", "repeats", "reason_code", "chat_exists",
     }  # fmt: skip
+    assert all(r["chat_exists"] is False for r in out)  # no session ids, no chats
     assert [r["id"] for r in (await client.get(base + "?limit=2")).json()["runs"]] == ["u4", "u3"]
     page = (await client.get(base + "?limit=2&before=2026-10-03T00:00:00%2B00:00")).json()["runs"]
     assert [r["id"] for r in page] == ["u1", "u0"]
@@ -693,23 +628,11 @@ async def test_run_route_404s(client) -> None:
     assert (await client.post("/api/agents/ag/routines/nope/run")).status_code == 404
 
 
-async def test_set_target_session_is_narrow(client) -> None:
-    await _agent(client)
-    row = await _make(client)
-    from the_one.routines.repository import AgentRoutineRepository
-
-    repo = AgentRoutineRepository(client.conn)
-    await repo.set_target_session(row["id"], "abc")
-    got = await repo.get_by_id(row["id"])
-    assert got.target_session_id == "abc" and got.updated_at == row["updated_at"]
-    await repo.set_target_session("missing", "abc")  # no-op
-
-
-# ── once with a local date and time: {kind: once, on: {date, time}} (M33 F1 L9) ──
+# ── once with a local date and time: {start: {date, time}} (M33 F1 L9) ──
 
 
 def _on(date_text: str, time_text: str) -> dict:
-    return {"kind": "once", "on": {"date": date_text, "time": time_text}}
+    return once_at(date_text, time_text)
 
 
 async def _post_on(client, sched):
@@ -768,12 +691,12 @@ async def test_once_on_past_and_too_far(client) -> None:
         _on("20261102", "09:00"),
         _on("2026-11-02", "9am"),
         _on("2026-11-02", "25:00"),
-        {"kind": "once", "on": {"date": "2026-11-02", "time": "09:00", "tz": "UTC"}},
-        {"kind": "once", "on": {"date": "2026-11-02"}},
-        {"kind": "once", "on": "2026-11-02 09:00"},
+        {"start": {"date": "2026-11-02", "time": "09:00", "tz": "UTC"}},
+        {"start": {"date": "2026-11-02"}},
+        {"start": "2026-11-02 09:00"},
         {**_on("2026-11-02", "09:00"), "at": "2026-11-02T17:00:00+00:00"},
         {**_on("2026-11-02", "09:00"), "in": {"amount": 1, "unit": "hours"}},
-        {"kind": "once", "on": {"date": 20261102, "time": "09:00"}},
+        {"start": {"date": 20261102, "time": "09:00"}},
     ],
 )
 async def test_once_on_malformed_is_a_schedule_422(client, sched) -> None:
@@ -786,8 +709,7 @@ async def test_once_on_malformed_is_a_schedule_422(client, sched) -> None:
 
 async def test_put_on_clears_finished_one_off(client) -> None:
     await _agent(client)
-    at = (NOW + timedelta(hours=1)).isoformat()
-    row = await _make(client, schedule={"kind": "once", "at": at})
+    row = await _make(client, schedule=once_in(1, "hours"))
     url = f"/api/agents/ag/routines/{row['id']}"
     await client.conn.execute(
         "UPDATE agent_routines SET finished_at = ?, next_run_at = NULL", (NOW.isoformat(),)
@@ -829,19 +751,19 @@ async def test_preview_returns_the_sentence_runs_and_warnings(client) -> None:
     assert out["warnings"] == ["Some months have fewer than 31 days. Those months are skipped."]
 
 
-async def test_preview_accepts_every_alias_and_names_the_anchor(client) -> None:
+async def test_preview_names_the_anchor_of_a_relative_start(client) -> None:
     await _agent(client)
-    out = (await _preview(client, {"kind": "interval", "hours": 6})).json()
+    out = (await _preview(client, every_hours(6))).json()
     assert out["schedule"]["repeat"] == {"every": 6, "unit": "hour"}
-    assert out["anchor_at"] == (NOW + timedelta(hours=6)).isoformat()
+    assert out["anchor_at"] == _in_hours(NOW, 6)
     assert out["next_runs"][0] == out["anchor_at"] and len(out["next_runs"]) == 3
     assert out["last_occurrence"] is None
     soon = (await _preview(client, {"start": {"in": {"amount": 90, "unit": "minutes"}}})).json()
     assert soon["next_runs"] == ["2026-10-11T00:16:00+00:00"] and soon["text"].startswith(
         "Once, on"
     )
-    daily = (await _preview(client, DAILY)).json()
-    assert daily["text"] == "Every day at 9:00 AM" and daily["schedule"] == CANON_DAILY
+    day = (await _preview(client, DAILY)).json()
+    assert day["text"] == "Every day at 9:00 AM" and day["schedule"] == CANON_DAILY
 
 
 async def test_preview_refuses_like_create_and_writes_nothing(client) -> None:
@@ -852,7 +774,7 @@ async def test_preview_refuses_like_create_and_writes_nothing(client) -> None:
     assert resp.json()["detail"] == [
         {"type": "value_error", "loc": ["schedule"], "msg": "This schedule has no runs left."}
     ]
-    bad = await _preview(client, {"kind": "interval", "hours": 0})
+    bad = await _preview(client, every_hours(0))
     assert bad.status_code == 422 and bad.json()["detail"][0]["loc"] == ["schedule"]
     far = await _preview(client, {"start": {"date": "2030-01-01", "time": "09:00"}})
     assert far.json()["detail"][0]["msg"] == "That time is more than a year away."
@@ -867,3 +789,55 @@ async def test_preview_404s_for_an_unknown_agent_and_default(client) -> None:
     assert (await _preview(client, DAILY, name="nope")).status_code == 404
     resp = await _preview(client, DAILY, name="default")
     assert resp.status_code == 404 and resp.json()["detail"] == "Agent not found: default"
+
+
+async def test_preview_of_a_now_start_is_immediate(client) -> None:
+    await _agent(client)
+    sched = {"start": {"now": True}, "repeat": {"every": 1, "unit": "day"}}
+    out = (await _preview(client, sched)).json()
+    assert out["immediate"] is True and len(out["next_runs"]) == 3
+    assert out["next_runs"][0] == NOW.isoformat()
+    assert datetime.fromisoformat(out["next_runs"][1]) > NOW
+    once = (await _preview(client, {"start": {"now": True}})).json()
+    assert once["immediate"] is True and len(once["next_runs"]) == 1
+    ended = {**sched, "ends": {"kind": "on", "date": "2020-01-01"}}
+    assert (await _preview(client, ended)).status_code == 422
+    assert (await _preview(client, DAILY)).json()["immediate"] is False
+
+
+# ── the older kind-based shape is refused (M33 F4 L7) ─────────────────────
+
+KIND_SENTENCE = (
+    "A schedule is {start, repeat, ends}; the older kind-based shape is no longer accepted."
+)
+OLD_SHAPES = [
+    {"kind": "once", "in": {"amount": 2, "unit": "hours"}},
+    {"kind": "daily", "time": "09:00"},
+    {"kind": "weekly", "days": [1], "time": "09:00"},
+]
+
+
+def _kind_refusal(resp) -> None:
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == [
+        {"type": "value_error", "loc": ["schedule"], "msg": KIND_SENTENCE}
+    ]
+
+
+@pytest.mark.parametrize("old", OLD_SHAPES)
+async def test_kind_shape_is_refused_on_create_update_and_preview(client, old) -> None:
+    await _agent(client)
+    _kind_refusal(await client.post("/api/agents/ag/routines", json=_body(schedule=old)))
+    row = await _make(client)
+    _kind_refusal(await client.put(f"/api/agents/ag/routines/{row['id']}", json={"schedule": old}))
+    _kind_refusal(await _preview(client, old))
+    stored = (await client.get(f"/api/agents/ag/routines/{row['id']}")).json()
+    assert stored["schedule"] == CANON_DAILY
+
+
+@pytest.mark.parametrize("key", ["at", "in", "on"])
+async def test_a_stray_top_level_key_keeps_the_generic_refusal(client, key) -> None:
+    await _agent(client)
+    resp = await _preview(client, {"start": {"date": "2026-11-02", "time": "09:00"}, key: "x"})
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["msg"] == f"A schedule does not take '{key}'."

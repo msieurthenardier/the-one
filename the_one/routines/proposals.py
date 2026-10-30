@@ -3,8 +3,8 @@
 Every change an agent makes to its routines is one row in ``agent_routine_proposals``:
 ``applied`` (made at once), ``pending`` (held for the operator), ``dismissed`` or
 ``superseded`` (replaced, or its routine went away). ``payload`` is the validated request
-(a once's ``in`` already converted to an absolute ``at``; the target in the REST body
-shape); ``base`` is the raw stored fields the change was made against, for the stale check.
+(a once's ``in`` already converted to an absolute ``at``); ``base`` is the raw stored
+fields the change was made against, for the stale check.
 
 Writes that belong to a routine mutation (:class:`ProposalOp`) run on the mutator's own
 connection inside its one ``write_transaction``; the guard does not nest, so nothing here

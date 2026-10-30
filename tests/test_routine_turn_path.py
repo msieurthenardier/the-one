@@ -9,8 +9,6 @@ from typing import Any
 
 import pytest
 
-from the_one.connectors.base import ChannelTarget
-from the_one.connectors.delivery import DeliveryResult
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import (
     Session,
@@ -77,15 +75,10 @@ class _Agent:
 
 
 class _Client:
-    def __init__(self, block: asyncio.Event | None = None) -> None:
+    def __init__(self) -> None:
         self.sent: list[tuple[Any, str]] = []
-        self.block = block
-        self.entered = asyncio.Event()
 
     async def send(self, target, content):
-        self.entered.set()
-        if self.block is not None:
-            await self.block.wait()
         self.sent.append((target, content))
 
 
@@ -95,9 +88,6 @@ class _Manager:
 
     def client_for(self, connector_id):
         return self.client
-
-
-TARGET = ChannelTarget(connector_id="conn-1", channel_id="ch-1")
 
 
 def _session(agent: _Agent, sid: str = "s-rt", platform: str | None = None) -> Session:
@@ -110,8 +100,8 @@ def _session(agent: _Agent, sid: str = "s-rt", platform: str | None = None) -> S
     return s
 
 
-def _routine(target=TARGET) -> dict[str, Any]:
-    return {"id": "r1", "name": "Morning", "target": target, "connector_id": "conn-1"}
+def _routine() -> dict[str, Any]:
+    return {"id": "r1", "name": "Morning"}
 
 
 @pytest.fixture(autouse=True)
@@ -161,39 +151,35 @@ def _use_manager(monkeypatch, client: _Client) -> None:
 # ── turn_info keys ────────────────────────────────────────────────────────
 
 
-async def test_clean_routine_turn_on_connector_chat_delivers(env, monkeypatch):
+async def test_clean_routine_turn_binds_marker_and_events(env):
     frames, saves = env
+    session = _session(_Agent())
+    info: dict[str, Any] = {"routine": _routine()}
+    await web_app._spawn_message_processing(session, "do it", "routine", None, info)
+
+    assert info["started"] is True and "delivery" not in info
+    msgs = session.agent.messages
+    assert (msgs[0].routine_id, msgs[0].routine_name) == ("r1", "Morning")
+    assert msgs[0].visibility is None and msgs[1].visibility is None
+    assert saves[-1][0].routine_id == "r1"
+    user = next(f for f in frames if f["type"] == "user")
+    assert user["source"] == "routine"
+    assert user["routine_id"] == "r1" and user["routine_name"] == "Morning"
+    assert user["session_id"] == "s-rt"
+    assert not any(f["type"] == "session_updated" for f in frames)
+    assert frames[-1]["type"] == "done"
+
+
+async def test_routine_turn_in_a_connector_chat_posts_nothing(env, monkeypatch):
+    """A routine reply is never delivered to a platform, even when the chat is a
+    connector's and a live client exists (the agent's own send tool is the only way)."""
     client = _Client()
     _use_manager(monkeypatch, client)
     session = _session(_Agent(), platform="stub")
     info: dict[str, Any] = {"routine": _routine()}
     await web_app._spawn_message_processing(session, "do it", "routine", None, info)
-
-    assert info["started"] is True
-    assert client.sent == [(TARGET, "the reply")]
-    assert info["delivery"] == DeliveryResult("delivered")
-    msgs = session.agent.messages
-    assert (msgs[0].routine_id, msgs[0].routine_name) == ("r1", "Morning")
-    assert msgs[0].visibility == OPERATOR_VISIBILITY
-    assert msgs[1].visibility is None  # flipped on delivery
-    assert saves[-1][1].visibility is None
-    user = next(f for f in frames if f["type"] == "user")
-    assert user["source"] == "routine"
-    assert user["routine_id"] == "r1" and user["routine_name"] == "Morning"
-    assert user["session_id"] == "s-rt" and user["visibility"] == OPERATOR_VISIBILITY
-    assert not any(f["type"] == "session_updated" for f in frames)
-    assert frames[-1]["type"] == "done"
-
-
-async def test_routine_on_web_chat_binds_marker_without_delivery(env, monkeypatch):
-    client = _Client()
-    _use_manager(monkeypatch, client)
-    session = _session(_Agent())
-    info: dict[str, Any] = {"routine": _routine()}
-    await web_app._spawn_message_processing(session, "do it", "routine", None, info)
     assert client.sent == [] and "delivery" not in info
-    m = session.agent.messages[0]
-    assert m.routine_id == "r1" and m.visibility is None
+    assert info["started"] is True and session.agent.messages[0].routine_id == "r1"
 
 
 class _CapturingAgent(_Agent):
@@ -209,8 +195,7 @@ class _CapturingAgent(_Agent):
             yield m
 
 
-async def test_flagged_routine_run_binds_snapshot_and_turn_context(env, monkeypatch):
-    _use_manager(monkeypatch, _Client())
+async def test_flagged_routine_run_binds_snapshot_and_turn_context(env):
     agent = _CapturingAgent()
     session = _session(agent)
     info: dict[str, Any] = {"routine": {**_routine(), "untrusted_sources": ["web_fetch", "peer:x"]}}
@@ -222,8 +207,7 @@ async def test_flagged_routine_run_binds_snapshot_and_turn_context(env, monkeypa
     assert ctx.routine_sources == ["web_fetch", "peer:x"] and ctx.routine_writes == 0
 
 
-async def test_unflagged_routine_run_binds_an_empty_list(env, monkeypatch):
-    _use_manager(monkeypatch, _Client())
+async def test_unflagged_routine_run_binds_an_empty_list(env):
     agent = _CapturingAgent()
     session = _session(agent)
     info: dict[str, Any] = {"routine": {**_routine(), "untrusted_sources": []}}
@@ -272,79 +256,40 @@ async def test_no_routine_no_extra_keys(env):
     assert session.agent.messages[0].routine_id is None
 
 
-async def test_error_sets_info_and_never_sends(env, monkeypatch):
-    client = _Client()
-    _use_manager(monkeypatch, client)
-    session = _session(_Agent("raise"), platform="stub")
+async def test_error_sets_info(env):
+    session = _session(_Agent("raise"))
     info: dict[str, Any] = {"routine": _routine()}
     await web_app._spawn_message_processing(session, "x", "routine", None, info)
     assert len(info["error"]) <= 200 and info["error"].startswith("boom")
-    assert client.sent == [] and "delivery" not in info
     assert session.agent.messages[0].routine_id == "r1"
 
 
-async def test_pause_sets_server_and_never_sends(env, monkeypatch):
+async def test_pause_sets_server(env):
     frames, saves = env
-    client = _Client()
-    _use_manager(monkeypatch, client)
-    session = _session(_Agent("pause"), platform="stub")
+    session = _session(_Agent("pause"))
     info: dict[str, Any] = {"routine": _routine()}
     await web_app._spawn_message_processing(session, "x", "routine", None, info)
     assert info["paused"] == "Notion"
-    assert client.sent == [] and "delivery" not in info
     assert saves and saves[-1][0].routine_id == "r1"
     assert not any(f["type"] == "done" for f in frames)
 
 
-async def test_cancel_sets_info_and_never_sends(env, monkeypatch):
+async def test_cancel_sets_info(env):
     frames, saves = env
-    client = _Client()
-    _use_manager(monkeypatch, client)
     agent = _Agent("block")
-    session = _session(agent, platform="stub")
+    session = _session(agent)
     info: dict[str, Any] = {"routine": _routine()}
     task = asyncio.create_task(_spawn_message_processing(session, "x", "routine", None, info))
     await agent.started.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert info["cancelled"] is True and client.sent == []
+    assert info["cancelled"] is True
     assert sum(1 for f in frames if f["type"] == "cancelled") == 1
     assert saves[-1][0].routine_id == "r1"  # cancel-path save binds the marker
 
 
-async def test_cancel_during_delivery_saves_notifies_once(env, monkeypatch):
-    frames, saves = env
-    gate = asyncio.Event()
-    client = _Client(block=gate)
-    _use_manager(monkeypatch, client)
-    session = _session(_Agent(), platform="stub")
-    info: dict[str, Any] = {"routine": _routine()}
-    task = asyncio.create_task(_spawn_message_processing(session, "x", "routine", None, info))
-    await client.entered.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert info["cancelled"] is True
-    assert sum(1 for f in frames if f["type"] == "cancelled") == 1
-    last = saves[-1]
-    assert last[0].routine_id == "r1" and last[0].visibility == OPERATOR_VISIBILITY
-    assert last[1].content == "the reply" and last[1].visibility == OPERATOR_VISIBILITY
-
-
-async def test_delivery_exception_becomes_send_failed(env, monkeypatch):
-    async def boom(*a, **k):
-        raise RuntimeError("kaput")
-
-    monkeypatch.setattr(web_app, "deliver_final_reply", boom)
-    _use_manager(monkeypatch, _Client())
-    session = _session(_Agent(), platform="stub")
-    info: dict[str, Any] = {"routine": _routine()}
-    await web_app._spawn_message_processing(session, "x", "routine", None, info)
-    assert info["delivery"].status == "send_failed" and "kaput" in info["delivery"].error
-
-
-async def test_step_limit_line_sent_after_delivery(env, monkeypatch):
+async def test_step_limit_is_recorded_in_turn_info(env, monkeypatch):
     client = _Client()
     _use_manager(monkeypatch, client)
     agent = _Agent()
@@ -353,17 +298,7 @@ async def test_step_limit_line_sent_after_delivery(env, monkeypatch):
     info: dict[str, Any] = {"routine": _routine()}
     await web_app._spawn_message_processing(session, "x", "routine", None, info)
     assert info["step_limit"] is True
-    assert [c for _, c in client.sent][0] == "the reply"
-    assert len(client.sent) == 2 and "step limit" in client.sent[1][1]
-
-
-async def test_routine_without_target_does_not_deliver(env, monkeypatch):
-    client = _Client()
-    _use_manager(monkeypatch, client)
-    session = _session(_Agent(), platform="stub")
-    info: dict[str, Any] = {"routine": _routine(target=None)}
-    await web_app._spawn_message_processing(session, "x", "routine", None, info)
-    assert client.sent == [] and "delivery" not in info
+    assert client.sent == []  # no platform line for a routine run
 
 
 # ── cancel-path tagging on every turn ─────────────────────────────────────

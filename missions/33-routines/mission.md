@@ -105,7 +105,7 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
 
 ## Success Criteria
 
-- [ ] **The operator manages an agent's routines.** On a Routines tab in the
+- [x] **The operator manages an agent's routines.** On a Routines tab in the
       agent editor, the operator can create, edit, turn on or off, and delete
       named routines. Each routine has:
       - a prompt;
@@ -120,22 +120,30 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
       Choosing an existing chat is a real picker over the agent's chats, web
       and connector, not a pasted id. The tab shows each routine's next run
       and its run history.
-- [ ] **Routines run on time, unattended.**
+- [x] **Routines run on time, unattended.**
   - A routine runs when it is due, in the operator's time zone, including across
     daylight-saving changes, whether or not any chat is open.
   - A one-off routine runs once and is then done.
   - Routines survive restarts.
   - Anyone who has the target chat open sees the run as it happens.
-- [ ] **The reply lands in the target.**
+> **Amended at the Flight 4 HAT (operator, 2026-10-29):** routines have no
+> target. Every run starts a new chat in the app, titled with the routine's
+> name, and routines do not deliver to connectors: a prompt that asks the
+> agent to post to a platform does it with the agent's existing platform
+> tools. The criterion below is kept as originally written and is judged
+> against the amended model: "the reply lands in a new chat each run". The
+> "Chat gone" bullet of "Unattended runs are honest" no longer applies.
+
+- [x] **The reply lands in the target.**
   - In a web chat, the routine's message and the agent's reply are in the chat.
   - In a connector chat, the reply is sent to that chat's channel.
   - *(Behavior-test-backed: a routine run delivered through a connector.)*
-- [ ] **A routine's message says it came from the routine.**
+- [x] **A routine's message says it came from the routine.**
   - The transcript marks the run's message as from the routine, by name, never
     as typed by the operator.
   - The chat agent panel shows when the open chat was activated by a routine,
     and lists the agent's routines by name.
-- [ ] **Unattended runs are honest.** Run history records each run's outcome,
+- [x] **Unattended runs are honest.** Run history records each run's outcome,
       with a readable reason when it fails or skips:
   - **Missed run:** a run missed while the app was closed or asleep runs
     once on return if the miss is recent (within a grace window), and is
@@ -148,14 +156,14 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
     connector target starts it in the same channel.
   - **Other failures:** a turn that fails, or needs a sign-in nobody can
     give, is recorded as failed.
-- [ ] **The Self-configuration tab governs two things.**
+- [x] **The Self-configuration tab governs two things.**
   - The tab has two items, **Agent prompt** (the existing description and
     system prompt tools) and **Routines**.
   - Each item has its own on/off switch and its own "require approval" switch.
   - Routines is off by default.
   - Every existing agent keeps exactly its current self-configuration
     behaviour through the upgrade.
-- [ ] **An agent schedules its own routines when allowed.**
+- [x] **An agent schedules its own routines when allowed.**
   - With the Routines item on, the agent can list, create, change and cancel
     its own routines. That includes routines the operator made, so the
     operator decides through the approval switch.
@@ -165,19 +173,19 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
     to another agent.
   - *(Behavior-test-backed: a live model schedules "check back later" and the
     run lands.)*
-- [ ] **Agent routine changes are overseen.**
+- [x] **Agent routine changes are overseen.**
   - With Routines approval on, an agent's create, change or cancel is held as
     pending, with no effect, until the operator approves or dismisses it.
   - Every routine change the agent makes, applied or not, is recorded where the
     operator can see it.
-- [ ] **Injected content cannot plant a routine unnoticed, and routines are
+- [x] **Injected content cannot plant a routine unnoticed, and routines are
       bounded.**
   - A routine created or changed by the agent after untrusted content appeared
     in its conversation is flagged "Check this" wherever it is shown. A
     scripted-tool-call test proves this deterministically.
   - An agent's active routines are capped in number and frequency.
   - A refused change tells the agent why.
-- [ ] **Routines follow their agent.** Renaming an agent keeps its routines,
+- [x] **Routines follow their agent.** Renaming an agent keeps its routines,
       deleting it removes them, and existing installs upgrade with no data
       loss.
 
@@ -384,7 +392,7 @@ branch's working tree moves line numbers, so the flight designs re-verify them):
   - finished routines and resolved proposals age out with retention;
   - maintenance on the same surfaces (route and turn-host moves, the agent
     editor controller split, squawks 0232, 0273, 0284, lane headroom).
-- [ ] Flight 4: **HAT and alignment.** One guided human acceptance test for the
+- [x] Flight 4: **HAT and alignment.** One guided human acceptance test for the
       whole mission, with the operator present. Flights 1-3 carry no HAT
       legs of their own and land on automated gates and behavior tests
       (operator decision). The walk covers:

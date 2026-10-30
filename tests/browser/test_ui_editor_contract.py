@@ -531,6 +531,41 @@ def test_danger_zone_set_disabled_all_or_by_index(engine_page: Page) -> None:
     assert p.evaluate("() => window.__zone.buttons.map((b) => b.disabled)") == [False, False]
 
 
+def test_danger_zone_action_heading_and_description_make_stacked_rows(engine_page: Page) -> None:
+    """Opt-in rows (M33 F4 HAT): an action with heading/description is wrapped in a stacked row,
+    the description describes the button, and plain actions keep the side-by-side form."""
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const z = App.ui.dangerZone({actions: [
+            {label: 'Purge now', testid: 'p', heading: 'Purge it', description: 'Removes things.'},
+            {label: 'Delete it', testid: 'd', heading: 'Delete it for good'},
+            {label: 'Plain', testid: 'x'}
+          ]});
+          document.getElementById('harness-root').appendChild(z.el);
+          const rows = Array.from(z.el.querySelectorAll('.danger-zone-row'));
+          const p = z.buttons[0];
+          return {
+            kids: Array.from(z.el.children).map((k) => k.className),
+            heads: rows.map((r) => r.querySelector('.danger-zone-row-heading').textContent),
+            descs: rows.map((r) => !!r.querySelector('.danger-zone-row-desc')),
+            described: document.getElementById(p.getAttribute('aria-describedby')).textContent,
+            noDesc: z.buttons[1].hasAttribute('aria-describedby'),
+            stacked: rows[0].getBoundingClientRect().bottom <= rows[1].getBoundingClientRect().top,
+            name: p.textContent.trim(), buttons: z.buttons.length
+          };
+        }"""
+    )
+    assert out["kids"] == [
+        "section-title danger-zone-title", "danger-zone-row", "danger-zone-row",
+        "btn-muted-destructive delete-btn",
+    ]  # fmt: skip
+    assert out["heads"] == ["Purge it", "Delete it for good"]
+    assert out["descs"] == [True, False] and out["noDesc"] is False
+    assert out["described"] == "Removes things." and out["stacked"] is True
+    assert out["name"] == "Purge now" and out["buttons"] == 3
+
+
 def test_danger_zone_singular_action_form_is_the_one_item_form(engine_page: Page) -> None:
     _mount_danger(engine_page)
     assert engine_page.evaluate(

@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-TargetKind = Literal["chat", "new", "own"]
 TriggerKind = Literal["schedule", "catch_up", "manual"]
 Outcome = Literal["running", "ok", "failed", "skipped", "missed", "interrupted", "stopped"]
 
@@ -19,13 +18,6 @@ class Routine(BaseModel):
     schedule: dict[str, Any]
     enabled: bool = True
     finished_at: str | None = None
-    target_kind: TargetKind
-    target_session_id: str | None = None
-    target_platform: str | None = None
-    target_connector_id: str | None = None
-    target_channel_id: str | None = None
-    target_thread_id: str | None = None
-    target_peer_id: str | None = None
     next_run_at: str | None = None
     anchor_at: str | None = None
     created_by: Literal["operator", "agent"] = "operator"
@@ -46,6 +38,5 @@ class RoutineRun(BaseModel):
     started_at: str | None = None
     finished_at: str | None = None
     session_id: str | None = None
-    new_chat: bool = Field(default=False)
     repeats: int = 1
     reason_code: str | None = None

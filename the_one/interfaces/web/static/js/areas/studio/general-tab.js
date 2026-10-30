@@ -217,20 +217,28 @@
     var danger = null;
     if (!isCreate) {
       danger = ui.dangerZone({
+        // Two stacked rows, Purge first, then Delete (operator decision, M33 F4 HAT).
         actions: [
           {
-            label: 'Delete agent',
-            testid: 'delete-agent-btn',
-            confirmLabel: 'Confirm delete?',
-            dataset: { name: cfg.name || '' },
-            onConfirm: function (revert) { if (callbacks.onDelete) callbacks.onDelete(revert); }
-          },
-          {
+            heading: 'Purge chats and history',
+            description: "Deletes this agent's chats, its routines' run history and its " +
+              'finished approval history. The agent, its routines, rules, notes and any changes ' +
+              'still waiting for approval are kept.',
             label: 'Purge now',
             testid: 'purge-history-btn',
             confirmLabel: 'Confirm purge?',
             dataset: { name: cfg.name || '' },
             onConfirm: function (revert) { if (callbacks.onPurge) callbacks.onPurge(revert); }
+          },
+          {
+            heading: 'Permanently delete agent',
+            description: 'Deletes the agent with its routines, rules, notes and settings. ' +
+              "This can't be undone.",
+            label: 'Delete agent',
+            testid: 'delete-agent-btn',
+            confirmLabel: 'Confirm delete?',
+            dataset: { name: cfg.name || '' },
+            onConfirm: function (revert) { if (callbacks.onDelete) callbacks.onDelete(revert); }
           }
         ]
       });

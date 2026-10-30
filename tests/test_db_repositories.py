@@ -2027,6 +2027,21 @@ class TestChatSessionRepository:
         sessions = await chat_repo.list()
         assert len(sessions) == 2
 
+    async def test_existing_ids(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+        await chat_repo.create(ChatSession(id="s2", agent_name="agent1"))
+        assert await chat_repo.existing_ids(["s1", "gone", "s2", "s1", "", None]) == {"s1", "s2"}
+        assert await chat_repo.existing_ids([]) == set()
+        assert await chat_repo.existing_ids(["gone"]) == set()
+        await chat_repo.delete("s1")
+        assert await chat_repo.existing_ids(["s1", "s2"]) == {"s2"}
+        # more ids than one query's variable budget
+        many = [f"x{i}" for i in range(1200)] + ["s2"]
+        assert await chat_repo.existing_ids(many) == {"s2"}
+
     async def test_list_by_agent(
         self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
     ) -> None:

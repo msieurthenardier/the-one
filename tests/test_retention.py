@@ -215,7 +215,6 @@ async def test_run_purge_sweep_deletes_old_finished_runs_per_agent(conn) -> None
         "name": "r",
         "prompt": "p",
         "schedule": DAILY_SCHEDULE,
-        "target_kind": "new",
     }
     ra = await routines.create("a", fields)
     rb = await routines.create("b", fields)
@@ -282,7 +281,6 @@ async def test_run_purge_sweep_deletes_old_done_routines_only(conn) -> None:
             "name": name,
             "prompt": "p",
             "schedule": DAILY_SCHEDULE,
-            "target_kind": "new",
             **kw,
         }
 

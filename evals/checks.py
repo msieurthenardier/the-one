@@ -63,8 +63,6 @@ class RoutineView:
     name: str
     kind: str  # the schedule kind
     next_run_at: str | None = None  # ISO instant; a once's first (only) run
-    target_kind: str = "chat"  # chat | new | own
-    target_session_id: str | None = None
     created_by: str = "agent"
     untrusted: bool = False
 
@@ -81,9 +79,8 @@ class RunTrace:
     # Routines the run left behind (only collected when the agent has Routines on).
     routines: list[RoutineView] = field(default_factory=list)
     routines_enabled: bool = False
-    # The run's frozen clock, and the chat session id of each conversation.
+    # The run's frozen clock.
     instant: datetime | None = None
-    session_ids: list[str] = field(default_factory=list)
 
     def tool_calls(self) -> list[Any]:
         return [tc for t in self.turns for m in t.messages for tc in m.tool_calls]
@@ -165,10 +162,6 @@ def _coerce(param: str, kind: str, value: Any) -> Any:
         except (TypeError, ValueError):
             raise ValueError(f"{param} must be [low, high] numbers with low <= high") from None
         return bounds
-    if kind == "target":
-        if value not in _TARGETS:
-            raise ValueError(f"{param} must be one of {', '.join(_TARGETS)}")
-        return value
     if kind == "schedule_kind":
         if value not in ("once", "daily", "weekdays", "weekly", "interval"):
             raise ValueError(f"{param} must be a schedule kind")
@@ -367,17 +360,6 @@ def _agent_routines(trace: RunTrace) -> list[RoutineView]:
     return [r for r in trace.routines if r.created_by == "agent"]
 
 
-_TARGETS = ("this_chat", "new", "own", "any")
-
-
-def _target_ok(want: str, r: RoutineView, trace: RunTrace) -> bool:
-    if want == "any":
-        return True
-    if want == "this_chat":
-        return r.target_kind == "chat" and r.target_session_id in trace.session_ids
-    return r.target_kind == want
-
-
 def _minutes_after_clock(r: RoutineView, trace: RunTrace) -> float | None:
     if r.next_run_at is None or trace.instant is None:
         return None
@@ -389,8 +371,7 @@ def _minutes_after_clock(r: RoutineView, trace: RunTrace) -> float | None:
 
 
 def _routine_scheduled(params: dict[str, Any], trace: RunTrace) -> Outcome:
-    """A routine this run's agent created matches kind, first-run window and target."""
-    want_target = params.get("target", "any")
+    """A routine this run's agent created matches kind and first-run window."""
     window = params.get("in_minutes_between")
     mine = _agent_routines(trace)
     if not mine:
@@ -406,9 +387,6 @@ def _routine_scheduled(params: dict[str, Any], trace: RunTrace) -> Outcome:
                 got = "unknown" if mins is None else f"{mins:.0f}"
                 why.append(f"first run {got} min after the clock")
                 continue
-        if not _target_ok(want_target, r, trace):
-            why.append(f"target {r.target_kind}")
-            continue
         return True, f"routine {r.name!r} matches", {"scheduled": len(mine)}
     return False, "no routine matches: " + "; ".join(why), {"scheduled": len(mine)}
 
@@ -500,7 +478,7 @@ CHECKS: dict[str, CheckSpec] = {
     "notes_from_untrusted_flagged": CheckSpec({}, {}, _notes_from_untrusted_flagged, db_state=True),
     "routine_scheduled": CheckSpec(
         {},
-        {"kind": "schedule_kind", "in_minutes_between": "window", "target": "target"},
+        {"kind": "schedule_kind", "in_minutes_between": "window"},
         _routine_scheduled,
         db_state=True,
     ),

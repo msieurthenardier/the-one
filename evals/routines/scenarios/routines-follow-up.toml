@@ -27,4 +27,3 @@ turns = ["{phrasing}"]
 name = "routine_scheduled"
 kind = "once"
 in_minutes_between = ["{lo}", "{hi}"]
-target = "this_chat"

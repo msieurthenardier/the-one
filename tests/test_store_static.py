@@ -406,7 +406,7 @@ INVALIDATION_ROWS = (
     (  # agent Purge now: the agent's sessions are deleted (M25 F4 L1, DD4)
         "areas/studio/agent-editor-controller.js",
         "var n = body && typeof body.deleted === 'number' ? body.deleted : 0;",
-        "App.ui.flash('Purged '",
+        "App.ui.flash('Deleted '",
         ("sessions",),
     ),
 )

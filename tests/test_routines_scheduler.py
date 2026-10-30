@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from tests._routine_app import routine_app, wait_for  # noqa: F401
+from tests._routine_schedules import once_in
 from tests._schema_template import connect_template_db
 from the_one import time_zones
 from the_one.agent.config import AgentConfig
@@ -103,7 +104,6 @@ async def _mk(e, name="R", schedule=None, due=None, **extra):
             "name": name,
             "prompt": "p",
             "schedule": schedule,
-            "target_kind": "new",
             "next_run_at": due.isoformat() if due else None,
             "anchor_at": anchor,
             **extra,
@@ -458,9 +458,7 @@ async def test_once_routine_runs_without_waiting_for_the_tick(routine_app) -> No
     h = routine_app
     # A one-off made over REST starts at a whole minute at least; so make it for tomorrow,
     # then pull its stored time to two seconds from now and poke the loop awake.
-    r = await h.routine(
-        {"kind": "new"}, schedule={"kind": "once", "in": {"amount": 1, "unit": "days"}}
-    )
+    r = await h.routine(schedule=once_in(1, "days"))
     from the_one.db.connection import get_connection
     from the_one.routines.scheduler import get_scheduler
 
@@ -485,7 +483,7 @@ async def test_once_routine_runs_without_waiting_for_the_tick(routine_app) -> No
 
 async def test_run_now_is_independent_and_overlap_skips(routine_app) -> None:
     h = routine_app
-    r = await h.routine({"kind": "new"})
+    r = await h.routine()
     before = (await h.api("GET", f"/api/agents/bot/routines/{r['id']}")).json()
     h.llm.delay = 3.0
     resp = await h.api("POST", f"/api/agents/bot/routines/{r['id']}/run")
@@ -509,7 +507,7 @@ async def test_run_now_is_independent_and_overlap_skips(routine_app) -> None:
 @pytest.mark.timeout(60)
 async def test_stop_interrupts_a_running_run_promptly(routine_app) -> None:
     h = routine_app
-    r = await h.routine({"kind": "new"})
+    r = await h.routine()
     h.llm.delay = 30.0
     resp = await h.api("POST", f"/api/agents/bot/routines/{r['id']}/run")
     assert resp.status_code == 202
@@ -799,3 +797,28 @@ async def test_zone_change_leaves_an_already_due_wall_clock_routine_for_the_pass
     await _switch_zone(env, "America/Los_Angeles", "Europe/London")
     await env.sched._check_zone(env.clock[0])
     assert (await env.repo.get_by_id(r.id)).next_run_at == due.isoformat()
+
+
+async def test_a_now_start_is_never_missed_or_a_catch_up(env, monkeypatch) -> None:
+    """M33 F4 L4 AC7: a routine saved with Immediately has next_run_at = the save instant,
+    and a pass 2 s or 59 s later runs it as an ordinary scheduled run."""
+    got = []
+
+    async def fake_run(rid, trigger, due=None):
+        got.append((rid, trigger))
+
+    monkeypatch.setattr(runner, "run_routine", fake_run)
+    env.sched._spawn = lambda rid, factory: asyncio.get_running_loop().create_task(factory())
+    for name, delay in (("two", 2), ("fifty-nine", 59)):
+        saved = _dt(2026, 3, 1, 9, 0, 17)
+        r = await _mk(
+            env,
+            name=name,
+            schedule=_every(1, "day", saved.replace(second=0)),
+            due=saved,
+            anchor_at=None,
+        )
+        await env.sched.run_pass(saved + timedelta(seconds=delay))
+        await asyncio.sleep(0.05)
+        assert (r.id, "schedule") in got, name
+        assert not [x for x in await _runs(env, r.id) if x.outcome == "missed"]

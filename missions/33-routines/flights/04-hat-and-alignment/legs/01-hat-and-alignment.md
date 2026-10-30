@@ -1,6 +1,6 @@
 # Leg: hat-and-alignment
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [HAT and Alignment](../flight.md)
 
 ## Objective
