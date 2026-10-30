@@ -1,6 +1,6 @@
 # Flight: HAT and Alignment
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Routines](../../mission.md)
 
 ## Contributing to Criteria
