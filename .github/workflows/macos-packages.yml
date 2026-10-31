@@ -65,6 +65,11 @@ on:
         type: string
         required: false
         default: full
+      retention-days:
+        description: "Days to keep the package artifact (squawk 0302; a standalone dispatch keeps 3)"
+        type: number
+        required: false
+        default: 3
 
 permissions:
   contents: read
@@ -360,7 +365,7 @@ jobs:
         with:
           name: macos-dmg
           path: ${{ env.M32_DMG }}
-          retention-days: 14
+          retention-days: ${{ inputs.retention-days || 3 }}
           if-no-files-found: warn
 
       # Last, so a failed build reads as a red job without ever blocking the log upload. The FAIL

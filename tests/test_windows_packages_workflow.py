@@ -51,8 +51,10 @@ def test_on_block_inputs_and_modes():
     assert dispatch["mode"]["default"] == "full"
     assert call["inputs"]["mode"]["type"] == "string"
     assert call["inputs"]["mode"]["default"] == "full"
+    # squawk 0302: workflow_call alone gained retention-days; the dispatch block is untouched
+    assert set(dispatch) == {"version", "mode"}
+    assert set(call["inputs"]) == {"version", "mode", "retention-days"}
     for inputs in (dispatch, call["inputs"]):
-        assert set(inputs) == {"version", "mode"}
         assert inputs["version"]["type"] == "string"
         assert inputs["version"]["required"] is False
         assert inputs["version"]["default"] == ""
@@ -128,12 +130,12 @@ def test_frozen_smoke_asserts_the_staged_version_with_the_stage_on_pythonpath():
     assert "__version__" not in body, "the staged version is the input, not whatever is imported"
 
 
-def test_installer_artifact_is_n_only_for_fourteen_days():
+def test_installer_artifact_is_n_only_and_short_lived():
     steps = _steps()
     up = steps["Upload the installer"]
     assert up["uses"].startswith("actions/upload-artifact@")
     assert up["with"]["name"] == "windows-installer"
-    assert up["with"]["retention-days"] == 14
+    assert up["with"]["retention-days"] == "${{ inputs.retention-days || 3 }}"
     assert up["with"]["path"] == "${{ env.M32_SETUP_N }}"
     assert "M32_SETUP_NEXT" not in str(up)
     logs = steps["Upload logs and evidence"]
