@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-09-22
 **Completed**: —
+**Related**: 0098, 0099: docstring and doc claims that overstate the knowledge/vector code; complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 

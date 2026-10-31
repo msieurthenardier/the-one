@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-21
 **Completed**: —
+**Related**: 0241: the same defect logged twice (unit tests fail on an unlocked install); complete together. CI and every package build install from the lock, so only contributors following CLAUDE.md's `pip install -e` hit it ([maintenance 2026-10-30](../maintenance/2026-10-30.md), finding #22).
 
 ## Report
 On a fresh venv installed with `pip install -e ".[all-llms,dev]"` (which resolves the `pyproject.toml` ranges, not `uv.lock`), six unit tests fail. They pass once the venv is synced to the lock (`uv sync --frozen`). This was seen during squawk 0224, and the same six fail with the old certifi and Pillow too, so 0224 is not the cause. Some newer release that the ranges allow breaks them. CLAUDE.md's install command is the unlocked one, so a new checkout following it hits these failures.

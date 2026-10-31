@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-24
 **Completed**: —
+**Related**: 0281, 0282: behavior-spec follow-ups; complete together in one spec-edit pass ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 The 44/44 run of `tests/behavior/linux-package-install.md` (Mission 32 Flight 2, leg 12) passed. Its Validator suggested five spec improvements, so the next run (Flight 4's release check) observes more and guesses less:
