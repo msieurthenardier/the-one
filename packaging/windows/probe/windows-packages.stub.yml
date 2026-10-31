@@ -33,6 +33,11 @@ on:
         type: string
         required: false
         default: full
+      retention-days:
+        description: "Days to keep the package artifact (squawk 0302; a standalone dispatch keeps 3)"
+        type: number
+        required: false
+        default: 3
 
 permissions:
   contents: read

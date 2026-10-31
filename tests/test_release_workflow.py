@@ -83,13 +83,15 @@ def test_concurrency_is_per_event_and_never_cancels():
 def test_permissions():
     assert DOC["permissions"] == {"contents": "read"}
     assert JOBS["publish"]["permissions"] == {"contents": "write"}
+    # squawk 0302: cleanup is the only job that may delete artifacts
+    assert JOBS["cleanup"]["permissions"] == {"actions": "write"}
     for name, job in JOBS.items():
-        if name != "publish":
+        if name not in ("publish", "cleanup"):
             assert "permissions" not in job or job["permissions"] == {"contents": "read"}, name
 
 
 def test_job_set():
-    assert set(JOBS) == {"audit", "version", "windows", "linux", "macos", "publish"}
+    assert set(JOBS) == {"audit", "version", "windows", "linux", "macos", "publish", "cleanup"}
 
 
 def test_audit_job():
@@ -138,12 +140,17 @@ def test_platform_jobs():
     assert JOBS["windows"]["with"] == {
         "version": "${{ needs.version.outputs.version }}",
         "mode": "${{ inputs.windows_mode || 'full' }}",
+        "retention-days": 1,
     }
     assert JOBS["macos"]["with"] == {
         "version": "${{ needs.version.outputs.version }}",
         "mode": "${{ inputs.macos_mode || 'full' }}",
+        "retention-days": 1,
     }
-    assert JOBS["linux"]["with"] == {"version": "${{ needs.version.outputs.version }}"}
+    assert JOBS["linux"]["with"] == {
+        "version": "${{ needs.version.outputs.version }}",
+        "retention-days": 1,
+    }
 
 
 def test_called_workflows_accept_these_inputs():
@@ -226,8 +233,46 @@ def test_retired_workflows_are_gone():
     assert not (WORKFLOWS / "packaging-probe-windows.yml").exists()
 
 
-def test_artifact_retention_for_a_rerun_publish():
-    for wf, name in (("macos-packages.yml", "macos-dmg"), ("linux-packages.yml", "linux-packages")):
+def test_package_artifact_retention_is_short_and_logs_stay_seven():
+    # squawk 0302: storage accrues hourly, so packages live 1 day from a release (3 standalone)
+    # and logs/evidence keep 7 days
+    packages = {
+        "macos-packages.yml": "macos-dmg",
+        "linux-packages.yml": "linux-packages",
+        "windows-packages.yml": "windows-installer",
+    }
+    for wf, name in packages.items():
         text = (WORKFLOWS / wf).read_text(encoding="utf-8")
-        m = re.search(rf"name: {name}\n\s+path: .*\n\s+retention-days: (\d+)", text)
-        assert m and m.group(1) == "14", wf
+        m = re.search(rf"name: {name}\n\s+path: .*\n\s+retention-days: (.+)\n", text)
+        assert m and m.group(1).strip() == "${{ inputs.retention-days || 3 }}", wf
+        inp = _on(_doc(WORKFLOWS / wf))["workflow_call"]["inputs"]["retention-days"]
+        assert inp["type"] == "number" and inp["default"] == 3 and inp["required"] is False, wf
+        assert "retention-days" not in _on(_doc(WORKFLOWS / wf))["workflow_dispatch"]["inputs"], wf
+        others = re.findall(r"retention-days: (.+)\n", text)
+        assert sorted(others) == ["${{ inputs.retention-days || 3 }}", "7"] or (
+            wf == "linux-packages.yml"
+            and sorted(others) == ["${{ inputs.retention-days || 3 }}", "7", "7"]
+        ), wf
+    for name in PLATFORM_JOBS:
+        assert JOBS[name]["with"]["retention-days"] == 1, name
+
+
+def test_cleanup_job():
+    job = JOBS["cleanup"]
+    assert sorted(job["needs"]) == ["linux", "macos", "publish", "windows"]
+    cond = " ".join(job["if"].split())
+    # always(): the platform jobs may be skipped on a dry run; but never after a failed publish
+    assert cond == (
+        "always() && ( (github.event_name == 'push' && needs.publish.result == 'success') || "
+        "github.event_name == 'workflow_dispatch')"
+    )
+    step = job["steps"][0]
+    run = step["run"]
+    assert "${{" not in run
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert step["env"]["RUN_ID"] == "${{ github.run_id }}"
+    assert "actions/runs/$RUN_ID/artifacts" in run
+    for name in ("windows-installer", "linux-packages", "macos-dmg"):
+        assert f'.name == "{name}"' in run
+    assert 'gh api -X DELETE "repos/$REPO/actions/artifacts/$id"' in run
+    assert "exit 0" in run, "an absent artifact is tolerated"
