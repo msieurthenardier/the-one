@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-12
 **Completed**: —
+**Related**: 0278: the same gap logged twice (`serve` never creates the credential file, CLAUDE.md says it does); complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 CLAUDE.md's "Behavior-test credential convention" says a fresh instance "creates the file on first launch". A host-native `make up` on a scratch data dir does not: `get_credential()` is create-on-first-use and the server never calls it at startup, so `make up`'s `verify-serving` stops with "no local API credential found" and a behavior-test Executor has no credential to read. Sortie 03 leg 2 had to run `rotate-api-credential` and restart. Fix one or the other: the doc, or create the credential at server startup. Read the code first to see which is intended.

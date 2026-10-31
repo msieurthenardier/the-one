@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-28
 **Completed**: —
+**Related**: 0256, 0281: behavior-spec follow-ups; complete together in one spec-edit pass ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 The HAT-close run of `tests/behavior/mcp-sensitive-headers-round-trip.md` passed 8/8. The run listed four spec-quality follow-ups, deliberately not edited at the run. Apply them.

@@ -27,3 +27,4 @@ Logged from the Mission 28 flight debriefs.
 under the 14-day soak window. It is still under it on 2026-10-11. Revisit
 **on or after 2026-10-17**: remove the `<2026.5` bound, re-lock, check that
 `the-one doctor` reports `time zones: OK`, and complete this squawk.
+**Trigger fired** (2026-10-30): the revisit date has passed and tzdata 2026.6 is on PyPI; the cap is still `<2026.5` (`pyproject.toml:31`). Waiting on the operator's approval to lift ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).

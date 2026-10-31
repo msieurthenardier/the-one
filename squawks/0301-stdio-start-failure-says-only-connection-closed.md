@@ -1,10 +1,11 @@
-# Squawk 0260: A stdio MCP server that can't start says only "Connection closed"
+# Squawk 0301: A stdio MCP server that can't start says only "Connection closed"
 
 **Status**: open
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-25
 **Completed**: —
+**Related**: renumbered from 0260 on 2026-10-30; that id was also used by the completed `0260-model-catalog-never-refreshes`. Mission 31 and 32 documents that cite "squawk 0260" for the stdio cause text mean this squawk ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 Mission 31 Flight 5's planning survey found that when a stdio MCP server fails to start, the operator sees only `MCPConnectionError: MCP connect failed: MCPError: Connection closed`. The cause never reaches them. Two cases gave the same text: a sandbox writable path that doesn't exist, and a uvx package that doesn't exist.

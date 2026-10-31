@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-30
 **Completed**: —
+**Related**: 0289: same self-configuration tab refetch path; complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 A refetch triggered only by window focus or visibility (M33 F4 fix pass 3) that fails (offline, a transient error) takes the `renderRoutineQueue([])` / `setUnavailable` branch, so the operator's waiting list disappears on a mere window return. A passive refetch should keep the shown list and only surface the error.

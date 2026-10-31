@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-30
 **Completed**: —
+**Related**: 0290: same self-configuration tab refetch path; complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 Returning to the window often fires both `visibilitychange` and `focus`; the Self-configuration tab (M33 F4 fix pass 3, F-E3-1) refetches both approval queues on each, so a return makes two requests per queue. A sequence guard keeps the result correct; only the duplicate fetch is wasted.

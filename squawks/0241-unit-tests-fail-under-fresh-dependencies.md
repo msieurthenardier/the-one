@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-23
 **Completed**: —
+**Related**: 0225: the same defect logged twice (unit tests fail on an unlocked install); complete together. CI and every package build install from the lock, so only contributors following CLAUDE.md's `pip install -e` hit it ([maintenance 2026-10-30](../maintenance/2026-10-30.md), finding #22).
 
 ## Report
 On 2026-10-22, a fresh `pip install -e '.[all-llms,dev]'` into a new venv (sortie 05's worktree) resolved newer versions of unpinned dependencies than the main checkout's venv. Under that install, 7 unit tests outside the sortie's scope failed. After pinning the venv to the main venv's `pip freeze`, all of them passed (149 passed across the four files).
