@@ -269,6 +269,12 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
             await end("failed", "The agent's model provider is missing.")
         elif status == "agent_deleted":
             await end("failed", "The agent no longer exists.")
+        elif status == "build_failed":
+            await end(
+                "failed",
+                "The agent could not be set up. Check the agent's settings; "
+                "the app log has the details.",
+            )
         else:
             await end("failed", "The chat is no longer available.")
         return

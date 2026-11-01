@@ -291,16 +291,25 @@ class TestRestoreSession:
         await patched_app._restore_session("never-cached")
         assert "never-cached" not in patched_app._sessions
 
-    async def test_restore_propagates_unrecognized_value_error(self, patched_app):
-        """A ValueError that isn't ProviderNotConfiguredError must propagate."""
+    async def test_restore_degrades_an_unrecognized_build_error(self, patched_app, caplog):
+        """Sortie 07 DD7: any other build failure (once it propagated and dropped the
+        socket) is `build_failed` with a fixed reason; the text goes to the log only."""
         await patched_app._create_session(session_id="weird")
-        del patched_app._sessions["weird"]
+        # A cached entry must be dropped too (the rebuild-in-place path).
+        assert "weird" in patched_app._sessions
 
         mock_factory = patched_app._get_factory.return_value
         mock_factory.create = AsyncMock(side_effect=ValueError("something completely unexpected"))
 
-        with pytest.raises(ValueError, match="something completely unexpected"):
-            await patched_app._restore_session("weird")
+        result = await patched_app._restore_session("weird")
+        assert result.status == "build_failed"
+        assert result.is_degraded
+        assert result.session is None
+        assert result.db_session is not None
+        assert result.reason == patched_app.BUILD_FAILED_REASON
+        assert "something" not in result.reason
+        assert "weird" not in patched_app._sessions
+        assert any("something completely unexpected" in (r.exc_text or "") for r in caplog.records)
 
 
 class TestGetOrRestoreSession:

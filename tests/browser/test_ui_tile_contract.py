@@ -282,7 +282,16 @@ def test_tool_row_plain_dom_truncation_and_api(engine_page: Page) -> None:
     assert out["desc"] == " — " + DESC[:100] + "…" and len(DESC) > 100
     assert out["title"] == DESC  # the full text on hover
     assert out["body"] is None
-    assert out["api"] == ["body", "destroy", "el", "input", "setChecked", "setDisabled", "setOpen"]
+    assert out["api"] == [
+        "body",
+        "destroy",
+        "el",
+        "input",
+        "setChecked",
+        "setDisabled",
+        "setFlag",
+        "setOpen",
+    ]
     assert out["nested"] == 0
     expect(engine_page.get_by_role("checkbox", name="read_file")).to_be_checked()
 
@@ -329,6 +338,43 @@ def test_tool_row_on_change_and_set_checked_silent(engine_page: Page) -> None:
     assert p.evaluate("() => window.__calls") == [["change", False]]
     p.evaluate("window.__row.setChecked(true)")
     assert p.evaluate("() => [window.__calls.length, window.__row.input.checked]") == [1, True]
+
+
+@pytest.mark.parametrize("disclosure", [False, True])
+def test_tool_row_flag_places_swaps_and_removes_without_toggling(
+    engine_page: Page, disclosure: bool
+) -> None:
+    """Sortie 07 L05 (DD11): ``flag`` / ``setFlag`` put a node in the label face after the text."""
+    extra = (
+        "{disclosure: {label: 'Overrides'}, flag: window.__f1}"
+        if disclosure
+        else "{flag: window.__f1}"
+    )
+    load_harness(engine_page)
+    engine_page.evaluate(
+        "() => { window.__f1 = App.ui.chip({label: '1 notice', tone: 'warning', size: 'sm'});"
+        " window.__f2 = App.ui.chip({label: '2 notices', tone: 'warning', size: 'sm'}); }"
+    )
+    engine_page.evaluate(f"({ROW % repr('Reads files.')})({extra})")
+    host = "label.ui-tool-row-face" if disclosure else "label.ui-tool-row--plain"
+    flags = f"{host} > .chip"
+    expect(engine_page.locator(flags)).to_have_text("1 notice")
+    after = engine_page.evaluate(
+        f"() => {{ const f = document.querySelector('{flags}'); return f.previousElementSibling.className; }}"
+    )
+    assert after == "ui-tool-row-text"
+    engine_page.evaluate("() => window.__row.setFlag(window.__f2)")
+    expect(engine_page.locator(flags)).to_have_text("2 notices")
+    assert engine_page.evaluate("() => document.querySelectorAll('.chip').length") == 1
+    state = engine_page.evaluate(
+        "() => [window.__row.input.checked, window.__row.el.open === true, window.__calls.length]"
+    )
+    assert state == [True, False, 0]
+    engine_page.evaluate("() => window.__row.setFlag(null)")
+    expect(engine_page.locator(".chip")).to_have_count(0)
+    # The flag adds to the accessible name of the checkbox's label.
+    engine_page.evaluate("() => window.__row.setFlag(window.__f1)")
+    expect(engine_page.get_by_role("checkbox", name="read_file")).to_be_checked()
 
 
 def test_tool_row_disclosure_dom_and_first_open_once(engine_page: Page) -> None:

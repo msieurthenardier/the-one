@@ -81,7 +81,16 @@ def test_dom_shape_roles_and_ids(engine_page: Page) -> None:
     assert [p[3] for p in out["panels"]] == [False, True, True]
     assert out["panels"][0] == ["tabpanel", "tt-panel-a", "tt-tab-a", False, "a"]
     assert out["link"] is True
-    assert out["api"] == ["destroy", "el", "panel", "panels", "select", "selected", "tablist"]
+    assert out["api"] == [
+        "destroy",
+        "el",
+        "panel",
+        "panels",
+        "select",
+        "selected",
+        "setIndicator",
+        "tablist",
+    ]
     assert out["sel"] == "a" and out["panelA"] is True and out["panelX"] is None
     assert out["wrapper"] == ["flex", "column", "0px"]
     assert out["padding"] == "0px"
@@ -283,6 +292,57 @@ def test_computed_styles_equal_legacy(
     )
     for key, (legacy, library) in out.items():
         assert library == legacy, f"{name} {key}: {library} != {legacy}"
+
+
+def test_indicator_names_the_tab_and_set_indicator_changes_and_clears(engine_page: Page) -> None:
+    """Sortie 07 L05 (DD11): the indicator is an aria-hidden dot plus a hidden run ", <label>"."""
+    _mount(
+        engine_page,
+        "{items: [{id: 'a', label: 'General', testid: 't-a'}, {id: 'b', label: 'Rules and notes', testid: 't-b'},"
+        " {id: 'c', label: 'Tools', testid: 't-c', indicator: '2 notices'}]}",
+    )
+    expect(engine_page.get_by_role("tab", name="Tools, 2 notices", exact=True)).to_have_count(1)
+    shape = engine_page.evaluate(
+        """() => { const t = document.querySelector('[data-testid=t-c]');
+          const dot = t.querySelector('.ui-tab-indicator-dot');
+          const hidden = t.querySelector('.visually-hidden');
+          return [t.firstChild.textContent, dot.getAttribute('aria-hidden'), hidden.textContent,
+                  window.__tabs.setIndicator('zz', 'x')]; }"""
+    )
+    assert shape == ["Tools", "true", ", 2 notices", False]
+    engine_page.evaluate("() => window.__tabs.setIndicator('c', '1 notice')")
+    expect(engine_page.get_by_role("tab", name="Tools, 1 notice", exact=True)).to_have_count(1)
+    assert (
+        engine_page.evaluate(
+            "() => document.querySelectorAll('[data-testid=t-c] [data-tab-indicator]').length"
+        )
+        == 2
+    )
+    engine_page.evaluate("() => window.__tabs.setIndicator('c', null)")
+    expect(engine_page.get_by_role("tab", name="Tools", exact=True)).to_have_count(1)
+    assert (
+        engine_page.evaluate("() => document.querySelectorAll('[data-tab-indicator]').length") == 0
+    )
+    # Adding one to a tab built without it.
+    engine_page.evaluate("() => window.__tabs.setIndicator('a', '3 notices')")
+    expect(engine_page.get_by_role("tab", name="General, 3 notices", exact=True)).to_have_count(1)
+
+
+def test_indicator_leaves_selection_and_keys_alone(engine_page: Page) -> None:
+    _mount(engine_page)
+    engine_page.evaluate("() => window.__tabs.setIndicator('c', '1 notice')")
+    t_c = engine_page.get_by_test_id("t-c")
+    engine_page.get_by_test_id("t-a").focus()
+    engine_page.keyboard.press("End")
+    assert engine_page.evaluate("() => document.activeElement.dataset.tabId") == "c"
+    assert engine_page.evaluate("() => window.__tabs.selected()") == "a"
+    engine_page.keyboard.press("Enter")
+    assert engine_page.evaluate("() => window.__tabs.selected()") == "c"
+    expect(t_c).to_have_attribute("aria-selected", "true")
+    # Clicking the dot selects the tab too (it is inside the button).
+    engine_page.get_by_test_id("t-b").click()
+    t_c.locator(".ui-tab-indicator-dot").click()
+    assert engine_page.evaluate("() => window.__tabs.selected()") == "c"
 
 
 def test_panel_id_prefix_option(engine_page: Page) -> None:

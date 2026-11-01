@@ -8,7 +8,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
-from browser.seeders import SeededApp
+from browser.seeders import SeededApp, seed_tool_config
 from playwright.sync_api import Page, expect
 
 _OV = {"read_file": {"path_denylist": ["/secret"]}}
@@ -97,6 +97,12 @@ def test_partial_open_merges_stored_entries_of_unopened_tools(
     name = app_with_agent.agent_name
     assert name is not None
     base = app_with_agent.base_url
+    # A new override must fit the app-wide value (sortie 07 DD5).
+    seed_tool_config(
+        base,
+        "http_request",
+        config={"extra_allowed_hosts": ["a.com", "localhost", "first.example"]},
+    )
     url = _put_overrides(
         base,
         name,
@@ -122,21 +128,19 @@ def test_second_save_does_not_use_stale_stored_entries(
     base = app_with_agent.base_url
     url = _put_overrides(base, name, None)
     _open_tools(page, base, name)
-    _add_chip(_open_panel(page, "Web", "http_request"), "extra_allowed_hosts", "first.example")
+    _add_chip(_open_panel(page, "Web", "http_request"), "host_denylist", "first.example")
     _save(page)
     _add_chip(_open_panel(page, "Filesystem", "read_file"), "path_denylist", "/second")
     _save(page)
     ov = httpx.get(url, timeout=5.0, headers=auth_headers_for(base)).json()["tool_overrides"]
-    assert ov["http_request"]["extra_allowed_hosts"] == ["first.example"]
+    assert ov["http_request"]["host_denylist"] == ["first.example"]
     assert "/second" in ov["read_file"]["path_denylist"]
 
 
 @pytest.mark.browser
-def test_locked_operator_chips_are_sent_and_save_accepted(
+def test_locked_operator_chips_are_not_stored_only_the_additions_are(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    from browser.seeders import seed_tool_config
-
     name = app_with_agent.agent_name
     assert name is not None
     base = app_with_agent.base_url
@@ -146,4 +150,5 @@ def test_locked_operator_chips_are_sent_and_save_accepted(
     _add_chip(_open_panel(page, "Filesystem", "read_file"), "path_denylist", "/mine")
     _save(page)
     ov = httpx.get(url, timeout=5.0, headers=auth_headers_for(base)).json()["tool_overrides"]
-    assert set(ov["read_file"]["path_denylist"]) == {"/ops", "/mine"}
+    # Sortie 07 DD3/DD9: the app-wide entry shows as a locked chip but is not stored.
+    assert ov["read_file"]["path_denylist"] == ["/mine"]

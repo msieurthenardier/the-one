@@ -73,7 +73,14 @@
     // the provider's name joins the row's accessible name (A31), so the dot
     // never carries meaning by colour alone. The filter matches the name, the
     // model id and the provider TYPE slug (A16), not the display name.
+    function attentionChip() {
+      var chip = App.ui.chip({ label: 'Needs attention', tone: 'warning', size: 'sm' });
+      chip.setAttribute('aria-hidden', 'true');
+      return chip;
+    }
+
     function agentItem(agent) {
+      var needs = !!(agent.notices && agent.notices.length);
       var provider = providerFor(agent);
       var type = provider && provider.type ? String(provider.type) : '';
       var dot = App.ui.badge.dot(provider ? type : null);
@@ -86,8 +93,12 @@
         testid: 'agent-item',
         // A trailing separator when the model follows, so the name reads
         // "name, Provider, model", never "Provider model" (the flight-end review).
+        // A row with tool-override notices (sortie 07 L05, DD11) also carries ", needs
+        // attention" in its name, once: the visible chip is aria-hidden so it is not read twice.
         nameSuffix: ', ' + (provider ? provider.name || type : 'no provider') +
-          (model ? ',' : ''),
+          (needs ? ', needs attention' : '') + (model ? ',' : ''),
+        badges: needs ? [attentionChip()] : undefined,
+        notices: needs ? agent.notices.length : 0,
         lead: dot,
         filterText: (agent.name + ' ' + model + ' ' + type).toLowerCase()
       };
@@ -155,7 +166,17 @@
       agentsListHost.appendChild(agentsList.el);
     }
 
+    // Everything a row shows, as one string (the dot is compared by its class).
+    var lastItemsSig = null;
+    function itemsSignature(items) {
+      return JSON.stringify(items.map(function (it) {
+        return [it.id, it.label, it.meta, it.href, it.nameSuffix, it.filterText,
+          it.lead ? it.lead.className : '', it.notices];
+      }));
+    }
+
     function destroyAgentsList() {
+      lastItemsSig = null;
       if (!agentsList) return;
       agentsList.destroy();
       agentsListHost.textContent = '';
@@ -164,8 +185,8 @@
     }
 
     // The one builder of the Agents list (design review item 6): items from
-    // self._agents (list- or detail-shaped; only name, llm_model and
-    // provider_config_id are read) and self._allProviders, sorted A-Z, then
+    // self._agents (list- or detail-shaped; only name, llm_model,
+    // provider_config_id and notices are read) and self._allProviders, sorted A-Z, then
     // the selection -- setSelected AFTER setItems, so a refetch that lands
     // mid-select keeps the right row. A no-op off Agents (no pane). `scroll`
     // (a load or a navigation) brings the selected row into view (A26); the
@@ -179,7 +200,13 @@
       });
       var items = [];
       for (var i = 0; i < agents.length; i++) items.push(agentItem(agents[i]));
-      agentsList.setItems(items);
+      // A reload that changes nothing a row shows must not rebuild the rows
+      // (a late list fetch used to detach the row a user was about to use).
+      var sig = itemsSignature(items);
+      if (sig !== lastItemsSig || agentsList.getItems().length !== items.length) {
+        agentsList.setItems(items);
+        lastItemsSig = sig;
+      }
       agentsList.setSelected(listSelection());
       if (scroll || (wasEmpty && items.length)) scrollAgentsToSelected();
       renderAgentsEmpty();

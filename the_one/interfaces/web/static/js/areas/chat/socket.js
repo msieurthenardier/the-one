@@ -234,7 +234,7 @@
               max_context_tokens: 0,
             });
           }
-          ctx.setSessionHealth(data.status || 'ok');
+          ctx.setSessionHealth(data.status || 'ok', data.reason);
           // Sync per-session busy state to server ground truth
           // (`is_session_processing(session.id)`). Without this,
           // switching away from an in-flight session and back leaves

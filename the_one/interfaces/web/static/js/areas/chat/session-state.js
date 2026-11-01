@@ -54,7 +54,8 @@
   // Degraded session_joined statuses -> the reason a start could not use them.
   var DEGRADED_REASONS = {
     agent_deleted: 'This agent has been deleted.',
-    provider_missing: "This agent's provider is missing. Add a model provider in Library to continue."
+    provider_missing: "This agent's provider is missing. Add a model provider in Library to continue.",
+    build_failed: "This chat's agent could not be set up. Check the agent's settings; the app log has the details."
   };
 
   function isOk(frame) {
@@ -216,7 +217,8 @@
             enter('pending', { agent: agent });
             return {
               accept: true, startFailed: true, clientId: sid, payload: copyPayload(payload),
-              error: DEGRADED_REASONS[frame.status] || 'This chat cannot start.'
+              error: (typeof frame.reason === 'string' && frame.reason) ||
+                DEGRADED_REASONS[frame.status] || 'This chat cannot start.'
             };
           }
           enter('joined', { id: sid });
@@ -324,4 +326,5 @@
 
   window.App.chat.createSessionState = createSessionState;
   window.App.chat.newClientId = newClientId;
+  window.App.chat.DEGRADED_REASONS = DEGRADED_REASONS;
 })();

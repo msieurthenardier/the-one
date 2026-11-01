@@ -41,6 +41,8 @@ _READ = """() => {
 def _setup(page: Page) -> None:
     load_harness(page)
     page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "shared" / "tool-config-fields.js"))
+    # Agent mode decorates each field with its inherited/own state (sortie 07).
+    page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "shared" / "tool-override-state.js"))
 
 
 def _render(page: Page, name: str, prop: dict, value, ctx: dict | None = None):
@@ -57,6 +59,36 @@ def test_boolean_is_a_checkbox_with_the_markers_on_the_control(engine_page: Page
     engine_page.locator("#harness-root input[type=checkbox]").uncheck()
     assert engine_page.evaluate(_READ)["value"] is False
     assert engine_page.evaluate("() => window.__fired") >= 1
+
+
+_DESCRIBED = """() => {
+  const c = window.__r.control;
+  return (c.getAttribute('aria-describedby') || '').split(/\\s+/).filter(Boolean)
+    .map((id) => { const n = document.getElementById(id); return [id, n ? n.textContent : null]; });
+}"""
+
+
+def test_boolean_state_line_and_note_are_in_aria_describedby(engine_page: Page) -> None:
+    _setup(engine_page)
+    assert _render(engine_page, "follow", {"type": "boolean", "title": "Follow"}, True)
+    described = engine_page.evaluate(_DESCRIBED)
+    assert described and all(t is not None for _id, t in described)
+    assert any("Inherited from Settings" in t for _id, t in described)
+    engine_page.evaluate("() => window.__r.setNote('Paths are limited')")
+    described = engine_page.evaluate(_DESCRIBED)
+    assert all(t is not None for _id, t in described)
+    assert any(t == "Paths are limited" for _id, t in described)
+    # An error rewrites the attribute wholesale; the state line and note stay.
+    engine_page.evaluate("() => window.__r.setError('Nope')")
+    described = engine_page.evaluate(_DESCRIBED)
+    assert all(t is not None for _id, t in described)
+    assert {"Nope", "Paths are limited"} <= {t for _id, t in described}
+    assert any("Inherited from Settings" in t for _id, t in described)
+    # The note leaving takes its id with it.
+    engine_page.evaluate("() => window.__r.setNote(null)")
+    described = engine_page.evaluate(_DESCRIBED)
+    assert all(t is not None for _id, t in described)
+    assert not any(t == "Paths are limited" for _id, t in described)
 
 
 def test_narrow_integer_uses_the_operator_value_as_max(engine_page: Page) -> None:
@@ -189,7 +221,26 @@ def test_narrow_superset_locks_operator_chips_and_sends_the_union(engine_page: P
     assert engine_page.evaluate(_READ)["value"] == ["rm", "dd"]
 
 
-@pytest.mark.parametrize("marker", ["Narrow", "NarrowPrefix", "NarrowSuperset"])
+def test_narrow_any_when_empty_host_allowlist_is_agent_overridable(engine_page: Page) -> None:
+    """Sortie 07 DD4: the server marks `host_allowlist` `NarrowAnyWhenEmpty`; the
+    client must still render, read and save it (an unlisted marker is flagged
+    dead and dropped on Save)."""
+    _setup(engine_page)
+    prop = {
+        "type": "array",
+        "x_marker": "NarrowAnyWhenEmpty",
+        "items": {"type": "string"},
+        "title": "Allowed hosts",
+    }
+    assert engine_page.evaluate("(p) => App.toolConfigFields.allowed(p)", prop) is True
+    assert _render(engine_page, "host_allowlist", prop, ["a.com"], {"operatorValue": []})
+    out = engine_page.evaluate(_READ)
+    assert (out["value"], out["field"]) == (["a.com"], "host_allowlist")
+
+
+@pytest.mark.parametrize(
+    "marker", ["Narrow", "NarrowAnyWhenEmpty", "NarrowPrefix", "NarrowSuperset"]
+)
 def test_array_chip_rules_per_marker(engine_page: Page, marker: str) -> None:
     """Each array marker's client rule, exactly as the string path had it.
 

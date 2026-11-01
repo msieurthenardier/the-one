@@ -150,6 +150,8 @@
   .chat-drawer-list li > .chat-drawer-note-head { flex: 1 1 auto; align-items: flex-start; }
   .chat-drawer-item-name { min-width: 0; overflow-wrap: anywhere; }
   .chat-drawer-item-meta { flex-shrink: 0; color: var(--fg-muted); }
+  /* Sortie 07 L05 (DD12): the read-only "Needs attention" group (tool-override notices). */
+  .chat-drawer-notices-link { font-size: var(--font-size-caption); }
   .chat-drawer-none,
   .chat-drawer-value { margin: 0; }
   .chat-drawer-none { color: var(--fg-muted); }

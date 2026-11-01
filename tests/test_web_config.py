@@ -213,13 +213,13 @@ class TestWebConfigNarrowing:
         )
         assert cfg.host_denylist == ["evil.com", "evil2.com"]
 
-    def test_narrow_superset_host_denylist_dropping_operator_entry_raises(self) -> None:
-        with pytest.raises(ValueError, match="widens"):
-            resolve(
-                WebConfig,
-                {"host_denylist": ["evil.com", "evil2.com"]},
-                {"host_denylist": ["evil.com"]},
-            )
+    def test_narrow_superset_host_denylist_dropping_operator_entry_is_unioned_back(self) -> None:
+        cfg = resolve(
+            WebConfig,
+            {"host_denylist": ["evil.com", "evil2.com"]},
+            {"host_denylist": ["evil.com"]},
+        )
+        assert cfg.host_denylist == ["evil.com", "evil2.com"]
 
 
 # ---------------------------------------------------------------------------

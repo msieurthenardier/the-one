@@ -629,6 +629,79 @@ class TestResolverWiring:
         assert captured["agent_overrides"] == {}
 
 
+class TestStaleOverrideBuilds:
+    """Sortie 07 DD1/DD7: no stored override can make `AgentFactory.create` fail.
+    An override that widens the current app-wide row is clipped at build and
+    logged once per (agent, tool, field, dropped)."""
+
+    async def _build(
+        self, store: InMemoryStore, tool_rows: list[ToolConfig], overrides: dict, name: str
+    ):
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=_make_provider_config())
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list = AsyncMock(return_value=tool_rows)
+        await store.save(
+            AgentConfig(
+                name=name,
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                tool_overrides=overrides,
+            )
+        )
+        with (
+            patch("the_one.agent.factory.get_provider", _fake_get_provider),
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
+            patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
+        ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+            factory = AgentFactory(store=store, tool_providers=[BuiltinToolProvider()])
+            return await factory.create(name)
+
+    async def test_widening_path_override_builds_clipped_and_warns_once(
+        self,
+        store: InMemoryStore,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import the_one.tools.builtins as builtins_mod
+
+        builtins_mod._clip_warned.clear()
+        home = tmp_path / "home"
+        (home / "work").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        outside = str(tmp_path / "wsl-folder")  # outside the app-wide `~`
+        rows = [ToolConfig(name="read_file", config={"path_allowlist": ["~"]}, enabled=True)]
+        overrides = {"read_file": {"path_allowlist": [outside, "~/work"]}}
+        with caplog.at_level("WARNING", logger="the_one.tools.builtins"):
+            agent = await self._build(store, rows, overrides, "stale-a")
+            await self._build(store, rows, overrides, "stale-a")  # a second build: no new line
+        tool = agent.tools.get("read_file")
+        assert tool._config.path_allowlist == ["~/work"]  # type: ignore[attr-defined]
+        # The other file tools carry their own (unset) override: still the app-wide default.
+        clipped = [r for r in caplog.records if "clipped" in r.getMessage()]
+        assert len(clipped) == 1
+        assert "'stale-a'" in clipped[0].getMessage()
+        assert "read_file.path_allowlist" in clipped[0].getMessage()
+        assert outside in clipped[0].getMessage()
+        # A different agent with the same stale value logs its own line.
+        with caplog.at_level("WARNING", logger="the_one.tools.builtins"):
+            await self._build(store, rows, overrides, "stale-b")
+        assert len([r for r in caplog.records if "clipped" in r.getMessage()]) == 2
+
+
 class TestAgentNamePlumbing:
     """L1b: AgentFactory.create(name) must thread `name` into the provider so
     each tool instance carries `_agent_name == name`. PTY session ownership

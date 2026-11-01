@@ -347,15 +347,19 @@ class TestNarrowSuperset:
         result = resolve(SupersetCfg, {"deny": ["/etc"]}, {"deny": ["/etc"]})
         assert result.deny == ["/etc"]
 
-    def test_widen_drops_tool_entry_raises(self) -> None:
-        with pytest.raises(ValueError) as exc:
-            resolve(
-                SupersetCfg,
-                {"deny": ["/etc", "/proc"]},
-                {"deny": ["/etc"]},  # missing /proc — narrows the denylist
-            )
-        assert "widens" in str(exc.value)
-        assert "/proc" in str(exc.value)
+    def test_dropped_tool_entry_is_unioned_back(self) -> None:
+        # Sortie 07 DD3: a denied list resolves as app-wide ∪ agent, so an agent
+        # list that omits an app-wide entry still denies it (no raise).
+        result = resolve(
+            SupersetCfg,
+            {"deny": ["/etc", "/proc"]},
+            {"deny": ["/etc"]},  # missing /proc: the union keeps it
+        )
+        assert result.deny == ["/etc", "/proc"]
+
+    def test_union_keeps_agent_additions_after_the_app_wide_entries(self) -> None:
+        result = resolve(SupersetCfg, {"deny": ["/etc"]}, {"deny": ["/x", "/etc"]})
+        assert result.deny == ["/etc", "/x"]
 
     def test_non_list_raises_not_implemented(self) -> None:
         with pytest.raises(NotImplementedError) as exc:
@@ -419,20 +423,20 @@ class TestDefaultFactoryBaseline:
         tool = self._tools({"shell": {"command_denylist": value}})["shell"]
         assert set(value) <= set(tool._config.command_denylist)
 
-    def test_filesystem_override_dropping_a_default_is_refused(self) -> None:
+    def test_filesystem_override_dropping_a_default_is_unioned_back(self) -> None:
         from the_one.tools.filesystem import DEFAULT_PATH_DENYLIST, FilesystemConfig
 
         value = [p for p in DEFAULT_PATH_DENYLIST if p != "~/.ssh"] + ["/probe"]
-        with pytest.raises(ValueError, match="widens FilesystemConfig.path_denylist.*~/.ssh"):
-            resolve(FilesystemConfig, {}, {"path_denylist": value})
-        with pytest.raises(ValueError, match="widens"):
-            self._tools({"read_file": {"path_denylist": value}})
+        resolved = resolve(FilesystemConfig, {}, {"path_denylist": value})
+        assert "~/.ssh" in resolved.path_denylist and "/probe" in resolved.path_denylist
+        tool = self._tools({"read_file": {"path_denylist": value}})["read_file"]
+        assert "~/.ssh" in tool._config.path_denylist
 
-    def test_execution_override_dropping_a_default_is_refused(self) -> None:
+    def test_execution_override_dropping_a_default_is_unioned_back(self) -> None:
         from the_one.tools.execution import DEFAULT_COMMAND_DENYLIST, ExecutionConfig
 
         value = [c for c in DEFAULT_COMMAND_DENYLIST if c != "sudo "]
-        with pytest.raises(ValueError, match="widens ExecutionConfig.command_denylist.*sudo"):
-            resolve(ExecutionConfig, {}, {"command_denylist": value})
-        with pytest.raises(ValueError, match="widens"):
-            self._tools({"shell": {"command_denylist": value}})
+        resolved = resolve(ExecutionConfig, {}, {"command_denylist": value})
+        assert "sudo " in resolved.command_denylist
+        tool = self._tools({"shell": {"command_denylist": value}})["shell"]
+        assert "sudo " in tool._config.command_denylist

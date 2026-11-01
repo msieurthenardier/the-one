@@ -249,6 +249,28 @@ def test_open_agent_selects_row_with_breadcrumb_and_no_back(
     _lists.expect_selected(page, "agents", name)
 
 
+def test_a_reload_that_changes_nothing_keeps_the_row_nodes(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """A store reload with identical rows must not rebuild the list (a late fetch
+    detached the row a user was about to use); a real change still does."""
+    base, name = app_with_agent.base_url, app_with_agent.agent_name
+    _nav.goto_settled(page, base, "agents")
+    row = _lists.item_link(page, "agents", name)
+    expect(row).to_be_visible()
+    row.evaluate("(r) => { r.__mark = 'kept'; }")
+    page.evaluate("() => App.store.get('agents', { force: true })")
+    assert row.evaluate("(r) => r.isConnected && r.__mark === 'kept'"), "row was rebuilt"
+    httpx.put(
+        f"{base}/api/agents/{name}",
+        json={"llm_model": "changed-model"},
+        headers=auth_headers_for(base),
+        timeout=5.0,
+    ).raise_for_status()
+    page.evaluate("() => App.store.get('agents', { force: true })")
+    expect(_lists.item_link(page, "agents", name)).to_contain_text("changed-model")
+
+
 def test_breadcrumb_link_closes_the_agent_and_focuses_its_row(
     app_with_agent: SeededApp, page: Page
 ) -> None:

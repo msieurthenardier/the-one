@@ -34,6 +34,8 @@ _RESET = "() => { document.getElementById('harness-root').replaceChildren(); win
 def _setup(page: Page) -> None:
     load_harness(page)
     page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "shared" / "tool-config-fields.js"))
+    # Agent mode decorates each field with its inherited/own state (sortie 07).
+    page.add_script_tag(path=str(STATIC_DIR / "js" / "areas" / "shared" / "tool-override-state.js"))
 
 
 def _render(page: Page, name: str, prop: dict, value, opts: dict | None = None):

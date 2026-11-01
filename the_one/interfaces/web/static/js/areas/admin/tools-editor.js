@@ -96,6 +96,7 @@
 
     var alive = true;
     var saving = false;
+    var previewing = false;
     var testing = false;
     var dirty = false;
     var saveLatest = util.latest();
@@ -401,10 +402,62 @@
       baseline = next;
     }
 
+    // The "this save narrows agents" warning (sortie 07 L05, DD8). Asked before the
+    // busy state and the focus token, so Cancel leaves neither behind and the form
+    // stays dirty. A failed preview (including its 422) does not block: the PUT is the
+    // gate and shows its own errors.
+    function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
+    function impactMessage(agents) {
+      var items = agents.map(function (a) {
+        var parts = a.fields.map(function (f) {
+          var gone = (f.dropped || []).map(function (d) { return String(d); });
+          return f.field_title + (gone.length ? ' (' + gone.join(', ') + ' would no longer apply)'
+            : ' (was any host; it would take the app-wide list)');
+        });
+        return App.ui.util.el('li', { text: a.agent + ': ' + parts.join('; ') });
+      });
+      return App.ui.util.el('div', null, [
+        App.ui.util.el('p', {
+          text: 'These agents hold their own value for this tool that the new setting narrows. ' +
+            'They keep working; each shows a notice on its Tools tab.'
+        }),
+        App.ui.util.el('ul', { 'data-testid': 'tool-impact-list' }, items)
+      ]);
+    }
+
     function save() {
-      if (saving || testing) return;
+      if (saving || testing || previewing) return;
       clearErrors();
       var submitted = snapshot();
+      var body = JSON.stringify({ enabled: submitted.enabled, config: submitted.config });
+      var opener = shell.saveButton;
+      previewing = true;
+      App.api.fetchJson(toolUrl + '/impact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body
+      }).then(function (res) {
+        return (res && res.agents) || [];
+      }, function () {
+        return [];
+      }).then(function (agents) {
+        previewing = false;
+        if (!alive || !current()) return;
+        if (!agents.length) { doSave(submitted); return; }
+        App.confirmDialog({
+          title: 'Saving narrows ' + plural(agents.length, 'agent'),
+          message: impactMessage(agents),
+          confirmText: 'Save anyway',
+          cancelText: 'Cancel',
+          opener: opener,
+          onConfirm: function () { if (alive && current()) doSave(submitted); }
+        });
+      });
+    }
+
+    function doSave(submitted) {
+      if (saving || testing) return;
       var token = saveLatest.next();
       var focusTok = App.focusAfter.begin(shell.saveButton); // before the disable below
       saving = true;

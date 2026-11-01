@@ -18,9 +18,10 @@ References:
   to preserve TLS certificate validation against the original hostname after
   rewriting the URL host to the resolved IP.
 * **F5 Decision 7** — ``extra_allowed_hosts`` carries the ``Narrow`` marker
-  (agent ⊆ operator); ``host_allowlist`` is also ``Narrow`` (agent ⊆ operator);
-  ``host_denylist`` is ``NarrowSuperset`` (agent ⊇ operator — agent may add
-  but not remove operator-declared denials).
+  (agent ⊆ operator); ``host_allowlist`` is ``NarrowAnyWhenEmpty`` since sortie 07
+  (empty means "any host" on both sides; ``NO_HOSTS`` means no host at all);
+  ``host_denylist`` is ``NarrowSuperset`` (resolved as operator ∪ agent — agent may
+  add but not remove operator-declared denials).
 * **F5 Decision 9** — ``redirect_cap`` is Field-only (no marker). Agent
   overrides on this key raise ``ValueError("... no Narrow/Substitute marker ...")``
   at resolver time; the cap is operator-only.
@@ -50,7 +51,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from the_one.tools.base import ConstraintError
 from the_one.tools.execution import _timeout_default_ui_choices
-from the_one.tools.resolver import Narrow, NarrowSuperset, Substitute
+from the_one.tools.resolver import (
+    NO_HOSTS,
+    Narrow,
+    NarrowAnyWhenEmpty,
+    NarrowSuperset,
+    Substitute,
+)
 
 # ---------------------------------------------------------------------------
 # Module-level constants (NOT operator-configurable)
@@ -119,11 +126,11 @@ class WebConfig(BaseModel):
       cap. Agent overrides on this key raise ``ValueError`` at resolver time
       per F5 Decision 9. Tools call ``follow_redirects=cap > 0,
       max_redirects=cap`` so a value of ``0`` disables redirects entirely.
-    * ``host_allowlist`` (Narrow list[str]) — when non-empty, ONLY hosts in
-      this list are permitted. Empty = no allowlist constraint (only SSRF
-      and denylist apply).
-    * ``host_denylist`` (NarrowSuperset list[str]) — agent must contain
-      every operator-declared entry; agent may add more.
+    * ``host_allowlist`` (NarrowAnyWhenEmpty list[str]) — when non-empty, ONLY
+      hosts in this list are permitted. Empty = no allowlist constraint (only
+      SSRF and denylist apply). A list holding ``NO_HOSTS`` refuses every host.
+    * ``host_denylist`` (NarrowSuperset list[str]) — resolved as the operator's
+      entries joined with the agent's; the agent may add more, never remove.
     * ``extra_allowed_hosts`` (Narrow list[str]) — operator-declared hosts
       whose resolved IPs are exempt from the SSRF default-block list. Each
       entry is ``"hostname"`` or ``"hostname:port"`` (the F5 simplification
@@ -222,7 +229,7 @@ class WebConfig(BaseModel):
 
     host_allowlist: Annotated[
         list[str],
-        Narrow,
+        NarrowAnyWhenEmpty,
         Field(
             default_factory=list,
             title="Allowed hosts",
@@ -334,6 +341,9 @@ def _url_check(url: str, cfg: WebConfig) -> str:
 
     * Non-http/https schemes (``ftp://``, ``file://``, ``data:``, ...).
     * URLs without a host (e.g. ``http:///foo``).
+    * Every host, when ``cfg.host_allowlist`` contains ``NO_HOSTS`` (enforced
+      here in code, with no DNS lookup, so the guarantee never rests on the
+      reserved name failing to resolve).
     * If ``cfg.host_allowlist`` is non-empty: hosts not in the allowlist.
     * If host is in ``cfg.host_denylist``.
 
@@ -347,11 +357,68 @@ def _url_check(url: str, cfg: WebConfig) -> str:
     host = parsed.hostname
     if not host:
         raise ConstraintError(f"URL missing host: {url!r}")
-    if cfg.host_allowlist and host not in cfg.host_allowlist:
-        raise ConstraintError(f"host '{host}' not in host_allowlist {cfg.host_allowlist}")
-    if host in cfg.host_denylist:
-        raise ConstraintError(f"host '{host}' is in host_denylist")
+    _host_policy_check(host, cfg.host_allowlist, cfg.host_denylist)
     return url
+
+
+def normalize_host(host: str) -> str:
+    """Return the ASCII form of ``host`` that httpx itself dials.
+
+    Trailing root dot stripped, lowercased, then derived through
+    ``httpx.URL(...).raw_host`` (the ``idna`` package, IDNA 2008/UTS 46, the
+    same mapping used when connecting; the stdlib codec is IDNA 2003 and
+    would map ``ß.de`` to ``ss.de``). IP literals are returned unchanged
+    (v6 without brackets). Raises ``ConstraintError`` for a host that httpx
+    or the DNS label rules refuse.
+    """
+    h = host.strip()
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    try:
+        ipaddress.ip_address(h)
+        return h
+    except ValueError:
+        pass
+    h = h.rstrip(".").lower()
+    try:
+        ascii_host = httpx.URL(f"http://{h}/").raw_host.decode("ascii")
+    except (httpx.InvalidURL, UnicodeError) as exc:
+        raise ConstraintError(f"host {host!r} is not a valid host name") from exc
+    labels = ascii_host.split(".")
+    if not ascii_host or any(not lab or len(lab) > 63 for lab in labels):
+        raise ConstraintError(f"host {host!r} is not a valid host name")
+    return ascii_host
+
+
+def _host_policy_check(
+    host: str,
+    host_allowlist: list[str] | tuple[str, ...],
+    host_denylist: list[str] | tuple[str, ...],
+) -> None:
+    """Raise ``ConstraintError`` if ``host`` is refused by the host lists.
+
+    ``NO_HOSTS`` in the allow list refuses every host (no DNS). Otherwise a
+    non-empty allow list must contain the host, and the deny list must not.
+    Both sides are compared in normalised form; a list entry that cannot be
+    normalised matches nothing.
+    """
+    if NO_HOSTS in host_allowlist:
+        raise ConstraintError(f"host '{host}' refused; no hosts are allowed")
+    norm = normalize_host(host)
+
+    def _entries(entries) -> set[str]:
+        out: set[str] = set()
+        for entry in entries:
+            try:
+                out.add(normalize_host(entry))
+            except ConstraintError:
+                continue
+        return out
+
+    if host_allowlist and norm not in _entries(host_allowlist):
+        raise ConstraintError(f"host '{host}' not in host_allowlist {list(host_allowlist)}")
+    if norm in _entries(host_denylist):
+        raise ConstraintError(f"host '{host}' is in host_denylist")
 
 
 def _is_binary_content_type(ct: str | None) -> bool:
@@ -473,15 +540,24 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
         self,
         *args,
         extra_allowed_hosts: list[str] | tuple[str, ...] = (),
+        host_allowlist: list[str] | tuple[str, ...] = (),
+        host_denylist: list[str] | tuple[str, ...] = (),
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self._host_allowlist: tuple[str, ...] = tuple(host_allowlist)
+        self._host_denylist: tuple[str, ...] = tuple(host_denylist)
         # Materialize as tuple so callers passing a list don't accidentally
         # mutate state shared with the operator's WebConfig view.
         self._extra_allowed: tuple[str, ...] = tuple(extra_allowed_hosts)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         original_host = request.url.host
+
+        # Every request, redirect hops included, obeys the host lists exactly
+        # as the first URL does. Runs first, so an IP hop is checked as that
+        # IP and ``extra_allowed_hosts`` cannot override the deny list.
+        _host_policy_check(original_host, self._host_allowlist, self._host_denylist)
 
         # IP-literal short-circuit: if the URL host is already an IP, no
         # resolve+pin needed. SSRF block check STILL applies — operator
@@ -511,19 +587,24 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
         for _family, _stype, _proto, _canonname, sockaddr in resolved:
             ip = sockaddr[0]
             if not _is_ssrf_blocked(ip):
-                # Rewrite for the connect target while preserving SNI +
-                # ``Host:`` so cert validation and virtual-host routing
-                # both still target the original hostname.
-                request.extensions = {
-                    **request.extensions,
-                    "sni_hostname": original_host,
-                }
-                request.headers["Host"] = original_host
-                # httpx 0.28 ``URL.copy_with(host=ip)`` accepts unbracketed
-                # IPv6 strings and auto-brackets on serialization; no
-                # special-case wrap for ``:`` is needed.
-                request.url = request.url.copy_with(host=ip)
-                return await super().handle_async_request(request)
+                # Pin on a NEW request: the caller's request keeps its
+                # hostname URL, so httpx resolves a relative ``Location``
+                # against the name, not the IP, and ``sni_hostname`` never
+                # leaks into later hops. Headers are copied as they are
+                # (``Host`` is already the original netloc); SNI is the
+                # ASCII host. httpx 0.28 ``copy_with(host=ip)`` accepts
+                # unbracketed IPv6 and auto-brackets on serialization.
+                pinned = httpx.Request(
+                    request.method,
+                    request.url.copy_with(host=ip),
+                    headers=httpx.Headers(request.headers),
+                    stream=request.stream,
+                    extensions={
+                        **request.extensions,
+                        "sni_hostname": normalize_host(original_host),
+                    },
+                )
+                return await super().handle_async_request(pinned)
 
         raise ConstraintError(
             f"all resolved IPs for {original_host} are blocked: {[s[4][0] for s in resolved]}"
