@@ -61,6 +61,12 @@ logger = logging.getLogger(__name__)
 
 _VALID_DTYPES = ("f16", "i8")
 
+# A flush slower than this holds the per-KB lock longer than a query will wait
+# (``the_one.knowledge.retrieval.SEMANTIC_QUERY_TIMEOUT``), so queries degrade
+# to keyword-only while it runs. Pinned here, not imported: the vectors layer
+# sits below knowledge. ``tests/test_vector_store.py`` pins the two equal.
+SLOW_FLUSH_WARN_SECONDS = 2.0
+
 
 @dataclasses.dataclass
 class _KbIndex:
@@ -428,7 +434,17 @@ class UsearchStore:
             if not entry.dirty or entry.index is None:
                 entry.dirty = False
                 return
+            save_start = time.monotonic()
             path, count = await self._save_atomically(entry.index, kb_id)
+            save_seconds = time.monotonic() - save_start
+            if save_seconds > SLOW_FLUSH_WARN_SECONDS:
+                logger.warning(
+                    "kb %s: flush save took %.3fs (> %.3fs) holding the per-KB lock — "
+                    "semantic queries degrade to keyword-only while it runs",
+                    kb_id,
+                    save_seconds,
+                    SLOW_FLUSH_WARN_SECONDS,
+                )
             await self._upsert_registry_row(kb_id, path, count)
             entry.dirty = False
 

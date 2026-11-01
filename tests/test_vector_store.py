@@ -887,3 +887,56 @@ class TestQueryBoundedAcquisition:
         results = await built.query("kb", vec, 1, timeout=1.0)
         assert len(results) == 1
         assert entry.lock.locked() is False
+
+
+class TestSlowFlushWarning:
+    """``flush`` warns once when the save outlasts the query's lock-wait
+    bound (squawk 0297). The save is replaced and the module's clock is
+    faked, so nothing sleeps."""
+
+    @staticmethod
+    async def _flush_with_save_taking(built, monkeypatch, seconds: float) -> None:
+        from types import SimpleNamespace
+
+        from the_one.vectors import usearch_store as mod
+
+        clock = [100.0]
+        real_save = built._save_atomically
+
+        async def slow_save(index, kb_id):
+            result = await real_save(index, kb_id)
+            clock[0] += seconds
+            return result
+
+        monkeypatch.setattr(mod, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        monkeypatch.setattr(built, "_save_atomically", slow_save)
+        await built.flush("kb")
+
+    async def test_slow_save_logs_one_warning_naming_kb_and_duration(
+        self, conn, tmp_path, monkeypatch, caplog
+    ) -> None:
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        built = UsearchStore(conn, dtype="f16", dim=8)
+        await built.open()
+        await built.upsert("kb", [1, 2], _unit_vectors(2, dim=8))
+        with caplog.at_level("WARNING", logger="the_one.vectors.usearch_store"):
+            await self._flush_with_save_taking(built, monkeypatch, 3.5)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert "kb kb:" in warnings[0].getMessage()
+        assert "3.500s" in warnings[0].getMessage()
+
+    async def test_fast_save_logs_nothing(self, conn, tmp_path, monkeypatch, caplog) -> None:
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        built = UsearchStore(conn, dtype="f16", dim=8)
+        await built.open()
+        await built.upsert("kb", [1, 2], _unit_vectors(2, dim=8))
+        with caplog.at_level("WARNING", logger="the_one.vectors.usearch_store"):
+            await self._flush_with_save_taking(built, monkeypatch, 0.5)
+        assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+
+    def test_threshold_equals_the_retrieval_query_timeout(self) -> None:
+        from the_one.knowledge.retrieval import SEMANTIC_QUERY_TIMEOUT
+        from the_one.vectors.usearch_store import SLOW_FLUSH_WARN_SECONDS
+
+        assert SLOW_FLUSH_WARN_SECONDS == SEMANTIC_QUERY_TIMEOUT
