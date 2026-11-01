@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import _evals_helpers as h
-import pytest
 from _evals_helpers import make_tree, run, simple_scenario
 
 from evals import scripted
@@ -349,6 +348,7 @@ async def test_agent_override_cannot_widen_the_narrowed_allowlist(evals_isolatio
     from the_one.agent.factory import AgentFactory
     from the_one.db.connection import get_connection
     from the_one.db.repositories import SQLiteAgentStore
+    from the_one.platform.paths import is_within
 
     tmp = evals_isolation
     env = await startup(StartupOptions(run_dir=tmp / "runs" / "w"))
@@ -365,8 +365,12 @@ async def test_agent_override_cannot_widen_the_narrowed_allowlist(evals_isolatio
                 tool_overrides={"read_file": {"path_allowlist": ["/"]}},
             )
         )
-        with pytest.raises(ValueError, match="widens FilesystemConfig.path_allowlist"):
-            await AgentFactory(store=store).create("widen")
+        # Sortie 07: the build clips a widening override instead of failing; the
+        # agent's "/" never reaches the tool, which keeps the narrowed allowlist.
+        widened = await AgentFactory(store=store).create("widen")
+        allowed = widened.tools.get("read_file")._config.path_allowlist  # type: ignore[attr-defined]
+        assert "/" not in allowed
+        assert allowed and all(is_within(p, env.home) for p in allowed)
         # an agent that only narrows further is fine, and the effective allowlist is the home
         await store.save(
             AgentConfig(

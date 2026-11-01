@@ -315,6 +315,16 @@
     // activate() is idempotent.
     if (h.routines && h.tabs.selected() === 'routines') h.routines.activate();
 
+    // The Tools tab's notice surfaces (sortie 07 L05, DD11): the tab indicator and the
+    // tool rows' flags, from agent.notices. It never goes through setAgent, so no form
+    // value is re-patched and a dirty form is untouched.
+    h.setNotices = function (notices) {
+      var n = notices ? notices.length : 0;
+      h.tabs.setIndicator('tools', n ? n + (n === 1 ? ' notice' : ' notices') : null);
+      if (h.tools && h.tools.setNotices) h.tools.setNotices(notices || []);
+    };
+    h.setNotices(agent && agent.notices);
+
     // Same-identity update (see the header). The controller re-wires the picker
     // and resets the snapshot after it.
     // `opts.revert` is Cancel (the Tools tab drops its loaded override bodies).
@@ -339,6 +349,7 @@
         operatorConfigs: cb.operatorConfigs,
         fetchToolSchema: cb.fetchToolSchema
       });
+      h.setNotices(a.notices);
       // Self-configuration refetches its own data after its actions (10a): the
       // patch only hands it the record (the approval flag lives on it).
       h.selfConfig.setAgent(a);

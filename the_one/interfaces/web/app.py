@@ -64,17 +64,21 @@ from the_one.db.key_reconcile import reconcile_pending_key
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.name_repair import repair_unsafe_names
+from the_one.db.override_cleanup import cleanup_copied_overrides
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
+    AppMetadataRepository,
     ChatSessionRepository,
     ConnectorRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
+    ToolConfigRepository,
 )
 from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import get_encryptor
+from the_one.interfaces.web.api import read_execution_sandbox
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM, mint_handoff_credential
 from the_one.interfaces.web.middleware import (
@@ -264,6 +268,15 @@ async def _self_configuration_session_scope() -> AsyncIterator[None]:
         yield
 
 
+async def _warm_execution_sandbox(app: FastAPI) -> None:
+    """Store the sandbox posture on ``app.state`` (sortie 07, DD10). A failure
+    leaves it unset, so `GET /api/config` reads it itself."""
+    try:
+        app.state.execution_sandbox = await read_execution_sandbox()
+    except Exception:
+        logger.warning("sandbox posture warm-up failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize DB on startup, close on shutdown."""
@@ -313,6 +326,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:
             logger.warning("startup name repair failed; continuing", exc_info=True)
+        # Sortie 07 DD13: remove the inherited values earlier agent-tab saves copied
+        # into tool overrides. Once ever (marker in app_metadata); never raises and
+        # never blocks startup.
+        try:
+            await cleanup_copied_overrides(
+                conn,
+                store,
+                ToolConfigRepository(conn, get_encryptor(settings.data_dir)),
+                AppMetadataRepository(conn),
+            )
+        except Exception:
+            logger.warning("tool override cleanup failed; continuing", exc_info=True)
+        # Sortie 07 DD10: warm the sandbox posture `GET /api/config` reports. The
+        # selection can run a blocking probe (up to 5 s), so it runs fire-and-forget
+        # in a worker thread; startup never waits on it. Cached on this app instance.
+        app.state.execution_sandbox = None
+        app.state.execution_sandbox_task = asyncio.create_task(_warm_execution_sandbox(app))
         # M21 F01 L02: register the self-configuration credential source behind
         # the Mission 20 gate seam, then reconcile every marked MCP-source row
         # against the CURRENT settings.port (LD3) and load their credentials
@@ -494,6 +524,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("routine scheduler startup failed")
         yield
+        # Sortie 07 DD10: drop the posture warm-up and its cached value with the
+        # app's run, so the next run (the module `app` is reused) starts empty.
+        _warm_task = getattr(app.state, "execution_sandbox_task", None)
+        if _warm_task is not None and not _warm_task.done():
+            _warm_task.cancel()
+        app.state.execution_sandbox_task = None
+        app.state.execution_sandbox = None
         # M33 F1 L5: the routine scheduler stops FIRST (loop cancelled, runners
         # drained for 5 s), above the push-listener teardown, so the
         # `interrupted` run writes it causes are still pushed and settled.
@@ -1570,6 +1607,14 @@ SESSION_STATUS_OK = "ok"
 SESSION_STATUS_NOT_FOUND = "not_found"
 SESSION_STATUS_AGENT_DELETED = "agent_deleted"
 SESSION_STATUS_PROVIDER_MISSING = "provider_missing"
+SESSION_STATUS_BUILD_FAILED = "build_failed"
+
+# The one sentence a client gets when the agent build fails for any other reason
+# (sortie 07 DD7). The raw exception goes to the log only, never into a frame.
+BUILD_FAILED_REASON = (
+    "This chat's agent could not be set up. Check the agent's settings; "
+    "the app log has the details."
+)
 
 
 @dataclass
@@ -1584,12 +1629,15 @@ class RestoredSession:
     session: Session | None
     status: str
     db_session: ChatSessionModel | None = None
+    # A plain sentence for the client's banner; set for `build_failed` only.
+    reason: str | None = None
 
     @property
     def is_degraded(self) -> bool:
         return self.status in (
             SESSION_STATUS_AGENT_DELETED,
             SESSION_STATUS_PROVIDER_MISSING,
+            SESSION_STATUS_BUILD_FAILED,
         )
 
 
@@ -1761,6 +1809,19 @@ async def _restore_session(session_id: str) -> RestoredSession:
         async with _sessions_lock:
             _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_session)
+    except Exception:
+        # Any other build failure (sortie 07 DD7): the history still shows, with a
+        # fixed reason. The exception text goes to the log, never to a client.
+        logger.exception(
+            "Session %s degraded: status=build_failed agent=%r",
+            session_id,
+            db_session.agent_name,
+        )
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
+        return RestoredSession(
+            None, SESSION_STATUS_BUILD_FAILED, db_session, reason=BUILD_FAILED_REASON
+        )
 
     messages = decode_messages(db_session.messages)
     if messages:
@@ -2032,7 +2093,7 @@ async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str,
     db = restored.db_session
     assert db is not None, "degraded RestoredSession must carry db_session"
     ui_events = messages_to_ui_events(decode_messages(db.messages))
-    return {
+    frame: dict[str, Any] = {
         "type": "session_joined",
         "session_id": db.id,
         "status": restored.status,
@@ -2046,6 +2107,9 @@ async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str,
         # db: ChatSessionModel already carries it too.
         "platform": db.platform,
     }
+    if restored.reason:
+        frame["reason"] = restored.reason
+    return frame
 
 
 async def _send_to_session(

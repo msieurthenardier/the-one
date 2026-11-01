@@ -112,7 +112,36 @@
   }
 
 
+  // Sortie 07 L05 (DD12): the "Needs attention" group, read-only, between the facts and
+  // "What it can use". One sentence per tool-override notice (the notice's own message,
+  // set as text) and one link to the agent's Tools tab. Null when there are none.
+  function noticesGroup(agentName, notices) {
+    var list = arr(notices);
+    if (!list.length) return null;
+    var ul = el('ul', { className: 'chat-drawer-list chat-drawer-notices-list' });
+    ul.setAttribute('role', 'list');
+    for (var i = 0; i < list.length; i++) {
+      ul.appendChild(el('li', null, [
+        el('span', { className: 'chat-drawer-item-name', text: String(list[i].message || '') })
+      ]));
+    }
+    var link = el('a', {
+      className: 'chat-drawer-notices-link',
+      href: App.router.href({ destination: 'agents', id: agentName, tab: 'tools' }),
+      text: 'Open the agent’s Tools tab'
+    });
+    link.setAttribute('data-testid', 'chat-drawer-notices-link');
+    var box = el('div', { className: 'chat-drawer-group chat-drawer-notices' }, [
+      el('h3', { className: 'chat-drawer-uses-title', text: 'Needs attention' }),
+      ul,
+      link
+    ]);
+    box.setAttribute('data-testid', 'chat-drawer-notices');
+    return box;
+  }
+
   window.App.chat.drawerParts = {
+    noticesGroup: noticesGroup,
     whenLabel: whenLabel,
     routineMeta: routineMeta,
     routinesGroup: routinesGroup,

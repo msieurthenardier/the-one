@@ -320,15 +320,15 @@ def test_studio_override_narrow_superset_locked_chips(
 
 @pytest.mark.browser
 def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, page: Page) -> None:
-    """Open http_request panel → add `localhost` to extra_allowed_hosts
+    """Open http_request panel → add `localhost` to host_denylist
     chip-list → Save agent → API GET on agent confirms
-    `tool_overrides.http_request.extra_allowed_hosts == ["localhost"]`.
+    `tool_overrides.http_request.host_denylist == ["localhost"]`.
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Web")
     panel = page.locator('details.ui-tool-row[data-tool="http_request"]')
     _open_override_panel(page, "http_request")
-    chip_list = panel.locator('.chip-list-editor[data-tool-override-field="extra_allowed_hosts"]')
+    chip_list = panel.locator('.chip-list-editor[data-tool-override-field="host_denylist"]')
     expect(chip_list).to_be_visible(timeout=5000)
     chip_input = chip_list.locator(".chip-list-input")
     chip_input.fill("localhost")
@@ -352,7 +352,7 @@ def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, pag
     body = r.json()
     overrides = body.get("tool_overrides") or {}
     http_overrides = overrides.get("http_request") or {}
-    assert http_overrides.get("extra_allowed_hosts") == ["localhost"], (
+    assert http_overrides.get("host_denylist") == ["localhost"], (
         f"unexpected overrides round-trip: {overrides}"
     )
 

@@ -78,6 +78,12 @@
       if (s) s.setError(text);
     }
 
+    // The Built-in tools tab handle of the current mount (null with no editor open).
+    function toolsTab_() {
+      var d = currentData_();
+      return d && d.handle ? d.handle.tools || null : null;
+    }
+
     function setNameError_(text) {
       var d = currentData_();
       if (d && d.handle && d.handle.general) d.handle.general.setNameError(text);
@@ -86,13 +92,78 @@
     // A failed save: the server's name refusal goes on the Name field (focused, so
     // the operator lands on it), every other message in the header.
     function onSaveError_(err) {
-      var fe = App.api.fieldErrors(err, ['name']);
+      // Sortie 07, DD9: a refusal of a tool override carries a three-segment loc
+      // ["tool_overrides", tool, field] (App.api.fieldErrors matches single segments
+      // only), so those entries are split off and placed on their field below.
+      var items = (err && Array.isArray(err.detail)) ? err.detail : [];
+      var toolItems = items.filter(function (d) {
+        return d && d.type === 'tool_override' && Array.isArray(d.loc) &&
+          d.loc[0] === 'tool_overrides' && d.loc.length >= 2;
+      });
+      var plain = err;
+      if (toolItems.length) {
+        plain = { status: err.status, message: err.message, body: err.body,
+          detail: items.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
+      }
+      var fe = App.api.fieldErrors(plain, ['name']);
       setNameError_(fe.fields.name || null);
-      setEditorError_(fe.text || '');
+      var headerText = fe.text || '';
+      if (toolItems.length && !plain.detail.length) headerText = '';
+      setEditorError_(headerText);
       if (fe.fields.name) {
         var input = editorEl.querySelector('#studio-name');
         if (input) input.focus();
       }
+      if (toolItems.length) showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
+    }
+
+    // Select the Built-in tools tab, open each refused tool's panel and put the
+    // server's sentence on its field (focus on the first). A refusal with no field
+    // (an unknown tool) or no panel to open goes in the header with the rest.
+    function showToolOverrideErrors_(items, headerText, nameFocused) {
+      // Still the same mount (a tab switch below may re-sync the URL, which must not
+      // count as a rebuild).
+      var tok = currentData_() ? currentData_().token : null;
+      function guard() {
+        var c = slot.current();
+        return !!c && c.token === tok;
+      }
+      var sentences = [];
+      var placed = [];
+      function sentence(msg) {
+        var t = String(msg == null ? '' : msg).trim();
+        return /[.!?]$/.test(t) ? t : t + '.';
+      }
+      var wantsTab = items.some(function (d) { return d.loc.length >= 3; });
+      if (wantsTab) setActiveTab('tools');
+      var tab = toolsTab_();
+      var jobs = items.map(function (d) {
+        var tool = d.loc[1];
+        var field = d.loc[2];
+        if (field === undefined || !tab) {
+          sentences.push(sentence(d.msg));
+          return Promise.resolve();
+        }
+        return tab.openTool(tool).then(function () {
+          var byField = tab.fieldHandles()[tool] || {};
+          var handle = byField[field];
+          if (!handle) {
+            sentences.push(sentence(d.msg));
+            return;
+          }
+          handle.setError(d.msg);
+          placed.push(handle);
+        }, function () {
+          sentences.push(sentence(d.msg));
+        });
+      });
+      Promise.all(jobs).then(function () {
+        if (!guard()) return;
+        if (sentences.length) {
+          setEditorError_((headerText ? headerText + ' ' : '') + sentences.join(' '));
+        }
+        if (placed.length && !nameFocused) placed[0].focus();
+      });
     }
 
     // A liveness guard for an async callback: true while the mount it was taken
@@ -671,7 +742,18 @@
 
     var showFlash = function (msg) { App.ui.flash(msg); };
 
+    // The open editor follows a fresh agents list for its NOTICES only (sortie 07 L05,
+    // DD2/AC2): the studio `agents` subscription passes the selected agent's notices,
+    // never any form value, so an unsaved edit is kept.
+    function setNotices_(name, notices) {
+      var d = currentData_();
+      if (!d || !d.handle || !d.handle.setNotices) return;
+      if (d.handle.agentName !== name) return;
+      d.handle.setNotices(notices || []);
+    }
+
     return {
+      setNotices: setNotices_,
       renderEditor: renderEditor,
       setActiveTab: setActiveTab,
       deactivateSelfConfig: deactivateSelfConfig,
@@ -680,7 +762,8 @@
       deactivateRoutines: deactivateRoutines,
       destroyEditor: destroyEditor,
       onSelfConfigChanged: onSelfConfigChanged,
-      shell: shell
+      shell: shell,
+      toolsTab: toolsTab_
     };
   }
 

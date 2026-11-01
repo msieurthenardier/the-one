@@ -121,7 +121,7 @@ def test_clearing_a_shown_field_still_drops_its_override(
     panel = _open_panel(page, "Web", "http_request")
     field = panel.locator('input[data-tool-override-field="timeout_seconds_max"]')
     field.fill("")
-    _add_chip(panel, "extra_allowed_hosts", "x.example")
+    _add_chip(panel, "host_denylist", "x.example")
     _save(page)
     ov = _stored(base, url)
     assert "timeout_seconds_max" not in ov["http_request"]
@@ -202,6 +202,8 @@ def test_a_valid_number_blank_and_a_fixed_value_save(app_with_agent: SeededApp, 
     name = app_with_agent.agent_name
     assert name is not None
     base = app_with_agent.base_url
+    # No app-wide seeding: the maximum is typed below the inherited default timeout, which
+    # follows it (sortie 07 DD2/DD9: an inherited field is not sent).
     url = _put_overrides(base, name, None)
     _open_tools(page, base, name)
     panel = _open_panel(page, "Web", "http_request")
@@ -212,14 +214,17 @@ def test_a_valid_number_blank_and_a_fixed_value_save(app_with_agent: SeededApp, 
     field.fill("12")  # fixing it clears the error
     expect(error).to_have_count(0)
     expect(field).not_to_have_attribute("aria-invalid", "true")
-    _add_chip(panel, "extra_allowed_hosts", "x.example")
+    _add_chip(panel, "host_denylist", "x.example")
     _save(page)
-    assert _stored(base, url)["http_request"]["timeout_seconds_max"] == 12
+    assert _stored(base, url)["http_request"] == {
+        "timeout_seconds_max": 12,
+        "host_denylist": ["x.example"],
+    }
     # Blank is skipped.
     field.fill("")
-    _add_chip(panel, "extra_allowed_hosts", "y.example")
+    _add_chip(panel, "host_denylist", "y.example")
     _save(page)
-    assert "timeout_seconds_max" not in _stored(base, url)["http_request"]
+    assert _stored(base, url)["http_request"] == {"host_denylist": ["x.example", "y.example"]}
 
 
 # ── Squawk 0223 on the new module ───────────────────────────────────────
@@ -262,12 +267,12 @@ def test_opening_one_panel_keeps_the_other_tools_stored_overrides(
         {"read_file": {"path_denylist": ["/secret"]}, "grep": {"allow_binary_files": False}},
     )
     _open_tools(page, base, name)
-    _add_chip(_open_panel(page, "Web", "http_request"), "extra_allowed_hosts", "z.example")
+    _add_chip(_open_panel(page, "Web", "http_request"), "host_denylist", "z.example")
     _save(page)
     ov = _stored(base, url)
     assert ov["read_file"] == {"path_denylist": ["/secret"]}
     assert ov["grep"] == {"allow_binary_files": False}
-    assert ov["http_request"]["extra_allowed_hosts"] == ["z.example"]
+    assert ov["http_request"]["host_denylist"] == ["z.example"]
 
 
 # ── A8 and A10 on the tab ───────────────────────────────────────────────

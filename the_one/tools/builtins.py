@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import threading
+
 from the_one.tools._search_backends import SearchBackend, build_search_backend
 from the_one.tools._web_config import WebConfig
 from the_one.tools._web_search_config import WebSearchConfig
@@ -20,7 +23,7 @@ from the_one.tools.filesystem import (
     WriteFileTool,
 )
 from the_one.tools.python_exec import PythonExecTool
-from the_one.tools.resolver import _EmptyConfig, resolve
+from the_one.tools.resolver import ClipChange, _EmptyConfig, clip_override, resolve
 from the_one.tools.sessions import (
     ShellSessionCloseTool,
     ShellSessionListTool,
@@ -35,6 +38,36 @@ from the_one.tools.web import (
     HttpRequestTool,
     WebSearchTool,
 )
+
+logger = logging.getLogger(__name__)
+
+# Rate limit for the "override clipped" warning (sortie 07, DD7): every join and
+# every connector message rebuilds the agent, so one warning per
+# (agent, tool, field, dropped). Bounded: on overflow the set is cleared.
+_CLIP_WARNED_CAP = 2048
+_clip_warned: set[tuple] = set()
+_clip_warned_lock = threading.Lock()
+
+
+def _warn_clipped(agent_name: str | None, tool: str, change: ClipChange) -> None:
+    key = (agent_name, tool, change.field, change.kind, repr(change.dropped))
+    with _clip_warned_lock:
+        if key in _clip_warned:
+            return
+        if len(_clip_warned) >= _CLIP_WARNED_CAP:
+            _clip_warned.clear()
+        _clip_warned.add(key)
+    logger.warning(
+        "agent %r: override of %s.%s was clipped to fit the app-wide setting (%s); "
+        "dropped %r, effective %r",
+        agent_name,
+        tool,
+        change.field,
+        change.kind,
+        change.dropped,
+        change.effective,
+    )
+
 
 # Module-level eager-init mapping. One dict per Python process; tests that
 # need to monkeypatch tool classes can patch
@@ -193,10 +226,17 @@ class BuiltinToolProvider:
 
         result: list[Tool] = []
         for name, cls in _TOOL_CLASSES.items():
+            # Sortie 07 (DD1, DD7): the override is clipped to fit the current
+            # app-wide value first, so a stale override can never fail the
+            # build; `resolve` then stays strict and cannot raise on the result.
+            clipped = clip_override(cls.Config, tool_configs.get(name), agent_overrides.get(name))
+            for change in clipped.changes:
+                _warn_clipped(agent_name, name, change)
             cfg = resolve(
                 cls.Config,
                 tool_configs.get(name),
-                agent_overrides.get(name),
+                clipped.override,
+                tool_name=name,
             )
             # `cross_configs` is shared by reference across all tools in this
             # call; frozen Configs (FilesystemConfig + future ExecutionConfig)

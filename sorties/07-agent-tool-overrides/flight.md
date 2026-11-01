@@ -1,6 +1,6 @@
 # Sortie: Agent tool overrides
 
-**Status**: ready
+**Status**: in-flight
 
 ## Charter
 
@@ -95,7 +95,7 @@ Make agent tool overrides honest in both directions. On the way in, the server c
 - Rationale: the save check mirrors sortie 06's "check what was sent" rule for legacy data, and the structured error keeps one source of truth.
 - Trade-off: a stale stored entry survives a save untouched. This is deliberate: it is clipped and flagged instead.
 
-**DD6. Notices: derived per response, never stored.** Each of the five `_agent_response` callers (`list_agents`, `get_agent`, create, update, rename; `api.py:925,936,1055,1135,1204`) passes in `notices: [...]`.
+**DD6. Notices: derived per response, never stored.** *(Leg 2 deviation, noted at leg 5: the `dropped` and `effective` path entries keep their STORED form, not the canonical one this text describes, so the operator sees the value they typed and the "Use narrowed value" fix stores what the field shows.)* Each of the five `_agent_response` callers (`list_agents`, `get_agent`, create, update, rename; `api.py:925,936,1055,1135,1204`) passes in `notices: [...]`.
 - **How they are computed:** `clip_override` runs over the agent's overrides against one `ToolConfigRepository.list()` per request, in `asyncio.to_thread` (path canonicalisation is blocking), memoised in a bounded (LRU) cache on a fingerprint of (override, tool-config row). The scope filter below (enabled tools, rendered fields) is applied outside the cached part. The clip also depends on disk state (`is_within` resolves symlinks), so a symlink change can leave a cached notice stale until either input changes; that is accepted and documented. This departs from the `kb_tool_names` precedent, which skips list reads (`_agent_response`, `api.py:205`). The list response needs notices because the drawer, the Agents list and Jump to all read the list-shaped `agents` store. The thread plus memo keeps that read off the event loop and cheap when nothing changed. That matters on the operator's Windows setup, where resolving `\\wsl.localhost\…` can start the distro.
 - **Shape:** `{"kind": "tool_override_narrowed", "tool", "field", "field_title", "dropped": [...], "effective": <value>, "message": <sentence>}`. Path entries in `effective` are in canonical form, so the notice shows what was actually checked. Example sentence: "read_file's Allowed paths was narrowed by the app-wide setting: `\\server\share\proj` no longer applies."
 - **What raises a notice:** only a `narrowed` or `invalid` change, on a field the agent tab renders (overridable, not hidden by the tool's `config_fields`), for a tool enabled both for the agent and app-wide. Clips on hidden fields or disabled tools still apply at build and are logged, but raise no notice: a notice that cannot be fixed on the tab could never clear.
@@ -228,10 +228,18 @@ Verified against the working tree at `142dbee` by the Flight Director (2026-10-2
 | `areas/admin/tools-editor.js:404-435` `save()`; nothing in `areas/admin/` invalidates `agents` (DD8) | verified (Architect) |
 | `the_one/self_configuration/projection.py:86-94` — `describe_my_capabilities` calls `get_tools` with the agent's overrides (DD7) | verified (Architect) |
 
+**Re-check at execution start (2026-10-31, Flight Director, against `628a97dd`, after Mission 33).** The resolver, paths, filesystem, builtins, shell, web, `_web_config`, execution, sandbox factory, naming, projection, `tool-config-fields.js`, `api.js`, `ui/tabs.js`, `ui/list-pane.js` and the admin tools files are unchanged since `c236622`. Mechanisms still hold in the changed files; the lines moved:
+- `api.py`: `_agent_response` `:208`, still exactly five callers (`:928,939,1087,1175,1244`); `get_config` `:602`; the `x_marker` map `:490-540`; `_merge_hidden_fields` `:573`; `create_agent` `:1036`, `update_agent` `:1091`.
+- `app.py`: `RestoredSession` `:1576`, `is_degraded` `:1589-1593`; `_restore_session` `:1679` (still catches only the provider and agent-not-found errors); `_build_session_joined_degraded` `:2024` (still no reason); `POST /api/chat` degraded return `:3259-3261`; the loop's `except WebSocketDisconnect` `:3651`; `repair_unsafe_names` `:308`.
+- `connectors/inbound.py:419` — the same three-error catch (was `:480-483`).
+- `areas/chat/agent-drawer.js:271` — `App.store.peek('agents')` (was `:258-260`).
+- `areas/studio/agent-form-data.js:205-257` — the walk, unchanged in substance.
+- **New consumer (Mission 33): `the_one/routines/runner.py:266-273`** reads `_get_or_restore_session`'s status through `_RoutineTurnHost.get_or_restore` (`app.py:1868`) and words `provider_missing`/`agent_deleted`, everything else as "The chat is no longer available." DD7's `build_failed` status reaches it, so leg 1 gives it its own run-failure reason.
+
 ### Prerequisites
 - [x] Mission 31 completed and shipped (operator, 2026-10-28; `main` at `c236622`, after v0.12.3).
 - [x] Branch `sortie/07-agent-tool-overrides` rebased onto `main` at execution start (2026-10-28, onto `c236622`; Citation Audit re-checked). The worktree is `.claude/worktrees/sortie-tool-overrides`, created 2026-10-27 from `main` at `142dbee`. After the rebase, re-check the Citation Audit against the new base: M31 F6 touches `chat.js`, the drawer's neighbourhood and the chat session state. Each leg's design also re-checks the rows it touches, in case other work lands on `main` between legs.
-- [ ] The worktree's own `.venv` built and **every gated lane baselined** before leg 1, in that venv: the unit tier plus the `--parallel 3` browser lanes (sortie 06 debrief, recommendation 2; squawk 0241's fresh-install failures are expected).
+- [x] The worktree's own `.venv` built and **every gated lane baselined** before leg 1, in that venv: the unit tier plus the `--parallel 3` browser lanes (sortie 06 debrief, recommendation 2; squawk 0241's fresh-install failures are expected).
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
@@ -253,11 +261,13 @@ The server goes first, so every later leg builds on a single rule set.
 - **Leg 4** adds the library indicators and wires the notice surfaces, the impact route (both halves) and the Settings warning.
 - **Leg 5** is the HAT.
 
+*(Execution note, 2026-10-31: the leg 1 design review split leg 1 in two, so the flown legs are 1 `override-rules`, 2 `save-and-notices`, 3 `redirect-hosts`, 4 `agent-tab`, 5 `notice-surfaces`, 6 `hat`. The numbers in this section and in Checkpoints are the plan's; the flight log uses the flown numbers.)*
+
 ### Checkpoints
-- [ ] Leg 1: no override can make a build fail (property tests); a widening or invalid one is a 422 on its field (API); `NO_HOSTS` refuses with no DNS; a broken chat rejoins degraded with its reason.
-- [ ] Leg 2: a redirect hop obeys the host lists, and a relative redirect on a pinned host still works.
-- [ ] Leg 3: open-and-save stores nothing; inherited/own/Reset work; the note shows by sandbox posture; the cleanup runs once and never raises.
-- [ ] Leg 4: tightening in Settings warns, and the notice appears in the drawer, tab, list row and field.
+- [x] Leg 1: no override can make a build fail (property tests); a widening or invalid one is a 422 on its field (API); `NO_HOSTS` refuses with no DNS; a broken chat rejoins degraded with its reason.
+- [x] Leg 2: a redirect hop obeys the host lists, and a relative redirect on a pinned host still works.
+- [x] Leg 3: open-and-save stores nothing; inherited/own/Reset work; the note shows by sandbox posture; the cleanup runs once and never raises.
+- [x] Leg 4: tightening in Settings warns, and the notice appears in the drawer, tab, list row and field.
 - [ ] Leg 5: HAT signed off.
 
 ### Adaptation Criteria
@@ -277,10 +287,10 @@ The server goes first, so every later leg builds on a single rule set.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `override-rules` - Server: total `clip_override` and its table, default-follows-max (DD1, DD2), denied-list union (DD3), `NarrowAnyWhenEmpty` with code-enforced `NO_HOSTS` (DD4), save-time 422 on changed fields for every failure type (DD5), derived, threaded, memoised `notices` with their scope rules (DD6), build-path clip plus the `build_failed` restore (server and client, with a `chats`-lane test) and connector hardening (DD7), and the client's `allowed()` accepting the new marker; unit and property tests; closes squawk 0257.
-- [ ] `redirect-hosts` - Host lists checked on every request in `SSRFGuardedTransport`, pinning on a copy of the request, one host normalisation (DD15); transport tests through the real pin path with a relative `Location`, plus allow, deny and `NO_HOSTS` hops; release-notes line.
-- [ ] `agent-tab` - Inherited/own/Reset field states and the own-only Save walk with locked-chip subtraction (DD9), the clipped-field line and its fixes, three-segment 422 mapping, `execution_sandbox` in `/api/config` warmed in the lifespan, and the Shell/Python/download note (DD10); the once-ever startup cleanup with injected-failure tests (DD13); `agent-tabs` lane tests updated, with the posture pinned by stubbing `App.config.execution_sandbox`.
-- [ ] `notice-surfaces` - The `App.ui.tabs` indicator and the list-row indicator, with catalogue rows and two-engine contract tests (DD11); the editor tab, Agents row and tool-panel flags; the drawer's notices group (DD12); the impact route sharing the PUT's config computation, the Settings before-save warning and the `agents` invalidation (DD8); docs and release notes (DD14).
+- [x] `override-rules` *(flown as legs 1 `override-rules` and 2 `save-and-notices`)* - Server: total `clip_override` and its table, default-follows-max (DD1, DD2), denied-list union (DD3), `NarrowAnyWhenEmpty` with code-enforced `NO_HOSTS` (DD4), save-time 422 on changed fields for every failure type (DD5), derived, threaded, memoised `notices` with their scope rules (DD6), build-path clip plus the `build_failed` restore (server and client, with a `chats`-lane test) and connector hardening (DD7), and the client's `allowed()` accepting the new marker; unit and property tests; closes squawk 0257.
+- [x] `redirect-hosts` - Host lists checked on every request in `SSRFGuardedTransport`, pinning on a copy of the request, one host normalisation (DD15); transport tests through the real pin path with a relative `Location`, plus allow, deny and `NO_HOSTS` hops; release-notes line.
+- [x] `agent-tab` - Inherited/own/Reset field states and the own-only Save walk with locked-chip subtraction (DD9), the clipped-field line and its fixes, three-segment 422 mapping, `execution_sandbox` in `/api/config` warmed in the lifespan, and the Shell/Python/download note (DD10); the once-ever startup cleanup with injected-failure tests (DD13); `agent-tabs` lane tests updated, with the posture pinned by stubbing `App.config.execution_sandbox`.
+- [x] `notice-surfaces` - The `App.ui.tabs` indicator and the list-row indicator, with catalogue rows and two-engine contract tests (DD11); the editor tab, Agents row and tool-panel flags; the drawer's notices group (DD12); the impact route sharing the PUT's config computation, the Settings before-save warning and the `agents` invalidation (DD8); docs and release notes (DD14).
 - [ ] `hat` *(optional)* - A guided HAT on a Linux scratch dev instance: a refused widening; open-and-save stores nothing; own vs inherited and Reset; a Settings tightening with its warning; the notice in the drawer, tab, list row and field; both fixes, including the empty-intersection case; the paths note (first confirm `GET /api/config` or `the-one doctor`'s `sandbox:` line reads bubblewrap, then the bubblewrap wording live; passthrough wording checked on the served text); a redirect to a host outside an agent's Allowed hosts is refused.
 
 ---

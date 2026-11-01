@@ -419,6 +419,11 @@ async def dispatch_inbound(
             except (AgentNotFoundError, ProviderNotFoundError, ProviderNotConfiguredError):
                 logger.exception("dispatch_inbound: failed to build agent %r", agent_name)
                 return
+            except Exception:
+                # Any other build failure (sortie 07 DD7): logged with the agent name;
+                # there is no reply to the peer.
+                logger.exception("dispatch_inbound: failed to build agent %r", agent_name)
+                return
 
             db_session = await chat_repo.get(session_row.id)
             stored = decode_messages(db_session.messages)

@@ -610,6 +610,8 @@
         var factsEl = facts(factPairs);
         if (routineText) factsEl.lastElementChild.setAttribute('data-testid', 'chat-drawer-routine');
         content.appendChild(factsEl);
+        var needsEl = App.chat.drawerParts.noticesGroup(info.name, info.row.notices);
+        if (needsEl) content.appendChild(needsEl);
         content.appendChild(uses(info.row));
       } else if (info.kind === 'default') {
         name = 'Default agent';

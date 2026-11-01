@@ -2,7 +2,16 @@
 // rebuilt on the control library in M31 F2 L08b, flight DD3/DD6).
 //
 //   var h = App.studio.renderToolsTab(panel, agent, callbacks)
-//     -> { setAgent(agent, opts), destroy() }
+//     -> { setAgent(agent, opts), setNotices(notices), fieldHandles(), openTool(name), destroy() }
+//   setNotices(notices) redraws only each tool row's "{n} notice(s)" flag (sortie 07 L05,
+//   DD11), from agent.notices; it never touches a field value.
+//   fieldHandles() -> { tool: { field: handle } } for the loaded panels (App.toolConfigFields
+//   agent-mode handles: isOwn(), ownValue(), reset(), rebase(), setError(), focus()); the
+//   Save walk and the 422 mapping read them. openTool(name) opens a tool's panel and
+//   resolves once its fields are rendered (rejects for a tool with no panel).
+//   A field is the agent's own when its key is in the stored override, inherited otherwise
+//   (sortie 07, DD9); the clipped-field line comes from agent.notices, and the paths note
+//   from App.config.execution_sandbox.
 //
 // Built once per agent identity and patched through setAgent (DD6). One
 // App.ui.groupTile per category (data-category on its root; a tristate master,
@@ -51,6 +60,20 @@
     'Always available to the agent from the start of every conversation, ' +
     'even if you limit its other tools. Untick to remove it from this agent.';
 
+  // Shell, Python and downloads are not limited by an agent's paths (sortie 07, DD10).
+  var PATHS_NOTE_TOOLS = ['shell', 'python_exec', 'shell_session_start', 'download_file'];
+  var PATH_FIELDS = ['path_allowlist', 'path_denylist'];
+  var PATHS_NOTES = {
+    bubblewrap:
+      'Shell, Python and downloads don\'t use this agent\'s paths. Without host access, ' +
+      'Shell and Python run in an empty sandbox; with host access, and for downloads, ' +
+      'read_file\'s app-wide paths apply. Turn them off for this agent to keep it to ' +
+      'these paths.',
+    passthrough:
+      'On this computer, Shell and Python aren\'t limited by any paths, and downloads use ' +
+      'read_file\'s app-wide paths. Turn them off for this agent to keep it to these paths.'
+  };
+
   function setKey(set) {
     var out = [];
     if (set && typeof set.forEach === 'function') set.forEach(function (n) { out.push(n); });
@@ -70,7 +93,8 @@
       (window.App.toolCategories && window.App.toolCategories.whitelistExempt) || [];
 
     var tiles = {};   // category -> { tile, names: [..] }
-    var rows = {};    // tool name -> { row, category, overrides: {reset} | null }
+    var rows = {};    // tool name -> { row, category, overrides: {open, rebase, reset, destroy} | null }
+    var panels = {};  // tool name -> the loaded-state of its override panel (byField handles)
     var listeners = [];
     var listContainer = null;
 
@@ -131,16 +155,85 @@
       while (node.firstChild) node.removeChild(node.firstChild);
     }
 
+    // The row flag (sortie 07 L05, DD11): a warning chip "{n} notice(s)" when the tool
+    // has notices, drawn from agent.notices at build and on setNotices, so a tool whose
+    // disclosure was never opened is still flagged. It never touches a field.
+    function noticeCount(toolName) {
+      var list = (currentAgent && currentAgent.notices) || [];
+      var n = 0;
+      for (var i = 0; i < list.length; i++) if (list[i].tool === toolName) n++;
+      return n;
+    }
+
+    function flagNode(toolName) {
+      var n = noticeCount(toolName);
+      if (!n) return null;
+      return ui.chip({
+        label: n + (n === 1 ? ' notice' : ' notices'),
+        tone: 'warning',
+        size: 'sm',
+        testid: 'tool-override-notice-flag'
+      });
+    }
+
+    function updateFlags() {
+      Object.keys(rows).forEach(function (n) {
+        var count = noticeCount(n);
+        if (rows[n].flagCount === count) return;
+        rows[n].flagCount = count;
+        rows[n].row.setFlag(flagNode(n));
+      });
+    }
+
+    function noticeFor(toolName, fieldName) {
+      var list = (currentAgent && currentAgent.notices) || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].tool === toolName && list[i].field === fieldName) return list[i];
+      }
+      return null;
+    }
+
+    // The note on every Allowed paths / Denied paths field (DD10): Shell, Python and
+    // downloads are not limited by this agent's paths. Shown only while one of those
+    // tools is on for the agent AND app-wide, for a posture the server reported.
+    function pathsNoteText() {
+      var cfg = window.App.config || {};
+      var posture = cfg.execution_sandbox;
+      if (posture !== 'bubblewrap' && posture !== 'passthrough') return null;
+      var text = PATHS_NOTES[posture];
+      var set = enabledSetFor(currentAgent);
+      for (var i = 0; i < PATHS_NOTE_TOOLS.length; i++) {
+        var t = PATHS_NOTE_TOOLS[i];
+        var on = rows[t] ? !!rows[t].row.input.checked : !!set[t];
+        var oc = operatorConfigs[t];
+        var appWide = !isDisabled(t) && !(oc && oc.enabled === false);
+        if (on && appWide) return text;
+      }
+      return null;
+    }
+
+    function updatePathsNotes() {
+      var text = pathsNoteText();
+      Object.keys(panels).forEach(function (tn) {
+        var byField = panels[tn].byField;
+        PATH_FIELDS.forEach(function (fn) {
+          if (byField[fn]) byField[fn].setNote(text);
+        });
+      });
+    }
+
     function attachOverrides(name, row) {
-      var st = { status: 'unloaded', gen: 0, fields: [] };
+      var st = { status: 'unloaded', gen: 0, fields: [], byField: {}, promise: null };
       var body = row.body;
       body.appendChild(loadingNode());
+      panels[name] = st;
 
       function destroyFields() {
         for (var i = 0; i < st.fields.length; i++) {
           if (st.fields[i].chips) st.fields[i].chips.destroy();
         }
         st.fields = [];
+        st.byField = {};
       }
 
       function showFailure() {
@@ -176,17 +269,23 @@
             continue;
           }
           var operatorVal = (fname in operatorConfig) ? operatorConfig[fname] : prop['default'];
+          var hasOwn = (fname in agentOverride);
           var built = fields.render(fname, prop, fields.seedValue(prop, agentOverride, fname, operatorVal), {
             mode: 'agent',
             toolName: name,
             operatorValue: operatorVal,
+            own: hasOwn,
+            storedValue: hasOwn ? agentOverride[fname] : undefined,
+            notice: noticeFor(name, fname),
             onChange: onChange
           });
           if (!built) continue;
           body.appendChild(built.el);
           st.fields.push(built);
+          st.byField[fname] = built;
           rendered++;
         }
+        updatePathsNotes();
         // The panel names itself and any stored override the schema no longer marks
         // overridable, for agent-form-data.js (see its tool_overrides walk).
         body.setAttribute('data-tool-override-panel', name);
@@ -197,19 +296,27 @@
         }
       }
 
+      // -> a promise settled once this panel's fields are rendered (rejected when the
+      // schema failed to load). The toggle path ignores a rejection.
       function load() {
         st.status = 'loading';
         var gen = ++st.gen;
-        fetchToolSchema(name).then(function (detail) {
-          if (gen !== st.gen) return;
-          st.status = 'loaded';
-          renderFields(detail);
-        }, function () {
-          if (gen !== st.gen) return;
-          // Retry on the next open.
-          st.status = 'failed';
-          showFailure();
+        st.promise = new Promise(function (resolve, reject) {
+          fetchToolSchema(name).then(function (detail) {
+            if (gen !== st.gen) { resolve(); return; }
+            st.status = 'loaded';
+            renderFields(detail);
+            resolve();
+          }, function (err) {
+            if (gen !== st.gen) { resolve(); return; }
+            // Retry on the next open.
+            st.status = 'failed';
+            showFailure();
+            reject(err || new Error('schema'));
+          });
         });
+        st.promise.catch(function () { /* shown in the panel */ });
+        return st.promise;
       }
 
       function onToggle() {
@@ -228,6 +335,40 @@
       }
 
       return {
+        // Open the disclosure and resolve once its fields are rendered (the panel's
+        // own load path, so the schema is fetched like a click would).
+        open: function () {
+          if (!fetchToolSchema) return Promise.reject(new Error('no schema source'));
+          if (st.status === 'loaded') {
+            row.setOpen(true);
+            return Promise.resolve();
+          }
+          if (st.status === 'loading') {
+            row.setOpen(true);
+            return st.promise;
+          }
+          if (st.status === 'failed') {
+            clearNode(body);
+            body.appendChild(loadingNode());
+          }
+          var p = load();
+          row.setOpen(true);
+          return p;
+        },
+        // The stored override changed (a Save, a refresh): each loaded field takes the
+        // new own/inherited state and notice, keeping any pending edit.
+        rebase: function (a) {
+          if (st.status !== 'loaded') return;
+          var stored = ((a && a.tool_overrides) || {})[name] || {};
+          Object.keys(st.byField).forEach(function (fn) {
+            var has = (fn in stored);
+            st.byField[fn].rebase({
+              own: has,
+              storedValue: has ? stored[fn] : undefined,
+              notice: noticeFor(name, fn)
+            });
+          });
+        },
         // Cancel: drop the loaded body, close the disclosure, re-arm the lazy load.
         reset: function () {
           if (st.status === 'unloaded' && !row.el.open) return;
@@ -241,6 +382,7 @@
         destroy: function () {
           st.gen++;
           destroyFields();
+          delete panels[name];
         }
       };
     }
@@ -279,6 +421,7 @@
                 if (!r.input.disabled) r.setChecked(next);
               }
               refreshCategory(cat);
+              updatePathsNotes();
               onChange();
             }
           },
@@ -300,13 +443,16 @@
             dataset: { tool: tName },
             inputDataset: { tool: tName },
             disclosure: disabled ? null : { label: 'Overrides' },
+            flag: flagNode(tName),
             onChange: function () {
               refreshCategory(cat);
+              updatePathsNotes();
               onChange();
             }
           });
           rows[tName] = {
             row: row,
+            flagCount: noticeCount(tName),
             category: cat,
             overrides: (!disabled && row.body) ? attachOverrides(tName, row) : null
           };
@@ -347,9 +493,38 @@
         var enabledSet = enabledSetFor(a);
         Object.keys(rows).forEach(function (n) {
           rows[n].row.setChecked(!!enabledSet[n]);
-          if (opts.revert && rows[n].overrides) rows[n].overrides.reset();
+          if (rows[n].overrides) {
+            if (opts.revert) rows[n].overrides.reset();
+            else rows[n].overrides.rebase(a);
+          }
         });
         Object.keys(tiles).forEach(refreshCategory);
+        // The operator's app-wide switches may have changed with the refresh.
+        updatePathsNotes();
+        updateFlags();
+      },
+      // Only the notices changed (sortie 07 L05: the studio `agents` store hook): redraw
+      // the rows' flags from them and touch nothing else, so a dirty form is untouched.
+      // An open panel's clipped lines update on its next render, not live.
+      setNotices: function (notices) {
+        currentAgent = Object.assign({}, currentAgent || {}, { notices: notices || [] });
+        updateFlags();
+      },
+      // The loaded override fields: { tool: { field: handle } } (loaded panels only).
+      // agent-form-data.js's Save walk and the 422 mapping read the handles here.
+      fieldHandles: function () {
+        var out = {};
+        Object.keys(panels).forEach(function (tn) {
+          if (panels[tn].status === 'loaded') out[tn] = panels[tn].byField;
+        });
+        return out;
+      },
+      // Open a tool's override panel and resolve once its fields are rendered; rejects
+      // for a tool with no panel (unknown, or off app-wide) or a schema load failure.
+      openTool: function (name) {
+        var r = rows[name];
+        if (!r || !r.overrides) return Promise.reject(new Error('No override panel for ' + name));
+        return r.overrides.open();
       },
       destroy: function () {
         teardown();

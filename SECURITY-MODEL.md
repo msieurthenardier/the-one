@@ -641,6 +641,24 @@ Flight 2)". The security-relevant invariants are:
   keyed on `(agent_name, session_id)`, per-call denylist re-check on
   `shell_session_send` so agents cannot pre-stage a denylisted command
   behind an open session.
+- **Agent overrides only narrow (sortie 07)**: an agent's `tool_overrides` can
+  never widen the app-wide tool config. A new or changed override that widens
+  it, or is invalid, is refused at save (422 on its field). A stored override
+  that stopped fitting (the operator tightened the app-wide setting later) is
+  clipped to fit when the agent is built, so the narrower of the two always
+  applies, and the operator is told through a derived notice on the agent
+  (Tools tab, Agents list, chat drawer) and a Settings warning before a save
+  that would narrow agents. Denied lists are the union of the app-wide and the
+  agent's entries; an empty Allowed hosts list is "any host" only against an
+  empty app-wide list, and `none.invalid` is the code-enforced "no hosts"
+  entry. The host allow and deny lists apply to **every redirect hop** of
+  `http_request`, `fetch_url` and `download_file`, not only the first URL (a
+  redirect to a host outside an agent's Allowed hosts fails); the SSRF IP pin
+  works on a copy of the request, so a relative redirect resolves against the
+  hostname. Shell, Python and downloads do not use an agent's own paths: they
+  read `read_file`'s app-wide row, and `web_search`'s SSRF policy uses the
+  app-wide `extra_allowed_hosts`. A one-time startup step removed the copies of
+  app-wide values that earlier saves had stored in agents.
 - **Subprocess environment**: hardcoded 8-key allowlist (`PATH`, `HOME`,
   `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TERM`, `TZ`) lives at
   `the_one/platform/env.py` and is **NOT operator-configurable** by
@@ -854,6 +872,14 @@ On Windows, the sandbox factory (`get_sandbox_backend()`) returns `PassthroughSa
 accepted gap (DD9), not a regression — the Linux bubblewrap enforcement path is the
 production containment boundary; Windows ships at PTY feature parity without sandbox
 enforcement. WSL2 users inherit the full Linux sandbox path.
+
+Because of that, on Windows (and on any host without bubblewrap) an agent's own
+Allowed paths and Denied paths limit only the filesystem tools: Shell and Python
+are not limited by any path, and downloads use `read_file`'s app-wide paths.
+The agent's Tools tab says so on every paths field (it reads the server's
+`execution_sandbox` posture, never the browser's OS), and the way to keep an
+agent to its paths is to turn those tools off for it. `web_search`'s SSRF policy
+also reads the app-wide `extra_allowed_hosts`, not an agent's.
 
 **Win32 Job Object is lifecycle teardown, NOT containment.** The
 `WindowsPtySession` backend (`the_one/platform/pty_windows.py`) assigns the spawned

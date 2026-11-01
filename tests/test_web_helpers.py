@@ -26,12 +26,15 @@ from the_one.tools._web_config import (
     SSRFGuardedTransport,
     WebConfig,
     _host_matches,
+    _host_policy_check,
     _is_binary_content_type,
     _is_ssrf_blocked,
     _truncate_response,
     _url_check,
+    normalize_host,
 )
 from the_one.tools.base import ConstraintError
+from the_one.tools.resolver import NO_HOSTS
 
 # ---------------------------------------------------------------------------
 # _is_ssrf_blocked
@@ -133,6 +136,56 @@ class TestUrlCheck:
     def test_empty_lists_no_constraint(self) -> None:
         cfg = WebConfig()
         assert _url_check("http://anywhere.com/", cfg) == "http://anywhere.com/"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://example.com/",
+            "https://none.invalid/",  # even the reserved name itself
+            "http://127.0.0.1:8080/",
+            "https://[::1]/x",
+        ],
+    )
+    def test_no_hosts_refuses_every_url_without_any_dns_lookup(
+        self, monkeypatch: pytest.MonkeyPatch, url: str
+    ) -> None:
+        """Sortie 07 DD4: the reserved NO_HOSTS entry is enforced in code. The
+        guarantee must not rest on `.invalid` failing to resolve (search
+        domains, NXDOMAIN hijacking and hosts files can make it resolve), so
+        every resolver the check could reach raises if called."""
+        calls: list[object] = []
+
+        def _no_dns(*args: object, **kwargs: object) -> None:
+            calls.append(args)
+            raise AssertionError("a DNS lookup was attempted")
+
+        monkeypatch.setattr(socket, "getaddrinfo", _no_dns)
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", _no_dns)
+        cfg = WebConfig(host_allowlist=[NO_HOSTS])
+        with pytest.raises(ConstraintError) as exc:
+            _url_check(url, cfg)
+        assert "no hosts are allowed" in str(exc.value)
+        # Listed alongside real hosts, the reserved entry still refuses all.
+        mixed = WebConfig(host_allowlist=["example.com", NO_HOSTS])
+        with pytest.raises(ConstraintError):
+            _url_check("http://example.com/", mixed)
+        assert calls == []
+
+    async def test_no_hosts_refuses_a_fetch_before_any_transport_work(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from the_one.tools.web import FetchUrlTool
+
+        def _no_dns(*args: object, **kwargs: object) -> None:
+            raise AssertionError("a DNS lookup was attempted")
+
+        monkeypatch.setattr(socket, "getaddrinfo", _no_dns)
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", _no_dns)
+        result = await FetchUrlTool(WebConfig(host_allowlist=[NO_HOSTS])).execute(
+            url="https://example.com/"
+        )
+        assert result.startswith("[error] [constraint]")
+        assert "no hosts are allowed" in result
 
     def test_denylist_overrides_allowlist(self) -> None:
         """Denylist runs AFTER allowlist; an entry in both lists is denied."""
@@ -618,3 +671,210 @@ class TestSSRFGuardedTransportConstruction:
         # Mutating the source list does not affect the transport's view.
         src.append("c.com")
         assert t._extra_allowed == ("a.com", "b.com")
+
+
+# ---------------------------------------------------------------------------
+# DD15 (sortie 07 leg 3): host lists on every hop, pin on a copy, one
+# host normalisation
+# ---------------------------------------------------------------------------
+
+
+def _record_getaddrinfo(monkeypatch, mapping: dict[str, str]) -> list[str]:
+    """Patch ``getaddrinfo`` to map hostname -> IP and record each asked host."""
+    asked: list[str] = []
+
+    async def fake(self, host, port, *args, **kwargs):
+        asked.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (mapping[host], port))]
+
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", fake)
+    return asked
+
+
+def _redirecting(recorder: _Recorder, location_for: dict[str, str]) -> None:
+    """First request to a host in ``location_for`` answers 302; the rest 200
+    (a request for ``/next`` is the end of a relative redirect)."""
+
+    def factory(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/next":
+            return httpx.Response(200, content=b"ok")
+        for marker, loc in location_for.items():
+            if req.url.host == marker or req.headers.get("Host", "").split(":")[0] == marker:
+                return httpx.Response(302, headers={"Location": loc})
+        return httpx.Response(200, content=b"ok")
+
+    recorder.response_factory = factory
+
+
+async def _get(transport, url: str) -> httpx.Response:
+    async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+        return await client.get(url)
+
+
+class TestRedirectHopHostLists:
+    async def test_hop_outside_allowlist_refused(self, monkeypatch) -> None:
+        asked = _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4", "b.example": "5.6.7.8"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://b.example/x"})
+        t = SSRFGuardedTransport(host_allowlist=["a.example"])
+        with pytest.raises(ConstraintError, match="b.example.*not in host_allowlist"):
+            await _get(t, "http://a.example/")
+        assert len(rec.requests) == 1
+        assert asked == ["a.example"]
+
+    async def test_hop_in_denylist_refused(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4", "b.example": "5.6.7.8"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://b.example/x"})
+        t = SSRFGuardedTransport(host_denylist=["b.example"])
+        with pytest.raises(ConstraintError, match="b.example.*host_denylist"):
+            await _get(t, "http://a.example/")
+        assert len(rec.requests) == 1
+
+    async def test_hop_refused_under_no_hosts(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        t = SSRFGuardedTransport(host_allowlist=[NO_HOSTS])
+        with pytest.raises(ConstraintError, match="no hosts are allowed"):
+            await _get(t, "http://a.example/")
+        assert rec.requests == []
+
+    async def test_denylist_beats_extra_allowed_hosts(self, monkeypatch) -> None:
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        t = SSRFGuardedTransport(extra_allowed_hosts=["localhost"], host_denylist=["localhost"])
+        with pytest.raises(ConstraintError, match="host_denylist"):
+            await _get(t, "http://localhost/")
+        assert rec.requests == []
+
+    async def test_empty_allowlist_with_denylist_only_denies(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4", "b.example": "5.6.7.8"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://b.example/x"})
+        t = SSRFGuardedTransport(host_denylist=["other.example"])
+        resp = await _get(t, "http://a.example/")
+        assert resp.status_code == 200
+        assert len(rec.requests) == 2
+
+    async def test_ssrf_block_list_still_applies_to_hops(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://127.0.0.1/x"})
+        t = SSRFGuardedTransport()
+        with pytest.raises(ConstraintError, match="SSRF block list"):
+            await _get(t, "http://a.example/")
+        assert len(rec.requests) == 1
+
+    async def test_ip_literal_hop_checked_as_ip(self, monkeypatch) -> None:
+        """An absolute redirect to a public IP does not borrow the allowed name."""
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://8.8.8.8/x"})
+        t = SSRFGuardedTransport(host_allowlist=["a.example"])
+        with pytest.raises(ConstraintError, match="8.8.8.8.*not in host_allowlist"):
+            await _get(t, "http://a.example/")
+        assert len(rec.requests) == 1
+
+
+class TestPinOnACopy:
+    async def test_relative_redirect_on_pinned_host(self, monkeypatch) -> None:
+        asked = _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "/next"})
+        t = SSRFGuardedTransport(host_allowlist=["a.example"])
+        resp = await _get(t, "http://a.example/start")
+        assert resp.status_code == 200
+        assert asked == ["a.example", "a.example"]
+        assert [r.url.host for r in rec.requests] == ["1.2.3.4", "1.2.3.4"]
+        assert rec.requests[1].url.path == "/next"
+        for r in rec.requests:
+            assert r.extensions["sni_hostname"] == "a.example"
+            assert r.headers["Host"] == "a.example"
+
+    async def test_callers_request_not_mutated(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"example.com": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        t = SSRFGuardedTransport()
+        original = httpx.Request("GET", "http://example.com:8080/p")
+        await t.handle_async_request(original)
+        assert original.url.host == "example.com"
+        assert original.headers["Host"] == "example.com:8080"
+        assert "sni_hostname" not in original.extensions
+        sent = rec.requests[0]
+        assert sent.url.host == "1.2.3.4"
+        assert sent.headers["Host"] == "example.com:8080"
+
+    async def test_idn_host_sni_is_punycode(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"münchen.de": "1.2.3.4"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        t = SSRFGuardedTransport()
+        await t.handle_async_request(httpx.Request("GET", "http://münchen.de/"))
+        sent = rec.requests[0]
+        assert sent.extensions["sni_hostname"] == "xn--mnchen-3ya.de"
+        assert sent.headers["Host"] == "xn--mnchen-3ya.de"
+
+    async def test_extra_allowed_hosts_still_skips_pin(self, monkeypatch) -> None:
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        t = SSRFGuardedTransport(extra_allowed_hosts=["localhost"], host_allowlist=["localhost"])
+        await _get(t, "http://localhost/")
+        assert rec.requests[0].url.host == "localhost"
+        assert "sni_hostname" not in rec.requests[0].extensions
+
+    async def test_cross_origin_hop_gets_fresh_host(self, monkeypatch) -> None:
+        _record_getaddrinfo(monkeypatch, {"a.example": "1.2.3.4", "b.example": "5.6.7.8"})
+        rec = _Recorder()
+        _patch_super_dispatch(monkeypatch, rec)
+        _redirecting(rec, {"1.2.3.4": "http://b.example/x"})
+        await _get(SSRFGuardedTransport(), "http://a.example/")
+        assert rec.requests[1].headers["Host"] == "b.example"
+        assert rec.requests[1].extensions["sni_hostname"] == "b.example"
+
+
+class TestHostNormalisation:
+    def test_forms_match_both_lists(self) -> None:
+        for entry, host in [
+            ("xn--mnchen-3ya.de", "http://münchen.de/"),
+            ("münchen.de", "http://xn--mnchen-3ya.de/"),
+            ("Example.COM", "http://example.com./"),
+        ]:
+            _url_check(host, WebConfig(host_allowlist=[entry]))
+            with pytest.raises(ConstraintError):
+                _url_check(host, WebConfig(host_denylist=[entry]))
+
+    def test_ss_does_not_match_sharp_s(self) -> None:
+        assert normalize_host("ß.de") == "xn--zca.de"
+        with pytest.raises(ConstraintError):
+            _url_check("http://ß.de/", WebConfig(host_allowlist=["ss.de"]))
+        _url_check("http://ß.de/", WebConfig(host_denylist=["ss.de"]))
+
+    @pytest.mark.parametrize("bad", ["a..b", "a" * 64 + ".com", "ä..b"])
+    def test_bad_hosts_are_constraint_errors(self, bad: str) -> None:
+        with pytest.raises(ConstraintError):
+            normalize_host(bad)
+        with pytest.raises(ConstraintError):
+            _host_policy_check(bad, (), ())
+
+    async def test_bad_hop_host_is_constraint_error(self) -> None:
+        t = SSRFGuardedTransport()
+        with pytest.raises(ConstraintError):
+            await t.handle_async_request(httpx.Request("GET", "http://" + "a" * 64 + ".com/"))
+
+    def test_bad_list_entry_matches_nothing(self) -> None:
+        with pytest.raises(ConstraintError, match="not in host_allowlist"):
+            _host_policy_check("a.example", ["a..b"], ())
+        _host_policy_check("a.example", (), ["a..b"])
+
+    def test_ip_literals_unchanged(self) -> None:
+        assert normalize_host("1.2.3.4") == "1.2.3.4"
+        assert normalize_host("[::1]") == "::1"
+        assert normalize_host("none.invalid") == "none.invalid"

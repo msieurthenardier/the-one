@@ -176,6 +176,11 @@ class TestToolOverridesPreservedOnOmit:
 
     async def test_supplied_map_replaces(self, client: AsyncClient) -> None:
         await self._seed(client, "repl")
+        # Sortie 07 DD5: a new override must fit the app-wide value, so allow it there first.
+        r = await client.put(
+            "/api/tools/configs/http_request", json={"config": {"extra_allowed_hosts": ["a.com"]}}
+        )
+        assert r.status_code == 200, r.text
         new = {"http_request": {"extra_allowed_hosts": ["a.com"]}}
         r = await client.put("/api/agents/repl", json={"name": "repl", "tool_overrides": new})
         assert r.status_code == 200, r.text

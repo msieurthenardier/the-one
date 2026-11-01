@@ -4,7 +4,7 @@
   App.ui = App.ui || {};
 
   // App.ui.tabs(opts) -> {el, tablist, panels, select(id), selected(),
-  // panel(id), destroy()}. The W3C manual-activation tablist (M31 F2 L4): the
+  // panel(id), setIndicator(id, label|null), destroy()}. The W3C manual-activation tablist (M31 F2 L4): the
   // library form of the old App.tabs helper (js/tabs.js, deleted in M31 F4 L06
   // when its last caller, the Built-in tools list, moved here).
   //   label (the tablist's aria-label), items [{id, label, testid}], initial,
@@ -23,6 +23,12 @@
   //   panelPadding: 'none' (M31 F4 L04d) adds the marker .ui-tabs--flush to
   //   the tablist and every panel: no padding and a visible overflow, so the
   //   page that hosts the tabs owns the inset and the only scroller.
+  //   indicator (sortie 07 L05, DD11): an item's optional `indicator` (a label
+  //   string such as "1 notice") and setIndicator(id, label|null) draw a small
+  //   aria-hidden dot (.ui-tab-indicator-dot) and a visually hidden ", <label>"
+  //   run inside the tab button, so the accessible name is "<label>, <indicator>".
+  //   Colour is never the only cue; null removes both. Selection and keys are
+  //   untouched. setIndicator returns false for an unknown id.
   //   destroy() removes the listeners and leaves the nodes to the caller.
   App.ui.tabs = function (opts) {
     opts = opts || {};
@@ -34,6 +40,29 @@
     var panelPrefix = opts.panelIdPrefix || (prefix + '-panel');
     var onBeforeChange = typeof opts.onBeforeChange === 'function' ? opts.onBeforeChange : null;
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {};
+
+    // The indicator (sortie 07 L05, DD11): a small aria-hidden dot plus a
+    // visually hidden run ", <label>", so the tab's name reads "Tools, 1 notice".
+    // Both nodes are siblings of the label text and carry data-tab-indicator.
+    function clearIndicator(tab) {
+      var old = tab.querySelectorAll('[data-tab-indicator]');
+      for (var n = 0; n < old.length; n++) tab.removeChild(old[n]);
+      tab.removeAttribute('aria-label');
+    }
+    function paintIndicator(tab, label) {
+      clearIndicator(tab);
+      if (!label) return;
+      // The name is also set explicitly: the absolutely positioned hidden run
+      // would otherwise be joined to the label with a stray space.
+      tab.setAttribute('aria-label', tab.firstChild.textContent + ', ' + label);
+      tab.appendChild(util.el('span', {
+        className: 'ui-tab-indicator-dot', 'aria-hidden': 'true', 'data-tab-indicator': 'dot'
+      }));
+      tab.appendChild(util.el('span', {
+        className: 'visually-hidden','data-tab-indicator': 'text',
+        text: ', ' + label
+      }));
+    }
 
     var flush = opts.panelPadding === 'none';
     var tablist = util.el('div', {
@@ -75,6 +104,7 @@
         'data-tab-id': item.id,
         hidden: true
       });
+      if (item.indicator) paintIndicator(tab, item.indicator);
       tablist.appendChild(tab);
       panelsEl.appendChild(panel);
       tabs.push(tab);
@@ -152,6 +182,15 @@
       tablist: tablist,
       panels: panelsEl,
       select: activate,
+      setIndicator: function (id, label) {
+        for (var k = 0; k < tabs.length; k++) {
+          if (tabs[k].getAttribute('data-tab-id') === id) {
+            paintIndicator(tabs[k], label ? String(label) : null);
+            return true;
+          }
+        }
+        return false;
+      },
       selected: function () { return activeId; },
       panel: function (id) {
         for (var k = 0; k < panelList.length; k++) {

@@ -246,3 +246,31 @@ async def test_a_connector_early_return_does_not_bump(repos):
 
     assert turn_seq(ws.session_id).endswith(":0")
     assert all(p[1].endswith(":0") for p in pushes), pushes
+
+
+# ── Sortie 07 DD7: any other build failure ──────────────────────────────────
+
+
+async def test_an_unmapped_build_failure_is_logged_with_the_agent_and_returns(repos, caplog):
+    """A build exception that is not one of the three factory errors is logged with the
+    agent name and ends the dispatch cleanly: nothing raised, no bump, the end frame sent."""
+    from the_one.sessions import turn_seq
+
+    conn_repo, _ = repos
+    store = await _setup(conn_repo)
+    ws = _WS()
+    caplog.set_level("ERROR", logger="the_one.connectors.inbound")
+
+    async def kaboom(self, name, *a, **kw):
+        raise RuntimeError("kaboom")
+
+    with patch.object(AgentFactory, "create", kaboom):
+        await _run(store, FakeLLM(responses=[]), [ws])
+
+    records = [r for r in caplog.records if "failed to build agent" in r.getMessage()]
+    assert len(records) == 1
+    assert "'bot'" in records[0].getMessage()
+    assert records[0].exc_info is not None
+    assert len(ws.frames) == 1 and ws.frames[0][1] is False
+    assert turn_seq(ws.session_id).endswith(":0")
+    assert not session_locks[ws.session_id].locked()

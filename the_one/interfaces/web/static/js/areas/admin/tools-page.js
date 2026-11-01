@@ -191,6 +191,9 @@ App.admin.toolsPage = {
         // A Save response arrived (even for an editor that is no longer current): the
         // list cache and the tiles follow the server.
         onSaved: function (updated) {
+          // A saved tool config changes which override notices exist (sortie 07 DD8):
+          // the Agents list, the editor and the chat drawer follow the store.
+          App.store.invalidate('agents');
           if (ctx.getCategory() !== 'tools' || !toolConfigs) return;
           for (var i = 0; i < toolConfigs.length; i++) {
             if (toolConfigs[i].name === updated.name) {
@@ -320,6 +323,8 @@ App.admin.toolsPage = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: newEnabled })  // omit config: REPLACE preserves
       }).then(function () {
+        // On/off changes which notices exist (sortie 07 DD8, DD6's scope).
+        App.store.invalidate('agents');
         // The server now holds newEnabled (a Save response that landed meanwhile
         // left the optimistic value alone).
         for (var j = 0; j < toolConfigs.length; j++) {

@@ -60,6 +60,7 @@ from the_one.db.models import (
     KnowledgeBase,
     LLMProviderConfig,
     MCPSource,
+    ToolConfig,
     now_iso,
 )
 from the_one.db.repositories import (
@@ -112,6 +113,7 @@ from the_one.naming import (
     name_rule_detail,
 )
 from the_one.platform.paths import canonicalize, is_within
+from the_one.platform.sandbox import factory as sandbox_factory
 from the_one.routines import service as routine_service
 from the_one.routines.proposals import RoutineProposalRepository
 from the_one.routines.repository import RoutineRunRepository
@@ -119,6 +121,7 @@ from the_one.self_configuration import external_credentials as self_configuratio
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
 from the_one.sessions import is_session_busy, turn_seq
+from the_one.tools import override_validation
 from the_one.vectors import get_vector_store
 
 if TYPE_CHECKING:
@@ -206,7 +209,9 @@ async def _agent_store() -> SQLiteAgentStore:
 
 
 def _agent_response(
-    cfg: AgentConfig, kb_tool_names: dict[str, str] | None = None
+    cfg: AgentConfig,
+    kb_tool_names: dict[str, str] | None = None,
+    notices: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Render an ``AgentConfig`` into the masked HTTP response shape.
 
@@ -238,8 +243,13 @@ def _agent_response(
     ``kb_tool_names`` key at all — this is what ``list_agents`` relies on
     to avoid an N+1 read per page load; only the single-agent routes
     (``GET``/``POST``/``PUT /api/agents/{name}``, ``.../rename``) pass one.
+
+    ``notices`` (sortie 07 DD6): the derived tool-override clip notices, always
+    emitted as a list (empty when none) on every route; callers compute them with
+    :func:`_agent_notices` off the event loop.
     """
     data = cfg.model_dump()
+    data["notices"] = list(notices or [])
     if kb_tool_names is not None:
         data["kb_tool_names"] = kb_tool_names
     overrides = data.get("mcp_overrides")
@@ -258,6 +268,45 @@ def _agent_response(
                 else:
                     source_entry[key] = _MASK_PREFIX
     return data
+
+
+async def _tool_config_rows(*cfgs: AgentConfig) -> dict[str, Any]:
+    """The tool-config rows by tool name: ONE ``ToolConfigRepository.list()`` per
+    request, and none when no config carries a tool override."""
+    if not any(c.tool_overrides for c in cfgs):
+        return {}
+    repo = await _tool_config_repo()
+    return override_validation.rows_by_name(await repo.list())
+
+
+async def _agent_notices(cfgs: list[AgentConfig], rows: dict[str, Any]) -> list[list[dict]]:
+    """The tool-override notices for each config, in one thread hop (path
+    canonicalisation blocks), and none at all when no config has an override."""
+    if not any(c.tool_overrides for c in cfgs):
+        return [[] for _ in cfgs]
+    return await asyncio.to_thread(override_validation.compute_notices_for_many, cfgs, rows)
+
+
+async def _validate_tool_overrides(
+    stored: dict[str, Any] | None, cfg: AgentConfig, rows: dict[str, Any]
+) -> None:
+    """422 (sortie 07 DD5) on a new or changed override that widens the app-wide
+    value or is invalid. ``stored`` is the stored map, ``None`` on create."""
+    if not cfg.tool_overrides:
+        return
+    details = await asyncio.to_thread(
+        override_validation.validate_overrides, stored, cfg.tool_overrides, rows
+    )
+    if details:
+        raise HTTPException(status_code=422, detail=details)
+
+
+async def _full_agent_response(cfg: AgentConfig, rows: dict[str, Any] | None = None) -> dict:
+    """A single-agent response: kb tool names plus the derived notices."""
+    if rows is None:
+        rows = await _tool_config_rows(cfg)
+    (notices,) = await _agent_notices([cfg], rows)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg), notices)
 
 
 def _merge_preserved_mcp_credentials(
@@ -515,6 +564,7 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
 
     from the_one.tools.resolver import (
         Narrow,
+        NarrowAnyWhenEmpty,
         NarrowPrefix,
         NarrowSuperset,
         Substitute,
@@ -522,6 +572,7 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
 
     marker_map = {
         Narrow: "Narrow",
+        NarrowAnyWhenEmpty: "NarrowAnyWhenEmpty",
         NarrowPrefix: "NarrowPrefix",
         NarrowSuperset: "NarrowSuperset",
         Substitute: "Substitute",
@@ -544,11 +595,9 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
 
 def _hidden_field_names(tool_cls: type, config_cls: type) -> set[str]:
     """Config fields the tool's ``config_fields`` leaves out of its editor
-    (M31 F4 L05a, B6). Empty when ``config_fields`` is ``None`` (all shown)."""
-    shown = getattr(tool_cls, "config_fields", None)
-    if shown is None:
-        return set()
-    return set(config_cls.model_fields) - set(shown)
+    (M31 F4 L05a, B6). Empty when ``config_fields`` is ``None`` (all shown).
+    One copy, shared with the agent-tab render predicate."""
+    return override_validation.hidden_field_names(tool_cls, config_cls)
 
 
 def _filter_schema_to_config_fields(schema: dict[str, Any], tool_cls: type) -> dict[str, Any]:
@@ -598,8 +647,16 @@ def _merge_hidden_fields(
 # ── Client config ─────────────────────────────────────────────────────────
 
 
+async def read_execution_sandbox() -> str:
+    """The sandbox backend name Shell and Python use on this host
+    (``"bubblewrap"`` or ``"passthrough"``). The selection can run a blocking
+    probe (up to 5 s the first time), so it always runs in a worker thread."""
+    name, _reason = await asyncio.to_thread(sandbox_factory.describe_selection)
+    return name
+
+
 @router.get("/config")
-async def get_config() -> dict[str, Any]:
+async def get_config(request: Request) -> dict[str, Any]:
     """Client-visible configuration — dev mode flag, version, and the
     context-fullness overlay thresholds.
 
@@ -609,12 +666,21 @@ async def get_config() -> dict[str, Any]:
     ``context_warn_pct`` / ``context_crit_pct`` (M16 F08 L05) are read by
     the chat telemetry overlay to color the bar and emit its non-color a11y
     signal; the settings validator guarantees they are always sane here.
+    ``execution_sandbox`` (sortie 07, DD10) is the sandbox posture the agent
+    tab's paths note reads. It is cached on this app instance by a lifespan
+    warm-up, never in a module variable (the factory re-evaluates on every call
+    so tests can monkeypatch it); a request that arrives before the warm-up
+    finishes reads it in a worker thread itself.
     """
+    posture = getattr(request.app.state, "execution_sandbox", None)
+    if posture is None:
+        posture = await read_execution_sandbox()
     return {
         "dev_mode": settings.dev_mode,
         "version": __version__,
         "context_warn_pct": settings.context_warn_pct,
         "context_crit_pct": settings.context_crit_pct,
+        "execution_sandbox": posture,
     }
 
 
@@ -693,43 +759,22 @@ async def get_tool_config(name: str) -> dict[str, Any]:
     }
 
 
-@router.put("/tools/configs/{name}")
-async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
-    """Upsert the operator-saved config + enabled state.
+def _compute_tool_config_update(
+    cls: type, name: str, data: dict[str, Any], existing: Any
+) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+    """What a tools PUT would store: ``(new_enabled, new_config, new_secrets)``.
 
-    Body shape: `{enabled?: bool, config?: dict}`.
-
-    REPLACE-not-merge contract for `config`: when present in body,
-    REPLACES the saved config wholesale (REST PUT convention). The
-    L3 form always submits the full Config state, so REPLACE matches
-    its actual behaviour. To wipe to defaults, send `{"config": {}}`.
-
-    The replace covers the fields the tool SHOWS. A field the tool's
-    `config_fields` hides (M31 F4 L05a) keeps its stored value: a PUT, or a
-    `{"config": {}}` reset, never changes it, and an incoming value for it is
-    ignored (`_merge_hidden_fields`).
-
-    Top-level keys are preserved when omitted: PUT `{"enabled": true}`
-    (no `config` key) updates only `enabled` and leaves `config`
-    intact. Symmetric for `config`-only PUTs.
-
-    Validates submitted `config` against `cls.Config` — Pydantic v2's
-    default `extra="ignore"` (verified for all four F2-F5 Configs)
-    silently drops unknown extras.
+    One computation shared by the PUT and the impact preview (sortie 07 L05, DD8), so
+    the preview equals what the PUT stores. ``existing`` is the stored
+    ``ToolConfig`` row or ``None``. A body that fails validation raises the PUT's
+    422 (``HTTPException``); when ``config`` is omitted the stored config and
+    secrets come back unchanged.
     """
-    from the_one.tools.builtins import _TOOL_CLASSES
-
-    cls = _TOOL_CLASSES.get(name)
-    if cls is None:
-        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
-    data = await _read_json(request)
-    repo = await _tool_config_repo()
-    try:
-        existing = await repo.get(name)
+    if existing is not None:
         current_enabled = existing.enabled
         current_config = existing.config
         current_secrets = existing.secrets
-    except KeyError:
+    else:
         current_enabled = True
         current_config = {}
         current_secrets = {}
@@ -795,6 +840,107 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
         # `config` omitted — preserve both the existing config and secrets.
         new_config = current_config
         new_secrets = dict(current_secrets)
+    return new_enabled, new_config, new_secrets
+
+
+def _narrowing_added(before: list[dict], after: list[dict]) -> list[dict]:
+    """The fields in ``after`` whose notice is new or gained a dropped value."""
+    prior = {n["field"]: n for n in before}
+    out: list[dict] = []
+    for n in after:
+        old = prior.get(n["field"])
+        if old is None or any(d not in old["dropped"] for d in n["dropped"]):
+            out.append(
+                {"field": n["field"], "field_title": n["field_title"], "dropped": n["dropped"]}
+            )
+    return out
+
+
+def _impact_of(name: str, cfgs: list[AgentConfig], rows: dict[str, Any], proposed: Any) -> list:
+    """Blocking (path canonicalisation): per agent, the narrowing ``proposed`` adds."""
+    after_rows = {**rows, name: proposed}
+    impact = []
+    for cfg in cfgs:
+        before = [n for n in override_validation.compute_notices(cfg, rows) if n["tool"] == name]
+        after = [
+            n for n in override_validation.compute_notices(cfg, after_rows) if n["tool"] == name
+        ]
+        fields = _narrowing_added(before, after)
+        if fields:
+            impact.append({"agent": cfg.name, "fields": fields})
+    return impact
+
+
+@router.post("/tools/configs/{name}/impact")
+async def tool_config_impact(name: str, request: Request) -> dict[str, Any]:
+    """Which agents a proposed tool config would newly narrow (sortie 07 L05, DD8).
+
+    Read-only. The body is the PUT's shape; it goes through the PUT's own
+    computation (``_compute_tool_config_update``), so an invalid body gets the
+    PUT's 422 and the preview equals what a following PUT stores. The response is
+    ``{"agents": [{"agent", "fields": [{"field", "field_title", "dropped"}]}]}``:
+    an agent is listed only for a field whose notice for this tool is new or gained
+    a dropped value. A widening, a no-op and a tool turned off list nothing.
+    """
+    from the_one.tools.builtins import _TOOL_CLASSES
+
+    cls = _TOOL_CLASSES.get(name)
+    if cls is None:
+        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
+    data = await _read_json(request)
+    repo = await _tool_config_repo()
+    rows = override_validation.rows_by_name(await repo.list())
+    existing = rows.get(name)
+    new_enabled, new_config, new_secrets = _compute_tool_config_update(cls, name, data, existing)
+    update = {"enabled": new_enabled, "config": new_config, "secrets": new_secrets}
+    if existing is not None:
+        proposed = existing.model_copy(update=update)
+    else:
+        proposed = ToolConfig(name=name).model_copy(update=update)
+    store = await _agent_store()
+    cfgs = [await store.load(n) for n in await store.list_agents()]
+    if not any(c.tool_overrides and name in c.tool_overrides for c in cfgs):
+        return {"agents": []}
+    return {"agents": await asyncio.to_thread(_impact_of, name, cfgs, rows, proposed)}
+
+
+@router.put("/tools/configs/{name}")
+async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
+    """Upsert the operator-saved config + enabled state.
+
+    Body shape: `{enabled?: bool, config?: dict}`.
+
+    REPLACE-not-merge contract for `config`: when present in body,
+    REPLACES the saved config wholesale (REST PUT convention). The
+    L3 form always submits the full Config state, so REPLACE matches
+    its actual behaviour. To wipe to defaults, send `{"config": {}}`.
+
+    The replace covers the fields the tool SHOWS. A field the tool's
+    `config_fields` hides (M31 F4 L05a) keeps its stored value: a PUT, or a
+    `{"config": {}}` reset, never changes it, and an incoming value for it is
+    ignored (`_merge_hidden_fields`).
+
+    Top-level keys are preserved when omitted: PUT `{"enabled": true}`
+    (no `config` key) updates only `enabled` and leaves `config`
+    intact. Symmetric for `config`-only PUTs.
+
+    Validates submitted `config` against `cls.Config` — Pydantic v2's
+    default `extra="ignore"` (verified for all four F2-F5 Configs)
+    silently drops unknown extras.
+    """
+    from the_one.tools.builtins import _TOOL_CLASSES
+
+    cls = _TOOL_CLASSES.get(name)
+    if cls is None:
+        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
+    data = await _read_json(request)
+    repo = await _tool_config_repo()
+    try:
+        existing = await repo.get(name)
+    except KeyError:
+        existing = None
+    secret_fields = _secret_field_names(cls.Config)
+    new_enabled, new_config, new_secrets = _compute_tool_config_update(cls, name, data, existing)
 
     await repo.upsert(name, new_config, secrets=new_secrets, enabled=new_enabled)
 
@@ -922,11 +1068,10 @@ async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
 async def list_agents() -> list[dict[str, Any]]:
     store = await _agent_store()
     names = await store.list_agents()
-    agents = []
-    for name in names:
-        cfg = await store.load(name)
-        agents.append(_agent_response(cfg))
-    return agents
+    cfgs = [await store.load(name) for name in names]
+    rows = await _tool_config_rows(*cfgs)
+    notices = await _agent_notices(cfgs, rows)
+    return [_agent_response(cfg, None, n) for cfg, n in zip(cfgs, notices)]
 
 
 @router.get("/agents/{name}")
@@ -936,7 +1081,7 @@ async def get_agent(name: str) -> dict[str, Any]:
         cfg = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
+    return await _full_agent_response(cfg)
 
 
 @router.get("/agents/{name}/context-window")
@@ -1079,12 +1224,16 @@ async def create_agent(request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    # Sortie 07 DD5: a new tool override that widens the app-wide value or is invalid
+    # is a 422 on its field, before the provider check and the name conflict.
+    rows = await _tool_config_rows(cfg)
+    await _validate_tool_overrides(None, cfg, rows)
     await _check_agent_provider(cfg.provider_config_id)
     store = await _agent_store()
     if await store.exists(cfg.name):
         raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
     await store.save(cfg)
-    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
+    return await _full_agent_response(cfg, rows)
 
 
 @router.put("/agents/{name}")
@@ -1167,12 +1316,16 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    # Sortie 07 DD5: only a new or changed override field is checked, against the
+    # STORED map (an omitted `tool_overrides` was carried above, so it is unchanged).
+    rows = await _tool_config_rows(cfg)
+    await _validate_tool_overrides(existing.tool_overrides, cfg, rows)
     if cfg.provider_config_id != existing.provider_config_id:
         # Squawk 0277: only a CHANGED id is checked, so an agent whose provider was
         # deleted later stays editable (and fixable).
         await _check_agent_provider(cfg.provider_config_id)
     await store.save(cfg)
-    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
+    return await _full_agent_response(cfg, rows)
 
 
 @router.delete("/agents/{name}")
@@ -1241,7 +1394,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_rename(name, new_name, mcp_repo=mcp_repo)
     cfg = await store.load(new_name)
-    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
+    return await _full_agent_response(cfg)
 
 
 # ── Self-configuration surface (M21 F01 L02) ───────────────────────────────

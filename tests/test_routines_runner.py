@@ -113,6 +113,30 @@ async def test_agent_deleted_after_the_chat_was_created(routine_app):
     assert run["session_id"]
 
 
+async def test_build_failed_restore_records_its_own_reason(routine_app):
+    """Sortie 07 DD7: a restore that lands on `build_failed` is a `failed` run with
+    its own fixed sentence, not "The chat is no longer available."."""
+    h = routine_app
+    rt = await h.routine()
+    from the_one.interfaces.web import app as appmod
+
+    async def broken(sid_):
+        return appmod.RestoredSession(None, "build_failed", None, reason=appmod.BUILD_FAILED_REASON)
+
+    orig = appmod._get_or_restore_session
+    appmod._get_or_restore_session = broken
+    try:
+        await h.run_now(rt["id"])
+    finally:
+        appmod._get_or_restore_session = orig
+    run = await h.last_run(rt["id"])
+    assert run["outcome"] == "failed"
+    assert run["reason"] == (
+        "The agent could not be set up. Check the agent's settings; the app log has the details."
+    )
+    assert run["session_id"]
+
+
 async def test_restore_racing_a_routine_turn_does_not_swap_its_agent(routine_app, monkeypatch):
     """F-H1-1: a browser join that passed the in-flight check and is still building its
     agent when the routine's turn starts must not replace the turn's agent; the run's

@@ -76,13 +76,13 @@
   var INT_RE = /^-?\d+$/;
   var WHOLE_NUMBER_MESSAGE = 'Enter a whole number.';
 
-  // Only Narrow, NarrowSuperset, NarrowPrefix and Substitute fields (and booleans)
-  // are agent-overridable; the resolver would reject any other.
+  // Only Narrow, NarrowAnyWhenEmpty, NarrowSuperset, NarrowPrefix and Substitute
+  // fields (and booleans) are agent-overridable; the resolver would reject any other.
   function allowed(prop) {
     var marker = prop.x_marker;
     if (prop.type === 'boolean') return true;
-    return marker === 'Narrow' || marker === 'NarrowSuperset' ||
-      marker === 'NarrowPrefix' || marker === 'Substitute';
+    return marker === 'Narrow' || marker === 'NarrowAnyWhenEmpty' ||
+      marker === 'NarrowSuperset' || marker === 'NarrowPrefix' || marker === 'Substitute';
   }
 
   // The value an agent override field starts with: the agent's stored override, else
@@ -211,6 +211,11 @@
     // Narrow field); the controls carry it as min/max, set in agent mode only.
     if (el.dataset.toolOverrideTool === undefined) return null;
     var n = Number(raw);
+    // An own number the operator has not changed (it equals the stored value) is never
+    // held to the range: the app-wide value may have been lowered under it since, and
+    // the clipped-field line covers that case (sortie 07, DD9).
+    var storedAttr = el.getAttribute('data-tool-override-stored');
+    if (storedAttr !== null && storedAttr !== '' && Number(storedAttr) === n) return null;
     var lo = el.getAttribute('min');
     var hi = el.getAttribute('max');
     if (lo !== null && lo !== '' && n < Number(lo)) return 'Must be ' + lo + ' or more';
@@ -218,7 +223,7 @@
     return null;
   }
 
-  function render(name, prop, value, opts) {
+  function renderBase(name, prop, value, opts) {
     opts = opts || {};
     prop = prop || {};
     var mode = opts.mode === 'agent' ? 'agent' : 'admin';
@@ -232,7 +237,9 @@
     var hint = prop.ui_hint;
     var labelText = prop.title || name;
     var controlId = admin ? 'tef-' + name : undefined;
-    var fire = function () { if (typeof opts.onChange === 'function') opts.onChange(); };
+    // The event (or a chip list's values) goes to onChange so an override can tell a
+    // keystroke ("input") from a finished edit ("change").
+    var fire = function (e) { if (typeof opts.onChange === 'function') opts.onChange(e); };
 
     function dataFor(type, extra) {
       var d = admin ? { field: name } : { toolOverrideTool: toolName, toolOverrideField: name };
@@ -257,7 +264,8 @@
         label: labelText,
         info: prop.description || undefined,
         control: control,
-        host: host
+        host: host,
+        hintTestid: 'tool-override-state'
       });
       decorate(f.el);
       return f;
@@ -414,7 +422,8 @@
           numField.setError(msg);
           return msg;
         };
-        num.addEventListener('input', numHandle.validate);
+        // Looked up at call time, so a decorated handle's validate is the one that runs.
+        num.addEventListener('input', function () { numHandle.validate(); });
       }
       listen(num);
       return numHandle;
@@ -492,6 +501,36 @@
     var unknownField = fieldAround(unknown);
     return handle(unknownField.el, unknown, unknownField, function (v) {
       unknown.value = JSON.stringify(v);
+    });
+  }
+
+  // render(name, prop, value, opts) -> handle (see the header). Agent mode adds the
+  // inherited / own state to the handle (App.toolOverrideState, tool-override-state.js):
+  // opts.own (the key is in the stored override), opts.storedValue, opts.notice (the
+  // agent's clip notice for this field, or null).
+  function render(name, prop, value, opts) {
+    opts = opts || {};
+    if (opts.mode !== 'agent') return renderBase(name, prop, value, opts);
+    var handle = null;
+    var inner = {};
+    for (var k in opts) {
+      if (Object.prototype.hasOwnProperty.call(opts, k)) inner[k] = opts[k];
+    }
+    inner.onChange = function (e) {
+      if (handle) handle.touch(e);
+      if (typeof opts.onChange === 'function') opts.onChange();
+    };
+    handle = renderBase(name, prop, value, inner);
+    if (!handle) return null;
+    return window.App.toolOverrideState.decorate(handle, {
+      name: name,
+      prop: prop || {},
+      marker: (prop || {}).x_marker,
+      operatorValue: opts.operatorValue,
+      own: opts.own,
+      storedValue: opts.storedValue,
+      notice: opts.notice,
+      onChange: opts.onChange
     });
   }
 

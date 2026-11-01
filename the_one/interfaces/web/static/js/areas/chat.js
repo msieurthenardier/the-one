@@ -462,8 +462,11 @@ App.registerArea({
         .catch(function () { /* best-effort */ });
     }
 
-    function setSessionHealth(status) {
+    // `reason` is the server's plain sentence for a `build_failed` chat (set as text by the banner).
+    function setSessionHealth(status, reason) {
       var msg = null;
+      if (status === 'build_failed') msg = reason || App.chat.DEGRADED_REASONS.build_failed;
+      else
       if (status === 'agent_deleted') msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
       else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a model provider in Library to continue this conversation.";
       state.bannerActive = !!msg;

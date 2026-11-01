@@ -222,7 +222,9 @@ App.registerArea({
       state: state,
       editorEl: editorEl,
       // call-time: the current editor mount's shell (the controller is created after)
-      shell: function () { return controller ? controller.shell() : null; }
+      shell: function () { return controller ? controller.shell() : null; },
+      // call-time: the current mount's Built-in tools tab handle (field handles for the Save walk)
+      toolsTab: function () { return controller ? controller.toolsTab() : null; }
     });
 
     // The model picker's wiring (M31 F2 L03): the model fetch, capability chips,
@@ -589,6 +591,14 @@ App.registerArea({
       if (agentData.loadAllDepth() > 0 || !self._agentsLoaded) return;
       self._agents = list;
       agentsListMod.render();
+      // The open editor follows the refreshed NOTICES only (sortie 07 L05); the selected
+      // agent's row in the fresh list, never its other fields, so an unsaved edit is kept.
+      var sel = self._selectedAgent && self._selectedAgent.name;
+      if (sel && controller) {
+        for (var ai = 0; ai < list.length; ai++) {
+          if (list[ai].name === sel) { controller.setNotices(sel, list[ai].notices || []); break; }
+        }
+      }
     });
     App.store.subscribe('providers', function (list) {
       if (agentData.loadAllDepth() > 0 || !self._agentsLoaded) return;

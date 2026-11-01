@@ -149,6 +149,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.ui-composer`; above the old `.input-area` row before M25 F4 L5) |
 | `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
+| `chat-drawer-notices` | chat | Sortie 07 L05 (DD12) — the drawer's read-only "Needs attention" group (an agent's tool-override notices), between the facts and "What it can use"; present only when the agent has notices |
+| `chat-drawer-notices-link` | chat | Sortie 07 L05 — "Open the agent's Tools tab", a link to `#agents/{name}/tools` inside `chat-drawer-notices` |
 | `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
 | `chat-drawer-note` | chat | The drawer's state line for a non-agent view: "The default agent", "This agent no longer exists" or "Loading…" (M25 F4 L6) |
 | `chat-drawer-notes` | chat | the drawer Notes group's `<ul>` of notes (M27 F2 L3) |
@@ -560,6 +562,15 @@ caught — but it cannot see where the attribute is emitted.
 | `thinking-indicator` | chat | |
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
 | `tool-editor-header` | admin | The open Built-in tool editor's header (`editorShell` `testid`); the page reveals and focuses it on an intent open (M31 F4 L11, replaces class queries) |
+| `tool-impact-list` | admin | Sortie 07 L05 (DD8) — the list in the "Saving narrows N agents" dialog: one item per agent, with the fields it would lose values on |
+| `tool-override-notice-flag` | studio | Sortie 07 L05 (DD11) — the warning chip "{n} notice(s)" in a tool row's label face on the agent Tools tab (`toolRow.setFlag`), present while the tool has override notices |
+| `tool-override-clipped` | studio | Sortie 07 L04 — the agent Tools tab's clipped-field line (`App.ui.status`, warning): the stored value was narrowed by the app-wide setting; shown only while the field holds its loaded stored value |
+| `tool-override-clipped-reset` | studio | Sortie 07 L04 — "Reset to inherited" in the clipped-field line |
+| `tool-override-live` | studio | Sortie 07 review fix pass — the one visually hidden polite status node (page-wide, reused) that announces "Using the narrowed value" and "Reset to inherited" |
+| `tool-override-note` | studio | Sortie 07 L04 — the note on an Allowed/Denied paths field that Shell, Python and downloads aren't limited by the agent's paths (shown only for a known `execution_sandbox` posture) |
+| `tool-override-reset` | studio | Sortie 07 L04 — a field's Reset button (shown while the field is the agent's own; named "Reset {title} to inherited") |
+| `tool-override-state` | studio | Sortie 07 L04 — the field's "Inherited from Settings" / "This agent's own" text (the `App.ui.field` hint; a status line under a checkbox) |
+| `tool-override-use-narrowed` | studio | Sortie 07 L04 — "Use narrowed value" in the clipped-field line (absent when the effective value is empty or "no hosts") |
 | `tool-test-details` | admin | M31 F4 L07d — the collapsed "Technical details" `App.ui.disclosure` under the Test result (absent when the output is empty) |
 | `tool-test-output` | admin | M31 F4 L07d — the code block inside `tool-test-details`: the first 2 KB of the tool's output, with an ellipsis at the cut |
 | `tool-toggle` | admin | The tile's enable switch (`role=switch`, named "Enable {name} for all agents", M31 F4 L06); it never navigates (M25 F3 L5b) |

@@ -95,14 +95,13 @@ class TestResolverIntegration:
         )
         assert r.path_denylist == ["/etc", "/proc"]
 
-    def test_path_denylist_drops_tool_entry_raises(self) -> None:
-        with pytest.raises(ValueError) as exc:
-            resolve(
-                FilesystemConfig,
-                {"path_denylist": ["/etc", "/proc"]},
-                {"path_denylist": ["/etc"]},
-            )
-        assert "widens" in str(exc.value)
+    def test_path_denylist_dropped_tool_entry_is_unioned_back(self) -> None:
+        r = resolve(
+            FilesystemConfig,
+            {"path_denylist": ["/etc", "/proc"]},
+            {"path_denylist": ["/etc"]},
+        )
+        assert r.path_denylist == ["/etc", "/proc"]
 
     def test_read_size_cap_narrow(self) -> None:
         r = resolve(

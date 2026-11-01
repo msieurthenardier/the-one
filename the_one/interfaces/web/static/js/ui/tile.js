@@ -219,8 +219,11 @@
     return text.length > 100 ? text.slice(0, 100) + '…' : text;
   }
 
-  // App.ui.toolRow(opts) -> {el, input, body, setChecked(bool), setDisabled(bool),
-  // setOpen(bool), destroy()} (M31 F2 L4, flight DD3). One tool in a group:
+  // App.ui.toolRow(opts) -> {el, input, body, setChecked(bool), setFlag(node|null),
+  // setDisabled(bool), setOpen(bool), destroy()} (M31 F2 L4, flight DD3).
+  // flag (sortie 07 L05, DD11): a Node placed after the description in the label
+  // face; setFlag(node|null) swaps or removes it. It changes no checkbox or
+  // disclosure state. One tool in a group:
   // a checkbox, the mono name and " — " plus a description, optionally
   // with an expandable body.
   //   name, description (shown cut to 100 characters plus an ellipsis, the full
@@ -277,6 +280,17 @@
       }));
     }
 
+    // flag (sortie 07 L05): one caller-owned Node after the description, in the
+    // label face (textEl); setFlag swaps or removes it and touches no state.
+    // It sits beside textEl (not inside it, which clips with an ellipsis).
+    var flagNode = null;
+    var flagHost = null;
+    function setFlag(node) {
+      if (flagNode && flagNode.parentNode) flagNode.parentNode.removeChild(flagNode);
+      flagNode = node && node.nodeType ? node : null;
+      if (flagNode && flagHost) flagHost.appendChild(flagNode);
+    }
+
     var rootClass = 'ui-tool-row' + (disabled ? ' is-disabled' : '');
     var root;
     var body = null;
@@ -284,6 +298,7 @@
     if (disclosure) {
       root = util.el('details', { className: rootClass + ' ui-tool-row--disclosure' });
       var face = util.el('label', { className: 'ui-tool-row-face' }, [input, textEl]);
+      flagHost = face;
       var affordance = util.el('span', { className: 'ui-tool-row-affordance' }, [
         util.el('span', { text: disclosure.label || 'Overrides' }),
         util.el('span', { className: 'ui-tool-row-chevron', 'aria-hidden': 'true', text: '▸' })
@@ -302,7 +317,9 @@
       if (disclosure.open) root.open = true;
     } else {
       root = util.el('label', { className: rootClass + ' ui-tool-row--plain' }, [input, textEl]);
+      flagHost = root;
     }
+    setFlag(opts.flag);
     util.applyDataset(root, opts.dataset);
     if (disabled) {
       root.title = opts.title || 'Disabled by operator';
@@ -315,6 +332,7 @@
       input: input,
       body: body,
       setChecked: function (value) { input.checked = !!value; },
+      setFlag: setFlag,
       setDisabled: function (value) {
         input.disabled = !!value;
         root.classList.toggle('is-disabled', !!value);

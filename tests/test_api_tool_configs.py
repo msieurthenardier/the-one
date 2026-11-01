@@ -121,7 +121,7 @@ class TestGetToolConfig:
         assert isinstance(data["description"], str) and data["description"]
 
         props = data["schema"]["properties"]
-        assert props["host_allowlist"]["x_marker"] == "Narrow"
+        assert props["host_allowlist"]["x_marker"] == "NarrowAnyWhenEmpty"
         assert props["host_denylist"]["x_marker"] == "NarrowSuperset"
         assert props["default_user_agent"]["x_marker"] == "Substitute"
 
@@ -153,6 +153,7 @@ class TestGetToolConfig:
         assert data["name"] == "shell_session_close"
         valid_markers = {
             "Narrow",
+            "NarrowAnyWhenEmpty",
             "NarrowPrefix",
             "NarrowSuperset",
             "Substitute",

@@ -21,7 +21,7 @@ def test_enriches_narrow() -> None:
     """`WebConfig.host_allowlist` carries the `Narrow` marker."""
     schema = WebConfig.model_json_schema()
     out = _enrich_schema_with_markers(schema, WebConfig)
-    assert out["properties"]["host_allowlist"].get("x_marker") == "Narrow"
+    assert out["properties"]["host_allowlist"].get("x_marker") == "NarrowAnyWhenEmpty"
 
 
 def test_enriches_narrow_prefix() -> None:

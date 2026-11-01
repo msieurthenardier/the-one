@@ -153,7 +153,11 @@ class HttpRequestTool(Tool):
         """Tests monkeypatch this method to inject ``httpx.MockTransport``
         and bypass SSRF resolve+pin for tool-behavior coverage. The
         SSRF transport's own coverage lives in ``tests/test_web_helpers.py``."""
-        return SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)
+        return SSRFGuardedTransport(
+            extra_allowed_hosts=cfg.extra_allowed_hosts,
+            host_allowlist=cfg.host_allowlist,
+            host_denylist=cfg.host_denylist,
+        )
 
     async def execute(
         self,
@@ -263,7 +267,11 @@ class FetchUrlTool(Tool):
         """Tests monkeypatch this method to inject ``httpx.MockTransport``
         and bypass SSRF resolve+pin for tool-behavior coverage. Mirrors
         ``HttpRequestTool._build_transport`` for test-seam consistency."""
-        return SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)
+        return SSRFGuardedTransport(
+            extra_allowed_hosts=cfg.extra_allowed_hosts,
+            host_allowlist=cfg.host_allowlist,
+            host_denylist=cfg.host_denylist,
+        )
 
     async def execute(self, url: str, **kwargs: Any) -> str:
         cfg: WebConfig = self._config  # type: ignore[assignment]
@@ -387,7 +395,11 @@ class DownloadFileTool(Tool):
         and bypass SSRF resolve+pin for tool-behavior coverage. Mirrors
         ``HttpRequestTool._build_transport`` / ``FetchUrlTool._build_transport``
         for test-seam consistency."""
-        return SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)
+        return SSRFGuardedTransport(
+            extra_allowed_hosts=cfg.extra_allowed_hosts,
+            host_allowlist=cfg.host_allowlist,
+            host_denylist=cfg.host_denylist,
+        )
 
     async def execute(self, url: str, path: str, **kwargs: Any) -> str:
         cfg: WebConfig = self._config  # type: ignore[assignment]

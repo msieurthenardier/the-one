@@ -1285,6 +1285,17 @@
     color: var(--accent);
     border-bottom-color: var(--accent);
   }
+  /* The tab indicator (sortie 07 L05): a warning dot after the label; the
+     hidden ", n notices" run carries the meaning. */
+  .ui-tab-indicator-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--status-warning);
+    vertical-align: middle;
+  }
   .tabpanel {
     flex: 1;
     overflow-y: auto;
@@ -2177,6 +2188,9 @@
     font-weight: var(--font-weight-semibold);
     color: var(--fg);
   }
+  /* A flag node (setFlag) sits after the clipped text and never shrinks. */
+  .ui-tool-row-face > .chip,
+  .ui-tool-row--plain > .chip { flex-shrink: 0; }
   .ui-tool-row-name--strike { text-decoration: line-through; color: var(--fg-faint); }
   .ui-tool-row-desc {
     font-size: var(--font-size-caption);

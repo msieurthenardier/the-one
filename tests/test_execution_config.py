@@ -258,14 +258,13 @@ class TestResolverNarrowing:
         )
         assert r.command_denylist == ["sudo ", "rm -rf"]
 
-    def test_command_denylist_drops_tool_entry_raises(self) -> None:
-        with pytest.raises(ValueError) as exc:
-            resolve(
-                ExecutionConfig,
-                {"command_denylist": ["sudo "]},
-                {"command_denylist": ["rm -rf"]},
-            )
-        assert "widens" in str(exc.value)
+    def test_command_denylist_agent_additions_are_unioned_with_the_tool_entries(self) -> None:
+        r = resolve(
+            ExecutionConfig,
+            {"command_denylist": ["sudo "]},
+            {"command_denylist": ["rm -rf"]},
+        )
+        assert r.command_denylist == ["sudo ", "rm -rf"]
 
     def test_pty_ttl_narrow(self) -> None:
         r = resolve(
@@ -308,17 +307,25 @@ class TestResolverNarrowing:
 
 
 class TestCrossFieldInteractsWithNarrowing:
-    def test_agent_narrowing_max_below_default_raises(self) -> None:
-        """Documented guarantee from Decision 1: agent can't widen `default`
-        past a narrowed `max`. Tool sets default=30, max=120; agent narrows
-        max=20. The resolver applies per-key narrowing first (max=20 is OK
-        — narrows 120 → 20), then `model_validate(merged)` triggers
-        `_default_le_max` since 30 > 20."""
+    def test_agent_narrowing_max_below_inherited_default_lowers_the_default(self) -> None:
+        """Sortie 07 DD2: the default follows a lower maximum. Tool sets
+        default=30, max=120; the agent narrows only max=20 and inherits the
+        default, which is lowered to 20 (a valid narrowing, no raise)."""
+        cfg = resolve(
+            ExecutionConfig,
+            {"timeout_seconds_default": 30, "timeout_seconds_max": 120},
+            {"timeout_seconds_max": 20},
+        )
+        assert (cfg.timeout_seconds_default, cfg.timeout_seconds_max) == (20, 20)
+
+    def test_agent_setting_default_above_its_own_max_still_raises(self) -> None:
+        """The agent sets both, default > max: the cross-field validator
+        refuses it (the default is not the agent's inherited one)."""
         with pytest.raises(ValidationError) as exc:
             resolve(
                 ExecutionConfig,
                 {"timeout_seconds_default": 30, "timeout_seconds_max": 120},
-                {"timeout_seconds_max": 20},
+                {"timeout_seconds_default": 25, "timeout_seconds_max": 20},
             )
         assert "must be <=" in str(exc.value)
 
@@ -340,16 +347,15 @@ class TestResolverDefaultFactoryFallback:
     now materialised, so an override must still contain every default entry.
     """
 
-    def test_omitted_tool_config_override_dropping_defaults_is_refused(
+    def test_omitted_tool_config_override_dropping_defaults_is_unioned_back(
         self,
     ) -> None:
-        with pytest.raises(ValueError) as exc:
-            resolve(
-                ExecutionConfig,
-                {},
-                {"command_denylist": ["sudo "]},
-            )
-        assert "widens ExecutionConfig.command_denylist" in str(exc.value)
+        r = resolve(
+            ExecutionConfig,
+            {},
+            {"command_denylist": ["sudo "]},
+        )
+        assert set(DEFAULT_COMMAND_DENYLIST) <= set(r.command_denylist)
 
     def test_omitted_tool_config_override_extending_defaults_resolves(self) -> None:
         r = resolve(

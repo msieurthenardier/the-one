@@ -211,20 +211,31 @@
       var overrideEls = editorEl.querySelectorAll('[data-tool-override-tool][data-tool-override-field]');
       var overrides = {};
       var renderedFields = {};
-      var read = window.App.toolConfigFields.readValue;
+      // Sortie 07, DD9: only fields the operator made the agent's OWN are stored (an
+      // inherited field follows the app-wide value and stores nothing). The state and
+      // the value to store come from the field handles the Tools tab exposes
+      // (fieldHandles()); a denied list stores its added chips only.
+      var tabHandle = ctx.toolsTab ? ctx.toolsTab() : null;
+      var handles = (tabHandle && tabHandle.fieldHandles) ? tabHandle.fieldHandles() : {};
       for (var oi = 0; oi < overrideEls.length; oi++) {
         var oe = overrideEls[oi];
         var toolName = oe.dataset.toolOverrideTool;
         var fieldName = oe.dataset.toolOverrideField;
         if (!toolName || !fieldName) continue;
+        var fieldHandle = handles[toolName] && handles[toolName][fieldName];
+        if (!fieldHandle) {
+          // A rendered control with no handle should not happen: leave the field to
+          // the stored-value carry below instead of guessing from the DOM.
+          // eslint-disable-next-line no-console
+          console.warn('Tool override control %s.%s has no field handle; keeping its stored value.', toolName, fieldName);
+          continue;
+        }
         if (!renderedFields[toolName]) renderedFields[toolName] = {};
         renderedFields[toolName][fieldName] = true;
-        var v = read(oe);
-        // Skip empty overrides — agent.tool_overrides only contains tools
-        // with at least one set field.
+        if (!fieldHandle.isOwn()) continue;
+        var v = fieldHandle.ownValue();
+        // An own field left empty returns to inherited (nothing stored).
         if (v === null || v === undefined) continue;
-        if (Array.isArray(v) && v.length === 0) continue;
-        if (typeof v === 'string' && v === '') continue;
         if (!overrides[toolName]) overrides[toolName] = {};
         overrides[toolName][fieldName] = v;
       }
@@ -254,7 +265,10 @@
             overrides[tn][fn] = stored[tn][fn];
           });
         });
-        data.tool_overrides = overrides;
+        // Open-and-close stays clean: a result equal to the stored map is not sent
+        // (the server keeps it), so opening a panel changes neither the payload nor
+        // the dirty snapshot.
+        if (canonical(overrides) !== canonical(stored)) data.tool_overrides = overrides;
       }
 
       // The dead-MCP-override walk that stood here (data-mcp-override-source /
@@ -314,6 +328,17 @@
       return data;
     }
 
+    // JSON with object keys sorted, so two override maps compare by content.
+    function canonical(v) {
+      if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+      if (v && typeof v === 'object') {
+        return '{' + Object.keys(v).sort().map(function (k) {
+          return JSON.stringify(k) + ':' + canonical(v[k]);
+        }).join(',') + '}';
+      }
+      return JSON.stringify(v);
+    }
+
     // The stored override keys the tool's panel flagged as no longer overridable.
     function deadFields(toolName) {
       var out = {};
@@ -335,6 +360,8 @@
     function blockingError() {
       var els = editorEl.querySelectorAll('[data-tool-override-tool][data-tool-override-field]');
       for (var i = 0; i < els.length; i++) {
+        // An inherited field stores nothing, so it cannot block a Save.
+        if (els[i].getAttribute('data-tool-override-state') === 'inherited') continue;
         var message = window.App.toolConfigFields.invalidMessage(els[i]);
         if (!message) continue;
         var label = els[i].labels && els[i].labels[0] ? els[i].labels[0].textContent : '';
