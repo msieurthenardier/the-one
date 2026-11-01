@@ -68,7 +68,7 @@ def test_library_list_renders_title_intro_add_and_groups(app_clean: str, page: P
     library = page.locator('[data-testid="library-list"]')
     expect(library.locator(".ui-list-pane-title")).to_have_text("Library")
     expect(library.locator(".ui-list-pane-intro")).to_have_text(
-        "Things agents can use. Attach them from an agent\u2019s Knowledge and MCPs tabs."
+        "Things agents can use. Attach them from an agent\u2019s Knowledge and Tools tabs."
     )
     expect(library.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(library.locator(".ui-list-pane-caption")).to_have_text(

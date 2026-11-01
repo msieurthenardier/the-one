@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import the_one.retention as retention
-from the_one import __version__
+from the_one import __version__, time_zones
 from the_one.agent import Agent
 
 # F6 L3: ContextVar definitions moved to the_one/agent/_context.py
@@ -99,6 +99,9 @@ from the_one.llm.base import (
     tag_post_step_visibility,
 )
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
+from the_one.routines import runner as _routine_runner
+from the_one.routines.scheduler import RoutineScheduler as _RoutineScheduler
+from the_one.routines.scheduler import set_scheduler as _set_routine_scheduler
 from the_one.self_configuration import external_credentials as _self_configuration_external
 from the_one.self_configuration import manage as _self_configuration_manage
 from the_one.self_configuration import pending as _self_configuration_pending
@@ -119,6 +122,7 @@ from the_one.sessions import (
     track_turn,
     turn_seq,
 )
+from the_one.sessions._broadcast import broadcast_to_session as _broadcast_to_session
 from the_one.sessions._locks import _session_inflight
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 from the_one.vectors import close_vector_store
@@ -425,6 +429,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("connector manager startup failed")
 
+        # M33 F1 L4: the routine runner reaches this module through one host.
+        _routine_runner.set_turn_host(_RoutineTurnHost())
+
         # M24 F02 L03, DD-1: kick the embedding warm-up AFTER the connector
         # manager start above, gated on at least one knowledge base already
         # existing — an operator who never creates a KB never pays the
@@ -475,8 +482,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # `sessions_changed` push per window.
         _sessions_push = _SessionsPushListener(asyncio.get_running_loop())
         _db_session_changes.add_listener(_sessions_push.notify)
+        # M33 F1 L5: the routine scheduler starts last (its first step is the
+        # startup sweep and catch-up pass, run on its own task so boot is not
+        # delayed). A scheduler failure never blocks boot.
+        _routine_scheduler = None
+        try:
+            _routine_runner.registry.reopen()
+            _routine_scheduler = _RoutineScheduler(lambda: time_zones.utcnow())
+            _set_routine_scheduler(_routine_scheduler)
+            _routine_scheduler.start()
+        except Exception:
+            logger.exception("routine scheduler startup failed")
         yield
-        # First: stop pushing before any drain, and settle a pending push
+        # M33 F1 L5: the routine scheduler stops FIRST (loop cancelled, runners
+        # drained for 5 s), above the push-listener teardown, so the
+        # `interrupted` run writes it causes are still pushed and settled.
+        try:
+            if _routine_scheduler is not None:
+                await _routine_scheduler.stop()
+            else:
+                await _routine_runner.registry.drain(5.0)
+        except Exception:
+            logger.exception("routine scheduler shutdown failed")
+        _set_routine_scheduler(None)
+        # Stop pushing before any drain, and settle a pending push
         # before the connection closes.
         _db_session_changes.remove_listener(_sessions_push.notify)
         await _sessions_push.close()
@@ -496,6 +525,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # observes the cancel inside its `_spawn_message_processing` wrapper
         # and exits cleanly; the shared session lock (from
         # ``the_one.sessions``) is released by `async with` automatically.
+        # M33 F1 L5: routine runners were drained by the scheduler's stop() above.
+        _routine_runner.set_turn_host(None)
         for task in list(_inflight_tasks):
             task.cancel()
         if _inflight_tasks:
@@ -849,6 +880,18 @@ _inflight_tasks: set[asyncio.Task] = set()
 _started_tasks: set[asyncio.Task] = set()
 _running_tasks: set[asyncio.Task] = set()
 _cancel_tokens: dict[str, dict[str, bool]] = {}
+# M33 F1 L3: tasks cancelled on purpose without telling the chat (a routine
+# run that timed out waiting for the session lock). The `CancelledError`
+# branch of `_spawn_message_processing` skips `_notify_cancelled_once` for a
+# member and discards it in its `finally`; callers also discard in their own
+# `finally` (a task cancelled before its coroutine starts never runs it).
+_silent_cancel: set[asyncio.Task] = set()
+
+
+def _mark_silent_and_cancel(task: asyncio.Task) -> None:
+    """Cancel ``task`` without the chat seeing a ``cancelled`` frame."""
+    _silent_cancel.add(task)
+    task.cancel()
 
 
 async def _notify_cancelled_once(session: Session) -> None:
@@ -1070,6 +1113,7 @@ async def _spawn_message_processing(
     user_input: str | list[ContentBlock],
     source: str,
     exclude_user_echo: WebSocket | None,
+    turn_info: dict[str, Any] | None = None,
 ) -> None:
     """Run `_process_and_broadcast` under the session's lock.
 
@@ -1084,18 +1128,23 @@ async def _spawn_message_processing(
     if me is not None:
         _started_tasks.add(me)
     try:
-        await _locked_message_processing(session, user_input, source, exclude_user_echo)
+        await _locked_message_processing(session, user_input, source, exclude_user_echo, turn_info)
     except asyncio.CancelledError:
         # Cancelled while waiting on the lock, or before `_process_and_broadcast`
         # reached its `try`. A task that was running sends its own `cancelled`
         # (after persisting partial text); so does the batch's running task.
         token = _cancel_tokens.get(session.id)
-        if me not in _running_tasks and not (token is not None and token["running"]):
+        if (
+            me not in _running_tasks
+            and not (token is not None and token["running"])
+            and me not in _silent_cancel
+        ):
             await _notify_cancelled_once(session)
         raise
     finally:
         _started_tasks.discard(me)
         _running_tasks.discard(me)
+        _silent_cancel.discard(me)
 
 
 async def _locked_message_processing(
@@ -1103,10 +1152,13 @@ async def _locked_message_processing(
     user_input: str | list[ContentBlock],
     source: str,
     exclude_user_echo: WebSocket | None,
+    turn_info: dict[str, Any] | None = None,
 ) -> None:
     """The lock + `_process_and_broadcast` body of `_spawn_message_processing`."""
     async with track_turn(session.id) as turn:
         turn.ran = True
+        if turn_info is not None:
+            turn_info["started"] = True
         # F05 L01: touch last_activity at the start of message processing
         # so the reaper clock advances on every new user turn.
         session.last_activity = time.monotonic()
@@ -1122,8 +1174,12 @@ async def _locked_message_processing(
         # can route ``auth_required`` broadcasts back to THIS session.
         token = current_chat_session_id.set(session.id)
         try:
+            # `turn_info` is passed only when given, so a caller (or a test
+            # stand-in) that never asked for the out-parameter sees the
+            # pre-M33 call shape.
+            extra = {} if turn_info is None else {"turn_info": turn_info}
             await _process_and_broadcast(
-                session, user_input, source=source, exclude_user_echo=exclude_user_echo
+                session, user_input, source=source, exclude_user_echo=exclude_user_echo, **extra
             )
         except asyncio.CancelledError:
             # Lifespan-shutdown cancellation; let it propagate so the task
@@ -1131,6 +1187,8 @@ async def _locked_message_processing(
             raise
         except Exception:
             logger.exception("session %s processing failed", session.id)
+            if turn_info is not None:
+                turn_info["error"] = "An error occurred while processing your message."
             with contextlib.suppress(Exception):
                 await _send_to_session(
                     session,
@@ -1161,6 +1219,23 @@ def _spawn_web_message(
     before the reservation is released.
     """
     task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
+    return _register_turn_task(session, task)
+
+
+def _spawn_routine_turn(session: Session, prompt: str, turn_info: dict[str, Any]) -> asyncio.Task:
+    """Spawn one routine turn (M33 F1 L3), registered like a web turn.
+
+    The chat shows busy, the open chat's Stop cancels it and shutdown drains
+    it. ``turn_info`` is the out-parameter (see ``_process_and_broadcast``).
+    """
+    task = asyncio.create_task(
+        _spawn_message_processing(session, prompt, "routine", None, turn_info)
+    )
+    return _register_turn_task(session, task)
+
+
+def _register_turn_task(session: Session, task: asyncio.Task) -> asyncio.Task:
+    """Register a spawned turn task in the in-flight bookkeeping."""
     _inflight_tasks.add(task)
     task.add_done_callback(_inflight_tasks.discard)
     # F7 L03 (cancel-backend) / F09-03: add the task to the per-session set
@@ -1531,8 +1606,13 @@ async def _create_session(
     source: str = "web",
     session_id: str | None = None,
     strict: bool = False,
+    title: str | None = None,
 ) -> Session:
     """Create a new session in both memory and DB.
+
+    ``title`` (M33 F1 L3) is set before the row is written, so the row and
+    memory agree and ``add_event`` keeps it (a literal "New chat" is still
+    retitled).
 
     ``strict=False`` (every caller but ``start_session``): a DB persist
     failure is logged and swallowed, and the in-memory session is returned.
@@ -1557,6 +1637,8 @@ async def _create_session(
         agent_name=db_agent_name,
         last_activity=time.monotonic(),
     )
+    if title:
+        session.title = title
     async with _sessions_lock:
         _sessions[sid] = session
 
@@ -1692,6 +1774,16 @@ async def _restore_session(session_id: str) -> RestoredSession:
     ui_events = messages_to_ui_events(messages)
 
     async with _sessions_lock:
+        # F-H1-1: the in-flight check above ran BEFORE `factory.create` awaited. A turn
+        # (a startup catch-up routine run, restoring at the same time as a browser join)
+        # may have been spawned meanwhile; swapping the agent now would replace the
+        # one the turn is writing to, and its save would persist a bare system prompt.
+        racing = _sessions.get(session_id)
+        if racing is not None and (
+            is_session_processing(session_id) or bool(_session_inflight.get(session_id))
+        ):
+            racing.last_activity = time.monotonic()
+            return RestoredSession(racing, SESSION_STATUS_OK, db_session)
         if session_id in _sessions:
             # Update existing Session in place — keeps identity. Subscribers
             # live in the neutral session registry keyed by session id, so
@@ -1770,6 +1862,35 @@ async def _get_or_restore_session(session_id: str) -> RestoredSession:
     Now every join rebinds the cached Session's `.agent` to the current config.
     """
     return await _restore_session(session_id)
+
+
+class _RoutineTurnHost:
+    """The runner's window onto this module (M33 F1 L4); keeps ``routines/`` free of
+    any import from ``interfaces/``."""
+
+    async def get_or_restore(self, sid: str) -> tuple[Session | None, str]:
+        restored = await _get_or_restore_session(sid)
+        return restored.session, restored.status
+
+    async def create_web_session(self, agent_name: str, title: str) -> str:
+        return (await _create_session(agent_name, "web", title=title)).id
+
+    def spawn_turn(self, session: Session, prompt: str, turn_info: dict[str, Any]) -> asyncio.Task:
+        return _spawn_routine_turn(session, prompt, turn_info)
+
+    def mark_silent_and_cancel(self, task: asyncio.Task) -> None:
+        _mark_silent_and_cancel(task)
+
+    def discard_silent(self, task: asyncio.Task) -> None:
+        _silent_cancel.discard(task)
+
+    def mirror_metadata(self, sid: str, key: str, value: Any) -> None:
+        cached = _sessions.get(sid)
+        if cached is not None:
+            cached.session_metadata = {**(cached.session_metadata or {}), key: value}
+
+    async def broadcast(self, sid: str, payload: dict[str, Any]) -> None:
+        await _broadcast_to_session(sid, payload)
 
 
 async def _save_session_to_db(session: Session) -> None:
@@ -2181,6 +2302,39 @@ async def _broadcast_one(
         await _send_to_session(session, tr_event)
 
 
+def _routine_turn_sources(routine: dict[str, Any] | None) -> list[str]:
+    """The flag sources a routine turn carries (``[]`` = unflagged)."""
+    raw = (routine or {}).get("untrusted_sources")
+    if not isinstance(raw, list):
+        return []
+    return [x for x in raw if isinstance(x, str)]
+
+
+def _bind_turn_user_marks(
+    session: Session, pre_step_len: int, routine: dict[str, Any] | None
+) -> None:
+    """Bind the turn's marks onto its USER message (M33 F1 L3).
+
+    Runs immediately before each save site. Bounds- and role-checked, never
+    asserts: a cancel before ``agent.step`` appended anything binds nothing.
+    Sets the routine marker on a routine turn and the operator-only mark on a
+    connector chat.
+    """
+    messages = session.agent.messages
+    if len(messages) <= pre_step_len:
+        return
+    msg = messages[pre_step_len]
+    if msg.role != Role.USER:
+        return
+    if routine is not None:
+        msg.routine_id = routine.get("id")
+        msg.routine_name = routine.get("name")
+        # M33 F2 L3 (DD7): the flag snapshot; ``[]`` when unflagged, set on routine turns only.
+        msg.routine_untrusted_sources = _routine_turn_sources(routine)
+    if session.platform is not None:
+        msg.visibility = OPERATOR_VISIBILITY
+
+
 async def _process_and_broadcast(
     session: Session,
     user_input: str | list[ContentBlock],
@@ -2194,7 +2348,15 @@ async def _process_and_broadcast(
     passed, ``turn_info["step_limit"]`` is set to whether the turn ended because
     the agent ran out of steps, captured once right after the agent loop (the
     REST handler holds no session lock, so it must never re-read agent state).
+
+    M33 F1 L3 extends it as the routine outcome channel. In: ``routine``
+    (``{id, name, untrusted_sources}``). Out (besides ``step_limit``): ``started``
+    (set by ``_locked_message_processing``), ``error`` (one line), ``paused`` (the
+    MCP server name) and ``cancelled``.
     """
+    routine = (turn_info or {}).get("routine")
+    if not isinstance(routine, dict):
+        routine = None
     # Auto-load Ollama model if needed (fast check, safe to run every message)
     await _ensure_ollama_model_loaded(session)
 
@@ -2211,6 +2373,10 @@ async def _process_and_broadcast(
         "content": content_to_text(user_input),
         "source": source,
     }
+    if routine is not None:
+        user_event["routine_id"] = routine.get("id")
+        user_event["routine_name"] = routine.get("name")
+        user_event["session_id"] = session.id
     # M10 F06 L6: close the F5 live-broadcast carry-forward. The
     # operator-typed message on a connector-attached session must
     # carry the visibility tag at LIVE broadcast time (the refresh
@@ -2323,7 +2489,30 @@ async def _process_and_broadcast(
     # M27 F2 DD5: the notes tools' per-turn context (write budget, origin
     # session). Set HERE, around the one `agent.step`, so the WebSocket path
     # and the REST `/api/chat` handler (which calls this directly) both get it.
-    turn_token = current_turn.set(TurnContext(peer=None, session_id=session.id))
+    turn_token = current_turn.set(
+        TurnContext(
+            peer=None,
+            session_id=session.id,
+            routine_id=routine.get("id") if routine is not None else None,
+            routine_name=routine.get("name") if routine is not None else None,
+            routine_sources=_routine_turn_sources(routine),
+        )
+    )
+
+    async def _save_and_notify_cancel() -> None:
+        # Shared by both cancel sites. Tags a connector chat's cancelled
+        # messages operator-only (this path never did before M33), binds the
+        # marks, saves best-effort and sends one `cancelled`.
+        if turn_info is not None:
+            turn_info["cancelled"] = True
+        with contextlib.suppress(Exception):
+            if session.platform is not None:
+                tag_post_step_visibility(session.agent.messages, pre_step_len)
+            _bind_turn_user_marks(session, pre_step_len, routine)
+        with contextlib.suppress(Exception):
+            await _save_session_to_db(session)
+        await _notify_cancelled_once(session)
+
     try:
         async for msg in session.agent.step(
             user_input,
@@ -2469,6 +2658,10 @@ async def _process_and_broadcast(
                     event["parent_message_id"] = current_turn_parent_id
                     await _send_to_session(session, event)
                     paused = True
+                    if turn_info is not None:
+                        turn_info["paused"] = (
+                            event.get("source_name") or event.get("source_id") or "an MCP server"
+                        )
                     break
                 # M23 F02 L03: unlike ASSISTANT above, a TOOL result's
                 # visibility is NOT deterministic from `session.platform`
@@ -2533,9 +2726,7 @@ async def _process_and_broadcast(
         # teardown (closing DB / sockets) can't turn a clean shutdown
         # cancel into an unhandled exception. Re-raise preserves the
         # lock-release semantics in _spawn_message_processing (:455-458).
-        with contextlib.suppress(Exception):
-            await _save_session_to_db(session)
-        await _notify_cancelled_once(session)
+        await _save_and_notify_cancel()
         raise
     except Exception as exc:
         # Surface the failure to the UI so the client can drop its "thinking…"
@@ -2543,6 +2734,8 @@ async def _process_and_broadcast(
         # `agent.step` (e.g. a provider 4xx) would propagate up and crash the
         # WS handler before the closing `done` event fires.
         logger.exception("Agent step failed for session %s", session.id)
+        if turn_info is not None:
+            turn_info["error"] = str(exc)[:200]
         await _send_to_session(
             session,
             {"type": "system", "content": f"Agent error: {exc}"},
@@ -2556,12 +2749,9 @@ async def _process_and_broadcast(
     # _save_session_to_db persists whatever is in agent.messages.
     if session.platform is not None:
         tag_post_step_visibility(session.agent.messages, pre_step_len)
-        # The helper SKIPS USER messages; override the WS-typed
-        # operator input at pre_step_len explicitly. Bounds-checked
-        # in case agent.step raised before its internal
-        # Message.user(...) append landed.
-        if pre_step_len < len(session.agent.messages):
-            session.agent.messages[pre_step_len].visibility = OPERATOR_VISIBILITY
+    # The helper SKIPS USER messages; it binds the operator mark (connector
+    # chat) and the routine marker onto the typed message at pre_step_len.
+    _bind_turn_user_marks(session, pre_step_len, routine)
 
     # Save to DB after each complete exchange
     try:

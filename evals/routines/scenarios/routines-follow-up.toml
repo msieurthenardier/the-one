@@ -1,0 +1,29 @@
+id = "routines-follow-up"
+class = "improve"
+description = "A person who is waiting on something asks to be checked in with later."
+
+[agent]
+routines_enabled = true
+
+[variants]
+phrasings = [
+  "I'm waiting on {thing}; check back with me in {n} hours.",
+  "I'm still waiting on {thing}. Could you check back with me in {n} hours?",
+  "Waiting on {thing} right now. Please check back with me in {n} hours.",
+  "I'm waiting on {thing}, so check back with me in {n} hours, would you?",
+]
+facts = [
+  {thing = "the Marlowe Fen survey results", n = "2", lo = "105", hi = "135"},
+  {thing = "the Dunmore Quay permit decision", n = "3", lo = "165", hi = "195"},
+  {thing = "a parcel from the Ostrava depot (tracking OZ-4417)", n = "4", lo = "225", hi = "255"},
+  {thing = "the Penhallow grant committee's reply", n = "5", lo = "285", hi = "315"},
+  {thing = "the Calder Bridge boiler inspection report", n = "6", lo = "345", hi = "375"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "routine_scheduled"
+kind = "once"
+in_minutes_between = ["{lo}", "{hi}"]

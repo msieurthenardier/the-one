@@ -20,14 +20,14 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, chats-transcript, agents, agent-tabs, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-controls and shared.
+# are chats, chats-transcript, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-controls and shared.
 # Aliases (kept for muscle memory and older docs):
-#   chat = chats + chats-transcript, studio = agents + agent-tabs + library + knowledge + mcp + mcp-connection,
+#   chat = chats + chats-transcript, studio = agents + agent-tabs + agent-routines + library + knowledge + mcp + mcp-connection,
 #   system = settings + settings-tools + providers,
 #   contracts = contracts-overlay + contracts-chat + contracts-controls.
 # chats/agents/agent-tabs/library/mcp/settings-tools/providers are basename-glob buckets or explicit file
 # lists over tests/browser/ (`agents` is the old studio globs MINUS the library,
-# knowledge, mcp, mcp-connection and agent-tabs lists; `chats` is the chats globs MINUS the
+# knowledge, mcp, mcp-connection, agent-tabs and agent-routines lists; `chats` is the chats globs MINUS the
 # chats-transcript list). `routing` (M26 F1 L4) holds the router / leave-guard / client
 # store files that used to be the long pole of `shared`. `contracts-overlay` and
 # `contracts-chat` (M31 F6 L04) and `contracts-controls` (M25 F4 L1 squawk 0117; split in M31 F3 L01)
@@ -56,10 +56,10 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
-CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
+LANE_LIST="chats|chats-transcript|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
+CANON_LANES=(chats chats-transcript agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 # QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
 # other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
@@ -67,13 +67,14 @@ CANON_LANES=(chats chats-transcript agents agent-tabs library knowledge mcp mcp-
 declare -A BUDGET=(
   [chats]=420
   [chats-transcript]=330
-  [agents]=540
-  [agent-tabs]=360
+  [agents]=630   # M33 F3 leg 8 quiet-host gate: measured 499 s
+  [agent-tabs]=390
+  [agent-routines]=300   # M33 F4 closing gate: measured 236 s
   [library]=420
   [knowledge]=420
   [mcp]=330
   [mcp-connection]=390
-  [routing]=600
+  [routing]=720   # M33 F3 leg 8 quiet-host gate: measured 555 s
   [settings]=360
   [settings-tools]=330
   [providers]=420
@@ -189,7 +190,7 @@ chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py
 chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.py' \
                       'test_flow_chat_queued_render.py' 'test_flow_chat_visibility_distinction.py' \
                       'test_flow_chat_peer_attribution.py' 'test_flow_chat_thinking_disclosure.py' \
-                      'test_flow_chat_time_zone.py' 'test_flow_markdown_chat.py' \
+                      'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
                       'test_flow_chat_drafts.py')
@@ -222,6 +223,10 @@ studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*
 agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
                 'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
                 'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py')
+# Agent-routines (M33 F2 L5): the Routines tab and the Self-configuration Routines item. Split
+# from `agent-tabs` with a 240 s budget set from the Batch B quiet-host gate. Its glob
+# also matches the Flight 1 Routines tab files, which therefore leave `agent-tabs`.
+agent_routines_pat=('test_flow_agent_routines*')
 # Routing (M26 F1 L4): the router, leave guard and client store files.
 routing_pat=('test_router_*' 'test_nav_guard*' 'test_store*')
 # Settings: the admin pages, plus the Settings item pages' list/detail file
@@ -246,11 +251,11 @@ contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' '
   'test_ui_telemetry*' 'test_ui_notice*')
 contracts_all_pat=('test_ui_*')
 
-# Files matching the studio globs minus the library, knowledge, mcp, mcp-connection and
-# agent-tabs lists, sorted.
+# Files matching the studio globs minus the library, knowledge, mcp, mcp-connection,
+# agent-tabs and agent-routines lists, sorted.
 agents_files() {
   comm -23 <(expand_lane "${studio_pat[@]}" | sort -u) \
-           <(expand_lane "${library_pat[@]}" "${knowledge_pat[@]}" "${mcp_pat[@]}" "${mcp_connection_pat[@]}" "${agent_tabs_pat[@]}" | sort -u)
+           <(expand_lane "${library_pat[@]}" "${knowledge_pat[@]}" "${mcp_pat[@]}" "${mcp_connection_pat[@]}" "${agent_tabs_pat[@]}" "${agent_routines_pat[@]}" | sort -u)
 }
 
 # Files matching the chats globs minus the chats-transcript list, sorted.
@@ -280,6 +285,7 @@ resolve_lane() {
     chat)          mapfile -t lane_files < <(expand_lane "${chats_pat[@]}" | sort -u) ;;
     agents)        mapfile -t lane_files < <(agents_files) ;;
     agent-tabs)    mapfile -t lane_files < <(expand_lane "${agent_tabs_pat[@]}" | sort -u) ;;
+    agent-routines) mapfile -t lane_files < <(expand_lane "${agent_routines_pat[@]}" | sort -u) ;;
     library)       mapfile -t lane_files < <(expand_lane "${library_pat[@]}" | sort -u) ;;
     knowledge)     mapfile -t lane_files < <(expand_lane "${knowledge_pat[@]}" | sort -u) ;;
     mcp)           mapfile -t lane_files < <(expand_lane "${mcp_pat[@]}" | sort -u) ;;

@@ -6,7 +6,7 @@
 // the agent's own client presents to reach a loopback endpoint the
 // platform serves itself — off by default for every agent (mission
 // constraint). This tab is the ONLY place that toggles it; the row's
-// attach checkbox on the MCPs tab renders checked-and-disabled (see
+// attach checkbox on the Tools tab renders checked-and-disabled (see
 // mcps-tab.js) so the operator's per-tool controls still govern individual
 // capabilities from there.
 //
@@ -89,6 +89,8 @@
 //   self-config-revisions.js  pending queue, cards, approve / dismiss / override, diff
 //   self-config-history.js    history list, restore nodes, timestamp formatters
 //   self-config-external.js   external credentials and the token reveal
+// and (M33 F2 L5) the Routines item: self-config-routines.js (switches, history) and
+// self-config-routines-queue.js (the waiting-for-approval list).
 // The context holds `panel`, `agent`, `callbacks`, `destroyed`, the two sequence
 // counters and `approvalReady`; each module publishes its renderers back on it.
 
@@ -117,7 +119,10 @@
         testid: 'self-configuration-save-first'
       });
       panel.appendChild(notice);
-      return { setAgent: function () {}, destroy: function () {}, deactivate: function () {} };
+      return {
+        setAgent: function () {}, destroy: function () {}, deactivate: function () {},
+        activate: function () {}
+      };
     }
 
     // Per-mount context (M31 F2 L10b). Liveness (M31 F2 L10a): a refetch's response
@@ -133,19 +138,55 @@
       approvalReady: false
     };
 
+    // The waiting count of an item's card (M33 F4 L06): the section modules report it here; the
+    // `default` agent has no Routines card, so a missing card is ignored.
+    ctx.setWaitingCount = function (item, n) {
+      var card = ctx.cards && ctx.cards[item];
+      if (card) card.setWaitingCount(n);
+    };
+
     var studio = window.App.studio;
-    // Order is the panel's section order.
+    // SC2 (M33 F4 L06): the page eyebrow and the Agent prompt card (status), the card's two
+    // bodies (revisions, history), the Routines card as the second item, then External access
+    // as the page-level section at the bottom.
     studio.selfConfigStatus.build(ctx);
     studio.selfConfigRevisions.build(ctx);
     studio.selfConfigHistory.build(ctx);
+    studio.selfConfigRoutines.build(ctx);
     studio.selfConfigExternal.build(ctx);
 
     ctx.refetchStatus({});
     ctx.refetchRevisions();
+    ctx.refetchRoutines();
 
     // `deactivate` (M31 F2 L10c): the tab stopped being the shown one (a tab switch, or
     // the Studio area deactivating) — the copy-once token is cleared, nothing else.
-    return { setAgent: ctx.setAgent, destroy: ctx.destroy, deactivate: ctx.hideTokenReveal };
+    // `activate` (M33 F2 L5): the tab became the shown one again, so the queues are refetched
+    // (an agent can propose while the operator is on another tab).
+    function activate() {
+      ctx.refetchRevisions();
+      ctx.refetchRoutines();
+    }
+    // The tab can become visible again by routes that never call `activate` (the Agents
+    // destination re-entered from Chats, the editor re-selected), and the window can come back
+    // to the foreground: refetch whenever the page is shown or focused and this panel is
+    // actually visible (F-E3-1). Removed on destroy.
+    function onShown() {
+      if (ctx.destroyed || document.hidden || !panel.offsetParent) return;
+      activate();
+    }
+    document.addEventListener('visibilitychange', onShown);
+    window.addEventListener('focus', onShown);
+    var destroyMount = ctx.destroy;
+    function destroy() {
+      document.removeEventListener('visibilitychange', onShown);
+      window.removeEventListener('focus', onShown);
+      destroyMount();
+    }
+    return {
+      setAgent: ctx.setAgent, destroy: destroy, deactivate: ctx.hideTokenReveal,
+      activate: activate
+    };
   }
 
   window.App.studio.renderSelfConfigurationTab = renderSelfConfigurationTab;

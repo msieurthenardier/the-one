@@ -1,7 +1,7 @@
 // App.studio.selfConfigHistory — the Self-configuration tab's revision history and
 // restore controls (M31 F2 L10b: split out of self-configuration-tab.js, a pure
-// restructure). `build(ctx)` appends the history section to `ctx.panel` and
-// publishes `ctx.historyList` and `ctx.renderHistory`; it reads `ctx.agent` and the
+// restructure). `build(ctx)` fills the Agent prompt card's "History" expander body
+// (M33 F4 L06) and publishes `ctx.historyList` and `ctx.renderHistory`; it reads `ctx.agent` and the
 // cross-module `ctx.announce` / `ctx.refetchRevisions` at call time. The timestamp
 // formatters and `fieldName` are exported for the other modules.
 (function () {
@@ -41,12 +41,8 @@
     var renderDiffedValues = window.App.studio.selfConfigRevisions.renderDiffedValues;
 
     // ── M21 F02 L03 — revision history + restore ────────────────────────
-    var historySectionCtl = App.ui.section({
-      title: 'Revision history',
-      titleTag: 'h3',
-      className: 'self-configuration-history-section'
-    });
-    var historySection = historySectionCtl.body;
+    // The history is the body of the Agent prompt card's "History" expander (M33 F4 L06).
+    var historySection = ctx.cards.prompt.history.body;
 
     var historyDesc = document.createElement('p');
     historyDesc.className = 'self-configuration-description';
@@ -73,18 +69,12 @@
     restoreControls.setAttribute('aria-label', 'Restore an earlier value');
     historySection.appendChild(restoreControls);
 
-    // …and the collapsible "History (N)" disclosure below for the
-    // chronological log (HAT fix #10 — App.ui.disclosure, plain variant, a
-    // native `<details>`). The restore list above stays always visible; only
-    // the full log collapses.
-    var historyCtl = App.ui.disclosure({
-      variant: 'plain',
-      summary: 'History',
-      testid: 'revision-history-details',
-      summaryTestid: 'revision-history-summary',
-      className: 'self-configuration-history-details'
-    });
-    var historyDetails = historyCtl.el;
+    // …and the chronological log below it, under its own subheading (no nested
+    // disclosure since M33 F4 L06: the card's History expander is the one fold).
+    var logHeading = document.createElement('div');
+    logHeading.className = 'self-configuration-subheading';
+    logHeading.textContent = 'All changes';
+    historySection.appendChild(logHeading);
 
     // The full timeline (all statuses). This is a data view the user
     // browses, not an append-only log — it is entirely rebuilt on every
@@ -99,11 +89,7 @@
     historyList.setAttribute('role', 'group');
     historyList.setAttribute('aria-label', 'Revision history');
     historyList.textContent = 'Loading…';
-    historyCtl.body.appendChild(historyList);
-
-    historySection.appendChild(historyDetails);
-
-    panel.appendChild(historySectionCtl.el);
+    historySection.appendChild(historyList);
 
     // ── M21 F02 L03 — revision history + restore rendering ──────────────
     function fieldName(field) {
@@ -200,7 +186,6 @@
 
       // ── the full chronological log (newest-first, all statuses) ──
       historyList.textContent = '';
-      historyCtl.setSummary('History (' + revisions.length + ')');
       if (revisions.length === 0) {
         historyList.appendChild(App.ui.emptyState({
           title: 'No revisions yet.',

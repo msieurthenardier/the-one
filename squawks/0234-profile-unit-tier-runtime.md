@@ -1,6 +1,6 @@
 # Squawk 0234: the unit tier's runtime crept from 195 s to 300 s with no profile
 
-**Status**: open
+**Status**: escalated
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-22
@@ -24,3 +24,7 @@
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+**Escalated**: fails *verifiable by one test*/*bounded*: the profile this squawk asked for was taken on 2026-10-30 ([maintenance 2026-10-30](../maintenance/2026-10-30.md), finding #1: 430 s, about 82 s from test count and about 182 s from diffuse per-test cost: per-test API app builds, evals harness, AST re-walks, real timeouts, real subprocesses). The fix spans many test modules →
+[Mission 34 Flight 1: Test-suite runtime II](../missions/34-maintenance/flights/01-test-suite-runtime-ii/flight.md), leg `unit-per-test-cost`

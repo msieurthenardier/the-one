@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-28
 **Completed**: —
+**Related**: 0256, 0282: behavior-spec follow-ups; complete together in one spec-edit pass ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 The HAT-close run of `tests/behavior/agent-step-limit-notice.md` passed 7/7. Its Validator and the Orchestrator listed six spec-quality follow-ups. They were deliberately not edited at the run, because steps are re-authored on purpose, never during a run. Apply them so the next run cannot pass vacuously or trip on seeding.

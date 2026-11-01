@@ -26,6 +26,7 @@ LANES = (
     "chats-transcript",
     "agents",
     "agent-tabs",
+    "agent-routines",
     "library",
     "knowledge",
     "mcp",
@@ -160,7 +161,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|chats-transcript|agents|agent-tabs|library|knowledge|mcp|mcp-connection|routing|"
+        "chats|chats-transcript|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
         "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
     )
     assert lanes in proc.stderr

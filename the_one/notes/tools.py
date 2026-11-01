@@ -17,14 +17,26 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from the_one.agent._context import current_chat_session_id, current_tool_call_id, current_turn
+from the_one.agent.taint import (  # noqa: F401  (re-exports: the canonical home is taint.py)
+    TRUSTED_TOOL_NAMES,
+    UNKNOWN_CONTEXT,
+    UNKNOWN_POSITION,
+    UNKNOWN_TOOL,
+    _add_source,
+    compute_taint,
+)
+from the_one.agent.tool_names import (  # noqa: F401  (re-exports: the canonical home)
+    FORGET_NOTE_TOOL_NAME,
+    NOTES_TOOL_NAMES,
+    SAVE_NOTE_TOOL_NAME,
+    UPDATE_NOTE_TOOL_NAME,
+)
 from the_one.db._notes import (
     NOTE_WRITES_PER_TURN,
-    SOURCES_CAP,
     NoteDuplicateError,
     NoteLimitError,
     NotesDisabledError,
 )
-from the_one.llm.base import Role
 from the_one.tools.base import Tool
 
 if TYPE_CHECKING:
@@ -33,83 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SAVE_NOTE_TOOL_NAME = "save_note"
-UPDATE_NOTE_TOOL_NAME = "update_note"
-FORGET_NOTE_TOOL_NAME = "forget_note"
-NOTES_TOOL_NAMES = (SAVE_NOTE_TOOL_NAME, UPDATE_NOTE_TOOL_NAME, FORGET_NOTE_TOOL_NAME)
-
-# DD6: tools whose results are NOT outside content. Everything else is
-# untrusted, including any tool added later (fail-closed): a new tool joins
-# this set only by a deliberate edit here. ``search_tools`` returns tool
-# names/descriptions of this agent's own catalogue; ``continue`` (a virtual
-# tool handled in ``core.py``) feeds back the model's own reason text.
-TRUSTED_TOOL_NAMES = frozenset({*NOTES_TOOL_NAMES, "search_tools", "continue"})
-
 BUDGET_REFUSAL = f"Note limit for this turn reached ({NOTE_WRITES_PER_TURN} writes)."
-
-UNKNOWN_POSITION = "unknown position"
-UNKNOWN_TOOL = "unknown tool"
-UNKNOWN_CONTEXT = "unknown context"
-
-
-def _add_source(sources: list[str], source: str) -> None:
-    if source not in sources and len(sources) < SOURCES_CAP:
-        sources.append(source)
-
-
-def compute_taint(
-    agent: Agent | None, tool_call_id: str | None, turn: TurnContext | None
-) -> tuple[bool, list[str]]:
-    """Return ``(untrusted, sources)`` for a notes write (DD6).
-
-    Scans the owning agent's messages BACKWARDS for the nearest assistant
-    message whose ``tool_calls`` include ``tool_call_id`` (Ollama ids repeat
-    across turns, so a forward search would find the wrong one). With no
-    anchor (unbound tool, no id, id not found) the write fails closed with
-    ``["unknown position"]``. Every message BEFORE the anchor is examined:
-
-    - a TOOL result is attributed positionally, by ``tool_result.tool_call_id``,
-      to the tool calls of the nearest preceding assistant message; a name not
-      in :data:`TRUSTED_TOOL_NAMES` adds that name, no match (or no
-      ``tool_result``) adds ``"unknown tool"``;
-    - a USER message with ``peer_name is not None`` adds ``peer:{name}``.
-
-    Then the turn context: a current peer adds ``peer:{name}``; no context at
-    all adds ``"unknown context"``. Calls in the SAME assistant message as the
-    write are after the anchor, so their results (not yet seen by the model)
-    are not counted. Sources are de-duplicated, in order, capped.
-    """
-    if agent is None or not tool_call_id:
-        return True, [UNKNOWN_POSITION]
-    messages = agent.messages
-    anchor: int | None = None
-    for i in range(len(messages) - 1, -1, -1):
-        m = messages[i]
-        if m.role == Role.ASSISTANT and any(tc.id == tool_call_id for tc in m.tool_calls):
-            anchor = i
-            break
-    if anchor is None:
-        return True, [UNKNOWN_POSITION]
-
-    sources: list[str] = []
-    calls_by_id: dict[str, str] = {}
-    for m in messages[:anchor]:
-        if m.role == Role.ASSISTANT:
-            calls_by_id = {tc.id: tc.name for tc in m.tool_calls}
-        elif m.role == Role.TOOL:
-            tr = m.tool_result
-            name = calls_by_id.get(tr.tool_call_id) if tr is not None else None
-            if name is None:
-                _add_source(sources, UNKNOWN_TOOL)
-            elif name not in TRUSTED_TOOL_NAMES:
-                _add_source(sources, name)
-        elif m.role == Role.USER and m.peer_name is not None:
-            _add_source(sources, f"peer:{m.peer_name}")
-    if turn is None:
-        _add_source(sources, UNKNOWN_CONTEXT)
-    elif turn.peer is not None:
-        _add_source(sources, f"peer:{turn.peer.peer_name or ''}")
-    return bool(sources), sources
 
 
 class _WriteCounter:

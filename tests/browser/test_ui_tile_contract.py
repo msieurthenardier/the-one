@@ -81,7 +81,7 @@ def test_group_tile_dom_shape_and_api(engine_page: Page) -> None:
     assert out["body"] == ["ui-group-tile-body", True, True]
     assert out["sub"] == "Server 1.2"
     assert out["api"] == [
-        "body", "destroy", "el", "isExpanded", "setCount", "setExpanded", "setMaster", "setSubtitle", "setToolCount",
+        "body", "destroy", "el", "expandBtn", "isExpanded", "nameEl", "setCount", "setExpanded", "setMaster", "setSubtitle", "setToolCount", "toggle",
     ]  # fmt: skip
 
 
@@ -425,7 +425,7 @@ LEGACY_ROWS = """<div class="tools-category-tile"><div class="tools-category-til
   <div class="mcp-tool-text"><span class="mcp-tool-toggle-name">read_file</span><span class="mcp-tool-description"> — %s</span></div></label></div>"""
 
 
-# The legacy MCP tool-row rules, inlined as a fixture (M31 F2 L07b): the MCPs tab no longer uses
+# The legacy MCP tool-row rules, inlined as a fixture (M31 F2 L07b): the Tools tab no longer uses
 # them, so they are gone from studio.css, and this comparison keeps its reference here.
 LEGACY_MCP_ROW_CSS = """<style>
 .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
@@ -524,6 +524,20 @@ def test_group_tile_non_tristate_master_is_a_switch_with_dataset(engine_page: Pa
         p.evaluate("() => document.querySelector('[data-testid=gt-master]').getAttribute('role')")
         is None
     )
+
+
+def test_group_tile_exposes_name_expand_and_master_toggle(engine_page: Page) -> None:
+    _tile(engine_page, "{master: {label: 'M', tristate: false, state: 'on', testid: 'gt-master'}}")
+    out = engine_page.evaluate(
+        """() => { const t = window.__tile;
+          t.toggle.setDisabled(true);
+          const input = document.querySelector('[data-testid=gt-master]');
+          return [t.nameEl.textContent, t.nameEl.parentNode.contains(t.expandBtn),
+            t.expandBtn.getAttribute('aria-expanded'), t.toggle.control === input, input.disabled]; }"""
+    )
+    assert out == ["Filesystem", False, "false", True, True]
+    _tile(engine_page, "{master: null}")
+    assert engine_page.evaluate("() => window.__tile.toggle") is None
 
 
 def test_tool_row_input_dataset_on_the_checkbox(engine_page: Page) -> None:
@@ -850,3 +864,40 @@ def test_group_tile_without_expand_label_is_unchanged(engine_page: Page) -> None
     expect(p.get_by_role("button", name="2 tools", exact=True)).to_have_accessible_description(
         "Filesystem"
     )
+
+
+# ── groupTile expand: false (M33 F4 L06) ─────────────────────────────────────
+
+
+def test_group_tile_expand_false_omits_the_button_and_body(engine_page: Page) -> None:
+    """Opt-in: no expand button, no body, null handles, inert setters; the row, subtitle and
+    master stay, and the host can append its own children under el."""
+    _tile(
+        engine_page,
+        "{expand: false, subtitle: 'One line.', master: {label: 'Enable x', tristate: false, state: 'on', testid: 'gt-master'}}",
+    )
+    p = engine_page
+    out = p.evaluate(
+        """() => {
+          const t = window.__tile;
+          t.setExpanded(true); t.setToolCount(3);
+          const own = document.createElement('div'); own.id = 'own'; t.el.appendChild(own);
+          return {kids: Array.from(t.el.children).map((k) => k.className),
+            handles: [t.body, t.expandBtn], expanded: t.isExpanded(),
+            btns: t.el.querySelectorAll('.ui-group-tile-expand, .ui-group-tile-body').length,
+            sub: t.el.querySelector('.ui-group-tile-subtitle').textContent,
+            master: t.el.querySelector('[data-testid="gt-master"]').checked,
+            own: t.el.lastElementChild.id, api: Object.keys(t).sort()};
+        }"""
+    )
+    assert out["kids"] == ["ui-group-tile-row", "ui-group-tile-subtitle", ""], out
+    assert out["handles"] == [None, None] and out["expanded"] is False
+    assert out["btns"] == 0 and out["sub"] == "One line."
+    assert out["master"] is True and out["own"] == "own"
+    assert "setExpanded" in out["api"] and "destroy" in out["api"]
+    # The default is unchanged: expand omitted still builds the button and body.
+    out2 = p.evaluate(
+        """() => { const t = App.ui.groupTile({name: 'Other'});
+          return [!!t.expandBtn, !!t.body, t.el.children.length]; }"""
+    )
+    assert out2 == [True, True, 3]

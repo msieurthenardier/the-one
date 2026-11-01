@@ -83,6 +83,9 @@ envelope through, in order:
    `THE_ONE_SESSION_CONTINUATION_SECONDS` env var, else 24h) unless it
    carries a `/new`-written `ended_at` sentinel, else creates a fresh row
    titled `f"DM: {peer_name}"` (DM) or the channel id.
+   The continuation rule itself is `inbound.is_continuable(row, seconds, now)`
+   (no `ended_at`, a parseable `last_inbound_at` — naive reads as UTC — younger
+   than the window).
 5. **Dispatch** — under a per-session lock (`the_one.sessions.session_locks`),
    rebuilds the agent from the session's stored history, runs
    `agent.step(envelope.text)`, tags post-step message visibility (see
@@ -141,6 +144,14 @@ persisted, through `_send_step_limit_line`, which never raises. It is sent
 always, including after a `send_to_platform_channel` turn. With no live client,
 or on a send failure, it is logged and dropped. It is not stored, so the
 persisted messages hold no such line.
+
+**Delivery primitives (M33 F1 L2).** `connectors/delivery.py` holds the
+envelope-free pieces: `deliver_final_reply(messages, pre_step_len, target,
+connector_id, manager)` (the skip rule and the send above; it returns nothing
+and never raises), `send_step_limit_line(target, ...)` and `authorized_agent_for(connector,
+channel_id=...)` (the send tool's authorization rule). It has no dependency on
+`inbound.py`; `_auto_deliver_reply` and `_send_step_limit_line` are thin
+wrappers that build the target from the envelope.
 
 The operator's own typed message in the same session is unaffected: it is
 tagged `visibility="operator"` at construction time by the WS handler and

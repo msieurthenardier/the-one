@@ -112,6 +112,9 @@ from the_one.naming import (
     name_rule_detail,
 )
 from the_one.platform.paths import canonicalize, is_within
+from the_one.routines import service as routine_service
+from the_one.routines.proposals import RoutineProposalRepository
+from the_one.routines.repository import RoutineRunRepository
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
@@ -1004,6 +1007,31 @@ async def get_agent_context_window(name: str) -> dict[str, int]:
     return {"max_context_tokens": agent.llm.max_context_tokens}
 
 
+async def _check_agent_provider(provider_id: str | None) -> None:
+    """Squawk 0277: a provider id that names no provider is a 422 on the field, not a 500
+    from the foreign key. ``None`` (no provider) stays legal; ``""`` never names one."""
+    if provider_id is None:
+        return
+    exists = False
+    if provider_id != "":
+        try:
+            await (await _provider_repo()).get(provider_id)
+            exists = True
+        except KeyError:
+            exists = False
+    if not exists:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["provider_config_id"],
+                    "msg": "That model provider doesn't exist.",
+                }
+            ],
+        )
+
+
 @router.post("/agents", status_code=201)
 async def create_agent(request: Request) -> dict[str, Any]:
     """Create a new agent.
@@ -1019,6 +1047,9 @@ async def create_agent(request: Request) -> dict[str, Any]:
 
     data = await _read_json(request)
     data["name"] = _checked_name(data.get("name"))
+    # M33 F2 DD5: the Routines switches are operator-owned; a create never sets them.
+    data.pop("routines_self_config_enabled", None)
+    data.pop("routines_require_approval", None)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -1048,6 +1079,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    await _check_agent_provider(cfg.provider_config_id)
     store = await _agent_store()
     if await store.exists(cfg.name):
         raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
@@ -1102,6 +1134,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # an agent save that omits it must not reset it.
     if "notes_enabled" not in data:
         data["notes_enabled"] = existing.notes_enabled
+    # M33 F2 DD5: the Routines switches are set only by their own routes; an agent
+    # PUT ignores any incoming value, so the response echoes the stored truth.
+    data["routines_self_config_enabled"] = existing.routines_self_config_enabled
+    data["routines_require_approval"] = existing.routines_require_approval
     # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
     # — mirrors the `self_revision_requires_approval` preserve immediately
     # above. An explicit `kb_ids: []` is NOT an omission and still clears
@@ -1131,6 +1167,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     )
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
+    if cfg.provider_config_id != existing.provider_config_id:
+        # Squawk 0277: only a CHANGED id is checked, so an agent whose provider was
+        # deleted later stays editable (and fixable).
+        await _check_agent_provider(cfg.provider_config_id)
     await store.save(cfg)
     return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
@@ -1580,6 +1620,11 @@ async def delete_agent_rule(name: str, rule_id: str) -> dict[str, str]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
     return {"status": "ok"}
+
+
+def _poke_scheduler() -> None:
+    """Delegate kept for callers that wake the scheduler (the service pokes after writes)."""
+    routine_service.poke_scheduler()
 
 
 # ── Notes (M27 F2) ──────────────────────────────────────────────────────
@@ -2602,6 +2647,7 @@ async def update_time_settings(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=_time_settings_error(e, data))
     conn = await get_connection()
     await time_zones.save_setting(conn, setting)
+    _poke_scheduler()
     return await _time_settings_response(setting)
 
 
@@ -3038,7 +3084,7 @@ async def list_mcp_sources(include_agent_surfaces: str | None = None) -> list[di
     """DD3: per-agent self-configuration surface rows are hidden from the
     admin MCP Sources listing by default — the operator manages them from
     the owning agent's own tabs, not this screen. The agent editor's fetch
-    passes ``?include_agent_surfaces=1`` so its MCPs tab (and the
+    passes ``?include_agent_surfaces=1`` so its Tools tab (and the
     self-configuration tab) can still see them. The filter is a
     request-level switch, not a repository change (DD3's constraint: both
     screens call this same endpoint today).
@@ -3535,7 +3581,7 @@ async def _build_and_test_no_auth_mcp(
             tools = await client.list_tools()
             capabilities = client.server_capabilities
             # F4 L2 (M08): capture spec-optional serverInfo + instructions
-            # alongside tools/capabilities so the MCPs tab can render a
+            # alongside tools/capabilities so the Tools tab can render a
             # server-declared subtitle line + hover-tooltip without re-probing.
             server_info = client.server_info
             instructions = client.instructions
@@ -5166,7 +5212,16 @@ async def delete_chat_session(session_id: str) -> dict[str, str]:
 async def delete_agent_chat_sessions(name: str) -> dict[str, Any]:
     repo = await _chat_repo()
     deleted = await repo.delete_all_for_agent(name)
-    return {"status": "ok", "deleted": deleted}
+    # M33 F1 (DD1): run history refers to the chats just deleted; the routines stay.
+    runs_deleted = await RoutineRunRepository(repo.conn).delete_all_for_agent(name)
+    # M33 F3 (DD4): resolved routine changes go too; pending ones and routines stay.
+    proposals_deleted = await RoutineProposalRepository(repo.conn).delete_resolved_for_agent(name)
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "runs_deleted": runs_deleted,
+        "proposals_deleted": proposals_deleted,
+    }
 
 
 @router.post("/chat/sessions/{session_id}/purge")
@@ -5193,7 +5248,13 @@ async def trigger_purge_sweep() -> dict[str, Any]:
     from the_one.interfaces.web.app import _run_purge_sweep_and_evict
 
     result = await _run_purge_sweep_and_evict()
-    return {"deleted": result["deleted"], "last_purge_at": result["last_purge_at"]}
+    return {
+        "deleted": result["deleted"],
+        "runs_deleted": result["runs_deleted"],
+        "routines_deleted": result["routines_deleted"],
+        "proposals_deleted": result["proposals_deleted"],
+        "last_purge_at": result["last_purge_at"],
+    }
 
 
 class _PendingOAuthFlowBody(BaseModel):
@@ -6566,3 +6627,10 @@ async def rotate_encryption_key() -> dict[str, str]:
     )
 
     return {"status": "ok", "key_file": key_file}
+
+
+# ── Routine routes (M33) live in ``routines_api.py``; attached last so every
+# ``api.router`` route is declared first. ───────────────────────────────────
+from the_one.interfaces.web.routines_api import router as _routines_router  # noqa: E402
+
+router.include_router(_routines_router)

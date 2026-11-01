@@ -167,7 +167,7 @@
       // data-tool-override-tool (NOT data-type), so they don't match the
       // [data-type] selector here and are picked up below in the override
       // walk.
-      // F8 L4 — MCPs tab uses tool-row toggles instead of chip-area.
+      // F8 L4 — Tools tab uses tool-row toggles instead of chip-area.
       // Walk the new [data-mcp-source-toggle]:checked selector to collect
       // attached source IDs.
       var mcpToggles = editorEl.querySelectorAll('[data-mcp-source-toggle][data-mcp-source-id]');
@@ -177,7 +177,7 @@
           if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
         }
       } else {
-        // Squawk 0080: the MCP source list never loaded, so the MCPs tab has
+        // Squawk 0080: the MCP source list never loaded, so the Tools tab has
         // no rows and every toggle is trivially absent. `update_agent` does
         // not preserve an omitted `mcp_source_ids` (it defaults to []), so
         // send the agent's stored value back unchanged instead of wiping it.

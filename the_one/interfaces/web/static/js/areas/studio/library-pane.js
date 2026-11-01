@@ -102,7 +102,7 @@
         add: 'Add MCP server',
         text: 'Tool servers that use the Model Context Protocol, such as a browser, a database ' +
           'or another app\u2019s API. Choose which agents get which tools on each agent\u2019s ' +
-          'MCPs tab.'
+          'Tools tab.'
       },
       connectors: {
         add: 'Add connector',
@@ -419,7 +419,7 @@
       });
       libraryList = App.ui.listPane({
         title: 'Library',
-        intro: 'Things agents can use. Attach them from an agent\u2019s Knowledge and MCPs tabs.',
+        intro: 'Things agents can use. Attach them from an agent\u2019s Knowledge and Tools tabs.',
         actions: [libraryAddMenu.el],
         // Shown only until the gated first fill (the groups' own empty lines
         // take over after it).

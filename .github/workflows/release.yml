@@ -5,6 +5,8 @@ name: release
 #   audit (release-closure pip-audit) + version (the gate, scripts/release_check.py)
 #     -> windows / linux / macos (the three reusable *-packages.yml workflows, mode full)
 #     -> publish (one GitHub release: the four packages and SHA256SUMS; draft first, then published)
+#     -> cleanup (deletes this run's package artifacts; they are kept 1 day, squawk 0302, so a
+#        failed publish is fixed by re-running the release, not by a late re-run of publish)
 #
 # A workflow_dispatch is a DRY RUN: it builds the same packages from a branch and publishes
 # nothing (`publish` only runs on a tag push):
@@ -20,7 +22,8 @@ name: release
 # may run while a release is running: their fixed concurrency groups hold one pending slot each,
 # and a standalone dispatch could displace the release's pending job.
 #
-# Reads no secret beyond github.token (only `publish` raises it to contents: write).
+# Reads no secret beyond github.token (only `publish` raises it to contents: write, and only
+# `cleanup` raises it to actions: write).
 on:
   push:
     tags:
@@ -112,6 +115,7 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
       mode: ${{ inputs.windows_mode || 'full' }}
+      retention-days: 1
 
   linux:
     needs: [audit, version]
@@ -119,6 +123,7 @@ jobs:
     uses: ./.github/workflows/linux-packages.yml
     with:
       version: ${{ needs.version.outputs.version }}
+      retention-days: 1
 
   macos:
     needs: [audit, version]
@@ -127,6 +132,7 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
       mode: ${{ inputs.macos_mode || 'full' }}
+      retention-days: 1
 
   # Tag pushes only. The release is a DRAFT until all five files are uploaded, then published, so
   # a partial upload is never seen. A re-run reuses the draft (uploads with --clobber, then
@@ -225,3 +231,37 @@ jobs:
               exit 1
               ;;
           esac
+
+  # Squawk 0302: Actions storage accrues per hour, so the package artifacts are kept 1 day and
+  # deleted as soon as they are no longer needed. On a tag push this runs only after `publish`
+  # succeeded (a failed publish keeps them for a same-day re-run of the failed jobs). On a dry-run
+  # dispatch nothing publishes, so it runs once the platform jobs are done, whatever their result
+  # (they may be skipped). The only job with `actions: write`. An absent artifact is not an error.
+  cleanup:
+    if: >-
+      always() && (
+      (github.event_name == 'push' && needs.publish.result == 'success') ||
+      github.event_name == 'workflow_dispatch')
+    needs: [windows, linux, macos, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's package artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -eo pipefail
+          IDS=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name == "windows-installer" or .name == "linux-packages" or .name == "macos-dmg") | .id')
+          if [ -z "$IDS" ]; then
+            echo "no package artifacts to delete"
+            exit 0
+          fi
+          for id in $IDS; do
+            echo "deleting artifact $id"
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id"
+          done

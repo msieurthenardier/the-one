@@ -58,6 +58,13 @@
 //            Fetched per open, agent and session (GET /api/agents/{name}/notes
 //            ?session_id=, the server marks `pending`); refreshNotes() re-fetches
 //            on a live save/update/forget and after a rejoin.
+//   Routine (M33 F1 L7): a "Routine" fact (chat-drawer-routine, "{name} · last ran {day}
+//            {time}") from the join's session_metadata.routine, kept per session id by
+//            setSessionMetadata(sessionId, meta) and shown only while the view's sessionId
+//            matches; and a read-only Routines group after Notes (A-Z, "Next {day} {time}",
+//            "Off" or "Done", "None"), fetched per open like Rules (404 = none), refetched
+//            without flicker by refreshRoutines() on each session_joined. The default and
+//            deleted agents get no group.
 //   footer   Open agent settings (App.ui.button secondary, the settings gear,
 //            testid chat-drawer-settings-link): a guarded go() to the agent,
 //            then App.studio.clearAgentFilter() on a commit (reference spec
@@ -186,6 +193,11 @@
     // (value = {enabled, notes}), keyed on agent AND session (F3 L2).
     var notesState = { gen: -1, agent: null, session: null, status: 'idle', value: null };
     var notesToken = 0;
+    // M33 F1 L7 (DD10): the Routines group's fetch (value = the agent's routines), and the
+    // open chat's join metadata, kept per session id so chat A's routine never shows in B.
+    var routinesState = { gen: -1, agent: null, status: 'idle', value: null };
+    var routinesToken = 0;
+    var sessionMeta = { session: null, meta: null };
     var storeTried = {};
     var storeFailed = {};
 
@@ -363,6 +375,51 @@
       return box;
     }
 
+    // The Routine fact's value, only for the metadata of the session the view shows.
+    function routineFact() {
+      var sid = viewSession();
+      var r = sid && sessionMeta.session === sid && sessionMeta.meta ? sessionMeta.meta.routine : null;
+      if (!r || !r.name) return null;
+      var when = r.last_run_at ? App.chat.drawerParts.whenLabel(r.last_run_at) : '';
+      return String(r.name) + (when ? ' · last ran ' + when : '');
+    }
+
+    // Fetch the agent's routines (404 = none). `refresh` keeps the shown list until the
+    // response arrives; a failed refresh keeps it too. Guarded by token, gen and agent.
+    function loadRoutines(agentName, gen, refresh) {
+      var token = ++routinesToken;
+      if (!refresh) routinesState = { gen: gen, agent: agentName, status: 'pending', value: null };
+      fetch('/api/agents/' + encodeURIComponent(agentName) + '/routines').then(function (r) {
+        if (r.status === 404) return { routines: [] };
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function (body) {
+        if (token !== routinesToken || routinesState.gen !== gen || routinesState.agent !== agentName) return;
+        routinesState = { gen: gen, agent: agentName, status: 'ok', value: (body && body.routines) || [] };
+        render();
+      }, function () {
+        if (token !== routinesToken || routinesState.gen !== gen || routinesState.agent !== agentName) return;
+        if (refresh) return;
+        routinesState = { gen: gen, agent: agentName, status: 'error', value: null };
+        render();
+      });
+    }
+
+    // No-op while the drawer is closed or the view is not a named agent.
+    function refreshRoutines() {
+      var info = describe();
+      if (info.kind !== 'agent' || !drawer.isOpen()) return;
+      loadRoutines(info.name, openGen, routinesState.status === 'ok' && routinesState.agent === info.name);
+    }
+
+    // The join's session_metadata, keyed by session id; re-renders when it changed.
+    function setSessionMetadata(sessionId, meta) {
+      var next = { session: sessionId || null, meta: meta && typeof meta === 'object' ? meta : null };
+      var changed = JSON.stringify(next) !== JSON.stringify(sessionMeta);
+      sessionMeta = next;
+      if (changed) render();
+    }
+
     // M27 F2 L3 (DD10) / F3 L2: the Notes group, sibling after Rules, READ-ONLY
     // (notes are managed in the agent's Rules and notes tab, via Open agent
     // settings). Note text is attacker-influenced, so every field goes through
@@ -370,43 +427,6 @@
     // "{n} kept". On: the in-use notes, then (when the server knows the open
     // chat's prompt) a "Pending · used from the next chat" subheading and the
     // notes that prompt does not carry yet, muted.
-    function noteOriginLine(n) {
-      if (n.origin_kind === 'other') return 'Outside a chat';
-      if (n.origin_kind === 'connector') {
-        var who = n.origin_peer_name || n.origin_peer_id || '';
-        return String(n.origin_platform || 'connector') + (who ? ' · ' + who : '');
-      }
-      return String(n.origin_label || 'Untitled chat') + (n.origin_exists ? '' : ' (chat deleted)');
-    }
-
-    function noteItem(n) {
-      var headKids = [];
-      if (n.untrusted) {
-        var flag = App.ui.noteFlag({ sources: arr(n.untrusted_sources) });
-        flag.setAttribute('data-testid', 'chat-drawer-notes-flag');
-        headKids.push(flag);
-      }
-      headKids.push(el('span', { className: 'chat-drawer-note-text', text: String(n.text) }));
-      var li = el('li', null, [
-        el('div', { className: 'chat-drawer-note-head' }, headKids),
-        el('div', { className: 'chat-drawer-note-origin', text: noteOriginLine(n) })
-      ]);
-      li.setAttribute('title', String(n.text));
-      li.setAttribute('data-testid', 'chat-drawer-notes-item');
-      li.setAttribute('data-id', n.id);
-      li.setAttribute('data-number', String(n.number));
-      return li;
-    }
-
-    function noteList(rows, pending) {
-      var ul = el('ul', { className: 'chat-drawer-notes' + (pending ? ' chat-drawer-notes--pending' : '') });
-      ul.setAttribute('role', 'list');
-      if (pending) ul.setAttribute('data-testid', 'chat-drawer-notes-pending');
-      else ul.setAttribute('data-testid', 'chat-drawer-notes');
-      for (var i = 0; i < rows.length; i++) ul.appendChild(noteItem(rows[i]));
-      return ul;
-    }
-
     function notesGroup() {
       var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'notes' } }, [
         el('h4', { className: 'chat-drawer-group-label', text: 'Notes' })
@@ -437,7 +457,7 @@
         var inUse = [];
         var pending = [];
         for (var i = 0; i < all.length; i++) (all[i].pending ? pending : inUse).push(all[i]);
-        if (inUse.length) box.appendChild(noteList(inUse, false));
+        if (inUse.length) box.appendChild(App.chat.drawerParts.noteList(inUse, false));
         if (pending.length) {
           var head = el('p', {
             className: 'chat-drawer-notes-pending-head',
@@ -445,7 +465,7 @@
           });
           head.setAttribute('data-testid', 'chat-drawer-notes-pending-head');
           box.appendChild(head);
-          box.appendChild(noteList(pending, true));
+          box.appendChild(App.chat.drawerParts.noteList(pending, true));
         }
       }
       return box;
@@ -509,6 +529,7 @@
 
       box.appendChild(rulesGroup(agent.name));
       box.appendChild(notesGroup());
+      if (agent.name && agent.name !== 'default') box.appendChild(App.chat.drawerParts.routinesGroup(routinesState));
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -579,11 +600,16 @@
           content.appendChild(el('p', { className: 'chat-drawer-description', text: String(info.row.description) }));
         }
         var provider = info.row.provider_config_id ? findBy(providers, 'id', info.row.provider_config_id) : null;
-        content.appendChild(facts([
+        var factPairs = [
           ['Model', info.row.llm_model ? String(info.row.llm_model) : '—', 'chat-drawer-mono'],
           ['Provider', provider ? String(provider.name || provider.id) : '—'],
           ['Chats', String(chatsCount(info.name))]
-        ]));
+        ];
+        var routineText = routineFact();
+        if (routineText) factPairs.push(['Routine', routineText]);
+        var factsEl = facts(factPairs);
+        if (routineText) factsEl.lastElementChild.setAttribute('data-testid', 'chat-drawer-routine');
+        content.appendChild(factsEl);
         content.appendChild(uses(info.row));
       } else if (info.kind === 'default') {
         name = 'Default agent';
@@ -656,6 +682,10 @@
         var same = notesState.gen === gen && notesState.agent === info.name && notesState.status === 'ok';
         loadNotes(info.name, sid, gen, same);
       }
+      if (routinesState.gen !== gen || routinesState.agent !== info.name) {
+        var rSame = routinesState.gen === gen && routinesState.agent === info.name && routinesState.status === 'ok';
+        loadRoutines(info.name, gen, rSame);
+      }
       ['knowledge-bases', 'mcp-sources'].forEach(function (name) {
         if (storeTried[name] === gen) return;
         storeTried[name] = gen;
@@ -724,6 +754,10 @@
       toggle: toggle,
       render: function (next) {
         view = next || null;
+        // Leaving a chat, a pending chat or another chat drops the join metadata.
+        if (!view || !view.sessionId || view.sessionId !== sessionMeta.session) {
+          sessionMeta = { session: null, meta: null };
+        }
         apply();
       },
       setActive: function (on) {
@@ -731,6 +765,8 @@
         apply();
       },
       refreshNotes: refreshNotes,
+      refreshRoutines: refreshRoutines,
+      setSessionMetadata: setSessionMetadata,
       destroy: destroy
     };
   }

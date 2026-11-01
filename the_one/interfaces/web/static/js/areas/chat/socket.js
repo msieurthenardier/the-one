@@ -265,7 +265,9 @@
           }
           ctx.send.updateStopControl();
           ctx.showChrome();
+          agentDrawer.setSessionMetadata(joinedId, data.session_metadata);
           agentDrawer.refreshNotes();
+          agentDrawer.refreshRoutines();
           // F7 L04 eager-resolve: fetch the agent's max_context_tokens BEFORE the first user
           // message so the readout's `max:` field shows the real value (not 0). Closes F6.5
           // debrief AI #5. Fire-and-forget; a failure (400, a misconfigured provider) leaves

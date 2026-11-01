@@ -301,7 +301,7 @@ async def reconcile_on_startup(
     - Rewrites ``config._cache.tools`` from ``surface.list_surface_tools()``
       (LD6) so a row enabled before a catalog change (e.g. this leg's two
       new write tools) picks them up on the next start, and the operator's
-      per-tool checkboxes on the MCPs tab show them.
+      per-tool checkboxes on the Tools tab show them.
     - Renames a legacy-template row (``"self-configuration (<agent>)"``,
       Leg 2's template) to the constant :data:`SURFACE_ROW_NAME` (LD7), and
       migrates the owner's ``mcp_overrides[old_name]`` entry to the new key

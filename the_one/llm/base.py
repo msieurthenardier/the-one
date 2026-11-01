@@ -214,6 +214,16 @@ class Message:
     # resolved but name not yet cached). Meaningful only on Role.USER
     # messages; assistant/tool messages leave it at the default.
     channel_name: str | None = None
+    # M33 F1 L3: routine marker. USER-only: set on the typed message of a
+    # routine run (the routine's id and display name). Stored and shown in UI
+    # events; never sent to a provider (each converter builds its payload from
+    # a whitelist). Absent in legacy rows (None).
+    routine_id: str | None = None
+    routine_name: str | None = None
+    # M33 F2 L3 (DD7): the routine's untrusted sources AS THEY WERE when this run was
+    # posted (a snapshot; ``[]`` = unflagged, ``None`` = not a routine turn or a legacy
+    # marker). USER-only; stored; never sent to a provider and not spread into UI events.
+    routine_untrusted_sources: list[str] | None = None
     # Fix: message-timestamp-on-replay. Per-message creation timestamp (ISO
     # 8601, UTC) so historical USER/ASSISTANT turns can render a "You ·
     # HH:MM UTC" / "<agent> · HH:MM UTC" attribution on session replay —
@@ -281,6 +291,8 @@ class Message:
         channel_id: str | None = None,
         channel_name: str | None = None,
         created_at: str | None = None,
+        routine_id: str | None = None,
+        routine_name: str | None = None,
     ) -> Message:
         return cls(
             role=Role.USER,
@@ -289,6 +301,8 @@ class Message:
             peer_name=peer_name,
             channel_id=channel_id,
             channel_name=channel_name,
+            routine_id=routine_id,
+            routine_name=routine_name,
             created_at=created_at if created_at is not None else _utcnow_iso(),
         )
 

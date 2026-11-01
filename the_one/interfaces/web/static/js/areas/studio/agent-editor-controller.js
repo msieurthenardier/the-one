@@ -117,114 +117,17 @@
     // (a self-configuration refresh landing in between is left to the Save).
     var saveInFlight = false;
 
-    // ── Self-configuration refresh (M31 F2 L10a, DD9-3) ──────────────
-    // The loopback source row's name: a constant of the server (the row each
-    // agent's own surface uses; self_configuration/manage.py SURFACE_ROW_NAME).
-    var SELF_CONFIG_SOURCE_NAME = 'self-configuration';
-
-    function parseSnapshot_() {
-      try { return JSON.parse(state.snapshot); } catch (e) { return null; }
-    }
-
-    function idsOf_(list) { return Array.isArray(list) ? list : []; }
-
-    // Re-derive the stored-value note: a field leaves it once the operator makes it
-    // equal to the (rebased) baseline again. Runs on every input.
-    function recheckStoredNote_() {
-      var d = currentData_();
-      if (!d || !d.noteFields || d.noteFields.length === 0 || !d.handle) return;
-      var base = parseSnapshot_();
-      var cur = null;
-      try { cur = JSON.parse(getFormSnapshot()); } catch (e) { cur = null; }
-      if (!base || !cur) return;
-      var still = d.noteFields.filter(function (f) { return cur[f] !== base[f]; });
-      if (still.length === d.noteFields.length) return;
-      d.noteFields = still;
-      d.handle.general.setStoredChangeNote(still.length ? still : null);
-    }
-
-    // Move a dirty baseline along with a self-configuration change, key by key, so
-    // the unsaved edits stay the only difference: description / system_prompt take
-    // their new stored value, mcp_source_ids gains or loses the surface id (kept in
-    // the form's DOM order) and mcp_overrides follows the surface source's entry.
-    function rebaseBaseline_(prev, updated) {
-      var base = parseSnapshot_();
-      if (!base) { state.snapshot = getFormSnapshot(); return; }
-      var cur = JSON.parse(getFormSnapshot());
-      ['description', 'system_prompt'].forEach(function (k) {
-        if (typeof updated[k] === 'string' && k in base) base[k] = updated[k];
-      });
-      var before = idsOf_(prev && prev.mcp_source_ids);
-      var after = idsOf_(updated.mcp_source_ids);
-      var added = after.filter(function (id) { return before.indexOf(id) === -1; });
-      var removed = before.filter(function (id) { return after.indexOf(id) === -1; });
-      if ((added.length || removed.length) && Array.isArray(base.mcp_source_ids)) {
-        var baseIds = base.mcp_source_ids.filter(function (id) { return removed.indexOf(id) === -1; });
-        var next = [];
-        idsOf_(cur.mcp_source_ids).forEach(function (id) {
-          if (baseIds.indexOf(id) !== -1 || added.indexOf(id) !== -1) next.push(id);
-        });
-        baseIds.forEach(function (id) { if (next.indexOf(id) === -1) next.push(id); });
-        base.mcp_source_ids = next;
-      }
-      if (added.length || removed.length) {
-        var baseOv = base.mcp_overrides || {};
-        var curOv = cur.mcp_overrides || {};
-        var nextOv = {};
-        Object.keys(curOv).forEach(function (k) {
-          if (k === SELF_CONFIG_SOURCE_NAME) nextOv[k] = curOv[k];
-          else if (k in baseOv) nextOv[k] = baseOv[k];
-        });
-        Object.keys(baseOv).forEach(function (k) {
-          if (k !== SELF_CONFIG_SOURCE_NAME && !(k in nextOv)) nextOv[k] = baseOv[k];
-        });
-        base.mcp_overrides = Object.keys(nextOv).length > 0 ? nextOv : null;
-      }
-      state.snapshot = JSON.stringify(base);
-    }
-
-    // A self-configuration write (enable, disable, approval mode, approve, override,
-    // dismiss, restore) changed the stored agent outside the Save flow. agent-data
-    // has already replaced the list row and refreshed the MCP sources cache. The
-    // open editor is patched in place, never rebuilt, so unsaved edits survive; it
-    // never calls doSelect / patch / General.setAgent / MCPs.setAgent and never
-    // touches selectSeq, state.dirty or _selectedAgentLoaded.
-    function onSelfConfigChanged(updated) {
-      var prev = self._selectedAgent;
-      var sameAgent = !!prev && prev.name === updated.name;
-      var d = currentData_();
-      var live = self._activeSection === 'agents' && !!d && !!d.handle &&
-        d.key === 'edit:' + updated.name && !saveInFlight && sameAgent;
-      if (sameAgent) self._selectedAgent = updated;
-      ctx.list().render();
-      if (!live) return;
-
-      var wasClean = getFormSnapshot() === state.snapshot;
-      var h = d.handle;
-      var baseline = parseSnapshot_();
-
-      var conflicts = h.general.applyStored(
-        { description: updated.description, system_prompt: updated.system_prompt }, baseline);
-      if ((prev.description || '') !== (updated.description || '')) {
-        h.shell.setSubtitle(updated.description || '');
-      }
-      h.mcps.setSources(self._allMcpSources, updated.name);
-      h.selfConfig.setAgent(updated);
-
-      if (wasClean) {
-        state.snapshot = getFormSnapshot();
-        d.noteFields = null;
-        h.general.setStoredChangeNote(null);
-      } else {
-        rebaseBaseline_(prev, updated);
-        // Fields already noted stay noted until the operator makes them clean.
-        var noted = (d.noteFields || []).slice();
-        conflicts.forEach(function (f) { if (noted.indexOf(f) === -1) noted.push(f); });
-        d.noteFields = noted.length ? noted : null;
-        h.general.setStoredChangeNote(d.noteFields);
-      }
-      checkDirty();
-    }
+    var selfConfig_ = App.studio.agentEditorSelfConfig.create({
+      self: self,
+      state: state,
+      getFormSnapshot: getFormSnapshot,
+      checkDirty: checkDirty,
+      currentData: currentData_,
+      saveInFlight: function () { return saveInFlight; },
+      list: function () { return ctx.list(); }
+    });
+    var recheckStoredNote_ = selfConfig_.recheckStoredNote;
+    var onSelfConfigChanged = selfConfig_.onSelfConfigChanged;
 
     function wire_(data, isCreate, agent) {
       data.wireGen += 1;
@@ -315,7 +218,7 @@
         // selectAgent / doSelect / doEnterCreateMode above).
         allKnowledgeBases: self._allKnowledgeBases,
         knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
-        // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
+        // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: agentData.fetchMcpSourceTools,
         // The studio owns the source focus (hydrate applies the URL's value to
@@ -340,6 +243,22 @@
         updateNote: agentData.updateNote,
         deleteNote: agentData.deleteNote,
         clearNotes: agentData.clearNotes,
+        // M33 F1 L8 -- Routines tab network calls.
+        fetchRoutines: agentData.fetchRoutines,
+        createRoutine: agentData.createRoutine,
+        updateRoutine: agentData.updateRoutine,
+        deleteRoutine: agentData.deleteRoutine,
+        runRoutine: agentData.runRoutine,
+        fetchRoutineRuns: agentData.fetchRoutineRuns,
+        fetchRoutinesItem: agentData.fetchRoutinesItem,
+        putRoutinesItem: agentData.putRoutinesItem,
+        fetchRoutineProposals: agentData.fetchRoutineProposals,
+        approveRoutineProposal: agentData.approveRoutineProposal,
+        dismissRoutineProposal: agentData.dismissRoutineProposal,
+        openRoutineForm: function (req) {
+          var f = App.studio.routinesForm;
+          return f && f.open ? f.open(req) : Promise.resolve(null);
+        },
         // M21 F01 L02 — Self-configuration tab network calls.
         fetchSelfConfigurationStatus: agentData.fetchSelfConfigurationStatus,
         onEnableSelfConfiguration: agentData.enableSelfConfiguration,
@@ -368,6 +287,21 @@
       }
     }
 
+    // Named hooks (M33 F1 L8): the Routines tab polls only while it is the shown tab. Both
+    // are null-safe and idempotent (the tab guards its own state).
+    function activateSelfConfig() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.selfConfig && d.handle.selfConfig.activate) d.handle.selfConfig.activate();
+    }
+    function activateRoutines() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.routines && d.handle.routines.activate) d.handle.routines.activate();
+    }
+    function deactivateRoutines() {
+      var d = currentData_();
+      if (d && d.handle && d.handle.routines && d.handle.routines.deactivate) d.handle.routines.deactivate();
+    }
+
     // setActiveTab — analogous to setActiveSection. Updates _activeTab,
     // calls the tab handle's activate (which swaps panel visibility +
     // aria-selected + roving tabindex), writes URL via _writeUrl unless
@@ -375,16 +309,21 @@
     function setActiveTab(tab, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false;
-      // F8 L3: clear per-source selection when leaving the MCPs tab so the
+      // F8 L3: clear per-source selection when leaving the Tools tab so the
       // URL doesn't carry a stale /{source-id} when switching to another tab.
-      if (tab !== 'mcps') {
+      if (tab !== 'tools') {
         self._selectedMcpAgentSourceId = null;
         self._pendingMcpAgentSourceId = null;
       }
+      var prevTab = self._activeTab;
+      var leftRoutines = self._activeTab === 'routines' && tab !== 'routines';
       var leftSelfConfig = self._activeTab === 'self-configuration' && tab !== 'self-configuration';
       self._activeTab = tab;
       // Leaving the Self-configuration tab clears a copy-once token still showing.
       if (leftSelfConfig) deactivateSelfConfig();
+      if (leftRoutines) deactivateRoutines();
+      if (tab === 'routines') activateRoutines();
+      if (tab === 'self-configuration' && self._activeTab !== prevTab) activateSelfConfig();
       if (state.tabHandle && state.tabHandle.selected() !== tab) {
         state.tabHandle.select(tab);
       }
@@ -457,7 +396,7 @@
     }
 
     // Purge chat history (M13 F2 leg 02). Mirrors handleDeleteEditor's
-    // arm-then-fire (the danger zone's second action), but DELETEs the agent's chat
+    // arm-then-fire (the danger zone's first row since M33 F4), but DELETEs the agent's chat
     // SESSIONS (not the agent) and KEEPS the agent selected — no
     // loadAll()/selectAgent/renderEmptyEditor. On success the deleted count is
     // flashed in place; on transport failure the armed button reverts and an
@@ -475,7 +414,10 @@
           var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
           // The agent's sessions are gone (M25 F4 L1, DD4).
           App.store.invalidate('sessions');
-          App.ui.flash('Purged ' + n + ' conversation' + (n === 1 ? '' : 's'));
+          // The confirm helper leaves the button armed after a commit: return it to "Purge now"
+          // (the agent stays selected, so the same button is used again).
+          revertFn();
+          App.ui.flash('Deleted ' + n + ' chat' + (n === 1 ? '' : 's') + ' and their history.');
         })
         .catch(function (err) {
           revertFn();
@@ -733,6 +675,9 @@
       renderEditor: renderEditor,
       setActiveTab: setActiveTab,
       deactivateSelfConfig: deactivateSelfConfig,
+      activateSelfConfig: activateSelfConfig,
+      activateRoutines: activateRoutines,
+      deactivateRoutines: deactivateRoutines,
       destroyEditor: destroyEditor,
       onSelfConfigChanged: onSelfConfigChanged,
       shell: shell

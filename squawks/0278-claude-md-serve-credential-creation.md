@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-28
 **Completed**: —
+**Related**: 0195: the same gap logged twice (`serve` never creates the credential file, CLAUDE.md says it does); complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 The behavior-test credential section of CLAUDE.md says that when `<data_dir>/api-credential` is missing you should "start the instance first (it creates the file on first launch)". That is wrong for `the-one serve`, which every behavior test uses. On a fresh scratch data dir no file appears, and every authenticated request gets a 401. Both Executors in the M31 F6 HAT-close spec runs hit this and recovered by running `rotate-api-credential` themselves (run logs `tests/behavior/agent-step-limit-notice/runs/2026-10-28-14-36-06.md` and `tests/behavior/mcp-sensitive-headers-round-trip/runs/2026-10-28-14-36-06.md`, Orchestrator Notes). Fix the instruction so the next run does not start with a 401.

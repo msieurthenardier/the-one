@@ -260,8 +260,9 @@ class SQLiteAgentStore:
                     chat_history_retention_days,
                     self_revision_requires_approval,
                     notes_enabled,
+                    routines_require_approval,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     description=excluded.description,
                     provider_config_id=excluded.provider_config_id,
@@ -295,6 +296,7 @@ class SQLiteAgentStore:
                     config.chat_history_retention_days,
                     int(config.self_revision_requires_approval),
                     int(config.notes_enabled),
+                    int(config.routines_require_approval),
                     now,
                     now,
                 ),
@@ -331,6 +333,35 @@ class SQLiteAgentStore:
             await self.conn.execute(
                 "UPDATE agents SET notes_enabled = ?, updated_at = ? WHERE name = ?",
                 (int(value), now_iso(), name),
+            )
+
+    async def set_routines_self_config(
+        self,
+        name: str,
+        *,
+        enabled: bool | None = None,
+        requires_approval: bool | None = None,
+    ) -> None:
+        """Targeted UPDATE of the operator-owned Routines switches (M33 F2, DD5).
+
+        Sets only the fields given. Raises ``KeyError`` if no agent exists at ``name``.
+        """
+        if not await self.exists(name):
+            raise KeyError(f"Agent config not found: {name}")
+        sets: list[str] = []
+        params: list[Any] = []
+        if enabled is not None:
+            sets.append("routines_self_config_enabled = ?")
+            params.append(int(enabled))
+        if requires_approval is not None:
+            sets.append("routines_require_approval = ?")
+            params.append(int(requires_approval))
+        if not sets:
+            return
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                f"UPDATE agents SET {', '.join(sets)}, updated_at = ? WHERE name = ?",
+                (*params, now_iso(), name),
             )
 
     async def compare_and_set_field(
@@ -486,6 +517,8 @@ class SQLiteAgentStore:
             # M27 F2: the notes switch (v43 `NOT NULL DEFAULT 0`). The counter
             # `notes_next_number` is deliberately never read here.
             notes_enabled=bool(row["notes_enabled"]),
+            routines_self_config_enabled=bool(row["routines_self_config_enabled"]),
+            routines_require_approval=bool(row["routines_require_approval"]),
         )
 
 
@@ -2768,6 +2801,20 @@ class ChatSessionRepository:
                 (now_iso(), session_id),
             )
         notify_sessions_changed()
+
+    async def existing_ids(self, ids: Iterable[str]) -> set[str]:
+        """Which of *ids* are chat sessions that still exist (one ``IN`` query)."""
+        wanted = list(dict.fromkeys(i for i in ids if i))
+        found: set[str] = set()
+        # SQLite caps bound variables; page the query well under the old 999 limit.
+        for start in range(0, len(wanted), 500):
+            chunk = wanted[start : start + 500]
+            marks = ", ".join("?" for _ in chunk)
+            async with self.conn.execute(
+                f"SELECT id FROM chat_sessions WHERE id IN ({marks})", chunk
+            ) as cur:
+                found.update(row[0] for row in await cur.fetchall())
+        return found
 
     async def update_last_inbound(self, session_id: str, when: str) -> None:
         """Bump the connector-driven activity timestamps for a session.

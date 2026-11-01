@@ -39,6 +39,7 @@ from the_one.connectors.base import (
     PeerTarget,
     keying_to_target,
 )
+from the_one.connectors.delivery import authorized_agent_for
 from the_one.tools.base import Tool
 
 SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
@@ -168,13 +169,12 @@ class SendToPlatformChannelTool(Tool):
             return f"[error] [constraint] connector_id {connector_id!r} not found"
 
         if channel_id is not None:
-            channel_map = connector.config.get("channel_map") or {}
-            authorized_agent = channel_map.get(channel_id) or connector.config.get("default_agent")
+            authorized_agent = authorized_agent_for(connector, channel_id=channel_id)
             send_target: Any = ChannelTarget(
                 connector_id=connector_id, channel_id=channel_id, thread_id=thread_id
             )
         else:
-            authorized_agent = connector.config.get("default_agent")
+            authorized_agent = authorized_agent_for(connector, channel_id=None)
             allowlist_peers = (connector.config.get("allowlist") or {}).get("peers") or []
             if peer_id not in allowlist_peers:
                 return f"[error] [constraint] peer_id {peer_id!r} is not on the allowlist"

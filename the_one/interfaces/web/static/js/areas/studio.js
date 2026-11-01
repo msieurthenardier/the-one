@@ -39,7 +39,7 @@ App.registerArea({
     // Squawk 0080 — explicit load-success flag for `_allMcpSources`: true
     // once ANY fetch of the list has succeeded, never reset by a later
     // failure (a failed refresh keeps the last good cache, which is what the
-    // MCPs tab then renders). While false the tab shows zero rows, so
+    // Tools tab then renders). While false the tab shows zero rows, so
     // `collectFormData` must not read "no checked toggles" as "detach all".
     self._mcpSourcesLoaded = false;
     self._allKnowledgeBases = [];
@@ -68,7 +68,7 @@ App.registerArea({
     self._createMode = false;
     self._activeSection = self._activeSection || 'agents';
     self._activeTab = self._activeTab || 'general';
-    // F8 L3 Patch C — selected source-id within the agent MCPs tab.
+    // F8 L3 Patch C — selected source-id within the agent Tools tab.
     // Written by renderMcpsTab when a chip is clicked or a deep-link hydrates.
     // Read by serializeState to append /{source-id} to the URL.
     self._selectedMcpAgentSourceId = null;
@@ -260,6 +260,9 @@ App.registerArea({
     });
     self._setActiveTab = controller.setActiveTab;
     self._deactivateSelfConfig = controller.deactivateSelfConfig;
+    self._activateSelfConfig = controller.activateSelfConfig;
+    self._activateRoutines = controller.activateRoutines;
+    self._deactivateRoutines = controller.deactivateRoutines;
 
     // The Library list column (M25 F3 L4a, DD5; moved to libraryPane in M31 F2
     // L02b): the pane, its caches' sync, the gated fill, the selection rule and
@@ -726,6 +729,12 @@ App.registerArea({
 
   activate: function () {
     if (this._refresh) this._refresh();
+    // The Routines tab stopped polling when the area was left; resume if it is still shown.
+    if (this._activeTab === 'routines' && this._activateRoutines) this._activateRoutines();
+    // The Self-configuration queues are refetched on a return to the area too (F-E3-1).
+    if (this._activeTab === 'self-configuration' && this._activateSelfConfig) {
+      this._activateSelfConfig();
+    }
   },
   // Flight 6 leg 1 (L1-D2 site 2): app.js's mountArea calls
   // this on EVERY cross-area transition. Without it, opening a Knowledge
@@ -739,6 +748,8 @@ App.registerArea({
     // The Self-configuration tab's copy-once token never outlives the area being
     // shown (M31 F2 L10c).
     if (this._deactivateSelfConfig) this._deactivateSelfConfig();
+    // M33 F1 L8: the Routines tab's poll never outlives the area being shown.
+    if (this._deactivateRoutines) this._deactivateRoutines();
     // M31 F3 L05a: leaving the area destroys the knowledge editor (create or
     // detail) and stops its poll, so a return is a fresh mount, as before.
     if (this._resetKnowledge) this._resetKnowledge();

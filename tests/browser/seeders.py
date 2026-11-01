@@ -394,6 +394,7 @@ def seed_session(
     created_at: str | datetime | None = None,
     platform: str | None = None,
     messages: list | str | None = None,
+    session_metadata: dict | None = None,
 ) -> str:
     """POST a chat session via /api/chat/sessions and return its id.
 
@@ -403,7 +404,8 @@ def seed_session(
     session (``platform``, e.g. ``"discord"``; None is a web session).
     ``messages`` is the stored history: a list (JSON-encoded here) or an
     already-encoded string, as ``the_one.db.codec.encode_messages`` returns;
-    omitted, the session is empty. The server allocates the id.
+    omitted, the session is empty. ``session_metadata`` is stored as given (a routine
+    chat's ``{"routine": {...}}``). The server allocates the id.
     """
     body: dict = {
         "agent_name": agent_name,
@@ -414,6 +416,8 @@ def seed_session(
     }
     if messages is not None:
         body["messages"] = messages if isinstance(messages, str) else json.dumps(messages)
+    if session_metadata is not None:
+        body["session_metadata"] = session_metadata
     r = httpx.post(
         f"{base_url}/api/chat/sessions",
         json=body,
@@ -501,3 +505,133 @@ def seed_note(
     finally:
         conn.close()
     return note_id
+
+
+def canonical_schedule(
+    time: str = "09:00",
+    *,
+    repeat: dict | None = "daily",  # type: ignore[assignment]
+    date: str = "2026-01-01",
+    ends: dict | None = None,
+) -> dict:
+    """A stored (canonical, DD1) routine schedule. ``repeat`` is ``"daily"`` (every day),
+    ``"weekdays"`` (every week on Monday-Friday), a repeat dict, or ``None`` (a one-off)."""
+    if repeat == "daily":
+        repeat = {"every": 1, "unit": "day"}
+    elif repeat == "weekdays":
+        repeat = {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
+    return {
+        "start": {"date": date, "time": time},
+        "repeat": repeat,
+        "ends": ends or {"kind": "never"},
+    }
+
+
+def seed_routine_proposal(
+    data_dir,
+    agent_name: str,
+    action: str,
+    payload: dict,
+    *,
+    routine_name: str,
+    created_at: str,
+    base: dict | None = None,
+    status: str = "pending",
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    routine_id: str | None = None,
+    resolved_at: str | None = None,
+) -> str:
+    """INSERT one ``agent_routine_proposals`` row by sync sqlite3 (M33 F2 L5).
+
+    No REST route creates a proposal (only the agent's tools do), so a browser test that needs
+    a pending, stale or resolved one seeds it, the way ``seed_note`` seeds a note. ``payload``
+    is the validated REST request shape (a canonical ``schedule`` plus ``anchor_at``, null for a
+    wall-clock schedule); ``base`` the raw stored fields (``name``, ``prompt``, ``schedule``,
+    ``anchor_at``, ``enabled``, ``finished_at``).
+    Timestamps are fixed ISO strings the test passes. Returns the proposal id.
+    """
+    import sqlite3
+    import uuid
+
+    proposal_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name,"
+            " action, payload, base, status, untrusted, untrusted_sources, session_id,"
+            " created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                proposal_id,
+                agent_name,
+                routine_id,
+                routine_name,
+                action,
+                json.dumps(payload, sort_keys=True),
+                json.dumps(base, sort_keys=True) if base is not None else None,
+                status,
+                1 if untrusted else 0,
+                json.dumps(sources) if sources else None,
+                None,
+                created_at,
+                resolved_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return proposal_id
+
+
+def seed_agent_routine(
+    data_dir,
+    agent_name: str,
+    name: str,
+    *,
+    prompt: str = "Say hello.",
+    schedule: dict | None = None,
+    anchor_at: str | None = None,
+    created_by: str = "agent",
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    created_at: str = "2026-01-01T10:00:00+00:00",
+    finished_at: str | None = None,
+) -> str:
+    """INSERT one ``agent_routines`` row by sync sqlite3 (M33 F2 L5).
+
+    REST cannot set ``created_by='agent'``, the untrusted flag or a finished one-off, so a
+    browser test that needs an agent-made, flagged or Done routine seeds it. The next run is
+    far in the future (none for a finished one) so the scheduler never fires it. Returns the
+    routine id.
+    """
+    import sqlite3
+    import uuid
+
+    routine_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
+            " next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources, finished_at)"
+            " VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                routine_id,
+                agent_name,
+                name,
+                prompt,
+                json.dumps(schedule or canonical_schedule("09:00")),
+                None if finished_at else "2099-01-01T09:00:00+00:00",
+                anchor_at,
+                created_by,
+                created_at,
+                created_at,
+                1 if untrusted else 0,
+                json.dumps(sources) if sources else None,
+                finished_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return routine_id

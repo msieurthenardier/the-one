@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._routine_schedules import daily
 from tests._schema_template import connect_template_db
 from the_one import naming
 from the_one.db.models import MCPSource
@@ -31,6 +32,8 @@ CHECKED = {
     ("PUT", "/api/knowledge-bases/{kb_id}"),
     ("POST", "/api/mcp-sources"),
     ("PUT", "/api/mcp-sources/{source_id}"),
+    ("POST", "/api/agents/{name}/routines"),
+    ("PUT", "/api/agents/{name}/routines/{routine_id}"),
 }
 
 _SELF_CONFIG = "never sets a name: the surface row's name is a constant"
@@ -47,6 +50,11 @@ EXEMPT = {
         "/api/agents/{name}/self-configuration/external-credentials/{identifier}/rotate",
     ): _SELF_CONFIG,
     ("PUT", "/api/agents/{name}/self-configuration/approval-mode"): _TOOL_RULES,
+    (
+        "POST",
+        "/api/agents/{name}/routines/{routine_id}/run",
+    ): "acts on the routine in the path and never sets a name",
+    ("POST", "/api/agents/{name}/routines/preview"): "previews a schedule; writes nothing",
     ("POST", "/api/agents/{name}/rules"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/order"): _TOOL_RULES,
     ("PUT", "/api/agents/{name}/rules/{rule_id}"): _TOOL_RULES,
@@ -64,6 +72,15 @@ EXEMPT = {
         "POST",
         "/api/agents/{name}/self-configuration/revisions/{revision_id}/restore",
     ): "revision restore; writes a description or system prompt, never a name",
+    ("PUT", "/api/agents/{name}/self-configuration/routines"): "two Routines switches; no name",
+    (
+        "POST",
+        "/api/agents/{name}/self-configuration/routines/proposals/{proposal_id}/approve",
+    ): "proposal decision; the name comes from an already-validated proposal",
+    (
+        "POST",
+        "/api/agents/{name}/self-configuration/routines/proposals/{proposal_id}/dismiss",
+    ): "proposal decision; sets no name",
     ("POST", "/api/knowledge-bases/{kb_id}/items"): _ITEM,
     ("POST", "/api/knowledge-bases/{kb_id}/items/{item_id}/retry"): _ITEM,
     ("POST", "/api/knowledge-bases/{kb_id}/reindex"): _ITEM,
@@ -314,3 +331,34 @@ class TestAgentCreateAndRename:
         await SQLiteAgentStore(conn).save(AgentConfig(name="legacy.ok"))
         resp = await client.put("/api/agents/legacy.ok", json={"description": "edited"})
         assert resp.status_code == 200
+
+
+class TestRoutineNames:
+    """M33 F1: routine names go through ``check_name`` on POST and PUT."""
+
+    _BODY = {
+        "prompt": "p",
+        "schedule": daily("09:00"),
+    }
+
+    async def _agent(self, client) -> None:
+        assert (await client.post("/api/agents", json={"name": "ag"})).status_code == 201
+
+    @pytest.mark.parametrize(("name", "msg"), [("a/b", naming.SEPARATOR), ("", naming.EMPTY)])
+    async def test_create_refuses(self, client, name, msg) -> None:
+        await self._agent(client)
+        resp = await client.post("/api/agents/ag/routines", json={**self._BODY, "name": name})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == _rule(msg)
+        assert (await client.get("/api/agents/ag/routines")).json()["routines"] == []
+
+    @pytest.mark.parametrize(("name", "msg"), [("a/b", naming.SEPARATOR), ("", naming.EMPTY)])
+    async def test_put_refuses(self, client, name, msg) -> None:
+        await self._agent(client)
+        made = await client.post("/api/agents/ag/routines", json={**self._BODY, "name": "ok"})
+        rid = made.json()["id"]
+        resp = await client.put(f"/api/agents/ag/routines/{rid}", json={"name": name})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == _rule(msg)
+        got = await client.get(f"/api/agents/ag/routines/{rid}")
+        assert got.json()["name"] == "ok"

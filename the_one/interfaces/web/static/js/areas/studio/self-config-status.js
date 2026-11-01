@@ -1,9 +1,11 @@
 // App.studio.selfConfigStatus — the Self-configuration tab's frame and status
-// logic: the action-status focus target, the enable and approval-mode switches and
-// their status lines, the status and revisions refetches, and the handle's
-// setAgent / destroy (M31 F2 L10b: split out of self-configuration-tab.js, a pure
-// restructure). `build(ctx)` appends the first three sections to `ctx.panel` (the
-// entry builds the queue, history and external sections after it) and publishes
+// logic: the action-status focus target, the page eyebrow with the Agent prompt card
+// (M33 F4 L06: `ctx.cardsHost`, `ctx.cards.prompt`; the card holds the enable and
+// approval-mode switches and their status lines), the status and revisions refetches,
+// and the handle's setAgent / destroy (M31 F2 L10b: split out of
+// self-configuration-tab.js). `build(ctx)` appends the action status and the eyebrow
+// section to `ctx.panel` (the entry builds the queue and history bodies, the Routines
+// card and the External access section after it) and publishes
 // `ctx.announce`, `ctx.refetchStatus`, `ctx.refetchRevisions`, `ctx.setAgent` and
 // `ctx.destroy`. Per-mount state (`agent`, `destroyed`, the sequence counters,
 // `approvalReady`) lives on `ctx`, never at module level; the cross-module renderers
@@ -28,83 +30,79 @@
     actionStatus.tabIndex = -1;
     panel.appendChild(actionStatus);
 
+    // The page eyebrow ("What this agent can change") holds the two item cards; the External
+    // access section follows it at the bottom of the tab (M33 F4 L06, mockup SC2).
+    var page = App.ui.section({
+      title: 'What this agent can change',
+      titleTag: 'h2',
+      className: 'self-config-items-section'
+    });
+    panel.appendChild(page.el);
+    ctx.cardsHost = page.body;
+    ctx.cards = {};
+
+    // The Agent prompt card: the enable switch, title, "Require approval" switch and the
+    // one-line description; its two expanders are filled by the revisions and history modules.
+    var card = window.App.studio.selfConfigCard.create({
+      key: 'prompt',
+      title: 'Agent prompt',
+      description: 'Edit its own description and system prompt.',
+      enableLabel: 'Let this agent edit its description and system prompt',
+      approvalLabel: 'Require approval for prompt edits'
+    });
+    // The card sets no test ids (the registry guard reads literals): this item's own.
+    card.el.setAttribute('data-testid', 'self-config-card-prompt');
+    card.enable.control.setAttribute('data-testid', 'self-configuration-toggle-btn');
+    card.approval.control.setAttribute('data-testid', 'approval-mode-toggle-btn');
+    card.queue.details.el.setAttribute('data-testid', 'self-config-prompt-waiting');
+    card.queue.details.summary.setAttribute('data-testid', 'self-config-prompt-waiting-summary');
+    card.queue.chip.setAttribute('data-testid', 'pending-count');
+    card.queue.zero.setAttribute('data-testid', 'pending-queue-empty');
+    card.history.details.el.setAttribute('data-testid', 'revision-history-details');
+    card.history.details.summary.setAttribute('data-testid', 'revision-history-details-summary');
+    ctx.cards.prompt = card;
+    page.body.appendChild(card.el);
+
     // Error and status lines are App.ui.status without an LED (the words alone, as
     // before); the class on the root keeps the tab's own size, ink and spacing.
-    var section = App.ui.section({ title: 'Self-configuration', titleTag: 'h3' });
-
-    var description = document.createElement('p');
-    description.className = 'self-configuration-description';
-    description.textContent = 'When enabled, this agent can read its own configuration ' +
-      'and revise its own description and system prompt through a dedicated MCP source. ' +
-      'The operator’s per-tool controls on the MCPs tab still govern which capabilities ' +
-      'the agent can actually use.';
-    section.body.appendChild(description);
-
     var statusLine = App.ui.status({
-      state: 'idle', text: 'Loading…', led: false, testid: 'self-configuration-status'
+      state: 'idle', text: 'Loading…', led: false, live: 'off', testid: 'self-configuration-status'
     });
     statusLine.el.classList.add('self-configuration-status');
-    section.body.appendChild(statusLine.el);
+    // The switch shows the state; the words stay for assistive technology, not as static text.
+    statusLine.el.classList.add('visually-hidden');
+    card.statusHost.appendChild(statusLine.el);
 
     var errorLine = App.ui.status({
       state: 'danger', led: false, role: 'alert', testid: 'self-configuration-error'
     });
     errorLine.el.classList.add('self-configuration-error');
     errorLine.el.hidden = true;
-    section.body.appendChild(errorLine.el);
+    card.statusHost.appendChild(errorLine.el);
 
-    // Enable/disable is a 2-state immediate-post control: an App.ui.toggle (a
-    // switch), its label beside it. The testid is on the native input, which stays the
-    // interactive control; it is inert until the status resolves.
-    var toggleCtl = App.ui.toggle({
-      label: 'Enable self-configuration',
-      testid: 'self-configuration-toggle-btn',
-      disabled: true
-    });
-    toggleCtl.el.classList.add('self-configuration-toggle-switch');
+    // Enable/disable is a 2-state immediate-post control: the card's switch (an App.ui.toggle).
+    // The testid is on the native input, which stays the interactive control; it is inert until
+    // the status resolves.
+    var toggleCtl = card.enable;
     var toggleInput = toggleCtl.control;
-    section.body.appendChild(toggleCtl.el);
-
-    panel.appendChild(section.el);
-
-    // ── M21 F02 L02 — approval-mode section ─────────────────────────────
-    var approvalSection = App.ui.section({
-      title: 'Approval mode',
-      titleTag: 'h3',
-      className: 'self-configuration-approval-section'
-    });
-
-    var approvalDesc = document.createElement('p');
-    approvalDesc.className = 'self-configuration-description';
-    approvalDesc.textContent = 'When approval mode is on, a revision this agent proposes to ' +
-      'its own description or system prompt is held for your review instead of taking effect. ' +
-      'You approve or dismiss each proposal below.';
-    approvalSection.body.appendChild(approvalDesc);
 
     var approvalStatus = App.ui.status({
-      state: 'idle', text: 'Loading…', led: false, testid: 'approval-mode-status'
+      state: 'idle', text: 'Loading…', led: false, live: 'off', testid: 'approval-mode-status'
     });
     approvalStatus.el.classList.add('self-configuration-status');
-    approvalSection.body.appendChild(approvalStatus.el);
+    approvalStatus.el.classList.add('visually-hidden');
+    card.statusHost.appendChild(approvalStatus.el);
 
     var approvalError = App.ui.status({
       state: 'danger', led: false, role: 'alert', testid: 'approval-mode-error'
     });
     approvalError.el.classList.add('self-configuration-error');
     approvalError.el.hidden = true;
-    approvalSection.body.appendChild(approvalError.el);
+    card.statusHost.appendChild(approvalError.el);
 
     // Same switch treatment as the enable control above: 2-state, immediate-post.
-    var approvalCtl = App.ui.toggle({
-      label: 'Require approval for self-revisions',
-      testid: 'approval-mode-toggle-btn',
-      disabled: true
-    });
-    approvalCtl.el.classList.add('self-configuration-toggle-switch');
+    var approvalCtl = card.approval;
     var approvalInput = approvalCtl.control;
-    approvalSection.body.appendChild(approvalCtl.el);
-
-    panel.appendChild(approvalSection.el);
 
     function showError(line, message) {
       line.el.hidden = false;
@@ -153,6 +151,8 @@
           // revoked). The revisions are refetched too: disable supersedes the
           // pending ones.
           refetchStatus({ external: true, fallbackEnabled: nowEnabled });
+          // Disable supersedes the pending revisions: the count drops at once.
+          if (!nowEnabled) ctx.setWaitingCount('prompt', 0);
           refetchRevisions();
         }).catch(function (err) {
           showError(errorLine, 'Failed to ' + (enabled ? 'disable' : 'enable') +
@@ -246,7 +246,7 @@
         if (!live()) return;
         // Never leave an actionable card for a queue that cannot be confirmed.
         ctx.queueList.textContent = '';
-        ctx.setCountLine('Unable to load pending revisions.');
+        ctx.cards.prompt.queue.setUnavailable('unable to load pending revisions.');
         ctx.historyList.textContent = 'Unable to load revision history.';
       });
     }

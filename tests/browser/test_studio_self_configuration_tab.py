@@ -4,9 +4,9 @@ AC12).
 Covers:
   1. Off-by-default rendering (status line + Enable button).
   2. Enabling from the tab creates the surface row and makes it appear on
-     the MCPs tab with a locked (checked+disabled) attach toggle plus
+     the Tools tab with a locked (checked+disabled) attach toggle plus
      editable per-tool checkboxes.
-  3. Disabling from the tab removes the surface row from the MCPs tab.
+  3. Disabling from the tab removes the surface row from the Tools tab.
 """
 
 from __future__ import annotations
@@ -73,9 +73,9 @@ def test_enable_shows_locked_row_on_mcps_tab(app_clean: str, page: Page) -> None
     assert len(agent["mcp_source_ids"]) == 1
     source_id = agent["mcp_source_ids"][0]
 
-    # MCPs tab shows the row, locked checked+disabled.
-    page.locator('[data-testid="tab-mcps"]').click()
-    expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
+    # Tools tab shows the row, locked checked+disabled.
+    page.locator('[data-testid="tab-tools"]').click()
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
     row_toggle = page.locator(f'[data-testid="mcp-source-toggle-{source_id}"]')
@@ -101,8 +101,8 @@ def test_disable_removes_row_from_mcps_tab(app_clean: str, page: Page) -> None:
     expect(status).to_contain_text("disabled", timeout=8000)
     expect(toggle).not_to_be_checked()
 
-    page.locator('[data-testid="tab-mcps"]').click()
-    expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
+    page.locator('[data-testid="tab-tools"]').click()
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
     expect(page.locator('[data-testid="mcp-empty-state"]')).to_be_visible(timeout=8000)

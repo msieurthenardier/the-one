@@ -26,7 +26,14 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
-from browser._self_config import APPROVAL_SWITCH, click_switch
+from browser._self_config import (
+    APPROVAL_SWITCH,
+    ENABLE_SWITCH,
+    PROMPT_WAITING,
+    click_switch,
+    expander,
+    open_expander,
+)
 from playwright.sync_api import Page, expect
 
 
@@ -95,7 +102,11 @@ def test_pending_count_and_cards_render(app_with_data_dir: tuple[str, Path], pag
     _navigate_to_self_configuration_tab(page, base_url, "queue-count-agent")
 
     count = page.locator('[data-testid="pending-count"]')
-    expect(count).to_contain_text("2 revisions", timeout=8000)
+    expect(count).to_have_text("2", timeout=8000)
+    # Collapsed on arrival: the count is the cue, the cards are inside the expander.
+    expect(expander(page, PROMPT_WAITING)).not_to_have_attribute("open", "")
+    expect(page.locator('[data-testid="revision-card"]').first).to_be_hidden()
+    open_expander(page, PROMPT_WAITING)
     cards = page.locator('[data-testid="revision-card"]')
     expect(cards).to_have_count(2)
     # base→proposed visible on the clean path.
@@ -118,6 +129,7 @@ def test_clean_approve_applies_and_row_leaves_queue(
     )
     _navigate_to_self_configuration_tab(page, base_url, "queue-approve-agent")
 
+    open_expander(page, PROMPT_WAITING)
     expect(page.locator('[data-testid="revision-card"]')).to_have_count(1, timeout=8000)
     page.locator('[data-testid="revision-approve-btn"]').first.click()
 
@@ -146,6 +158,7 @@ def test_dismiss_removes_row(app_with_data_dir: tuple[str, Path], page: Page) ->
     )
     _navigate_to_self_configuration_tab(page, base_url, "queue-dismiss-agent")
 
+    open_expander(page, PROMPT_WAITING)
     expect(page.locator('[data-testid="revision-card"]')).to_have_count(1, timeout=8000)
     page.locator('[data-testid="revision-dismiss-btn"]').first.click()
 
@@ -177,6 +190,7 @@ def test_staleness_409_renders_both_values(app_with_data_dir: tuple[str, Path], 
     )
     _navigate_to_self_configuration_tab(page, base_url, "queue-stale-agent")
 
+    open_expander(page, PROMPT_WAITING)
     expect(page.locator('[data-testid="revision-card"]')).to_have_count(1, timeout=8000)
     page.locator('[data-testid="revision-approve-btn"]').first.click()
 
@@ -225,3 +239,85 @@ def test_approval_mode_toggle_persists(app_with_data_dir: tuple[str, Path], page
         headers=auth_headers_for(base_url),
     ).json()
     assert status["requires_approval"] is True
+
+
+@pytest.mark.browser
+def test_a_failed_approve_opens_a_collapsed_waiting_expander(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """A failure landing after the operator collapsed the expander opens it again (M33 F4 L06)."""
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-open-agent", description="current desc")
+    _seed_pending_revision(
+        data_dir,
+        agent_name="queue-open-agent",
+        field="description",
+        proposed_value="p",
+        base_value="current desc",
+    )
+    held: list = []
+    page.route("**/self-configuration/revisions/*/approve*", lambda route: held.append(route))
+    _navigate_to_self_configuration_tab(page, base_url, "queue-open-agent")
+    details = open_expander(page, PROMPT_WAITING)
+    page.locator('[data-testid="revision-approve-btn"]').first.click()
+    page.wait_for_timeout(300)
+    assert held, "the approve request was not held"
+    details.locator("> summary").click()
+    expect(details).not_to_have_attribute("open", "")
+    held[0].fulfill(status=500, body="boom")
+    expect(details).to_have_attribute("open", "")
+    expect(page.locator('[data-testid="revision-error"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_a_stale_answer_opens_a_collapsed_waiting_expander(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-stale-open-agent", description="CURRENT NOW")
+    _seed_pending_revision(
+        data_dir,
+        agent_name="queue-stale-open-agent",
+        field="description",
+        proposed_value="p",
+        base_value="STALE BASE",
+    )
+    held: list = []
+    page.route("**/self-configuration/revisions/*/approve*", lambda route: held.append(route))
+    _navigate_to_self_configuration_tab(page, base_url, "queue-stale-open-agent")
+    details = open_expander(page, PROMPT_WAITING)
+    page.locator('[data-testid="revision-approve-btn"]').first.click()
+    page.wait_for_timeout(300)
+    assert held
+    details.locator("> summary").click()
+    expect(details).not_to_have_attribute("open", "")
+    held[0].continue_()
+    expect(details).to_have_attribute("open", "")
+    expect(page.locator('[data-testid="revision-override-btn"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_disabling_the_item_drops_the_waiting_count_at_once(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-disable-agent", description="current desc")
+    httpx.post(
+        f"{base_url}/api/agents/queue-disable-agent/self-configuration",
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    ).raise_for_status()
+    _seed_pending_revision(
+        data_dir,
+        agent_name="queue-disable-agent",
+        field="description",
+        proposed_value="p",
+        base_value="current desc",
+    )
+    _navigate_to_self_configuration_tab(page, base_url, "queue-disable-agent")
+    expect(page.locator('[data-testid="pending-count"]')).to_have_text("1", timeout=8000)
+    click_switch(page, ENABLE_SWITCH)
+    expect(page.locator('[data-testid="pending-queue-empty"]')).to_have_text(
+        "Waiting for approval (0)", timeout=8000
+    )
+    expect(expander(page, PROMPT_WAITING)).to_be_hidden()

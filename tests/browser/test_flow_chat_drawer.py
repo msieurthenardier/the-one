@@ -29,6 +29,7 @@ from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     SeededApp,
     enable_notes,
+    seed_agent_routine,
     seed_knowledge_base,
     seed_mcp_source,
     seed_mock_agents,
@@ -36,6 +37,7 @@ from browser.seeders import (
     seed_session,
     seed_tool_config,
 )
+from browser.seeders import canonical_schedule as canon
 from playwright.sync_api import Page, expect
 
 from the_one.agent.config import AgentConfig
@@ -360,6 +362,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     assert labels == [
         "Rules",
         "Notes",
+        "Routines",
         "Knowledge bases",
         "MCP servers",
         "Built-in tools",
@@ -812,6 +815,29 @@ def test_notes_group_off_shows_kept_count_and_follows_rules(
     assert order[:2] == ["rules", "notes"], order
 
 
+def test_routines_group_shows_the_flag_on_a_flagged_routine(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
+    app, data_dir = notes_app
+    base, agent = app.base_url, app.agent_name
+    seed_agent_routine(
+        data_dir, agent, "planted", untrusted=True, sources=["web_fetch"], created_by="agent"
+    )
+    seed_agent_routine(data_dir, agent, "mine", created_by="operator")
+    _open_pending(page, base, agent, 1440, 900)
+    items = _group(page, "routines").locator('[data-testid="chat-drawer-routine-item"]')
+    expect(items).to_have_count(2, timeout=8000)
+    flag = items.filter(has_text="planted").locator('[data-testid="chat-drawer-routine-flag"]')
+    expect(flag).to_have_attribute(
+        "aria-label",
+        "Check this routine: it was written after content that didn't come from you "
+        "(web_fetch). It may have been planted.",
+    )
+    expect(
+        items.filter(has_text="mine").locator('[data-testid="chat-drawer-routine-flag"]')
+    ).to_have_count(0)
+
+
 def test_notes_group_lists_notes_with_origin_and_the_warning_flag(
     notes_app: tuple[SeededApp, Path], page: Page
 ) -> None:
@@ -1040,3 +1066,106 @@ def test_a_globally_disabled_current_time_has_no_time_line(
     expect(_group(page, "tools").locator("li").first).to_be_visible(timeout=8000)
     items = _group_items(page, "tools")
     assert not any(i.startswith("Time") for i in items), items
+
+
+def _mock_routine_provider(base: str, name: str, tool_calls: list[dict]) -> str:
+    r = httpx.post(
+        f"{base}/api/providers",
+        json={
+            "name": name,
+            "type": "mock",
+            "base_url": "",
+            "config": {"response": {"content": "Done.", "tool_calls": tool_calls}},
+        },
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _enable_routines(base: str, agent: str) -> None:
+    r = httpx.put(
+        f"{base}/api/agents/{agent}/self-configuration/routines",
+        json={"enabled": True},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["requires_approval"] is False  # the new-agent default (M33 F4 L5)
+
+
+def test_routines_group_refreshes_live_when_the_agent_schedules_a_routine(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base, _data_dir = app_with_data_dir
+    provider = _mock_routine_provider(
+        base,
+        "routines-live-provider",
+        [
+            {
+                "id": "c1",
+                "name": "schedule_routine",
+                "arguments": {
+                    "name": "Live brief",
+                    "prompt": "say hi",
+                    "schedule": canon("09:00"),
+                },
+            }
+        ],
+    )
+    agent = _agent(
+        base, {"name": "routines-live-agent", "provider_config_id": provider, "max_iterations": 2}
+    )
+    _enable_routines(base, agent)
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "routines")
+    expect(group).to_contain_text("None", timeout=8000)
+    _chats.send_first(page, "please schedule something")
+    # No reload: the live tool result re-fetched the group.
+    expect(group).to_contain_text("Live brief", timeout=15000)
+
+
+def test_routines_group_refresh_ignores_an_error_result(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base, _data_dir = app_with_data_dir
+    provider = _mock_routine_provider(base, "routines-err-provider", [])
+    agent = _agent(
+        base, {"name": "routines-err-agent", "provider_config_id": provider, "max_iterations": 2}
+    )
+    _enable_routines(base, agent)
+    _open_pending(page, base, agent, 1440, 900)
+    _chats.send_first(page, "hello")
+    group = _group(page, "routines")
+    expect(group).to_contain_text("None", timeout=8000)
+    seen: list[str] = []
+    page.on(
+        "request",
+        lambda req: seen.append(req.url) if req.url.endswith(f"/agents/{agent}/routines") else None,
+    )
+
+    def result(call_id: str, is_error: bool) -> None:
+        _chats.emit_frame(
+            page,
+            {
+                "type": "tool_call",
+                "name": "change_routine",
+                "arguments": {},
+                "tool_call_id": call_id,
+            },
+        )
+        _chats.emit_frame(
+            page,
+            {"type": "tool_result", "content": "x", "is_error": is_error, "tool_call_id": call_id},
+        )
+
+    result("e1", True)
+    page.wait_for_timeout(800)
+    assert seen == [], seen
+    result("ok1", False)  # positive control: the same frames without the error do refresh
+    for _ in range(40):
+        if seen:
+            break
+        page.wait_for_timeout(100)
+    assert len(seen) == 1, seen

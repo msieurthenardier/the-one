@@ -1,8 +1,8 @@
 // App.studio.selfConfigRevisions — the Self-configuration tab's pending-revision
 // queue: the cards, approve, dismiss, the stale panel and the override, plus the
 // pure diff helpers (M31 F2 L10b: split out of self-configuration-tab.js, a pure
-// restructure). `build(ctx)` appends the queue section to `ctx.panel` and publishes
-// `ctx.queueList`, `ctx.setCountLine` and `ctx.renderQueue`; it reads `ctx.agent` and
+// restructure). `build(ctx)` fills the Agent prompt card's "Waiting for approval" body
+// (M33 F4 L06) and publishes `ctx.queueList` and `ctx.renderQueue`; it reads `ctx.agent` and
 // the cross-module `ctx.announce` / `ctx.refetchRevisions` / `ctx.fieldName` at call
 // time.
 (function () {
@@ -71,36 +71,17 @@
   }
 
   function build(ctx) {
-    var panel = ctx.panel;
     var callbacks = ctx.callbacks;
 
     // ── M21 F02 L02 — pending revision queue ────────────────────────────
-    var queueSection = App.ui.section({
-      title: 'Pending revisions',
-      titleTag: 'h3',
-      className: 'self-configuration-queue-section'
-    });
-
-    var countStatus = App.ui.status({
-      state: 'idle', text: 'Loading…', led: false, testid: 'pending-count'
-    });
-    var countLine = countStatus.el;
-    countLine.classList.add('self-configuration-pending-count');
-    queueSection.body.appendChild(countLine);
-
-    // Shows `text` on the count line (the line stays visible when the queue cannot be
-    // confirmed).
-    function setCountLine(text) {
-      countLine.hidden = false;
-      countStatus.set('idle', text);
-    }
+    // The queue is the body of the Agent prompt card's "Waiting for approval" expander (M33 F4
+    // L06); its count chip and zero label are the card's.
+    var queueCard = ctx.cards.prompt.queue;
 
     var queueList = document.createElement('div');
     queueList.className = 'self-configuration-pending-queue';
     queueList.setAttribute('data-testid', 'pending-queue');
-    queueSection.body.appendChild(queueList);
-
-    panel.appendChild(queueSection.el);
+    queueCard.body.appendChild(queueList);
 
     // ── pending queue rendering ─────────────────────────────────────────
     function renderCard(revision) {
@@ -198,6 +179,8 @@
       }
 
       function showActionError(err) {
+        // A failure that lands after the operator collapsed the expander opens it again.
+        queueCard.open();
         actionError.hidden = false;
         errorStatus.set('danger', 'Action failed: ' +
           (err && err.message ? err.message : String(err)));
@@ -207,6 +190,7 @@
       function renderStale(detail) {
         // The row drifted since the agent proposed. Show what re-approving
         // would overwrite and require an explicit override confirm.
+        queueCard.open();
         stalePanel.hidden = false;
         stalePanel.textContent = '';
 
@@ -305,32 +289,15 @@
     function renderQueue(revisions) {
       queueList.textContent = '';
       var pending = (revisions || []).filter(function (r) { return r.status === 'pending'; });
-      // HAT fix #5: at zero, show only ONE empty-state message (the
-      // dedicated `pending-queue-empty` notice below) — the count line
-      // used to ALSO say "0 revisions awaiting your approval.", which
-      // read as two conflicting/redundant messages stacked on top of
-      // each other.
-      if (pending.length === 0) {
-        countLine.hidden = true;
-        countStatus.set('idle', '');
-        queueList.appendChild(App.ui.emptyState({
-          title: 'No revisions are awaiting approval.',
-          titleTag: 'p',
-          variant: 'plain',
-          testid: 'pending-queue-empty'
-        }));
-        return;
-      }
-      setCountLine(pending.length === 1
-        ? '1 revision awaiting your approval.'
-        : pending.length + ' revisions awaiting your approval.');
+      // The card owns the count: a chip on the expander, or at zero the plain
+      // "Waiting for approval (0)" line (`pending-queue-empty`).
+      queueCard.setCount(pending.length);
       pending.forEach(function (rev) {
         queueList.appendChild(renderCard(rev));
       });
     }
 
     ctx.queueList = queueList;
-    ctx.setCountLine = setCountLine;
     ctx.renderQueue = renderQueue;
   }
 

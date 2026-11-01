@@ -5016,7 +5016,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 44
+        assert CURRENT_VERSION == 49
 
         await conn.close()
 
@@ -5372,7 +5372,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 49 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5518,7 +5518,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 49 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5658,14 +5658,14 @@ class TestSchemaV44:
             )
         return conn
 
-    async def test_current_version_is_44(self) -> None:
-        assert CURRENT_VERSION == 44
+    async def test_current_version_is_45(self) -> None:
+        assert CURRENT_VERSION == 49
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 44
+            assert (await cur.fetchone())[0] == 49
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5733,5 +5733,976 @@ class TestSchemaV44:
         async with conn.execute("SELECT secrets FROM llm_providers WHERE id='p-plan'") as cur:
             assert (await cur.fetchone())[0] == _SECRETS_BLOB
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 44") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+# ── v45 (Mission 33 F1 DD1): agent_routines and agent_routine_runs ─────────
+
+# The columns after the whole chain (v49 dropped the target columns and `new_chat`).
+_ROUTINE_COLS = [
+    "id", "agent_name", "name", "prompt", "schedule", "enabled", "finished_at",
+    "next_run_at", "anchor_at", "created_by", "created_at", "updated_at", "untrusted",
+    "untrusted_sources",
+]  # fmt: skip
+_RUN_COLS = [
+    "id", "routine_id", "trigger_kind", "outcome", "reason", "due_at", "started_at",
+    "finished_at", "session_id", "repeats", "reason_code",
+]  # fmt: skip
+
+
+_DAILY_OLD = json.dumps({"kind": "daily", "time": "09:00"})
+
+
+async def _insert_routine(conn, rid="r1", agent="a", name="Daily", **over) -> None:
+    vals = {
+        "id": rid,
+        "agent_name": agent,
+        "name": name,
+        "prompt": "p",
+        "schedule": _DAILY_OLD,
+        "created_by": "operator",
+        "created_at": "2026-10-01T00:00:00+00:00",
+        "updated_at": "t",
+        **over,
+    }
+    cols = ", ".join(vals)
+    marks = ", ".join("?" for _ in vals)
+    await conn.execute(
+        f"INSERT INTO agent_routines ({cols}) VALUES ({marks})", tuple(vals.values())
+    )
+
+
+async def _insert_run(conn, rid="u1", routine="r1", **over) -> None:
+    vals = {"id": rid, "routine_id": routine, "trigger_kind": "manual", "outcome": "ok", **over}
+    cols = ", ".join(vals)
+    marks = ", ".join("?" for _ in vals)
+    await conn.execute(
+        f"INSERT INTO agent_routine_runs ({cols}) VALUES ({marks})", tuple(vals.values())
+    )
+
+
+class TestSchemaV45:
+    async def test_current_version_is_46_or_later(self) -> None:
+        assert CURRENT_VERSION >= 45
+
+    async def test_fresh_replay_columns_and_fks(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh.db")
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
+        fk = (await _fk_rows(conn, "agent_routines"))["agent_name"]
+        assert (fk["table"], fk["on_update"], fk["on_delete"]) == ("agents", "CASCADE", "CASCADE")
+        fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
+        assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        await conn.close()
+
+    async def test_v44_database_migrates(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v44.db")
+        await ensure_schema(conn)
+        await conn.execute("DROP TABLE agent_routine_proposals")
+        await conn.execute("DROP TABLE agent_routine_runs")
+        await conn.execute("DROP TABLE agent_routines")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 45")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # idempotent
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 45") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_rewind_rerun_keeps_rows(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "rewind.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 45")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT COUNT(*) FROM agent_routines") as cur:
+            assert (await cur.fetchone())[0] == 1
+        async with conn.execute("SELECT COUNT(*) FROM agent_routine_runs") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_unique_name_per_agent_nocase_and_checks(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "u.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await conn.execute("INSERT INTO agents (name) VALUES ('b')")
+        await _insert_routine(conn, "r1", "a", "Daily")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r2", "a", "daily")
+        await _insert_routine(conn, "r3", "b", "daily")  # same name, another agent
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r5", "a", "y", created_by="robot")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_run(conn, "u1", "r1", trigger_kind="cron")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_run(conn, "u2", "r1", outcome="weird")
+        await conn.close()
+
+    async def test_rename_carries_routines_and_runs_delete_removes_both(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "c.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.commit()
+        await store.rename("a", "renamed")
+        async with conn.execute("SELECT agent_name FROM agent_routines") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["renamed"]
+        async with conn.execute("SELECT routine_id FROM agent_routine_runs") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["r1"]
+        await store.delete("renamed")
+        for table in ("agent_routines", "agent_routine_runs"):
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                assert (await cur.fetchone())[0] == 0
+        await conn.close()
+
+    async def test_agent_upsert_leaves_routines_untouched(self, tmp_path) -> None:
+        from the_one.agent.config import AgentConfig
+
+        conn = await _open(tmp_path / "up.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn)
+        await store.save(AgentConfig(name="a"))
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        await conn.commit()
+        await store.save(AgentConfig(name="a", description="changed"))
+        for table in ("agent_routines", "agent_routine_runs"):
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+# ── v46 (Mission 33 F2 DD4): routine switches, flag, proposals ─────────────
+
+
+class TestSchemaV46:
+    async def test_current_version_is_46_or_later(self) -> None:
+        assert CURRENT_VERSION >= 46
+
+    async def test_fresh_columns_defaults_table_and_index(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh46.db")
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert cols["routines_self_config_enabled"]["dflt_value"] == "0"
+        assert cols["routines_require_approval"]["dflt_value"] == "1"
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        async with conn.execute(
+            "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (0, 1)
+        await _insert_routine(conn)
+        async with conn.execute("SELECT untrusted, untrusted_sources FROM agent_routines") as cur:
+            assert tuple(await cur.fetchone()) == (0, None)
+        async with conn.execute("PRAGMA table_info(agent_routine_proposals)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == [
+                "id", "agent_name", "routine_id", "routine_name", "action", "payload", "base",
+                "status", "untrusted", "untrusted_sources", "session_id", "created_at",
+                "resolved_at",
+            ]  # fmt: skip
+        fks = await _fk_rows(conn, "agent_routine_proposals")
+        assert (fks["agent_name"]["on_update"], fks["agent_name"]["on_delete"]) == (
+            "CASCADE",
+            "CASCADE",
+        )
+        assert fks["routine_id"]["on_delete"] == "SET NULL"
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'idx_agent_routine_proposals_agent_status'"
+        ) as cur:
+            assert await cur.fetchone() is not None
+        base = ("p1", "a", None, "n", "create", "{}", None, "pending", 0, None, None, "t", None)
+        sql = "INSERT INTO agent_routine_proposals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        await conn.execute(sql, base)
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(sql, ("p2", "a", None, "n", "bogus", *base[5:]))
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                sql, ("p3", "a", None, "n", "create", "{}", None, "weird", *base[8:])
+            )
+        await conn.close()
+
+    async def test_v45_database_migrates_and_keeps_rows(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v45.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await conn.execute("DROP TABLE agent_routine_proposals")
+        await conn.execute("ALTER TABLE agents DROP COLUMN routines_self_config_enabled")
+        await conn.execute("ALTER TABLE agents DROP COLUMN routines_require_approval")
+        await conn.execute("ALTER TABLE agent_routines DROP COLUMN untrusted")
+        await conn.execute("ALTER TABLE agent_routines DROP COLUMN untrusted_sources")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 46")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        async with conn.execute(
+            "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == (0, 1)
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("SELECT COUNT(*) FROM agent_routines") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+# ── v47 (Mission 33 F3 DD11): run repeats and reason code ──────────────────
+
+
+class TestSchemaV47:
+    async def test_current_version_is_47_or_later(self) -> None:
+        assert CURRENT_VERSION >= 47
+
+    async def test_fresh_replay_columns_and_defaults(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh47.db")
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert list(cols) == _RUN_COLS
+        assert cols["repeats"]["dflt_value"] == "1" and cols["repeats"]["notnull"] == 1
+        assert cols["reason_code"]["notnull"] == 0
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn)
+        await _insert_run(conn)
+        async with conn.execute("SELECT repeats, reason_code FROM agent_routine_runs") as cur:
+            assert tuple(await cur.fetchone()) == (1, None)
+        await conn.close()
+
+    async def test_v46_database_migrates_keeps_rows_and_is_idempotent(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v46.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await _insert_routine(conn, schedule=_DAILY_OLD)
+        await _insert_run(conn, reason="old")
+        await conn.execute("ALTER TABLE agent_routine_runs DROP COLUMN repeats")
+        await conn.execute("ALTER TABLE agent_routine_runs DROP COLUMN reason_code")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 47")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
+        async with conn.execute(
+            "SELECT reason, repeats, reason_code FROM agent_routine_runs"
+        ) as cur:
+            assert tuple(await cur.fetchone()) == ("old", 1, None)
+        await conn.close()
+
+
+# ── v48 (Mission 33 F3 DD6): the schedule rewrite ──────────────────────────
+
+_LA = "America/Los_Angeles"
+
+
+async def _v47_db(path, *, zone_key=_LA):
+    """A migrated database rewound to just before v48, holding one agent."""
+    conn = await _open(path)
+    await ensure_schema(conn)
+    await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+    if zone_key is not None:
+        await conn.execute(
+            "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('routines_zone', ?)",
+            (zone_key,),
+        )
+    await conn.commit()
+    return conn
+
+
+async def _rewind_48(conn) -> None:
+    await conn.execute("DELETE FROM schema_version WHERE version >= 48")
+    await conn.commit()
+    await ensure_schema(conn)
+
+
+async def _routine(conn, rid="r1"):
+    async with conn.execute(
+        "SELECT schedule, anchor_at, next_run_at, enabled, finished_at "
+        "FROM agent_routines WHERE id = ?",
+        (rid,),
+    ) as cur:
+        row = await cur.fetchone()
+    return json.loads(row["schedule"]), row["anchor_at"], row["next_run_at"], row["enabled"], row
+
+
+def _legacy(**kw) -> str:
+    return json.dumps(kw)
+
+
+class TestSchemaV48:
+    async def test_current_version_is_48_or_later(self) -> None:
+        assert CURRENT_VERSION >= 48
+
+    async def test_daily_weekdays_weekly_on_and_off(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "a.db")
+        # 2026-10-12 is a Monday; 16:00Z is 09:00 PDT.
+        nxt = "2026-10-12T16:00:00+00:00"
+        await _insert_routine(
+            conn, "d", name="d", schedule=_legacy(kind="daily", time="09:00"), next_run_at=nxt
+        )
+        await _insert_routine(
+            conn, "wd", name="wd", schedule=_legacy(kind="weekdays", time="09:00"), next_run_at=nxt
+        )
+        await _insert_routine(
+            conn,
+            "w",
+            name="w",
+            schedule=_legacy(kind="weekly", days=[3, 1, 1], time="09:30"),
+            next_run_at=nxt,
+        )
+        await _insert_routine(
+            conn,
+            "off",
+            name="off",
+            schedule=_legacy(kind="daily", time="08:15"),
+            enabled=0,
+            created_at="2026-09-01T03:00:00+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        ends = {"kind": "never"}
+        sched, anchor, got_next, _e, _r = await _routine(conn, "d")
+        assert sched == {
+            "start": {"date": "2026-10-12", "time": "09:00"},
+            "repeat": {"every": 1, "unit": "day"},
+            "ends": ends,
+        }
+        assert anchor is None and got_next == nxt
+        sched, *_ = await _routine(conn, "wd")
+        assert sched["repeat"] == {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]}
+        sched, *_ = await _routine(conn, "w")
+        assert sched["repeat"] == {"every": 1, "unit": "week", "days": [1, 3]}
+        assert sched["start"] == {"date": "2026-10-12", "time": "09:30"}
+        # Off: the date is the local date of created_at (Aug 31 evening in LA).
+        sched, anchor, got_next, enabled, _r = await _routine(conn, "off")
+        assert sched["start"] == {"date": "2026-08-31", "time": "08:15"}
+        assert anchor is None and got_next is None and enabled == 0
+        await conn.close()
+
+    async def test_spring_forward_daily_keeps_its_wall_time(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "gap.db")
+        # 02:30 does not exist on 2027-03-14 in LA; next_run_at is 03:00 PDT = 10:00Z.
+        nxt = "2027-03-14T10:00:00+00:00"
+        await _insert_routine(
+            conn, "g", name="g", schedule=_legacy(kind="daily", time="02:30"), next_run_at=nxt
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        sched, _a, got_next, *_ = await _routine(conn, "g")
+        assert sched["start"] == {"date": "2027-03-14", "time": "02:30"}
+        assert got_next == nxt
+        await conn.close()
+
+    async def test_interval_keeps_its_exact_anchor(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "i.db")
+        nxt = "2026-10-12T16:05:07.123456+00:00"
+        await _insert_routine(
+            conn, "on", name="on", schedule=_legacy(kind="interval", hours=3), next_run_at=nxt
+        )
+        # Off: anchor_at + hours, so the grid is the same either way.
+        await _insert_routine(
+            conn,
+            "off",
+            name="off",
+            schedule=_legacy(kind="interval", hours=3),
+            enabled=0,
+            anchor_at="2026-10-12T13:05:07.123456+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        sched, anchor, got_next, *_ = await _routine(conn, "on")
+        assert anchor == nxt and got_next == nxt
+        assert sched["repeat"] == {"every": 3, "unit": "hour"}
+        assert sched["start"] == {"date": "2026-10-12", "time": "09:05"}
+        _s, anchor, *_ = await _routine(conn, "off")
+        assert anchor == nxt
+        await conn.close()
+
+    async def test_once_keeps_its_instant(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "o.db")
+        at = "2026-11-02T01:30:15+00:00"
+        await _insert_routine(
+            conn, "o", name="o", schedule=_legacy(kind="once", at=at), next_run_at=at
+        )
+        await _insert_routine(
+            conn,
+            "done",
+            name="done",
+            schedule=_legacy(kind="once", at=at),
+            enabled=1,
+            finished_at="2026-11-02T01:31:00+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        sched, anchor, got_next, *_ = await _routine(conn, "o")
+        assert sched == {
+            "start": {"date": "2026-11-01", "time": "17:30"},
+            "repeat": None,
+            "ends": {"kind": "never"},
+        }
+        assert anchor == at and got_next == at
+        _s, anchor, got_next, *_ = await _routine(conn, "done")
+        assert anchor == at and got_next is None
+        await conn.close()
+
+    async def test_without_routines_zone_the_effective_zone_decides(
+        self, tmp_path, frozen_clock
+    ) -> None:
+        # frozen_clock pins the system zone to America/Los_Angeles by default.
+        conn = await _v47_db(tmp_path / "nz.db", zone_key=None)
+        # 04:00Z on Oct 13 is Oct 12 in LA, Oct 13 in UTC.
+        await _insert_routine(
+            conn,
+            "d",
+            name="d",
+            schedule=_legacy(kind="daily", time="21:00"),
+            next_run_at="2026-10-13T04:00:00+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        sched, *_ = await _routine(conn, "d")
+        assert sched["start"] == {"date": "2026-10-12", "time": "21:00"}
+        await conn.close()
+
+    async def test_invalid_zone_key_falls_back(self, tmp_path, frozen_clock) -> None:
+        conn = await _v47_db(tmp_path / "bad.db", zone_key="Not/AZone")
+        await _insert_routine(
+            conn,
+            "d",
+            name="d",
+            schedule=_legacy(kind="daily", time="21:00"),
+            next_run_at="2026-10-13T04:00:00+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        sched, *_ = await _routine(conn, "d")
+        assert sched["start"]["date"] == "2026-10-12"
+        await conn.close()
+
+    async def test_proposals_are_rewritten_pending_and_resolved(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "p.db")
+        nxt = "2026-10-12T16:00:00+00:00"
+        old = {"kind": "daily", "time": "09:00"}
+        await _insert_routine(conn, "r1", schedule=json.dumps(old), next_run_at=nxt)
+
+        async def prop(pid, status, routine_id, action, payload, base):
+            await conn.execute(
+                "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name, "
+                "action, payload, base, status, created_at) VALUES (?, 'a', ?, 'x', ?, ?, ?, ?, ?)",
+                (
+                    pid,
+                    routine_id,
+                    action,
+                    json.dumps(payload),
+                    json.dumps(base) if base is not None else None,
+                    status,
+                    "2026-10-10T23:00:00+00:00",
+                ),
+            )
+
+        # A matching base takes the routine's migrated schedule verbatim.
+        await prop(
+            "p1",
+            "pending",
+            "r1",
+            "update",
+            {"schedule": {"kind": "interval", "hours": 2}},
+            {"schedule": old, "name": "Daily"},
+        )
+        # A stale base is converted alone.
+        await prop(
+            "p2",
+            "applied",
+            "r1",
+            "update",
+            {"schedule": {"kind": "once", "at": "2026-10-20T10:00:00+00:00"}},
+            {"schedule": {"kind": "daily", "time": "07:00"}},
+        )
+        # A create has no base; a delete's base gains anchor_at.
+        await prop(
+            "p3",
+            "pending",
+            None,
+            "create",
+            {"schedule": {"kind": "weekdays", "time": "10:00"}, "name": "n"},
+            None,
+        )
+        await prop("p4", "dismissed", "r1", "delete", {}, {"schedule": old, "name": "Daily"})
+        await conn.commit()
+        await _rewind_48(conn)
+        routine_sched, routine_anchor, *_ = await _routine(conn, "r1")
+
+        async def get(pid):
+            async with conn.execute(
+                "SELECT payload, base FROM agent_routine_proposals WHERE id = ?", (pid,)
+            ) as cur:
+                r = await cur.fetchone()
+            return json.loads(r["payload"]), json.loads(r["base"]) if r["base"] else None
+
+        payload, base = await get("p1")
+        assert base["schedule"] == routine_sched and base["anchor_at"] is None
+        # Payload: an interval from the proposal's created_at, exactly two hours on.
+        assert payload["anchor_at"] == "2026-10-11T01:00:00+00:00"
+        assert payload["schedule"]["repeat"] == {"every": 2, "unit": "hour"}
+        payload, base = await get("p2")
+        assert payload["anchor_at"] == "2026-10-20T10:00:00+00:00"
+        assert payload["schedule"]["repeat"] is None
+        assert base["schedule"]["start"] == {"date": "2026-10-10", "time": "07:00"}
+        assert base["anchor_at"] is None
+        payload, base = await get("p3")
+        assert base is None
+        assert payload["schedule"]["repeat"]["days"] == [0, 1, 2, 3, 4]
+        assert payload["anchor_at"] is None
+        payload, base = await get("p4")
+        assert base["schedule"] == routine_sched and "anchor_at" in base
+        assert routine_anchor is None
+        await conn.close()
+
+    async def test_matching_interval_base_takes_the_routine_anchor(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "pi.db")
+        nxt = "2026-10-12T16:05:07.500000+00:00"
+        old = {"kind": "interval", "hours": 4}
+        await _insert_routine(conn, "r1", schedule=json.dumps(old), next_run_at=nxt)
+        await conn.execute(
+            "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name, "
+            "action, payload, base, status, created_at) VALUES "
+            "('p', 'a', 'r1', 'x', 'update', '{\"enabled\": false}', ?, 'pending', 't')",
+            (json.dumps({"schedule": old, "enabled": True}),),
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        async with conn.execute("SELECT base FROM agent_routine_proposals") as cur:
+            base = json.loads((await cur.fetchone())["base"])
+        assert base["anchor_at"] == nxt
+        assert base["schedule"]["repeat"] == {"every": 4, "unit": "hour"}
+        await conn.close()
+
+    async def test_unreadable_schedules_turn_the_routine_off_with_one_run_row(
+        self, tmp_path, frozen_clock
+    ) -> None:
+        conn = await _v47_db(tmp_path / "u.db")
+        bads = {
+            "j": "not json",
+            "e": "{}",
+            "k": _legacy(kind="monthly"),
+            "t": _legacy(kind="daily", time="9am"),
+            "h": _legacy(kind="interval", hours=0),
+        }
+        for rid, raw in bads.items():
+            await _insert_routine(
+                conn, rid, name=rid, schedule=raw, next_run_at="2026-10-12T16:00:00+00:00"
+            )
+        await _insert_routine(conn, "ok", name="ok", schedule=_DAILY_OLD)
+        await conn.commit()
+        await _rewind_48(conn)
+        await _rewind_48(conn)  # a rewind re-run adds no duplicate
+        for rid, raw in bads.items():
+            async with conn.execute(
+                "SELECT schedule, enabled FROM agent_routines WHERE id = ?", (rid,)
+            ) as cur:
+                row = await cur.fetchone()
+            assert row["schedule"] == raw and row["enabled"] == 0
+            async with conn.execute(
+                "SELECT trigger_kind, outcome, reason, reason_code, started_at, finished_at "
+                "FROM agent_routine_runs WHERE routine_id = ?",
+                (rid,),
+            ) as cur:
+                runs = await cur.fetchall()
+            assert len(runs) == 1
+            r = runs[0]
+            assert (r["trigger_kind"], r["outcome"], r["reason_code"]) == (
+                "schedule",
+                "failed",
+                "upgrade_failed",
+            )
+            assert r["reason"] == (
+                "This schedule could not be upgraded. Edit it to turn the routine back on."
+            )
+            assert r["started_at"] == r["finished_at"] == frozen_clock.isoformat()
+        sched, *_ = await _routine(conn, "ok")
+        assert sched["repeat"] == {"every": 1, "unit": "day"}
+        await conn.close()
+
+    async def test_rewind_is_idempotent(self, tmp_path) -> None:
+        conn = await _v47_db(tmp_path / "idem.db")
+        await _insert_routine(
+            conn,
+            "d",
+            name="d",
+            schedule=_legacy(kind="daily", time="09:00"),
+            next_run_at="2026-10-12T16:00:00+00:00",
+        )
+        await conn.commit()
+        await _rewind_48(conn)
+        first = await _routine(conn, "d")
+        await _rewind_48(conn)
+        second = await _routine(conn, "d")
+        assert first[:4] == second[:4]
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        await conn.close()
+
+    async def test_database_without_routine_tables_migrates(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "bare.db")
+        await ensure_schema(conn)
+        await conn.execute("DROP TABLE agent_routine_proposals")
+        await conn.execute("DROP TABLE agent_routine_runs")
+        await conn.execute("DROP TABLE agent_routines")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 45")
+        await conn.commit()
+        await ensure_schema(conn)
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        await conn.close()
+
+
+# ── v49 (Mission 33 F4): routines lose their target ────────────────────────
+
+_V48_ROUTINES_DDL = (
+    "CREATE TABLE agent_routines ("
+    "    id TEXT PRIMARY KEY,"
+    "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+    "        ON DELETE CASCADE ON UPDATE CASCADE,"
+    "    name TEXT NOT NULL,"
+    "    prompt TEXT NOT NULL,"
+    "    schedule TEXT NOT NULL,"
+    "    enabled INTEGER NOT NULL DEFAULT 1,"
+    "    finished_at TEXT,"
+    "    target_kind TEXT NOT NULL CHECK (target_kind IN ('chat', 'new', 'own')),"
+    "    target_session_id TEXT,"
+    "    target_platform TEXT,"
+    "    target_connector_id TEXT,"
+    "    target_channel_id TEXT,"
+    "    target_thread_id TEXT,"
+    "    target_peer_id TEXT,"
+    "    next_run_at TEXT,"
+    "    anchor_at TEXT,"
+    "    created_by TEXT NOT NULL DEFAULT 'operator'"
+    "        CHECK (created_by IN ('operator', 'agent')),"
+    "    created_at TEXT NOT NULL,"
+    "    updated_at TEXT NOT NULL,"
+    "    untrusted INTEGER NOT NULL DEFAULT 0,"
+    "    untrusted_sources TEXT,"
+    "    UNIQUE (agent_name, name COLLATE NOCASE)"
+    ")"
+)
+_V48_RUNS_DDL = (
+    "CREATE TABLE agent_routine_runs ("
+    "    id TEXT PRIMARY KEY,"
+    "    routine_id TEXT NOT NULL REFERENCES agent_routines(id) ON DELETE CASCADE,"
+    "    trigger_kind TEXT NOT NULL"
+    "        CHECK (trigger_kind IN ('schedule', 'catch_up', 'manual')),"
+    "    outcome TEXT NOT NULL CHECK (outcome IN "
+    "        ('running', 'ok', 'failed', 'skipped', 'missed', 'interrupted', 'stopped')),"
+    "    reason TEXT,"
+    "    due_at TEXT,"
+    "    started_at TEXT,"
+    "    finished_at TEXT,"
+    "    session_id TEXT,"
+    "    new_chat INTEGER NOT NULL DEFAULT 0,"
+    "    repeats INTEGER NOT NULL DEFAULT 1,"
+    "    reason_code TEXT"
+    ")"
+)
+_V49_TARGET_COLS = (
+    "target_kind", "target_session_id", "target_platform", "target_connector_id",
+    "target_channel_id", "target_thread_id", "target_peer_id",
+)  # fmt: skip
+
+
+async def _v48_db(path):
+    """A database in the exact v48 shape (target columns, `new_chat`, version 48), with
+    agents `a` and `b`."""
+    conn = await _open(path)
+    await ensure_schema(conn)
+    await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+    await conn.execute("INSERT INTO agents (name) VALUES ('b')")
+    await conn.execute("DROP TABLE agent_routine_proposals")
+    await conn.execute("DROP TABLE agent_routine_runs")
+    await conn.execute("DROP TABLE agent_routines")
+    await conn.execute(_V48_ROUTINES_DDL)
+    await conn.execute(
+        "CREATE INDEX idx_agent_routines_due ON agent_routines (enabled, next_run_at)"
+    )
+    await conn.execute(_V48_RUNS_DDL)
+    await conn.execute(
+        "CREATE INDEX idx_agent_routine_runs_routine "
+        "ON agent_routine_runs (routine_id, started_at DESC)"
+    )
+    await conn.execute(
+        "CREATE TABLE agent_routine_proposals ("
+        "    id TEXT PRIMARY KEY,"
+        "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+        "        ON DELETE CASCADE ON UPDATE CASCADE,"
+        "    routine_id TEXT REFERENCES agent_routines(id) ON DELETE SET NULL,"
+        "    routine_name TEXT NOT NULL,"
+        "    action TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),"
+        "    payload TEXT NOT NULL,"
+        "    base TEXT,"
+        "    status TEXT NOT NULL"
+        "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+        "    untrusted INTEGER NOT NULL DEFAULT 0,"
+        "    untrusted_sources TEXT,"
+        "    session_id TEXT,"
+        "    created_at TEXT NOT NULL,"
+        "    resolved_at TEXT"
+        ")"
+    )
+    await conn.execute(
+        "CREATE INDEX idx_agent_routine_proposals_agent_status "
+        "ON agent_routine_proposals (agent_name, status)"
+    )
+    await conn.execute("DELETE FROM schema_version WHERE version >= 49")
+    await conn.commit()
+    return conn
+
+
+async def _v48_routine(conn, rid, agent="a", name=None, **over) -> None:
+    vals = {
+        "id": rid,
+        "agent_name": agent,
+        "name": name or rid,
+        "prompt": f"prompt {rid}",
+        "schedule": json.dumps({"start": {"date": "2026-10-11", "time": "09:00"}}),
+        "enabled": 1,
+        "finished_at": None,
+        "target_kind": "chat",
+        "target_session_id": "sess-1",
+        "target_platform": "stub",
+        "target_connector_id": "c1",
+        "target_channel_id": "ch1",
+        "target_thread_id": "th1",
+        "target_peer_id": "p1",
+        "next_run_at": "2026-10-11T16:00:00+00:00",
+        "anchor_at": "2026-10-11T16:00:00+00:00",
+        "created_by": "agent",
+        "created_at": "2026-10-01T00:00:00+00:00",
+        "updated_at": "2026-10-02T00:00:00+00:00",
+        "untrusted": 1,
+        "untrusted_sources": '["web_fetch"]',
+        **over,
+    }
+    await conn.execute(
+        f"INSERT INTO agent_routines ({', '.join(vals)}) VALUES ({', '.join('?' for _ in vals)})",
+        tuple(vals.values()),
+    )
+
+
+async def _v48_proposal(conn, pid, *, action, status, payload, base, routine_id=None) -> None:
+    await conn.execute(
+        "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name, action, "
+        "payload, base, status, created_at, resolved_at) "
+        "VALUES (?, 'a', ?, 'n', ?, ?, ?, ?, '2026-10-01T00:00:00+00:00', ?)",
+        (
+            pid,
+            routine_id,
+            action,
+            payload if isinstance(payload, str) else json.dumps(payload),
+            base if base is None or isinstance(base, str) else json.dumps(base),
+            status,
+            "2026-10-02T00:00:00+00:00" if status in ("applied", "dismissed") else None,
+        ),
+    )
+
+
+async def _proposal_row(conn, pid):
+    async with conn.execute(
+        "SELECT payload, base, status, resolved_at FROM agent_routine_proposals WHERE id = ?",
+        (pid,),
+    ) as cur:
+        return await cur.fetchone()
+
+
+class TestSchemaV49:
+    async def test_current_version_is_49(self) -> None:
+        assert CURRENT_VERSION == 49
+
+    async def test_target_columns_and_new_chat_are_dropped_and_the_rest_kept(
+        self, tmp_path
+    ) -> None:
+        conn = await _v48_db(tmp_path / "v48.db")
+        await _v48_routine(conn, "r1")
+        await _v48_routine(conn, "r2", name="Other", target_kind="own", target_session_id=None)
+        await _insert_run(conn, "u1", "r1", session_id="sess-1", new_chat=1, repeats=3)
+        await _insert_run(conn, "u2", "r2", reason_code="still_running", reason="why")
+        await conn.commit()
+        async with conn.execute("SELECT * FROM agent_routines ORDER BY id") as cur:
+            before = [dict(r) for r in await cur.fetchall()]
+        await ensure_schema(conn)
+        async with conn.execute("PRAGMA table_info(agent_routines)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _ROUTINE_COLS
+        async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
+        async with conn.execute("SELECT * FROM agent_routines ORDER BY id") as cur:
+            after = [dict(r) for r in await cur.fetchall()]
+        for old, new in zip(before, after, strict=True):
+            assert new == {k: v for k, v in old.items() if k not in _V49_TARGET_COLS}
+        async with conn.execute("SELECT * FROM agent_routine_runs ORDER BY id") as cur:
+            runs = [dict(r) for r in await cur.fetchall()]
+        assert [(r["id"], r["session_id"], r["repeats"], r["reason_code"]) for r in runs] == [
+            ("u1", "sess-1", 3, None),
+            ("u2", None, 1, "still_running"),
+        ]
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 49
+        await conn.close()
+
+    async def test_indexes_unique_checks_and_foreign_keys_survive(self, tmp_path) -> None:
+        conn = await _v48_db(tmp_path / "idx.db")
+        await _v48_routine(conn, "r1", name="Daily")
+        await conn.commit()
+        await ensure_schema(conn)
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert {
+            "idx_agent_routines_due",
+            "idx_agent_routine_runs_routine",
+            "idx_agent_routine_proposals_agent_status",
+        } <= names
+        # the UNIQUE (agent_name, name NOCASE) and the created_by CHECK still bite
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r2", "a", "daily")
+        await _insert_routine(conn, "r3", "b", "daily")
+        with pytest.raises(aiosqlite.IntegrityError):
+            await _insert_routine(conn, "r4", "a", "x", created_by="robot")
+        async with conn.execute("PRAGMA foreign_key_check") as cur:
+            assert await cur.fetchall() == []
+        fk = (await _fk_rows(conn, "agent_routines"))["agent_name"]
+        assert (fk["table"], fk["on_update"], fk["on_delete"]) == ("agents", "CASCADE", "CASCADE")
+        await conn.close()
+
+    async def test_deleting_a_routine_still_cascades_runs_and_nulls_proposals(
+        self, tmp_path
+    ) -> None:
+        conn = await _v48_db(tmp_path / "fk.db")
+        await _v48_routine(conn, "r1")
+        await _insert_run(conn, "u1", "r1")
+        await _v48_proposal(
+            conn, "p1", action="update", status="applied", payload={"prompt": "x"}, base={},
+            routine_id="r1",
+        )  # fmt: skip
+        await conn.commit()
+        await ensure_schema(conn)
+        fks = await _fk_rows(conn, "agent_routine_runs")
+        assert fks["routine_id"]["on_delete"] == "CASCADE"
+        fks = await _fk_rows(conn, "agent_routine_proposals")
+        assert fks["routine_id"]["on_delete"] == "SET NULL"
+        await conn.execute("DELETE FROM agent_routines WHERE id = 'r1'")
+        await conn.commit()
+        async with conn.execute("SELECT COUNT(*) FROM agent_routine_runs") as cur:
+            assert (await cur.fetchone())[0] == 0
+        async with conn.execute("SELECT routine_id FROM agent_routine_proposals") as cur:
+            assert [r[0] for r in await cur.fetchall()] == [None]
+        async with conn.execute("PRAGMA foreign_key_check") as cur:
+            assert await cur.fetchall() == []
+        await conn.close()
+
+    async def test_proposals_lose_their_target(self, tmp_path) -> None:
+        conn = await _v48_db(tmp_path / "prop.db")
+        await _v48_routine(conn, "r1")
+        base = {
+            "name": "n", "prompt": "p", "schedule": {}, "anchor_at": None, "enabled": True,
+            "finished_at": None, "target_kind": "chat", "target_session_id": "sess-1",
+        }  # fmt: skip
+        tgt = {"kind": "chat", "session_id": "sess-1"}
+        await _v48_proposal(  # a pending create that carried a target: still approvable
+            conn, "create", action="create", status="pending",
+            payload={"name": "n", "prompt": "p", "schedule": {}, "target": tgt, "enabled": True},
+            base=None,
+        )  # fmt: skip
+        await _v48_proposal(  # a pending update that only changed the target
+            conn, "only", action="update", status="pending", payload={"target": tgt},
+            base=base, routine_id="r1",
+        )  # fmt: skip
+        await _v48_proposal(  # a pending update that also changed the prompt
+            conn, "mixed", action="update", status="pending",
+            payload={"prompt": "new", "target": {"kind": "new"}}, base=base, routine_id="r1",
+        )  # fmt: skip
+        await _v48_proposal(  # applied history is stripped but keeps its status and time
+            conn, "done", action="update", status="applied",
+            payload={"name": "z", "target": {"kind": "own"}}, base=base, routine_id="r1",
+        )  # fmt: skip
+        await _v48_proposal(  # a pending delete: no target in its payload, base is stripped
+            conn, "del", action="delete", status="pending", payload={}, base=base,
+            routine_id="r1",
+        )  # fmt: skip
+        await _v48_proposal(  # unreadable JSON is left exactly as it is
+            conn, "junk", action="update", status="pending", payload="{not json", base="also bad",
+            routine_id="r1",
+        )  # fmt: skip
+        await conn.commit()
+        await ensure_schema(conn)
+
+        row = await _proposal_row(conn, "create")
+        assert json.loads(row["payload"]) == {
+            "name": "n", "prompt": "p", "schedule": {}, "enabled": True,
+        }  # fmt: skip
+        assert row["status"] == "pending"
+
+        row = await _proposal_row(conn, "only")
+        assert json.loads(row["payload"]) == {}
+        assert row["status"] == "superseded" and row["resolved_at"]
+        assert "target_kind" not in json.loads(row["base"])
+
+        row = await _proposal_row(conn, "mixed")
+        assert json.loads(row["payload"]) == {"prompt": "new"}
+        assert row["status"] == "pending" and row["resolved_at"] is None
+        stripped = json.loads(row["base"])
+        assert "target_kind" not in stripped and "target_session_id" not in stripped
+        assert stripped["name"] == "n" and stripped["prompt"] == "p"
+
+        row = await _proposal_row(conn, "done")
+        assert json.loads(row["payload"]) == {"name": "z"}
+        assert row["status"] == "applied" and row["resolved_at"] == "2026-10-02T00:00:00+00:00"
+
+        row = await _proposal_row(conn, "del")
+        assert json.loads(row["payload"]) == {} and row["status"] == "pending"
+        assert "target_kind" not in json.loads(row["base"])
+
+        row = await _proposal_row(conn, "junk")
+        assert (row["payload"], row["base"], row["status"]) == (
+            "{not json", "also bad", "pending",
+        )  # fmt: skip
+        await conn.close()
+
+    async def test_rerunning_the_migration_changes_nothing(self, tmp_path) -> None:
+        conn = await _v48_db(tmp_path / "idem49.db")
+        await _v48_routine(conn, "r1")
+        await _v48_proposal(
+            conn, "only", action="update", status="pending",
+            payload={"target": {"kind": "new"}}, base={"target_kind": "new", "name": "n"},
+            routine_id="r1",
+        )  # fmt: skip
+        await conn.commit()
+        await ensure_schema(conn)
+        first = [
+            tuple(r) for r in await (await conn.execute("SELECT * FROM agent_routines")).fetchall()
+        ]
+        first_p = tuple(await _proposal_row(conn, "only"))
+        await conn.execute("DELETE FROM schema_version WHERE version >= 49")
+        await conn.commit()
+        await ensure_schema(conn)  # the guards find nothing left to drop or rewrite
+        again = [
+            tuple(r) for r in await (await conn.execute("SELECT * FROM agent_routines")).fetchall()
+        ]
+        assert again == first and tuple(await _proposal_row(conn, "only")) == first_p
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 49") as cur:
             assert (await cur.fetchone())[0] == 1
         await conn.close()

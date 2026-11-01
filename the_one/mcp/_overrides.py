@@ -99,7 +99,7 @@ class StreamableHttpMCPOverride(BaseModel):
 # same `m is Substitute` identity check `the_one/tools/resolver.py` and
 # `interfaces/web/api.py:_enrich_schema_with_markers` both use) — NOT
 # hand-listed. `enabled_tools` / `disabled_tools` carry no marker and are
-# correctly excluded: they are not secrets, and Studio's MCPs tab
+# correctly excluded: they are not secrets, and Studio's Tools tab
 # round-trips them in the clear.
 #
 # `interfaces/web/api.py:_agent_response` masks exactly these keys inside

@@ -203,7 +203,7 @@ def test_credentials_rejected_renders_plain_headline(app_clean: str, page: Page)
     raw = (
         "MCPCredentialsRejected: rejected-key rejected the configured credentials (401). "
         "Check the headers for this MCP server in Library › MCP servers, or the agent's "
-        "MCPs tab if it overrides them."
+        "Tools tab if it overrides them."
     )
     page.route(
         f"**/api/mcp-sources/{sid}/test/connect",

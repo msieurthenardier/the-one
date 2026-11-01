@@ -30,10 +30,20 @@ UPDATE_HINT = (
 )
 
 SCORING_DIGESTS = {
-    "checks.py": "d04ffdc0a5fdc50da5aef39d7c017092ee420d2f3b13ab23fa52ace0836150d1",
+    # Mission 33 F2 L3: checks.py now imports TRUSTED_TOOL_NAMES from the_one.agent.taint (DD7).
+    # Mission 33 F2 L4: checks.py gains the routine checks, harness.py the routines_enabled setup
+    # (additive; the scenarios under evals/scenarios/ and their scoring are unchanged).
+    # Mission 33 F3 L4: harness.py maps the stored calendar recurrence back to the kind name
+    # the routine checks read; the scenarios and their scoring are unchanged.
+    # Mission 33 F4 L07: that helper is renamed `_schedule_class` (an output classification, not
+    # input support); no behaviour change.
+    # Mission 33 F4 L02: routines lose their target, so checks.py drops the `target` param and
+    # RoutineView/RunTrace target fields, and harness.py drops the chat-row setup and target copies
+    # (routine scenarios only; the evals/scenarios/ scoring is unchanged).
+    "checks.py": "bc1c762076de52210bd99007d785d6e0dda01ef954092b06446a084f00f52733",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "1f6a6bacf1e0f85c4a0658729511352ea17b04233af181cf94fd888a41a91c28",
+    "harness.py": "0da8f0b411a32800c60503eeabb5a9ce95bfa1c90674109982b36af74293b055",
 }
 MEASURE_DIGESTS = {
     "all-on.toml": "b5a2276d0717896ec1103ba7a2a1e6f2f2927672b27249543818439e1d35f8db",
@@ -41,6 +51,8 @@ MEASURE_DIGESTS = {
     "fixtures/kb/measure-kb/readme.md": (
         "b5fea4c94f7040b10d046caa958205518b74f8ca4832bbb82b7d92e44ab8c6d3"
     ),
+    # Mission 33 F2 L4: the all-on agent with Routines on (measured beside all-on, not instead).
+    "routines-on.toml": "f804cc79de2818da5b04cf3e4310731996c00481dd038e7299d6be7679493c9c",
     "tool-free.toml": "987bc2b1435b3a50a68731a686bf203c7c0a6159c9acde6ee393ff5601274c68",
 }
 

@@ -76,8 +76,10 @@
         visibility: opts.visibility,
         visibilityStyle: App.ui.message.visibilityStyles.chip,
         peerName: opts.peerName,
+        marker: opts.marker || null,
         testid: 'message'
       });
+      if (opts.routineId) msg.el.setAttribute('data-routine-id', String(opts.routineId));
       // A user message ends the previous turn's iteration; an assistant bubble is the anchor
       // the next `thinking` disclosure is placed above (B2).
       if (role === 'user') { iterationAnchor = null; dropContinue(); }
@@ -100,6 +102,24 @@
       scrollToBottomIfPinned();
       App.perf.mark('addMsg:end');
       App.perf.measure('addMsg', 'addMsg:start', 'addMsg:end');
+    }
+
+    // The one place a user event becomes a bubble (live frame and history replay). A routine
+    // run's message is the routine's: its name as the attribution, a "Routine" chip, no
+    // source prefix. Any other non-web source keeps the "[source] " prefix.
+    function addUserEvent(ev, extra) {
+      extra = extra || {};
+      var opts = { ts: extra.ts, visibility: ev.visibility, peerName: ev.peer_name };
+      if (!Object.prototype.hasOwnProperty.call(extra, 'ts')) delete opts.ts;
+      if (ev.routine_name) {
+        opts.marker = { label: 'Routine' };
+        opts.routineId = ev.routine_id;
+        addMsg('user', ev.content, String(ev.routine_name), opts);
+        return;
+      }
+      var cls = ev.source === 'api' ? 'user api' : 'user';
+      var prefixed = ev.source && ev.source !== 'web' && !(extra.history && ev.source === 'restored');
+      addMsg(cls, (prefixed ? '[' + ev.source + '] ' : '') + ev.content, ev.peer_name || 'You', opts);
     }
 
     // The one log wipe (DD11 4): every handle the old log held is dropped, then the log is
@@ -152,9 +172,7 @@
         // attribution label.
         var histOpts = { ts: ev.ts || null, visibility: ev.visibility, peerName: ev.peer_name };
         if (ev.type === 'user') {
-          var cls = ev.source === 'api' ? 'user api' : 'user';
-          var attribution = ev.peer_name || 'You';
-          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, attribution, histOpts);
+          addUserEvent(ev, { ts: histOpts.ts, history: true });
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
         // M16 F10 L05: replay the thinking disclosure, above the reply it belongs to (B2).
@@ -594,6 +612,7 @@
     return {
       SCROLL_PIN_THRESHOLD: SCROLL_PIN_THRESHOLD,
       addMsg: addMsg,
+      addUserEvent: addUserEvent,
       scrollToBottomIfPinned: scrollToBottomIfPinned,
       clearLog: clearLog,
       resetStream: resetStream,

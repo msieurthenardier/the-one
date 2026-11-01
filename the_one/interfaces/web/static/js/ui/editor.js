@@ -369,7 +369,10 @@
   //   button per action, in order; action is the one-item form), notice
   //   {testid}. Each action has its own beforeArm, which runs on that button's
   //   first click and decides whether to call proceed() (arm the button); it is
-  //   skipped on the second click, which commits.
+  //   skipped on the second click, which commits. An action with `heading` and/or
+  //   `description` (opt-in) is wrapped with them in div.danger-zone-row (text block
+  //   div.danger-zone-row-text: span.danger-zone-row-heading, span.danger-zone-row-desc,
+  //   then the button); the description is the button's aria-describedby.
   //   div.editor-section.danger-zone holds div.section-title.danger-zone-title,
   //   then one button.btn-muted-destructive.delete-btn per action (a 16px icon,
   //   trash by default, then span[data-confirm-title] with the label, so the
@@ -378,6 +381,7 @@
   //   last button as its sibling. A click runs App.ui.confirm on
   //   the button. button is the first button; setDisabled(value) applies to
   //   every button, setDisabled(value, index) to the one at index.
+  var rowSeq = 0; // unique ids for the opt-in row descriptions (page-wide, never reused)
   App.ui.dangerZone = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
@@ -418,7 +422,28 @@
     for (var i = 0; i < actions.length; i++) {
       var b = build(actions[i]);
       buttons.push(b);
-      root.appendChild(b);
+      if (actions[i].heading || actions[i].description) {
+        // Opt-in row (an action with a heading and/or description): the text block on the
+        // left, the button on the right; the rows stack. The description names the button.
+        var text = util.el('div', { className: 'danger-zone-row-text' });
+        if (actions[i].heading) {
+          text.appendChild(util.el('span', {
+            className: 'danger-zone-row-heading', text: actions[i].heading
+          }));
+        }
+        if (actions[i].description) {
+          rowSeq += 1;
+          var desc = util.el('span', {
+            className: 'danger-zone-row-desc', text: actions[i].description
+          });
+          desc.id = 'danger-zone-desc-' + rowSeq;
+          b.setAttribute('aria-describedby', desc.id);
+          text.appendChild(desc);
+        }
+        root.appendChild(util.el('div', { className: 'danger-zone-row' }, [text, b]));
+      } else {
+        root.appendChild(b);
+      }
     }
     var notice = null;
     var noticeBanner = null;

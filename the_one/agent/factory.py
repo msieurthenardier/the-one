@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from the_one.knowledge.tool_provider import KBToolProvider
     from the_one.mcp._tool_provider import MCPToolProvider
     from the_one.notes.tool_provider import NotesToolProvider
+    from the_one.routines.tool_provider import RoutineToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,7 @@ class AgentFactory:
         mcp_provider: "MCPToolProvider | None" = None,
         kb_provider: "KBToolProvider | None" = None,
         notes_provider: "NotesToolProvider | None" = None,
+        routines_provider: "RoutineToolProvider | None" = None,
     ) -> None:
         self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
@@ -309,6 +311,14 @@ class AgentFactory:
         from the_one.notes.tool_provider import NotesToolProvider as _NotesToolProvider
 
         self.notes_provider = notes_provider if notes_provider is not None else _NotesToolProvider()
+
+        # Mission 33 F2 L3 (DD1): the routine tools, the same way; the provider returns
+        # nothing unless the agent's Routines item is on.
+        from the_one.routines.tool_provider import RoutineToolProvider as _RoutineToolProvider
+
+        self.routines_provider = (
+            routines_provider if routines_provider is not None else _RoutineToolProvider()
+        )
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -518,6 +528,17 @@ class AgentFactory:
             for tool in notes_tools:
                 registry.register(tool)
 
+        # Mission 33 F2 L3 (DD1): the routine tools, only while the agent's Routines item is
+        # on; outside the `disabled_names` filter like the notes tools (the item is their
+        # only control). The tool also checks the switch at call time (a cached Agent).
+        routine_tools: list[Tool] = []
+        if self.routines_provider is not None:
+            routine_tools = await self.routines_provider.get_tools_for_agent(
+                config, agent_name=name
+            )
+            for tool in routine_tools:
+                registry.register(tool)
+
         # DD-5 (Mission 23 Flight 3 Leg 2, mission-owner-amended baseline-
         # visibility carve-out): SEED the containers rather than append
         # inside Agent._compute_visible_schemas — a pre-seeded name is
@@ -567,6 +588,11 @@ class AgentFactory:
             loaded_schemas.append(notes_tool.to_schema())
             loaded_tool_names.add(notes_tool.name)
 
+        # Mission 33 F2 L3 (DD1): seed the routine tools the same way.
+        for routine_tool in routine_tools:
+            loaded_schemas.append(routine_tool.to_schema())
+            loaded_tool_names.add(routine_tool.name)
+
         # 3. Resolve system prompt
         tool_available = await time_tool_available(registry, llm)
         caps = capabilities_from_registry(
@@ -599,6 +625,8 @@ class AgentFactory:
         # construction (the Agent does not exist while tools are built).
         for notes_tool in notes_tools:
             notes_tool.bind_agent(agent)  # type: ignore[attr-defined]
+        for routine_tool in routine_tools:
+            routine_tool.bind_agent(agent)  # type: ignore[attr-defined]
         return agent
 
     async def list_agents(self) -> list[str]:

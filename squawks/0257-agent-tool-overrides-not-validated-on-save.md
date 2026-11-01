@@ -5,6 +5,7 @@
 **Severity**: routine
 **Reported**: 2026-10-25
 **Completed**: —
+**Related**: claimed by sortie 07 (agent tool overrides), planned on branch `sortie/07-agent-tool-overrides` and not yet in `sorties/`; complete it there ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
 `PUT /api/agents/{name}` stores `tool_overrides` as sent. An override that widens the operator's value, or fails the tool's schema (a negative timeout, say), is saved without complaint and only fails when the agent is next built. At that point `resolver.resolve` raises.

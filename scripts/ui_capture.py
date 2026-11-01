@@ -354,6 +354,29 @@ def _tools_override_open(ctx: Ctx) -> None:
     panel.scroll_into_view_if_needed()
 
 
+def _routines_form_open(ctx: Ctx) -> None:
+    page = ctx.page
+    page.locator('[data-testid="routine-row"]').first.wait_for(timeout=15000)
+    page.locator('[data-testid="routines-new-btn"]').click()
+    page.locator('[data-testid="routine-form"]').wait_for(timeout=10000)
+    page.locator('[data-testid="routine-form-name"]').fill("Friday digest")
+    page.locator('[data-testid="routine-form-prompt"]').fill("List the week's open questions.")
+    page.locator('[data-testid="routine-form-repeat"]').select_option("weekday")
+    page.locator('[data-testid="routine-form"]').scroll_into_view_if_needed()
+    _mask(page)
+
+
+def _self_config_expanders_open(ctx: Ctx) -> None:
+    """Open the Routines card's two expanders (collapsed on arrival, M33 F4 L06)."""
+    page = ctx.page
+    for testid in ("self-config-routines-waiting", "self-config-routines-history-details"):
+        details = page.locator(f'[data-testid="{testid}"]')
+        details.wait_for(timeout=15000)
+        if details.get_attribute("open") is None:
+            details.locator("> summary").click()
+    _mask(page)
+
+
 def _admin_tool_chips(ctx: Ctx) -> None:
     ctx.page.locator(".chip-list-editor .chip").first.wait_for(timeout=10000)
 
@@ -400,6 +423,7 @@ MASK_JS = r"""
     '.kb-item-indexed-at', '.kb-folder-indexed-at', '[data-testid="kb-item-indexed-at"]',
     '.connector-pairing-expiry', '[data-testid="connector-pairing-expiry"]',
     '[data-testid^="date-time-preview"]', '[data-testid="date-time-status"]',
+    '[data-testid="routine-next"]', '[data-testid="routine-last"]',
   ].join(', ');
   const SCORE = '.kb-search-hit-score, [data-testid="kb-search-hit-score"]';
   const CODE = '[data-testid="connector-pairing-code"]';
@@ -449,6 +473,9 @@ MASK_JS = r"""
       if (t !== n.textContent) n.textContent = t;
     });
     eachText(TIME, TIME_RULES);
+    // A routine's next run names a weekday that moves with the day the capture runs.
+    eachText('[data-testid="routine-next"]',
+      [[/^(?:Today|Tomorrow|Mon|Tue|Wed|Thu|Fri|Sat|Sun)/, () => 'Sun']]);
     eachText(MCP_TIME, TIME_RULES.concat(MCP_RELATIVE));
     eachText('body', ANY_TEXT);
     document.querySelectorAll('input, textarea').forEach((n) => {
@@ -871,9 +898,9 @@ SURFACES += [
     ),
     Surface(
         "agent-mcps",
-        "#agents/{agent}/mcps",
+        "#agents/{agent}/tools",
         '[data-testid^="mcp-source-expand-"]',
-        "Agent editor, MCPs tab: the source expanded, four tools (stubbed)",
+        "Agent editor, Tools tab, MCP servers section: the source expanded, four tools (stubbed)",
         prepare=_mcps_expanded,
     ),
     Surface(
@@ -882,6 +909,27 @@ SURFACES += [
         '.ui-group-tile[data-category="Filesystem"]',
         "Agent editor, Built-in tools tab: Filesystem expanded, read_file Overrides open",
         prepare=_tools_override_open,
+    ),
+    Surface(
+        "agent-routines",
+        "#agents/{agent}/routines",
+        '[data-testid="routine-row"]',
+        "Agent editor, Routines tab: three routines (daily, weekly, interval off)",
+    ),
+    Surface(
+        "agent-routines-form",
+        "#agents/{agent}/routines",
+        '[data-testid="routines-section"]',
+        "Routines tab with the New routine form open: Weekly selected, Friday ticked",
+        prepare=_routines_form_open,
+    ),
+    Surface(
+        "agent-self-config-routines",
+        "#agents/{agent}/self-configuration",
+        '[data-testid="self-config-routines-waiting"]',
+        "Agent editor, Self-configuration tab, Routines card: Routines on with approval, one "
+        "pending create and one flagged routine applied, both expanders open (M33 F2 L5, F4 L06)",
+        prepare=_self_config_expanders_open,
     ),
     Surface(
         "agent-self-configuration",
@@ -1442,8 +1490,8 @@ SURFACES += [
     ),
     _mcp(
         "agent-mcps-full",
-        "#agents/{mcp_agent}/mcps",
-        "Agent editor, MCPs tab: Docs search, Billing API and Always fails expanded (real tests)",
+        "#agents/{mcp_agent}/tools",
+        "Agent editor, Tools tab, MCP section: Docs search, Billing API, Always fails (real tests)",
         ready='[data-testid^="mcp-source-expand-"]',
         prepare=_mcp_agent_tab_expanded,
     ),
@@ -2586,6 +2634,15 @@ def write_credential(data_dir: Path) -> str:
     return token
 
 
+def _routine_schedule(time: str, repeat: dict) -> dict:
+    """A repeating routine schedule in the canonical {start, repeat, ends} shape."""
+    return {
+        "start": {"date": "2026-10-30", "time": time},
+        "repeat": repeat,
+        "ends": {"kind": "never"},
+    }
+
+
 def _api(base: str, token: str, method: str, path: str, body: dict | None = None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
@@ -2668,7 +2725,9 @@ def stop_instance(proc: subprocess.Popen) -> None:
         proc.wait(timeout=5)
 
 
-def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str]:
+def seed(
+    base: str, token: str, files_root: Path | None = None, data_dir: Path | None = None
+) -> dict[str, str]:
     ids: dict[str, str] = {}
     for ptype, (name, fields) in PROVIDERS.items():
         row = _api(base, token, "POST", "/api/providers", {"name": name, "type": ptype, **fields})
@@ -2690,6 +2749,8 @@ def seed(base: str, token: str, files_root: Path | None = None) -> dict[str, str
         },
     )
     seed_tabs_agent(base, token, ids)
+    if data_dir is not None:
+        seed_routines_item(base, token, data_dir)
     if files_root is not None:
         seed_library(base, token, ids, files_root)
     seed_settings(base, token)
@@ -2760,8 +2821,141 @@ def seed_tabs_agent(base: str, token: str, ids: dict[str, str]) -> None:
         {"text": "Never guess a file path.", "enabled": False},
     )
     _api(base, token, "PUT", f"/api/agents/{TABS_AGENT}/notes/settings", {"enabled": True})
+    # Routines (M33 F1 L9): three kinds, through REST; the next-run text is masked (MASK_JS),
+    # the schedule sentences are stable.
+    for routine in (
+        {
+            "name": "Morning summary",
+            "schedule": _routine_schedule("09:00", {"every": 1, "unit": "day"}),
+        },
+        {
+            "name": "Weekly review",
+            "schedule": _routine_schedule("16:30", {"every": 1, "unit": "week", "days": [0, 4]}),
+        },
+        {
+            "name": "Health check",
+            "schedule": _routine_schedule("09:00", {"every": 6, "unit": "hour"}),
+            "enabled": False,
+        },
+    ):
+        _api(
+            base,
+            token,
+            "POST",
+            f"/api/agents/{TABS_AGENT}/routines",
+            {"prompt": "Summarize what changed since the last run."} | routine,
+        )
     _api(base, token, "POST", f"/api/agents/{TABS_AGENT}/self-configuration")
     return ids
+
+
+def seed_routines_item(base: str, token: str, data_dir: Path) -> None:
+    """The Self-configuration Routines item (M33 F2 L5): Routines on with approval, one pending
+    create, and one flagged agent-made routine with its applied proposal. No REST route
+    creates a proposal or sets the flag, so these are direct inserts (the browser tests'
+    seeders do the same) against the scratch instance's own database."""
+    import sqlite3
+    import uuid
+
+    _api(
+        base,
+        token,
+        "PUT",
+        f"/api/agents/{TABS_AGENT}/self-configuration/routines",
+        {"enabled": True, "requires_approval": True},
+    )
+    created = "2026-01-01T10:00:00+00:00"
+    routine_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, enabled,"
+            " next_run_at, anchor_at, created_by, created_at, updated_at,"
+            " untrusted, untrusted_sources) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 'agent', ?,"
+            " ?, 1, ?)",
+            (
+                routine_id,
+                TABS_AGENT,
+                "Inbox sweep",
+                "Look through the inbox and list anything urgent.",
+                json.dumps(
+                    {
+                        "start": {"date": "2099-01-01", "time": "08:30"},
+                        "repeat": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+                        "ends": {"kind": "never"},
+                    }
+                ),
+                "2099-01-01T08:30:00+00:00",
+                created,
+                created,
+                created,
+                json.dumps(["web_fetch"]),
+            ),
+        )
+        rows = [
+            (
+                "create",
+                "Evening digest",
+                {
+                    "name": "Evening digest",
+                    "prompt": "Summarize today's changes in three lines.",
+                    "schedule": {
+                        "start": {"date": "2026-01-03", "time": "18:00"},
+                        "repeat": {"every": 1, "unit": "day"},
+                        "ends": {"kind": "never"},
+                    },
+                    "anchor_at": None,
+                    "enabled": True,
+                },
+                "pending",
+                0,
+                "2026-01-02T09:00:00+00:00",
+                None,
+                None,
+            ),
+            (
+                "create",
+                "Inbox sweep",
+                {
+                    "name": "Inbox sweep",
+                    "prompt": "Look through the inbox and list anything urgent.",
+                    "schedule": {
+                        "start": {"date": "2026-01-01", "time": "08:30"},
+                        "repeat": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+                        "ends": {"kind": "never"},
+                    },
+                    "anchor_at": None,
+                    "enabled": True,
+                },
+                "applied",
+                1,
+                "2026-01-01T10:00:00+00:00",
+                "2026-01-01T10:00:00+00:00",
+                routine_id,
+            ),
+        ]
+        for action, name, payload, status, flagged, created_at, resolved_at, rid in rows:
+            conn.execute(
+                "INSERT INTO agent_routine_proposals (id, agent_name, routine_id, routine_name,"
+                " action, payload, base, status, untrusted, untrusted_sources, session_id,"
+                " created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?)",
+                (
+                    uuid.uuid4().hex,
+                    TABS_AGENT,
+                    rid,
+                    name,
+                    action,
+                    json.dumps(payload, sort_keys=True),
+                    status,
+                    flagged,
+                    json.dumps(["web_fetch"]) if flagged else None,
+                    created_at,
+                    resolved_at,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def seed_library(base: str, token: str, ids: dict[str, str], files_root: Path) -> None:
@@ -3160,7 +3354,7 @@ def keep_running(port: int, scratch: Path) -> int:
         port, data_dir, scratch / "cwd", scratch / "serve.log", detach=True
     )
     try:
-        seed(base, token, scratch / "home")
+        seed(base, token, scratch / "home", data_dir)
     except BaseException:
         stop_instance(proc)
         raise
@@ -3234,7 +3428,7 @@ def run(argv: list[str]) -> int:
             scratch / "serve.log",
             extra_env={"THE_ONE_PURGE_CHECK_INTERVAL_SECONDS": "2592000"} if needs_chat else None,
         )
-        ids = seed(base, token, scratch / "home")
+        ids = seed(base, token, scratch / "home", data_dir)
         if needs_chat:
             seed_chat(base, token, ids)
         if needs_mcp:

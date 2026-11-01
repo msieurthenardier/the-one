@@ -89,6 +89,55 @@ App.studio.agentData = {
     }
     function clearNotes(name) { return rulesJson('DELETE', notesUrl(name)); }
 
+    // M33 F1 L8 -- routines network calls (same fetchJson contract: a failure carries
+    // `status` and `detail`).
+    function routinesUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/routines' + (suffix || '');
+    }
+    function fetchRoutines(name) { return App.api.fetchJson(routinesUrl(name)); }
+    function createRoutine(name, body) { return rulesJson('POST', routinesUrl(name), body); }
+    function updateRoutine(name, id, patch) {
+      return rulesJson('PUT', routinesUrl(name, '/' + encodeURIComponent(id)), patch);
+    }
+    function deleteRoutine(name, id) {
+      return rulesJson('DELETE', routinesUrl(name, '/' + encodeURIComponent(id)));
+    }
+    function runRoutine(name, id) {
+      return rulesJson('POST', routinesUrl(name, '/' + encodeURIComponent(id) + '/run'));
+    }
+    function fetchRoutineRuns(name, id, opts) {
+      var q = 'limit=' + encodeURIComponent((opts && opts.limit) || 20);
+      if (opts && opts.before) q += '&before=' + encodeURIComponent(opts.before);
+      return App.api.fetchJson(routinesUrl(name, '/' + encodeURIComponent(id) + '/runs') + '?' + q);
+    }
+
+    // M33 F2 L5 -- the Self-configuration tab's Routines item: the two switches and the
+    // agent's routine-change proposals. Same fetchJson contract: a failure carries `status`
+    // and `detail` (the approve 409s keep their `{error, ...}` object on `detail`).
+    function routinesItemUrl(name, suffix) {
+      return '/api/agents/' + encodeURIComponent(name) + '/self-configuration/routines' +
+        (suffix || '');
+    }
+    function fetchRoutinesItem(name) { return App.api.fetchJson(routinesItemUrl(name)); }
+    function putRoutinesItem(name, patch) {
+      return rulesJson('PUT', routinesItemUrl(name), patch);
+    }
+    function fetchRoutineProposals(name, opts) {
+      opts = opts || {};
+      var q = 'limit=' + encodeURIComponent(opts.limit || 20);
+      if (opts.status) q += '&status=' + encodeURIComponent(opts.status);
+      if (opts.before) q += '&before=' + encodeURIComponent(opts.before);
+      return App.api.fetchJson(routinesItemUrl(name, '/proposals') + '?' + q);
+    }
+    function approveRoutineProposal(name, id, override) {
+      return rulesJson('POST', routinesItemUrl(name, '/proposals/' + encodeURIComponent(id) +
+        '/approve') + (override ? '?override=true' : ''));
+    }
+    function dismissRoutineProposal(name, id) {
+      return rulesJson('POST', routinesItemUrl(name, '/proposals/' + encodeURIComponent(id) +
+        '/dismiss'));
+    }
+
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
     function fetchSelfConfigurationStatus(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
@@ -106,7 +155,7 @@ App.studio.agentData = {
       // created/destroyed server-side) AND the agent itself (its
       // mcp_source_ids just changed server-side, outside the Save flow).
       // The editor controller's onSelfConfigChanged patches the open editor in
-      // place (M31 F2 L10a), so unsaved edits survive and the MCPs tab reflects
+      // place (M31 F2 L10a), so unsaved edits survive and the Tools tab reflects
       // the new/removed row without a reload.
       return Promise.all([
         refreshMcpSourcesCache(),
@@ -478,6 +527,17 @@ App.studio.agentData = {
       fetchAgents: fetchAgents,
       fetchTools: fetchTools,
       fetchMcpSources: fetchMcpSources,
+      fetchRoutines: fetchRoutines,
+      createRoutine: createRoutine,
+      updateRoutine: updateRoutine,
+      deleteRoutine: deleteRoutine,
+      runRoutine: runRoutine,
+      fetchRoutinesItem: fetchRoutinesItem,
+      putRoutinesItem: putRoutinesItem,
+      fetchRoutineProposals: fetchRoutineProposals,
+      approveRoutineProposal: approveRoutineProposal,
+      dismissRoutineProposal: dismissRoutineProposal,
+      fetchRoutineRuns: fetchRoutineRuns,
       fetchRules: fetchRules,
       createRule: createRule,
       updateRule: updateRule,

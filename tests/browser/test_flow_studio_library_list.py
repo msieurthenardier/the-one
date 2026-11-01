@@ -163,7 +163,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
     lib = page.locator(LIST)
     expect(lib.locator(".ui-list-pane-title")).to_have_text("Library")
     expect(lib.locator(".ui-list-pane-intro")).to_have_text(
-        "Things agents can use. Attach them from an agent’s Knowledge and MCPs tabs."
+        "Things agents can use. Attach them from an agent’s Knowledge and Tools tabs."
     )
     expect(lib.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(lib.locator(".ui-list-pane-caption")).to_have_text(

@@ -16,6 +16,7 @@
     var agentDrawer = ctx.agentDrawer;
 
     var NOTE_TOOLS = { save_note: true, update_note: true, forget_note: true };
+    var ROUTINE_TOOLS = { schedule_routine: true, change_routine: true, cancel_routine: true };
 
     function handleSystem(data) {
       if (data.content === 'Loading model...') {
@@ -65,18 +66,19 @@
 
     function handle(data) {
       if (data.type === 'user') {
-        var cls = data.source === 'api' ? 'user api' : 'user';
-        // M10 F05 L05: forward visibility from the live user event.
-        // ``data.visibility`` is undefined on today's live broadcasts
-        // (known limitation: storage-edge shim runs post-step; live
-        // broadcast emits inline within step) — the channel is wired
-        // for the follow-on live-broadcast tagging leg.
-        // M11 F06 L04: forward peer_name from the live broadcast onto the
-        // attribution + bubble side. Peer-attributed inbound user events
-        // (per F6 L3 dispatcher binding + F6 L2 codec projection) carry
-        // data.peer_name. Operator-typed user events have no peer_name.
-        var liveAttribution = data.peer_name || 'You';
-        ctx.transcript.addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, liveAttribution, { visibility: data.visibility, peerName: data.peer_name });
+        // M10 F05 L05 / M11 F06 L04: visibility and peer_name ride the live event; the
+        // transcript's addUserEvent owns the bubble (routine marker, source prefix).
+        ctx.transcript.addUserEvent(data);
+        // M33 F1 L7: a routine run in the bound chat is a turn in flight that this window did
+        // not start: Stop works and sends are held (never ownTurn), the thinking line shows
+        // after the bubble. Gated on the frame's own session id, like the chat's other frames.
+        if (data.source === 'routine' && data.session_id &&
+            data.session_id === chatState.boundId()) {
+          state.inFlightSessions[data.session_id] = true;
+          ctx.send.updateStopControl();
+          ctx.applyComposerState();
+          ctx.transcript.showThinking();
+        }
       }
       else if (data.type === 'assistant_chunk') ctx.transcript.onAssistantChunk(data);
       else if (data.type === 'assistant') {
@@ -123,6 +125,9 @@
       else if (data.type === 'tool_result') {
         // M27 F3 L2: a note tool changed the notes; the panel re-fetches.
         if (NOTE_TOOLS[state.liveToolNames[data.tool_call_id]]) agentDrawer.refreshNotes();
+        // M33 F4 L5: a routine tool changed the routines; the group re-fetches.
+        // An error result changed nothing.
+        if (ROUTINE_TOOLS[state.liveToolNames[data.tool_call_id]] && !data.is_error) agentDrawer.refreshRoutines();
         // Iteration boundary — finalize the current streaming bubble.
         ctx.transcript.finalizeStreamingBubble();
         ctx.transcript.clearStreamingVisibility();

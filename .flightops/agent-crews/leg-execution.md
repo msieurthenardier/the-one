@@ -186,6 +186,15 @@ in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
 `git reset` or `git clean`; to compare against the base, use `git diff` or
 `git show <ref>:<path>`.
 
+Never write or run a helper script (Python, sed, shell redirection, a heredoc or
+the like) that writes a source or test file; edit source and test files only
+through the edit tool (squawk 0286). When a new test must be shown to fail without
+its fix (falsified), remove the fix by editing, run the test, then put the fix back
+by editing; never restore a whole file or put back a backup copy (squawk 0284). A
+file that had to be rebuilt is reported with a diff against HEAD
+(`git diff HEAD -- <path>`). Where the leg asks for falsification, report for each
+new test whether it was falsified (yes or no).
+
 If a test hangs, isolate and fix it — do not paper over with `xfail` or skips
 unless the leg artifact explicitly authorizes that. Update flight log with
 outcomes. Propagate changes to artifacts (flight, mission, leg), CLAUDE.md,
@@ -272,7 +281,15 @@ in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
 `git show <ref>:<path>`.
 
 Fix all blocking issues. Non-blocking issues: fix if straightforward, otherwise
-note as accepted. Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
+note as accepted. When a new test must be shown to fail without its fix (falsified),
+remove the fix by editing, run the test and see it fail, then put the fix back by
+editing; never restore a whole file or put back a backup copy (squawk 0284).
+Never write or run a helper script (Python, sed, shell redirection, a heredoc or
+the like) that writes a source or test file; edit source and test files only
+through the edit tool (squawk 0286). A file that had to be rebuilt is reported
+with a diff against HEAD (`git diff HEAD -- <path>`). For each new test, report
+whether it was falsified (yes or no).
+Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
 the owning browser lane of every file you touched, and report both results. This
 applies to every fix pass: review fixes, HAT fixes and post-gate changes (Mission 31:
 in Flights 4, 5 and 6 an untested late change failed the next gate). Signal

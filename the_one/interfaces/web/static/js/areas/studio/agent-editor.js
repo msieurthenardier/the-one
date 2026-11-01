@@ -43,10 +43,9 @@
     { id: 'general', label: 'General' },
     { id: 'rules-and-notes', label: 'Rules and notes' },
     { id: 'knowledge', label: 'Knowledge' },
-    { id: 'mcps', label: 'MCPs' },
-    // data-tab-id "tools" + testid tab-tools stay (tests and URL routing key off
-    // "tools"); only the visible label narrows to "Built-in tools".
-    { id: 'tools', label: 'Built-in tools' },
+    // One Tools tab holds two sections: MCP servers, then Built-in tools (M33 F1 L06; order reversed at the F4 HAT).
+    { id: 'tools', label: 'Tools' },
+    { id: 'routines', label: 'Routines' },
     { id: 'self-configuration', label: 'Self-configuration' }
   ];
 
@@ -89,23 +88,61 @@
           onChange: cb.onChange,
           knowledgeBasesLoaded: cb.knowledgeBasesLoaded
         });
-      case 'mcps':
-        // Built once per identity; patch calls its setSources and setAgent (07b).
-        return studio.renderMcpsTab(panel, agent, cb.allMcpSources, {
+      case 'tools': {
+        // Two sections in one panel. Both child modules wipe the node they are
+        // given, so each gets its own host div inside its section (never the
+        // panel or the section body). Built once per identity; patch calls the
+        // children's setters through the composite (07b, 08b).
+        var ui = window.App.ui;
+        var builtinHost = document.createElement('div');
+        builtinHost.setAttribute('data-testid', 'agent-tools-builtin-host');
+        var mcpHost = document.createElement('div');
+        mcpHost.setAttribute('data-testid', 'agent-tools-mcp-host');
+        var builtinSection = ui.section({
+          title: 'Built-in tools', titleTag: 'h2', testid: 'agent-tools-builtin-section',
+          children: [builtinHost]
+        });
+        var mcpSection = ui.section({
+          title: 'MCP servers', titleTag: 'h2', testid: 'agent-tools-mcp-section',
+          children: [mcpHost]
+        });
+        panel.appendChild(mcpSection.el);
+        panel.appendChild(builtinSection.el);
+        var mcpsHandle = studio.renderMcpsTab(mcpHost, agent, cb.allMcpSources, {
           fetchMcpSourceTools: cb.fetchMcpSourceTools,
           onChange: cb.onChange,
           onSelectedSourceChange: cb.onSelectedMcpSourceChange,
           pendingSourceId: cb.pendingMcpAgentSourceId
         });
-      case 'tools':
-        // Built once per identity; patch calls its setAgent (08b).
-        return studio.renderToolsTab(panel, agent, {
+        var builtinHandle = studio.renderToolsTab(builtinHost, agent, {
           toolCategories: cb.toolCategories,
           allTools: cb.allTools,
           onChange: cb.onChange,
           disabledTools: cb.disabledTools,
           operatorConfigs: cb.operatorConfigs,
           fetchToolSchema: cb.fetchToolSchema
+        });
+        return {
+          builtin: builtinHandle,
+          mcps: mcpsHandle,
+          setAgent: function (a, opts) { builtinHandle.setAgent(a, opts); },
+          destroy: function () {
+            if (mcpsHandle && mcpsHandle.destroy) mcpsHandle.destroy();
+            if (builtinHandle && builtinHandle.destroy) builtinHandle.destroy();
+          }
+        };
+      }
+      case 'routines':
+        // `agent` is null in create mode (a "save first" notice); the `default` agent gets
+        // a "needs a named agent" notice. Returns {setAgent, activate, deactivate, destroy}.
+        return studio.renderRoutinesTab(panel, agent, {
+          fetchRoutines: cb.fetchRoutines,
+          createRoutine: cb.createRoutine,
+          updateRoutine: cb.updateRoutine,
+          deleteRoutine: cb.deleteRoutine,
+          runRoutine: cb.runRoutine,
+          fetchRoutineRuns: cb.fetchRoutineRuns,
+          openRoutineForm: cb.openRoutineForm
         });
       case 'self-configuration':
         // `agent` is null in create mode; the tab renders a "save first" notice.
@@ -118,6 +155,11 @@
           onApproveRevision: cb.onApproveSelfConfigurationRevision,
           onDismissRevision: cb.onDismissSelfConfigurationRevision,
           onRestoreRevision: cb.onRestoreSelfConfigurationRevision,
+          fetchRoutinesItem: cb.fetchRoutinesItem,
+          putRoutinesItem: cb.putRoutinesItem,
+          fetchRoutineProposals: cb.fetchRoutineProposals,
+          approveRoutineProposal: cb.approveRoutineProposal,
+          dismissRoutineProposal: cb.dismissRoutineProposal,
           onMintExternalCredential: cb.onMintExternalCredential,
           fetchExternalCredentials: cb.fetchExternalCredentials,
           onRevokeExternalCredential: cb.onRevokeExternalCredential,
@@ -137,7 +179,7 @@
     callbacks = callbacks || {};
     var ui = window.App.ui;
     var isCreate = !agent;
-    var h = { key: null, shell: null, tabs: null, loadFailed: false, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, selfConfig: null };
+    var h = { key: null, shell: null, tabs: null, loadFailed: false, chatBtn: null, general: null, knowledge: null, mcps: null, tools: null, routines: null, selfConfig: null };
 
     function chatTarget(a) { return a ? (a.name || '') : ''; }
 
@@ -166,6 +208,9 @@
     // while clean). On the create form it abandons creation (DD8), so it is
     // enabled from first render (enabledWhenClean); Save still waits for a change.
     h.shell = ui.editorShell({
+      // Save errors in the header are announced (squawk 0273); the load-failure line
+      // drops the role while it shows (setLoadError), since its toast announces it.
+      errorRole: 'alert',
       breadcrumb: {
         label: 'Agents',
         href: window.App.router.href({ destination: 'agents' })
@@ -212,9 +257,16 @@
       on = !!on;
       if (on === h.loadFailed) return;
       h.loadFailed = on;
-      h.shell.setError(on ? LOAD_ERROR_LINE : null);
-      if (on) h.shell.errorEl.setAttribute('data-testid', 'agent-load-error');
-      else h.shell.errorEl.removeAttribute('data-testid');
+      if (on) {
+        // Drop the alert role first so the load line can never be announced.
+        h.shell.errorEl.removeAttribute('role');
+        h.shell.errorEl.setAttribute('data-testid', 'agent-load-error');
+        h.shell.setError(LOAD_ERROR_LINE);
+      } else {
+        h.shell.setError(null);
+        h.shell.errorEl.removeAttribute('data-testid');
+        h.shell.errorEl.setAttribute('role', 'alert');
+      }
       // Tie the disabled Save to its only explanation (WCAG 1.3.1/3.3.1); add or
       // remove just this token so any other description survives.
       var errId = h.shell.errorEl.id;
@@ -243,8 +295,12 @@
         var built = buildPanel(TAB_ITEMS[i].id, panel, a, provs, cb);
         if (TAB_ITEMS[i].id === 'general') h.general = built;
         if (TAB_ITEMS[i].id === 'knowledge') h.knowledge = built;
-        if (TAB_ITEMS[i].id === 'mcps') h.mcps = built;
-        if (TAB_ITEMS[i].id === 'tools') h.tools = built;
+        if (TAB_ITEMS[i].id === 'tools') {
+          h.toolsTab = built;
+          h.mcps = built.mcps;
+          h.tools = built.builtin;
+        }
+        if (TAB_ITEMS[i].id === 'routines') h.routines = built;
         if (TAB_ITEMS[i].id === 'self-configuration') h.selfConfig = built;
       }
     }
@@ -253,6 +309,11 @@
     // so form-field tests find their [data-field] selectors immediately.
     rebuildPanels(agent, providers, callbacks);
     setLoadError(!isCreate && callbacks.loadFailed === true);
+    // App.ui.tabs fires onChange(initial) while it is built, before any panel exists, so a
+    // mount that opens on Routines (a direct route, an agent switch, a rename remount)
+    // never reaches the tab through the controller's setActiveTab: activate it here.
+    // activate() is idempotent.
+    if (h.routines && h.tabs.selected() === 'routines') h.routines.activate();
 
     // Same-identity update (see the header). The controller re-wires the picker
     // and resets the snapshot after it.
@@ -281,11 +342,15 @@
       // Self-configuration refetches its own data after its actions (10a): the
       // patch only hands it the record (the approval flag lives on it).
       h.selfConfig.setAgent(a);
+      // Routines only swaps its agent reference (no refetch, no reset).
+      h.routines.setAgent(a);
     };
     h.rebuildPanels = rebuildPanels;
     h.setLoadError = setLoadError;
     h.destroy = function () {
       if (h.selfConfig) h.selfConfig.destroy();
+      if (h.routines) h.routines.destroy();
+      if (h.toolsTab) h.toolsTab.destroy();
       h.tabs.destroy();
       clearNode(container);
     };

@@ -287,3 +287,49 @@ def test_slot_indent_label_aligns_the_slot_with_the_label_text(engine_page: Page
     assert "ui-radio-option--indent" in out["label"]["cls"]
     for k in ("none", "dflt"):
         assert out[k]["slot"] == out[k]["label"] and "indent" not in out[k]["cls"]
+
+
+NESTED = """() => {
+  window.__outer = [];
+  window.__inner = [];
+  const inner = App.ui.radioGroup({
+    legend: 'When', name: 'nested-inner', value: 'x', onChange: (v) => window.__inner.push(v),
+    options: [{value: 'x', label: 'In'}, {value: 'y', label: 'At'}],
+  });
+  const sel = document.createElement('select');
+  sel.innerHTML = '<option>1</option><option>2</option>'; sel.id = 'inner-select';
+  const outer = App.ui.radioGroup({
+    legend: 'Outer', name: 'nested-outer', value: 'daily', onChange: (v) => window.__outer.push(v),
+    options: [{value: 'once', label: 'Once'}, {value: 'daily', label: 'Daily'}],
+  });
+  outer.optionEl('once').appendChild(inner.el);
+  outer.optionEl('once').appendChild(sel);
+  window.__o = outer;
+  document.getElementById('harness-root').appendChild(outer.el);
+  return true;
+}"""
+
+
+def test_nested_group_does_not_style_the_outer_card_checked(engine_page: Page) -> None:
+    load_harness(engine_page, "dark")
+    p = engine_page
+    p.evaluate(NESTED)
+    border = (
+        "(v) => { const o = Array.from(document.querySelectorAll('.ui-radio-option'))"
+        ".find((w) => w.querySelector(':scope > .ui-radio-label > input').value === v);"
+        " return getComputedStyle(o).borderTopColor; }"
+    )
+    unchecked = p.evaluate(border, "once")
+    checked = p.evaluate(border, "daily")
+    assert unchecked != checked  # the checked outer card has the accent border
+    # A checked nested radio inside the unchecked outer "Once" card leaves it unstyled.
+    p.evaluate("() => document.querySelector('[name=nested-inner][value=y]').click()")
+    assert p.evaluate(border, "once") == unchecked
+    # Neither the nested radios nor the inner select fire the outer onChange.
+    p.select_option("#inner-select", "2")
+    assert p.evaluate("() => window.__outer") == []
+    assert p.evaluate("() => window.__inner") == ["y"]
+    # Choosing the outer option styles it.
+    p.evaluate("() => window.__o.input('once').click()")
+    assert p.evaluate(border, "once") == checked
+    assert p.evaluate("() => window.__outer") == ["once"]
