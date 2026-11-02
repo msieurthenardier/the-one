@@ -1,6 +1,6 @@
 # Flight: Test-suite runtime II
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-33 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
