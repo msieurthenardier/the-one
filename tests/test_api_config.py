@@ -20,13 +20,12 @@ from __future__ import annotations
 from typing import Iterator
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.config import Settings
 from the_one.interfaces.web import api as api_module
-from the_one.interfaces.web.api import router
 
 
 @pytest.fixture
@@ -34,8 +33,7 @@ async def client() -> Iterator[AsyncClient]:
     """Bare ASGI test client around the api router — /api/config has no DB
     dependency, so no DB fixture is needed.
     """
-    test_app = FastAPI()
-    test_app.include_router(router)
+    test_app = shared_app()
     transport = ASGITransport(app=test_app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=auth_headers()

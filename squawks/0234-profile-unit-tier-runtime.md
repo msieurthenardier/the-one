@@ -28,3 +28,5 @@
 ## Disposition
 **Escalated**: fails *verifiable by one test*/*bounded*: the profile this squawk asked for was taken on 2026-10-30 ([maintenance 2026-10-30](../maintenance/2026-10-30.md), finding #1: 430 s, about 82 s from test count and about 182 s from diffuse per-test cost: per-test API app builds, evals harness, AST re-walks, real timeouts, real subprocesses). The fix spans many test modules →
 [Mission 34 Flight 1: Test-suite runtime II](../missions/34-maintenance/flights/01-test-suite-runtime-ii/flight.md), leg `unit-per-test-cost`
+
+**Result**: see the [Mission 34 Flight 1 flight log, leg 1 `unit-per-test-cost`](../missions/34-maintenance/flights/01-test-suite-runtime-ii/flight-log.md): unit tier 437.46 s to 229.33 s (solo).

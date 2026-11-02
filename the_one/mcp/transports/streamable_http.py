@@ -103,6 +103,9 @@ def _attach_hook(client: "httpx2.AsyncClient", hook: Any, stack: AsyncExitStack 
 # MCP_DEFAULT_SSE_READ_TIMEOUT in the private ``mcp.shared._httpx_utils``). Kept
 # as local constants rather than imported so we don't depend on a private module;
 # ``tests/test_mcp_transport_timeouts.py`` asserts they stay equal to the SDK's.
+_PROBE_TIMEOUT_SECONDS = 5.0
+"""Timeout of ``_probe_auth_posture`` when its caller passes none. Read at call time."""
+
 _HTTP_TIMEOUT_SECONDS = 30.0
 """Connect/write/pool timeout for ordinary request-response MCP traffic."""
 
@@ -191,7 +194,7 @@ async def _probe_auth_posture(
     server_url: str,
     *,
     request_headers: dict[str, str] | None = None,
-    timeout: float = 5.0,
+    timeout: float | None = None,
 ) -> Literal["no_auth", "oauth", "unexpected_status", "error"]:
     """HTTP-level auth-posture probe — bypasses the MCP SDK entirely.
 
@@ -251,11 +254,14 @@ async def _probe_auth_posture(
 
     Args:
         server_url: The streamable-http MCP server URL.
-        timeout: Request timeout in seconds (default 5).
+        timeout: Request timeout in seconds (default ``_PROBE_TIMEOUT_SECONDS``, 5,
+            read at call time).
 
     Returns:
         ``"no_auth"``, ``"oauth"``, ``"unexpected_status"`` or ``"error"``.
     """
+    if timeout is None:
+        timeout = _PROBE_TIMEOUT_SECONDS
     # Lazy import — keeps test monkeypatches on the_one.mcp namespace
     # alive (read-at-call-time per F2 convention).
     from the_one import mcp as the_one_mcp

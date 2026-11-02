@@ -17,11 +17,31 @@ NO_SLEEP_HOOKS: dict[str, Any] = {}
 
 
 @pytest.fixture
-def evals_isolation(monkeypatch, tmp_path):
-    """Isolate the process-wide singletons an evals invocation touches."""
+def evals_isolation(request, monkeypatch, tmp_path):
+    """Isolate the process-wide singletons an evals invocation touches.
+
+    Each evals run builds its scratch database through ``init_db``, which replays every
+    migration (about 0.4 s). Unless the test module sets ``EVALS_REAL_MIGRATIONS = True``
+    (the env and smoke modules, which prove the real start-up path), the run's
+    ``init_db`` first copies the session schema template into the scratch data directory,
+    so the real ``init_db`` runs against a current-schema file (Mission 34 F1 L01).
+    """
     from the_one import vectors
     from the_one.config import settings
     from the_one.db import connection as db_connection
+
+    if not getattr(request.module, "EVALS_REAL_MIGRATIONS", False):
+        import the_one.db as db_package
+        from tests._schema_template import copy_template
+
+        real_init_db = db_package.init_db
+
+        async def seeded_init_db() -> None:
+            if not settings.db_path.exists():
+                copy_template(settings.db_path)
+            await real_init_db()
+
+        monkeypatch.setattr(db_package, "init_db", seeded_init_db)
 
     monkeypatch.setattr(db_connection, "_connection", None)
     monkeypatch.setattr(vectors, "_store", None)

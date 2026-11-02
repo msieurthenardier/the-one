@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -675,6 +676,15 @@ def test_run_now_conflict_shows_inline_message(app_with_agent: SeededApp, page: 
         f"{base}/api/agents/{agent}/routines/{rid}/run", headers=auth_headers_for(base), timeout=5
     )
     assert r.status_code == 202
+    # Click only once the run is observably in progress (a run row with no outcome yet).
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        runs = _runs(base, agent, rid)
+        if any(x.get("outcome") == "running" for x in runs):
+            break
+        page.wait_for_timeout(100)
+    else:
+        raise AssertionError("the started run never became observable as in progress")
     _item(row, "routine-run-now").click()
     expect(row.locator('[data-testid="routine-error"]')).to_have_text(
         "This routine is already running.", timeout=8000

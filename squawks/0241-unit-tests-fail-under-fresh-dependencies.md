@@ -41,3 +41,5 @@ The next fresh install, CI image rebuild or new developer machine will hit the s
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+- **2026-11-02 (Mission 34 Flight 1 Leg 2):** `test_detail_view_indexing_poll_reindex_and_search` passed in the `knowledge` lane of the quiet-host `--parallel 3` run (65 passed). Stays open.

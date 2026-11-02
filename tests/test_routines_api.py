@@ -8,14 +8,13 @@ from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._routine_schedules import daily, every_hours, once_at, once_in, weekly
 from tests._schema_template import connect_template_db
 from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
 from the_one.routines.models import RoutineRun
 from the_one.routines.repository import RoutineRunRepository
 
@@ -48,8 +47,7 @@ async def env(tmp_path, frozen_clock):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as c:

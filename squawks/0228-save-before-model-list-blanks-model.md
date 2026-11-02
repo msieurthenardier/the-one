@@ -28,3 +28,6 @@ A plausible fix is to keep Save disabled until the first model list for the curr
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **Routed** (2026-11-02, operator decision at the Mission 34 Flight 1 debrief): taken into [Mission 34 Flight 2](../missions/34-maintenance/flights/02-data-safety-and-routine-observability/flight.md) as leg `agent-save-keeps-model`. It is a silent data-loss path like the flight's connector-peer leg; the design call (disable Save vs keep the stored model) is settled at that leg's design. Squawk 0229 is re-tested after it lands.

@@ -9,6 +9,7 @@ from _evals_helpers import make_tree, run, script_hook, simple_scenario
 
 from evals import scripted
 
+EVALS_REAL_MIGRATIONS = True  # the end-to-end smoke keeps the real migration path
 evals_isolation = h.evals_isolation
 
 

@@ -1,11 +1,11 @@
 # Flight: Test-suite runtime II
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Post-Mission-33 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] Unit tier at or below 340 s (the work escalated from squawks 0222 and 0234). *(#1)*
-- [ ] Browser lanes inside their budgets; flake waits replaced; gate target recorded. *(#2)*
+- [x] Unit tier at or below 340 s (the work escalated from squawks 0222 and 0234). *(#1)*
+- [x] Browser lanes inside their budgets; flake waits replaced; gate target recorded. *(#2)*
 
 ---
 
@@ -51,14 +51,14 @@ Verified at `e33e8657` by the 2026-10-30 inspectors; spot-checked by the Flight 
 Re-audit at leg design time; line numbers drift.
 
 ### Prerequisites
-- [ ] A quiet host for each timing reading: 1-minute load below about 1.0 and no other test process.
-- [ ] Sortie 07 is not running its gate at the same time (it shares the host).
+- [x] A quiet host for each timing reading: 1-minute load below about 1.0 and no other test process.
+- [x] Sortie 07 is not running its gate at the same time (it shares the host).
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved (N/A, maintenance flight)
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified (at leg start)
+- [x] Prerequisites verified (at leg start)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -94,9 +94,9 @@ Re-audit at leg design time; line numbers drift.
 - **Watch** `test_detail_view_indexing_poll_reindex_and_search` (squawk 0241's "indexed: 2").
 
 ### Checkpoints
-- [ ] Leg 1a: the app-build cost is located (revert vs module-scoped app decided)
-- [ ] Unit ≤340 s
-- [ ] Quiet-host `--parallel 3` run green; budgets updated
+- [x] Leg 1a: the app-build cost is located (revert vs module-scoped app decided)
+- [x] Unit ≤340 s
+- [x] Quiet-host `--parallel 3` run green (one flake accepted, squawk 0305); budgets updated
 
 ### Adaptation Criteria
 
@@ -112,18 +112,18 @@ Re-audit at leg design time; line numbers drift.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `unit-per-test-cost` - Locate the app-build cost; hoist API-client and evals fixtures; cache guard scans; inject timeouts; trim real-subprocess tests. Unit ≤340 s.
-- [ ] `browser-lane-budgets-and-flakes` - Condition waits for the recurring flakes; quiet-host re-budget; record the full-gate target.
+- [x] `unit-per-test-cost` - Locate the app-build cost; hoist API-client and evals fixtures; cache guard scans; inject timeouts; trim real-subprocess tests. Unit ≤340 s.
+- [x] `browser-lane-budgets-and-flakes` - Condition waits for the recurring flakes; quiet-host re-budget; record the full-gate target.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (CLAUDE.md lane table and gate target; agents.md fixture conventions if a new shared fixture pattern lands)
+- [x] Tests passing
+- [x] Documentation updated (CLAUDE.md lane table and gate target; agents.md fixture conventions if a new shared fixture pattern lands)
 
 ### Verification
 - The solo unit command from the baseline reports ≤340 s with the same pass count plus any new tests, and the same 12 skips.

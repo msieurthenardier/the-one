@@ -13,6 +13,7 @@ from _evals_helpers import FAKE_TOKEN, token_file
 from evals import env as ev
 from evals.env import EvalRefusalError, StartupOptions, shutdown, startup
 
+EVALS_REAL_MIGRATIONS = True  # this module proves the real start-up path
 evals_isolation = h.evals_isolation
 real_data_dir = h.real_data_dir
 pytestmark = pytest.mark.usefixtures("evals_isolation")

@@ -28,6 +28,7 @@ Tests 3, 6, 7, 9 use page.route() to mock /api/mcp-sources/{id}/test/connect.
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 import pytest
@@ -62,6 +63,17 @@ def _get_agent(base_url: str, name: str) -> dict:
     r = httpx.get(f"{base_url}/api/agents/{name}", timeout=5.0, headers=auth_headers_for(base_url))
     assert r.status_code == 200, f"get agent failed: {r.status_code} {r.text}"
     return r.json()
+
+
+def _wait_surface_id(base_url: str, name: str, exclude: tuple[str, ...] = ()) -> str:
+    """Poll until the agent's loopback surface source is attached; return its id."""
+    deadline = time.monotonic() + 10
+    while True:
+        ids = [i for i in _get_agent(base_url, name)["mcp_source_ids"] if i not in exclude]
+        if ids:
+            return ids[0]
+        assert time.monotonic() < deadline, f"no surface source attached to {name!r} within 10 s"
+        time.sleep(0.1)
 
 
 def _navigate_to_agent_mcps_tab(page: Page, base_url: str, agent_name: str) -> None:
@@ -1097,7 +1109,7 @@ def test_self_configuration_enable_then_save_keeps_the_surface(app_clean: str, p
     expect(toggle).not_to_be_checked(timeout=8000)
     click_switch(page, ENABLE_SWITCH)
     expect(toggle).to_be_checked(timeout=8000)
-    surface = _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"][0]
+    surface = _wait_surface_id(app_clean, "sc-keep-agent")
 
     page.locator('[data-testid="tab-tools"]').click()
     expect(page.locator(f'[data-testid="mcp-source-toggle-{surface}"]')).to_be_disabled(
@@ -1140,7 +1152,7 @@ def test_set_sources_keeps_an_expanded_unsaved_tile(app_clean: str, page: Page) 
     expect(toggle).not_to_be_checked(timeout=8000)
     click_switch(page, ENABLE_SWITCH)
     expect(toggle).to_be_checked(timeout=8000)
-    surface = [i for i in _get_agent(app_clean, "keep-agent")["mcp_source_ids"] if i != sid][0]
+    surface = _wait_surface_id(app_clean, "keep-agent", exclude=(sid,))
 
     page.locator('[data-testid="tab-tools"]').click()
     expect(page.locator(f'[data-testid="mcp-source-row-{surface}"]')).to_be_visible(timeout=8000)

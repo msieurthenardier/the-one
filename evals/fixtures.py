@@ -44,7 +44,11 @@ class FixtureServer:
         handler = functools.partial(Handler, directory=directory)
         self._server = ThreadingHTTPServer((FIXTURE_HOST, 0), handler)
         self._thread = threading.Thread(
-            target=self._server.serve_forever, name="evals-fixture-server", daemon=True
+            # A short poll interval: ``shutdown()`` waits for the loop to notice the flag,
+            # and the default 0.5 s made every run's stop() cost about 0.35 s on average.
+            target=functools.partial(self._server.serve_forever, poll_interval=0.02),
+            name="evals-fixture-server",
+            daemon=True,
         )
         self._thread.start()
         return self

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -1326,7 +1327,8 @@ def _runs_of(base: str, agent: str, rid: str) -> list[dict]:
 
 def _wait_runs(page: Page, base: str, agent: str, rid: str, n: int = 1) -> list[dict]:
     runs: list[dict] = []
-    for _ in range(40):
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
         runs = _runs_of(base, agent, rid)
         if len(runs) >= n and all(x.get("outcome") for x in runs):
             return runs

@@ -27,3 +27,5 @@ Keep this open as the known-flake record. On a recurrence, capture the trace and
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+- **2026-11-02 (Mission 34 Flight 1 Leg 2):** did not recur in the quiet-host `--parallel 3` run (`PARALLEL_RESULT rc=1 total=2027s`, start load 0.23; the `agents`, `settings-tools` and `providers` focus-after files all passed). Stays open: 0228 (the product defect it waits on) is unresolved.

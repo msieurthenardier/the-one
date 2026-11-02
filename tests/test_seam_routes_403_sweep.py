@@ -12,7 +12,7 @@ assertion per (method, path), plus a set-comparison test that fails loudly
 if the discovered seam set drifts from what this test currently knows
 about.
 
-Bare `FastAPI()` + `router`, no `CredentialGateMiddleware` — mirrors
+The shared bare API app (`tests/_api_app.py`), no `CredentialGateMiddleware` — mirrors
 `tests/test_db_api.py`/`tests/test_chat_history_purge.py`, not
 `tests/test_oauth_callback_gate.py`. These seam handlers each gate on
 `settings.dev_mode` as the FIRST statement in the function body, so the
@@ -26,10 +26,10 @@ from __future__ import annotations
 import re
 
 import pytest
-from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.config import settings
 from the_one.interfaces.web.api import router
@@ -141,8 +141,7 @@ async def client():
     """Bare router, no DB/encryptor patching — these handlers gate on
     `settings.dev_mode` before touching any repository, so none of that
     machinery is reachable in the 403 path this test exercises."""
-    test_app = FastAPI()
-    test_app.include_router(router)
+    test_app = shared_app()
     transport = ASGITransport(app=test_app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=auth_headers()

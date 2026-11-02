@@ -10,9 +10,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._routine_schedules import daily
 from tests._schema_template import connect_template_db
@@ -105,8 +105,7 @@ async def conn(tmp_path):
 @pytest.fixture
 async def client(conn):
     with patch("the_one.interfaces.web.api.get_connection", return_value=conn):
-        test_app = FastAPI()
-        test_app.include_router(router)
+        test_app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=test_app),
             base_url="http://test",

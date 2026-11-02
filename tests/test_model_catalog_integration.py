@@ -30,12 +30,11 @@ import types
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.config import settings
-from the_one.interfaces.web.api import router
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.model_catalog import _reset_for_tests, context_window_for
 from the_one.llm.openai_provider import OpenAIProvider
@@ -64,8 +63,7 @@ async def client():
     the endpoint's only DB-touching call is ``AgentFactory.create()``,
     which we patch wholesale per test.
     """
-    test_app = FastAPI()
-    test_app.include_router(router)
+    test_app = shared_app()
     transport = ASGITransport(app=test_app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=auth_headers()

@@ -12,16 +12,15 @@ from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.models import Connector, KnowledgeBase, MCPSource
 from the_one.db.repositories import ConnectorRepository, MCPSourceRepository, SQLiteAgentStore
 from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
 from the_one.knowledge.kb_rename import carry_kb_rename
 from the_one.mcp.rename_references import carry_mcp_rename
 
@@ -34,8 +33,7 @@ async def env(tmp_path):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=enc),
     ):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as client:

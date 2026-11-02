@@ -1,10 +1,10 @@
 # Squawk 0304: two Routines browser tests fail intermittently inside the lane
 
-**Status**: deferred
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-31
-**Completed**: —
+**Completed**: 2026-11-02
 
 ## Report
 Two run-timing tests in the `agent-routines` lane fail intermittently when the whole lane runs, and pass when run alone:
@@ -19,17 +19,17 @@ Runs on 2026-10-31, from the sortie 07 worktree and its base `64519296`:
 - Isolated: each test passed 5/5 on the branch. On the base, the first test passed 5/5 and the second 3/3.
 
 ## Corrective Action
-*(to be done)* Make both tests wait on a state, not a race:
-- **Run now conflict:** hold the run in progress until the click lands, with a longer mock delay or by waiting for `routine-last` "Running…" before clicking. Then assert the 409 sentence.
-- **Immediately repeating:** poll on a deadline, not a fixed 40 × 500 ms, or wait on the row's last-run text.
-
-Test-only.
+Both tests now wait on a state, not a race. Test-only; no product change.
+- **Run now conflict** (`test_flow_agent_routines.py`): after the API start returns 202, the test polls `GET .../runs` (100 ms steps, 10 s monotonic deadline) until a run row has `outcome == "running"`, and only then clicks Run now and asserts the 409 sentence. The 4 s mock delay is unchanged.
+- **Immediately repeating** (`test_flow_agent_routines_form.py`): `_wait_runs` loops to a 20 s monotonic deadline instead of a fixed 40 × 500 ms; callers' assertions are unchanged.
 
 ## Verification
-*(to be done)* Each test passes 10 isolated runs in a row and three `--lane agent-routines` runs.
+Each test passed 10 of 10 isolated runs, and `--lane agent-routines` passed three times (83 passed in each: the `--parallel 3` run's lane, then two solo runs). Not falsified (race fixes).
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Mission 34 Flight 1 flight review (Reviewer agent, Sonnet)
+**Verdict**: confirmed
+**Commit**: the Mission 34 Flight 1 commit on branch flight/01-test-suite-runtime-ii (see the flight PR)
 
 ## Disposition
 - **Deferred** (2026-10-31, Flight Director, sortie 07 closing gate): out of the sortie's scope, and the failure reproduces on the base. **Revisit trigger:** Mission 34 Flight 1's `browser-lane-budgets-and-flakes` leg, or the next squawk turnaround, whichever comes first. Until then, a failure of one of these two tests alone in `agent-routines` is accepted as this squawk when an isolated re-run passes.

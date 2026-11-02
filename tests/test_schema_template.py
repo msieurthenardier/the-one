@@ -13,6 +13,7 @@ import aiosqlite
 import pytest
 
 from tests import _schema_template as tmpl
+from tests import _source_scan
 from the_one.db.schema import CURRENT_VERSION, ensure_schema
 
 TESTS_DIR = Path(__file__).parent
@@ -121,7 +122,10 @@ async def test_template_matches_fresh_replay(tmp_path: Path) -> None:
 
 
 def _direct_calls(path: Path) -> list[int]:
-    tree = ast.parse(path.read_text())
+    source = _source_scan.text(path)
+    if "ensure_schema" not in source and "init_db" not in source:
+        return []  # no call can name either (exact pre-filter, M34 F1 L01)
+    tree = ast.parse(source)
     lines = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -140,7 +144,7 @@ def _direct_calls(path: Path) -> list[int]:
 
 def test_no_direct_schema_builds_outside_allow_list() -> None:
     violations = []
-    for path in sorted(TESTS_DIR.rglob("*.py")):
+    for path in _source_scan.py_files(TESTS_DIR):
         rel = path.relative_to(TESTS_DIR.parent).as_posix()
         if rel in ALLOWED_DIRECT_CALLERS:
             continue
