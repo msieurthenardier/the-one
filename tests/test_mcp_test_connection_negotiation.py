@@ -14,9 +14,9 @@ from unittest.mock import patch
 import httpx2
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._mcp_signin_helpers import serve_asgi
 from tests._schema_template import connect_template_db
@@ -25,8 +25,8 @@ from tests.fixtures.mcp.hello_server import make_http_app
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
 from the_one.mcp import _era, _pool
+from the_one.mcp.transports import streamable_http
 
 URL = "http://localhost/mcp"
 SID = "src-neg"
@@ -99,8 +99,7 @@ async def client_and_repo(tmp_path):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as c:
@@ -254,7 +253,7 @@ async def test_normal_phase_b_driver_sends_initialize_with_handshake_header(
 
 
 async def test_unreachable_url_fails_fast_without_constructing_a_client(
-    client_and_repo,
+    client_and_repo, monkeypatch
 ) -> None:
     c, repo = client_and_repo
     src = await repo.get(SID)
@@ -262,6 +261,9 @@ async def test_unreachable_url_fails_fast_without_constructing_a_client(
         src.model_copy(update={"config": {"url": "http://127.0.0.1:1/mcp", "headers": {}}})
     )
     constructed: list[int] = []
+    # On hosts where nothing answers on 127.0.0.1:1 the probe only ends by its timeout;
+    # shrink it (production: 5 s) so the timeout branch is still what ends the probe.
+    monkeypatch.setattr(streamable_http, "_PROBE_TIMEOUT_SECONDS", 0.3)
 
     class _NoClient:
         def __init__(self, *a, **k):

@@ -268,7 +268,11 @@ class OAuthASStub:
         self._server.cfg = config  # type: ignore[attr-defined]
         self._server.mcp_requests = []  # type: ignore[attr-defined]
         self._server.token_requests = []  # type: ignore[attr-defined]
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        # A short poll interval: shutdown() waits for the loop to notice the flag, and the
+        # default 0.5 s cost about 0.25 s per stub on average (Mission 34 F1 L01).
+        self._thread = threading.Thread(
+            target=lambda: self._server.serve_forever(poll_interval=0.02), daemon=True
+        )
 
     @property
     def mcp_requests(self) -> list[tuple[str | None, bool]]:

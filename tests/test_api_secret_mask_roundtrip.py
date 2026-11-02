@@ -26,13 +26,12 @@ from unittest.mock import patch
 import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
 
 
 @pytest.fixture
@@ -60,8 +59,7 @@ async def client_and_key(tmp_path):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=test_encryptor),
     ):
-        test_app = FastAPI()
-        test_app.include_router(router)
+        test_app = shared_app()
 
         transport = ASGITransport(app=test_app)
         async with AsyncClient(

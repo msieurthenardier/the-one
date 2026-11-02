@@ -77,21 +77,19 @@ def test_web_search_description_is_the_new_literal() -> None:
 
 from unittest.mock import patch  # noqa: E402
 
-from fastapi import FastAPI  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
+from tests._api_app import shared_app  # noqa: E402
 from tests._credential_helpers import auth_headers  # noqa: E402
 from tests._schema_template import connect_template_db  # noqa: E402
 from the_one.interfaces.web import api as api_mod  # noqa: E402
-from the_one.interfaces.web.api import router  # noqa: E402
 
 
 @pytest.fixture
 async def client(tmp_path):
     conn = await connect_template_db(tmp_path / "test.db")
     with patch("the_one.interfaces.web.api.get_connection", return_value=conn):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as c:

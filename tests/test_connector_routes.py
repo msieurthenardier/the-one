@@ -16,16 +16,15 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.config import settings
 from the_one.connectors import registry
 from the_one.connectors.base import ChannelTarget
 from the_one.connectors.manager import ConnectorManager, set_manager
 from the_one.connectors.stub import StubPlugin
-from the_one.interfaces.web.api import router
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 
 pytestmark = pytest.mark.usefixtures("isolated_db")
@@ -43,8 +42,7 @@ async def _reset():
 
 @pytest.fixture
 async def client():
-    test_app = FastAPI()
-    test_app.include_router(router)
+    test_app = shared_app()
     transport = ASGITransport(app=test_app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=auth_headers()

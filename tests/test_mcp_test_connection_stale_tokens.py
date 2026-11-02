@@ -16,16 +16,15 @@ from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from tests.fixtures.oauth import OAuthASStub
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
 from the_one.mcp import _pool
 
 
@@ -68,8 +67,7 @@ async def api_and_repo(tmp_path):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as client:
@@ -83,7 +81,7 @@ async def test_refresh_token_failure_recovers_into_a_fresh_sign_in(
     client, repo = api_and_repo
     # Keep the sign-in wait short: Phase A's provider (no consent future) parks in
     # its callback handler until the client's initialize budget runs out.
-    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 3)
+    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 1.5)
 
     with OAuthASStub(refresh_status=400) as stub:
         await repo.create(
@@ -130,7 +128,7 @@ async def test_override_url_is_not_persisted_by_the_clear_and_phase_b_targets_it
     """DD7: the clear re-reads the stored row, so a request-body override (an
     unsaved URL) is never written back, yet Phase B signs in against the override."""
     client, repo = api_and_repo
-    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 3)
+    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 1.5)
 
     with OAuthASStub() as stored_stub, OAuthASStub() as override_stub:
         stored_config = {"url": f"{stored_stub.base_url}/mcp", "_cache": {"auth_posture": "oauth"}}

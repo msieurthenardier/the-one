@@ -28,6 +28,7 @@ import pytest
 if os.name != "posix":
     pytest.skip("UnixPtySession requires POSIX (pty.fork)", allow_module_level=True)
 
+from the_one.platform import pty_unix  # noqa: E402  (after POSIX skip guard)
 from the_one.platform.pty import (  # noqa: E402  (after POSIX skip guard)
     PtySession,
     UnixPtySession,
@@ -52,6 +53,11 @@ def _pin_to_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
     consume the function-scoped ``monkeypatch`` fixture (pytest raises).
     """
     monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
+    # An interactive bash ignores SIGTERM, so the passthrough close always waits out its
+    # whole SIGTERM grace (1 s in production) before the SIGKILL. Shrink the grace so each
+    # test's close takes ~50 ms; the kill path (SIGKILL after the grace) is what runs
+    # either way (Mission 34 F1 L01).
+    monkeypatch.setattr(pty_unix, "_CLOSE_GRACE_SECONDS", 0.05)
 
 
 # ---------------------------------------------------------------------------

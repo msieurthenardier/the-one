@@ -76,6 +76,10 @@ if TYPE_CHECKING:
 # regardless of whether a prompt was printed.
 _INTERACTIVE_SHELL_BASENAMES: frozenset[str] = frozenset({"bash", "zsh"})
 
+# How long the passthrough ``close()`` waits for the shell to exit after SIGTERM before it
+# SIGKILLs it. Read at call time (a module attribute), so a test can shrink it.
+_CLOSE_GRACE_SECONDS = 1.0
+
 # Module-level libc singleton — loaded at most once, only on Linux.
 # Loaded in the PARENT (before pty.fork()) per the fork-safety rule (DD1):
 # calling CDLL inside the post-fork child can deadlock on a mutex inherited
@@ -510,7 +514,7 @@ class UnixPtySession(PtySession):
 
                 # Poll up to 1s for graceful exit.
                 if pid is not None:
-                    deadline = time.monotonic() + 1.0
+                    deadline = time.monotonic() + _CLOSE_GRACE_SECONDS
                     reaped = False
                     while time.monotonic() < deadline:
                         try:

@@ -105,6 +105,18 @@ def _daemonize_aiosqlite_worker_threads() -> None:
     conn_cls._the_one_daemonized = True
 
 
+@pytest.fixture(autouse=True)
+def _shared_app_isolation():
+    """Mission 34 F1 L01 (AC3): after every test, fail if it changed the shared API app.
+
+    A no-op until a test has built ``tests/_api_app.py::shared_app()``.
+    """
+    yield
+    from tests._api_app import check_isolation
+
+    check_isolation()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _close_db_singleton_at_session_end():
     """F5 L01.5: close the `aiosqlite` singleton at session end so its

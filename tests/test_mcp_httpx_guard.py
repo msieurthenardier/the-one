@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests import _source_scan
+
 MCP_DIR = Path(__file__).resolve().parent.parent / "the_one" / "mcp"
 
 
@@ -77,6 +79,10 @@ _REMOVED_NAMES = {"McpError", "FastMCP"}
 
 def _removed_surface_uses(source: str) -> list[str]:
     hits: list[str] = []
+    # Every hit below spells one of these words in the source text (a module path or a name),
+    # so a file without any of them has none: skip its AST (exact pre-filter, M34 F1 L01).
+    if not any(word in source for word in (*_REMOVED_MODULES, *_REMOVED_NAMES)):
+        return hits
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -112,10 +118,10 @@ def test_no_code_uses_mcp_1x_only_names() -> None:
     offenders: dict[str, list[str]] = {}
     me = Path(__file__).resolve()
     for base in ("the_one", "tests"):
-        for path in sorted((root / base).rglob("*.py")):
+        for path in _source_scan.py_files(root / base):
             if path.resolve() == me:
                 continue
-            hits = _removed_surface_uses(path.read_text(encoding="utf-8"))
+            hits = _removed_surface_uses(_source_scan.text(path))
             if hits:
                 offenders[str(path.relative_to(root))] = hits
     assert offenders == {}, f"mcp 1.x-only surface still used: {offenders}"

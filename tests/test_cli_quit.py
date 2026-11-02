@@ -46,7 +46,7 @@ def stub_server(data_dir):
             pass
 
     srv = http.server.HTTPServer(("127.0.0.1", settings.port), Handler)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t = threading.Thread(target=lambda: srv.serve_forever(poll_interval=0.02), daemon=True)
     t.start()
     yield box
     srv.shutdown()

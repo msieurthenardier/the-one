@@ -31,6 +31,7 @@ without a reason recorded in the flight log; a new row means new debt.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections import Counter
 from pathlib import Path
@@ -185,6 +186,8 @@ def count_js_uses(src: str, names: list[str]) -> Counter[str]:
             continue
         content = _TESTID_IN_MARKUP.sub("", content)
         for name in names:
+            if name not in content:  # a token match needs the substring: skip the regex
+                continue
             found = len(token_regex(name).findall(content))
             if found:
                 counts[name] += found
@@ -203,6 +206,8 @@ def count_css_uses(css: str, names: list[str]) -> Counter[str]:
     for m in _CSS_PRELUDE.finditer(css):
         selector = _CSS_ATTR.sub("", m.group(1))
         for name in names:
+            if name not in selector:  # a class match needs the substring: skip the regex
+                continue
             found = len(re.findall(r"\." + re.escape(name) + r"(?![\w-])", selector))
             if found:
                 counts[name] += found
@@ -238,7 +243,11 @@ def app_js_files() -> list[Path]:
     return [p for p in sorted(JS_DIR.rglob("*.js")) if ui_dir not in p.parents]
 
 
+@functools.cache
 def measure() -> dict[tuple[str, str], int]:
+    """Scan the real tree once per process (two tests read it; the tree is fixed mid-run).
+
+    Callers must not mutate the result."""
     names = owned_classes(INVENTORY.read_text())
     found: dict[tuple[str, str], int] = {}
     for path in app_js_files():

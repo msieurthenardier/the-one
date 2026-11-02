@@ -15,16 +15,15 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.agent.factory import (
     AgentNotFoundError,
     ProviderNotConfiguredError,
     ProviderNotFoundError,
 )
-from the_one.interfaces.web.api import router
 
 
 def _make_fake_agent(max_tokens: int, resolver_side_effect: Any = None) -> MagicMock:
@@ -56,8 +55,7 @@ async def client():
     the endpoint's only DB-touching call is ``AgentFactory.create()``,
     which we patch wholesale per test.
     """
-    test_app = FastAPI()
-    test_app.include_router(router)
+    test_app = shared_app()
     transport = ASGITransport(app=test_app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=auth_headers()

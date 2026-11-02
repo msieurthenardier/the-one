@@ -58,6 +58,10 @@ _DEFAULT_TTL_SECONDS = 300
 """Default idle TTL for a pool entry, in seconds. Resolved at register-time
 from ``MCP_POOL_IDLE_TTL_SECONDS`` (see ``_resolve_ttl_seconds``)."""
 
+_WORKER_TEARDOWN_TIMEOUT_SECONDS = 10.0
+"""How long ``_teardown_entry`` waits for a pool worker to finish before cancelling it.
+Read at call time (a module attribute), so a test can shrink it."""
+
 _REAPER_INTERVAL_SECONDS = 30.0
 """Reaper sweep interval. Defined here for forward-reference; UNUSED until
 L4 wires the reaper. Tests can monkeypatch this for fast sweeps."""
@@ -292,9 +296,13 @@ async def _teardown_entry(key: tuple[str, str], entry: _RegistryEntry) -> None:
     assert entry.worker is not None  # set at acquire-time before insert
     entry.evict_event.set()
     try:
-        await asyncio.wait_for(entry.worker, timeout=10.0)
+        await asyncio.wait_for(entry.worker, timeout=_WORKER_TEARDOWN_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
-        logger.warning("MCP pool worker for %r did not terminate within 10s", key)
+        logger.warning(
+            "MCP pool worker for %r did not terminate within %gs",
+            key,
+            _WORKER_TEARDOWN_TIMEOUT_SECONDS,
+        )
         entry.worker.cancel()
         with contextlib.suppress(BaseException):
             await entry.worker

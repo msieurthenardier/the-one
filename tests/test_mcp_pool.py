@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -1114,12 +1115,19 @@ async def test_drain_timeout_handles_stuck_worker(monkeypatch):
 
     monkeypatch.setattr(pool_mod, "MCPClient", _StuckClient)
     monkeypatch.setattr(pool_mod, "_load_source", _patched_load_source)
+    # The per-entry teardown timeout is 10 s in production; shrink it so the stuck worker
+    # (30 s) is still cancelled by the timeout branch, without a 10 s wait.
+    monkeypatch.setattr(pool_mod, "_WORKER_TEARDOWN_TIMEOUT_SECONDS", 0.2)
 
     await acquire("agent-a", "src-1")
 
-    # ``shutdown_drain`` must return within ~10s (per-entry _evict
-    # timeout) plus a small overhead for the reaper-cancel. Bound at 15s.
-    await asyncio.wait_for(pool_mod.shutdown_drain(), timeout=15.0)
+    # ``shutdown_drain`` must return within the (shrunk) per-entry timeout plus a
+    # small overhead for the reaper-cancel; far below the worker's 30 s sleep. Measured
+    # rather than wrapped in wait_for: wait_for would not fail if the drain swallowed the
+    # cancellation and finished.
+    started = time.monotonic()
+    await pool_mod.shutdown_drain()
+    assert time.monotonic() - started < 5.0
 
     assert pool_mod._pool == {}
 

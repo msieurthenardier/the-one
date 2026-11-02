@@ -1,6 +1,6 @@
 # Mission: Post-Mission-33 Maintenance
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -48,10 +48,10 @@ as squawks 0295–0300, not here.
 
 ## Success Criteria
 
-- [ ] **Unit tier at or below 340 s.** Measured solo on a quiet host with the
+- [x] **Unit tier at or below 340 s.** Measured solo on a quiet host with the
   same command and flags as the 2026-10-30 profile, with no test deleted, skipped
   or xfailed to get there. It carries the work escalated from squawks 0222 and 0234. *(#1)*
-- [ ] **Browser lanes inside their budgets.**
+- [x] **Browser lanes inside their budgets.**
   - Every lane's budget is re-read from a quiet-host `--parallel 3` run
     (squawk 0259's rule).
   - The fixed waits behind the recurring load flakes are replaced by
@@ -135,6 +135,6 @@ Approach.
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: [Test-suite runtime II](flights/01-test-suite-runtime-ii/flight.md): unit-tier per-test cost, browser lane budgets and flake waits.
+- [x] Flight 1: [Test-suite runtime II](flights/01-test-suite-runtime-ii/flight.md): unit-tier per-test cost, browser lane budgets and flake waits.
 - [ ] Flight 2: [Data safety and routine observability](flights/02-data-safety-and-routine-observability/flight.md): connector peers survive a stale save, routine logging, cheaper session pushes.
 - [ ] Flight 3: [Dead code](flights/03-dead-code/flight.md): the definite-dead sweep, then the unused rotation and repository methods.

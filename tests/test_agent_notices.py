@@ -6,15 +6,14 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ToolConfig
 from the_one.interfaces.web import api as api_module
-from the_one.interfaces.web.api import router
 from the_one.tools import override_validation as ov
 from the_one.tools.builtins import _TOOL_CLASSES
 
@@ -23,8 +22,7 @@ from the_one.tools.builtins import _TOOL_CLASSES
 async def client(tmp_path):
     conn = await connect_template_db(tmp_path / "test.db")
     with patch("the_one.interfaces.web.api.get_connection", return_value=conn):
-        app = FastAPI()
-        app.include_router(router)
+        app = shared_app()
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers()
         ) as c:

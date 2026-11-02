@@ -19,15 +19,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from conftest import FakeLLM
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from the_one.agent.core import Agent
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
-from the_one.interfaces.web.api import router
 from the_one.interfaces.web.app import (
     Session,
     _process_and_broadcast,
@@ -198,8 +197,7 @@ async def oauth_callback_client(tmp_path):
         patch("the_one.interfaces.web.api.get_connection", return_value=conn),
         patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
-        test_app = FastAPI()
-        test_app.include_router(router)
+        test_app = shared_app()
         transport = ASGITransport(app=test_app)
         async with AsyncClient(
             transport=transport, base_url="http://test", headers=auth_headers()
