@@ -31,3 +31,4 @@
 
 ## Disposition
 - **Deferred** (2026-11-02, Flight Director, Mission 34 Flight 1 Leg 2): found mid-flight, outside the flight's scope. **Revisit trigger:** the next squawk turnaround, or the next flight that touches the chat transcript, whichever comes first. Until then, a failure of this test alone in `chats-transcript` is accepted as this squawk when an isolated re-run passes.
+- **2026-11-02 (Mission 34 Flight 2 debrief):** failed again in the debrief's full gate (`PARALLEL_RESULT rc=1 total=2235s lanes=17 failed=chats-transcript`, start load 1.19), at `:725` "Actual value: 2"; 3 of 3 isolated re-runs passed. It has now failed in 2 of 2 full gates, so every full gate reads rc=1. **Re-prioritised by the operator: first item of the next squawk turnaround**, right after Flight 2's PR merges.

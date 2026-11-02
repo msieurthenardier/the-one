@@ -1,6 +1,6 @@
 # Flight: Data safety and routine observability
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-33 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
@@ -65,6 +65,11 @@ Re-audit at leg design time; line numbers drift.
 ## In-Flight
 
 ### Technical Approach
+
+> **As-built note (flight debrief, 2026-11-02).** The approach below is the plan as written; two parts were superseded during the flight (see the legs' Design Review sections and the flight log):
+> - **Step 3 (drawer):** skipping `render()` on a `sessions` notification would not have removed the rebuild, because `areas/chat.js` re-renders the drawer through `renderPane` → `render(view)` → `apply()` on every push. As built, the dedupe is a render key inside `apply()`.
+> - **Step 2 (logging):** the leg spec's premise that `_fail_early` has no run id (log `run=none`) was wrong: it inserts a row. As built, the pre-chat failure line and the `decision=missed` line carry the stored run id (found by the behavior test's first run).
+
 
 **1. `connector-peers-survive-stale-save` (#4, squawk 0288).**
 - **Red test first**, in-process: create a connector; GET it (the editor's view); pair a peer through the real `_pair_peer` path; PUT the earlier `config` back unchanged. Assert that the peer is still stored. Today this test should fail, which proves 0288 live; record the result.
