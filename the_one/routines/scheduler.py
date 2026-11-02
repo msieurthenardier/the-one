@@ -219,6 +219,12 @@ class RoutineScheduler:
         due = _parse(due_iso)
         anchor = _parse(r.anchor_at)
         if due is None or due_iso is None:
+            logger.warning(
+                "routine decision=unreadable_due routine=%s agent=%r due=%r",
+                r.id,
+                r.agent_name,
+                due_iso,
+            )
             return
         g = recurrence.grace(r.schedule, anchor, due, zone)
         late = now - due
@@ -231,7 +237,16 @@ class RoutineScheduler:
         nxt = recurrence.next_occurrence(r.schedule, anchor, now, zone)
         finished = now.isoformat() if nxt is None else None
         if not await repo.advance_if_due(r.id, due_iso, nxt.isoformat() if nxt else None, finished):
-            return  # edited, disabled or deleted since list_due: the edit wins
+            # edited, disabled or deleted since list_due: the edit wins
+            logger.info(
+                "routine decision=skip_changed routine=%s agent=%r due=%s late_s=%.1f",
+                r.id,
+                r.agent_name,
+                due_iso,
+                late.total_seconds(),
+            )
+            return
+        nxt_text = nxt.isoformat() if nxt else "none"
         if not runs_now:
             if r.schedule["repeat"] is None:
                 reason = "The scheduled time passed while the app was closed."
@@ -248,16 +263,43 @@ class RoutineScheduler:
                     ),
                 )
                 reason = _missed_reason(n)
-            await self._record(runs, r.id, "schedule", "missed", reason, due_iso, now)
+            row = await self._record(runs, r.id, "schedule", "missed", reason, due_iso, now)
+            logger.info(
+                "routine decision=missed run=%s routine=%s agent=%r due=%s late_s=%.1f "
+                "next=%s finished=%s reason=%r",
+                row.id,
+                r.id,
+                r.agent_name,
+                due_iso,
+                late.total_seconds(),
+                nxt_text,
+                finished is not None,
+                reason,
+            )
             return
         rid = r.id
         task = self._spawn(rid, lambda: runner.run_routine(rid, trigger, due_iso))
         if task is None:
             await runs.record_still_running_skip(rid, trigger, due_iso, now.isoformat())
+            decision = "still_running_skip"
+        else:
+            decision = "spawn"
+        logger.info(
+            "routine decision=%s routine=%s agent=%r trigger=%s due=%s late_s=%.1f "
+            "next=%s finished=%s",
+            decision,
+            rid,
+            r.agent_name,
+            trigger,
+            due_iso,
+            late.total_seconds(),
+            nxt_text,
+            finished is not None,
+        )
 
     @staticmethod
-    async def _record(runs, rid, trigger, outcome, reason, due_iso, now) -> None:
-        await runs.insert(
+    async def _record(runs, rid, trigger, outcome, reason, due_iso, now) -> RoutineRun:
+        return await runs.insert(
             RoutineRun(
                 routine_id=rid,
                 trigger_kind=trigger,

@@ -11,6 +11,7 @@ time zone come from the caller, and failures are typed errors
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
@@ -38,7 +39,31 @@ from the_one.routines.repository import (
 )
 from the_one.routines.scheduler import get_scheduler
 
+logger = logging.getLogger(__name__)
+
 ZoneLoader = Callable[[], Awaitable[tzinfo]]
+
+
+def _log_proposal(
+    proposal_id: str | None,
+    agent_name: str,
+    action: str,
+    decision: str,
+    flagged: bool,
+    routine_id: str | None,
+) -> None:
+    """One INFO line per proposal decision: ids bare, the agent name repr-quoted, never the
+    payload (a routine's name, prompt or schedule)."""
+    logger.info(
+        "routine proposal=%s agent=%r action=%s decision=%s flagged=%s routine=%s",
+        proposal_id or "none",
+        agent_name,
+        action,
+        decision,
+        flagged,
+        routine_id or "none",
+    )
+
 
 MSG_NO_RUNS_LEFT = recurrence.MSG_NO_RUNS_LEFT
 MSG_UPGRADE_FAILED = "This schedule could not be upgraded. Edit it to turn the routine back on."
@@ -558,6 +583,14 @@ async def agent_change(
             routine_limits.check_routine_caps(before, after)
 
         proposal, replaced = await props.insert_pending(row, caps_check=caps_check)
+        _log_proposal(
+            proposal.id,
+            agent_name,
+            action,
+            "pending",
+            untrusted,
+            current.id if current else None,
+        )
         return AgentChangeResult(
             pending=True,
             replaced=replaced,
@@ -598,10 +631,12 @@ async def agent_change(
     else:
         assert current is not None
         await delete_routine(repo, agent_name, current.id, proposal=op)
+    applied_id = routine.id if routine else (current.id if current else None)
+    _log_proposal(row.get("proposal_id"), agent_name, action, "applied", untrusted, applied_id)
     return AgentChangeResult(
         pending=False,
         routine=routine,
-        routine_id=routine.id if routine else (current.id if current else None),
+        routine_id=applied_id,
     )
 
 
@@ -714,11 +749,27 @@ async def approve_proposal(
                 gone = True
         if gone:
             done = await props.mark_superseded(proposal.id)
+            _log_proposal(
+                proposal.id,
+                agent_name,
+                proposal.action,
+                "superseded",
+                proposal.untrusted,
+                proposal.routine_id,
+            )
             if proposal.action == "update":
                 raise ProposalGoneError("That routine no longer exists.")
             return done
     got = await props.get(proposal.id)
     assert got is not None
+    _log_proposal(
+        proposal.id,
+        agent_name,
+        proposal.action,
+        "approved",
+        proposal.untrusted,
+        got.routine_id or proposal.routine_id,
+    )
     return got
 
 
@@ -727,4 +778,13 @@ async def dismiss_proposal(conn: Any, agent_name: str, proposal_id: str) -> Rout
     proposal = await props.get(proposal_id)
     if proposal is None or proposal.agent_name != agent_name:
         raise KeyError(f"Proposal not found: {proposal_id}")
-    return await props.mark_dismissed(proposal_id)
+    dismissed = await props.mark_dismissed(proposal_id)
+    _log_proposal(
+        proposal_id,
+        agent_name,
+        proposal.action,
+        "dismissed",
+        proposal.untrusted,
+        proposal.routine_id,
+    )
+    return dismissed

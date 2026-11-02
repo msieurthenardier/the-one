@@ -4,6 +4,7 @@ coalescing `sessions_changed` push (sortie 05 leg 2)."""
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -207,12 +208,51 @@ async def test_list_summaries_matches_list_without_reading_messages(repo):
 class FakeWS:
     def __init__(self, fail=False):
         self.sent: list = []
+        self.texts: list = []
         self.fail = fail
 
     async def send_json(self, payload):
         if self.fail:
             raise RuntimeError("closed")
         self.sent.append(payload)
+
+    async def send_text(self, text):
+        if self.fail:
+            raise RuntimeError("closed")
+        self.texts.append(text)
+        self.sent.append(json.loads(text))
+
+
+async def test_broadcast_to_all_encodes_once_for_every_socket(monkeypatch):
+    sockets = [FakeWS(), FakeWS(), FakeWS()]
+    for ws in sockets:
+        _broadcast.add_socket(ws)
+    calls = []
+    real = json.dumps
+
+    def counting(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(_broadcast.json, "dumps", counting)
+    payload = {"type": "sessions_changed", "name": "café", "n": [1, 2]}
+    await _broadcast.broadcast_to_all(payload)
+    assert len(calls) == 1
+    expected = real(payload, separators=(",", ":"), ensure_ascii=False)
+    for ws in sockets:
+        assert ws.texts == [expected]
+    assert len({id(ws.texts[0]) for ws in sockets}) == 1
+    for ws in sockets:
+        _broadcast.remove_socket(ws)
+
+
+async def test_broadcast_to_all_unencodable_payload_sends_nothing_and_keeps_sockets():
+    ws = FakeWS()
+    _broadcast.add_socket(ws)
+    await _broadcast.broadcast_to_all({"bad": object()})
+    assert ws.texts == []
+    assert _broadcast.all_sockets() == {ws}
+    _broadcast.remove_socket(ws)
 
 
 async def test_broadcast_to_all_sends_and_drops_dead_sockets():

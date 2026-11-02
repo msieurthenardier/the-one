@@ -204,3 +204,19 @@ async def test_purge_sweep_endpoint_403_when_env_flag_unset(
     monkeypatch.delenv("THE_ONE_PURGE_SWEEP_TEST_ENDPOINT", raising=False)
     resp = await client.post("/api/_test/purge-sweep")
     assert resp.status_code == 403
+
+
+async def test_purge_sweep_logs_one_line_with_every_count(app_db, caplog) -> None:
+    """One INFO line per sweep, with every count, even when nothing was deleted."""
+    import logging
+
+    app_mod, _conn = app_db
+    with caplog.at_level(logging.INFO, logger=app_mod.logger.name):
+        await app_mod._run_purge_sweep_and_evict()
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("purge sweep")]
+    assert len(lines) == 1
+    assert lines[0].startswith(
+        "purge sweep deleted=0 runs_deleted=0 routines_deleted=0 proposals_deleted=0 evicted=0 "
+        "last_purge_at="
+    )
+    assert not any("daily purge swept" in r.getMessage() for r in caplog.records)

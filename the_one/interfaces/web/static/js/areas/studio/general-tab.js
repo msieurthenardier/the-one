@@ -110,7 +110,9 @@
     }));
     var loadingEl = document.createElement('span');
     loadingEl.className = 'model-loading';
+    loadingEl.id = 'studio-model-status';
     loadingEl.setAttribute('aria-live', 'polite');
+    modelSelect.setAttribute('aria-describedby', 'studio-model-status');
     var modelWrap = document.createElement('div');
     modelWrap.className = 'field-model-wrap';
     modelWrap.appendChild(modelSelect);
@@ -337,7 +339,8 @@
       descriptionInput.value = c.description || '';
       fillProviders(c, provs || []);
       // The model list is refetched by the picker's wire (pendingValue = the stored
-      // model); until it lands the select shows its placeholder.
+      // model); until it lands the select shows the stored model as its one option
+      // (the placeholder only when there is none), so a Save then keeps it (0228).
       modelSelect.replaceChildren(option('', 'Select a provider first',
         { disabled: true, selected: true }));
       delete modelSelect.dataset.pendingValue;

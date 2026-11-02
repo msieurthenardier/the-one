@@ -57,18 +57,18 @@ as squawks 0295–0300, not here.
   - The fixed waits behind the recurring load flakes are replaced by
     condition waits.
   - A full-gate target is recorded in CLAUDE.md. *(#2)*
-- [ ] **A stale connector save keeps a paired peer.**
+- [x] **A stale connector save keeps a paired peer.**
   - A peer paired between an editor's load and its Save is still stored after
     the Save.
   - A regression test performs that sequence. *(#4, squawk 0288)*
-- [ ] **Routine runs are reconstructable from the log.** The app log records
+- [x] **Routine runs are reconstructable from the log.** The app log records
   each of these at INFO:
   - the scheduler's decision for each due routine (spawn, catch-up, missed,
     still-running skip, advance);
   - each run's outcome and reason;
   - each proposal approval and dismissal;
   - each purge sweep's full result. *(#12)*
-- [ ] **Session pushes cost less.**
+- [x] **Session pushes cost less.**
   - The chat agent drawer does not rebuild on a sessions push while it is
     hidden, or when its chat count is unchanged.
   - A sessions push is JSON-encoded once, however many sockets receive it.
@@ -136,5 +136,5 @@ Approach.
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
 - [x] Flight 1: [Test-suite runtime II](flights/01-test-suite-runtime-ii/flight.md): unit-tier per-test cost, browser lane budgets and flake waits.
-- [ ] Flight 2: [Data safety and routine observability](flights/02-data-safety-and-routine-observability/flight.md): connector peers survive a stale save, routine logging, cheaper session pushes.
+- [x] Flight 2: [Data safety and routine observability](flights/02-data-safety-and-routine-observability/flight.md): connector peers survive a stale save, routine logging, cheaper session pushes.
 - [ ] Flight 3: [Dead code](flights/03-dead-code/flight.md): the definite-dead sweep, then the unused rotation and repository methods.

@@ -43,3 +43,5 @@ the allowlist (or the save is refused as stale and says so).
 ## Disposition
 **Escalated**: fails *no design decisions*: the fix needs a choice between a server-side peer union and a stale-save 409 (traced live on 2026-10-30: `update_connector` shallow-merges, so a stale `config` replaces stored `allowlist.peers`; [maintenance 2026-10-30](../maintenance/2026-10-30.md), finding #4) →
 [Mission 34 Flight 2: Data safety and routine observability](../missions/34-maintenance/flights/02-data-safety-and-routine-observability/flight.md), leg `connector-peers-survive-stale-save`
+
+**2026-11-02**: fixed in [Mission 34 Flight 2 leg 01 connector-peers-survive-stale-save](../missions/34-maintenance/flights/02-data-safety-and-routine-observability/legs/01-connector-peers-survive-stale-save.md): the editor sends `allowlist_peers_base` and `update_connector` three-way merges `allowlist.peers`. Status stays `escalated`.

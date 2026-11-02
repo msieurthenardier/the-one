@@ -1011,3 +1011,67 @@ def test_an_edit_save_clears_the_doctor_result_and_drops_a_run_in_flight(
     page.wait_for_timeout(400)
     expect(result).to_be_hidden()
     expect(header).to_have_text("Connected")
+
+
+@pytest.mark.browser
+def test_i_edit_save_sends_the_peers_base_and_keeps_a_peer_paired_meanwhile(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0288: an edit Save carries ``allowlist_peers_base`` (the peers last
+    loaded or saved); a create does not. A peer added server-side after the editor
+    opened (standing in for a pairing) survives the Save and shows afterwards."""
+    with _api(app_clean) as c:
+        r = c.post(
+            "/api/connectors",
+            json={
+                "name": "Peers base",
+                "type": "discord",
+                "config": {"enabled": False, "allowlist": {"peers": ["p1", "p2"]}},
+                "secrets": {},
+            },
+        )
+        assert r.status_code == 201, r.text
+        cid = r.json()["id"]
+    _open_connector(page, app_clean, "Peers base")
+    peers = page.locator('[data-field="allowlist_peers"]')
+    assert peers.input_value().split() == ["p1", "p2"]
+
+    # Pair "p3" while the editor is open.
+    with _api(app_clean) as c:
+        cfg = c.get(f"/api/connectors/{cid}").json()["config"]
+        cfg["allowlist"]["peers"] = ["p1", "p2", "p3"]
+        assert (
+            c.put(
+                f"/api/connectors/{cid}",
+                json={"name": "Peers base", "type": "discord", "config": cfg},
+            ).status_code
+            == 200
+        )
+
+    page.locator('[data-field="name"]').fill("Peers base 2")
+    with page.expect_request(
+        lambda r: r.method == "PUT" and f"/api/connectors/{cid}" in r.url
+    ) as ri:
+        page.locator('[data-testid="save-connector-btn"]').click()
+    first = ri.value.post_data_json
+    assert first["allowlist_peers_base"] == ["p1", "p2"]
+    expect(page.locator("h1.editor-title")).to_have_text("Peers base 2", timeout=8000)
+    assert peers.input_value().split() == ["p1", "p2", "p3"]
+
+    page.locator('[data-field="name"]').fill("Peers base 3")
+    with page.expect_request(
+        lambda r: r.method == "PUT" and f"/api/connectors/{cid}" in r.url
+    ) as ri:
+        page.locator('[data-testid="save-connector-btn"]').click()
+    assert ri.value.post_data_json["allowlist_peers_base"] == ["p1", "p2", "p3"]
+
+
+@pytest.mark.browser
+def test_j_create_sends_no_peers_base(app_clean: str, page: Page) -> None:
+    _nav.goto_settled(page, app_clean, "library/connectors/~new")
+    page.locator('[data-field="name"]').fill("Fresh")
+    with page.expect_request(
+        lambda r: r.method == "POST" and r.url.endswith("/api/connectors")
+    ) as ri:
+        page.locator('[data-testid="save-connector-btn"]').click()
+    assert "allowlist_peers_base" not in ri.value.post_data_json

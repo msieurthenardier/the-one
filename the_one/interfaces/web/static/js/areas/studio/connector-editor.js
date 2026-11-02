@@ -375,12 +375,19 @@
       }
       if (alwaysListen.length > 0) newConfig.always_listen = alwaysListen;
       if (!v.enabled) newConfig.enabled = false;
-      return {
+      var out = {
         name: v.name.trim(),
         type: v.type,
         config: newConfig,
         secrets: { token: v.token }
       };
+      // Edit only: the peers this editor last loaded/saved, so the server keeps a peer
+      // paired since (squawk 0288) while a peer the operator removed stays removed.
+      if (!isCreate) {
+        var sal = stored.config && stored.config.allowlist;
+        out.allowlist_peers_base = (sal && sal.peers) || [];
+      }
+      return out;
     }
 
     // Patch every control from a saved record, then re-seed the channel-map table. Used by

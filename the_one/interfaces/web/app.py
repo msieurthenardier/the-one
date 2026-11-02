@@ -1503,24 +1503,29 @@ async def _run_purge_sweep_and_evict() -> dict:
     conn = await get_connection()
     result = await retention.run_purge_sweep(conn)
     ids = result["ids"]
-    if not ids:
-        return result
     evicted: list[tuple[str, Agent]] = []
-    async with _sessions_lock:
-        for sid in ids:
-            sess = _sessions.pop(sid, None)
-            if sess is not None:
-                evicted.append((sid, sess.agent))
-    for sid, agent in evicted:  # outside the lock (reaper hygiene)
-        session_locks.pop(sid, None)
-        try:
-            await agent.aclose()
-        except Exception:
-            logger.exception("agent.aclose() raised during purge eviction: sid=%r", sid)
+    if ids:
+        async with _sessions_lock:
+            for sid in ids:
+                sess = _sessions.pop(sid, None)
+                if sess is not None:
+                    evicted.append((sid, sess.agent))
+        for sid, agent in evicted:  # outside the lock (reaper hygiene)
+            session_locks.pop(sid, None)
+            try:
+                await agent.aclose()
+            except Exception:
+                logger.exception("agent.aclose() raised during purge eviction: sid=%r", sid)
+    # One line per sweep, including a sweep that deleted nothing; the ids list is not logged.
     logger.info(
-        "daily purge swept %d session(s); evicted %d from _sessions",
+        "purge sweep deleted=%d runs_deleted=%d routines_deleted=%d proposals_deleted=%d "
+        "evicted=%d last_purge_at=%s",
         len(ids),
+        result.get("runs_deleted", 0),
+        result.get("routines_deleted", 0),
+        result.get("proposals_deleted", 0),
         len(evicted),
+        result.get("last_purge_at"),
     )
     return result
 

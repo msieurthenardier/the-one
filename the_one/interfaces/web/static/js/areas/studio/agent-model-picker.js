@@ -128,6 +128,12 @@
       }
 
       if (loadingEl) loadingEl.textContent = 'Loading models…';
+      // Squawk 0228: while the list loads (and if it fails) keep the stored model
+      // as the one selected option, so a Save in that window sends it instead of
+      // "". The loaded list replaces it.
+      if (currentVal) {
+        selectEl.replaceChildren(optionNode(currentVal, currentVal, { selected: true }));
+      }
 
       fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
         signal: fetchSignal,
@@ -196,13 +202,18 @@
           // cleanly without a flash of "Failed to load models".
           if (err && err.name === 'AbortError') return;
           if (!live() || _activeProviderId !== fetchProviderId) return;
-          var failOpt = document.createElement('option');
-          failOpt.value = '';
-          failOpt.disabled = true;
-          failOpt.selected = true;
-          failOpt.textContent = 'Failed to load models';
-          selectEl.replaceChildren(failOpt);
-          if (loadingEl) loadingEl.textContent = '';
+          if (currentVal) {
+            selectEl.replaceChildren(optionNode(currentVal, currentVal, { selected: true }));
+            if (loadingEl) loadingEl.textContent = 'Failed to load models';
+          } else {
+            var failOpt = document.createElement('option');
+            failOpt.value = '';
+            failOpt.disabled = true;
+            failOpt.selected = true;
+            failOpt.textContent = 'Failed to load models';
+            selectEl.replaceChildren(failOpt);
+            if (loadingEl) loadingEl.textContent = '';
+          }
           modelCapsBy = {};
           modelCtxBy = {};
           renderModelCapabilities();
