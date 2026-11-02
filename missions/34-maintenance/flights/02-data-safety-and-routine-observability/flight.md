@@ -1,13 +1,13 @@
 # Flight: Data safety and routine observability
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Post-Mission-33 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A stale connector save keeps a paired peer. *(#4, squawk 0288)*
-- [ ] Routine runs are reconstructable from the log. *(#12)*
-- [ ] Session pushes cost less. *(#11)*
-- [ ] An agent Save made before the model list loads keeps the stored model. *(squawk 0228; added at the Flight 1 debrief)*
+- [x] A stale connector save keeps a paired peer. *(#4, squawk 0288)*
+- [x] Routine runs are reconstructable from the log. *(#12)*
+- [x] Session pushes cost less. *(#11)*
+- [x] An agent Save made before the model list loads keeps the stored model. *(squawk 0228; added at the Flight 1 debrief)*
 
 ---
 
@@ -50,13 +50,13 @@ Verified at `e33e8657` by the 2026-10-30 inspectors; spot-checked by the Flight 
 Re-audit at leg design time; line numbers drift.
 
 ### Prerequisites
-- [ ] Sortie 07 has not changed `update_connector` (it touches `inbound.py:480-483` and the agent routes, not the connector PUT). Re-check at Leg 1 design.
+- [x] Sortie 07 has not changed `update_connector` (it touches `inbound.py:480-483` and the agent routes, not the connector PUT). Re-check at Leg 1 design.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved (N/A, maintenance flight)
 - [x] Design decisions documented
 - [x] Citation Audit complete
-- [ ] Prerequisites verified (at leg start)
+- [x] Prerequisites verified (at leg start)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -65,6 +65,11 @@ Re-audit at leg design time; line numbers drift.
 ## In-Flight
 
 ### Technical Approach
+
+> **As-built note (flight debrief, 2026-11-02).** The approach below is the plan as written; two parts were superseded during the flight (see the legs' Design Review sections and the flight log):
+> - **Step 3 (drawer):** skipping `render()` on a `sessions` notification would not have removed the rebuild, because `areas/chat.js` re-renders the drawer through `renderPane` → `render(view)` → `apply()` on every push. As built, the dedupe is a render key inside `apply()`.
+> - **Step 2 (logging):** the leg spec's premise that `_fail_early` has no run id (log `run=none`) was wrong: it inserts a row. As built, the pre-chat failure line and the `decision=missed` line carry the stored run id (found by the behavior test's first run).
+
 
 **1. `connector-peers-survive-stale-save` (#4, squawk 0288).**
 - **Red test first**, in-process: create a connector; GET it (the editor's view); pair a peer through the real `_pair_peer` path; PUT the earlier `config` back unchanged. Assert that the peer is still stored. Today this test should fail, which proves 0288 live; record the result.
@@ -92,9 +97,9 @@ Re-audit at leg design time; line numbers drift.
 - **Measurements to rerun:** the inspection's figures were 24 ms per push at 5k sessions and 106 ms / 7.3 MB at 20k.
 
 ### Checkpoints
-- [ ] Leg 1 red test recorded (0288 proven or disproven)
-- [ ] Routine log lines visible in a scratch instance's log
-- [ ] Drawer rebuild count is 0 for a push while it is closed
+- [x] Leg 1 red test recorded (0288 proven or disproven)
+- [x] Routine log lines visible in a scratch instance's log
+- [x] Drawer rebuild count is 0 for a push while it is closed
 
 ### Adaptation Criteria
 
@@ -109,20 +114,20 @@ Re-audit at leg design time; line numbers drift.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `connector-peers-survive-stale-save` - Red test pairing between GET and PUT; preserve the peer in `update_connector`. Carries the work escalated from 0288.
-- [ ] `routine-logging` - INFO lines for scheduler decisions, run outcomes, proposal decisions and the full purge result; behavior test `routine-run-observable-from-logs`.
-- [ ] `session-push-cost` - Drawer render guard; encode the push once per broadcast.
-- [ ] `agent-save-keeps-model` - Squawk 0228: a Save pressed before the first model list loads must not store an empty `llm_model` (design call at leg design: keep Save disabled until the list loads or fails, or keep the stored model as a selected option while loading); pin it with a browser test that holds the models response. Re-test flake 0229 after it lands. **Mission constraint:** "no new behaviour visible to the operator beyond the log lines and the preserved peers" — keeping the stored model selected while loading fits it; disabling Save is a visible change and needs the operator to amend the constraint at leg design. *(Added at the Flight 1 debrief, operator decision 2026-11-02.)*
+- [x] `connector-peers-survive-stale-save` - Red test pairing between GET and PUT; preserve the peer in `update_connector`. Carries the work escalated from 0288.
+- [x] `routine-logging` - INFO lines for scheduler decisions, run outcomes, proposal decisions and the full purge result; behavior test `routine-run-observable-from-logs`.
+- [x] `session-push-cost` - Drawer render guard; encode the push once per broadcast.
+- [x] `agent-save-keeps-model` - Squawk 0228: a Save pressed before the first model list loads must not store an empty `llm_model` (design call at leg design: keep Save disabled until the list loads or fails, or keep the stored model as a selected option while loading); pin it with a browser test that holds the models response. Re-test flake 0229 after it lands. **Mission constraint:** "no new behaviour visible to the operator beyond the log lines and the preserved peers" — keeping the stored model selected while loading fits it; disabling Save is a visible change and needs the operator to amend the constraint at leg design. *(Added at the Flight 1 debrief, operator decision 2026-11-02.)*
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (`agents.md` Routines and Connectors sections; SECURITY-MODEL if the log adds a field it should mention)
+- [x] Tests passing
+- [x] Documentation updated (`agents.md` Routines and Connectors sections; SECURITY-MODEL if the log adds a field it should mention)
 
 ### Verification
 - The 0288 regression test passes. A deliberate peer removal still works.

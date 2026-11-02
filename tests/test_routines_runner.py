@@ -7,6 +7,8 @@ Every run starts a new web chat (M33 F4 leg 2). The ``routine_app`` fixture and
 # ruff: noqa: F811
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from tests._routine_app import routine_app, wait_for  # noqa: F401
@@ -300,3 +302,88 @@ async def test_cancelling_the_running_routine_ends_the_run_quietly(routine_app, 
     bad = [x for x in caplog.records if x.levelno >= logging.ERROR]
     assert not bad, [x.getMessage() for x in bad]
     assert (await h.api("GET", f"/api/agents/bot/routines/{rt['id']}")).status_code == 404
+
+
+# ── log lines (M34 F2 L2) ──
+
+
+def _run_lines(caplog):
+    return [
+        x.getMessage()
+        for x in caplog.records
+        if x.name == "the_one.routines.runner" and x.levelno == logging.INFO
+    ]
+
+
+async def test_log_run_started_and_ok(routine_app, caplog):
+    h = routine_app
+    r = await h.routine()
+    h.llm.script = [Message.assistant(content="the brief")]
+    with caplog.at_level(logging.INFO, logger="the_one.routines.runner"):
+        await h.run_now(r["id"])
+    run = await h.last_run(r["id"])
+    head = f"routine run={run['id']} routine={r['id']} agent='bot' session={run['session_id']}"
+    assert _run_lines(caplog) == [
+        f"{head} trigger=manual started",
+        f"{head} trigger=manual outcome=ok reason=None",
+    ]
+
+
+async def test_log_run_failed_through_restore(routine_app, caplog):
+    h = routine_app
+    rt = await h.routine()
+    from the_one.interfaces.web import app as appmod
+
+    async def gone(sid_):
+        return appmod.RestoredSession(None, "agent_deleted", None)
+
+    orig = appmod._get_or_restore_session
+    appmod._get_or_restore_session = gone
+    try:
+        with caplog.at_level(logging.INFO, logger="the_one.routines.runner"):
+            await h.run_now(rt["id"])
+    finally:
+        appmod._get_or_restore_session = orig
+    run = await h.last_run(rt["id"])
+    lines = _run_lines(caplog)
+    assert len(lines) == 2 and lines[0].endswith("trigger=manual started")
+    assert lines[1] == (
+        f"routine run={run['id']} routine={rt['id']} agent='bot' session={run['session_id']} "
+        "trigger=manual outcome=failed reason='The agent no longer exists.'"
+    )
+
+
+async def test_log_fail_early_carries_the_stored_run_id(routine_app, caplog, monkeypatch):
+    h = routine_app
+    rt = await h.routine()
+
+    async def boom(agent, title):
+        raise RuntimeError("no chat for you")
+
+    monkeypatch.setattr(runner._host, "create_web_session", boom)
+    with caplog.at_level(logging.INFO, logger="the_one.routines.runner"):
+        await h.run_now(rt["id"])
+    stored = await h.last_run(rt["id"])
+    assert stored["session_id"] is None
+    assert _run_lines(caplog) == [
+        f"routine run={stored['id']} routine={rt['id']} agent='bot' session=none trigger=manual "
+        'outcome=failed reason="Couldn\'t find or create the chat."'
+    ]
+
+
+async def test_log_never_carries_the_prompt_or_raw_names(routine_app, caplog):
+    """AC5 (runner side): the prompt marker is in no record; a routine name holding a
+    newline and a quote (as an old or hand-edited row could) is in none either."""
+    h = routine_app
+    marker = "PROMPT-MARKER-91be"
+    rt = await h.routine(prompt=marker)
+    conn = await get_connection()
+    await conn.execute("UPDATE agent_routines SET name = ? WHERE id = ?", ('Bad\nna"me', rt["id"]))
+    await conn.commit()
+    with caplog.at_level(logging.DEBUG):
+        await h.run_now(rt["id"])
+    # The app's own loggers (aiosqlite's DEBUG statement echo is not ours).
+    msgs = [x.getMessage() for x in caplog.records if x.name.startswith("the_one")]
+    assert any(f"routine={rt['id']}" in m for m in msgs)
+    assert not any(marker in m for m in msgs)
+    assert not any("Bad\nna" in m for m in msgs)

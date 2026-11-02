@@ -29,3 +29,5 @@ Keep this open as the known-flake record. On a recurrence, capture the trace and
 **Commit**:
 
 - **2026-11-02 (Mission 34 Flight 1 Leg 2):** did not recur in the quiet-host `--parallel 3` run (`PARALLEL_RESULT rc=1 total=2027s`, start load 0.23; the `agents`, `settings-tools` and `providers` focus-after files all passed). Stays open: 0228 (the product defect it waits on) is unresolved.
+
+- **2026-11-02 (Mission 34 Flight 2 Leg 4):** after the 0228 fix, `test_flow_agents_focus_after.py::test_agent_save_never_steals_focus_the_user_moved` ran 10 times isolated: all passed (exit 0 x10). No root cause shown; stays open.

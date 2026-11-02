@@ -1169,3 +1169,114 @@ def test_routines_group_refresh_ignores_an_error_result(
             break
         page.wait_for_timeout(100)
     assert len(seen) == 1, seen
+
+
+# ── Session pushes cost less (M34 F2 L03) ───────────────────────────────────
+
+_CONTENT = "#chat-drawer .chat-drawer-content"
+
+_OBSERVE_JS = """() => {
+  window.__drawerMutations = 0;
+  const o = new MutationObserver((recs) => { window.__drawerMutations += recs.length; });
+  o.observe(document.querySelector('#chat-drawer .chat-drawer-content'),
+            {childList: true, subtree: true, characterData: true});
+}"""
+
+
+def _mutations(page: Page) -> int:
+    return page.evaluate("() => window.__drawerMutations")
+
+
+def _chats_fact(page: Page) -> str:
+    return _facts(page).get("Chats", "")
+
+
+def _settle(page: Page, chats: str) -> None:
+    expect(page.locator(FACTS)).to_be_visible()
+    page.wait_for_function(
+        "(n) => { const f = document.querySelector('[data-testid=\"chat-drawer-facts\"]');"
+        " return !!f && f.textContent.indexOf('Chats' + n) !== -1; }",
+        arg=chats,
+    )
+    expect(_group(page, "rules")).to_be_visible()
+    page.wait_for_timeout(600)  # let every fetch started while open land
+
+
+def test_a_sessions_push_does_not_rebuild_a_closed_drawer(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_pending(page, base, agent, 1280)
+    _settle(page, "0")
+    page.locator(TOGGLE).click()
+    expect(page.locator(DRAWER)).to_be_hidden()
+    page.wait_for_timeout(200)
+    page.evaluate(_OBSERVE_JS)
+    sid = seed_session(base, agent, "Pushed while closed", "2026-09-01T10:00:00+00:00")
+    expect(_chats.chat_row(page, sid)).to_be_visible()
+    page.wait_for_timeout(400)
+    assert _mutations(page) == 0
+    page.locator(TOGGLE).click()
+    expect(page.locator(DRAWER)).to_be_visible()
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"chat-drawer-facts\"]')"
+        ".textContent.indexOf('Chats1') !== -1"
+    )
+
+
+def test_an_open_drawer_rebuilds_only_when_its_chats_count_changes(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    other = _agent(base, {"name": "Bystander", "provider_config_id": app_with_agent.provider_id})
+    first = seed_session(base, agent, "Mine", "2026-09-01T10:00:00+00:00")
+    _open_pending(page, base, agent, 1280)
+    _settle(page, "1")
+    page.evaluate(_OBSERVE_JS)
+    # A push for another agent: this agent's count is unchanged.
+    sid_b = seed_session(base, other, "Theirs", "2026-09-02T10:00:00+00:00")
+    expect(_chats.chat_row(page, sid_b)).to_be_visible()
+    page.wait_for_timeout(400)
+    assert _mutations(page) == 0
+    # A rename-only push.
+    r = httpx.put(
+        f"{base}/api/chat/sessions/{first}",
+        json={"title": "Renamed"},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 200, r.text
+    expect(_chats.chat_row(page, first)).to_contain_text("Renamed")
+    page.wait_for_timeout(400)
+    assert _mutations(page) == 0
+    # A push that changes this agent's count rebuilds the drawer.
+    sid_a = seed_session(base, agent, "Mine too", "2026-09-03T10:00:00+00:00")
+    expect(_chats.chat_row(page, sid_a)).to_be_visible()
+    page.wait_for_function(
+        "() => document.querySelector('[data-testid=\"chat-drawer-facts\"]')"
+        ".textContent.indexOf('Chats2') !== -1"
+    )
+    page.wait_for_timeout(400)
+    assert _mutations(page) > 0
+    # AC3: a further push that changes nothing for this agent stays quiet.
+    page.evaluate(_OBSERVE_JS)
+    sid_c = seed_session(base, other, "Theirs too", "2026-09-04T10:00:00+00:00")
+    expect(_chats.chat_row(page, sid_c)).to_be_visible()
+    page.wait_for_timeout(400)
+    assert _mutations(page) == 0
+
+
+def test_an_agents_store_notification_still_renders_an_open_drawer(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_pending(page, base, agent, 1280)
+    _settle(page, "0")
+    row = httpx.get(f"{base}/api/agents/{agent}", headers=auth_headers_for(base), timeout=5).json()
+    row["description"] = "Changed after the drawer opened."
+    r = httpx.put(f"{base}/api/agents/{agent}", json=row, headers=auth_headers_for(base), timeout=5)
+    assert r.status_code == 200, r.text
+    page.evaluate("() => App.store.get('agents', {force: true})")
+    expect(page.locator(DRAWER).locator(".chat-drawer-description")).to_have_text(
+        "Changed after the drawer opened."
+    )

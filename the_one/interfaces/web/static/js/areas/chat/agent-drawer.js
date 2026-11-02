@@ -27,9 +27,9 @@
 // chat-drawer-toggle; hidden with no chat view. Escape inside the drawer
 // closes it (the factory) and focus returns to the toggle.
 //
-// Content (re-rendered on every view change and on each `agents`,
-// `providers`, `knowledge-bases`, `mcp-sources` and `sessions` notification;
-// the subscriptions are released by destroy):
+// Content (re-rendered when renderKey() changes, on opening, on an `agents`/
+// `providers`/`knowledge-bases`/`mcp-sources` notification while open and on
+// fetch/metadata completions; subscriptions are released by destroy):
 //   header   the agent's name (h2, 13px/600) and a badge badge--{type} whose
 //            TEXT is the provider type (A20), hidden with no provider
 //   body     the description (12px, --fg-secondary); the facts <dl>: Model
@@ -707,10 +707,19 @@
       });
     }
 
+    // Render key (M34 F2 L03): view, mode, wants-open, and while open the Chats count.
+    var lastKey = null;
+    function renderKey() {
+      var want = active && !!view && !!state.open[state.mode];
+      var info = want ? describe() : { kind: 'none' };
+      var n = info.kind === 'default' ? chatsCount(null) : null;
+      if (info.kind === 'agent' || info.kind === 'deleted') n = chatsCount(info.name);
+      return JSON.stringify([view, state.mode, want, n]);
+    }
+
     function render() {
       var info = describe();
-      renderContent(info);
-      ensureFetches(info);
+      renderContent(info); lastKey = renderKey(); ensureFetches(info);
     }
 
     // Visibility: the one place the drawer opens, closes and changes mode.
@@ -725,7 +734,7 @@
       if (want && !was) openGen += 1;
       toggle.hidden = !view;
       toggle.setAttribute('aria-pressed', want ? 'true' : 'false');
-      render();
+      if ((want && !was) || renderKey() !== lastKey) render();
     }
 
     var mql = typeof window.matchMedia === 'function' ? window.matchMedia(PUSH_QUERY) : null;
@@ -740,9 +749,12 @@
     }
 
     var unsubs = [];
-    for (var s = 0; s < STORES.length; s++) {
-      unsubs.push(App.store.subscribe(STORES[s], function () { render(); }));
+    function subscribeStore(name) {
+      unsubs.push(App.store.subscribe(name, function () {
+        if (name === 'sessions' ? renderKey() !== lastKey : drawer.isOpen()) render();
+      }));
     }
+    for (var s = 0; s < STORES.length; s++) subscribeStore(STORES[s]);
 
     function destroy() {
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();

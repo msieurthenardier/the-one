@@ -207,7 +207,7 @@ async def _fail_early(
     reason: str,
 ) -> None:
     try:
-        await runs.insert(
+        row = await runs.insert(
             RoutineRun(
                 routine_id=routine.id,
                 trigger_kind=trigger_kind,  # type: ignore[arg-type]
@@ -216,6 +216,15 @@ async def _fail_early(
                 due_at=due_at,
                 finished_at=_now_iso(),
             )
+        )
+        logger.info(
+            "routine run=%s routine=%s agent=%r session=none trigger=%s outcome=%s reason=%r",
+            row.id,
+            routine.id,
+            routine.agent_name,
+            trigger_kind,
+            outcome,
+            reason,
         )
     except Exception:
         logger.warning("could not record routine run for %s", routine.id, exc_info=True)
@@ -259,8 +268,27 @@ async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = N
         logger.warning("routine %s: could not record its run", routine_id, exc_info=True)
         return
 
+    logger.info(
+        "routine run=%s routine=%s agent=%r session=%s trigger=%s started",
+        run.id,
+        routine_id,
+        routine.agent_name,
+        sid,
+        trigger_kind,
+    )
+
     async def end(outcome: str, reason: str | None) -> None:
         await _finish_row(runs, run.id, outcome, reason, sid)
+        logger.info(
+            "routine run=%s routine=%s agent=%r session=%s trigger=%s outcome=%s reason=%r",
+            run.id,
+            routine_id,
+            routine.agent_name,
+            sid,
+            trigger_kind,
+            outcome,
+            reason,
+        )
 
     # 3. Restore.
     session, status = await host.get_or_restore(sid)

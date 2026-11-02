@@ -157,7 +157,8 @@ class ProposalOp:
             # The mutator names the routine: the new id, the updated id, or None after a
             # delete (the row keeps routine_name only).
             row["routine_id"] = routine_id
-            await _insert(conn, row, "applied", _now_iso())
+            # Hand the new id back through the caller's dict, for the caller's log line.
+            self.row["proposal_id"] = await _insert(conn, row, "applied", _now_iso())
             return
         assert self.proposal_id is not None
         cur = await conn.execute(

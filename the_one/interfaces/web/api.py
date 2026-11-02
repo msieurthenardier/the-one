@@ -4515,6 +4515,43 @@ async def create_connector(request: Request) -> dict[str, Any]:
     return _connector_response(account)
 
 
+def _merge_paired_peers(stored_config: Any, incoming: Any, base: list[str]) -> Any:
+    """Three-way merge of ``allowlist.peers`` (squawk 0288).
+
+    Result: the operator's incoming peers, then peers present in the stored
+    config but not in ``base`` (paired since the editor loaded). Returns a
+    copy of ``incoming`` with the merged peers, or ``incoming`` itself when
+    its shape is malformed so the model validator raises its usual 422.
+    Never mutates its arguments.
+    """
+    if not isinstance(incoming, dict):
+        return incoming
+    allowlist = incoming.get("allowlist")
+    if allowlist is not None and not isinstance(allowlist, dict):
+        return incoming
+    in_peers = (allowlist or {}).get("peers")
+    if in_peers is None:
+        in_peers = []
+    if not isinstance(in_peers, list) or not all(isinstance(p, str) for p in in_peers):
+        return incoming
+    stored_al = stored_config.get("allowlist") if isinstance(stored_config, dict) else None
+    stored_peers = stored_al.get("peers") if isinstance(stored_al, dict) else None
+    if not isinstance(stored_peers, list):
+        stored_peers = []
+    base_set = set(base)
+    merged_peers = list(dict.fromkeys(in_peers))
+    for p in stored_peers:
+        if isinstance(p, str) and p not in base_set and p not in merged_peers:
+            merged_peers.append(p)
+    if not merged_peers:
+        return incoming
+    out = dict(incoming)
+    out_al = dict(allowlist or {})
+    out_al["peers"] = merged_peers
+    out["allowlist"] = out_al
+    return out
+
+
 @router.put("/connectors/{connector_id}")
 async def update_connector(connector_id: str, request: Request) -> dict[str, Any]:
     data = await _read_json(request)
@@ -4542,6 +4579,16 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
             else:
                 resolved_secrets[key] = value
         data["secrets"] = resolved_secrets
+
+    # Squawk 0288: the editor sends the peers it last loaded/saved so a peer
+    # paired meanwhile (``_pair_peer``) survives a stale Save. Never stored.
+    peers_base = data.pop("allowlist_peers_base", None)
+    if peers_base is not None:
+        if not isinstance(peers_base, list) or not all(isinstance(p, str) for p in peers_base):
+            raise HTTPException(
+                status_code=422, detail="allowlist_peers_base must be a list of strings."
+            )
+        data["config"] = _merge_paired_peers(existing.config, data.get("config"), peers_base)
 
     # ``model_copy(update=...)`` does NOT re-run field validators in
     # Pydantic v2 — round-trip through model_dump()|data→model_validate so

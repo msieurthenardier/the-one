@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -842,3 +843,69 @@ async def test_the_agent_path_refuses_a_now_start(aenv):
             await change(conn, action, data)
     # Only the setup create left rows: the refusals wrote nothing.
     assert len(await repo.list_for_agent("ag")) == 1 and len(await props.list("ag")) == 1
+
+
+# ── log lines (M34 F2 L2) ──
+
+
+def _plines(caplog):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "the_one.routines.service" and r.levelno == logging.INFO
+    ]
+
+
+async def test_log_agent_change_applied(aenv, caplog):
+    conn, repo, props, _ = aenv
+    with caplog.at_level(logging.INFO, logger="the_one.routines.service"):
+        res = await change(conn, "create", body(schedule=once_in(2, "hours")), taint=DIRTY)
+    [p] = await props.list("ag")
+    assert _plines(caplog) == [
+        f"routine proposal={p.id} agent='ag' action=create decision=applied flagged=True "
+        f"routine={res.routine.id}"
+    ]
+
+
+async def test_log_agent_change_pending(aenv, caplog):
+    conn, _repo, _props, store = aenv
+    await store.set_routines_self_config("ag", requires_approval=True)
+    with caplog.at_level(logging.INFO, logger="the_one.routines.service"):
+        res = await change(conn, "create", body())
+    assert _plines(caplog) == [
+        f"routine proposal={res.proposal_id} agent='ag' action=create decision=pending "
+        "flagged=False routine=none"
+    ]
+
+
+async def test_log_approve_and_dismiss(aenv, caplog):
+    conn, repo, props, _ = aenv
+    pid = await pend(aenv, "create", body())
+    pid2 = await pend(aenv, "create", body("Two"))
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="the_one.routines.service"):
+        done = await approve(conn, pid)
+        await svc.dismiss_proposal(conn, "ag", pid2)
+    assert _plines(caplog) == [
+        f"routine proposal={pid} agent='ag' action=create decision=approved flagged=False "
+        f"routine={done.routine_id}",
+        f"routine proposal={pid2} agent='ag' action=create decision=dismissed flagged=False "
+        "routine=none",
+    ]
+
+
+async def test_log_approve_superseded(aenv, caplog):
+    conn, repo, props, _ = aenv
+    r = (await change(conn, "create", body())).routine
+    pid = await pend(aenv, "delete", {"routine": r.id})
+    await repo.delete("ag", r.id)  # bypasses the supersede: the proposal still reads pending
+    await conn.execute("UPDATE agent_routine_proposals SET status = 'pending' WHERE id = ?", (pid,))
+    await conn.commit()
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="the_one.routines.service"):
+        done = await approve(conn, pid)
+    assert done.status == "superseded"
+    assert _plines(caplog) == [
+        f"routine proposal={pid} agent='ag' action=delete decision=superseded flagged=False "
+        "routine=none"  # the deleted routine's id is already cleared from the proposal row
+    ]

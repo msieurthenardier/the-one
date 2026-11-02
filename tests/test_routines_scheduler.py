@@ -5,6 +5,7 @@ injected clock, a fake spawn and a recording sleep seam; lifespan cases over ``r
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -822,3 +823,118 @@ async def test_a_now_start_is_never_missed_or_a_catch_up(env, monkeypatch) -> No
         await asyncio.sleep(0.05)
         assert (r.id, "schedule") in got, name
         assert not [x for x in await _runs(env, r.id) if x.outcome == "missed"]
+
+
+# ── log lines (M34 F2 L2) ──
+
+
+def _lines(caplog, logger_name="the_one.routines.scheduler"):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == logger_name and r.levelno == logging.INFO
+    ]
+
+
+async def test_log_spawn_on_time(env, caplog) -> None:
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(env.clock[0])
+    (line,) = _lines(caplog)
+    assert line == (
+        f"routine decision=spawn routine={r.id} agent='a' trigger=schedule "
+        f"due={_dt(2026, 3, 1, 9, 0).isoformat()} late_s=30.0 "
+        f"next={_dt(2026, 3, 2, 9, 0).isoformat()} finished=False"
+    )
+
+
+async def test_log_spawn_catch_up(env, caplog, monkeypatch) -> None:
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(_dt(2026, 3, 1, 10, 30))
+    (line,) = _lines(caplog)
+    assert line.startswith(f"routine decision=spawn routine={r.id} agent='a' trigger=catch_up ")
+    assert "late_s=5400.0" in line and "finished=False" in line
+
+
+async def test_log_missed_one_off_and_repeating(env, caplog) -> None:
+    at = _dt(2026, 3, 1, 9, 0)
+    one = await _mk(env, name="one", schedule=_once(at), due=at, anchor_at=at.isoformat())
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(at + timedelta(hours=30))
+    (line,) = _lines(caplog)
+    (stored,) = await _runs(env, one.id)
+    assert line == (
+        f"routine decision=missed run={stored.id} routine={one.id} agent='a' due={at.isoformat()} "
+        f"late_s=108000.0 next=none finished=True "
+        "reason='The scheduled time passed while the app was closed.'"
+    )
+    caplog.clear()
+    rep = await _mk(env, name="rep", due=_dt(2026, 3, 1, 9, 0))
+    await env.repo.update("a", one.id, {"enabled": False})
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(_dt(2026, 3, 5, 10, 0))
+    (line,) = _lines(caplog)
+    (stored_rep,) = await _runs(env, rep.id)
+    assert line.startswith(
+        f"routine decision=missed run={stored_rep.id} routine={rep.id} agent='a' "
+    )
+    assert "finished=False" in line and "next=2026-03-06" in line
+    assert "reason='Missed 5 runs while the app was closed.'" in line
+
+
+async def test_log_still_running_skip(env, caplog) -> None:
+    env.spawn.refuse = True
+    r = await _mk(env, due=_dt(2026, 3, 1, 9, 0))
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(env.clock[0])
+    (line,) = _lines(caplog)
+    assert line.startswith(
+        f"routine decision=still_running_skip routine={r.id} agent='a' trigger=schedule "
+    )
+    assert "spawn" not in line.replace("still_running_skip", "")
+
+
+async def test_log_skip_changed(env, caplog, monkeypatch) -> None:
+    due = _dt(2026, 3, 1, 9, 0)
+    r = await _mk(env, due=due)
+    orig = AgentRoutineRepository.list_due
+
+    async def hooked(self, now_iso):
+        rows = await orig(self, now_iso)
+        await self.update("a", r.id, {"next_run_at": _dt(2026, 3, 9, 9, 0).isoformat()})
+        return rows
+
+    monkeypatch.setattr(AgentRoutineRepository, "list_due", hooked)
+    with caplog.at_level(logging.INFO, logger="the_one.routines.scheduler"):
+        await env.sched.run_pass(env.clock[0])
+    (line,) = _lines(caplog)
+    assert line == (
+        f"routine decision=skip_changed routine={r.id} agent='a' due={due.isoformat()} late_s=30.0"
+    )
+
+
+async def test_log_names_are_repr_quoted_and_prompts_never_logged(env, caplog) -> None:
+    """AC5: a legacy agent name with a newline and a quote appears only in repr form; a
+    prompt marker appears in no record at any level."""
+    weird = "ev\nil'name"
+    await SQLiteAgentStore(env.conn).save(AgentConfig(name=weird))
+    marker = "PROMPT-MARKER-7f3a9c"
+    r = await env.repo.create(
+        weird,
+        {
+            "name": 'N\nm"e',
+            "prompt": marker,
+            "schedule": DAILY,
+            "next_run_at": _dt(2026, 3, 1, 9, 0).isoformat(),
+            "anchor_at": None,
+        },
+    )
+    with caplog.at_level(logging.DEBUG):
+        await env.sched.run_pass(env.clock[0])
+    msgs = [x.getMessage() for x in caplog.records]
+    assert any(f"routine={r.id}" in m for m in msgs)
+    assert not any(marker in m for m in msgs)
+    assert not any("\n" in m for m in msgs)
+    assert any(repr(weird) in m for m in msgs)
+    assert not any("N\nm" in m or 'm"e' in m for m in msgs)

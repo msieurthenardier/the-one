@@ -10,8 +10,12 @@ carries the field; this module is the source of truth.
 
 from __future__ import annotations
 
+import json
+import logging
 from collections import defaultdict
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # set[WebSocket] keyed by chat_sessions.id. defaultdict factory is
 # set() — every read returns at minimum an empty set so the
@@ -39,10 +43,22 @@ def all_sockets() -> set:
 
 async def broadcast_to_all(payload: dict[str, Any]) -> None:
     """Send a JSON payload to every registered socket; a socket whose send
-    raises is dropped from the registry."""
-    for ws in all_sockets():
+    raises is dropped from the registry.
+
+    The payload is encoded ONCE (the same arguments Starlette's ``send_json``
+    uses, so the wire bytes are unchanged) and the text is sent to each socket.
+    A payload that fails to encode is logged and sent to nobody."""
+    sockets = all_sockets()
+    if not sockets:
+        return
+    try:
+        text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError):
+        logger.warning("broadcast_to_all: payload failed to encode; nothing sent", exc_info=True)
+        return
+    for ws in sockets:
         try:
-            await ws.send_json(payload)
+            await ws.send_text(text)
         except Exception:
             remove_socket(ws)
 
