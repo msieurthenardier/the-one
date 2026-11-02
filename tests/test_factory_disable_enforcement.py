@@ -262,8 +262,7 @@ class TestDisableEnforcement:
 
         Exercises `AgentFactory.create()` → `repo.list()` →
         `merged_config()` → `BuiltinToolProvider.get_tools` → `resolve` →
-        `build_search_backend`. NOT a direct `list_all()` call (that method
-        has no production consumer)."""
+        `build_search_backend`. NOT a direct repository call."""
         from the_one.tools._search_backends import SearchBackend
         from the_one.tools.builtins import BuiltinToolProvider
 
@@ -310,12 +309,12 @@ class TestDisableEnforcement:
         assert "web_search" in names
         assert "fetch_url" not in names
 
-    async def test_factory_does_not_call_list_all(
+    async def test_factory_reads_tool_configs_through_list_once(
         self, db_conn, store: InMemoryStore, tool_encryptor
     ) -> None:
-        """Light regression net: the L1 projection switches the factory's
-        repo call from `list_all()` to `list()`. Spy on the repository
-        and verify `list_all` is never invoked on the factory path."""
+        """Light regression net: the factory reads tool configs through
+        `ToolConfigRepository.list()`, exactly once per `create()`. Spy on
+        the repository and verify the call count on the factory path."""
         cfg = AgentConfig(
             name="agent-a",
             provider_config_id="test-provider",
@@ -326,25 +325,17 @@ class TestDisableEnforcement:
         mock_provider_repo.get = AsyncMock(return_value=_make_provider_config())
 
         # Build a wrapper repo that delegates to the real one but tracks
-        # whether `list_all` was called.
+        # how many times `list` was called.
         real_repo = ToolConfigRepository(db_conn, tool_encryptor)
-        list_all_calls = 0
         list_calls = 0
 
-        original_list_all = real_repo.list_all
         original_list = real_repo.list
-
-        async def tracked_list_all() -> dict[str, dict]:
-            nonlocal list_all_calls
-            list_all_calls += 1
-            return await original_list_all()
 
         async def tracked_list():
             nonlocal list_calls
             list_calls += 1
             return await original_list()
 
-        real_repo.list_all = tracked_list_all  # type: ignore[assignment]
         real_repo.list = tracked_list  # type: ignore[assignment]
 
         with (
@@ -372,7 +363,6 @@ class TestDisableEnforcement:
             factory = AgentFactory(store=store, tool_providers=[StubProvider()])
             await factory.create(cfg.name)
 
-        assert list_all_calls == 0, "factory must not call repo.list_all() in L1+"
         assert list_calls == 1, "factory must call repo.list() exactly once"
 
 

@@ -13,7 +13,6 @@ from evals.runner import Hooks, RunOptions, run_invocation
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "evals"
 FAKE_TOKEN = "sk-ant-oat01-FAKETOKEN_for_unit_tests_0123456789abcdef"
-NO_SLEEP_HOOKS: dict[str, Any] = {}
 
 
 @pytest.fixture

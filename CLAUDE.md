@@ -458,7 +458,6 @@ Lanes are hand-rolled basename globs over `tests/browser/` — no new deps, no p
 
 - **`FakeLLM`** (`tests/conftest.py`): An `LLMProvider` subclass that returns pre-scripted `Message` responses in order. Records all calls for assertion. Enables deterministic agent loop testing.
 - **`StubTool`** (`tests/conftest.py`): A `Tool` subclass that records calls and returns a canned string. Used to verify the agent executes tools correctly without side effects.
-- **`make_registry`** fixture: Creates a `ToolRegistry` pre-loaded with StubTools for quick test setup.
 
 **Sandbox testing footguns** — three patterns that cause confusing false-passes or false-failures in `@requires_bwrap` tests. Full documentation in `the_one/agents.md` "Sandbox testing footguns"; summary here:
 

@@ -392,12 +392,11 @@ class AgentFactory:
         # the next AgentFactory.create() call.
         #
         # F6 L1: project the full ToolConfig list into TWO derived
-        # structures — the resolver-facing `{name: config_dict}` (which
-        # `list_all()` would return identically) AND a `disabled_names`
-        # set for the registry-build filter. We deliberately do NOT
-        # widen `list_all()` to carry `enabled`; pushing the projection
-        # to the factory keeps the resolver's API surface pure (see
-        # L0's `test_list_all_omits_enabled`).
+        # structures — the resolver-facing `{name: config_dict}` AND a
+        # `disabled_names` set for the registry-build filter. The
+        # `enabled` flag stays out of each config dict; the projection
+        # lives here so the resolver's API surface stays pure (see
+        # `test_list_omits_enabled_from_config`).
         tool_configs_repo = ToolConfigRepository(conn, encryptor)
         configs = await tool_configs_repo.list()
         # merged_config() folds the decrypted `secrets` over `config` so the

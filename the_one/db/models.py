@@ -184,11 +184,6 @@ class MCPSource(BaseModel):
         return {**self.config, **self.secrets}
 
 
-# Hoisted module-level so the F7 L7 Studio editor (and any future routing UI)
-# can import the enum without going through the validator.
-VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
-
-
 class Connector(BaseModel):
     """A connector — operator-registered third-party-platform identity.
 

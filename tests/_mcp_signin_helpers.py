@@ -23,8 +23,6 @@ from the_one.mcp.oauth import _state
 from the_one.mcp.oauth.handlers import make_oauth_handlers
 from the_one.mcp.transports import streamable_http as _sh
 
-_MISSING = object()
-
 
 @asynccontextmanager
 async def serve_asgi(monkeypatch, wrapper):

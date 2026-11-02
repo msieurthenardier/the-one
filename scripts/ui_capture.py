@@ -747,10 +747,6 @@ def _tool_editor_ready(ctx: Ctx) -> None:
     ctx.page.wait_for_timeout(300)
 
 
-def _tool_read_file(ctx: Ctx) -> None:
-    _admin_tool_chips(ctx)
-
-
 def _tool_fetch_url_error(ctx: Ctx) -> None:
     page = ctx.page
     page.locator('[data-field="redirect_cap"]').fill("-3")

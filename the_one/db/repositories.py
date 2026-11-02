@@ -2430,9 +2430,8 @@ class ToolConfigRepository:
     Mirrors `MCPSourceRepository` but keyed by `name` (the tool's
     stable identifier — operators set tool config by name, the row
     exists or it doesn't, so there's no separate create/update split).
-    `list_all()` is a convenience read returning `{name: config_dict}`. The
-    resolver makes no repository call: `AgentFactory.create()` reads `list()`
-    and passes each tool's config dict to the resolver.
+    The resolver makes no repository call: `AgentFactory.create()` reads
+    `list()` and passes each tool's config dict to the resolver.
 
     M16 F08 L03: carries an `encryptor` (BY REFERENCE — `install_key()`
     post-rotation must propagate to live instances) and a `secrets`
@@ -2459,15 +2458,6 @@ class ToolConfigRepository:
         `MCPSourceRepository.list` consistency."""
         async with self.conn.execute("SELECT * FROM tool_configs ORDER BY name") as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
-
-    async def list_all(self) -> dict[str, dict]:
-        """Resolver-facing read: `{tool_name: config_dict}`.
-
-        Convenience wrapper over `list()`. An empty `tool_configs.config`
-        reads the same as a missing row to the resolver.
-        """
-        items = await self.list()
-        return {item.name: item.config for item in items}
 
     async def get(self, name: str) -> ToolConfig:
         async with self.conn.execute("SELECT * FROM tool_configs WHERE name = ?", (name,)) as cur:

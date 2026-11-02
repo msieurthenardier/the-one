@@ -119,8 +119,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_repo.get = AsyncMock(return_value=_make_provider_config())
 
     # F6 L1: factory now constructs `ToolConfigRepository(conn)` and awaits
-    # `list()` (returning `list[ToolConfig]`) — switched from L3's
-    # `list_all()` -> `dict[str, dict]` shape. The factory projects this
+    # `list()` (returning `list[ToolConfig]`). The factory projects this
     # into `tool_configs_by_name` (dict) AND `disabled_names` (set) and
     # composes operator-disable with the per-agent enabled/disabled
     # whitelist. Patch with an empty list so the resolver path
@@ -484,8 +483,8 @@ class TestResolverWiring:
 
     async def test_factory_passes_resolver_args_to_provider(self, store: InMemoryStore) -> None:
         """When AgentFactory.create() runs, it should:
-        * Construct a ToolConfigRepository, await list_all(), and pass that
-          dict as the first positional arg to provider.get_tools(...).
+        * Construct a ToolConfigRepository, await list(), project it into a
+          {name: config} dict and pass that as the first positional arg to provider.get_tools(...).
         * Pass config.tool_overrides (or {} if None) as the second arg.
         """
         captured: dict[str, Any] = {}
