@@ -44,6 +44,11 @@
 //            AND the agent's AgentConfig.is_tool_enabled), Self-configuration
 //            (On or Off). An empty group says "None"; a failed load says
 //            "Couldn't load" for that group only.
+//   Needs attention (sortie 07 L05, DD12): between the facts <dl> and "What it can use",
+//            built by App.chat.drawerParts.noticesGroup (agent-drawer-parts.js): one
+//            sentence per tool-override notice on the agent row (text only) and a link
+//            to the agent's Tools tab (testid chat-drawer-notices-link); absent when
+//            there are none.
 //   Rules (M27 F1 L2, DD7): first in "What it can use": the agent's enabled
 //            rules in order (two-line clamp, full text in `title`), "{n} off"
 //            for disabled ones, "No rules" (also on a 404). Read-only: no edit

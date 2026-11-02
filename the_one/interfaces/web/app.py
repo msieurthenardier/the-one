@@ -1915,12 +1915,14 @@ async def _resync_session_from_db(session: Session) -> None:
 
 
 async def _get_or_restore_session(session_id: str) -> RestoredSession:
-    """Always rebuild via _restore_session.
+    """Delegate to _restore_session on every call (there is no cache short-circuit).
 
-    Earlier versions short-circuited to the in-memory cache, which froze the
-    Agent at restore time and meant edits to the agent config (system_prompt,
-    model, tools) and agent deletions did not propagate until process restart.
-    Now every join rebinds the cached Session's `.agent` to the current config.
+    Every join rebinds the cached Session's `.agent` to the current config, so
+    edits to the agent config (system_prompt, model, tools) and agent deletions
+    propagate at the next join. The one exception lives in _restore_session: while
+    a turn is running or registered in flight on the session, the cached Session
+    is returned as is (rebuilding mid-turn would replace live history with a stale
+    DB snapshot) and the rebind happens at the next join after the turn ends.
     """
     return await _restore_session(session_id)
 

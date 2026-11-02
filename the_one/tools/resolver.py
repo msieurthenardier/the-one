@@ -3,7 +3,8 @@
 Composes a per-agent `Tool.Config` instance from two sources:
 
 1. tool-level config — operator-set defaults persisted in the
-   `tool_configs` SQLite table (read via `ToolConfigRepository.list_all()`)
+   `tool_configs` SQLite table (read by `AgentFactory.create()` through
+   `ToolConfigRepository.list()`; this module makes no repository call)
 2. agent-level override — per-agent narrowing/substitution stored on
    `AgentConfig.tool_overrides`
 
