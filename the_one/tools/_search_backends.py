@@ -530,19 +530,12 @@ class TavilySearchBackend:
 # Registry + factory (M16 F08 L02 — DD3 refinement)
 # ---------------------------------------------------------------------------
 
-# Keyed by ``WebSearchConfig.search_backend`` enum value. The factory below
-# constructs the matching backend from the config + the SSRF policy. DDG is
+# The factory below constructs the backend named by
+# ``WebSearchConfig.search_backend`` from the config + the SSRF policy. DDG is
 # the keyless default for unset / unknown names — but a SELECTED-but-
 # unconfigured keyed engine still constructs and raises
 # ``SearchUnavailableError`` at call time (NO silent DDG fallback — that hides
 # misconfig).
-SEARCH_BACKENDS: tuple[str, ...] = (
-    "duckduckgo",
-    "searxng",
-    "google_pse",
-    "brave",
-    "tavily",
-)
 
 
 def build_search_backend(

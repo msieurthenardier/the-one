@@ -369,5 +369,4 @@
   }
 
   window.App.studio.renderAgentEditor = renderAgentEditor;
-  window.App.studio.AGENT_PANEL_IDS = PANEL_IDS;
 })();

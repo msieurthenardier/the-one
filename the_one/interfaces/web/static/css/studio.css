@@ -231,10 +231,6 @@
      block styles them from tokens; see self-configuration-tab.js for the
      DOM structure and the per-fix comments there. */
 
-  /* Enable + Approval-mode switches (App.ui.toggle): a little breathing room above
-     the switch row. */
-  .area-studio .self-configuration-toggle-switch { margin-top: 4px; }
-
   .area-studio .self-configuration-description {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);

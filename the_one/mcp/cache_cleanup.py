@@ -59,13 +59,6 @@ logger = logging.getLogger(__name__)
 _UV_CACHE_PRUNE_TIMEOUT_S: float = 8.0
 
 # Filesystem roots — module-level so tests can monkeypatch.
-# ``UV_ENVIRONMENTS_ROOT`` is retained for backward compatibility and for
-# the npx cache scan's mirror layout, but ``_clean_uvx`` no longer walks
-# this path: uv stores environments-v2/<hash> as symlinks into archive-v0,
-# and ``Path.glob`` does NOT follow symlinks (so the previous env-scan
-# silently failed to match). ``uv cache prune`` walks reachability across
-# the symlink hop and is the correct primitive for reclaiming env slots.
-UV_ENVIRONMENTS_ROOT = Path("/root/.cache/uv/environments-v2")
 NPX_CACHE_ROOT = Path("/root/.npm/_npx")
 
 # npm package-name spec (per npm-validate-package-name + RFC):

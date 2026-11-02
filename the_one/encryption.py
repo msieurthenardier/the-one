@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
@@ -194,37 +194,6 @@ class Encryptor:
             sidecar.unlink(missing_ok=True)
         self._pending_key = None
         self._rebuild()
-
-    def rotate_key(self, reencrypt: Callable[[Encryptor, Encryptor], None]) -> None:
-        """Generate a new key, re-encrypt secrets via callback, then persist the new key.
-
-        Args:
-            reencrypt: Called with (old_encryptor, new_encryptor). The caller is
-                responsible for re-encrypting all stored secrets inside this callback.
-
-        Raises:
-            RuntimeError: If this Encryptor was not created with a key_path
-                (e.g. a test-only instance created directly).
-        """
-        if self._key_path is None:
-            raise RuntimeError(
-                "Cannot rotate key: no key_path set. "
-                "Use get_encryptor() to create an Encryptor with a managed key file."
-            )
-
-        new_key = Fernet.generate_key()
-        self.stage_pending_key(new_key)
-
-        try:
-            # Let the caller re-encrypt all secrets. While staged, self
-            # decrypts under both keys — harmless for the callback contract.
-            reencrypt(self, Encryptor(new_key))
-        except BaseException:
-            self.discard_pending_key()
-            raise
-
-        # Callback succeeded — promote the sidecar and install the new key.
-        self.promote_pending_key()
 
 
 def resolve_pending_key(

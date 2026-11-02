@@ -169,8 +169,8 @@ def _write_new_credential_atomic(path: Path, credential: LocalApiCredential) -> 
     `os.chmod(...)` — that sequence has a brief window where the file is
     world-readable before the chmod lands, which is exactly the anti-pattern
     `the_one/encryption.py` uses and this module deliberately does not copy
-    (see that module's `rotate_key` / `get_encryptor`, kept as-is out of
-    scope for this leg).
+    (see that module's `_write_key_atomic` / `get_encryptor`, which write
+    the key with a single `os.open` at mode 0600).
 
     Callers must not trust the value they just wrote — always re-read through
     `_read_credential_cached`, since a racing writer (e.g. a second process

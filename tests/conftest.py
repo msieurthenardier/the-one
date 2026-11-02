@@ -37,7 +37,7 @@ os.environ.setdefault("THE_ONE_DATA_DIR", tempfile.mkdtemp(prefix="the-one-pytes
 
 from the_one.llm.base import LLMProvider, Message  # noqa: E402
 from the_one.platform.sandbox import SandboxProfile  # noqa: E402
-from the_one.tools.base import Tool, ToolRegistry  # noqa: E402
+from the_one.tools.base import Tool  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # tests/conftest.py → project root
 
@@ -221,15 +221,6 @@ class StubTool(Tool):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def make_registry() -> ToolRegistry:
-    """Create a ToolRegistry pre-loaded with stub tools."""
-    registry = ToolRegistry()
-    for tool_name in ("tool_a", "tool_b", "tool_c"):
-        registry.register(StubTool(tool_name))
-    return registry
 
 
 # ---------------------------------------------------------------------------

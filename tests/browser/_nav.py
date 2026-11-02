@@ -88,7 +88,7 @@ lets use raw route hashes:
 from __future__ import annotations
 
 import time
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote
 
 from playwright.sync_api import Page
 
@@ -277,11 +277,6 @@ def href(route: str) -> str:
 
 
 # ── Page operations ───────────────────────────────────────────────────────
-
-
-def _origin(page: Page) -> str:
-    parts = urlsplit(page.url)
-    return f"{parts.scheme}://{parts.netloc}"
 
 
 def goto(page: Page, base: str, route: str, **kw):

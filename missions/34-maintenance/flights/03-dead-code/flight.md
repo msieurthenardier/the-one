@@ -1,10 +1,10 @@
 # Flight: Dead code
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Post-Mission-33 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] Dead code removed. *(#24, #25)*
+- [x] Dead code removed. *(#24, #25)*
 
 ---
 
@@ -44,7 +44,7 @@ Verified at `e33e8657` by the 2026-10-30 Dead-code Inspector; spot-checked by th
 | `the_one/db/repositories.py:2462` `ToolConfigRepository.list_all` — tests only; docstring at L2433 says the resolver uses it, but `agent/factory.py:402` reads `list()` | verified |
 
 ### Prerequisites
-- [ ] None beyond a green `make test-unit` at leg start.
+- [x] None beyond a green `make test-unit` at leg start.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved (N/A, maintenance flight)
@@ -94,8 +94,8 @@ Run the CSS ownership and emitted-class guards (`tests/test_ui_ownership.py`, `t
 - **Verify.** The rotation route tests in `tests/test_provider_api.py` (`test_rotate_*`) and `tests/test_key_reconcile.py` stay green and unchanged.
 
 ### Checkpoints
-- [ ] Sweep deleted, guards green
-- [ ] Rotation primitives carry the 0o600 assertion
+- [x] Sweep deleted, guards green
+- [x] Rotation primitives carry the 0o600 assertion
 
 ### Adaptation Criteria
 
@@ -109,18 +109,18 @@ Run the CSS ownership and emitted-class guards (`tests/test_ui_ownership.py`, `t
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `definite-dead-sweep` - Delete the verified-dead items and the `make_registry` fixture with its CLAUDE.md line.
-- [ ] `retire-test-only-methods` - Delete `Encryptor.rotate_key` and `ToolConfigRepository.list_all`; move their coverage to the live code.
+- [x] `definite-dead-sweep` - Delete the verified-dead items and the `make_registry` fixture with its CLAUDE.md line.
+- [x] `retire-test-only-methods` - Delete `Encryptor.rotate_key` and `ToolConfigRepository.list_all`; move their coverage to the live code.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (CLAUDE.md "Test patterns")
+- [x] Tests passing
+- [x] Documentation updated (CLAUDE.md "Test patterns")
 
 ### Verification
 - `make test-unit` is green with the same skips.

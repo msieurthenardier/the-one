@@ -2768,22 +2768,20 @@ class TestToolConfigRepository:
         items = await tool_config_repo.list()
         assert [i.name for i in items] == ["python_exec", "read_file", "shell"]
 
-    async def test_list_all_returns_dict_shape(
+    async def test_list_carries_each_rows_config(
         self, tool_config_repo: ToolConfigRepository
     ) -> None:
-        """list_all is the resolver-facing read — returns {name: config}."""
+        """list() is the read the factory projects into {name: config}."""
         await tool_config_repo.upsert("shell", {"timeout": 30})
         await tool_config_repo.upsert("read_file", {"max_bytes": 1000})
-        result = await tool_config_repo.list_all()
+        result = {item.name: item.config for item in await tool_config_repo.list()}
         assert result == {
             "shell": {"timeout": 30},
             "read_file": {"max_bytes": 1000},
         }
 
-    async def test_list_all_empty_when_no_rows(
-        self, tool_config_repo: ToolConfigRepository
-    ) -> None:
-        assert await tool_config_repo.list_all() == {}
+    async def test_list_empty_when_no_rows(self, tool_config_repo: ToolConfigRepository) -> None:
+        assert await tool_config_repo.list() == []
 
     async def test_get_returns_row(self, tool_config_repo: ToolConfigRepository) -> None:
         await tool_config_repo.upsert("shell", {"timeout": 30})
@@ -2851,14 +2849,16 @@ class TestToolConfigRepository:
         got = await tool_config_repo.get("shell")
         assert got.enabled is True
 
-    async def test_list_all_omits_enabled(self, tool_config_repo: ToolConfigRepository) -> None:
-        # The resolver-facing list_all() must stay {name: config_dict}.
-        # Admin read path in L1 uses list() (which returns full models).
+    async def test_list_omits_enabled_from_config(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        # The factory projects each row's config dict for the resolver, so
+        # `enabled` must live on the model and never leak into `config`.
         await tool_config_repo.upsert("shell", {"timeout": 1}, enabled=False)
-        result = await tool_config_repo.list_all()
-        assert result == {"shell": {"timeout": 1}}
-        # Explicit guard: enabled must not leak into the resolver dict.
-        assert "enabled" not in result["shell"]
+        (item,) = await tool_config_repo.list()
+        assert item.config == {"timeout": 1}
+        assert "enabled" not in item.config
+        assert item.enabled is False
 
     async def test_pydantic_coerces_int_to_bool_for_enabled(self) -> None:
         # Insurance for any future code path that builds ToolConfig

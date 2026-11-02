@@ -73,7 +73,7 @@ as squawks 0295–0300, not here.
     hidden, or when its chat count is unchanged.
   - A sessions push is JSON-encoded once, however many sockets receive it.
     *(#11)*
-- [ ] **Dead code removed.**
+- [x] **Dead code removed.**
   - The definite dead code the inspection listed is deleted.
   - `Encryptor.rotate_key` and the unused `ToolConfigRepository.list_all` are
     deleted, with their coverage moved to the code that is really used.
@@ -137,4 +137,4 @@ Approach.
 
 - [x] Flight 1: [Test-suite runtime II](flights/01-test-suite-runtime-ii/flight.md): unit-tier per-test cost, browser lane budgets and flake waits.
 - [x] Flight 2: [Data safety and routine observability](flights/02-data-safety-and-routine-observability/flight.md): connector peers survive a stale save, routine logging, cheaper session pushes.
-- [ ] Flight 3: [Dead code](flights/03-dead-code/flight.md): the definite-dead sweep, then the unused rotation and repository methods.
+- [x] Flight 3: [Dead code](flights/03-dead-code/flight.md): the definite-dead sweep, then the unused rotation and repository methods.

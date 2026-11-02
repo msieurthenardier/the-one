@@ -90,15 +90,24 @@ class TestGetEncryptor:
         enc_b = get_encryptor(dir_b)
         assert enc_a is not enc_b
 
-    def test_rotation_propagates_through_cache(self, tmp_path: Path) -> None:
-        """rotate_key() mutates in-place, so the cached instance sees the new key."""
+    def test_promotion_propagates_through_cache(self, tmp_path: Path) -> None:
+        """A promoted key is installed in place: the cached instance sees the new key."""
         enc1 = get_encryptor(tmp_path)
-        enc1.rotate_key(lambda old, new: None)
+        old_ciphertext = enc1.encrypt("before")
+        new_key = Fernet.generate_key()
+        enc1.stage_pending_key(new_key)
+        enc1.promote_pending_key()
+
         enc2 = get_encryptor(tmp_path)
         assert enc1 is enc2
-        # The rotated encryptor can encrypt/decrypt with the new key
+        # Encrypted under the new key, checked with an independent Fernet.
         ct = enc2.encrypt("post-rotation")
-        assert enc1.decrypt(ct) == "post-rotation"
+        assert Fernet(new_key).decrypt(ct.encode()) == b"post-rotation"
+        with pytest.raises(InvalidToken):
+            enc2.decrypt(old_ciphertext)
+        # The key file holds the new key: a fresh instance agrees.
+        _encryptor_cache.clear()
+        assert get_encryptor(tmp_path).decrypt(ct) == "post-rotation"
 
 
 class TestEncryptDecrypt:
@@ -148,75 +157,30 @@ class TestEncryptOptional:
         assert enc.decrypt_optional(encrypted) == plaintext
 
 
-class TestKeyRotation:
-    """Tests for Encryptor.rotate_key."""
+class TestPendingKey:
+    """Tests for the two-phase sidecar rotation-handoff primitives."""
 
     @pytest.mark.skipif(
         os.name != "posix",
         reason="POSIX-only: Windows does not model 0o600 file permissions",
     )
-    def test_rotated_key_file_permissions(self, tmp_path: Path) -> None:
-        """Squawk 0011: rotate_key's atomic write also lands at 0o600."""
+    def test_promoted_key_file_permissions(self, tmp_path: Path) -> None:
+        """Squawk 0011: the promoted canonical key file lands at 0o600."""
         enc = get_encryptor(tmp_path)
-        enc.rotate_key(lambda old, new: None)
+        enc.stage_pending_key(Fernet.generate_key())
+        enc.promote_pending_key()
         key_path = tmp_path / "encryption.key"
         assert stat.S_IMODE(os.stat(key_path).st_mode) == 0o600
 
-    def test_rotation_generates_different_key(self, tmp_path: Path) -> None:
-        enc = get_encryptor(tmp_path)
-        key_before = (tmp_path / "encryption.key").read_bytes()
-        enc.rotate_key(lambda old, new: None)
-        key_after = (tmp_path / "encryption.key").read_bytes()
-        assert key_before != key_after
-
-    def test_rotation_calls_callback(self, tmp_path: Path) -> None:
-        enc = get_encryptor(tmp_path)
-        called_with: list[tuple[Encryptor, Encryptor]] = []
-        enc.rotate_key(lambda old, new: called_with.append((old, new)))
-        assert len(called_with) == 1
-        old_enc, new_enc = called_with[0]
-        assert isinstance(old_enc, Encryptor)
-        assert isinstance(new_enc, Encryptor)
-
-    def test_new_encryptor_decrypts_new_values(self, tmp_path: Path) -> None:
-        enc = get_encryptor(tmp_path)
-        new_encrypted: list[str] = []
-
-        def reencrypt(old: Encryptor, new: Encryptor) -> None:
-            new_encrypted.append(new.encrypt("rotated-secret"))
-
-        enc.rotate_key(reencrypt)
-        # After rotation, the encryptor uses the new key.
-        assert enc.decrypt(new_encrypted[0]) == "rotated-secret"
-
-    def test_old_values_fail_after_rotation(self, tmp_path: Path) -> None:
-        enc = get_encryptor(tmp_path)
-        old_ciphertext = enc.encrypt("before-rotation")
-        enc.rotate_key(lambda old, new: None)
-        with pytest.raises(InvalidToken):
-            enc.decrypt(old_ciphertext)
-
-    def test_rotation_preserves_key_on_callback_failure(self, tmp_path: Path) -> None:
-        enc = get_encryptor(tmp_path)
-        key_before = (tmp_path / "encryption.key").read_bytes()
-
-        def failing_callback(old: Encryptor, new: Encryptor) -> None:
-            raise ValueError("re-encryption failed")
-
-        with pytest.raises(ValueError, match="re-encryption failed"):
-            enc.rotate_key(failing_callback)
-
-        # Key file should be unchanged.
-        assert (tmp_path / "encryption.key").read_bytes() == key_before
-
-    def test_rotation_without_key_path_raises(self) -> None:
+    def test_stage_without_key_path_raises(self) -> None:
         enc = Encryptor(Fernet.generate_key())
         with pytest.raises(RuntimeError, match="no key_path set"):
-            enc.rotate_key(lambda old, new: None)
+            enc.stage_pending_key(Fernet.generate_key())
 
-
-class TestPendingKey:
-    """Tests for the two-phase sidecar rotation-handoff primitives."""
+    def test_promote_without_key_path_raises(self) -> None:
+        enc = Encryptor(Fernet.generate_key())
+        with pytest.raises(RuntimeError, match="no key_path set"):
+            enc.promote_pending_key(Fernet.generate_key())
 
     @pytest.mark.skipif(
         os.name != "posix",
@@ -256,12 +220,16 @@ class TestPendingKey:
     def test_promote_replaces_file_and_drops_fallback(self, tmp_path: Path) -> None:
         enc = get_encryptor(tmp_path)
         old_ciphertext = enc.encrypt("before")
+        key_path = tmp_path / "encryption.key"
+        key_before = key_path.read_bytes()
         new_key = Fernet.generate_key()
         enc.stage_pending_key(new_key)
         enc.promote_pending_key()
 
-        key_path = tmp_path / "encryption.key"
         assert key_path.read_bytes() == new_key
+        assert new_key != key_before
+        # Values encrypted under the new key decrypt in place.
+        assert enc.decrypt(Encryptor(new_key).encrypt("x")) == "x"
         assert not next_key_path(key_path).exists()
         assert enc.pending_key is None
         with pytest.raises(InvalidToken):
@@ -270,12 +238,16 @@ class TestPendingKey:
     def test_discard_unlinks_and_drops_pending(self, tmp_path: Path) -> None:
         enc = get_encryptor(tmp_path)
         canonical_key = (tmp_path / "encryption.key").read_bytes()
+        old_ciphertext = enc.encrypt("kept")
         new_key = Fernet.generate_key()
         sidecar = enc.stage_pending_key(new_key)
         assert sidecar.exists()
 
         enc.discard_pending_key()
         assert not sidecar.exists()
+        # The canonical key file is untouched and old ciphertext still decrypts.
+        assert (tmp_path / "encryption.key").read_bytes() == canonical_key
+        assert enc.decrypt(old_ciphertext) == "kept"
         assert enc.pending_key is None
         # Still encrypts/decrypts under the canonical key.
         assert enc.decrypt(enc.encrypt("still-works")) == "still-works"
