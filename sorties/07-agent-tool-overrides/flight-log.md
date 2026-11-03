@@ -369,5 +369,5 @@ Sortie planned 2026-10-27 from an operator report on the Windows build: an agent
 
 ### Close (2026-11-03)
 - **Operator decision: skip the HAT.** Leg 6 `hat` was optional, and it was never designed or run. The sortie's code merged in PR #346 (`ae2296f1`) on 2026-10-31, and Mission 34 has run its gates on that code since.
-- **Status `completed`.** The success criteria are assessed as met on the automated tests and the flight review. No flight debrief was run.
+- **Status `completed`.** The success criteria are assessed as met on the automated tests and the flight review. The flight debrief was run retroactively the same day ([flight-debrief.md](flight-debrief.md)), with Developer and Architect interviews (Sonnet, read-only) and three operator answers.
 - **Mission 34's debrief action item corrected.** It listed "fly sortie 07 next", but the sortie had already flown. The operator says that item was wrong.
