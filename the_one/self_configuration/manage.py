@@ -26,6 +26,8 @@ from the_one.self_configuration import external_credentials
 from the_one.self_configuration.constants import (
     CREDENTIAL_SECRET_KEY,
     MOUNT_PATH,
+    SURFACE_ROW_NAME,
+    SURFACE_TOOL_PREFIX,
     is_surface_row,
 )
 from the_one.self_configuration.credentials import (
@@ -38,21 +40,11 @@ from the_one.self_configuration.credentials import (
 
 logger = logging.getLogger(__name__)
 
-# LD7 (leg 03) / Anomaly A11 / flight-log Decision D6: every agent's surface
-# row shares this ONE constant name (`mcp_sources.name` carries no UNIQUE
-# constraint — ownership is the marker, overrides are keyed per agent), so
-# the prefixed tool-name budget is fixed and known: `mcp__self-
-# configuration__{tool}` is 45-49 chars for the surface's four tools, well
-# under the 64-char ceiling `mcp/_tool.py` enforces, regardless of agent
-# name length. Was `SURFACE_ROW_NAME_TEMPLATE = "self-configuration
-# ({name})"`, which left as little as ~11 chars of agent name before a
-# tool silently dropped off the catalog (Anomaly A11). The literal name is
-# RESERVED — `api.py`'s `create_mcp_source`/`update_mcp_source` 409 a
-# non-surface source with this exact name (AC8b) — because override
-# application is keyed by source *name* (`_tool_provider.py`, mirrored in
-# `mcps-tab.js`), so a same-named ordinary source on the same agent would
-# collide with the platform-managed surface row.
-SURFACE_ROW_NAME = "self-configuration"
+# ``SURFACE_ROW_NAME`` (the one constant name every agent's surface row
+# shares, reserved for the platform) lives in ``constants.py`` since sortie 08
+# and is re-exported here for the existing ``manage.SURFACE_ROW_NAME`` users.
+# An agent's ``mcp_overrides`` can carry no entry under it, and
+# ``override_for`` ignores one at every build site.
 
 # Squawk 0004: the predicate moved to ``constants.py`` (a leaf module both
 # this module and ``credentials.py`` can import without a cycle) —
@@ -101,10 +93,10 @@ async def status(
     mcp_repo: MCPSourceRepository,
 ) -> dict[str, Any]:
     """``{"enabled": bool}``, per AC1's exact shape for the common case.
-    A row that exists but is no longer attached (a legitimate operator
-    detach via ``PUT /api/agents/{name}`` dropping the id from
-    ``mcp_source_ids``) reports ``enabled: false, orphaned_row: true`` —
-    the next ``enable`` reuses that row rather than minting a duplicate.
+    A row that exists but is no longer attached (legacy data or a crash
+    between steps; an agent write can no longer detach it, sortie 08 DD2)
+    reports ``enabled: false, orphaned_row: true`` — the next ``enable``
+    reuses that row rather than minting a duplicate.
     Unknown agent also reports ``{"enabled": false}`` (the API layer 404s
     separately when the agent itself doesn't exist)."""
     try:
@@ -300,14 +292,12 @@ async def reconcile_on_startup(
       port change between runs must not strand a row).
     - Rewrites ``config._cache.tools`` from ``surface.list_surface_tools()``
       (LD6) so a row enabled before a catalog change (e.g. this leg's two
-      new write tools) picks them up on the next start, and the operator's
-      per-tool checkboxes on the Tools tab show them.
+      new write tools) picks them up on the next start.
     - Renames a legacy-template row (``"self-configuration (<agent>)"``,
-      Leg 2's template) to the constant :data:`SURFACE_ROW_NAME` (LD7), and
-      migrates the owner's ``mcp_overrides[old_name]`` entry to the new key
-      so per-tool checkboxes set under Leg 2 survive — skipped (and
-      logged) if the constant key already exists on that agent, rather
-      than clobbering it.
+      Leg 2's template) to the constant :data:`SURFACE_ROW_NAME` (LD7). The
+      owner's ``mcp_overrides`` are left alone: a per-agent entry for the
+      surface is ignored at build and removed by
+      :func:`strip_surface_overrides`.
 
     Persists a row only when something actually changed. Rebuilds the
     in-memory credential registry from every marked row afterward (Edge
@@ -339,12 +329,8 @@ async def reconcile_on_startup(
 
         new_name = source.name
         if source.name != SURFACE_ROW_NAME:
-            old_name = source.name
             new_name = SURFACE_ROW_NAME
             changed = True
-            agent_name = owner_of(source)
-            if agent_name is not None:
-                await _migrate_override_key(agent_name, old_name, new_name, agent_store=agent_store)
 
         if changed:
             source = source.model_copy(update={"name": new_name, "config": new_config})
@@ -353,42 +339,57 @@ async def reconcile_on_startup(
     load_from_rows(marked)
 
 
-async def _migrate_override_key(
-    agent_name: str,
-    old_name: str,
-    new_name: str,
-    *,
-    agent_store: SQLiteAgentStore,
-) -> None:
-    """LD7: move ``config.mcp_overrides[old_name]`` to ``[new_name]`` for
-    *agent_name*, so an operator's per-tool checkboxes set under the old
-    row name survive the rename. Skips (and logs) if *new_name* already has
-    an entry — never clobbers a live override."""
+async def strip_surface_overrides(agent_store: SQLiteAgentStore) -> None:
+    """Sortie 08 DD4/DD7 startup cleanup. For EVERY agent, remove the
+    ``mcp_overrides["self-configuration"]`` entry (``None`` when the map
+    becomes empty) and every ``mcp__self-configuration__*`` entry from
+    ``disabled_tools``: nothing per agent can withhold the surface's tools.
+
+    Scans every agent by name (``manage.disable`` leaves ``mcp_overrides``
+    behind, so owners of a marked row are not the only candidates). Saves
+    through ``agent_store.save`` only when something changed, with one INFO
+    line per changed agent. Each agent is guarded on its own (an undecryptable
+    column makes ``load`` raise); never raises. A legacy
+    ``"self-configuration (<agent>)"`` key is not touched: it matches no
+    source and is already inert.
+    """
     try:
-        config = await agent_store.load(agent_name)
-    except KeyError:
+        names = await agent_store.list_agents()
+    except Exception:
+        logger.warning("self-configuration override cleanup could not list agents", exc_info=True)
         return
-    overrides = config.mcp_overrides
-    if not overrides or old_name not in overrides:
-        return
-    if new_name in overrides:
-        logger.info(
-            "self-configuration: reconcile skipped mcp_overrides migration for "
-            "agent %r — %r already has an override entry; leaving %r in place",
-            agent_name,
-            new_name,
-            old_name,
-        )
-        return
-    new_overrides = dict(overrides)
-    new_overrides[new_name] = new_overrides.pop(old_name)
-    await agent_store.save(config.model_copy(update={"mcp_overrides": new_overrides}))
-    logger.info(
-        "self-configuration: reconcile migrated mcp_overrides[%r] to [%r] for agent %r",
-        old_name,
-        new_name,
-        agent_name,
-    )
+    for name in names:
+        try:
+            config = await agent_store.load(name)
+            update: dict[str, Any] = {}
+            overrides = config.mcp_overrides
+            if overrides and SURFACE_ROW_NAME in overrides:
+                remaining = {k: v for k, v in overrides.items() if k != SURFACE_ROW_NAME}
+                update["mcp_overrides"] = remaining or None
+            disabled = config.disabled_tools
+            if disabled:
+                kept = [
+                    t
+                    for t in disabled
+                    if not (isinstance(t, str) and t.startswith(SURFACE_TOOL_PREFIX))
+                ]
+                if len(kept) != len(disabled):
+                    update["disabled_tools"] = kept
+            if not update:
+                continue
+            await agent_store.save(config.model_copy(update=update))
+            logger.info(
+                "self-configuration: removed a per-agent withhold of the surface's tools "
+                "from agent %r (%s)",
+                name,
+                ", ".join(sorted(update)),
+            )
+        except Exception:
+            logger.warning(
+                "self-configuration override cleanup failed for agent %r; skipped",
+                name,
+                exc_info=True,
+            )
 
 
 async def cascade_rename(
@@ -476,40 +477,30 @@ async def reject_foreign_surface_attachments(
     return None
 
 
-async def reject_surface_credential_overrides(
-    config: AgentConfig,
+SURFACE_OVERRIDE_REFUSAL = (
+    "The self-configuration server can't be set per agent. "
+    "Turn Agent prompt on or off on the Self-configuration tab."
+)
+
+
+async def carry_surface_attachment(
+    name: str,
+    incoming_ids: list[str],
+    stored_ids: list[str],
     *,
     mcp_repo: MCPSourceRepository,
-) -> str | None:
-    """Leg Edge Case guard: an agent's ``mcp_overrides`` entry targeting its
-    OWN (or any) self-configuration surface row must not carry a credential
-    key (``MCP_OVERRIDE_CREDENTIAL_KEYS`` — ``env``/``headers``/
-    ``bearer_token``). The overlay would replace the platform-minted
-    credential on the wire, which the gate would then 401 on — reject at
-    the API boundary (422) rather than let it fail silently at connect
-    time.
-    """
-    if not config.mcp_overrides:
-        return None
-    # Function-local import: `mcp/_overrides.py` transitively imports
-    # `the_one.tools.resolver` — kept out of this leaf-ish module's
-    # top-level import surface per the codebase's function-local-import
-    # convention for imports only a single guard needs.
-    from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
-
-    sources_by_name = {s.name: s for s in await mcp_repo.list()}
-    for source_name, entry in config.mcp_overrides.items():
-        source = sources_by_name.get(source_name)
-        if source is None or not is_surface_row(source):
-            continue
-        if not isinstance(entry, dict):
-            continue
-        offending = sorted(k for k in MCP_OVERRIDE_CREDENTIAL_KEYS if entry.get(k))
-        if offending:
-            return (
-                f"mcp_overrides[{source_name!r}] sets {offending}, but "
-                f"{source_name!r} is a self-configuration surface row — its "
-                "credential is minted by the platform and cannot be "
-                "overridden via mcp_overrides"
-            )
-    return None
+) -> list[str]:
+    """Sortie 08 DD2: an agent write never changes the self-configuration
+    attachment. Returns *incoming_ids* with the agent's OWN surface row id(s)
+    removed, then each one that is attached in *stored_ids* put back at its
+    stored position, ``min(stored_index, len(result))``. A create passes
+    ``stored_ids=[]``. A foreign agent's surface id is left in place for
+    :func:`reject_foreign_surface_attachments` to refuse."""
+    own_ids = {s.id for s in await mcp_repo.list() if is_surface_row(s) and owner_of(s) == name}
+    if not own_ids:
+        return list(incoming_ids)
+    result = [i for i in incoming_ids if i not in own_ids]
+    for index, stored_id in enumerate(stored_ids):
+        if stored_id in own_ids:
+            result.insert(min(index, len(result)), stored_id)
+    return result

@@ -9,7 +9,7 @@ per-request path check. Nothing in this module imports anything from
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Type-only — keeps this leaf module free of a runtime import from
@@ -94,6 +94,26 @@ CREDENTIAL_SECRET_KEY = "Authorization"
 # copy of the marker check for import-order reasons.
 OWNER_MARKER_KEY = "self_configuration"
 
+# LD7 (leg 03) / Anomaly A11 / flight-log Decision D6: every agent's surface
+# row shares this ONE constant name (`mcp_sources.name` carries no UNIQUE
+# constraint, ownership is the marker), so the prefixed tool-name budget is
+# fixed and known: `mcp__self-configuration__{tool}` is 45-49 chars for the
+# surface's four tools, well under the 64-char ceiling `mcp/_tool.py`
+# enforces. The literal name is RESERVED: `api.py`'s `create_mcp_source` /
+# `update_mcp_source` 409 a non-surface source with this exact name. Since
+# sortie 08 the name also means "the platform surface" everywhere an agent's
+# `mcp_overrides` or `disabled_tools` is read or written: the API refuses
+# any non-empty `mcp_overrides` entry under it, and nothing per agent can
+# withhold its tools (the Self-configuration tab is the only control).
+SURFACE_ROW_NAME = "self-configuration"
+
+# The prefix of the surface's tool names as an agent sees them
+# (``mcp__{normalized source name}__{tool}``). A literal, pinned by a test
+# against ``mcp/_tool.py``'s normalization, so this leaf module copies no
+# regex. Used only to strip withholds from an incoming ``disabled_tools``;
+# the build-time skip keys on the source marker, never on this prefix.
+SURFACE_TOOL_PREFIX = "mcp__self-configuration__"
+
 
 def is_surface_row(source: "MCPSource") -> bool:
     """LD1: a row is a surface row iff its ``config`` carries the ownership
@@ -106,3 +126,15 @@ def is_surface_row(source: "MCPSource") -> bool:
     """
     marker = (source.config or {}).get(OWNER_MARKER_KEY)
     return isinstance(marker, dict) and bool(marker.get("agent"))
+
+
+def override_for(overrides: "dict[str, Any] | None", source: "MCPSource") -> Any:
+    """The agent's ``mcp_overrides`` entry for *source*, or ``None``.
+
+    Sortie 08 DD4: a surface row never takes a per-agent override (the
+    marker decides, not the name), so a stale stored entry is ignored at
+    every build site. Any other source gets ``overrides.get(source.name)``.
+    """
+    if is_surface_row(source):
+        return None
+    return (overrides or {}).get(source.name)

@@ -119,7 +119,7 @@ from the_one.routines.proposals import RoutineProposalRepository
 from the_one.routines.repository import RoutineRunRepository
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
-from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
+from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX, SURFACE_TOOL_PREFIX
 from the_one.sessions import is_session_busy, turn_seq
 from the_one.tools import override_validation
 from the_one.vectors import get_vector_store
@@ -307,6 +307,60 @@ async def _full_agent_response(cfg: AgentConfig, rows: dict[str, Any] | None = N
         rows = await _tool_config_rows(cfg)
     (notices,) = await _agent_notices([cfg], rows)
     return _agent_response(cfg, await _resolve_kb_tool_names(cfg), notices)
+
+
+async def _normalize_surface_fields(
+    data: dict[str, Any],
+    name: str,
+    stored_ids: list[str],
+    *,
+    mcp_repo: MCPSourceRepository,
+) -> None:
+    """Sortie 08: the self-configuration server is owned by the server, not
+    the agent form. Runs on the RAW body of ``create_agent`` / ``update_agent``
+    (before the credential merge and validation), in this order:
+
+    - DD3: ``mcp_overrides["self-configuration"]`` with anything in it is a
+      422 (an empty dict or null is dropped); checked on the raw body so a
+      Save that merely omits the key (while one is stored) is not refused.
+    - DD7: ``mcp__self-configuration__*`` entries are stripped from a
+      ``disabled_tools`` list (silently: Studio re-sends stored names).
+    - DD2: the agent's own surface row id never comes from the body; the
+      stored one is carried back at its stored position. An omitted
+      ``mcp_source_ids`` is carried the same way (the other ids still reset).
+    """
+    overrides = data.get("mcp_overrides")
+    if isinstance(overrides, dict) and self_configuration_manage.SURFACE_ROW_NAME in overrides:
+        entry = overrides[self_configuration_manage.SURFACE_ROW_NAME]
+        if entry is not None and entry != {}:
+            raise HTTPException(
+                status_code=422, detail=self_configuration_manage.SURFACE_OVERRIDE_REFUSAL
+            )
+        data["mcp_overrides"] = {
+            k: v for k, v in overrides.items() if k != self_configuration_manage.SURFACE_ROW_NAME
+        }
+    disabled = data.get("disabled_tools")
+    if isinstance(disabled, list):
+        data["disabled_tools"] = [
+            t for t in disabled if not (isinstance(t, str) and t.startswith(SURFACE_TOOL_PREFIX))
+        ]
+    if "mcp_source_ids" not in data:
+        incoming_ids: Any = []
+    else:
+        incoming_ids = data["mcp_source_ids"]
+    if isinstance(incoming_ids, list) and all(isinstance(i, str) for i in incoming_ids):
+        data["mcp_source_ids"] = await self_configuration_manage.carry_surface_attachment(
+            name, incoming_ids, stored_ids, mcp_repo=mcp_repo
+        )
+
+
+def _drop_surface_override(merged: Any) -> Any:
+    """Sortie 08 AC7: after the credential merge re-injects a stored entry,
+    remove the surface's key; ``None`` (not ``{}``) when the map is empty."""
+    if not isinstance(merged, dict):
+        return merged
+    kept = {k: v for k, v in merged.items() if k != self_configuration_manage.SURFACE_ROW_NAME}
+    return kept or None
 
 
 def _merge_preserved_mcp_credentials(
@@ -1195,6 +1249,9 @@ async def create_agent(request: Request) -> dict[str, Any]:
     # M33 F2 DD5: the Routines switches are operator-owned; a create never sets them.
     data.pop("routines_self_config_enabled", None)
     data.pop("routines_require_approval", None)
+    mcp_repo = await _mcp_repo()
+    # Sortie 08: the self-configuration server is server-owned (DD3 422, DD7, DD2).
+    await _normalize_surface_fields(data, data["name"], [], mcp_repo=mcp_repo)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -1208,22 +1265,13 @@ async def create_agent(request: Request) -> dict[str, Any]:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # M21 F01 L02 (LD1 ownership guard + Edge Case credential-override
-    # guard): run on the VALIDATED config, after the mcp_overrides merge
-    # above — an agent can never attach another agent's self-configuration
-    # surface row, and an override targeting a surface row can never carry
-    # a credential key.
-    mcp_repo = await _mcp_repo()
+    # M21 F01 L02 (LD1 ownership guard): run on the VALIDATED config — an
+    # agent can never attach another agent's self-configuration surface row.
     guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
         cfg, mcp_repo=mcp_repo
     )
     if guard_error is not None:
         raise HTTPException(status_code=422, detail=guard_error)
-    override_error = await self_configuration_manage.reject_surface_credential_overrides(
-        cfg, mcp_repo=mcp_repo
-    )
-    if override_error is not None:
-        raise HTTPException(status_code=422, detail=override_error)
     # Sortie 07 DD5: a new tool override that widens the app-wide value or is invalid
     # is a 422 on its field, before the provider check and the name conflict.
     rows = await _tool_config_rows(cfg)
@@ -1260,14 +1308,20 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     data = await _read_json(request)
     data["name"] = name  # Ensure name matches path
+    mcp_repo = await _mcp_repo()
+    # Sortie 08: the self-configuration server is server-owned (DD3 422 on the
+    # raw body, DD7 strip, DD2 carry of the stored attachment).
+    await _normalize_surface_fields(data, name, existing.mcp_source_ids, mcp_repo=mcp_repo)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # `data.get(...)` cannot distinguish "key omitted" from "key
         # explicitly null" — both decode to `None`, and AC5 treats them
         # identically (both preserve every stored source), so that
         # collapse is intentional, not a gap.
-        data["mcp_overrides"] = _merge_preserved_mcp_credentials(
-            incoming_overrides, existing.mcp_overrides
+        # Sortie 08 AC7: the merge re-injects a stored surface entry the body
+        # omitted; drop it so any Save cleans it.
+        data["mcp_overrides"] = _drop_surface_override(
+            _merge_preserved_mcp_credentials(incoming_overrides, existing.mcp_overrides)
         )
     # else: not a dict and not null (e.g. a list) — leave alone;
     # AgentConfig validation below 422s it as today.
@@ -1302,20 +1356,12 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # M21 F01 L02: ownership + credential-override guards, on the validated
-    # config, after the preserve-on-PUT merge above (see create_agent for
-    # the shared rationale).
-    mcp_repo = await _mcp_repo()
+    # M21 F01 L02: ownership guard, on the validated config (see create_agent).
     guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
         cfg, mcp_repo=mcp_repo
     )
     if guard_error is not None:
         raise HTTPException(status_code=422, detail=guard_error)
-    override_error = await self_configuration_manage.reject_surface_credential_overrides(
-        cfg, mcp_repo=mcp_repo
-    )
-    if override_error is not None:
-        raise HTTPException(status_code=422, detail=override_error)
     # Sortie 07 DD5: only a new or changed override field is checked, against the
     # STORED map (an omitted `tool_overrides` was carried above, so it is unchanged).
     rows = await _tool_config_rows(cfg)
@@ -3314,10 +3360,10 @@ async def create_mcp_source(request: Request) -> dict[str, Any]:
 def _reject_reserved_surface_name(source: MCPSource) -> None:
     """LD7 / AC8b: the literal name ``self_configuration_manage.
     SURFACE_ROW_NAME`` ("self-configuration") is reserved for the platform-
-    managed self-configuration surface row — override application is keyed
-    by source *name* (``_tool_provider.py``, mirrored in ``mcps-tab.js``),
-    so a same-named ordinary source on the same agent would collide with
-    it. Surface rows themselves are created only by ``manage.enable`` (not
+    managed self-configuration surface row — the name keys the surface's
+    prefixed tool names (``mcp__self-configuration__*``) and the API's
+    refusal of a per-agent override for it, so a same-named ordinary source
+    would collide with it. Surface rows themselves are created only by ``manage.enable`` (not
     through this endpoint), so any request reaching here whose *name*
     equals the constant is, by definition, an attempt to create/rename an
     ordinary source into the reserved name — refused with 409, mirroring

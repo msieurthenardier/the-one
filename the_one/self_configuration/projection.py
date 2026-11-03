@@ -21,6 +21,7 @@ from the_one.db.repositories import (
 )
 from the_one.mcp._tool_provider import filter_mcp_tools_by_override
 from the_one.mcp.types import MCPTool
+from the_one.self_configuration.constants import override_for
 from the_one.tools.builtins import BuiltinToolProvider
 
 
@@ -151,7 +152,7 @@ async def build_describe_my_capabilities(
             )
             for t in cached
         ]
-        override_payload = (config.mcp_overrides or {}).get(source.name)
+        override_payload = override_for(config.mcp_overrides, source)
         filtered = filter_mcp_tools_by_override(mcp_tools, source, override_payload)
         mcp_sources.append(
             {

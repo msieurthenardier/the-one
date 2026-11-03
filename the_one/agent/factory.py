@@ -15,6 +15,7 @@ from the_one.config import settings
 from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
+from the_one.self_configuration.constants import override_for
 from the_one.time_zones import CURRENT_TIME_TOOL_NAME
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import Tool, ToolRegistry
@@ -166,7 +167,7 @@ async def _build_source_index(
             )
             for t in cached_tools_payload
         ]
-        override_payload = (config.mcp_overrides or {}).get(source.name)
+        override_payload = override_for(config.mcp_overrides, source)
         filtered = filter_mcp_tools_by_override(cached_mcp_tools, source, override_payload)
         prefixed_names = [
             f"mcp__{_normalize_source_name(source.name)}__{mt.name}" for mt in filtered
@@ -480,11 +481,18 @@ class AgentFactory:
         # disabled-aware tools, the MCPToolProvider produces the
         # per-agent MCP tool list; the same enabled/disabled filter
         # applies (operators can disable an MCP tool by its prefixed
-        # name — `disabled_tools=["mcp__github__delete_repo"]`).
+        # name — `disabled_tools=["mcp__github__delete_repo"]`). The platform's
+        # own self-configuration surface is exempt (sortie 08 DD7): its four
+        # tools follow only the Self-configuration tab's switch, so a stored
+        # withhold never applies. Keyed on the tool's `is_platform_surface`
+        # (the source marker), never the name prefix; a tool without the
+        # attribute (an injected stub) is still filtered.
         if self.mcp_provider is not None and config.mcp_source_ids:
             mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
             for tool in mcp_tools:
-                if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
+                if getattr(tool, "is_platform_surface", False) or (
+                    tool.name not in disabled_names and config.is_tool_enabled(tool.name)
+                ):
                     registry.register(tool)
 
         # Flight 5 Leg 2 (DD-5 AC-15/AC-16): knowledge-base tool attach,

@@ -148,9 +148,11 @@ class TestMint:
         also 409 — gate on enabled, not on the row merely existing."""
         await _create_agent(env.client, "a")
         await _enable(env.client, "a")
-        # Detach via PUT without deleting the row → orphaned.
-        resp = await env.client.put("/api/agents/a", json={"name": "a", "mcp_source_ids": []})
-        assert resp.status_code == 200, resp.text
+        # Detach by a direct store save (a PUT can no longer detach, sortie 08
+        # DD2) without deleting the row → orphaned.
+        store = env.agent_store()
+        cfg = await store.load("a")
+        await store.save(cfg.model_copy(update={"mcp_source_ids": []}))
         resp = await _mint(env.client, "a")
         assert resp.status_code == 409, resp.text
 
@@ -307,8 +309,11 @@ class TestDiesWithSurface:
         await _enable(env.client, "a")
         token = (await _mint(env.client, "a")).json()["token"]
 
-        # Detach without delete → orphaned; row (and its credential) survive.
-        await env.client.put("/api/agents/a", json={"name": "a", "mcp_source_ids": []})
+        # Detach without delete (direct store save) → orphaned; row (and its
+        # credential) survive.
+        store = env.agent_store()
+        cfg = await store.load("a")
+        await store.save(cfg.model_copy(update={"mcp_source_ids": []}))
 
         listing = (
             await env.client.get("/api/agents/a/self-configuration/external-credentials")

@@ -252,8 +252,19 @@ class TestAC3ClientPresentsCredential:
         assert any(n.endswith("describe_my_capabilities") for n in names)
 
 
-class TestAC8PerToolControlThroughExistingMachinery:
-    async def test_operator_disabled_tool_is_absent_via_get_tools_for_agent(
+class TestSurfaceToolsCannotBeWithheldPerAgent:
+    """Sortie 08 DD3/DD4: nothing per agent can withhold the surface's tools.
+    The API refuses the override; a stored one (legacy data, seeded here by a
+    direct store save) is ignored at build."""
+
+    _FOUR = (
+        "get_my_configuration",
+        "describe_my_capabilities",
+        "update_my_description",
+        "update_my_system_prompt",
+    )
+
+    async def test_api_refuses_a_per_agent_override_for_the_surface(
         self, running_surface: str
     ) -> None:
         base_url = running_surface
@@ -261,9 +272,6 @@ class TestAC8PerToolControlThroughExistingMachinery:
             await _seed_agent_with_provider("a-tool")
             await client.post("/api/agents/a-tool/self-configuration")
             agent = (await client.get("/api/agents/a-tool")).json()
-            source_id = agent["mcp_source_ids"][0]
-            source_name = "self-configuration"
-
             put_resp = await client.put(
                 "/api/agents/a-tool",
                 json={
@@ -272,11 +280,29 @@ class TestAC8PerToolControlThroughExistingMachinery:
                     "llm_model": agent["llm_model"],
                     "mcp_source_ids": agent["mcp_source_ids"],
                     "mcp_overrides": {
-                        source_name: {"disabled_tools": ["describe_my_capabilities"]}
+                        "self-configuration": {"disabled_tools": ["describe_my_capabilities"]}
                     },
                 },
             )
-            assert put_resp.status_code == 200, put_resp.text
+            assert put_resp.status_code == 422, put_resp.text
+            assert "Self-configuration tab" in put_resp.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"disabled_tools": ["describe_my_capabilities"]},
+            {"enabled_tools": []},
+        ],
+    )
+    async def test_stored_withhold_leaves_all_four_tools(
+        self, running_surface: str, override: dict
+    ) -> None:
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-tool")
+            await client.post("/api/agents/a-tool/self-configuration")
+            agent = (await client.get("/api/agents/a-tool")).json()
+            source_id = agent["mcp_source_ids"][0]
 
         await _clear_surface_cache(source_id)
 
@@ -284,11 +310,15 @@ class TestAC8PerToolControlThroughExistingMachinery:
         encryptor = get_encryptor(settings.data_dir)
         store = SQLiteAgentStore(conn, encryptor)
         cfg = await store.load("a-tool")
+        # Seeded directly: the API refuses to write this.
+        await store.save(cfg.model_copy(update={"mcp_overrides": {"self-configuration": override}}))
+        cfg = await store.load("a-tool")
+        assert cfg.mcp_overrides == {"self-configuration": override}
         provider = MCPToolProvider()
         tools = await provider.get_tools_for_agent(cfg, agent_name="a-tool")
         names = {t.name for t in tools}
-        assert any(n.endswith("get_my_configuration") for n in names)
-        assert not any(n.endswith("describe_my_capabilities") for n in names)
+        for tool in self._FOUR:
+            assert f"mcp__self-configuration__{tool}" in names
 
 
 class TestAC4DD9InToolRefusal:
@@ -444,11 +474,13 @@ class TestAC9ExternalDiesWithSurface:
             await _seed_agent_with_provider("a-ext9")
             await client.post("/api/agents/a-ext9/self-configuration")
             token = await _mint_ext(client, "a-ext9")
-            # Detach via PUT without deleting the row → orphaned.
-            put = await client.put(
-                "/api/agents/a-ext9", json={"name": "a-ext9", "mcp_source_ids": []}
-            )
-            assert put.status_code == 200, put.text
+
+        # Detach by a direct store save (a PUT can no longer detach, sortie 08
+        # DD2) without deleting the row → orphaned.
+        conn = await get_connection()
+        store = SQLiteAgentStore(conn, get_encryptor(settings.data_dir))
+        cfg = await store.load("a-ext9")
+        await store.save(cfg.model_copy(update={"mcp_source_ids": []}))
 
         from the_one.mcp.client import MCPClient
         from the_one.mcp.errors import MCPCallError

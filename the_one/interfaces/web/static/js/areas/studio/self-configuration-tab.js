@@ -5,10 +5,9 @@
 // per-agent credential and creates a `streamable-http` MCP source row that
 // the agent's own client presents to reach a loopback endpoint the
 // platform serves itself — off by default for every agent (mission
-// constraint). This tab is the ONLY place that toggles it; the row's
-// attach checkbox on the Tools tab renders checked-and-disabled (see
-// mcps-tab.js) so the operator's per-tool controls still govern individual
-// capabilities from there.
+// constraint). This tab is the ONLY control for it: the Tools tab shows no
+// row for the surface (see mcps-tab.js), the server keeps it attached across
+// an agent Save, and nothing per agent can withhold its tools (sortie 08).
 //
 // M21 F02 L02 adds two operator controls below the enable toggle:
 //   - an approval-mode toggle (immediate-post, like enable — NOT a

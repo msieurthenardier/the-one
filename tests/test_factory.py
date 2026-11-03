@@ -359,6 +359,70 @@ class TestToolFiltering:
         assert "mcp__github__delete_repo" not in agent.tools.tool_names
         assert "mcp__github__list_repos" in agent.tools.tool_names
 
+    async def test_platform_surface_tools_ignore_disabled_tools_but_stubs_do_not(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """Sortie 08 DD7: a tool whose source is a self-configuration surface row
+        (`is_platform_surface`) is registered despite a `disabled_tools` withhold;
+        a tool without the attribute (an injected stub), even one carrying the
+        same name prefix, is still filtered."""
+        from the_one.db.models import MCPSource
+        from the_one.mcp._tool import MCPClientTool
+        from the_one.mcp.types import MCPTool
+
+        surface = MCPSource(
+            id="sc-1",
+            name="self-configuration",
+            type="streamable-http",
+            config={"url": "http://x", "self_configuration": {"agent": "mcp-surface"}},
+        )
+
+        def surface_tool(short: str) -> MCPClientTool:
+            return MCPClientTool(
+                MCPTool(
+                    name=short,
+                    description="",
+                    input_schema={"type": "object", "properties": {}},
+                    output_schema=None,
+                    annotations=None,
+                ),
+                surface.id,
+                surface.name,
+                "mcp-surface",
+                surface,
+            )
+
+        class SurfaceMCPProvider:
+            async def get_tools_for_agent(
+                self, config: AgentConfig, agent_name: str | None = None
+            ) -> list[Tool]:
+                return [
+                    surface_tool("update_my_description"),
+                    StubTool("mcp__self-configuration__stub_tool", agent_name=agent_name),
+                ]
+
+        factory.mcp_provider = SurfaceMCPProvider()
+        cfg = AgentConfig(
+            name="mcp-surface",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            disabled_tools=[
+                "mcp__self-configuration__update_my_description",
+                "mcp__self-configuration__stub_tool",
+            ],
+            mcp_source_ids=["sc-1"],
+        )
+        await store.save(cfg)
+        mock_source_repo = AsyncMock()
+        mock_source_repo.get = AsyncMock(side_effect=KeyError("source not found"))
+        with patch(
+            "the_one.db.repositories.MCPSourceRepository",
+            return_value=mock_source_repo,
+        ):
+            agent = await factory.create("mcp-surface")
+        assert "mcp__self-configuration__update_my_description" in agent.tools.tool_names
+        assert "mcp__self-configuration__stub_tool" not in agent.tools.tool_names
+
 
 class StubKBProvider:
     """Minimal KBToolProvider stand-in — builds one real ``KBSearchTool``

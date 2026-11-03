@@ -403,6 +403,7 @@ def test_settings_providers_guard_self_test():
 # union with ``RETIRED_EXACT`` against ``docs/ui-testid-registry.md``'s
 # "Retired testids" table.
 RETIRED_SELECTORS = (
+    "mcp-source-self-configuration-hint-",  # sortie 08: the Tools tab shows no surface row
     "base-prompt-content",
     "platform-variant-",
     "ui-demo-chooser",

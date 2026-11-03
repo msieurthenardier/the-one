@@ -274,10 +274,16 @@ agent's own Self-configuration tab in Studio.
   operator-only.
 - **Ownership is enforced server-side**, not merely by convention:
   `create_agent`/`update_agent` reject (422) any `mcp_source_ids` entry
-  that is another agent's surface row, and reject (422) any
-  `mcp_overrides` entry targeting a surface row that carries a credential
-  key (`env`/`headers`/`bearer_token`) — an agent can never be handed a
-  foreign or attacker-supplied credential through the override path. The
+  that is another agent's surface row, and reject (422) any non-empty
+  `mcp_overrides` entry for the surface (key `self-configuration`: tool
+  lists, credential keys, anything) — an agent can never be handed a
+  foreign or attacker-supplied credential through the override path, and
+  nothing per agent can withhold the surface's tools (`disabled_tools`
+  names for them are stripped on write and at startup, and a stored
+  withhold is ignored at every build site). An agent write also never
+  attaches or detaches the agent's own surface: the server carries the
+  stored attachment back through every `PUT`, and the enable and disable
+  routes on the Self-configuration tab are the only way in or out. The
   admin MCP Sources screen hides these rows by default (`GET
   /api/mcp-sources` — pass `?include_agent_surfaces=1` to include them,
   which only the owning agent's own Studio tabs do); a direct `PUT` on a
@@ -288,8 +294,8 @@ agent's own Self-configuration tab in Studio.
   *other* tools feed into its context (web fetch, MCP servers) can now,
   as of M21 F01 L03, instruct the agent to call
   `update_my_system_prompt` or `update_my_description` — nothing gates
-  the write tools beyond the existing per-source/per-tool checkboxes an
-  operator uses for every MCP tool. A prompt-injected agent that decides
+  the write tools beyond approval mode and the Agent prompt switch (the
+  tools cannot be withheld one by one). A prompt-injected agent that decides
   to revise its own guardrails does so with the SAME confinement,
   ownership, and input-bounds enforcement as a legitimate self-revision;
   none of those mechanisms distinguish agent intent from injected intent
@@ -300,12 +306,10 @@ agent's own Self-configuration tab in Studio.
   effect until the operator approves it — the fail-closed staleness check
   further ensures an approval can never silently overwrite a value that
   drifted since the agent proposed. With approval mode **off**, the residual
-  risk remains live and unmitigated by this gate; the standing mitigations
-  are then the same ones that govern any other MCP tool — the operator can
-  withhold `update_my_description` / `update_my_system_prompt` from a
-  specific agent via the per-tool checkboxes in the "MCP servers" section of that agent's Tools tab, or
-  disable the surface entirely from its Self-configuration tab. Approval
-  mode is therefore the recommended posture for any agent whose context can
+  risk remains live and unmitigated by this gate; the standing mitigation
+  is then to turn Agent prompt off on the agent's Self-configuration tab
+  (the surface's tools cannot be withheld one by one, since sortie 08).
+  Approval mode is therefore the recommended posture for any agent whose context can
   carry attacker-influenced content.
 
 ### Agent notes (M27 F2)
