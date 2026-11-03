@@ -113,6 +113,21 @@ def test_the_removed_surface_guard_is_code_only() -> None:
     assert _removed_surface_uses("from mcp.shared.exceptions import MCPError") == []
 
 
+def test_the_prefilter_never_skips_a_planted_violation(tmp_path: Path) -> None:
+    """Each removed module and name, planted alone in a file, is reported (squawk 0306)."""
+    planted = {
+        "mod_a.py": "import mcp.server.fastmcp\n",
+        "mod_b.py": "from mcp.shared.version import X\n",
+        "name_a.py": "def f(e):\n    raise McpError(e)\n",
+        "name_b.py": "x = FastMCP()\n",
+    }
+    for name, source in planted.items():
+        path = tmp_path / name
+        path.write_text(source, encoding="utf-8")
+        assert _removed_surface_uses(_source_scan.text(path)) != [], name
+    assert _removed_surface_uses("x = 1\n") == []
+
+
 def test_no_code_uses_mcp_1x_only_names() -> None:
     root = MCP_DIR.parent.parent
     offenders: dict[str, list[str]] = {}

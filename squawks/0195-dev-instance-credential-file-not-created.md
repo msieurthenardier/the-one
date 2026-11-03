@@ -1,6 +1,6 @@
 # Squawk 0195: a fresh `make up` data dir has no `api-credential`, contrary to CLAUDE.md
 
-**Status**: deferred
+**Status**: open
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-12
@@ -25,3 +25,6 @@ Deferred at the sortie 03 debrief. Revisit trigger: the next squawk batch (with 
 
 ## Sign-Off
 *(written at completion)*
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** the trigger has fired. **Merged into [0278](0278-claude-md-serve-credential-creation.md):** one CLAUDE.md fix closes both, using `the-one rotate-api-credential` rather than claiming `serve` creates the file. The code-side alternative (create it on serve) is security-sensitive and out of squawk scope. Complete together in the next turnaround.

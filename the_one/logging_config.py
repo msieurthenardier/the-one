@@ -23,20 +23,40 @@ _HANDLER_SENTINEL = "_the_one_stdout_handler"
 _QUIETED_THIRD_PARTY_LOGGERS = ("httpx", "httpcore")
 
 
+def _drop_the_one_records(record: logging.LogRecord) -> bool:
+    return not (record.name == "the_one" or record.name.startswith("the_one."))
+
+
+def _silence_root_rich_handlers_for_the_one() -> None:
+    """Keep rich root handlers (installed by the ``mcp`` SDK's
+    ``basicConfig``) from re-printing the_one records (squawk 0308)."""
+    try:
+        from rich.logging import RichHandler
+    except ImportError:  # pragma: no cover
+        return
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, RichHandler) and _drop_the_one_records not in handler.filters:
+            handler.addFilter(_drop_the_one_records)
+
+
 def configure_logging() -> None:
     """Attach a single stdout handler to the ``the_one`` namespace logger,
     and quiet noisy third-party HTTP client loggers (see
     ``_QUIETED_THIRD_PARTY_LOGGERS`` above).
 
     Idempotent and namespace-scoped: only ``logging.getLogger("the_one")``
-    is touched for handler attachment, so uvicorn's own loggers and the
-    root logger are left as uvicorn configured them. Propagation is left
-    at the default (True): uvicorn installs handlers only on the
-    ``uvicorn*`` loggers, not root, so no standing root handler
-    double-emits the_one records (lastResort is suppressed once our
-    handler handles), while propagation keeps the_one.* records visible
-    to pytest caplog. Call once at startup (safe to call again --
-    idempotent).
+    is touched for handler attachment, so uvicorn's own loggers are left
+    as uvicorn configured them. Propagation is left at the default
+    (True) so the_one.* records stay visible to pytest caplog.
+
+    Squawk 0308: importing ``the_one.self_configuration.surface`` builds
+    an ``mcp`` ``MCPServer``, whose constructor calls
+    ``logging.basicConfig`` with a ``RichHandler`` -- a standing root
+    handler that would write every propagated the_one record a second
+    time. Root ``RichHandler`` instances therefore get a filter that
+    drops the_one records (``_drop_the_one_records``); they keep
+    printing every other library's records. Call once at startup (safe
+    to call again -- idempotent).
 
     This is the established per-library logger-quieting spot -- add
     further noisy third-party loggers to ``_QUIETED_THIRD_PARTY_LOGGERS``
@@ -48,6 +68,8 @@ def configure_logging() -> None:
 
     for _third_party_name in _QUIETED_THIRD_PARTY_LOGGERS:
         logging.getLogger(_third_party_name).setLevel(logging.WARNING)
+
+    _silence_root_rich_handlers_for_the_one()
 
     # propagate is LEFT at its default (True) — see Edge Cases. Our
     # handler on ``the_one`` emits each record once (Python's lastResort

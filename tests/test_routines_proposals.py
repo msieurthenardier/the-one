@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 
 import pytest
@@ -153,6 +154,20 @@ async def test_pending_limit(env) -> None:
     with pytest.raises(RoutineLimitError, match="You have 20 changes waiting for approval."):
         await props.insert_pending(prow(name="one-too-many"))
     assert await props.pending_count("a") == AGENT_PENDING_PROPOSALS_MAX
+
+
+async def test_insert_applied_run_does_not_mutate_row_and_exposes_id(env) -> None:
+    conn, _repo, props = env
+    row = prow("delete")
+    before = copy.deepcopy(row)
+    op = ProposalOp.insert_applied(row)
+    assert op.applied_id is None
+    await op.run(conn, None)
+    await conn.commit()
+    assert row == before
+    assert "proposal_id" not in row
+    assert op.applied_id is not None
+    assert (await props.get(op.applied_id)).status == "applied"
 
 
 async def test_resolved_proposals_are_not_pruned_by_count(env) -> None:

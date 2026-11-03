@@ -1,6 +1,6 @@
 # Squawk 0093: two same-named knowledge bases are indistinguishable in the inventory, before an irreversible delete
 
-**Status**: open
+**Status**: escalated
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-21
@@ -60,6 +60,8 @@ creating two same-named knowledge bases and asserting the rows differ).
 Logged as a squawk on the strength of the last three. If the implementer finds
 the presentation choice needs a real design conversation, that is the escalation
 trigger — stop and raise it rather than picking one silently.
+
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **escalated.** It fails criterion 2 (no design decisions): the Library list row now carries only the "N agents" meta (`areas/studio/library-pane.js`), the listbox the report cites is retired, and the list payload has no folder path, so a disambiguator (folder path, created date, id prefix) needs a design call and probably more list data. The operator chose escalation. **Recommended vehicle:** a small `/mission-control:sortie`. Link it here once it exists.
 
 ## Corrective Action
 

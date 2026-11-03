@@ -23,3 +23,6 @@ The expected fix strips CSI/OSC sequences from session output, and the verificat
 
 ## Sign-Off
 *(written at completion)*
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** burn-down in the next turnaround. Still valid: there is no VT handling under `the_one/`. The operator confirmed that local Concourse is up with a Windows worker, so the Windows PTY lane can verify it. Write a unit test over captured ConPTY output first. Escalate if stripping glues lines, which would need a terminal emulator.

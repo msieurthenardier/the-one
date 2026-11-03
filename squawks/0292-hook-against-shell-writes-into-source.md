@@ -27,3 +27,6 @@ A project `.claude/settings.json` `PreToolUse` hook on `Bash` (a script under `.
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **operator approved adding the project PreToolUse hook** (`.claude/settings.json`). It refuses `sed -i`, heredoc and redirect writes into `the_one/` and `tests/` and will limit autonomous crew's shell use. Write the allow/deny list down in the squawk at completion. Burn-down next turnaround.

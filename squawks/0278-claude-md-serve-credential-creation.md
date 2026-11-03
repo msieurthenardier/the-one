@@ -29,3 +29,6 @@ Likely fix: reword CLAUDE.md's step 1 to say that a fresh `serve` instance has n
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** [0195](0195-dev-instance-credential-file-not-created.md) is merged into this one; complete them together.

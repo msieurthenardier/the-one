@@ -1,6 +1,6 @@
 # Squawk 0267: the installer still logs `quit-poll` lines although it no longer polls
 
-**Status**: open
+**Status**: deferred
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-26
@@ -32,3 +32,4 @@ Since `v0.12.1`, the installer's `[Code]` makes one check after the quit call, w
 
 ## Disposition
 - **Logged** at Mission 32 Flight 4's debrief (operator's choice of debrief follow-ups).
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** deferred. The static half is doable here; verification needs the pwsh container self-tests and a `fly execute` compile. **Revisit trigger:** the next Windows/Concourse window. Complete 0266 (the docs) first.

@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import aiosqlite
@@ -133,14 +133,16 @@ async def _insert(conn: aiosqlite.Connection, row: dict[str, Any], status: str, 
     return proposal_id
 
 
-@dataclass(frozen=True)
+@dataclass
 class ProposalOp:
     """A proposal write that runs inside a routine mutator's transaction, after the
-    routine write (so a create's ``routine_id`` is known)."""
+    routine write (so a create's ``routine_id`` is known). After ``run``, an
+    ``insert_applied`` op carries the new proposal's id in ``applied_id``."""
 
     kind: Literal["insert_applied", "resolve"]
     row: dict[str, Any] | None = None
     proposal_id: str | None = None
+    applied_id: str | None = field(default=None, init=False)
 
     @staticmethod
     def insert_applied(row: dict[str, Any]) -> ProposalOp:
@@ -157,8 +159,8 @@ class ProposalOp:
             # The mutator names the routine: the new id, the updated id, or None after a
             # delete (the row keeps routine_name only).
             row["routine_id"] = routine_id
-            # Hand the new id back through the caller's dict, for the caller's log line.
-            self.row["proposal_id"] = await _insert(conn, row, "applied", _now_iso())
+            # Hand the new id back on the op, for the caller's log line.
+            self.applied_id = await _insert(conn, row, "applied", _now_iso())
             return
         assert self.proposal_id is not None
         cur = await conn.execute(

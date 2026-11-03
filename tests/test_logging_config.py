@@ -118,3 +118,40 @@ def test_bogus_log_level_falls_back_to_info(
     configure_logging()  # must not raise
 
     assert logging.getLogger("the_one").level == logging.INFO
+
+
+def test_a_the_one_record_is_written_once_with_a_root_rich_handler() -> None:
+    """Squawk 0308: the ``mcp`` SDK's ``basicConfig`` leaves a standing root
+    ``RichHandler``; a the_one record must reach the app handler and that
+    console handler exactly once between them, while other libraries'
+    records still reach the console handler."""
+    import io
+
+    from rich.console import Console
+    from rich.logging import RichHandler
+
+    console_buf = io.StringIO()
+    rich_handler = RichHandler(console=Console(file=console_buf, width=200))
+    root = logging.getLogger()
+    root.addHandler(rich_handler)
+    try:
+        configure_logging()
+        app_handler = _sentinel_handlers(logging.getLogger("the_one"))[0]
+        assert isinstance(app_handler, logging.StreamHandler)
+        app_buf = io.StringIO()
+        app_handler.setStream(app_buf)
+
+        with_level = logging.getLogger("the_one").level
+        assert with_level <= logging.INFO
+        logging.getLogger("the_one.x").info("sq0308-marker")
+        other = logging.getLogger("some_other_lib")
+        other.setLevel(logging.INFO)
+        other.info("other-lib-marker")
+        configure_logging()  # idempotent: no second filter either
+    finally:
+        root.removeHandler(rich_handler)
+
+    assert app_buf.getvalue().count("sq0308-marker") == 1
+    assert console_buf.getvalue().count("sq0308-marker") == 0
+    assert console_buf.getvalue().count("other-lib-marker") == 1
+    assert len(rich_handler.filters) == 1

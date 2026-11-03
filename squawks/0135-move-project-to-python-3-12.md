@@ -37,3 +37,6 @@ Raised mid-flight during sortie 01 and deferred until that sortie lands (out of 
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** burn-down in the next turnaround. The operator confirmed that local Concourse is up with a Windows worker, so the CI lanes and a Windows installer build can verify it. Sequence it after 0138 and 0241 (all touch `pyproject.toml`/`uv.lock`), in one dependency commit sequence.

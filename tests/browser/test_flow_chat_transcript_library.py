@@ -720,10 +720,15 @@ def test_continue_sends_exactly_one_message_and_the_button_goes(app_clean: str, 
     expect(btn).to_have_text("Continue")
     assert btn.evaluate("e => e.tagName") == "BUTTON"
     btn.click()
-    # The agent's next turn runs and hits the limit again: one fresh button, one stored message.
+    # The agent's next turn runs and hits the limit again: the first notice stays in the log with
+    # its button gone (a notice is never removed except by a log wipe), and the second notice
+    # carries the one fresh button. Wait for the second notice; a count of 1 would also match the
+    # moment before it renders (squawk 0305).
     expect(_chats.messages(page, "user").nth(1)).to_have_text("continue", timeout=10000)
-    expect(page.locator(STEP_LIMIT)).to_have_count(1, timeout=15000)
+    expect(page.locator(STEP_LIMIT)).to_have_count(2, timeout=15000)
     expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
+    expect(page.locator(STEP_LIMIT).last.locator(CONTINUE)).to_have_count(1)
+    expect(page.locator(STEP_LIMIT).first.locator(CONTINUE)).to_have_count(0)
     assert _user_texts(page).count("continue") == 1
     assert len(_user_texts(page)) == 2
 
@@ -734,7 +739,8 @@ def test_a_double_click_on_continue_sends_once(app_clean: str, page: Page) -> No
     btn = page.locator(CONTINUE)
     expect(btn).to_have_count(1, timeout=15000)
     btn.dblclick(force=True)
-    expect(page.locator(STEP_LIMIT)).to_have_count(1, timeout=15000)
+    # The old notice stays and the second turn adds one (squawk 0305).
+    expect(page.locator(STEP_LIMIT)).to_have_count(2, timeout=15000)
     expect(page.locator(CONTINUE)).to_have_count(1, timeout=15000)
     assert _user_texts(page).count("continue") == 1
 

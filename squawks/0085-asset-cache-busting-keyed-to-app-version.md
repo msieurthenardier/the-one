@@ -50,3 +50,4 @@ developer-only behaviour.
 
 `tests/test_index_asset_cache_busting.py` will need updating alongside — it
 currently pins the total ref count and the version-keyed shape.
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **operator approved implementing** a dev-mode content key (mtime or hash) for the `?v=` cache-bust parameter, with production keeping `__version__`. Mind `_cached_index_html`'s `lru_cache` and the shape `tests/test_index_asset_cache_busting.py` pins. Burn-down next turnaround.
