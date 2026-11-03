@@ -23,6 +23,7 @@ from tests._credential_helpers import auth_headers
 from tests._schema_template import connect_template_db
 from the_one.api_credential import resolve_caller
 from the_one.db.models import now_iso
+from the_one.db.repositories import SQLiteAgentStore
 from the_one.encryption import Encryptor
 from the_one.self_configuration import credentials as sc_credentials
 
@@ -66,9 +67,22 @@ async def client(tmp_path):
         async with AsyncClient(
             transport=transport, base_url="http://test", headers=auth_headers()
         ) as c:
+            # Sortie 08: a PUT can no longer detach the surface, so tests that
+            # need an orphaned row save the agent directly (`_detach_directly`).
+            c._test_conn = conn
+            c._test_encryptor = test_encryptor
             yield c
 
     await conn.close()
+
+
+async def _detach_directly(client: AsyncClient, name: str) -> None:
+    """Build an orphaned surface (row present, id not attached) by a direct
+    store save: legacy data or a crash between steps, since sortie 08 DD2 an
+    agent write cannot produce it."""
+    store = SQLiteAgentStore(client._test_conn, client._test_encryptor)
+    cfg = await store.load(name)
+    await store.save(cfg.model_copy(update={"mcp_source_ids": []}))
 
 
 async def _create_agent(client: AsyncClient, name: str) -> dict:
@@ -165,11 +179,12 @@ class TestEnableMintsAndAttaches:
 class TestOrphanedRow:
     """Flight-end review fix: `manage.status()` reports an orphaned-row
     state when the surface row still exists but its id has fallen out of
-    the owning agent's `mcp_source_ids` (a legitimate operator detach via
-    `PUT /api/agents/{name}` that drops the id without deleting the row).
-    `grep -rn "orphaned_row" tests/` was empty before this test."""
+    the owning agent's `mcp_source_ids` (legacy data or a crash between
+    steps; built here by a direct store save, since sortie 08 DD2 an agent
+    PUT cannot detach the surface). `grep -rn "orphaned_row" tests/` was
+    empty before this test."""
 
-    async def test_status_reports_orphaned_row_after_detach_via_put(
+    async def test_status_reports_orphaned_row_when_detached_directly(
         self, client: AsyncClient
     ) -> None:
         await _create_agent(client, "orphan-agent")
@@ -177,14 +192,9 @@ class TestOrphanedRow:
         agent = (await client.get("/api/agents/orphan-agent")).json()
         source_id = agent["mcp_source_ids"][0]
 
-        # Operator detaches the row without disabling — drop the id from
-        # mcp_source_ids via PUT, leaving the mcp_sources row itself intact.
-        resp = await client.put(
-            "/api/agents/orphan-agent",
-            json={"name": "orphan-agent", "mcp_source_ids": []},
-        )
-        assert resp.status_code == 200
-        agent_after = resp.json()
+        # Detach the row without disabling, leaving the mcp_sources row intact.
+        await _detach_directly(client, "orphan-agent")
+        agent_after = (await client.get("/api/agents/orphan-agent")).json()
         assert agent_after["mcp_source_ids"] == []
 
         # The row still exists (admin-visible listing, not deleted).
@@ -211,10 +221,7 @@ class TestOrphanedRow:
         agent = (await client.get("/api/agents/reuse-agent")).json()
         source_id = agent["mcp_source_ids"][0]
 
-        await client.put(
-            "/api/agents/reuse-agent",
-            json={"name": "reuse-agent", "mcp_source_ids": []},
-        )
+        await _detach_directly(client, "reuse-agent")
         status = (await client.get("/api/agents/reuse-agent/self-configuration")).json()
         assert status["orphaned_row"] is True
 
@@ -341,6 +348,7 @@ class TestOwnershipGuard:
             },
         )
         assert resp.status_code == 422
+        assert "Self-configuration tab" in resp.json()["detail"]
 
     async def test_create_agent_rejects_foreign_surface_attachment(
         self, client: AsyncClient
@@ -585,13 +593,13 @@ class TestLifecycleCascades:
             "update_my_system_prompt",
         }
 
-    async def test_reconcile_renames_legacy_row_and_migrates_override_key(
+    async def test_reconcile_renames_legacy_row_and_leaves_overrides_alone(
         self, client: AsyncClient
     ) -> None:
         """LD7: a row created under Leg 2's per-agent-name template is
-        renamed to the constant on reconcile, and the owner's per-tool
-        `mcp_overrides` entry keyed by the OLD name is migrated to the
-        constant key so checkboxes set before this leg survive."""
+        renamed to the constant on reconcile. Since sortie 08 the owner's
+        `mcp_overrides` (keyed by the OLD name) are left exactly as they are:
+        nothing per agent applies to the surface any more."""
         from the_one.config import settings
         from the_one.db.repositories import MCPSourceRepository, SQLiteAgentStore
         from the_one.interfaces.web import api as api_module
@@ -625,17 +633,17 @@ class TestLifecycleCascades:
         reconciled = await mcp_repo.get(source_id)
         assert reconciled.name == manage.SURFACE_ROW_NAME
 
-        migrated_cfg = await agent_store.load("legacy-agent")
-        assert migrated_cfg.mcp_overrides == {
-            manage.SURFACE_ROW_NAME: {"disabled_tools": ["describe_my_capabilities"]}
+        after_cfg = await agent_store.load("legacy-agent")
+        assert after_cfg.mcp_overrides == {
+            legacy_name: {"disabled_tools": ["describe_my_capabilities"]}
         }
 
-    async def test_reconcile_skips_migration_when_constant_key_already_taken(
+    async def test_reconcile_renames_legacy_row_without_touching_either_override_key(
         self, client: AsyncClient
     ) -> None:
-        """LD7's skip-and-log branch: a legacy row is still renamed, but a
-        pre-existing override entry under the constant key is never
-        clobbered by the migration."""
+        """A legacy row is renamed, and neither the legacy-named override
+        key nor an entry under the constant key is changed by reconcile (the
+        key migration is gone; the startup strip owns the constant key)."""
         from the_one.config import settings
         from the_one.db.repositories import MCPSourceRepository, SQLiteAgentStore
         from the_one.interfaces.web import api as api_module

@@ -375,10 +375,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # into the in-memory registry (LD2) — must run before any request can
         # reach the mounted surface below. M21 F01 L03 (LD7): reconcile also
         # refreshes `_cache.tools` unconditionally and renames any legacy-
-        # template row to the constant name, migrating its owner's
-        # `mcp_overrides` key along with it — needs `store` for that.
+        # template row to the constant name (the owner's `mcp_overrides` are
+        # left alone).
         register_credential_source_once()
         await _self_configuration_manage.reconcile_on_startup(_self_configuration_mcp_repo, store)
+        # Sortie 08 DD4/DD7: remove any stored per-agent withhold of the
+        # surface's tools (its `mcp_overrides` entry, its `disabled_tools`
+        # names) before any agent is built. Never raises; the guard is belt
+        # and braces.
+        try:
+            await _self_configuration_manage.strip_surface_overrides(store)
+        except Exception:
+            logger.warning("self-configuration override cleanup failed", exc_info=True)
         # M21 F03 L01 (DD1/DD8): register the EXTERNAL credential source on the
         # same gate seam and rebuild its in-memory registry from the store —
         # a persisted `ext_` credential must resolve again after a restart

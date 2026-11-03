@@ -52,7 +52,7 @@ def test_tab_renders_disabled_by_default(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_enable_shows_locked_row_on_mcps_tab(app_clean: str, page: Page) -> None:
+def test_enable_shows_no_row_on_tools_tab(app_clean: str, page: Page) -> None:
     _seed_agent(app_clean, "self-config-enable-agent")
     _navigate_to_self_configuration_tab(page, app_clean, "self-config-enable-agent")
 
@@ -73,17 +73,15 @@ def test_enable_shows_locked_row_on_mcps_tab(app_clean: str, page: Page) -> None
     assert len(agent["mcp_source_ids"]) == 1
     source_id = agent["mcp_source_ids"][0]
 
-    # Tools tab shows the row, locked checked+disabled.
+    # Tools tab shows no tile for the surface (sortie 08): the Self-configuration
+    # tab is the only control, and with no other MCP source the empty state shows.
     page.locator('[data-testid="tab-tools"]').click()
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    row_toggle = page.locator(f'[data-testid="mcp-source-toggle-{source_id}"]')
-    expect(row_toggle).to_be_checked(timeout=8000)
-    expect(row_toggle).to_be_disabled()
-    expect(
-        page.locator(f'[data-testid="mcp-source-self-configuration-hint-{source_id}"]')
-    ).to_be_visible()
+    expect(page.locator('[data-testid="mcp-empty-state"]')).to_be_visible(timeout=8000)
+    expect(page.locator(f'[data-source-id="{source_id}"]')).to_have_count(0)
+    expect(page.locator(f'[data-testid="mcp-source-toggle-{source_id}"]')).to_have_count(0)
 
 
 @pytest.mark.browser

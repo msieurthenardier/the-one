@@ -599,7 +599,6 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-source-details-body-` | studio | |
 | `mcp-source-expand-` | studio | |
 | `mcp-source-row-` | studio | |
-| `mcp-source-self-configuration-hint-` | studio | locked attach-toggle hint on the owning agent's own surface row (M21 F01 L02) |
 | `mcp-source-subtitle-` | studio | |
 | `mcp-source-toggle-` | studio | |
 | `mcp-tool-toggle-` | studio | |
@@ -644,6 +643,7 @@ again. A retired id cannot come back.
 | `routine-form-days` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly Days checkbox group; use `routine-custom-days` |
 | `routine-form-day-` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Weekly day checkboxes `routine-form-day-{0..6}` (a prefix); use `routine-custom-day-{0..6}` |
 | `routines-empty-new-btn` | studio | M33 F4 HAT: duplicate of `routines-new-btn` — the empty state's New routine button is removed; the toolbar's `routines-new-btn` is the one control |
+| `mcp-source-self-configuration-hint-` | studio | Sortie 08 — the Tools tab no longer shows the agent's own self-configuration row (the locked attach switch and its "managed on the Self-configuration tab" hint); the Self-configuration tab is the only control (a prefix; the live `mcp-source-` rows are unaffected) |
 | `agent-tab-mcps` | studio | M33 F1 L06 — the MCPs tab (its `tab-mcps` testid is covered by the live `tab-` prefix row, so it is fenced in `RETIRED_SELECTORS` only), with its panel `agent-tab-panel-mcps`; folded into the Tools tab |
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |

@@ -56,6 +56,7 @@ from the_one.mcp.errors import (
     MCPVersionMismatch,
 )
 from the_one.mcp.types import MCPTool
+from the_one.self_configuration.constants import override_for
 from the_one.tools.base import Tool
 from the_one.tools.resolver import resolve
 
@@ -277,7 +278,7 @@ class MCPToolProvider:
             # Override application (failure: Pydantic ValidationError;
             # we do NOT catch — operator schema mismatch is loud, not
             # graceful-degrade).
-            override_payload = (config.mcp_overrides or {}).get(source.name)
+            override_payload = override_for(config.mcp_overrides, source)
             effective_source = _apply_override(source, override_payload)
 
             # Path B: hydrate from cache if populated.

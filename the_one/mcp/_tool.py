@@ -34,6 +34,7 @@ from the_one.mcp.errors import (
     MCPVersionMismatch,
 )
 from the_one.mcp.types import MCPTool
+from the_one.self_configuration.constants import is_surface_row
 from the_one.tools.base import Tool
 
 _TOOL_NAME_MAX_LEN = 64
@@ -123,11 +124,21 @@ class MCPClientTool(Tool):
         # as `source_override` to `acquire` — survives post-OAuth
         # `_evict_all_for_source` re-acquires (cycle-1 low #5).
         self._effective_source = effective_source
+        # Sortie 08 DD7: the platform's own self-configuration surface. The
+        # factory registers such a tool without applying `disabled_tools`.
+        # The marker survives `_apply_override` (it keeps `config`).
+        self._is_platform_surface = is_surface_row(effective_source)
         # Tool's standard __init__ takes (config, cross_configs, agent_name)
         # — call it with empty defaults; MCPClientTool doesn't participate
         # in the resolver dispatch (tool_overrides keys are built-in tools
         # only; mcp_overrides is its own surface).
         super().__init__(config=None, cross_configs={}, agent_name=agent_name)
+
+    @property
+    def is_platform_surface(self) -> bool:
+        """True iff this tool belongs to a self-configuration surface row
+        (the marker decides, never the name or the tool-name prefix)."""
+        return self._is_platform_surface
 
     async def execute(self, **kwargs: Any) -> str:
         """Dispatch the tool call through the F4 pool to the MCP server.

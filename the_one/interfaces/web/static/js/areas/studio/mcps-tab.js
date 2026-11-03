@@ -20,12 +20,14 @@
 //                   library inputs).
 //   h = { setAgent(agent, opts), setSources(sources, agentName), destroy() }.
 //   Mounted once per agent identity. setAgent patches in place: each master from
-//   `mcp_source_ids` (a self-configuration source stays locked on), each group's
-//   `data-mcp-tool-mode` from `mcp_overrides`, every loaded tool's checked state, and
-//   the count chips; `opts.pendingSourceId` (a later deep link) expands that tile.
-//   setSources reconciles tiles by source id (adds the agent's own new
-//   self-configuration surface, removes a deleted one, swaps the empty state and the
-//   list); every other tile is left alone (same node, expanded state, unsaved choices).
+//   `mcp_source_ids`, each group's `data-mcp-tool-mode` from `mcp_overrides`, every
+//   loaded tool's checked state, and the count chips; `opts.pendingSourceId` (a later
+//   deep link) expands that tile. setSources reconciles tiles by source id (adds a new
+//   source, removes a deleted one, swaps the empty state and the list); every other
+//   tile is left alone (same node, expanded state, unsaved choices).
+//   A self-configuration surface row (any agent's, the agent's own included) is never
+//   shown here: the Self-configuration tab is its only control, and the server keeps
+//   it attached across a Save (sortie 08).
 //
 // Save-flow selectors (collected by agent-form-data.js, unchanged):
 //   [data-mcp-source-toggle][data-mcp-source-id]   on the master's input → mcp_source_ids
@@ -64,21 +66,14 @@
       return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_|_$/g, '');
     }
 
-    function isSelfConfiguration(source) {
-      var marker = source.config && source.config.self_configuration;
-      return !!(marker && typeof marker === 'object');
-    }
-
-    // M21 F01 L02 (DD3): the editor's fetch includes every agent's
-    // self-configuration surface row, but this tab shows an agent ONLY its own,
-    // never another agent's. Create mode (no name) shows none.
+    // The editor's fetch includes every agent's self-configuration surface row
+    // (`?include_agent_surfaces=1`), but this tab shows none of them, the agent's
+    // own included (sortie 08 DD1).
     function visibleSources() {
       var out = [];
       for (var i = 0; i < sources.length; i++) {
         var marker = sources[i].config && sources[i].config.self_configuration;
-        if (marker && typeof marker === 'object') {
-          if (!agentName || marker.agent !== agentName) continue;
-        }
+        if (marker && typeof marker === 'object') continue;
         out.push(sources[i]);
       }
       return out;
@@ -135,10 +130,8 @@
     // ── One source tile ─────────────────────────────────────────────────────
 
     function buildEntry(source) {
-      var locked = isSelfConfiguration(source);
       var entry = {
         source: source,
-        locked: locked,
         tile: null,
         group: null,
         noteHost: null,
@@ -168,21 +161,7 @@
         }
       });
 
-      var actions = [];
-      var lockedHintId = null;
-      if (locked) {
-        // The surface's OWN attach switch is locked checked and disabled: it is
-        // managed from the Self-configuration tab. A disabled checked input still
-        // matches `:checked`, so collectFormData keeps the id in `mcp_source_ids`.
-        var hint = document.createElement('span');
-        hint.className = 'mcp-source-tile-self-configuration-hint';
-        hint.setAttribute('data-testid', 'mcp-source-self-configuration-hint-' + source.id);
-        hint.id = ui.util.uid('sc-hint');
-        hint.textContent = 'managed on the Self-configuration tab';
-        lockedHintId = hint.id;
-        actions.push(hint);
-      }
-      actions.push(refreshBtn);
+      var actions = [refreshBtn];
 
       // Server-declared identity (F4 L2, M08), shown once /test/connect has cached it.
       var subtitle = null;
@@ -210,8 +189,6 @@
           label: 'Attach ' + source.name,
           tristate: false,
           state: 'off',
-          disabled: locked,
-          describedBy: lockedHintId || undefined,
           testid: 'mcp-source-toggle-' + source.id,
           dataset: { mcpSourceToggle: '', mcpSourceId: source.id },
           onChange: function () { onChange(); }
@@ -270,7 +247,7 @@
     // Masters, tool mode, checked states and the count, from currentAgent.
     function patchEntry(entry) {
       var attached = attachedIds();
-      entry.tile.setMaster(entry.locked || attached[entry.source.id] === true ? 'on' : 'off');
+      entry.tile.setMaster(attached[entry.source.id] === true ? 'on' : 'off');
       var mode = modeFor(entry.source);
       entry.group.setAttribute('data-mcp-tool-mode', mode);
       Object.keys(entry.rows).forEach(function (name) {

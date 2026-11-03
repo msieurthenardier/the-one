@@ -1111,14 +1111,24 @@ def test_self_configuration_enable_then_save_keeps_the_surface(app_clean: str, p
     expect(toggle).to_be_checked(timeout=8000)
     surface = _wait_surface_id(app_clean, "sc-keep-agent")
 
+    # The Tools tab shows no tile for the surface (sortie 08), so the Save below
+    # builds its mcp_source_ids without it; the server carries the attachment.
     page.locator('[data-testid="tab-tools"]').click()
-    expect(page.locator(f'[data-testid="mcp-source-toggle-{surface}"]')).to_be_disabled(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="mcp-empty-state"]')).to_be_visible(timeout=8000)
+    expect(page.locator(f'[data-source-id="{surface}"]')).to_have_count(0)
     _edit_description(page, "t2")
     page.locator(SAVE).click()
     expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
     assert surface in _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"]
+
+    # A Save from the General tab keeps it attached too, and the tab still reads on.
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-field="description"]').fill("t2b")
+    page.locator(SAVE).click()
+    expect(page.locator(SAVE)).to_be_disabled(timeout=5000)
+    assert surface in _get_agent(app_clean, "sc-keep-agent")["mcp_source_ids"]
+    page.locator('[data-testid="tab-self-configuration"]').click()
+    expect(toggle).to_be_checked(timeout=8000)
 
     # Disable, then Save: the deleted id is not sent back.
     page.locator('[data-testid="tab-self-configuration"]').click()
@@ -1146,7 +1156,7 @@ def test_set_sources_keeps_an_expanded_unsaved_tile(app_clean: str, page: Page) 
     )
     _click_row(page, sid, "tool_a")
 
-    # Enabling self-configuration adds a tile for the agent's own surface.
+    # Enabling self-configuration adds no tile (sortie 08): the surface is never shown.
     page.locator('[data-testid="tab-self-configuration"]').click()
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
     expect(toggle).not_to_be_checked(timeout=8000)
@@ -1155,7 +1165,8 @@ def test_set_sources_keeps_an_expanded_unsaved_tile(app_clean: str, page: Page) 
     surface = _wait_surface_id(app_clean, "keep-agent", exclude=(sid,))
 
     page.locator('[data-testid="tab-tools"]').click()
-    expect(page.locator(f'[data-testid="mcp-source-row-{surface}"]')).to_be_visible(timeout=8000)
+    expect(page.locator(f'[data-testid="mcp-source-row-{sid}"]')).to_be_visible(timeout=8000)
+    expect(page.locator(f'[data-source-id="{surface}"]')).to_have_count(0)
     tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
     expect(tile).to_have_attribute("data-marker", "same")
     expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
@@ -1171,8 +1182,8 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
     app_clean: str, page: Page
 ) -> None:
     """setSources reconciles by id on its own: the same node, expanded state and unsaved
-    row choice survive; a surface for another agent is never shown; an emptied list shows
-    the empty state and a new source brings the list back."""
+    row choice survive; no surface is ever shown, the agent's own included (sortie 08); an
+    emptied list shows the empty state and a new source brings the list back."""
     page.goto(app_clean)
     page.wait_for_function("!!(window.App && window.App.studio && window.App.studio.renderMcpsTab)")
     out = page.evaluate(
@@ -1195,10 +1206,10 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
           res.expanded = tile.querySelector('.ui-group-tile-expand').getAttribute('aria-expanded');
           res.taChecked = panel.querySelector('[data-mcp-tool-toggle=ta]').checked;
           res.ids = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
-          const scMaster = panel.querySelector('[data-mcp-source-id=sc]');
-          res.scLocked = scMaster.checked && scMaster.disabled;
+          res.scToggle = !!panel.querySelector('[data-mcp-source-id=sc]');
           h.setSources([surface], 'me');
-          res.afterRemove = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
+          res.afterSurfaceOnly = Array.from(panel.querySelectorAll('[data-source-id]')).map((n) => n.dataset.sourceId);
+          res.surfaceOnlyEmpty = !!panel.querySelector('[data-testid=mcp-empty-state]');
           h.setSources([], 'me');
           res.empty = !!panel.querySelector('[data-testid=mcp-empty-state]');
           h.setSources([mk('s2')], 'me');
@@ -1212,9 +1223,10 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
     assert out["sameNode"] is True
     assert out["expanded"] == "true"
     assert out["taChecked"] is False
-    assert out["ids"] == ["s1", "sc"]
-    assert out["scLocked"] is True
-    assert out["afterRemove"] == ["sc"]
+    assert out["ids"] == ["s1"]
+    assert out["scToggle"] is False
+    assert out["afterSurfaceOnly"] == []
+    assert out["surfaceOnlyEmpty"] is True
     assert out["empty"] is True
     assert out["back"] == ["s2"]
     assert out["emptyGone"] is True

@@ -23,9 +23,6 @@
     var saveInFlight = ctx.saveInFlight;
 
     // ── Self-configuration refresh (M31 F2 L10a, DD9-3) ──────────────
-    // The loopback source row's name: a constant of the server (the row each
-    // agent's own surface uses; self_configuration/manage.py SURFACE_ROW_NAME).
-    var SELF_CONFIG_SOURCE_NAME = 'self-configuration';
 
     function parseSnapshot_() {
       try { return JSON.parse(state.snapshot); } catch (e) { return null; }
@@ -50,8 +47,9 @@
 
     // Move a dirty baseline along with a self-configuration change, key by key, so
     // the unsaved edits stay the only difference: description / system_prompt take
-    // their new stored value, mcp_source_ids gains or loses the surface id (kept in
-    // the form's DOM order) and mcp_overrides follows the surface source's entry.
+    // their new stored value and mcp_source_ids gains or loses the changed id (kept
+    // in the form's DOM order). The surface has no tile on the Tools tab, so it is
+    // never in the form's ids and has no entry in the form's mcp_overrides.
     function rebaseBaseline_(prev, updated) {
       var base = parseSnapshot_();
       if (!base) { state.snapshot = getFormSnapshot(); return; }
@@ -71,19 +69,6 @@
         });
         baseIds.forEach(function (id) { if (next.indexOf(id) === -1) next.push(id); });
         base.mcp_source_ids = next;
-      }
-      if (added.length || removed.length) {
-        var baseOv = base.mcp_overrides || {};
-        var curOv = cur.mcp_overrides || {};
-        var nextOv = {};
-        Object.keys(curOv).forEach(function (k) {
-          if (k === SELF_CONFIG_SOURCE_NAME) nextOv[k] = curOv[k];
-          else if (k in baseOv) nextOv[k] = baseOv[k];
-        });
-        Object.keys(baseOv).forEach(function (k) {
-          if (k !== SELF_CONFIG_SOURCE_NAME && !(k in nextOv)) nextOv[k] = baseOv[k];
-        });
-        base.mcp_overrides = Object.keys(nextOv).length > 0 ? nextOv : null;
       }
       state.snapshot = JSON.stringify(base);
     }
