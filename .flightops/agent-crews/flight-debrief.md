@@ -59,7 +59,11 @@ briefing the Developer, the Flight Director decides:
   gate's commit, its `PARALLEL_RESULT` line, the per-lane times and the unit
   counts, and compare those against prior debriefs.
 - **Run fresh** otherwise, including when the gate ran on a loaded host or the
-  branch was rebased onto a moved `main`.
+  branch was rebased onto a moved `main`. A fresh run is the unit tier first.
+  Then check `uptime` and wait until the 1-minute load is below about 1.0
+  before starting the browser run. A browser run that starts right after the
+  unit tier (load 1.19 at the Mission 34 Flight 2 debrief) does not count for
+  budgets.
 - **Either way,** say which run each number came from.
 
 ## Template Variables
