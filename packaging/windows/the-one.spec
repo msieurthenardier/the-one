@@ -352,7 +352,7 @@ binaries = [
 # environment for any reason, PyInstaller follows that import and bundles
 # it regardless of what the closure says. Concourse build 606657 proved
 # this isn't hypothetical: the Windows worker runs tasks uncontainerised,
-# `C:\Python311` site-packages persist across builds, and a stale
+# `C:\Python312` site-packages persist across builds, and a stale
 # `hf_xet` copy from an earlier build was importable at freeze time —
 # `hf_xet.pyd` shipped in the bundle and the installer stayed at the
 # pre-squawk-0049 baseline size even though the doctor gate (which never

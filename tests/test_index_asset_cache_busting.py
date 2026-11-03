@@ -33,6 +33,20 @@ from the_one.interfaces.web.app import STATIC_DIR, app
 pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 
+@pytest.fixture(autouse=True)
+def _production_mode(monkeypatch):
+    """The repo ``.env`` sets THE_ONE_DEV_MODE; pin production keying by default.
+
+    Dev-mode tests below re-enable it themselves (squawk 0085).
+    """
+    from the_one.interfaces.web import app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "dev_mode", False)
+    app_mod._production_index_html.cache_clear()
+    yield
+    app_mod._production_index_html.cache_clear()
+
+
 def test_index_appends_version_to_static_asset_refs() -> None:
     """Every /static JS/CSS ref carries ?v={__version__}; none stay bare."""
     with TestClient(app, headers=auth_headers()) as client:
@@ -123,6 +137,55 @@ def test_static_ref_check_rejects_a_duplicate_ref() -> None:
     tag = f'<script src="/static/js/ui/tabs.js?v={__version__}"></script>'
     with pytest.raises(AssertionError, match="duplicate"):
         check_static_refs(body.replace(tag, tag + tag, 1))
+
+
+_ASSET_REF = 'src="/static/js/areas/chat.js'
+
+
+def _v_of(html: str, pre: str = _ASSET_REF) -> str:
+    return re.search(re.escape(pre) + r'\?v=([^"]*)"', html).group(1)
+
+
+def test_dev_mode_keys_assets_by_content_per_request(tmp_path, monkeypatch) -> None:
+    """Dev mode: ``v`` follows the file's bytes, re-read on every call (squawk 0085)."""
+    from the_one.interfaces.web import app as app_mod
+
+    (tmp_path / "js").mkdir()
+    asset = tmp_path / "js" / "x.js"
+    asset.write_text("one", encoding="utf-8")
+    (tmp_path / "index.html").write_text(
+        '<script src="/static/js/x.js"></script>'
+        '<script src="/static/js/gone.js"></script>'
+        '<link href="/static/js/x.js?a=1">',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app_mod, "STATIC_DIR", tmp_path)
+    monkeypatch.setattr(app_mod.settings, "dev_mode", True)
+
+    first = app_mod._cache_busted_index_html()
+    key1 = _v_of(first, 'src="/static/js/x.js')
+    assert key1 != __version__ and len(key1) == 10
+    # A missing asset falls back to the version.
+    assert _v_of(first, 'src="/static/js/gone.js') == __version__
+
+    asset.write_text("two", encoding="utf-8")
+    key2 = _v_of(app_mod._cache_busted_index_html(), 'src="/static/js/x.js')
+    assert key2 != key1
+    # Unchanged content, unchanged key.
+    assert _v_of(app_mod._cache_busted_index_html(), 'src="/static/js/x.js') == key2
+
+
+def test_production_mode_stays_version_keyed_and_memoized(tmp_path, monkeypatch) -> None:
+    from the_one.interfaces.web import app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "dev_mode", False)
+    app_mod._production_index_html.cache_clear()
+    try:
+        first = app_mod._cache_busted_index_html()
+        assert _v_of(first) == __version__
+        assert app_mod._cache_busted_index_html() is first  # memoized
+    finally:
+        app_mod._production_index_html.cache_clear()
 
 
 def test_index_disk_file_unchanged() -> None:

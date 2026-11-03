@@ -324,15 +324,12 @@ class _NoTrayError(Exception):
     """Internal control flow: the tray decision was "no tray"."""
 
 
+# Short on purpose: GNOME's banner truncates long text (title and body each <= 60).
+_NO_WEBVIEW_TITLE = "GleepGlorp AI opened in your browser"
 _NO_WEBVIEW_BODIES = {
-    "webkit": (
-        "GleepGlorp AI opened in your browser because WebKitGTK isn't installed. "
-        "Install gir1.2-webkit2-4.1 for its own window."
-    ),
-    "gtk": (
-        "GleepGlorp AI opened in your browser because this desktop has no GTK 3 window libraries."
-    ),
-    "gi": "GleepGlorp AI opened in your browser because PyGObject (gi) isn't available.",
+    "webkit": "WebKitGTK is missing. Install gir1.2-webkit2-4.1.",
+    "gtk": "This desktop has no GTK 3 window libraries.",
+    "gi": "PyGObject (gi) isn't available.",
 }
 
 
@@ -542,7 +539,10 @@ class DesktopSession:
         destroy window (causes webview.start() to return) → the existing
         `finally: _graceful_shutdown(server, thread)` drains the server.
         """
-        state.really_quit = True  # tell _on_closing to allow destroy
+        # Tell _on_closing to allow the destroy AND record the quit for a still-running
+        # _boot (squawk 0264): ``publish_window`` reads ``quit_requested``, so a tray Quit
+        # between the tray start and the window publish is not lost. Both under the lock.
+        state.begin_quit()
         chrome.deregister()  # a request racing the destroy applies nothing
 
         # icon.stop() MUST run; guard so it survives even if destroy raises.
@@ -1113,7 +1113,7 @@ class DesktopSession:
                 handoff_token = mint_handoff_credential()
                 url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
                 if policy.browser_fallback_notification:
-                    desktop_host.send_notification("GleepGlorp AI", _no_webview_body())
+                    desktop_host.send_notification(_NO_WEBVIEW_TITLE, _no_webview_body())
                 webbrowser.open(url)
                 if server is not None:
                     # Main thread is free (no GUI loop) — install a SIGINT handler

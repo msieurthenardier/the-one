@@ -1,10 +1,10 @@
 # Squawk 0098: The extractor seam's "zero pipeline change" claim is false for binary formats, in three places
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-22
-**Completed**: —
+**Completed**: 2026-11-03
 **Related**: 0096, 0099: docstring and doc claims that overstate the knowledge/vector code; complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
@@ -47,17 +47,18 @@ Protocol? gate moved into the extractor?) and so does not qualify as a squawk.
 
 ## Corrective Action
 
-*(written at completion)*
-
-Scope the claim to text-shaped handlers in both restatements, and name the
-binary gate at `indexer.py:155` as the known blocker for the deferred PDF/Office
-mission. Correct the false comment in the M7 test.
+Scoped the claim to text-shaped handlers in `the_one/agents.md` (Knowledge indexing),
+`the_one/knowledge/extractors/__init__.py` and `extractors/text.py`, naming the
+unconditional `is_binary_head` gate in `index_item` as the blocker for PDF/Office. Corrected
+the M7 test comment in `tests/test_kb_extractors.py`.
 
 ## Verification
 
-Read-back against `index_item`: every remaining claim is true of the code as
-written. The M7 test's comment describes what the test actually exercises.
+Read-back against `index_item` (`indexer.py` binary sniff precedes `extractor.extract`):
+every remaining claim is true. The M7 test comment now states the content must be text.
+Comment-only test change.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.

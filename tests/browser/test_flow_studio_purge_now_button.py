@@ -154,7 +154,7 @@ def test_purge_button_returns_to_normal_after_purge(app_with_agent: SeededApp, p
     purge_btn.click()
     expect(purge_title).to_have_text("Confirm purge?")
     purge_btn.click()
-    expect(page.locator(".app-flash")).to_contain_text("Deleted 1 chat and their history.")
+    expect(page.locator(".app-flash")).to_contain_text("Deleted 1 chat and its history.")
     expect(purge_title).to_have_text("Purge now")
     expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"))
     expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))

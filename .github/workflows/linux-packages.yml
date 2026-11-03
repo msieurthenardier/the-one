@@ -104,7 +104,7 @@ jobs:
       - uses: actions/setup-python@v6
         timeout-minutes: 5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install uv
         timeout-minutes: 5

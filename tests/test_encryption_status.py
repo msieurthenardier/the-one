@@ -91,6 +91,17 @@ async def test_a_provider_with_a_key_counts_once(env) -> None:
     assert (await _status(env))["credential_count"] == 1
 
 
+async def test_an_environment_key_with_no_key_file_still_counts(env) -> None:
+    """Squawk 0258: a key without a key file (``key_path`` None) used to report 0."""
+    await _provider(env, "EnvKeyed", "sk-envkeycount1234")
+    env_encryptor = Encryptor(env.encryptor._key)
+    assert env_encryptor.key_path is None
+    with patch("the_one.interfaces.web.api.get_encryptor", return_value=env_encryptor):
+        status = await _status(env)
+    assert status["credential_count"] == 1
+    assert status["key_file_pending"] is False
+
+
 async def test_a_provider_without_a_key_or_secrets_counts_zero(env) -> None:
     pid = await _provider(env, "Plain")
     # Its secrets column holds an encrypted empty object.

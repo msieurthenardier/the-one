@@ -488,7 +488,7 @@
           // The confirm helper leaves the button armed after a commit: return it to "Purge now"
           // (the agent stays selected, so the same button is used again).
           revertFn();
-          App.ui.flash('Deleted ' + n + ' chat' + (n === 1 ? '' : 's') + ' and their history.');
+          App.ui.flash('Deleted ' + n + ' chat' + (n === 1 ? ' and its history.' : 's and their history.'));
         })
         .catch(function (err) {
           revertFn();

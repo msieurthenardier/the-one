@@ -178,7 +178,7 @@ def test_task_calls_the_recipe_with_an_out_beside_the_repo():
     )
     assert "Get-Command git" in text, "the log records whether git is on PATH"
     assert "Copy-Item" in text and "$installerDir" in text
-    assert "choco install innosetup" in text and "choco install python311" in text
+    assert "choco install innosetup" in text and "choco install python312" in text
 
 
 def test_pipeline_minio_step_still_matches_the_installer_name():

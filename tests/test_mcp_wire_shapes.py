@@ -357,6 +357,7 @@ def test_httpx2_uses_the_os_trust_store_unless_overridden(monkeypatch, tmp_path)
     ``truststore`` (the OS store) by default and honours ``SSL_CERT_FILE`` /
     ``SSL_CERT_DIR``; the rest of the app (``httpx``) uses certifi. Clears both
     variables explicitly, since the choice depends on them."""
+    import platform
     import ssl
 
     import truststore
@@ -364,7 +365,15 @@ def test_httpx2_uses_the_os_trust_store_unless_overridden(monkeypatch, tmp_path)
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     monkeypatch.delenv("SSL_CERT_DIR", raising=False)
     default_ctx = httpx2.create_ssl_context()
-    assert isinstance(default_ctx, truststore.SSLContext)
+    if platform.system() in ("Windows", "Darwin"):
+        assert isinstance(default_ctx, truststore.SSLContext)
+    else:
+        # httpx2 >= 2.14 (httpcore2.default_ssl_context) uses truststore only
+        # on Windows and macOS; elsewhere it loads the OS's own CA paths into a
+        # plain ssl context. Older releases used truststore everywhere.
+        if not isinstance(default_ctx, truststore.SSLContext):
+            assert isinstance(default_ctx, ssl.SSLContext)
+            assert default_ctx.cert_store_stats()["x509"] > 0
 
     import certifi
 

@@ -82,8 +82,8 @@ Run the new installer over the old one. **You do not need to quit the app first.
 is running (even hidden in the tray), the installer closes it for you before replacing any file:
 
 - From this version on, the installer asks the running app to quit through its own `quit` command,
-  so it shuts down cleanly (its server finishes and stops), waits up to
-  90 seconds for it to finish, and only then ends whatever is left.
+  so it shuts down cleanly (its server finishes and stops), waits for it to
+  finish (up to about a minute and a half), and only then ends whatever is left.
 - A version older than this one (such as 0.11.8) has no `quit` command, so the installer closes it
   by force once. Nothing is lost, but the app does not get to shut down cleanly that one time.
 
@@ -168,7 +168,7 @@ the application files and shortcuts. Your data in `%LOCALAPPDATA%\the-one` is no
 removed automatically — delete that folder manually if you want a clean slate.
 
 **Uninstalling while the app is running** works the same way: the uninstaller asks the running app
-to quit (cleanly, from this version on), waits up to 90 seconds, ends whatever is left, and then
+to quit (cleanly, from this version on), waits for it to finish (up to about a minute and a half), ends whatever is left, and then
 removes the files. You do not need to quit the app or the tray icon first. Your data folder is kept.
 The clean quit reaches the app only when the account that approves the administrator prompt is the
 same account that runs the app; if a different administrator account approves it, the app is

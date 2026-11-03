@@ -1,7 +1,7 @@
 # packaging/linux - PyInstaller on Linux (candidate A)
 
 **Flight 1 winner (Mission 32): the starting point for Flight 2 (Linux). Still a prototype, not wired into CI, publishes nothing.**
-It freezes GleepGlorp AI with PyInstaller on Python 3.11 and wraps the one-dir bundle
+It freezes GleepGlorp AI with PyInstaller on Python 3.12 and wraps the one-dir bundle
 as an AppImage and a `.deb`. The bundle does not carry the GTK/WebKit stack: it uses
 the desktop's own WebKitGTK 4.1 through PyGObject.
 
@@ -63,7 +63,7 @@ Output under `$M32_BUILD` (default `$HOME/the-one-m32-build/f2`, outside the rep
 - Base `ubuntu@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac`
   (`ubuntu:24.04`, re-read 2026-10-24): GLib 2.80, the host Flight 1's `excludes.txt` was
   validated on.
-- `uv` 0.9.30 by digest (`sha256:538e0b39...`), CPython 3.11.14 under `/opt/uv-python`, the
+- `uv` 0.9.30 by digest (`sha256:538e0b39...`), CPython 3.12.12 under `/opt/uv-python`, the
   hash-pinned closure in `/opt/venv`, PyInstaller 6.22.3 and pyinstaller-hooks-contrib 2026.8.
 - `appimagetool` and the type2 runtime are downloaded in the Dockerfile and checked against the
   SHA-256 values in "Pinned tools" below.
@@ -123,7 +123,7 @@ and the container gate suite live in `checks/` (see `checks/README.md`).
 ## Build environment outside the container (Flight 1 recipe, for reference)
 
 ```
-uv venv --python 3.11 $M32_BUILD/venv-pyi
+uv venv --python 3.12 $M32_BUILD/venv-pyi
 uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > $M32_BUILD/requirements-closure.txt
 uv pip install --python $M32_BUILD/venv-pyi/bin/python -r $M32_BUILD/requirements-closure.txt --no-deps
 uv pip install --python $M32_BUILD/venv-pyi/bin/python pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.8

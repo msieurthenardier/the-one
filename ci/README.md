@@ -43,13 +43,13 @@ Concourse.
 
 **Locked installs.** Every task installs from `uv.lock` with `uv sync --locked`
 (`--extra all-llms --extra dev`; lint `--extra dev` only), in the pinned image
-`ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm` (the `0.10.0-python3.11-bookworm`
+`ghcr.io/astral-sh/uv:0.9.30-python3.12-bookworm` (the `0.10.0-python3.12-bookworm`
 tag does not exist). `--locked` installs exactly the lock and errors when `uv.lock` is
 stale against `pyproject.toml` ("The lockfile at `uv.lock` needs to be updated, but
 `--locked` was provided"), so a forgotten relock fails CI; `--frozen` would install
 silently. Tools run from the synced `.venv` (`PYTHON=.venv/bin/python` for
 `run-tests.sh`). `bwrap` builds its venv inside `/opt/the-one`. `windows-tests`
-(no uv image on the Windows worker) pip-installs `uv==0.9.30` into the choco Python 3.11,
+(no uv image on the Windows worker) pip-installs `uv==0.9.30` into the choco Python 3.12,
 runs `uv sync --locked` with `UV_PYTHON` set to it (`UV_PYTHON_DOWNLOADS=never`), and runs
 pytest from `.venv\Scripts\python.exe`.
 
@@ -165,7 +165,7 @@ The `build-windows-installer` job auto-triggers after `ci` passes (`trigger: tru
 `passed: [ci]`) — so a successful CI run on `main` automatically builds and publishes
 the installer to MinIO. `ci/tasks/windows-installer-build.yml` installs the exported
 release closure into a fresh per-build `venv` (M24 F02 L06) rather than the
-persistent `C:\Python311` base interpreter, because the Windows worker runs tasks
+persistent `C:\Python312` base interpreter, because the Windows worker runs tasks
 uncontainerised and that interpreter's site-packages survive across builds — build
 606657 shipped a stale `hf_xet` package that way. The venv alone isn't sufficient,
 though: `pip install -r <uv export>` still needs `--no-deps` (build 606698, AC-15) —

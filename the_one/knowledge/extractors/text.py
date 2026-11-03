@@ -5,7 +5,8 @@ HTML is deliberately absent from :data:`TEXT_EXTENSIONS`: raw tags are
 poor chunk text, and ``readability-lxml`` + ``markdownify`` are already in
 the closure for a later ``HtmlExtractor`` — one module and one
 ``register`` call away, per the extractor seam's mission criterion. PDF
-and Office formats follow the same path in a later mission.
+and Office formats are a later mission and also need the indexer's
+unconditional binary-content gate (``index_item``) reworked first.
 """
 
 from __future__ import annotations

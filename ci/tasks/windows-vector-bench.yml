@@ -8,7 +8,7 @@
 # loudly on rather than silently running at some other N.
 #
 # Mirrors ci/tasks/windows-installer-build.yml's two hard-won lessons:
-#   1. Fresh per-run venv, never the persistent C:\Python311 site-packages
+#   1. Fresh per-run venv, never the persistent C:\Python312 site-packages
 #      (build 606657 shipped a stale hf_xet this way — see that task's own
 #      comments). A benchmark is MORE sensitive to this than a build: a
 #      stale usearch/numpy would silently produce numbers for a version the
@@ -72,15 +72,15 @@ run:
     - -Command
     - |
       $ErrorActionPreference = "Stop"
-      Write-Host "=== [1/4] provision toolchain (choco: Python 3.11) ==="
-      choco install python311 -y --no-progress
-      $py = "C:\Python311\python.exe"
-      if (!(Test-Path $py)) { throw "python311 not at $py" }
+      Write-Host "=== [1/4] provision toolchain (choco: Python 3.12) ==="
+      choco install python312 -y --no-progress
+      $py = "C:\Python312\python.exe"
+      if (!(Test-Path $py)) { throw "python312 not at $py" }
       & $py --version
       Set-Location repo
 
       # Fresh per-run venv (lesson 1 above) — never the persistent
-      # C:\Python311 site-packages.
+      # C:\Python312 site-packages.
       & $py -m venv .benchvenv
       if ($LASTEXITCODE -ne 0) { throw "venv creation failed ($LASTEXITCODE)" }
       $py = (Resolve-Path ".benchvenv\Scripts\python.exe").Path

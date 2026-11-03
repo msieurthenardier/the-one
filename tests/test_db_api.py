@@ -1049,6 +1049,39 @@ class TestKnowledgeBaseAPI:
         resp = await client.get(f"/api/knowledge-bases/{kb1}/items/{item_id}")
         assert resp.status_code == 200
 
+    async def test_delete_walked_file_is_refused_409(self, client: AsyncClient) -> None:
+        """Squawk 0243: a file a folder walk created cannot be deleted alone."""
+        from the_one.db.models import KBItem
+        from the_one.db.repositories import KBItemRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        repo = KBItemRepository(await api_module.get_connection())
+        await repo.create(KBItem(id="fold", kb_id=kb_id, type="folder", path_or_url="/tmp/r"))
+        await repo.create(
+            KBItem(id="kid", kb_id=kb_id, parent_id="fold", type="file", path_or_url="/tmp/r/a")
+        )
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/kid")
+        assert resp.status_code == 409
+        assert "folder" in resp.json()["detail"]
+        assert (await client.get(f"/api/knowledge-bases/{kb_id}/items/kid")).status_code == 200
+
+    async def test_file_post_requests_indexing(self, client: AsyncClient, monkeypatch) -> None:
+        """Squawk 0244: registering a lone file kicks the indexing worker."""
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/x.txt"},
+        )
+        assert resp.status_code == 201
+        assert fake.calls == [("request_index", kb_id)]
+
     async def test_retry_moves_failed_to_pending(self, client: AsyncClient) -> None:
         from the_one.db._write_lock import write_transaction
         from the_one.db.repositories import KBItemRepository
@@ -2352,7 +2385,8 @@ class TestKnowledgeBaseReindexRoute:
 
         assert resp.status_code == 202
         assert resp.json() == {"scope": "all", "requeued": 1}
-        assert fake.calls == [("request_index", kb_id)]
+        # One call from the file POST (squawk 0244), one from the reindex.
+        assert fake.calls == [("request_index", kb_id), ("request_index", kb_id)]
 
         item_resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
         assert item_resp.json()["status"] == "pending"

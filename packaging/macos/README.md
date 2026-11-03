@@ -2,7 +2,7 @@
 
 **The macOS recipe (Mission 32 Flight 3). Ad-hoc signed; publishes nothing.** Everything product-shaped (names, id, versions,
 minimum macOS) is read from `../product.toml` through `../render.py`.
-It freezes GleepGlorp AI with PyInstaller on Python 3.11 into `GleepGlorp AI.app` and a `.dmg`.
+It freezes GleepGlorp AI with PyInstaller on Python 3.12 into `GleepGlorp AI.app` and a `.dmg`.
 It is built and checked by the dispatch-only workflow `.github/workflows/macos-packages.yml`
 on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator's machine.
 
@@ -52,7 +52,7 @@ on a hosted `macos-15` (Apple Silicon) runner; it has never run on the operator'
 |---|---|
 | PyInstaller | 6.22.3 (same as Linux) |
 | pyinstaller-hooks-contrib | 2026.8 (same as Linux) |
-| Python | 3.11 (`actions/setup-python`) |
+| Python | 3.12 (`actions/setup-python`) |
 | uv (closure export) | 0.10.0 |
 
 ## Notes

@@ -20,7 +20,7 @@
 #
 # Writes $M32_BUILD/macos-<version>/build.env (VERSION, APP_ID, APP, DMG; shell-quoted, source
 # it) and product.json (the rendered values the spec reads).
-# Needs on PATH: python3 (3.11, setup-python), codesign, hdiutil, ditto, perl.
+# Needs on PATH: python3 (3.12, setup-python), codesign, hdiutil, ditto, perl.
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

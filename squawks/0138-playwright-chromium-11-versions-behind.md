@@ -1,10 +1,10 @@
 # Squawk 0138: Browser tests run a Chromium 11 major versions behind the shipped engine
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-11-03
 
 ## Report
 
@@ -27,9 +27,19 @@ A candidate to batch with squawk 0135 (the move to Python 3.12) in one turnaroun
 - `~/.cache/ms-playwright/chromium-1217` (Chrome 147) is present on the dev host but unused by this repo.
 
 ## Corrective Action
-*(written at completion)*
+Bumped `playwright==1.58.0` to `==1.64.0` in `pyproject.toml` (dev extra), still an exact pin. Chose 1.64.0 (released 2026-10-13, 20 days old on 2026-11-02) over the newer 1.64.1 (2026-10-22, 11 days old) to honour the 14-day soak. Re-locked with `uv lock --upgrade-package playwright` (the playwright entry moves 1.58.0 -> 1.64.0; the same lock run also records the tzdata 2026.4 -> 2026.6 and certifi-floor changes that follow other uncommitted `pyproject.toml` edits in this batch, not this squawk). Bundled Chromium is now Chrome for Testing 156.0.8078.4 (chromium-1248), matching WebView2 stable (156.0.8078.12); WebKit is webkit-2370. No other version pins exist: `ci/tasks/browser.yml:66` and `.github/workflows/test.yml:73` run `playwright install --with-deps chromium webkit` and follow the pin automatically; no CI image tag or Dockerfile pins the Playwright version. The only other mentions are a historical comment in `the_one/mcp/transports/stdio.py:92` and past maintenance/run logs, left as records. No CI image rebuild is needed; the Concourse browser task will download the new browsers on first run (its `playwright-browsers` cache is keyed by path, so it fetches them then).
 
 ## Verification
+Developer run (2026-11-02):
+- `uv lock --check`: passes. Installed with `uv pip install --python .venv/bin/python playwright==1.64.0`.
+- `.venv/bin/playwright install chromium webkit` downloaded both; its host-requirements check then failed (missing system libs, expected on this host), so `bash scripts/setup-webkit-userland.sh` was run (no sudo) and WebKit launches work.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: 8729 passed, 15 skipped.
+- `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 ... --lane contracts-chat`: 148 passed (Chromium + WebKit).
+- Same with `--lane contracts-overlay`: 548 passed, 1 skipped.
+- No test changes were needed.
+- Not run here: the full browser suite. The Flight Director's single full `make gate` at the end of this batch completes this squawk's verification, and the Concourse browser task check remains for after the commit.
+
+Original criteria:
 - `playwright==` in `pyproject.toml` and `uv.lock` is the current release, still an exact pin, and `uv lock --check` passes.
 - `.venv/bin/python -m playwright install chromium webkit` is done, and the bundled Chromium is at or near current stable.
 - **Browser lanes:** all six pass under `THE_ONE_TEST_NETNS=1`. The contracts lane runs with `THE_ONE_REQUIRE_WEBKIT=1`, so a WebKit launch failure fails rather than skips. Re-run `scripts/setup-webkit-userland.sh` if WebKit's host libraries changed.
@@ -37,7 +47,6 @@ A candidate to batch with squawk 0135 (the move to Python 3.12) in one turnaroun
 - The commit body records any test changes the new engines forced.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs. The final full gate ran on 1.64.0 / Chromium 156: every lane was within budget, with the one failure being squawk 0315.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.

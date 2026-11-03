@@ -77,10 +77,18 @@
 
       var content = _el('div', { className: 'kb-inspect-content' });
       section.el.appendChild(content);
+      // Squawk 0239: the pending line is silent (focus is already on the
+      // heading), so a persistent polite live region, present before its text
+      // changes, announces the result when a load finishes.
+      var announce = _el('span', { className: 'visually-hidden' });
+      announce.setAttribute('role', 'status');
+      announce.setAttribute('aria-live', 'polite');
+      announce.setAttribute('data-testid', 'kb-panel-announce');
+      section.el.appendChild(announce);
       section.el.hidden = true;
       return {
         section: section, el: section.el, titleEl: titleEl,
-        nameEl: nameEl, pathEl: pathEl, content: content
+        nameEl: nameEl, pathEl: pathEl, content: content, announce: announce
       };
     }
 
@@ -92,6 +100,7 @@
     function hidePanel(panel) {
       panel.el.hidden = true;
       panel.content.textContent = '';
+      panel.announce.textContent = '';
     }
 
     // Closes the open panel (no-op when none is open), then hands focus back
@@ -126,13 +135,14 @@
 
     // DD-8/AC-13: neither is fetched while rendering the item list — only on
     // the operator's explicit click.
-    function open(panel, item, opener, loadingText, path, render) {
+    function open(panel, item, opener, loadingText, path, render, announceText) {
       var token = slot.mount(function () { hidePanel(panel); },
         { item: item, opener: opener, panel: panel });
       panel.el.hidden = false;
       panel.nameEl.textContent = _baseName(item.path_or_url);
       panel.pathEl.textContent = item.path_or_url;
       panel.pathEl.title = item.path_or_url;
+      panel.announce.textContent = '';
       setLine(panel, 'pending', loadingText);
       // The menu has already returned focus to its trigger; move it to the
       // opened panel so it is never left on a hidden menu item.
@@ -143,6 +153,7 @@
           if (!slot.isCurrent(token)) return;
           panel.content.textContent = '';
           render(data);
+          panel.announce.textContent = announceText(data);
         })
         .catch(function (err) {
           if (!slot.isCurrent(token)) return;
@@ -171,6 +182,9 @@
           box.appendChild(row);
         });
         chunks.content.appendChild(box);
+      }, function (list) {
+        if (list.length === 0) return 'No chunks yet';
+        return list.length + (list.length === 1 ? ' chunk' : ' chunks');
       });
     }
 
@@ -179,7 +193,7 @@
         var pre = _el('pre', { className: 'kb-source-text', text: result.text });
         pre.setAttribute('data-testid', 'kb-source-text');
         source.content.appendChild(pre);
-      });
+      }, function () { return 'Source loaded'; });
     }
 
     return {

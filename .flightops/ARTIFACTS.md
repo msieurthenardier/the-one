@@ -261,6 +261,16 @@ How to confirm each criterion is met:
 ## Files Affected
 - `path/to/file.ext` - {What changes}
 
+## Citation Audit
+
+Required at leg design. List each code mechanism the leg's guidance relies on (a
+signature, control flow, an exception type, mutability, cardinality, a file or line
+reference) and what was checked against the working tree, so the Developer starts
+from verified facts. When an earlier leg in the flight edits a cited file, note that
+the citation must be re-checked after that leg lands, and record the re-check.
+
+- `path/to/file.py::Symbol` - {the specific mechanism relied on} - verified | unverified
+
 ---
 
 ## Post-Completion

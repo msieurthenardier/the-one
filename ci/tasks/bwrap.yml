@@ -39,7 +39,7 @@ image_resource:
   type: registry-image
   source:
     repository: ghcr.io/astral-sh/uv
-    tag: "0.9.30-python3.11-bookworm"
+    tag: "0.9.30-python3.12-bookworm"
 
 inputs:
   - name: repo

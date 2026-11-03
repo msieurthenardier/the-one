@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render packaging templates from packaging/product.toml (Mission 32, DD6).
 
-Stdlib only (tomllib, Python 3.11 or newer).
+Stdlib only (tomllib, Python 3.12 or newer).
 
     render.py --repo R --template T [--set K=V ...] [--out FILE]
                                                       print (or write) the rendered template

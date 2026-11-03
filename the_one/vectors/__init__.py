@@ -67,9 +67,11 @@ _lock = asyncio.Lock()
 def _build_store(
     vector_store_settings: VectorStoreSettings, conn: aiosqlite.Connection
 ) -> VectorStore:
-    """Construct (but do not open) the backend named by ``vector_store_settings``.
+    """Construct (but do not open) the one production backend, ``UsearchStore``.
 
-    Lazy-imported, the ``create_pty_session`` dispatch shape. This is the
+    ``dtype`` and ``dim`` come from ``vector_store_settings``; its ``.backend``
+    is not read (there is only one backend, so it is not yet a dispatch key).
+    Lazy-imported. This is the
     named seam AC-11's test monkeypatches to inject a recording stub
     store.
     """

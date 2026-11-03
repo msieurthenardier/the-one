@@ -248,8 +248,9 @@ class TestStubExtractorEndToEnd:
         await kb_repo.create(KnowledgeBase(id="kb1", name="kb1"))
 
         path = tmp_path / "weird.stub"
-        # Content is irrelevant — StubExtractor always returns STUB_TEXT,
-        # ignoring what's on disk.
+        # StubExtractor always returns STUB_TEXT, ignoring what's on disk —
+        # but the content must be text: index_item's unconditional binary
+        # sniff (is_binary_head) reads the first 8 KiB before any extractor.
         path.write_text("this is never read by the stub extractor")
         item = KBItem(id="item1", kb_id="kb1", type="file", path_or_url=str(path))
         await item_repo.create(item)

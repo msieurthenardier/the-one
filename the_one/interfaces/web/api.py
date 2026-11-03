@@ -2330,6 +2330,11 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
     await repo.create(item)
     if item.type == "folder":
         _after_folder_registered(kb_id, item)
+    else:
+        # Squawk 0244: a lone file indexes promptly too (no-op without a manager).
+        manager = get_indexing_manager()
+        if manager is not None:
+            manager.request_index(kb_id)
     return item.model_dump()
 
 
@@ -2412,6 +2417,17 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
     # belong to now 404s instead of succeeding.
     if item.kb_id != kb_id:
         raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+
+    # Squawk 0243: a file a folder walk created is owned by that folder; the
+    # next walk would recreate it, so refuse rather than report a false success.
+    if item.parent_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This file belongs to a registered folder, so deleting it would be undone "
+                "by the next scan. Remove its folder instead."
+            ),
+        )
 
     # Flight 3 Leg 3, AC-10: a folder delete stops kb_id's worker first
     # (no worker mid-item on rows about to be cascaded) and re-kicks it
@@ -6542,10 +6558,9 @@ async def encryption_status() -> dict[str, Any]:
     (``the_one.db.encryption_corpora``); nothing decrypted leaves it.
     ``key_file_pending`` is true while a rotated key is staged but not yet
     promoted to the key file (the ``.next`` sidecar exists), so a staged
-    rotation keeps its warning across a reload. When the key is supplied by the
-    environment (``encryptor.key_path`` is ``None``) the corpora are not read and
-    ``credential_count`` is reported as 0, not as a real count. No secret material
-    is returned.
+    rotation keeps its warning across a reload. The count is the same whether the
+    key came from the key file or the environment (``encryptor.key_path`` is
+    ``None``): decryption uses the in-memory key. No secret material is returned.
     """
     encryptor = get_encryptor(settings.data_dir)
     conn = await get_connection()
@@ -6554,10 +6569,8 @@ async def encryption_status() -> dict[str, Any]:
         last_rotated_at = await AppMetadataRepository(conn).get(ENCRYPTION_LAST_ROTATED_KEY)
     except aiosqlite.OperationalError:
         pass
-    count = 0
-    if encryptor.key_path is not None:
-        corpora = await gather_corpora(conn, encryptor, strict=False)
-        count = count_items_with_secrets(corpora)
+    corpora = await gather_corpora(conn, encryptor, strict=False)
+    count = count_items_with_secrets(corpora)
     pending = encryptor.pending_key is not None or (
         encryptor.key_path is not None and next_key_path(encryptor.key_path).exists()
     )

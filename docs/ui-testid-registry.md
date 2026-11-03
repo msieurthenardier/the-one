@@ -214,7 +214,7 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
 | `delete-mcp-source-btn` | studio | The MCP editor's Danger zone Delete (`App.ui.dangerZone`, label "Delete MCP server", armed "Confirm delete?", `data-name`); a failed Delete shows in the header's editor error (`role=alert`), reverts the button and returns focus to it (M31 F5 L10, row 29) |
-| `delete-provider-btn` | admin | |
+| `delete-provider-btn` | studio | the provider editor's Delete provider button (Library › Model providers) |
 | `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's link to its root: "Agents" -> `#agents` (agent editor); on a Library editor (knowledge-base detail and `~new` form, MCP server, connector) the header reads `Library / {Group}` and "Library" is the link, to `#library` (the group is plain text; model providers: `Library / Model providers`, sortie 02, DD3); studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings: "Settings / Built-in tools" -> `#settings/tools` (tool editor; admin routes it the same way, focus: the closed tool's name link). Settings has no provider editor since sortie 02 leg 2 |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
 | `jump-to` | shell | The jump-to palette `<dialog>` (`js/jump-to.js`, `App.jumpTo`): an `App.ui.modal` chooser named by `ariaLabel` "Jump to" (no title, no header row), 600 wide at top 96, dismissible, built fresh on every open from Ctrl K (Meta K on macOS) or the rail's `rail-jump-to` (M25 F4 L7, DD9, DD10) |
@@ -256,6 +256,7 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-name-hint` | studio | Knowledge detail view always-live name field's advisory hint, shown over 43 code points, reuses the create form's DD-16 hint text (L6-D1, M24 F06 L06; renamed from `kb-edit-name-hint`) |
 | `kb-name-input` | studio | Knowledge detail view always-live name field, header region — no edit-button toggle (L6-D1, M24 F06 L06; renamed from `kb-edit-name-input`) |
 | `kb-panel-close-btn` | studio | Knowledge detail view chunks/source panel — ghost icon-only x ("Close chunks"/"Close source", title "Close"): hides the panel, drops a late response, and returns focus to the opener (else the summary of the panel holding the item, else the Add-folder input); Escape does not close (M31 F3 HAT) |
+| `kb-panel-announce` | studio | Knowledge detail view chunks/source panel — visually hidden persistent polite `role=status` region; holds "{n} chunks"/"No chunks yet"/"Source loaded" once a load finishes, empty while pending or hidden (squawk 0239) |
 | `kb-panel-file-name` | studio | Knowledge detail view chunks/source panel — the open file's basename under the heading; part of the heading's accessible name ("Chunks runbook-01.md") (M31 F3 HAT) |
 | `kb-panel-file-path` | studio | Knowledge detail view chunks/source panel — the open file's full path on one ellipsised line, the path as `title` (M31 F3 HAT) |
 | `kb-panel-title` | studio | Knowledge detail view chunks/source panel — the panel's one stable `h3` heading (`tabindex=-1`, built once; focus lands on it when a panel opens), the static text "Chunks"/"Source", named by itself plus `kb-panel-file-name` (kb-studio-round-trip remediation FIX 4, M24 F06; an `h3` since M31 F3 L06b; static since the M31 F3 HAT, the file is named by `kb-panel-file-name`/`kb-panel-file-path`) |
@@ -450,7 +451,7 @@ caught — but it cannot see where the attribute is emitted.
 | `route-announcer` | shell | Visually-hidden polite live region (`role=status`) written by `js/router.js` on a commit that changes destination/section/item (flight 02 review, WCAG 4.1.3) |
 | `save-agent-btn` | studio | |
 | `save-mcp-source-btn` | studio | |
-| `save-provider-btn` | admin | |
+| `save-provider-btn` | studio | the provider editor's Create/Save button (Library › Model providers) |
 | `save-tool-btn` | admin | |
 | `self-configuration-action-status` | studio | Self-configuration tab post-action `aria-live` summary + focus target (flight-end a11y fix) |
 | `self-configuration-error` | studio | Self-configuration tab (M21 F01 L02) |
@@ -552,8 +553,8 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as an `App.ui.toggle` checkbox `<input>` (it was the legacy `.tool-enable-switch`, deleted in M31 F5 L07) as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `settings-nav` | admin | The Settings nav (`<nav aria-label="Settings">`, an `App.ui.navGroups` in the Settings column, reference spec section 8.1); its items are `settings-nav-{section}` links (M25 F3 L5a, DD6) |
 | `studio-knowledge-inventory` | studio | Knowledge-base detail view root (L1-D5, M24 F06 L01; retires the F5 placeholder testid). Since M25 F3 L4a it marks the detail view only: the grid is retired, and the create form at `#library/knowledge/~new` does not carry it |
-| `test-connection-btn` | admin | |
-| `test-provider-btn` | studio | |
+| `test-connection-btn` | studio | the provider editor's Test button (Library › Model providers; saved providers only; `areas/studio/provider-editor.js`) |
+| `test-provider-btn` | studio | the agent editor General tab's provider Test button (`areas/studio/general-tab.js`); not the provider editor's, which is `test-connection-btn` |
 | `test-provider-result` | studio | |
 | `test-result` | admin | M31 F4 L07d — the Built-in tools editor's Test result: a polite live region (`aria-live=polite`, `data-state` pending / success / warning / danger) holding one `App.ui.status` with the fixed headline ("Returned a result ({N} ms)", "Blocked by this tool's settings ({N} ms)", "Request failed"); empty until a Test runs |
 | `test-saved-hint` | admin | M31 F4 L07d — "Tests the saved settings.", visible only while the editor is dirty |

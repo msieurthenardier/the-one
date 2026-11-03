@@ -1,6 +1,6 @@
 # Windows installer build task — runs on the Concourse `platform: windows` worker.
 # Consumes the `repo` git input, produces `installer/the-one-setup-<ver>.exe`.
-# Toolchain is provisioned per-run via choco (Python 3.11 to match CI; Inno Setup). The build
+# Toolchain is provisioned per-run via choco (Python 3.12 to match CI; Inno Setup). The build
 # itself is packaging/windows/build.ps1, the one Windows recipe that GitHub also calls
 # (Mission 32 Flight 4): it stages the source, renders the installer's product.iss from
 # packaging/product.toml, freezes from the staged copy, runs strict `doctor` and builds the
@@ -27,11 +27,11 @@ run:
     - -Command
     - |
       $ErrorActionPreference = "Stop"
-      Write-Host "=== [1/4] provision toolchain (choco: Python 3.11 + Inno Setup) ==="
-      choco install python311 -y --no-progress
+      Write-Host "=== [1/4] provision toolchain (choco: Python 3.12 + Inno Setup) ==="
+      choco install python312 -y --no-progress
       choco install innosetup -y --no-progress
-      $py = "C:\Python311\python.exe"
-      if (!(Test-Path $py)) { throw "python311 not at $py" }
+      $py = "C:\Python312\python.exe"
+      if (!(Test-Path $py)) { throw "python312 not at $py" }
       & $py --version
       Write-Host "=== [2/4] environment ==="
       # Recorded so the log shows what this worker has: the recipe must not need git (a

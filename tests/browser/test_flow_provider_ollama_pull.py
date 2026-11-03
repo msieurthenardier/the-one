@@ -405,3 +405,29 @@ def test_progress_text_is_the_apps_own_wording_with_a_percentage(
         body = re.sub(r"\s*Cancel pull\s*$", "", t).strip()
         assert re.match(r"^Pulling llama3\.2:3b… \d+%$", body), texts
     assert not any("manifest" in t or "verifying" in t or "sha256" in t for t in texts), texts
+
+
+@pytest.mark.browser
+def test_installed_sizes_and_vram_line_are_decimal(
+    page: Page, server: Server, pull_app: tuple[str, str]
+) -> None:
+    """DD8: installed-model sizes and the VRAM summary use the same decimal units as Pull."""
+    page.route(
+        "**/api/providers/*/models",
+        lambda r: r.fulfill(
+            json=[
+                {"name": "big:latest", "size": 13793441244},
+                {"name": "hot:latest", "size": 5000000000},
+            ]
+        ),
+    )
+    page.route(
+        "**/api/providers/*/models/status",
+        lambda r: r.fulfill(json=[{"name": "hot:latest", "size_vram": 2000000000}]),
+    )
+    open_panel(page, pull_app)
+    big = page.locator('.ui-model-row[data-name="big:latest"]')
+    expect(big.locator(".ui-model-size")).to_have_text("13.8 GB")
+    hot = page.locator('.ui-model-row[data-name="hot:latest"]')
+    expect(hot.locator(".ui-model-size")).to_have_text("2.0 GB")
+    expect(page.locator(".admin-pf-vram-summary")).to_have_text("2.0 GB loaded")

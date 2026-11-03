@@ -100,7 +100,9 @@ multi-user isolation would need to revisit this (see "Future Work" below).
     world-readable window between creation and the permission landing).
     Presented as `Authorization: Bearer loc_<identifier>.<secret>` by every
     non-browser caller — CLI tooling, tests, `curl`, MCP-style automation.
-    Created on first use; replaced via `the-one rotate-api-credential`.
+    Created on first use by the desktop app (`get_credential()`); `the-one serve`
+    only looks it up and never creates it, so create or replace it with
+    `the-one rotate-api-credential`.
   - A **single-use, short-lived browser-handoff credential**
     (`the_one/interfaces/web/handoff_store.py`), minted either in-process
     (the desktop launcher, which shares a process with the server) or via

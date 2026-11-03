@@ -66,6 +66,7 @@ from the_one.platform.pty import (
     _DEFAULT_START_TIMEOUT,
     _READ_CHUNK,
     PtySession,
+    strip_vt_sequences,
 )
 from the_one.platform.shell import select_shell
 
@@ -353,9 +354,9 @@ class WindowsPtySession(PtySession):
         (and the end of the input) is pressed as Enter, which ConPTY only
         recognizes as ``\\r``; a bare ``\\n`` just types at the prompt.
 
-        Returns raw bytes. Raises ``asyncio.TimeoutError`` on no-output
-        windows. Raises ``RuntimeError`` if the session is closed or
-        the subprocess has exited.
+        Returns bytes with VT control sequences stripped. Raises
+        ``asyncio.TimeoutError`` on no-output windows. Raises ``RuntimeError`` if
+        the session is closed or the subprocess has exited.
         """
         if self._closed or not self.is_alive:
             raise RuntimeError("session not active")
@@ -408,9 +409,12 @@ class WindowsPtySession(PtySession):
             self._proc.write(input)
         except EOFError as exc:
             raise RuntimeError("PTY closed during write") from exc
-        return self._read_until_idle_blocking(
-            timeout=timeout,
-            idle_window=_DEFAULT_IDLE_WINDOW,
+        # ConPTY repaints with VT sequences; return text only (squawk 0165).
+        return strip_vt_sequences(
+            self._read_until_idle_blocking(
+                timeout=timeout,
+                idle_window=_DEFAULT_IDLE_WINDOW,
+            )
         )
 
     async def _read_until_idle(

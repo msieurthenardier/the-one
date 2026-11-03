@@ -28,9 +28,13 @@ not touch.
 
 - A dev instance built from the flight branch, on a dedicated non-default port
   (8486 or higher, assigned per run; never 8484, 8485 or 8491), with a
-  **scratch data directory under `$HOME`** (not `/tmp`). Start it from a scratch
-  working directory with `THE_ONE_DEV_MODE=true`, as CLAUDE.md "Behavior-test
-  credential convention" shows, and record the PID. Follow that section for the
+  **scratch data directory under `$HOME`** (e.g.
+  `$HOME/the-one-behavior-test-scratch/mcp-headers/data`; not `/tmp`). Start it from a scratch
+  working directory (e.g. `$HOME/the-one-behavior-test-scratch/mcp-headers/cwd`)
+  with `THE_ONE_DEV_MODE=true`, as CLAUDE.md "Behavior-test
+  credential convention" shows, and record the PID (stop it by that PID). A fresh
+  data directory has no `api-credential`: run `THE_ONE_DATA_DIR=<data_dir> the-one
+  rotate-api-credential` once before the first start. Follow that section for the
   credential (read `<data_dir>/api-credential`) and the browser handoff (mint a
   one-time handoff with `POST /api/session/handoff`, one per navigation to the
   app root from an unauthenticated state).
@@ -64,15 +68,18 @@ Masks read back as `***...1111` and `***...2222`.
 | 2 | Reload the page (a fresh handoff if the session needs one) and open `sens-headers` again. Look at the `Authorization` row. | The Headers table lists `X-Plain` and `Authorization`. The `Authorization` row's Sensitive switch is on and its value field reads `***...1111` as a stored secret (no Show control, and a hint that the secret is stored). [a11y] The switch is announced as a switch named "Sensitive, row 2" and the table is named "Headers". Save is disabled and no "Unsaved changes" caption shows. |
 | 3 | Change only the name to `sens-headers-b`. Click Save. Read `GET /api/mcp-sources/{SRC}`. | The save succeeds with no error. `secrets` is still `{"Authorization": "***...1111"}` and `config.headers` is still `{"X-Plain": "plain-value"}`. The form reads clean after the save. |
 | 4 | Type `S2` into the `Authorization` value (the stored mask is replaced as soon as you type). Click Save. Read `GET /api/mcp-sources/{SRC}`. Then look at the row. | `secrets.Authorization` is `***...2222`: the secret was replaced (the tail changed from `1111`). `config.headers` still has no `Authorization`. After the save the row is back in stored mode (value `***...2222`, no Show control) and the form is clean. |
-| 5 | Untick **Sensitive** on the `Authorization` row. Look at the value field, then click Save. Read `GET /api/mcp-sources/{SRC}`. | Unticking clears the value (the field is empty and plain text, not the mask). After Save, `secrets` is `{}` and `config.headers.Authorization` is `""`. The mask text (`***`) and `S2` appear nowhere in `config`. |
-| 6 | Tick **Sensitive** again on the `Authorization` row, type `S1` into its value and Save, so the row is stored again (`secrets.Authorization` is `***...1111`). Then change the row's **key** to `X-Auth`, without touching the value. | As soon as the key changes, the value field empties and the hint under it asks for the value again ("Sensitive values must be re-entered when the key changes."). Save is enabled. |
-| 7 | Without retyping, click Save. Read `GET /api/mcp-sources/{SRC}`. | The save succeeds. `secrets` no longer holds `Authorization`. `X-Auth` is stored with an empty value (`secrets["X-Auth"]` is `""`), `__MASKED__` and `S1` appear nowhere in the response, and the old secret was not carried under the new name. The form reads clean and the `X-Auth` row shows an empty value, not stored mode. |
-| 8 | Type `S2` into the `X-Auth` value and Save. Edit `X-Plain`'s value to `changed`, then click Cancel. | After the first save `secrets["X-Auth"]` is `***...2222` and the row is in stored mode. After Cancel the `X-Plain` value is back to `plain-value`, the `X-Auth` row is still present in stored mode, and no row named `Authorization` has come back. `GET /api/mcp-sources/{SRC}` is unchanged by the Cancel. |
+| 5 | Untick **Sensitive** on the `Authorization` row. Look at the value field, then click Save. Read `GET /api/mcp-sources/{SRC}`. | Unticking clears the value (the field is empty and plain text, not the mask). After Save, `secrets` is `{}` and `config.headers.Authorization` is `""`. The mask text (`***`) and `S2` appear nowhere in `config`. (An empty value is stored differently by sensitivity: in `config.headers` when the row is not sensitive, as here, and in `secrets` when it is sensitive, as in step 7.) |
+| 6a | (Setup, no judgment) Tick **Sensitive** again on the `Authorization` row, type `S1` into its value and Save. Read `GET /api/mcp-sources/{SRC}` and record the evidence that the row is stored. | `secrets.Authorization` is `***...1111` in the response, and the row shows stored mode. If it does not, stop: step 6b's precondition is not met. |
+| 6b | Change the row's **key** to `X-Auth`, without touching the value. | As soon as the key changes, the value field empties and the hint under it asks for the value again ("Sensitive values must be re-entered when the key changes."). Save is enabled. |
+| 7 | Without retyping, click Save. Read `GET /api/mcp-sources/{SRC}`. | The save succeeds. `secrets` no longer holds `Authorization`. `X-Auth` is stored with an empty value (`secrets["X-Auth"]` is `""`: an empty sensitive value lives in `secrets`, where an empty non-sensitive one lives in `config.headers`, as in step 5), `__MASKED__` and `S1` appear nowhere in the response, and the old secret was not carried under the new name. The form reads clean and the `X-Auth` row shows an empty value, not stored mode. |
+| 8 | Type `S2` into the `X-Auth` value and Save. Edit `X-Plain`'s value to `changed`, then click Cancel. | After the first save `secrets["X-Auth"]` is `***...2222` and the row is in stored mode. After Cancel the `X-Plain` value is back to `plain-value`, the `X-Auth` row is still present in stored mode, and no row named `Authorization` has come back. `GET /api/mcp-sources/{SRC}` is unchanged by the Cancel. The evidence is a before/after API diff: read `GET /api/mcp-sources/{SRC}` immediately before clicking Cancel (after the save) and again after it, and the two responses are identical (`config`, `secrets` and any other field). |
 
 ## Out of Scope
 
 - Connecting to a real MCP server, the connection check record, OAuth and the
-  tools list (see `mcp-oauth-*` specs and the flight's later legs).
+  tools list (see `mcp-oauth-*` specs and the flight's later legs). The editor's
+  automatic connection-status line (it probes the unreachable URL on open and may show
+  a failed or checking state) is likewise not judged here.
 - A typed secret that itself looks like a mask (`***` or `***...abcd`): the
   server's `_looks_masked` keeps or drops it on a PUT. This is a known limit of
   the server's contract, recorded for the flight debrief.

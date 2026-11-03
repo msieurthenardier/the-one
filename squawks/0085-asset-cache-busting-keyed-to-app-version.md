@@ -1,10 +1,10 @@
 # Squawk 0085: static assets are cache-busted by app version, so dev edits serve stale
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-19
-**Completed**: —
+**Completed**: 2026-11-03
 
 ## Report
 
@@ -50,4 +50,19 @@ developer-only behaviour.
 
 `tests/test_index_asset_cache_busting.py` will need updating alongside — it
 currently pins the total ref count and the version-keyed shape.
+
+## Corrective Action
+
+`the_one/interfaces/web/app.py`: `_cache_busted_index_html()` is now a plain function. With `settings.dev_mode` it renders `index.html` per request, keying each `/static` js/css ref by the first 10 hex of the sha1 of that file's bytes (`_asset_content_key`; a missing/unreadable file falls back to `__version__`). Otherwise it returns `_production_index_html()`, the unchanged `lru_cache`-memoized `__version__` rewrite. Content hash chosen over mtime: stable across checkouts/touches, so the key moves only when bytes do; cost is ~100 small file reads per dev index load. HTML shape unchanged. CLAUDE.md (two paragraphs) and `the_one/agents.md` updated. Root cause of the test surprise: the repo `.env` sets `THE_ONE_DEV_MODE=true`, so the existing tests now pin production mode with an autouse fixture.
+
+## Verification
+
+- `tests/test_index_asset_cache_busting.py`: 9 passed. New: `test_dev_mode_keys_assets_by_content_per_request` (content change changes `v`, same content same `v`, missing file falls back, falsified: yes, dev branch removed -> failed, restored) and `test_production_mode_stays_version_keyed_and_memoized` (falsified: no).
+- `ruff check` / `ruff format --diff` clean on both Python files.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: see report.
 - **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **operator approved implementing** a dev-mode content key (mtime or hash) for the `?v=` cache-bust parameter, with production keeping `__version__`. Mind `_cached_index_html`'s `lru_cache` and the shape `tests/test_index_asset_cache_busting.py` pins. Burn-down next turnaround.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.

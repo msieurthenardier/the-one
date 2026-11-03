@@ -216,10 +216,22 @@ class TestExemption:
         from the_one.interfaces.web.app import app as real_app
 
         routes_by_path: dict[str, list] = {}
-        for route in real_app.routes:
-            path = getattr(route, "path", None)
-            if path is not None:
-                routes_by_path.setdefault(path, []).append(route)
+
+        def _collect(routes, prefix: str = "") -> None:
+            for route in routes:
+                # Newer FastAPI/Starlette keep an `include_router` as one lazy
+                # `_IncludedRouter` (no `path`) wrapping the original router;
+                # older ones flatten its routes into `app.routes`. Walk both.
+                original = getattr(route, "original_router", None)
+                if original is not None:
+                    context = getattr(route, "include_context", None)
+                    _collect(original.routes, prefix + (getattr(context, "prefix", "") or ""))
+                    continue
+                path = getattr(route, "path", None)
+                if path is not None:
+                    routes_by_path.setdefault(prefix + path, []).append(route)
+
+        _collect(real_app.routes)
 
         for exempt_path in EXEMPT_PATHS:
             matches = routes_by_path.get(exempt_path)

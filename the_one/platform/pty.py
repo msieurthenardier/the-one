@@ -48,6 +48,7 @@ synchronous write + read loop.
 from __future__ import annotations
 
 import os
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -71,6 +72,37 @@ _DEFAULT_START_TIMEOUT = 2.0  # seconds
 # Single recv/read chunk size.  Smaller than typical kernel PTY buffers so a
 # single read rarely truncates a logical chunk.
 _READ_CHUNK = 65536  # bytes
+
+# VT control sequences (squawk 0165). ConPTY repaints the screen with VT, so
+# the Windows backend strips them from what it returns to the agent.
+_VT_OSC = re.compile(rb"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?")
+_VT_CSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]?")
+_VT_OTHER_ESC = re.compile(rb"\x1b[ -/]*[0-~]?")
+
+
+def strip_vt_sequences(data: bytes) -> bytes:
+    """Remove VT/ANSI control sequences from terminal output.
+
+    Strips OSC (``ESC ] ... BEL|ST``), CSI (``ESC [ ... final``) and other
+    ESC sequences, drops stray BEL, and applies a backspace by deleting the
+    preceding character on the same line. CR and LF are kept as they are.
+    Plain text is unchanged. Cursor movement is dropped, not emulated.
+    """
+    if b"\x1b" in data:
+        data = _VT_OSC.sub(b"", data)
+        data = _VT_CSI.sub(b"", data)
+        data = _VT_OTHER_ESC.sub(b"", data)
+    data = data.replace(b"\x07", b"")
+    if b"\x08" in data:
+        out = bytearray()
+        for b in data:
+            if b == 0x08:
+                if out and out[-1] not in (0x0A, 0x0D):
+                    out.pop()
+            else:
+                out.append(b)
+        data = bytes(out)
+    return data
 
 
 class PtySession(ABC):

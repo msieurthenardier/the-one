@@ -68,6 +68,15 @@ The Flight Director (Mission Control) orchestrates this phase using the
 1. Flight Director spawns **Developer** to commit the whole flight
 2. Developer commits code + artifacts in one commit, reports the commit ref
 
+### Outward steps (workflow dispatch, tag push, release)
+Project rule (squawk 0268). This is project configuration, not a plugin file; if
+`/mission-control:init-project` ever resets this file, re-apply it.
+1. An outward step runs as its own command, never chained after a commit or a push
+   with `;` or `&&` (a failed commit must not still dispatch on the old head).
+2. Before it runs, check the pushed head equals the intended commit
+   (`git rev-parse HEAD origin/<branch>`).
+3. Record its run id and head SHA right after it runs.
+
 ### Batch mode (default for UI migration flights)
 The operator's standing preference (Mission 31, Flights 4-6): the autonomous legs
 run in planned batches with a checkpoint commit at each batch end, and one HAT
@@ -188,7 +197,10 @@ in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,
 
 Never write or run a helper script (Python, sed, shell redirection, a heredoc or
 the like) that writes a source or test file; edit source and test files only
-through the edit tool (squawk 0286). When a new test must be shown to fail without
+through the edit tool (squawk 0286). A project `PreToolUse` hook
+(`.claude/settings.json` -> `.claude/hooks/block_shell_writes.py`, squawk 0292) now refuses
+such shell writes into `the_one/`, `tests/`, `docs/`, `scripts/`, `missions/` and `evals/`
+with exit 2; it fails open on anything it cannot parse. When a new test must be shown to fail without
 its fix (falsified), remove the fix by editing, run the test, then put the fix back
 by editing; never restore a whole file or put back a backup copy (squawk 0284). A
 file that had to be rebuilt is reported with a diff against HEAD
