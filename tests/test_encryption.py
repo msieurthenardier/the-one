@@ -182,6 +182,16 @@ class TestPendingKey:
         with pytest.raises(RuntimeError, match="no key_path set"):
             enc.promote_pending_key(Fernet.generate_key())
 
+    def test_promote_no_argument_without_key_path_raises(self) -> None:
+        """The no-argument path (promote the staged key) reaches the key_path guard.
+
+        The constructor accepts a pending key without a key_path, so the
+        "no pending key" check passes and the key_path guard is what fires.
+        """
+        enc = Encryptor(Fernet.generate_key(), pending_key=Fernet.generate_key())
+        with pytest.raises(RuntimeError, match="no key_path set"):
+            enc.promote_pending_key()
+
     @pytest.mark.skipif(
         os.name != "posix",
         reason="POSIX-only: Windows does not model 0o600 file permissions",

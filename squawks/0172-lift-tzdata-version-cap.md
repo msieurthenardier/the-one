@@ -1,6 +1,6 @@
 # Squawk 0172: Lift the `tzdata<2026.5` cap
 
-**Status**: deferred
+**Status**: open
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-11
@@ -28,3 +28,4 @@ under the 14-day soak window. It is still under it on 2026-10-11. Revisit
 **on or after 2026-10-17**: remove the `<2026.5` bound, re-lock, check that
 `the-one doctor` reports `time zones: OK`, and complete this squawk.
 **Trigger fired** (2026-10-30): the revisit date has passed and tzdata 2026.6 is on PyPI; the cap is still `<2026.5` (`pyproject.toml:31`). Waiting on the operator's approval to lift ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **operator approved lifting the cap.** Next turnaround: remove `<2026.5`, re-lock, check that `the-one doctor` reports `time zones: OK`, and batch it with 0226/0227 (same `pyproject.toml`).

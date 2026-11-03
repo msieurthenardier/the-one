@@ -642,7 +642,7 @@ MOUNT_PANE_JS = """() => {
   const c = App.ui.listPane({
     title: 'Providers', testid: 'lp-root', emptyText: 'No providers match',
     filter: {label: 'Filter providers', placeholder: 'Filter', testid: 'lp-filter'},
-    selectedId: 'b', density: DENSITY,
+    selectedId: 'b',
     items: [
       {id: 'a', label: 'Alpha', meta: 'first', onSelect: () => {}, badges: [{text: 'ollama', kind: 'ollama'}, 'plain', {text: 'neutral'}], count: 12, testid: 'row-a'},
       {id: 'b', label: 'Beta', meta: 'second', href: '#b', badges: ['tag'], count: 3, testid: 'row-b'},
@@ -652,9 +652,9 @@ MOUNT_PANE_JS = """() => {
 }"""
 
 
-def _pane(page: Page, density: str = "regular", theme: str = "dark") -> None:
+def _pane(page: Page, theme: str = "dark") -> None:
     _load(page, theme)
-    page.evaluate(MOUNT_PANE_JS.replace("DENSITY", repr(density)))
+    page.evaluate(MOUNT_PANE_JS)
 
 
 def test_list_pane_empty_is_an_empty_state_and_badges_count(engine_page: Page) -> None:
@@ -704,19 +704,14 @@ def test_list_pane_selected_row_secondary_ink(engine_page: Page, theme: str) -> 
         assert out[key] == out["muted"], key
 
 
-def test_list_pane_regular_and_compact_density_computed(engine_page: Page) -> None:
-    _pane(engine_page, "regular")
+def test_list_pane_regular_density_computed(engine_page: Page) -> None:
+    _pane(engine_page)
     reg = engine_page.evaluate(
         """() => { const r = getComputedStyle(document.querySelector('.ui-list-pane-row'));
                    const l = getComputedStyle(document.querySelector('.ui-list-pane-list'));
                    return {pad: [r.paddingTop, r.paddingRight, r.paddingBottom, r.paddingLeft], gap: l.rowGap}; }"""
     )
     assert reg == {"pad": ["8px", "10px", "8px", "10px"], "gap": "2px"}
-    _pane(engine_page, "compact")
-    pad = engine_page.evaluate(
-        "() => { const r = getComputedStyle(document.querySelector('.ui-list-pane-row')); return [r.paddingTop, r.paddingLeft]; }"
-    )
-    assert pad == ["6px", "10px"]
 
 
 def test_list_pane_live_region_announces_filter_results(engine_page: Page) -> None:

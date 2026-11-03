@@ -58,6 +58,42 @@ def _missed_reason(n: int) -> str:
     return f"Missed {n} runs while the app was closed."
 
 
+def _log_decision(
+    decision: str,
+    routine_id: str,
+    agent_name: str,
+    due: str | None,
+    *,
+    late_s: float | None = None,
+    run: str | None = None,
+    trigger: str | None = None,
+    nxt: str | None = None,
+    finished: bool | None = None,
+    reason: str | None = None,
+) -> None:
+    """One line per scheduler decision (operator-facing vocabulary, `agents.md` "Routine log
+    lines"). Key order: decision, run, routine, agent, trigger, due, late_s, next, finished,
+    reason; a key not passed is omitted. ``unreadable_due`` is a WARNING with a quoted due."""
+    parts = [f"routine decision={decision}"]
+    if run is not None:
+        parts.append(f"run={run}")
+    parts.append(f"routine={routine_id}")
+    parts.append(f"agent={agent_name!r}")
+    if trigger is not None:
+        parts.append(f"trigger={trigger}")
+    parts.append(f"due={due!r}" if decision == "unreadable_due" else f"due={due}")
+    if late_s is not None:
+        parts.append(f"late_s={late_s:.1f}")
+    if nxt is not None:
+        parts.append(f"next={nxt}")
+    if finished is not None:
+        parts.append(f"finished={finished}")
+    if reason is not None:
+        parts.append(f"reason={reason!r}")
+    level = logging.WARNING if decision == "unreadable_due" else logging.INFO
+    logger.log(level, "%s", " ".join(parts))
+
+
 class RoutineScheduler:
     def __init__(
         self,
@@ -219,12 +255,7 @@ class RoutineScheduler:
         due = _parse(due_iso)
         anchor = _parse(r.anchor_at)
         if due is None or due_iso is None:
-            logger.warning(
-                "routine decision=unreadable_due routine=%s agent=%r due=%r",
-                r.id,
-                r.agent_name,
-                due_iso,
-            )
+            _log_decision("unreadable_due", r.id, r.agent_name, due_iso)
             return
         g = recurrence.grace(r.schedule, anchor, due, zone)
         late = now - due
@@ -238,13 +269,7 @@ class RoutineScheduler:
         finished = now.isoformat() if nxt is None else None
         if not await repo.advance_if_due(r.id, due_iso, nxt.isoformat() if nxt else None, finished):
             # edited, disabled or deleted since list_due: the edit wins
-            logger.info(
-                "routine decision=skip_changed routine=%s agent=%r due=%s late_s=%.1f",
-                r.id,
-                r.agent_name,
-                due_iso,
-                late.total_seconds(),
-            )
+            _log_decision("skip_changed", r.id, r.agent_name, due_iso, late_s=late.total_seconds())
             return
         nxt_text = nxt.isoformat() if nxt else "none"
         if not runs_now:
@@ -264,17 +289,16 @@ class RoutineScheduler:
                 )
                 reason = _missed_reason(n)
             row = await self._record(runs, r.id, "schedule", "missed", reason, due_iso, now)
-            logger.info(
-                "routine decision=missed run=%s routine=%s agent=%r due=%s late_s=%.1f "
-                "next=%s finished=%s reason=%r",
-                row.id,
+            _log_decision(
+                "missed",
                 r.id,
                 r.agent_name,
                 due_iso,
-                late.total_seconds(),
-                nxt_text,
-                finished is not None,
-                reason,
+                late_s=late.total_seconds(),
+                run=row.id,
+                nxt=nxt_text,
+                finished=finished is not None,
+                reason=reason,
             )
             return
         rid = r.id
@@ -284,17 +308,15 @@ class RoutineScheduler:
             decision = "still_running_skip"
         else:
             decision = "spawn"
-        logger.info(
-            "routine decision=%s routine=%s agent=%r trigger=%s due=%s late_s=%.1f "
-            "next=%s finished=%s",
+        _log_decision(
             decision,
             rid,
             r.agent_name,
-            trigger,
             due_iso,
-            late.total_seconds(),
-            nxt_text,
-            finished is not None,
+            late_s=late.total_seconds(),
+            trigger=trigger,
+            nxt=nxt_text,
+            finished=finished is not None,
         )
 
     @staticmethod

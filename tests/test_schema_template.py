@@ -159,6 +159,22 @@ def test_no_direct_schema_builds_outside_allow_list() -> None:
     )
 
 
+def test_direct_calls_are_found_through_the_prefilter(tmp_path: Path) -> None:
+    """A planted call to either builder is reported, by name or attribute (squawk 0306)."""
+    planted = {
+        "a.py": "async def t(db):\n    await ensure_schema(db)\n",
+        "b.py": "async def t():\n    await init_db(p)\n",
+        "c.py": "async def t(m, db):\n    await m.ensure_schema(db)\n",
+    }
+    for name, source in planted.items():
+        path = tmp_path / name
+        path.write_text(source, encoding="utf-8")
+        assert _direct_calls(path) == [2], name
+    clean = tmp_path / "clean.py"
+    clean.write_text("x = 1\n", encoding="utf-8")
+    assert _direct_calls(clean) == []
+
+
 def test_allow_list_entries_exist_and_are_used() -> None:
     root = TESTS_DIR.parent
     for rel in ALLOWED_DIRECT_CALLERS:

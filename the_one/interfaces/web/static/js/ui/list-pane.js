@@ -86,9 +86,9 @@
   //   function(query) -> string called with the trimmed filter query, so the
   //   empty state and the filter status can name the query; '' when no query
   //   is active), items | groups,
-  //   selectedId, density (regular | compact), rowStyle ('agents' | 'library':
+  //   selectedId, rowStyle ('agents' | 'library':
   //   the reference row geometry with a 1px rest border that the selection
-  //   colours; it wins over density, and without it rows keep the inset-ring
+  //   colours; without it rows keep the inset-ring
   //   selection), and the test id option on the root section.
   //   group: {id, label, emptyText, items}. id is optional and, when given,
   //   unique across the groups (a duplicate throws); scrollToGroup(id) finds
@@ -194,7 +194,6 @@
     var query = '';
     var entries = [];
     var groupNodes = [];
-    var density = opts.density === 'compact' ? 'compact' : 'regular';
     var filterInput = null;
     var countEl = null;
     var lastShown = 0; // rows the last applyView left visible (for announce)
@@ -208,7 +207,7 @@
     if (opts.actions && opts.actions.length) {
       header.appendChild(util.el('div', { className: 'ui-list-pane-actions' }, opts.actions));
     }
-    var rootClass = 'ui-list-pane ui-list-pane-' + density;
+    var rootClass = 'ui-list-pane';
     if (opts.rowStyle) rootClass += ' ui-list-pane-styled ui-list-pane-style-' + opts.rowStyle;
     var root = util.el('section', { className: rootClass, 'aria-labelledby': titleId }, [header]);
     if (opts.testid) root.setAttribute('data-testid', opts.testid);

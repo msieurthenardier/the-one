@@ -24,3 +24,6 @@
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **operator approved the eval run** (plan quota) the description change needs: `measure-prompt`, then `compare --baseline evals/baselines/m30-platform.json`. Burn-down next turnaround.

@@ -33,3 +33,6 @@ Find which package versions differ between the two venvs (`pip freeze` diff), na
 **Reviewer**:
 **Verdict**:
 **Commit**:
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** **Merged into [0241](0241-unit-tests-fail-under-fresh-dependencies.md)** as the primary record; complete together (second wave of the burn-down).

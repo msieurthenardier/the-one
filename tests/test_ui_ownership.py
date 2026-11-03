@@ -449,6 +449,15 @@ def test_two_classes_in_one_literal_count_both() -> None:
     }
 
 
+def test_prefiltered_scans_still_report_a_planted_use() -> None:
+    """The substring pre-filters in both scans must never skip a real use (squawk 0306)."""
+    names = ["field-input", "btn-ghost"]
+    planted_js = "el.className = 'row field-input';\nel.className = 'btn-ghost';"
+    assert dict(count_js_uses(planted_js, names)) == {"field-input": 1, "btn-ghost": 1}
+    planted_css = ".area .field-input:hover { color: red; }\n.btn-ghost { }"
+    assert dict(count_css_uses(planted_css, names)) == {"field-input": 1, "btn-ghost": 1}
+
+
 def test_css_declaration_values_are_ignored_but_selectors_count() -> None:
     css = (
         "/* .field-input in a comment */\n"

@@ -45,9 +45,9 @@ Every line is cross-checked against `GET /api/agents/{name}/routines/{id}/runs`.
 - The scratch data directory is fresh. The default log level (INFO) is in force.
 - `sqlite3` is on the PATH (used once, while the instance is stopped).
 - The host clock is correct. Steps 3 and 4 wait on real time (about 5 minutes).
-- Every routine and purge line appears twice in `serve.log`: once from the app's logger
-  handler (`<date> INFO the_one.routines.scheduler: routine decision=...`) and once from
-  the console (rich) handler, sometimes truncated. Judge only the logger-format lines.
+- Each routine and purge line appears once in `serve.log`, in the app's logger format
+  (`<date> INFO the_one.routines.scheduler: routine decision=...`); the rich console
+  handler no longer repeats `the_one` records (squawk 0308).
 - **Line formats** (key=value, ids bare, agent names `%r`-quoted):
   - `routine decision=spawn|still_running_skip routine=<id> agent='<name>' trigger=schedule|catch_up due=<iso> late_s=<n> next=<iso|none> finished=<True|False>`
   - `routine decision=missed run=<run id> routine=<id> agent='<name>' due=<iso> late_s=<n> next=<iso|none> finished=<True|False> reason='<text>'`

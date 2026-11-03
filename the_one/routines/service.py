@@ -632,7 +632,7 @@ async def agent_change(
         assert current is not None
         await delete_routine(repo, agent_name, current.id, proposal=op)
     applied_id = routine.id if routine else (current.id if current else None)
-    _log_proposal(row.get("proposal_id"), agent_name, action, "applied", untrusted, applied_id)
+    _log_proposal(op.applied_id, agent_name, action, "applied", untrusted, applied_id)
     return AgentChangeResult(
         pending=False,
         routine=routine,

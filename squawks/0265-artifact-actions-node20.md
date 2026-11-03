@@ -1,6 +1,6 @@
 # Squawk 0265: the artifact actions still target Node.js 20
 
-**Status**: open
+**Status**: deferred
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-26
@@ -24,3 +24,4 @@ Every job that uploads an artifact warns: "Node.js 20 is deprecated. The followi
 
 ## Disposition
 - **Logged** by the Flight Director during the `v0.12.0` release run (Mission 32 Flight 4, leg 6), at the operator's mention. Deferred out of the release so the workflows are not changed mid-release.
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** deferred. Still valid: 7 upload and 5 download uses of the `@v4` actions. Verification needs a hosted dispatch. **Revisit trigger:** the next hosted `release.yml` dry run or platform-package dispatch.

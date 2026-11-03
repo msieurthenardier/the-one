@@ -43,3 +43,6 @@ The next fresh install, CI image rebuild or new developer machine will hit the s
 **Commit**:
 
 - **2026-11-02 (Mission 34 Flight 1 Leg 2):** `test_detail_view_indexing_poll_reindex_and_search` passed in the `knowledge` lane of the quiet-host `--parallel 3` run (65 passed). Stays open.
+
+## Disposition
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** primary record for 0225 too. Second wave of the burn-down: reproduce in a scratch venv outside the repo, diff `pip freeze`, and fix per file. Escalate if it needs a lockfile/constraints policy decision.

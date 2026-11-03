@@ -703,7 +703,6 @@
     text-decoration: none;
     cursor: pointer;
   }
-  .ui-list-pane-compact .ui-list-pane-row { padding: 6px 10px; font-size: var(--font-size-caption); }
   .ui-list-pane-row:hover { background: var(--surface-elevated); }
   .ui-list-pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   /* Selected: aria-current="page" on a link row, "true" on a button row (an
@@ -747,8 +746,7 @@
   .ui-list-pane-row[aria-current="true"] .ui-list-pane-time { color: var(--fg-secondary); }
   /* rowStyle (M25 F3 L1, A8): the reference row geometry per list, 13px names,
      and the section 3 selection model. A 1px transparent border at rest that
-     the selection colours, so selecting never shifts layout. Placed after the
-     compact rule so rowStyle padding wins over density. */
+     the selection colours, so selecting never shifts layout. */
   .ui-list-pane-styled .ui-list-pane-row {
     gap: 10px;
     border: 1px solid transparent;

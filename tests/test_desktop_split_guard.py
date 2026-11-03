@@ -239,22 +239,30 @@ def _conftest_fixtures() -> set[str]:
     return shell_fixtures((TESTS / "conftest.py").read_text(encoding="utf-8"))
 
 
+def _prefiltered_violations(
+    source: str, allowed: set[str], fixtures: set[str]
+) -> list[tuple[int, str]]:
+    """The guard's per-file check: pre-filter, then ``find_violations``.
+
+    Every way the guard recognises the shell module (a dotted path, an absolute import, a
+    string target, sys.modules, import_module) spells out SHELL_PACKAGE, and the only other
+    route is one of conftest's shell-returning fixtures used by name; every other file is
+    skipped before its AST is built (an exact, cheap pre-filter)."""
+    needles = {SHELL_PACKAGE} | fixtures
+    if not any(needle in source for needle in needles):
+        return []
+    return find_violations(source, allowed, fixtures)
+
+
 def test_no_test_patches_a_name_shell_does_not_define():
     allowed = defined_names(SHELL_PATH.read_text(encoding="utf-8"))
     fixtures = _conftest_fixtures()
     problems = []
-    # Every way the guard recognises the shell module (a dotted path, an absolute import, a
-    # string target, sys.modules, import_module) spells out SHELL_PACKAGE, and the only other
-    # route is one of conftest's shell-returning fixtures used by name; every other file is
-    # skipped before its AST is built (an exact, cheap pre-filter).
-    needles = {SHELL_PACKAGE} | fixtures
     for path in _source_scan.py_files(TESTS):
         if path == Path(__file__).resolve():
             continue
         source = _source_scan.text(path)
-        if not any(needle in source for needle in needles):
-            continue
-        for line, name in find_violations(source, allowed, fixtures):
+        for line, name in _prefiltered_violations(source, allowed, fixtures):
             problems.append(f"{path.relative_to(REPO)}:{line}: shell.{name}")
     assert not problems, (
         "These tests patch or assign a name through the desktop shell module that shell.py "
@@ -380,6 +388,15 @@ def test_a_conftest_fixture_is_followed_from_another_file():
     assert fixtures == {"the_shell"}
     src = 'def test_x(monkeypatch, the_shell):\n    monkeypatch.setattr(the_shell, "X", 1)\n'
     assert [n for _, n in find_violations(src, ALLOWED, fixtures)] == ["X"]
+
+
+def test_the_prefilter_never_skips_a_planted_violation():
+    """A violating file passes the pre-filter by package path or by fixture name (0306)."""
+    by_package = f"from {SHELL_PACKAGE} import shell\nshell.X = 1\n"
+    assert [n for _, n in _prefiltered_violations(by_package, ALLOWED, set())] == ["X"]
+    by_fixture = 'def test_x(monkeypatch, the_shell):\n    monkeypatch.setattr(the_shell, "X", 1)\n'
+    assert [n for _, n in _prefiltered_violations(by_fixture, ALLOWED, {"the_shell"})] == ["X"]
+    assert _prefiltered_violations("x = 1\n", ALLOWED, {"the_shell"}) == []
 
 
 def test_a_module_that_is_not_shell_is_not_flagged():

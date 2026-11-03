@@ -1184,12 +1184,6 @@ def test_list_pane_forced_colors_cover_both_selection_models(engine_page: Page) 
     assert [r["h"] for r in styled_btn["after"]] == [r["h"] for r in styled_btn["before"]]
 
 
-def test_list_pane_row_style_wins_over_compact_density(engine_page: Page) -> None:
-    _load(engine_page)
-    out = engine_page.evaluate(f"({ROW_STYLE_JS})({{rowStyle: 'agents', density: 'compact'}})")
-    assert {r["pad"] for r in out["before"]} == {"7px 10px"}
-
-
 def test_list_pane_default_row_style_is_unchanged(engine_page: Page) -> None:
     """Without rowStyle: no border, 8px 10px, 2px list gap, and the inset ring."""
     _load(engine_page)

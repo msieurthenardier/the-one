@@ -1,6 +1,6 @@
 # Squawk 0253: the AppImage's first launch on Ubuntu shows an empty window for about 20 s
 
-**Status**: open
+**Status**: deferred
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-24
@@ -38,3 +38,4 @@ Reproduce:
 - **Logged** by the Flight Director at Mission 32 Flight 2's `linux-hat`, on the operator's decision ("Squawk the 20 s blank").
 - **Id note:** Mission 31 was told to take its next squawk id from 0252, so this one takes 0253 to avoid a collision.
 - **Escalate if** the fix needs a change to the desktop launch sequence's design.
+- **2026-11-02 triage (Flight Director, Mission 34 squawk turnaround):** deferred. It needs the fresh-VM apparatus. **Revisit trigger:** the next Linux VM run (`packaging/linux/vm/vm.sh up ubuntu --visible`), or the next release's pre-release check.
