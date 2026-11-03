@@ -104,7 +104,8 @@ from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
 from the_one.mcp._era import forget_era
-from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS, configured_names, missing_values
+from the_one.mcp.override_validation import carries_credentials, validate_mcp_overrides
 from the_one.naming import (
     NAME_CONFLICT_AGENT,
     SAME_AS_CURRENT,
@@ -352,6 +353,71 @@ async def _normalize_surface_fields(
         data["mcp_source_ids"] = await self_configuration_manage.carry_surface_attachment(
             name, incoming_ids, stored_ids, mcp_repo=mcp_repo
         )
+
+
+async def _validate_mcp_override_credentials(
+    data: dict[str, Any], mcp_repo: MCPSourceRepository
+) -> None:
+    """Sortie 09 DD2: 422 (one list, the sortie 07 shape) on a refused per-agent
+    credential in the RAW body, before the credential merge. The source list is
+    read only when the body carries a credential key."""
+    incoming = data.get("mcp_overrides")
+    if not carries_credentials(incoming):
+        return
+    sources = {s.name: s for s in await mcp_repo.list()}
+    details = validate_mcp_overrides(incoming, sources, _looks_masked)
+    if details:
+        raise HTTPException(status_code=422, detail=details)
+
+
+def _credential_view(overrides: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """``{source name: {credential key: value}}`` for the non-empty credential keys
+    of an ``mcp_overrides`` map (the part a change of which needs a new connection)."""
+    out: dict[str, dict[str, Any]] = {}
+    for source_name, entry in (overrides or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        view = {
+            k: entry[k] for k in MCP_OVERRIDE_CREDENTIAL_KEYS if entry.get(k) not in (None, {}, "")
+        }
+        if view:
+            out[source_name] = view
+    return out
+
+
+async def _evict_changed_mcp_credentials(
+    agent_name: str,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+    mcp_repo: MCPSourceRepository,
+) -> None:
+    """Sortie 09 DD7: after an agent write commits, evict the pool entry of every
+    source whose credentials (``headers``/``env``/``bearer_token``) differ between
+    ``before`` and ``after``, so the agent's next connection uses the new values.
+    No eviction when nothing credential-related changed. Never raises."""
+    old_view, new_view = _credential_view(before), _credential_view(after)
+    changed = {n for n in old_view.keys() | new_view.keys() if old_view.get(n) != new_view.get(n)}
+    if not changed:
+        return
+    from the_one.mcp._pool import _evict
+
+    try:
+        for source in await mcp_repo.list():
+            if source.name in changed:
+                await _evict((agent_name, source.id))
+    except Exception:
+        logger.warning("could not evict MCP connections for agent %r", agent_name, exc_info=False)
+
+
+async def _evict_agent_connections(agent_name: str) -> None:
+    """Sortie 09 DD7: evict every pool entry under ``agent_name`` (rename, delete).
+    Never raises."""
+    from the_one.mcp._pool import _evict_all_for_agent
+
+    try:
+        await _evict_all_for_agent(agent_name)
+    except Exception:
+        logger.warning("could not evict MCP connections for agent %r", agent_name, exc_info=False)
 
 
 def _drop_surface_override(merged: Any) -> Any:
@@ -1252,6 +1318,8 @@ async def create_agent(request: Request) -> dict[str, Any]:
     mcp_repo = await _mcp_repo()
     # Sortie 08: the self-configuration server is server-owned (DD3 422, DD7, DD2).
     await _normalize_surface_fields(data, data["name"], [], mcp_repo=mcp_repo)
+    # Sortie 09 DD2: a refused per-agent credential is a 422 on its loc.
+    await _validate_mcp_override_credentials(data, mcp_repo)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # No stored row to preserve against (`stored=None`) — this drops
@@ -1281,6 +1349,9 @@ async def create_agent(request: Request) -> dict[str, Any]:
     if await store.exists(cfg.name):
         raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
     await store.save(cfg)
+    # Sortie 09 DD7: a re-created name may have a stale pool entry; evict what
+    # carries credentials (harmless when there is none).
+    await _evict_changed_mcp_credentials(cfg.name, None, cfg.mcp_overrides, mcp_repo)
     return await _full_agent_response(cfg, rows)
 
 
@@ -1312,6 +1383,8 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # Sortie 08: the self-configuration server is server-owned (DD3 422 on the
     # raw body, DD7 strip, DD2 carry of the stored attachment).
     await _normalize_surface_fields(data, name, existing.mcp_source_ids, mcp_repo=mcp_repo)
+    # Sortie 09 DD2: a refused per-agent credential is a 422 on its loc.
+    await _validate_mcp_override_credentials(data, mcp_repo)
     incoming_overrides = data.get("mcp_overrides")
     if incoming_overrides is None or isinstance(incoming_overrides, dict):
         # `data.get(...)` cannot distinguish "key omitted" from "key
@@ -1371,6 +1444,8 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         # deleted later stays editable (and fixable).
         await _check_agent_provider(cfg.provider_config_id)
     await store.save(cfg)
+    # Sortie 09 DD7: the agent's next connection must use the new credentials.
+    await _evict_changed_mcp_credentials(name, existing.mcp_overrides, cfg.mcp_overrides, mcp_repo)
     return await _full_agent_response(cfg, rows)
 
 
@@ -1386,6 +1461,7 @@ async def delete_agent(name: str) -> dict[str, str]:
     # surface.
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_delete(name, mcp_repo=mcp_repo)
+    await _evict_agent_connections(name)
     return {"status": "ok"}
 
 
@@ -1439,6 +1515,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     # unaffected.
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_rename(name, new_name, mcp_repo=mcp_repo)
+    await _evict_agent_connections(name)
     cfg = await store.load(new_name)
     return await _full_agent_response(cfg)
 
@@ -3383,6 +3460,10 @@ def _reject_reserved_surface_name(source: MCPSource) -> None:
         )
 
 
+def _config_without_cache(source: MCPSource) -> dict[str, Any]:
+    return {k: v for k, v in (source.config or {}).items() if k != "_cache"}
+
+
 @router.put("/mcp-sources/{source_id}")
 async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
     data = await _read_json(request)
@@ -3503,6 +3584,19 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         updated = updated.model_copy(update={"config": new_config})
     await repo.update(updated)
     forget_era(source_id)
+    # Sortie 09 DD7: a change of type, config (the `_cache` is server-managed) or
+    # secrets reaches every agent's next connection to this source.
+    if (
+        updated.type != existing.type
+        or _config_without_cache(updated) != _config_without_cache(existing)
+        or updated.secrets != existing.secrets
+    ):
+        from the_one.mcp._pool import _evict_all_for_source
+
+        try:
+            await _evict_all_for_source(source_id)
+        except Exception:
+            logger.warning("could not evict MCP connections for %r", source_id, exc_info=False)
     # DD8: the rename carries into the attached agents' overrides and
     # disabled tools. Runs after the row commit (write_transaction cannot
     # nest); acquiring the store is guarded like update_knowledge_base's so
@@ -3752,6 +3846,8 @@ async def _build_and_test_no_auth_mcp(
     *,
     record_era: bool = True,
     from_fallthrough: bool = False,
+    cache_write: Literal["none", "shared", "shared_no_posture"] = "shared",
+    classify: bool = False,
 ) -> dict[str, Any]:
     """Connect + list_tools against a no-auth streamable-http MCP source.
 
@@ -3775,6 +3871,14 @@ async def _build_and_test_no_auth_mcp(
         from_fallthrough: True only when entered from the DD9 fall-through
             (probe verdict ``unexpected_status``). A 401 then returns the
             ``_SIGNIN_REQUIRED`` sentinel instead of the race-branch error.
+        cache_write: Sortie 09 DD6. ``"shared"`` (default) writes the shared
+            ``_cache`` fields including ``auth_posture: "no_auth"``;
+            ``"shared_no_posture"`` writes the same fields without
+            ``auth_posture``; ``"none"`` writes nothing.
+        classify: Sortie 09 DD3. With ``from_fallthrough`` also true, only an
+            ``MCPAuthRequired`` returns ``_SIGNIN_REQUIRED``; an
+            ``MCPCredentialsRejected`` (a bare 401 to configured headers) is the
+            normal error dict. False keeps the fold of both into the sentinel.
 
     Returns:
         ``{status: "ok", tools, capabilities}`` on success, or
@@ -3812,31 +3916,31 @@ async def _build_and_test_no_auth_mcp(
                 }
                 for t in tools
             ]
-            try:
-                await repo.merge_cache(
-                    source_id,
-                    {
-                        "tools": tools_cache_payload,
-                        "capabilities": capabilities,
-                        "server_info": server_info,
-                        "instructions": instructions,
-                        "meta": meta,
-                        "protocol_version": protocol_version,
-                        "last_updated": time.time(),
-                        "auth_posture": "no_auth",
-                    },
-                )
-            except Exception:
-                # Best-effort persistence — a write failure must not break the
-                # response contract (mirrors the Phase A persistence pattern).
-                pass
+            if cache_write != "none":
+                cache_fields: dict[str, Any] = {
+                    "tools": tools_cache_payload,
+                    "capabilities": capabilities,
+                    "server_info": server_info,
+                    "instructions": instructions,
+                    "meta": meta,
+                    "protocol_version": protocol_version,
+                    "last_updated": time.time(),
+                }
+                if cache_write == "shared":
+                    cache_fields["auth_posture"] = "no_auth"
+                try:
+                    await repo.merge_cache(source_id, cache_fields)
+                except Exception:
+                    # Best-effort persistence — a write failure must not break the
+                    # response contract (mirrors the Phase A persistence pattern).
+                    pass
         return {
             "status": "ok",
             "tools": tools_cache_payload,
             "capabilities": capabilities,
         }
     except (MCPAuthRequired, MCPCredentialsRejected) as e:
-        if from_fallthrough:
+        if from_fallthrough and not (classify and isinstance(e, MCPCredentialsRejected)):
             # A bare 401 from a server that may still be OAuth-only (2026-07-28 with no
             # metadata): Phase B decides with its own discovery evidence.
             return _SIGNIN_REQUIRED
@@ -3863,8 +3967,13 @@ async def _build_and_test_stdio_mcp(
     repo: MCPSourceRepository,
     *,
     record_era: bool = True,
+    cache_write: Literal["none", "shared", "shared_no_posture"] = "shared",
 ) -> dict[str, Any]:
     """Connect + list_tools against a stdio MCP source.
+
+    ``cache_write`` (sortie 09 DD6): ``"none"`` writes no cache field; both
+    ``"shared"`` and ``"shared_no_posture"`` write today's fields (stdio never
+    writes ``auth_posture``).
 
     F9 L2 D1 sibling of ``_build_and_test_no_auth_mcp``: stdio has no
     OAuth concept (no Phase 0 / Phase A / Phase B), so the Test path is
@@ -3918,23 +4027,24 @@ async def _build_and_test_stdio_mcp(
                 }
                 for t in tools
             ]
-            try:
-                await repo.merge_cache(
-                    source_id,
-                    {
-                        "tools": tools_cache_payload,
-                        "capabilities": capabilities,
-                        "server_info": server_info,
-                        "instructions": instructions,
-                        "meta": meta,
-                        "protocol_version": protocol_version,
-                        "last_updated": time.time(),
-                    },
-                )
-            except Exception:
-                # Best-effort persistence — a write failure must not break the
-                # response contract (mirrors the http no-auth helper).
-                pass
+            if cache_write != "none":
+                try:
+                    await repo.merge_cache(
+                        source_id,
+                        {
+                            "tools": tools_cache_payload,
+                            "capabilities": capabilities,
+                            "server_info": server_info,
+                            "instructions": instructions,
+                            "meta": meta,
+                            "protocol_version": protocol_version,
+                            "last_updated": time.time(),
+                        },
+                    )
+                except Exception:
+                    # Best-effort persistence — a write failure must not break the
+                    # response contract (mirrors the http no-auth helper).
+                    pass
         return {
             "status": "ok",
             "tools": tools_cache_payload,
@@ -4171,7 +4281,31 @@ async def _test_mcp_connection_inner(
         source.secrets.get("dcr_credentials") and source.secrets.get("access_token")
     )
 
-    if cached_posture == "no_auth" and not has_live_tokens:
+    # Sortie 09 DD3: a source with a configured-but-blank header ("Set per agent")
+    # takes this path BEFORE the cached-posture return and Phase 0's probe. With
+    # live sign-in tokens, Phase A runs as today. Without them: the no-auth helper
+    # runs without writing `auth_posture`, and only a 401 that names a sign-in
+    # (`MCPAuthRequired`) goes on to Phase B -- a bare 401 is a plain
+    # "needs a value" error, and no client registration runs.
+    missing_entered = False
+    if not has_live_tokens and missing_values(source, source):
+        missing_result = await _build_and_test_no_auth_mcp(
+            source,
+            source_id,
+            repo,
+            record_era=record_era,
+            from_fallthrough=True,
+            cache_write="shared_no_posture",
+            classify=True,
+        )
+        if missing_result is not _SIGNIN_REQUIRED:
+            return missing_result, recordable
+        missing_entered = True
+        # No `_persist_oauth_posture` here and `rejection_evidence` stays False:
+        # the 401 was to a request that lacked the blank header.
+        signin_via_discover = True
+
+    if cached_posture == "no_auth" and not has_live_tokens and not missing_entered:
         return (
             await _build_and_test_no_auth_mcp(source, source_id, repo, record_era=record_era)
         ), recordable
@@ -4185,7 +4319,7 @@ async def _test_mcp_connection_inner(
     # stale cache. A genuine OAuth server simply re-probes to "oauth" again
     # (one cheap round trip on this operator-initiated test path) and falls
     # through to Phase B exactly as before.
-    if cached_posture in (None, "oauth") and not has_live_tokens:
+    if cached_posture in (None, "oauth") and not has_live_tokens and not missing_entered:
         server_url = source.config.get("url", "")
         # Pass the operator's configured headers (static bearer, custom
         # key/value rows) so a header-auth server probes as no_auth instead
@@ -4372,7 +4506,7 @@ async def _test_mcp_connection_inner(
         this request's operator-header requests already got 401."""
         from mcp.client.auth import OAuthClientProvider, OAuthRegistrationError
 
-        if not rejection_evidence or not build_request_headers(source):
+        if not rejection_evidence or not configured_names(source):
             return False
         if not isinstance(exc, OAuthRegistrationError):
             return False

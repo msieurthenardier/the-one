@@ -389,9 +389,16 @@ def build_stdio_environ(source: MCPSource, allowlist_env: dict[str, str]) -> dic
     {**config, **secrets} which would inject command/args/cwd as
     env-var-shaped keys. The kv table for stdio sources lives at
     config["env"], not at config top-level.
+
+    Sortie 09 DD3: a name in layer 2 whose value is empty once trimmed is
+    DROPPED before the merge, so a blank Library value means "not set here" and
+    the allowlist's value for that name (a host variable) goes through where a
+    blank would otherwise have overridden it.
     """
     config_env: dict[str, str] = source.config.get("env", {}) or {}
-    return {**allowlist_env, **config_env, **source.secrets}
+    kv = {**config_env, **source.secrets}
+    kv = {k: v for k, v in kv.items() if not (isinstance(v, str) and not v.strip())}
+    return {**allowlist_env, **kv}
 
 
 def _build_stdio_params(source: MCPSource) -> tuple[StdioServerParameters, ToolSandbox]:

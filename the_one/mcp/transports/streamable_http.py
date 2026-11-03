@@ -178,16 +178,20 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
     the auth-posture probe then miscategorises as a connection error. HTTP OWS
     semantics treat surrounding whitespace as insignificant anyway, so stripping
     is lossless. Non-string values (defensive) pass through untouched.
+
+    Sortie 09 DD3: a name whose final value is empty once trimmed is DROPPED, not
+    sent as an empty header ("Set per agent": a blank means "not set here").
     """
     config_headers: dict[str, str] = source.config.get("headers", {}) or {}
     operator_secrets = {
         k: v for k, v in source.secrets.items() if k not in OAUTH_MANAGED_SECRET_KEYS
     }
     merged = {**config_headers, **operator_secrets}
-    return {
+    out = {
         (k.strip() if isinstance(k, str) else k): (v.strip() if isinstance(v, str) else v)
         for k, v in merged.items()
     }
+    return {k: v for k, v in out.items() if not (isinstance(v, str) and not v)}
 
 
 async def _probe_auth_posture(

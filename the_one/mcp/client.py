@@ -391,11 +391,17 @@ class MCPClient:
             and self._auth_provider is None
             and self.source.type == "streamable-http"
         ):
-            from the_one.mcp.transports.streamable_http import build_request_headers
+            # Sortie 09 DD3: a source that CONFIGURES any header name counts as
+            # credentials evidence even when every value is blank (blank values
+            # are no longer sent, so a non-empty request-header dict is not the
+            # test). The client's source is already the effective one.
+            from the_one.mcp._overrides import configured_names, missing_values
 
-            if build_request_headers(self.source):
+            if configured_names(self.source):
                 return MCPCredentialsRejected(
-                    source_id=self.source.id, source_name=self.source.name
+                    source_id=self.source.id,
+                    source_name=self.source.name,
+                    missing=missing_values(self.source, self.source),
                 )
         return MCPAuthRequired(
             source_id=self.source.id,
