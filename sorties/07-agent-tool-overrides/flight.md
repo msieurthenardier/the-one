@@ -1,6 +1,6 @@
 # Sortie: Agent tool overrides
 
-**Status**: in-flight
+**Status**: completed
 
 ## Charter
 
@@ -11,11 +11,12 @@ An agent's Built-in tools tab refuses, on the field, a value that goes outside t
 The operator hit it on the Windows build (2026-10-27): an agent whose file tools were allowed only a folder under `\\wsl.localhost\<distro>\…` could not start a chat ("Cannot start chat: agent override widens FilesystemConfig.path_allowlist; '…' not within any tool entry"). The message named only a config shared by nine tools and pointed nowhere. The app-wide Allowed paths was `~`, so the WSL folder really was outside it; but the agent tab had accepted it on Save. Discovery also showed that with `~` alone the agent still reached the WSL folder, through `shell`: an agent's own paths never apply to Shell or Python on any platform, and on Windows nothing limits them at all (SECURITY-MODEL.md, M15 F3 DD9). Nothing in the tab says so. Separately, opening a tool's panel and saving copies the inherited app-wide values into the agent's override (the panel pre-fills them), so a later app-wide change can break agents nobody touched. Squawk 0257 (overrides stored without validation) is the API half of the same defect.
 
 ### Success Criteria
-- [ ] Saving an agent with an override that goes outside the app-wide value is refused, in the editor and through the API: a plain sentence on that field names the tool and says where to change the app-wide setting, and nothing is saved. (Closes squawk 0257.)
-- [ ] Opening a tool's panel on an agent and saving without changing a field stores no override for that field (confirmed by API read-back); each field shows whether it is inherited or the agent's own, with a one-step reset to inherited.
-- [ ] When the app-wide value is tightened after an agent saved a narrower one, the agent keeps working at the intersection of the two (paths: what both allow; numbers: the lower; switches: off wins; denied paths: both lists joined), and a chat never fails because an override went stale. Settings › Built-in tools lists the agents a save would narrow before it saves. The agent carries a notice naming the tool, the field and what was dropped, shown in the chat's agent drawer, as an indicator on the agent editor's Built-in tools tab and on the agent's Agents list row, and on the field itself, with a one-step fix (accept the narrowed value, or reset to inherited). A notice cannot be dismissed; it clears when its cause is fixed.
-- [ ] When an agent has Shell or Python enabled, its Allowed paths and Denied paths fields say how those tools are limited on this computer (in the Linux sandbox: by the app-wide paths, not the agent's; elsewhere: not at all) and that turning them off keeps the agent to its paths. (Widened from "On Windows" by operator decision, 2026-10-27, after recon found agent paths never reach Shell or Python on any platform.)
-- [ ] A web tool that follows a redirect refuses a host the effective Allowed hosts or Denied hosts forbid, exactly as it refuses that host as the first URL. (Added by operator decision, 2026-10-27, after Architect review 1 found redirects skip both lists.)
+*(Assessed at close, 2026-11-03: all five met, on the automated tests and the flight review (PR #346). The optional HAT was skipped by operator decision.)*
+- [x] Saving an agent with an override that goes outside the app-wide value is refused, in the editor and through the API: a plain sentence on that field names the tool and says where to change the app-wide setting, and nothing is saved. (Closes squawk 0257.)
+- [x] Opening a tool's panel on an agent and saving without changing a field stores no override for that field (confirmed by API read-back); each field shows whether it is inherited or the agent's own, with a one-step reset to inherited.
+- [x] When the app-wide value is tightened after an agent saved a narrower one, the agent keeps working at the intersection of the two (paths: what both allow; numbers: the lower; switches: off wins; denied paths: both lists joined), and a chat never fails because an override went stale. Settings › Built-in tools lists the agents a save would narrow before it saves. The agent carries a notice naming the tool, the field and what was dropped, shown in the chat's agent drawer, as an indicator on the agent editor's Built-in tools tab and on the agent's Agents list row, and on the field itself, with a one-step fix (accept the narrowed value, or reset to inherited). A notice cannot be dismissed; it clears when its cause is fixed.
+- [x] When an agent has Shell or Python enabled, its Allowed paths and Denied paths fields say how those tools are limited on this computer (in the Linux sandbox: by the app-wide paths, not the agent's; elsewhere: not at all) and that turning them off keeps the agent to its paths. (Widened from "On Windows" by operator decision, 2026-10-27, after recon found agent paths never reach Shell or Python on any platform.)
+- [x] A web tool that follows a redirect refuses a host the effective Allowed hosts or Denied hosts forbid, exactly as it refuses that host as the first URL. (Added by operator decision, 2026-10-27, after Architect review 1 found redirects skip both lists.)
 
 ### Constraints
 - An agent override can still only narrow the app-wide setting; the security model does not change. Clipping never widens past either value, and never disables a tool: an allow list clipped to nothing means "allowed nowhere", never "inherit".
@@ -245,7 +246,7 @@ Verified against the working tree at `142dbee` by the Flight Director (2026-10-2
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete — every code-asserting design decision verified
-- [ ] Prerequisites verified (at execution start)
+- [x] Prerequisites verified (at execution start)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -268,7 +269,7 @@ The server goes first, so every later leg builds on a single rule set.
 - [x] Leg 2: a redirect hop obeys the host lists, and a relative redirect on a pinned host still works.
 - [x] Leg 3: open-and-save stores nothing; inherited/own/Reset work; the note shows by sandbox posture; the cleanup runs once and never raises.
 - [x] Leg 4: tightening in Settings warns, and the notice appears in the drawer, tab, list row and field.
-- [ ] Leg 5: HAT signed off.
+- [ ] Leg 5: HAT signed off. *(Skipped: the HAT was optional, and the operator chose to skip it on 2026-11-03.)*
 
 ### Adaptation Criteria
 
@@ -291,18 +292,18 @@ The server goes first, so every later leg builds on a single rule set.
 - [x] `redirect-hosts` - Host lists checked on every request in `SSRFGuardedTransport`, pinning on a copy of the request, one host normalisation (DD15); transport tests through the real pin path with a relative `Location`, plus allow, deny and `NO_HOSTS` hops; release-notes line.
 - [x] `agent-tab` - Inherited/own/Reset field states and the own-only Save walk with locked-chip subtraction (DD9), the clipped-field line and its fixes, three-segment 422 mapping, `execution_sandbox` in `/api/config` warmed in the lifespan, and the Shell/Python/download note (DD10); the once-ever startup cleanup with injected-failure tests (DD13); `agent-tabs` lane tests updated, with the posture pinned by stubbing `App.config.execution_sandbox`.
 - [x] `notice-surfaces` - The `App.ui.tabs` indicator and the list-row indicator, with catalogue rows and two-engine contract tests (DD11); the editor tab, Agents row and tool-panel flags; the drawer's notices group (DD12); the impact route sharing the PUT's config computation, the Settings before-save warning and the `agents` invalidation (DD8); docs and release notes (DD14).
-- [ ] `hat` *(optional)* - A guided HAT on a Linux scratch dev instance: a refused widening; open-and-save stores nothing; own vs inherited and Reset; a Settings tightening with its warning; the notice in the drawer, tab, list row and field; both fixes, including the empty-intersection case; the paths note (first confirm `GET /api/config` or `the-one doctor`'s `sandbox:` line reads bubblewrap, then the bubblewrap wording live; passthrough wording checked on the served text); a redirect to a host outside an agent's Allowed hosts is refused.
+- [ ] `hat` *(optional; skipped by operator decision, 2026-11-03)* - A guided HAT on a Linux scratch dev instance: a refused widening; open-and-save stores nothing; own vs inherited and Reset; a Settings tightening with its warning; the notice in the drawer, tab, list row and field; both fixes, including the empty-intersection case; the paths note (first confirm `GET /api/config` or `the-one doctor`'s `sandbox:` line reads bubblewrap, then the bubblewrap wording live; passthrough wording checked on the served text); a redirect to a host outside an agent's Allowed hosts is refused.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
-- [ ] Squawk 0257 completed
+- [x] All legs completed (legs 1-5; the optional `hat` was skipped)
+- [x] Code merged (PR #346, `ae2296f1`)
+- [x] Tests passing (closing gate 2026-10-31: only the baseline failures and the logged flakes, squawks 0303 and 0304)
+- [x] Documentation updated
+- [x] Squawk 0257 completed
 
 ### Verification
 - **Unit** (`make test-unit`):
