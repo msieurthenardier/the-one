@@ -415,6 +415,23 @@ class TestSearch:
         assert sorted(by_name(result)) == ["a:1b", "b:2b"]
         assert all(m["status"] == "ok" for m in result["models"])
 
+    async def test_zero_parse_warns_once_serves_fallback_and_does_not_prune(
+        self, monkeypatch, caplog
+    ) -> None:
+        fake = install(monkeypatch, Fake(page(("a", ["1b"], False), ("b", ["2b"], False))))
+        await lib.search()
+        lib._record("gone:1b", "ok", 5)
+        # listing stale; the page now fetches fine (200) but parses to nothing
+        lib._library["fetched_at"] = 0.0
+        lib._last_attempt = 0.0
+        fake.page_html = "<ul><li>restyled markup</li></ul>"
+        with caplog.at_level("WARNING", logger=lib.logger.name):
+            result = await lib.search()
+        assert sum("parsed to zero models" in r.getMessage() for r in caplog.records) == 1
+        assert not any("page fetch failed" in r.getMessage() for r in caplog.records)
+        assert sorted(by_name(result)) == ["a:1b", "b:2b"]
+        assert "gone:1b" in lib._sizes  # an empty parse prunes nothing
+
 
 # ── Disk cache / TTLs ─────────────────────────────────────────────────────
 

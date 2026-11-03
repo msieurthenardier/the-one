@@ -408,6 +408,12 @@ async def _fetch_listing() -> bool:
             resp = await client.get(LIBRARY_URL)
             resp.raise_for_status()
             page = parse_library_page(resp.text)
+            if not page:
+                logger.warning(
+                    "Ollama library page fetched but parsed to zero models; "
+                    "the ollama.com page markup has probably changed. "
+                    "Serving the last known listing."
+                )
         except (httpx.HTTPError, OSError):
             logger.warning("Ollama library page fetch failed", exc_info=True)
         try:

@@ -215,7 +215,10 @@
     var state = { enabled: false, requires_approval: true, pending_count: 0 };
     var withdrawn = false;
 
-    function showError(text) {
+    // `passive` marks the line as the passive-refetch error; any other text (or a clear)
+    // resets it, so a later passive success never wipes an unrelated action error.
+    function showError(text, passive) {
+      passiveError = !!passive && !!text;
       errorLine.el.hidden = !text;
       errorLine.set('danger', text || '');
     }
@@ -283,7 +286,10 @@
     };
 
     // ── refetch ─────────────────────────────────────────────────────────
-    function refetchRoutines() {
+    // `passive` (squawk 0290): a refetch the operator did not ask for (the window or tab came
+    // back); a failure keeps the shown waiting list and says so on the error line.
+    var passiveError = false;
+    function refetchRoutines(passive) {
       var seq = ++ctx.routinesSeq;
       function alive() { return !ctx.destroyed && seq === ctx.routinesSeq; }
       if (!cb.fetchRoutinesItem || !cb.fetchRoutineProposals) return Promise.resolve();
@@ -296,11 +302,16 @@
         var view = res[0];
         state = { enabled: !!view.enabled, requires_approval: !!view.requires_approval, pending_count: view.pending_count || 0 };
         if (state.enabled) withdrawn = false;
+        if (passiveError) showError('');
         paintSwitches();
         ctx.renderRoutineQueue((res[1] && res[1].proposals) || []);
         renderHistory(res[2].rows, older.length ? tailMore : res[2].more);
       }, function () {
         if (!alive()) return;
+        if (passive) {
+          showError('Unable to refresh waiting changes.', true);
+          return;
+        }
         enableStatus.set('idle', 'Unable to load routine settings.');
         approvalStatus.set('idle', '');
         // Never leave an actionable item for a queue that cannot be confirmed.

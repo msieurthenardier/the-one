@@ -40,6 +40,10 @@ def _fake_fs(monkeypatch, files, dirs=None):
     monkeypatch.setattr(host, "_exists", lambda p: p in files)
     monkeypatch.setattr(host, "_glob", lambda pat: dirs.get(pat, []))
     monkeypatch.setattr(host, "_ldconfig_lists_gtk", lambda: False)
+    # `missing_desktop_piece` imports `gi` first; PyGObject comes from the `gui`
+    # extra, which a plain `pip install -e '.[all-llms,dev]'` does not install.
+    # These tests are about the file probes, so stand in for it.
+    monkeypatch.setitem(sys.modules, "gi", types.ModuleType("gi"))
 
 
 def test_gtk_and_webkit_present(monkeypatch):

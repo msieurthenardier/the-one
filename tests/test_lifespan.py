@@ -132,6 +132,27 @@ async def test_lifespan_drains_session_registry(_isolated_data_dir) -> None:
     assert reg._reaper_task is None
 
 
+async def test_lifespan_drains_ollama_library_fill_on_shutdown(
+    _isolated_data_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Squawk 0141: shutdown must call ``ollama_library.shutdown_drain()`` (DD4), after
+    startup and not before it."""
+    from the_one.interfaces.web.app import app, lifespan
+    from the_one.llm import ollama_library
+
+    calls: list[str] = []
+
+    async def _recording_drain() -> None:
+        calls.append("drain")
+
+    monkeypatch.setattr(ollama_library, "shutdown_drain", _recording_drain)
+
+    async with lifespan(app):
+        assert calls == []
+
+    assert calls == ["drain"]
+
+
 async def test_lifespan_drain_with_no_sessions_is_clean(
     _isolated_data_dir,
 ) -> None:

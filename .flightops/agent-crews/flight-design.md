@@ -22,6 +22,9 @@ technical spec and uses project-side agents to validate against the real codebas
 3. Architect evaluates design decisions, prerequisites, approach, leg breakdown
 4. Flight Director incorporates feedback
 5. Max 2 review cycles — escalate to human if unresolved
+6. Every new or reshaped user-facing surface needs an operator-approved mockup (or two
+   layout options with the operator's choice) recorded in the flight artifact before
+   legs are locked (squawk 0293); the Architect flags its absence as high severity
 
 ## Template Variables
 
@@ -66,6 +69,7 @@ Evaluate:
 7. Environment-derived defaults — for each planning premise probe against a library or tool, does its behavior depend on something the environment or platform supplies (a kernel release, an env var, an OS check)? If so, does the spec show that default pinned explicitly before the probe's result is trusted, rather than measured under whatever backend the probing host happened to select?
 8. External-session prerequisites — for each prerequisite that depends on a session external to this planning pass (a login, a worker, a token), does the spec call for a per-leg re-verify at implementation time rather than relying on a one-time check made during planning?
 9. Citation Audit — spot-check a sample of its rows against the actual codebase yourself; do not trust a `verified` mark at face value. Confirm the cited `file:symbol` exists and actually has the asserted signature, control flow, exception type, mutability, or cardinality. A stale or fabricated citation is exactly the defect class this audit exists to catch, and it only works if reviewers re-check it.
+10. User-facing surfaces — for every new or reshaped user-facing surface in the flight, confirm the flight artifact records an operator-approved mockup (or two layout options with the operator's choice) before legs are locked. Flag its absence as a high-severity issue.
 
 Provide structured output:
 

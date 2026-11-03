@@ -46,11 +46,11 @@ RUN mkdir -p /opt/tools \
 # CPython and the venv live under /opt, world-readable: the build runs as the invoking
 # uid, which has no access to root's home.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python UV_LINK_MODE=copy UV_NO_PROGRESS=1
-RUN uv python install 3.11.14 && chmod -R a+rX /opt/uv-python
+RUN uv python install 3.12.12 && chmod -R a+rX /opt/uv-python
 
 # The hash-pinned closure (layer keyed on the file), then the freeze tools.
 COPY requirements-closure.txt /tmp/requirements-closure.txt
-RUN uv venv --python 3.11.14 /opt/venv \
+RUN uv venv --python 3.12.12 /opt/venv \
  && uv pip install --python /opt/venv/bin/python -r /tmp/requirements-closure.txt --no-deps \
  && uv pip install --python /opt/venv/bin/python pyinstaller==6.22.3 pyinstaller-hooks-contrib==2026.8 \
  && chmod -R a+rX /opt/venv

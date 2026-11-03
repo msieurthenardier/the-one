@@ -39,8 +39,10 @@ It runs in both themes (see Variants) and creates data, all named with the prefi
   example:
 
   ```
-  THE_ONE_PORT=8487 THE_ONE_DATA_DIR=/tmp/the-one-sac-scratch THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve
+  THE_ONE_PORT=8487 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/sac/data THE_ONE_DEV_MODE=true <repo>/.venv/bin/the-one serve
   ```
+
+  A fresh data directory has no `api-credential`: create it first with `THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/sac/data the-one rotate-api-credential`.
 
   Start it from a scratch working directory, not the repo root (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`; CLAUDE.md "SAFETY RULE"), detached with the PID recorded; stop it by that PID.
 

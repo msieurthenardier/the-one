@@ -35,7 +35,7 @@ behavior and is intentionally left as it was observed.
 ## Preconditions
 
 - the-one is running host-native as a **dedicated dev instance** on
-  `http://127.0.0.1:8485` with a **scratch data directory** `<scratch>`
+  `http://127.0.0.1:8485` with a **scratch data directory** `<scratch>` (under `$HOME`, e.g. `$HOME/the-one-behavior-test-scratch/kbq/data`, never `/tmp`)
   and `THE_ONE_DEV_MODE=true` (the `mock` provider type is refused
   without it), started as `THE_ONE_DEV_MODE=true THE_ONE_PORT=8485
   THE_ONE_DATA_DIR=<scratch> <repo>/.venv/bin/the-one serve`, run detached from a scratch working directory and not the repo root (`<scratch>/cwd`; PID recorded; CLAUDE.md "SAFETY RULE"). Verify with an active probe:
@@ -44,11 +44,11 @@ behavior and is intentionally left as it was observed.
 - **Credential**: CLAUDE.md's "Behavior-test credential convention" —
   read `<scratch>/api-credential` and attach `Authorization: Bearer
   <credential>`. A **fresh** scratch data directory has no credential file
-  and `make up`'s verify step fails without one: run `THE_ONE_DATA_DIR=
-  <scratch> the-one rotate-api-credential` once before the first `make up`.
+  (`serve` does not create it): run `THE_ONE_DATA_DIR=
+  <scratch> the-one rotate-api-credential` once before the first start.
 - A writable fixture folder on a **native local filesystem**, outside the
   repository and outside `<scratch>`: `<fixture>` (e.g.
-  `/tmp/kb-query-fixture`). Delete it if a prior run left it.
+  `/tmp/kb-query-fixture`; the knowledge folder under test, not the instance's data directory or cwd, so it stays under `/tmp`). Delete it if a prior run left it.
 - The repository virtualenv is reachable for the WebSocket driver; the
   `websockets` package is a runtime dependency of the app, so no install is
   needed. **`/ws` authorizes on the bearer credential** — the credential
@@ -75,7 +75,7 @@ behavior and is intentionally left as it was observed.
 ## Observables Required
 
 - http (response status and JSON bodies of `/api/knowledge-bases…`, `/api/providers`, `/api/agents…`, `/api/chat/sessions…` — measured via curl via Bash)
-- shell (the instance's `make up` exit code, the `/api/live` probe, and the WebSocket driver script's output — measured via Bash)
+- shell (the instance's start result, the `/api/live` probe, and the WebSocket driver script's output — measured via Bash)
 - filesystem (creating the fixture files — measured via Bash)
 
 ## Note on the isolation assertions (Steps 7 and 9)

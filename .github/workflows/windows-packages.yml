@@ -131,7 +131,7 @@ jobs:
       - uses: actions/setup-python@v6
         timeout-minutes: 3
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       # N is the input version, else __version__; N+1 is `render.py --next-version N`.
       - name: Versions

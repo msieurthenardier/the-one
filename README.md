@@ -119,7 +119,7 @@ Every platform installs from one place: the [releases page](https://github.com/m
 
 **macOS:** drag the app to Applications. Apple Silicon Macs on macOS 14 or later are supported. The app is not notarized, so macOS asks you to approve it once under System Settings › Privacy & Security › Open Anyway. The guide covers upgrading (quit first) and where your data lives.
 
-**From source, with Python 3.11+** (the `gir1.2-webkit2-4.1` step below is for source installs only; the Linux packages bring their own):
+**From source, with Python 3.12+** (the `gir1.2-webkit2-4.1` step below is for source installs only; the Linux packages bring their own):
 
 ```bash
 git clone https://github.com/msieurthenardier/the-one.git

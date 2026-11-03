@@ -122,7 +122,11 @@ def compute_tool_names(kbs: list[KnowledgeBase], *, agent_name: str) -> dict[str
     whether it collides or overflows the length budget within ``kbs`` —
     so a knowledge base's derived name is a pure function of
     ``(kb.name, kb.id)`` alone, independent of the composition of the set
-    it happens to be computed with (AC-1, AC-2). This is what keeps a
+    it happens to be computed with (AC-1, AC-2) — with one exception: the
+    uniqueness-widening loop at the end (step 4) lengthens the hash only
+    for names that still collide within ``kbs``, so under a forced
+    discriminator collision a name computed within the set can differ
+    from the same knowledge base computed alone. This is what keeps a
     name-keyed ``disabled_tools`` entry pointing at the right tool across
     rename, delete, attach and detach — see the module docstring and
     ``the_one/agents.md``'s DD-17 note.

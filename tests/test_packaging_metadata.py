@@ -519,3 +519,10 @@ def test_render_and_stage_agree_on_the_version(tmp_path):
         # the version render.py would read from the staged tree is the version asked for
         assert render.read_version(staged) == ver
         assert render.load(REPO, {"version": ver})["version"] == ver
+
+
+def test_linux_build_dockerfile_pins_python_312_with_separated_args():
+    """Squawk 0135 (review): the venv line once lost the space before the venv path."""
+    text = (LINUX / "build.Dockerfile").read_text(encoding="utf-8")
+    assert re.search(r"^RUN uv python install 3\.12\.\d+ ", text, re.M), "uv python install"
+    assert re.search(r"uv venv --python 3\.12\.\d+ /opt/venv\b", text), "uv venv --python line"

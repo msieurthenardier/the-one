@@ -209,26 +209,52 @@ STATIC_DIR = Path(__file__).parent / "static"
 _STATIC_ASSET_REF_RE = re.compile(r'((?:src|href)="/static/[^"]*?\.(?:js|css))(\?[^"]*)?"')
 
 
-@functools.lru_cache(maxsize=1)
-def _cache_busted_index_html() -> str:
-    """Return ``index.html`` with ``?v={__version__}`` on every ``/static``
-    JS/CSS reference.
+def _asset_content_key(pre: str) -> str:
+    """Dev-mode cache key for one asset ref: a short sha1 of the file's bytes.
 
-    The version is fixed per process, so the rewrite is computed once and
-    memoized. The rewrite is server-side only — ``index.html`` on disk is never
-    modified. Non-``/static`` URLs and non-js/css references are left untouched.
+    ``pre`` is the ref up to the path (``src="/static/js/x.js``). A missing or
+    unreadable file falls back to ``__version__`` (squawk 0085).
     """
+    rel = pre.split('"/static/', 1)[1]
+    try:
+        return hashlib.sha1((STATIC_DIR / rel).read_bytes()).hexdigest()[:10]
+    except OSError:
+        return __version__
+
+
+def _render_index_html(dev: bool) -> str:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     def _append_version(match: re.Match[str]) -> str:
         pre, existing_query = match.group(1), match.group(2)
+        key = _asset_content_key(pre) if dev else __version__
         if existing_query:
             # Ref already carries a query string — extend it rather than
             # producing an invalid ``?x?v=``.
-            return f'{pre}{existing_query}&v={__version__}"'
-        return f'{pre}?v={__version__}"'
+            return f'{pre}{existing_query}&v={key}"'
+        return f'{pre}?v={key}"'
 
     return _STATIC_ASSET_REF_RE.sub(_append_version, html)
+
+
+@functools.lru_cache(maxsize=1)
+def _production_index_html() -> str:
+    """The version-keyed rewrite, fixed per process and memoized."""
+    return _render_index_html(dev=False)
+
+
+def _cache_busted_index_html() -> str:
+    """Return ``index.html`` with a ``?v=`` key on every ``/static`` JS/CSS ref.
+
+    Production keys by ``__version__`` (computed once, memoized). In dev mode
+    (``settings.dev_mode``) each ref is keyed by a hash of that file's content
+    and the HTML is rebuilt per request, so a JS/CSS edit busts the browser
+    cache without a version bump (squawk 0085). The rewrite is server-side only;
+    non-``/static`` URLs and non-js/css references are left untouched.
+    """
+    if settings.dev_mode:
+        return _render_index_html(dev=True)
+    return _production_index_html()
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────

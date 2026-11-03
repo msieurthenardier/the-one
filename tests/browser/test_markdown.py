@@ -1418,3 +1418,47 @@ def test_markdown_wide_table_scrolls_in_wrapper(page_with_app: Page) -> None:
     assert result["bubbleScroll"] <= result["bubbleClient"]
     assert result["overflowX"] == "auto"
     assert (result["role"], result["label"], result["tabindex"]) == ("region", "Table", "0")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https:\\\\evil.example",
+        "https://ok.example/\\@evil",
+        "https://ok.example\\path",
+        "https://ok.exa\tmple/",
+        "https://ok.example/\npath",
+        "https://ok.example/\rpath",
+        "https://ok.example/\x00",
+        "https://ok.example/\x01",
+        "https://ok.example/\x1f",
+        "https://ok.example/\x7f",
+        "\thttps://ok.example/",
+        "\nhttps://ok.example/",
+        " https://ok.example/",
+        "//evil.example/",
+        "javascript:alert(1)",
+        "",
+    ],
+)
+def test_safe_url_rejects_backslash_controls_and_other_schemes(
+    page_with_app: Page, url: str
+) -> None:
+    """Squawk 0275: ``App.safeUrl`` fails closed on ``\\``, C0 controls and DEL."""
+    assert page_with_app.evaluate("(u) => App.safeUrl(u)", url) is None
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://ok.example/",
+        "http://ok.example:8080/a/b?q=1&r=2#frag",
+        "HTTPS://OK.EXAMPLE/Path",
+        "https://ok.example/a%20b",
+        "https://ok.example/path with space",
+    ],
+)
+def test_safe_url_passes_ordinary_http_urls_unchanged(page_with_app: Page, url: str) -> None:
+    assert page_with_app.evaluate("(u) => App.safeUrl(u)", url) == url

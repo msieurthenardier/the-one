@@ -54,7 +54,7 @@ Proves the Mission 23 channel contract against REAL Discord infrastructure — t
   <THE_ONE_HAT_DRIVER_TOKEN>`) is the platform-side act+observe apparatus for steps 2–6.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
   "Behavior-test credential convention" — read
-  `/tmp/the-one-behavior-test-scratch/api-credential`, mint a handoff URL for the browser
+  `$HOME/the-one-behavior-test-scratch/data/api-credential`, mint a handoff URL for the browser
   navigation (re-mint if a step opens a fresh tab/context), and attach `Authorization:
   Bearer <credential>` to every app-API `curl` call (the sever seam and `GET
   /api/chat/sessions` are ordinary gated routes, not the unauthenticated `/api/live`).

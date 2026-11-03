@@ -11,7 +11,7 @@
 
 # ── Host interpreter ──────────────────────────────────────────────────
 # Prefer the repo venv when present; fall back to bare python3.
-# Override on the command line: make test PY=python3.11
+# Override on the command line: make test PY=python3.12
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
 # ── Port + pidfile scheme (M17 F2 L3) ─────────────────────────────────

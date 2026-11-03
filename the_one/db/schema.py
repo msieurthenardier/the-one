@@ -2566,7 +2566,7 @@ PRAGMA foreign_keys=ON;
         # columns — design review confirmed no index/CHECK entanglement on
         # any of them, so the table-rename ceremony (v10/v19/v23/v37
         # exemplars) is not needed here; SQLite's ``DROP COLUMN`` support
-        # (3.35.0, 2021-03-12) is well within the Python ≥3.11 floor.
+        # (3.35.0, 2021-03-12) is well within the Python ≥3.12 floor.
         #
         # 1. ``pending_approvals`` + its index. ``DROP INDEX``/``DROP
         #    TABLE ... IF EXISTS`` are themselves idempotent, so no PRAGMA

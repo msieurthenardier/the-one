@@ -808,3 +808,72 @@ def test_queue_refreshes_when_the_tab_is_reached_again_without_a_reload(env, pag
     expect(page.locator(PROPOSAL)).to_have_count(1)
     expect(page.locator(PROPOSAL)).to_contain_text("late-proposal")
     assert page.evaluate("() => window.__no_reload") == "same page"
+
+
+def test_a_window_return_refetches_each_queue_once(env, page: Page) -> None:
+    """Squawk 0289: a return that fires both visibilitychange and focus makes one request per
+    queue (the routines item and the revisions list), not two."""
+    base, _ = env
+    _put_switches(base, enabled=True)
+    _open_item(page, base, expanders=False)
+    page.wait_for_timeout(700)
+    hits: list[str] = []
+
+    def count(route) -> None:
+        hits.append(route.request.url.split("?")[0].rsplit("/", 1)[-1])
+        route.continue_()
+
+    page.route("**/self-configuration/routines", count)
+    page.route("**/self-configuration/revisions", count)
+    page.evaluate(
+        "() => { document.dispatchEvent(new Event('visibilitychange'));"
+        " window.dispatchEvent(new Event('focus')); }"
+    )
+    page.wait_for_timeout(1000)
+    assert hits.count("routines") == 1, hits
+    assert hits.count("revisions") == 1, hits
+
+
+def test_a_failed_return_refetch_keeps_the_waiting_list(env, page: Page) -> None:
+    """Squawk 0290: a passive refetch that fails leaves the shown waiting item and says so."""
+    base, data_dir = env
+    _put_switches(base, enabled=True)
+    _seed_create(data_dir, "keep-me", "2026-02-01T10:00:00+00:00")
+    _open_item(page, base)
+    expect(page.locator(PROPOSAL)).to_have_count(1)
+    page.route(
+        "**/self-configuration/routines",
+        lambda route: route.fulfill(status=500, body="boom"),
+    )
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    error = page.locator('[data-testid="self-config-routines-error"]')
+    expect(error).to_contain_text("Unable to refresh waiting changes", timeout=8000)
+    expect(page.locator(PROPOSAL)).to_have_count(1)
+    expect(page.locator(PROPOSAL)).to_contain_text("keep-me")
+
+
+def test_a_later_passive_success_keeps_an_action_error(env, page: Page) -> None:
+    """Squawk 0290 (review): passive failure -> action error -> passive success leaves the
+    action error on the line (only the passive error is cleared by a passive success)."""
+    base, _ = env
+    _put_switches(base, enabled=True)
+    _open_item(page, base, expanders=False)
+    failing = {"get": True}
+
+    def handler(route) -> None:
+        if route.request.method == "PUT" or failing["get"]:
+            route.fulfill(status=500, body="boom")
+        else:
+            route.continue_()
+
+    page.route("**/self-configuration/routines", handler)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    error = page.locator('[data-testid="self-config-routines-error"]')
+    expect(error).to_contain_text("Unable to refresh waiting changes", timeout=8000)
+    click_switch(page, APPROVAL)
+    expect(error).to_contain_text("Could not change this", timeout=8000)
+    failing["get"] = False
+    page.wait_for_timeout(700)  # past the 500 ms burst de-duplication of window returns
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    page.wait_for_timeout(1500)
+    expect(error).to_contain_text("Could not change this")

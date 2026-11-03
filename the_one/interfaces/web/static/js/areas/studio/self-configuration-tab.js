@@ -165,14 +165,20 @@
     // (an agent can propose while the operator is on another tab).
     function activate() {
       ctx.refetchRevisions();
-      ctx.refetchRoutines();
+      ctx.refetchRoutines(true);
     }
+    // A window return often fires both `visibilitychange` and `focus` in one burst (squawk
+    // 0289): the second is dropped so a return refetches each queue once.
+    var lastShownAt = 0;
     // The tab can become visible again by routes that never call `activate` (the Agents
     // destination re-entered from Chats, the editor re-selected), and the window can come back
     // to the foreground: refetch whenever the page is shown or focused and this panel is
     // actually visible (F-E3-1). Removed on destroy.
     function onShown() {
       if (ctx.destroyed || document.hidden || !panel.offsetParent) return;
+      var now = Date.now();
+      if (now - lastShownAt < 500) return;
+      lastShownAt = now;
       activate();
     }
     document.addEventListener('visibilitychange', onShown);

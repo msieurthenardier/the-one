@@ -13,7 +13,7 @@
 #              OUTSIDE the repo: nothing the build makes lands in the repo except the rendered
 #              packaging\windows\product.iss (gitignored; ISPP #includes it from the .iss's own
 #              directory), which is deleted and re-rendered on every build.
-#   -Python    a Python 3.11 interpreter (empty: `python` on PATH).
+#   -Python    a Python 3.12 interpreter (empty: `python` on PATH).
 #   -ReuseVenv keep an existing build venv under -Out (the N+1 build); otherwise it is rebuilt.
 #
 # Output (all under -Out):  stage-windows-<V>\  work-<V>\  dist-<V>\  installer-<V>\
@@ -186,7 +186,7 @@ function Invoke-Build {
     $baseVersion = (& $base --version) | Out-String
     Assert-Native 'python --version'
     Write-Host "python: $($baseVersion.Trim())"
-    if ($baseVersion -notmatch 'Python 3\.11\.') { throw "Python 3.11 is required, got: $($baseVersion.Trim())" }
+    if ($baseVersion -notmatch 'Python 3\.12\.') { throw "Python 3.12 is required, got: $($baseVersion.Trim())" }
 
     # [1] the build venv: fresh unless -ReuseVenv, so a persistent worker's site-packages cannot
     # ride along into the freeze (Concourse build 606657's stale hf_xet).

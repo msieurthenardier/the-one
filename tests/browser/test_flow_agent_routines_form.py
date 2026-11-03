@@ -1330,7 +1330,7 @@ def _wait_runs(page: Page, base: str, agent: str, rid: str, n: int = 1) -> list[
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         runs = _runs_of(base, agent, rid)
-        if len(runs) >= n and all(x.get("outcome") for x in runs):
+        if len(runs) >= n and all(x.get("outcome") and x["outcome"] != "running" for x in runs):
             return runs
         page.wait_for_timeout(500)
     return runs

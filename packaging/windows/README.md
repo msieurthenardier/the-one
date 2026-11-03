@@ -34,7 +34,7 @@ spec is authored and statically validated via `py_compile` only.
 (`.github/workflows/windows-packages.yml`) both call it, so both build the same way:
 
 ```powershell
-packaging\windows\build.ps1 -Out C:\m32-build [-Version 0.11.9.dev1] [-Python C:\Python311\python.exe] [-ReuseVenv]
+packaging\windows\build.ps1 -Out C:\m32-build [-Version 0.11.9.dev1] [-Python C:\Python312\python.exe] [-ReuseVenv]
 packaging\windows\build.ps1 -SelfTest        # argument handling, path checks, needle list; no Windows API
 ```
 
@@ -230,7 +230,8 @@ The close-to-tray shell means a running app is a hidden window plus a server, an
 alone cannot close it (probe W3: installer exit 5). So `the-one.iss` `[Code]` asks the app to quit
 itself, and force-kills only what is left:
 
-1. **Ask.** `the-one.exe quit --wait` from `{app}`, started without waiting. Setup
+1. **Ask.** `the-one.exe quit --wait` from `{app}`, waited for (`ewWaitUntilTerminated`; the CLI
+   bounds its own wait at about 80 s: a 5 s request plus a 75 s wait). Setup
    (`PrepareToInstall` -> `QuitThenKillSetup`) uses `ExecAsOriginalUser`, so the command runs as the
    user who started setup and resolves *that* user's data directory and credential. The uninstaller
    (`CurUninstallStepChanged(usUninstall)` -> `QuitThenKillUninstall`) uses `Exec`, because
@@ -238,7 +239,8 @@ itself, and force-kills only what is left:
    elevated user who ran it, which is the installing user in the silent-elevation case. When the
    elevating account differs from the user running the app, the call cannot reach the app and the
    force step below ends it: that case is a field check, not something the hosted runner proves.
-2. **Poll.** Up to 90 s, until neither `the-one-app.exe` nor `the-one.exe` is running.
+2. **Check once.** After the quit call returns, one check for `the-one-app.exe` or `the-one.exe`
+   (no loop and no sleep; the wizard stays responsive while the call runs).
 3. **Force.** `KillRunning` (`taskkill /F`) always runs last, so a hung app cannot block the install
    or the uninstall.
 

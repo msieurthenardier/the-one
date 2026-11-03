@@ -15,11 +15,14 @@ name (even for a different/overlapping suffix set) is a no-op, never a
 conflict. ``unregister(name)`` scans the dict and removes every entry
 whose owner's ``.name`` matches.
 
-Adding a new format is "one module and one ``register`` call" (DD-4's
-mission criterion, pinned by ``tests/test_kb_extractors.py``'s M7 test): a
-future ``HtmlExtractor`` needs no change to this module, ``indexer.py``, or
-the pipeline — HTML is deliberately absent from ``TextExtractor`` today
-(raw tags are poor chunk text).
+Adding a new text-shaped format is "one module and one ``register`` call"
+(DD-4's mission criterion, pinned by ``tests/test_kb_extractors.py``'s M7
+test): a future ``HtmlExtractor`` needs no change to this module,
+``indexer.py``, or the pipeline — HTML is deliberately absent from
+``TextExtractor`` today (raw tags are poor chunk text). A binary format
+(PDF, Office) is not covered: ``index_item`` sniffs for binary content
+unconditionally before calling any extractor, so it would need that gate
+changed first.
 """
 
 from __future__ import annotations

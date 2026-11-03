@@ -464,6 +464,24 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
     expect(panel.locator('[data-testid="kb-chunk-list"]')).to_have_count(0)
     # Opening chunks must not have fetched /source either.
     assert source_requests == []
+    # Squawk 0239: the finished load is announced through a polite live region.
+    announce = panel.locator('[data-testid="kb-panel-announce"]')
+    expect(announce).to_have_attribute("role", "status")
+    expect(announce).to_have_attribute("aria-live", "polite")
+    expect(announce).to_have_text("No chunks yet")
+
+    # Same for the source panel (stubbed so the file need not exist).
+    page.route(
+        "**/items/*/source",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body='{"text": "hello", "fresh": true}'
+        ),
+    )
+    row.locator('[data-testid="kb-item-menu-btn"]').click()
+    row.locator('[data-testid="kb-item-menu"] [data-testid="kb-item-source-btn"]').click()
+    source_panel = page.locator('[data-testid="kb-source-panel"]')
+    expect(source_panel.locator('[data-testid="kb-source-text"]')).to_have_text("hello")
+    expect(source_panel.locator('[data-testid="kb-panel-announce"]')).to_have_text("Source loaded")
 
 
 @pytest.mark.browser

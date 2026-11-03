@@ -1,10 +1,10 @@
 # Squawk 0172: Lift the `tzdata<2026.5` cap
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-11
-**Completed**: —
+**Completed**: 2026-11-03
 
 ## Report
 `pyproject.toml` pins `tzdata>=2025.2,<2026.5` because 2026.5 was under 14 days old at lock time (Mission 28 F1 L1 soak rule). Zone data that isn't updated goes stale (DST rule changes), and on Linux the name set comes from tzdata while the rules come from the host.
@@ -15,12 +15,17 @@
 Logged from the Mission 28 flight debriefs.
 
 ## Corrective Action
-*(written at completion)*
+Operator approved 2026-11-02. Changed `tzdata>=2025.2,<2026.5` to `tzdata>=2025.2` in `pyproject.toml` (comment updated). `uv lock --upgrade-package tzdata`: tzdata 2026.4 -> 2026.6; no other package moved. Installed 2026.6 into the repo venv (`uv pip install --python .venv/bin/python tzdata==2026.6`).
 
 ## Verification
+- `uv lock --check`: clean.
+- `THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/0172/data .venv/bin/the-one doctor`: `time zones: OK — 345 zones (tzdata 2026f)`, RESULT: PASS.
+- `tests/test_time_zones.py` + `tests/test_packaging_metadata.py`: 106 passed, 1 skipped.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.
 
 ## Disposition
 **Deferred**: the cap exists because tzdata 2026.5 (uploaded 2026-10-03) was

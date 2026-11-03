@@ -1,10 +1,10 @@
 # Squawk 0099: `_build_store`'s docstring claims it constructs the backend named by settings; it hardcodes `UsearchStore`
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-22
-**Completed**: —
+**Completed**: 2026-11-03
 **Related**: 0096, 0098: docstring and doc claims that overstate the knowledge/vector code; complete together ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
@@ -27,15 +27,15 @@ and 0098: documentation asserting behaviour the code does not implement.
 
 ## Corrective Action
 
-*(written at completion)*
-
-Say what it does: constructs the one production backend, with `dtype`/`dim` from
-settings, and note that `.backend` is not yet a dispatch key.
+`_build_store`'s docstring (`the_one/vectors/__init__.py`) now says it constructs the one
+production backend, `UsearchStore`, with `dtype`/`dim` from settings, and that `.backend`
+is not read.
 
 ## Verification
 
 Read-back: the docstring matches the body.
 
 ## Sign-Off
-
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.

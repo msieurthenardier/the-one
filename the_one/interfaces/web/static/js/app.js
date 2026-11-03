@@ -249,6 +249,11 @@
   // back to a placeholder href that still renders as a live link.
   function safeUrl(url) {
     if (!url || typeof url !== 'string') return null;
+    // A browser URL parser treats `\` as `/` for http(s) and drops tab and
+    // newline, so such a URL can resolve to a different host than it reads.
+    // Reject a backslash, any C0 control or DEL anywhere (same rule as
+    // markdown.js's safeHref; squawk 0275).
+    if (/[\\\u0000-\u001f\u007f]/.test(url)) return null;
     // Protocol-relative URLs (`//host/...`) inherit the page's scheme and
     // resolve OFF-SITE; reject before the scheme check so they don't need a
     // separate carve-out. Leading-whitespace variants are already rejected

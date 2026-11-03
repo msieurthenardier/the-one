@@ -1260,6 +1260,48 @@ def test_splash_survives_a_loaded_that_fires_before_show_returns(
     ns.splash.destroy.assert_called_once()
 
 
+def test_every_desktop_notice_fits_a_gnome_banner() -> None:
+    """Squawk 0254: GNOME truncates long notification text; each title and body <= 60."""
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    texts: dict[str, str] = {}
+    for mod in (shell_mod, window_control):
+        for name, value in vars(mod).items():
+            if "NOTICE" not in name and "NO_WEBVIEW" not in name:
+                continue
+            if isinstance(value, str):
+                texts[f"{mod.__name__}.{name}"] = value
+            elif isinstance(value, dict):
+                texts.update({f"{mod.__name__}.{name}[{k}]": v for k, v in value.items()})
+    assert len(texts) >= 8  # tray, no-tray and the three no-webview bodies plus titles
+    too_long = {k: len(v) for k, v in texts.items() if len(v) > 60}
+    assert not too_long, too_long
+
+
+def test_tray_quit_before_publish_destroys_the_window(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Squawk 0264: a tray Quit between the tray start and the publish is not lost."""
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    real_publish = state.publish_window
+    seen: list[bool] = []
+
+    def _quit_then_publish(window: Any) -> bool:
+        # the tray's Quit, just before step 6
+        launcher_module.DesktopSession()._on_quit(None)
+        seen.append(state.quit_requested)
+        return real_publish(window)
+
+    def _pre(ns: Any) -> None:
+        monkeypatch.setattr(state, "publish_window", _quit_then_publish)
+
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, platform="linux", pre_boot=_pre)
+    assert seen == [True]
+    ns.main.destroy.assert_called_once()  # publish saw the quit and ran _on_quit
+    ns.splash.destroy.assert_called()
+
+
 def test_deregister_before_destroy_in_on_quit(monkeypatch: pytest.MonkeyPatch) -> None:
     import the_one.interfaces.desktop.shell as shell_mod
 
@@ -1428,8 +1470,9 @@ def test_fallback_notifies_before_opening_browser(
     _run_fallback(monkeypatch, "linux", piece, events)
     kinds = [e[0] for e in events]
     assert kinds == ["notify", "open"]
-    assert events[0][1] == "GleepGlorp AI"
-    assert "opened in your browser" in events[0][2] and needle in events[0][2]
+    assert events[0][1] == "GleepGlorp AI opened in your browser"
+    assert needle in events[0][2]
+    assert len(events[0][2]) <= 60  # GNOME's banner truncates longer text (squawk 0254)
 
 
 def test_fallback_on_win32_sends_no_notification(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -22,7 +22,7 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
 ## Preconditions
 
 - the-one is running host-native as a **dedicated dev instance** on
-  `http://127.0.0.1:8485` with a **scratch data directory**, started as
+  `http://127.0.0.1:8485` with a **scratch data directory** `<scratch>` (under `$HOME`, e.g. `$HOME/the-one-behavior-test-scratch/kbi/data`, never `/tmp`), started as
   `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> <repo>/.venv/bin/the-one serve`, run detached from a scratch working directory and not the repo root (`<scratch>/cwd`; PID recorded; CLAUDE.md "SAFETY RULE") (record `<scratch>`;
   the resume step needs it). Verify with an active probe: `GET
   http://127.0.0.1:8485/api/live` returns 200. **Never 8484, never the
@@ -31,9 +31,9 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
   — read `<scratch>/api-credential` verbatim and attach `Authorization:
   Bearer <credential>` to every `curl` call (shell-only apparatus; no
   handoff mint needed).
-  A **fresh** scratch data directory has no credential file yet and
-  `make up`'s verify step fails without one: run `THE_ONE_DATA_DIR=
-  <scratch> the-one rotate-api-credential` once before the first `make up`
+  A **fresh** scratch data directory has no `api-credential` file
+  (`serve` does not create it): run `THE_ONE_DATA_DIR=
+  <scratch> the-one rotate-api-credential` once before the first start
   (learned on the first run).
 - The `sqlite3` CLI is on PATH (the seeded-resume step writes one row into
   `<scratch>/the-one.db` while the instance is stopped). Verify: `sqlite3
@@ -42,7 +42,8 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
   outside `<scratch>`: `<fixture>`, nested one level under its own parent —
   e.g. `/tmp/kb-round-trip/fixture` (parent `/tmp/kb-round-trip`), **not**
   a bare `/tmp/kb-round-trip-fixture`. If it exists from a prior run,
-  delete it before Step 1.
+  delete it before Step 1. (The fixture is the knowledge folder under test, not the
+  instance's data directory or cwd, so it stays under `/tmp`.)
   **Amended 2026-09-16 (Flight 4 Leg 1, DD-6)**: registration now refuses
   (422) a folder that equals, contains, or lies inside the application
   data directory, so `<parent of fixture>` — the directory Step 6 registers
@@ -60,7 +61,7 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
 
 - http (response status and JSON bodies of `/api/knowledge-bases…` — measured via curl via Bash)
 - filesystem (creating, editing and deleting fixture files; reading the scratch database in the resume step — measured via Bash)
-- shell (the instance's `make up` / `make down` exit codes and the `/api/live` probe — measured via Bash)
+- shell (the instance's start and stop-by-recorded-PID results and the `/api/live` probe — measured via Bash)
 
 ## Steps
 
@@ -74,7 +75,7 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
 | 6 | `POST …/items` with `{"type": "folder", "path_or_url": "<fixture>/notes"}`. Then `POST …/items` with `{"type": "folder", "path_or_url": "<parent of fixture>"}` (the directory that contains `<fixture>`). Then `POST …/items` with `{"type": "folder", "path_or_url": "<fixture>/does-not-exist"}`. | The nested folder is refused **409** (it lies inside a registered folder). The parent folder is refused **409** (it contains a registered folder). The missing folder is refused **422**. `GET …/status` still shows `items.indexed` = 2 and one entry in `folders`. |
 | 7 | On the filesystem: append a new paragraph containing the exact token `zebrafish-omega` to `notes/alpha.md`; create `notes/new.txt` containing `hotel-november`; delete `code/beta.py`. Then `POST /api/knowledge-bases/{kb_id}/reindex` (no query string — the default `changed` scope, a reconcile walk). | The re-index responds **202** with a JSON body `{"scope": "changed", "requeued": 0}`. |
 | 8 | Poll `GET …/status` every 2 s until idle, then `GET …/items`, `GET …/items/{alpha_id}/chunks` and `GET …/items/{alpha_id}`; record `alpha_indexed_at` from the last one's `indexed_at`. Then `POST …/reindex?scope=bogus`, then `POST …/reindex?scope=all`; poll `GET …/status` until idle again; `GET …/items/{alpha_id}` once more. | Within 60 s of Step 7: `items.pending` = 0, `items.indexing` = 0, `indexer` = `idle`. `GET …/items` now lists `notes/new.txt` as `indexed`, no longer lists `code/beta.py`, and still lists `data/big.txt` as `failed`. The chunks response includes a chunk whose `text` contains `zebrafish-omega`. `alpha_indexed_at` is later than `alpha_indexed_at_initial` (the edit was re-indexed). `scope=bogus` responds **422**. `scope=all` responds **202** with `{"scope": "all", "requeued": 3}` (`alpha.md`, `new.txt`, `big.txt` — every `indexed` or `failed` file item); within 60 s the status is idle again with `items.indexed` = 2 and `items.failed` = 1 unchanged, and `alpha.md`'s `indexed_at` is later than `alpha_indexed_at` (everything was re-embedded). Update `alpha_indexed_at` to this newest value. |
-| 9 | (Setup, no judgment) Stop the instance (`make down` against the same env; confirm `GET /api/live` no longer answers). With `sqlite3 <scratch>/the-one.db`, run `UPDATE kb_items SET status='indexing' WHERE id='<alpha_id>';` and confirm `SELECT status FROM kb_items WHERE id='<alpha_id>';` prints `indexing`. | (empty) `[mixed-frame]` — there is no user-facing way to strand an item mid-index; the seeded row stands in for a process killed between chunk commit and flush. |
+| 9 | (Setup, no judgment) Stop the instance (`kill` the recorded PID; confirm `GET /api/live` no longer answers). With `sqlite3 <scratch>/the-one.db`, run `UPDATE kb_items SET status='indexing' WHERE id='<alpha_id>';` and confirm `SELECT status FROM kb_items WHERE id='<alpha_id>';` prints `indexing`. | (empty) `[mixed-frame]` — there is no user-facing way to strand an item mid-index; the seeded row stands in for a process killed between chunk commit and flush. |
 | 10 | Start the instance again with the same scratch-cwd `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> <repo>/.venv/bin/the-one serve`; probe `GET /api/live` until 200. Then poll `GET …/status` every 2 s. | Within 60 s of the probe answering: `items.indexing` = 0, `items.pending` = 0, `indexer` = `idle`, and `GET …/items/{alpha_id}` shows `status` = `indexed` with an `indexed_at` later than `alpha_indexed_at` recorded in Step 8 — the stranded item was requeued and finished without operator action. |
 | 11 | (Teardown, no judgment) `DELETE /api/knowledge-bases/{kb_id}`; confirm it no longer appears in `GET /api/knowledge-bases`. Delete `<fixture>/`. | (empty) |
 
@@ -100,9 +101,7 @@ client-cached.
 
 - **live-kill**: replace Steps 9–10 with: generate 2,000 × 50 KB text files
   into `<fixture>/bulk/`, `POST …/reindex`, and within 3 s of the 202 send
-  SIGKILL to the instance's PID (`<repo>/.the-one.8485.pid` — the
-  Makefile scopes the PID file by port, so the dev instance never clobbers
-  production's); restart; expect the
+  SIGKILL to the instance's recorded PID (`<scratch>/cwd/serve.pid`); restart; expect the
   same terminal state as Step 10 with `items.failed` unchanged. Higher
   fidelity, flake-prone by construction — run only when the seeded variant
   passes.

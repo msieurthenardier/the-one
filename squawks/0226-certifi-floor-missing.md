@@ -1,10 +1,10 @@
 # Squawk 0226: certifi has no CVE floor in pyproject.toml, so only uv.lock carries the 0224 fix
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-21
-**Completed**: —
+**Completed**: 2026-11-03
 
 ## Report
 Squawk 0224 fixed certifi PYSEC-2026-4320 by moving `uv.lock` to certifi 2026.10.19, but `pyproject.toml` has no certifi floor. That breaks the project's dual-binding rule for CVE floors (the comment above the runtime CVE-floor block in `pyproject.toml`): a fix must also be an explicit floor, so that a resolve from the ranges lands on the fixed version. Examples are `pip install -e ".[gui,all-llms]"`, which `ci/tasks/windows-installer-build.yml:58` mentions, and CLAUDE.md's install command.
@@ -16,14 +16,16 @@ Add `certifi>=2026.10.19` to the runtime CVE-floor block, with a cited bullet li
 - Squawk 0224's Reviewer flagged this (2026-10-21).
 
 ## Corrective Action
-*(written at completion)*
+Added `"certifi>=2026.10.19"` to the runtime CVE-floor block in `pyproject.toml`, with a cited bullet (pure transitive via httpx/httpcore/requests; closes PYSEC-2026-4320, fixed in 2026.10.19 per squawk 0224). Re-locked: `uv.lock` only gained certifi in the-one's requires-dist (resolved version unchanged, 2026.10.19 before and after).
+
+## Verification (run)
+- `uv lock --check`: clean. `pip-audit --disable-pip -r` on the `uv export --no-dev --no-emit-project --extra gui --extra all-llms` closure: "No known vulnerabilities found". No new test.
 
 ## Verification
 - `grep -n certifi pyproject.toml` shows the floor and its comment bullet.
 - `uv lock --check` passes. The release closure (`uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt`) audits clean with `pip-audit --disable-pip -r`.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (Sonnet: the batch touches the shell-write hook, `App.safeUrl`, the encryption status count and the credential docs), batch review of the 2026-11-02-2 squawk turnaround, scoped to the diff. Its one blocking finding (0135's Dockerfile `uv venv` line) and the non-blocking items were fixed in a fix pass, which a Haiku Reviewer re-checked: `[HANDOFF:confirmed]`. An Accessibility Reviewer (Sonnet) confirmed the UI changes (0239, 0289, 0290, 0291, 0254). The final gate on the batch tree: `THE_ONE_TEST_NETNS=1 make test-unit` 8738 passed, 15 skipped (219 s, start load 0.48); browser `--parallel 3` `PARALLEL_RESULT rc=1 total=1774s lanes=17 failed=chats-transcript` (start load 0.72). The one failure is new squawk 0315, which passed 3 of 3 isolated runs.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-02-2` commit on `squawk/turnaround-2026-11-02-2`.
