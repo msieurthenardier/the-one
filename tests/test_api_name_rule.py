@@ -85,6 +85,7 @@ EXEMPT = {
     ("POST", "/api/knowledge-bases/{kb_id}/items/{item_id}/retry"): _ITEM,
     ("POST", "/api/knowledge-bases/{kb_id}/reindex"): _ITEM,
     ("POST", "/api/mcp-sources/{source_id}/test/connect"): "connection probe; stores no name",
+    ("POST", "/api/mcp-sources/{source_id}/test/agent"): "connection probe; stores no name",
     ("POST", "/api/providers/{provider_id}/oauth/start"): _PROVIDER_ACTION,
     ("POST", "/api/providers/{provider_id}/oauth/code"): _PROVIDER_ACTION,
     ("POST", "/api/providers/{provider_id}/test"): _PROVIDER_ACTION,

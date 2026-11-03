@@ -141,9 +141,18 @@ async def _build_source_index(
             # MCPToolProvider.get_tools_for_agent; skip silently here.
             # Other exceptions (e.g. DB connectivity): log + skip.
             continue
-        cached_tools_payload: list[dict[str, Any]] = (
-            source.config.get("_cache", {}).get("tools") or []
+        # Sortie 09 DD4: a stored agent that uses its own credentials on this
+        # source reads its per-agent cache (only the build or the route fills it,
+        # so a cold row skips the source here); everyone else the shared `_cache`.
+        from the_one.mcp._agent_cache import per_agent_tools
+
+        per_agent, per_agent_payload, _ = await per_agent_tools(
+            conn, agent_name, config.mcp_overrides, source
         )
+        if per_agent:
+            cached_tools_payload: list[dict[str, Any]] = per_agent_payload or []
+        else:
+            cached_tools_payload = source.config.get("_cache", {}).get("tools") or []
         if not cached_tools_payload:
             logger.warning(
                 "agent %r: MCP source %r has no cached tools; "
@@ -440,6 +449,12 @@ class AgentFactory:
         # attached source; sources with empty _cache.tools are logged +
         # skipped (operator state issue, not a code defect).
         source_index: dict[str, Any] = {}
+        # Sortie 09 AC5: the MCP tools are built BEFORE the index so a credentialed
+        # agent's cold per-agent cache (filled by that listing) is visible to the
+        # index in the same build. They are registered further down, unchanged.
+        built_mcp_tools: list[Any] | None = None
+        if self.mcp_provider is not None and config.mcp_source_ids:
+            built_mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
         if config.mcp_source_ids and self.mcp_provider is not None:
             await _build_source_index(
                 config=config,
@@ -487,9 +502,8 @@ class AgentFactory:
         # withhold never applies. Keyed on the tool's `is_platform_surface`
         # (the source marker), never the name prefix; a tool without the
         # attribute (an injected stub) is still filtered.
-        if self.mcp_provider is not None and config.mcp_source_ids:
-            mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
-            for tool in mcp_tools:
+        if built_mcp_tools is not None:
+            for tool in built_mcp_tools:
                 if getattr(tool, "is_platform_surface", False) or (
                     tool.name not in disabled_names and config.is_tool_enabled(tool.name)
                 ):

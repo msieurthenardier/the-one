@@ -198,3 +198,35 @@ def missing_values(library_source: Any, effective_source: Any) -> list[str]:
         if value is None or _is_blank(value):
             out.append(name)
     return out
+
+
+def has_credential_override(entry: Any, source: Any) -> bool:
+    """True iff ``entry`` (already read through ``override_for``) carries a credential
+    that ``_apply_override`` would actually send on ``source`` (sortie 09, DD4).
+
+    A blank value is never sent, so it does not count; a per-agent ``Authorization``
+    header (any case) or ``bearer_token`` on a source with OAuth state is skipped, so it
+    does not count; an entry with only tool filters does not count. Stdio sources
+    count ``env`` only, streamable-http sources ``headers`` and ``bearer_token`` only.
+    """
+    if not isinstance(entry, dict) or not entry:
+        return False
+
+    def _has_value(mapping: Any, *, skip_authorization: bool = False) -> bool:
+        if not isinstance(mapping, dict):
+            return False
+        for k, v in mapping.items():
+            if not isinstance(k, str) or not isinstance(v, str) or _is_blank(v):
+                continue
+            if skip_authorization and k.strip().lower() == "authorization":
+                continue
+            return True
+        return False
+
+    if source.type == "stdio":
+        return _has_value(entry.get("env"))
+    oauth = has_oauth_state(source)
+    if _has_value(entry.get("headers"), skip_authorization=oauth):
+        return True
+    bearer = entry.get("bearer_token")
+    return not oauth and isinstance(bearer, str) and not _is_blank(bearer)

@@ -65,6 +65,7 @@ from the_one.db.models import (
 )
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
+    AgentMcpToolCacheRepository,
     AgentNoteRepository,
     AgentRevisionRepository,
     AgentRuleRepository,
@@ -213,6 +214,7 @@ def _agent_response(
     cfg: AgentConfig,
     kb_tool_names: dict[str, str] | None = None,
     notices: list[dict[str, Any]] | None = None,
+    mcp_tool_cache: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Render an ``AgentConfig`` into the masked HTTP response shape.
 
@@ -253,6 +255,11 @@ def _agent_response(
     data["notices"] = list(notices or [])
     if kb_tool_names is not None:
         data["kb_tool_names"] = kb_tool_names
+    if mcp_tool_cache is not None:
+        # Sortie 09 DD5: additive, single-agent routes only (like `kb_tool_names`):
+        # {source_id: {tools, fetched_at}} for the attached sources where the agent
+        # uses its own credentials and a per-agent row exists. Tool metadata only.
+        data["mcp_tool_cache"] = mcp_tool_cache
     overrides = data.get("mcp_overrides")
     if overrides:
         for source_entry in overrides.values():
@@ -307,7 +314,36 @@ async def _full_agent_response(cfg: AgentConfig, rows: dict[str, Any] | None = N
     if rows is None:
         rows = await _tool_config_rows(cfg)
     (notices,) = await _agent_notices([cfg], rows)
-    return _agent_response(cfg, await _resolve_kb_tool_names(cfg), notices)
+    return _agent_response(
+        cfg, await _resolve_kb_tool_names(cfg), notices, await _resolve_mcp_tool_cache(cfg)
+    )
+
+
+async def _resolve_mcp_tool_cache(cfg: AgentConfig) -> dict[str, dict[str, Any]]:
+    """Sortie 09 DD5: ``{source_id: {tools, fetched_at}}`` of the agent's per-agent
+    tool lists for the attached sources where it uses its own credentials. One read
+    when the agent has overrides and attachments; none otherwise."""
+    if not cfg.mcp_source_ids or not cfg.mcp_overrides:
+        return {}
+    from the_one.mcp._overrides import has_credential_override
+    from the_one.self_configuration.constants import override_for
+
+    cache = await AgentMcpToolCacheRepository(await get_connection()).get_for_agent(cfg.name)
+    if not cache:
+        return {}
+    repo = await _mcp_repo()
+    out: dict[str, dict[str, Any]] = {}
+    for source_id in cfg.mcp_source_ids:
+        row = cache.get(source_id)
+        if row is None:
+            continue
+        try:
+            source = await repo.get(source_id)
+        except KeyError:
+            continue
+        if has_credential_override(override_for(cfg.mcp_overrides, source), source):
+            out[source_id] = row
+    return out
 
 
 async def _normalize_surface_fields(
@@ -394,7 +430,8 @@ async def _evict_changed_mcp_credentials(
     """Sortie 09 DD7: after an agent write commits, evict the pool entry of every
     source whose credentials (``headers``/``env``/``bearer_token``) differ between
     ``before`` and ``after``, so the agent's next connection uses the new values.
-    No eviction when nothing credential-related changed. Never raises."""
+    No eviction when nothing credential-related changed. The agent's per-agent tool
+    cache row for each such source is deleted too (DD5/DD7). Never raises."""
     old_view, new_view = _credential_view(before), _credential_view(after)
     changed = {n for n in old_view.keys() | new_view.keys() if old_view.get(n) != new_view.get(n)}
     if not changed:
@@ -402,11 +439,22 @@ async def _evict_changed_mcp_credentials(
     from the_one.mcp._pool import _evict
 
     try:
+        cache_repo = AgentMcpToolCacheRepository(mcp_repo.conn)
         for source in await mcp_repo.list():
             if source.name in changed:
                 await _evict((agent_name, source.id))
+                await cache_repo.delete(agent_name, source.id)
     except Exception:
         logger.warning("could not evict MCP connections for agent %r", agent_name, exc_info=False)
+
+
+async def _drop_source_agent_tool_cache(mcp_repo: MCPSourceRepository, source_id: str) -> None:
+    """Sortie 09 DD5/DD7: delete every agent's per-agent tool cache row for a source
+    whose connection basis changed (Library edit, Reset connection). Never raises."""
+    try:
+        await AgentMcpToolCacheRepository(mcp_repo.conn).delete_for_source(source_id)
+    except Exception:
+        logger.warning("could not clear agent tool lists for %r", source_id, exc_info=False)
 
 
 async def _evict_agent_connections(agent_name: str) -> None:
@@ -3597,6 +3645,7 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
             await _evict_all_for_source(source_id)
         except Exception:
             logger.warning("could not evict MCP connections for %r", source_id, exc_info=False)
+        await _drop_source_agent_tool_cache(repo, source_id)
     # DD8: the rename carries into the attached agents' overrides and
     # disabled tools. Runs after the row commit (write_transaction cannot
     # nest); acquiring the store is guarded like update_knowledge_base's so
@@ -3798,6 +3847,7 @@ async def reset_mcp_connection(source_id: str) -> dict[str, str]:
     updated_source = source.model_copy(update={"secrets": new_secrets, "config": new_config})
     await _evict_all_for_source(source_id)
     await repo.update(updated_source)
+    await _drop_source_agent_tool_cache(repo, source_id)
     forget_era(source_id)
     return {"status": "ok"}
 
@@ -4104,6 +4154,15 @@ async def _clear_stale_oauth_secrets(
     return stripped_source
 
 
+@router.post("/mcp-sources/{source_id}/test/agent")
+async def test_mcp_connection_as_agent(source_id: str, request: Request) -> dict[str, Any]:
+    """Sortie 09 DD6: connect with an agent's own credentials; see
+    ``interfaces/web/mcp_agent_test.py``."""
+    from the_one.interfaces.web.mcp_agent_test import run_agent_test
+
+    return await run_agent_test(source_id, request)
+
+
 @router.post("/mcp-sources/{source_id}/test/connect")
 async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any]:
     """Run a connection check and record its outcome (``_cache.last_check``).
@@ -4128,6 +4187,98 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 
 
 _RECORDED_CHECK_STATUSES = frozenset({"ok", "error", "auth_required"})
+
+
+async def _connect_with_tokens(
+    source: MCPSource,
+    source_id: str,
+    repo: MCPSourceRepository,
+    *,
+    record_era: bool,
+    cache_write: Literal["none", "shared", "shared_no_posture"] = "shared",
+) -> dict[str, Any]:
+    """Phase A of the Library Test, shared with the per-agent test route (sortie 09 DD6).
+
+    Tokens present: build the OAuth provider WITHOUT a consent future (this path
+    never kicks a flow) and connect + list_tools with it. MUST thread the provider
+    through ``MCPClient`` or the SDK has no way to apply the cached tokens (a bare
+    client sends Bearer-less requests and always 401s).
+
+    ``cache_write``: ``"shared"`` and ``"shared_no_posture"`` both write today's
+    fields into ``source.config._cache`` (this block never wrote ``auth_posture``);
+    ``"none"`` writes nothing. The write is best-effort and happens INSIDE the
+    ``async with`` after ``list_tools()`` succeeds, so a failed listing does not
+    pollute the cache.
+
+    Returns ``{status: "ok", tools, capabilities}``. Errors are RE-RAISED untouched
+    (``MCPAuthRequired``, ``MCPConnectionError``, ``MCPVersionMismatch``) so the
+    caller decides: the Library Test clears stale tokens and falls through to
+    Phase B; the per-agent route reports them and never touches tokens. The
+    imports stay function-local because tests patch ``the_one.mcp.client.MCPClient``.
+    """
+    from the_one.mcp.client import MCPClient
+    from the_one.mcp.oauth import build_oauth_provider_for_source
+
+    provider_a = build_oauth_provider_for_source(
+        source,
+        repo,
+        f"test:{source_id}",
+        source_id=source_id,
+        tool_call_id=None,
+        resource_metadata_url=None,
+        consent_url_future=None,  # Phase A doesn't kick a flow
+    )
+    async with MCPClient(
+        source=source,
+        auth_provider=provider_a,
+        fresh_negotiation=True,
+        record_era=record_era,
+    ) as client:
+        tools = await client.list_tools()
+        capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
+        # F4 L2 (M08): server-declared identity + free-form prose, both
+        # spec-optional and snapshotted inside the async-with for the
+        # same reason as capabilities (post-disconnect reads raise).
+        server_info = client.server_info
+        instructions = client.instructions
+        # F4 L3 (M08): _meta — same snapshot-inside-async-with rule.
+        meta = client.meta
+        protocol_version = client.negotiated_protocol_version
+        # F9 L1 (vibing): persist tools+capabilities to source.config._cache so the
+        # editor can render the cached state on mount. Plaintext: tools, capabilities
+        # and the timestamp are not secrets. The cache is keyed on the persisted row,
+        # not the operator's transient form values.
+        tools_cache_payload = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema,
+            }
+            for t in tools
+        ]
+        if cache_write != "none":
+            try:
+                await repo.merge_cache(
+                    source_id,
+                    {
+                        "tools": tools_cache_payload,
+                        "capabilities": capabilities,
+                        "server_info": server_info,
+                        "instructions": instructions,
+                        "meta": meta,
+                        "protocol_version": protocol_version,
+                        "last_updated": time.time(),
+                    },
+                )
+            except Exception:
+                # Best-effort persistence: a write failure must not break the
+                # response contract; the cache simply won't populate this round.
+                pass
+    return {
+        "status": "ok",
+        "tools": tools_cache_payload,
+        "capabilities": capabilities,
+    }
 
 
 async def _test_mcp_connection_inner(
@@ -4160,7 +4311,6 @@ async def _test_mcp_connection_inner(
     """
     from the_one.interfaces.web.app import _inflight_resume_tasks
     from the_one.mcp._pool import _evict_all_for_source
-    from the_one.mcp.client import MCPClient
     from the_one.mcp.errors import (
         TOKEN_FAILURE_MARKERS,
         MCPAuthRequired,
@@ -4362,76 +4512,11 @@ async def _test_mcp_connection_inner(
     # apply the cached tokens — bare MCPClient sends Bearer-less requests
     # and always 401s, defeating the "tokens present" fast path.
     if source.secrets.get("dcr_credentials") and source.secrets.get("access_token"):
-        provider_a = build_oauth_provider_for_source(
-            source,
-            repo,
-            f"test:{source_id}",
-            source_id=source_id,
-            tool_call_id=None,
-            resource_metadata_url=None,
-            consent_url_future=None,  # Phase A doesn't kick a flow
-        )
         try:
-            async with MCPClient(
-                source=source,
-                auth_provider=provider_a,
-                fresh_negotiation=True,
-                record_era=record_era,
-            ) as client:
-                tools = await client.list_tools()
-                capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
-                # F4 L2 (M08): server-declared identity + free-form prose, both
-                # spec-optional and snapshotted inside the async-with for the
-                # same reason as capabilities (post-disconnect reads raise).
-                server_info = client.server_info
-                instructions = client.instructions
-                # F4 L3 (M08): _meta — same snapshot-inside-async-with rule.
-                meta = client.meta
-                protocol_version = client.negotiated_protocol_version
-                # F9 L1 (vibing): persist tools+capabilities to source.config._cache
-                # so the editor can render the cached state on mount without
-                # forcing the operator to click Refresh. Plaintext (un-encrypted)
-                # — tools/capabilities/timestamp are not secrets and config is
-                # the JSON-blob column already used for non-sensitive fields.
-                # Write happens INSIDE the async-with after list_tools() succeeds
-                # so a list_tools() failure does NOT pollute the cache; the
-                # existing exception-translation contract handles failure paths
-                # unchanged. We refetch the persisted source to avoid clobbering
-                # any in-flight body-override config — the cache is keyed on
-                # the persisted row, not the operator's transient form values.
-                tools_cache_payload = [
-                    {
-                        "name": t.name,
-                        "description": t.description,
-                        "input_schema": t.input_schema,
-                    }
-                    for t in tools
-                ]
-                try:
-                    await repo.merge_cache(
-                        source_id,
-                        {
-                            "tools": tools_cache_payload,
-                            "capabilities": capabilities,
-                            "server_info": server_info,
-                            "instructions": instructions,
-                            "meta": meta,
-                            "protocol_version": protocol_version,
-                            "last_updated": time.time(),
-                        },
-                    )
-                except Exception:
-                    # Best-effort persistence — a write failure must not
-                    # break the test/connect response contract. The operator
-                    # still gets the live tools list; cache simply won't
-                    # populate for this round.
-                    pass
             return (
-                {
-                    "status": "ok",
-                    "tools": tools_cache_payload,
-                    "capabilities": capabilities,
-                }
+                await _connect_with_tokens(
+                    source, source_id, repo, record_era=record_era, cache_write="shared"
+                )
             ), recordable
         except MCPAuthRequired:
             # Token expired/revoked. Bust pool cache BEFORE Phase B builds

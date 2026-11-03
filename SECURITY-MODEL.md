@@ -630,6 +630,15 @@ An agent can connect to a shared Library MCP server with its own header values
   source, renaming or deleting an agent evicts the affected pooled connections, and
   the next connection resolves the stored values, so a revoked or rotated key stops
   being used at the agent's next call rather than at an idle timeout.
+- **An agent's tool list depends on its own credentials.** An agent that uses its own
+  credentials on a source sees the tool list returned to those credentials (the
+  per-agent `agent_mcp_tool_cache` table), never the shared Library list, so one
+  agent's key cannot widen another agent's tools. The table holds tool metadata
+  only (names, descriptions, schemas), never a credential. `POST
+  /api/mcp-sources/{id}/test/agent` connects with an agent's stored or unsaved
+  values behind the same credential gate; it echoes no value, never touches
+  sign-in tokens, and its failure text carries a class name and, for a rejected
+  key, header names only.
 - A blank Library value is never sent, which keeps an empty header from being
   mistaken for a credential; a 401 to a source that configures headers is reported
   as rejected credentials (naming the missing values), not as a sign-in prompt.

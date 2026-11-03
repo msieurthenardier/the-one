@@ -147,3 +147,58 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
 - Leg 1 landed (Developer `[LAND:leg]`): 16/16 ACs; `make test-unit` (netns) 8876 passed, 15 skipped; `mcp` 87 passed; `mcp-connection` 94 passed; ruff clean. Per-leg code review spawned. Reviewer tier: **Sonnet** (credentials, the sign-in classification).
 - Leg 1 review-fix pass: name/value grammar regexes in `override_validation.py` now use `fullmatch` (a trailing newline in a header or env name is refused; tests added, falsified); `_apply_override` returns the source unchanged when the OAuth skip empties the headers (identity test added, falsified).
 - Leg 1 code review (Sonnet): no blocking issues; two non-blocking issues fixed (name regexes now `fullmatch`, so a trailing newline is refused; `_apply_override` returns the source unchanged when the OAuth skip empties the agent headers), three new test cases, all falsified; `make test-unit` (netns) 8878 passed, 15 skipped. Accepted without a second review: the fixes are small and tested. Leg 1 status `completed`; checkpoint commit.
+
+### Leg 2 `per-agent-tool-list`: design (2026-11-03)
+- Leg 1 committed as `4b274ae4`.
+- Risk tier: **high**: a schema migration (v50), cache freshness, the Library Test's Phase A extraction, and credentials. A Developer design review runs. Reviewer tier for this leg's code review: **Sonnet**.
+- Deviation from DD6's suggested module path: the route logic goes in `the_one/interfaces/web/mcp_agent_test.py`, not `the_one/mcp/agent_test.py`. The helpers it reuses live in `interfaces/web/api.py`, and an `mcp/` module must not import from `interfaces/`.
+- Developer design review (Sonnet): **approve with changes**. All taken:
+  - **High:** there was no reusable `shared_no_posture` writer, and the response lacks the shared fields. The persistence mode is now decided before connecting and passed as `cache_write` to the helpers, and the Phase A helper writes for itself.
+  - **High:** the rule for agents not in the store contradicted AC5. Such an agent (an injected config) keeps the shared cache, as today; Flight Director call.
+  - **Medium:**
+    - `agent_updated_at(name)` on the new repository;
+    - the reader context, with the projection reaching the table through `get_connection()`;
+    - a cold per-agent cache: the projection reports `tools_known: False` and the index skips the source (only Path B/A lists live), and the provider runs before the index;
+    - the Phase A helper keeps function-local imports and re-raises errors untouched;
+    - an OAuth source plus a per-agent header: a test.
+  - **Low:**
+    - the layering precedent (the `routines_api.py` proxy);
+    - `extra: ignore` on `AgentConfig`;
+    - the version pins are symbolic, plus a v50 migration test;
+    - `updated_at` writers;
+    - the upgrade effect;
+    - converting `MCPTool` objects before the put.
+  - No second cycle: these are precision fixes taken from the review itself. Leg status `ready`.
+
+### Leg 2 `per-agent-tool-list`: landed (not committed)
+- **Built (AC1-AC15 done; AC16 results below):**
+  - schema v50 `agent_mcp_tool_cache` and `AgentMcpToolCacheRepository` (`get`, `get_for_agent`, `agent_updated_at`, single-statement `put_if_unchanged`, `delete`, `delete_for_source`);
+  - `mcp/_overrides.py::has_credential_override` and the new `mcp/_agent_cache.py` (`per_agent_tools`, `to_cache_payload`) that the three readers share;
+  - readers: `_tool_provider` Path B/A (a cold row lists live and fills the row with the pre-listing stamp), `factory._build_source_index`, `self_configuration/projection.py`;
+  - cache-row deletes at leg 1's hooks (`_evict_changed_mcp_credentials`, `update_mcp_source`, `reset_mcp_connection`);
+  - Phase A extracted as `api.py::_connect_with_tokens`; the Library Test calls it and keeps token clearing, eviction and fall-through;
+  - the route `POST /api/mcp-sources/{source_id}/test/agent` with its logic in `interfaces/web/mcp_agent_test.py`;
+  - `mcp_tool_cache` on GET, create, update and rename (not `list_agents`);
+  - docs: `the_one/agents.md`, `CLAUDE.md`, `SECURITY-MODEL.md`.
+- **Tests:** new `tests/test_agent_mcp_tool_cache.py` (38), `tests/test_mcp_agent_test_route.py` (14), shared harness `tests/_agent_mcp_world.py`; v50 class in `tests/test_db_migration.py` (3); an ordering test in `tests/test_mcp_tool_provider.py`.
+- **Verification:** `THE_ONE_TEST_NETNS=1` full unit tier (`-m 'not browser and not live and not pixel'`) 8974 passed, 19 skipped (that marker expression adds the 3 `requires_bwrap` skips to the netns 15; the 19th is one more load-timing skip, the watcher file passed alone with only its root-permission skip); the Library Test files (`test_oauth_test_connection_endpoint`, `test_mcp_library_test_missing_values`, `test_mcp_test_connection_negotiation`, `test_mcp_stdio_test_connect`, plus stale-tokens, last-check, reset) pass untouched after the Phase A extraction; `ruff check` and `ruff format --check` clean; browser lanes through `scripts/run-tests.sh` with `THE_ONE_TEST_NETNS=1`, one at a time: `mcp` 87 passed, `mcp-connection` 94 passed, `agents` 180 passed.
+- **Falsification (by editing the fix out, running, restoring by editing):**
+  - DD4 switch off in Path B: 5 tests fail, including the end-to-end test (yes);
+  - race guard `= ?` replaced: 2 tests fail, the repository interleave and the save-during-listing build test (yes);
+  - cache-row delete in `_evict_changed_mcp_credentials` removed: 1 fails (yes);
+  - `_drop_source_agent_tool_cache` body removed: 1 fails (yes);
+  - route persistence mode for a stored credentialed agent changed to `shared_no_posture`: 3 fail (yes);
+  - not separately falsified: `has_credential_override` cases (parametrized truth table), the projection and index readers (covered by the same table plus the cold-row tests, but their individual switches were not removed), the `mcp_tool_cache` response field, the Phase A extraction (covered by the untouched Library Test files).
+- **Deviations / anomalies:**
+  - **The version pins in `tests/test_db_migration.py` were NOT symbolic** (about ten literal `== 49`); updated to 50 or `CURRENT_VERSION`, and one `TestSchemaV49` check relaxed to `>= 49`. `tests/test_schema.py`, `test_schema_template.py` and the template needed no edit.
+  - **Index ordering:** the leg said `get_tools_for_agent` already ran before the index build. It ran after, so `AgentFactory.create` now builds the MCP tools before `_build_source_index` and registers them where it did (ordering test added).
+  - The projection reaches the table through `mcp_repo.conn` rather than `get_connection()`, so existing projection tests on their own connection keep working.
+  - `tests/test_mcp_tool_provider.py::patch_provider_deps` now stubs the per-agent repository as "agent not in the store" (its connection is a bare `AsyncMock`).
+  - `tests/test_api_name_rule.py` classifies the new route.
+  - Responses of the route carry `error` text of the form `Class: message` for typed MCP errors (as the Library Test does); an unexpected exception on the token path returns the class name only.
+  - Static JS/CSS untouched.
+- Leg 2 landed (Developer `[LAND:leg]`): 16/16 ACs; unit 8974 passed, 19 skipped (one skip unidentified); `mcp` 87, `mcp-connection` 94, `agents` 180 passed. Deviations: literal version pins in `test_db_migration.py`; the factory now builds MCP tools before the search index. Code review spawned (Sonnet), with the skip and the factory order as named checks.
+- Leg 2 code review (Sonnet): `[HANDOFF:confirmed]`, no blocking issues.
+  - **Skip count resolved:** with `not requires_bwrap`, the unit tier is 8934 passed, 15 skipped, all 15 known netns skips (3 root-permission, 11 Windows-only, 1 locale). The Developer's 19 came from a marker expression without `not requires_bwrap`, which adds 3 bwrap skips; the 4th was likely a timing-conditional watcher skip and did not recur.
+  - **Factory order** confirmed: same registration order and filters, an unchanged index for agents with no override, and no extra read for them.
+- Leg 2 status `completed`; checkpoint commit.

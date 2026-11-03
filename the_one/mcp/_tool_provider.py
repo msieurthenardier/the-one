@@ -44,8 +44,9 @@ from the_one.agent.config import AgentConfig
 from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import MCPSource
-from the_one.db.repositories import MCPSourceRepository
+from the_one.db.repositories import AgentMcpToolCacheRepository, MCPSourceRepository
 from the_one.encryption import get_encryptor
+from the_one.mcp._agent_cache import per_agent_tools, to_cache_payload
 from the_one.mcp._overrides import (
     StdioMCPOverride,
     StreamableHttpMCPOverride,
@@ -374,8 +375,18 @@ class MCPToolProvider:
             override_payload = override_for(config.mcp_overrides, source)
             effective_source = _apply_override(source, override_payload)
 
-            # Path B: hydrate from cache if populated.
-            cached_tools_payload: list[dict] = source.config.get("_cache", {}).get("tools") or []
+            # Path B: hydrate from cache if populated. Sortie 09 DD4: a stored
+            # agent that uses its own credentials on this source reads ITS
+            # per-agent cache, never the shared one (a cold per-agent cache
+            # lists live below and fills the row); everyone else reads the
+            # shared `_cache` exactly as before.
+            per_agent, per_agent_payload, agent_updated_at = await per_agent_tools(
+                conn, agent_name, config.mcp_overrides, source
+            )
+            if per_agent:
+                cached_tools_payload: list[dict] = per_agent_payload or []
+            else:
+                cached_tools_payload = source.config.get("_cache", {}).get("tools") or []
             if cached_tools_payload:
                 logger.debug(
                     "MCP source %r: using %d cached tools for agent build "
@@ -409,6 +420,23 @@ class MCPToolProvider:
                         source_override=effective_source,
                     )
                     mcp_tools = await client.list_tools()
+                    if per_agent and mcp_tools:
+                        # Sortie 09 AC6: fill the per-agent row, guarded by the
+                        # agent's `updated_at` read before the listing.
+                        try:
+                            await AgentMcpToolCacheRepository(conn).put_if_unchanged(
+                                agent_name,
+                                source.id,
+                                to_cache_payload(mcp_tools),
+                                agent_updated_at,
+                            )
+                        except Exception:  # a cache write never fails a build
+                            logger.warning(
+                                "could not store the per-agent tool list for agent %r, source %r",
+                                agent_name,
+                                source.name,
+                                exc_info=False,
+                            )
                 except MCPAuthRequired as e:
                     logger.warning(
                         "MCP source %r requires authorization; skipping "
