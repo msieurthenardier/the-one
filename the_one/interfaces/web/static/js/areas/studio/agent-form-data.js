@@ -322,6 +322,36 @@
         }
       }
 
+      // Sortie 09 DD1: a tile's per-agent credential payload (headers/env names with
+      // the mask for kept values, bearer_token: null) joins its entry. The merge takes
+      // an entry's tool filters from the body, so a tile whose rows never loaded copies
+      // them from the stored agent record instead of clearing them.
+      var mcpsHandle = ctx.mcpsTab ? ctx.mcpsTab() : null;
+      var credPayloads = (mcpsHandle && mcpsHandle.credentialPayloads) ? mcpsHandle.credentialPayloads() : {};
+      var storedOverrides = (self._selectedAgent && self._selectedAgent.mcp_overrides) || {};
+      Object.keys(credPayloads).forEach(function (sn) {
+        var entry = mcpOverrides[sn];
+        if (!entry) {
+          entry = {};
+          var so = storedOverrides[sn] || {};
+          if (Array.isArray(so.enabled_tools)) entry.enabled_tools = so.enabled_tools.slice();
+          if (Array.isArray(so.disabled_tools)) entry.disabled_tools = so.disabled_tools.slice();
+          mcpOverrides[sn] = entry;
+        }
+        Object.keys(credPayloads[sn]).forEach(function (k) { entry[k] = credPayloads[sn][k]; });
+      });
+      // Loading a tile's rows after mount turns "no entry" into "{}" for a denylist source
+      // with nothing disabled, which reads as dirty against the mount snapshot. An empty
+      // entry for a source whose stored entry carries no tool filter says nothing, so it
+      // is dropped (a stored filter still needs its "{}" to be cleared).
+      Object.keys(mcpOverrides).forEach(function (sn) {
+        if (Object.keys(mcpOverrides[sn]).length > 0) return;
+        var so = storedOverrides[sn];
+        var hadFilter = !!so && (Array.isArray(so.enabled_tools) ||
+          (Array.isArray(so.disabled_tools) && so.disabled_tools.length > 0));
+        if (!hadFilter) delete mcpOverrides[sn];
+      });
+
       data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
 

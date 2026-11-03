@@ -84,6 +84,12 @@
       return d && d.handle ? d.handle.tools || null : null;
     }
 
+    // The MCP servers section handle of the current mount (null with no editor open).
+    function mcpsTab_() {
+      var d = currentData_();
+      return d && d.handle ? d.handle.mcps || null : null;
+    }
+
     function setNameError_(text) {
       var d = currentData_();
       if (d && d.handle && d.handle.general) d.handle.general.setNameError(text);
@@ -291,7 +297,7 @@
         knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
         // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
-        fetchMcpSourceTools: agentData.fetchMcpSourceTools,
+        testMcpAsAgent: agentData.testMcpAsAgent,
         // The studio owns the source focus (hydrate applies the URL's value to
         // both slots); the tab reads it from here, never from location.hash.
         pendingMcpAgentSourceId: self._selectedMcpAgentSourceId || self._pendingMcpAgentSourceId || null,
@@ -572,6 +578,8 @@
         return;
       }
       var focusTok = App.focusAfter.begin(saveBtnEl_());
+      // The sources whose credentials this Save changes (re-tested once it lands).
+      var credIds = mcpsTab_() ? mcpsTab_().changedSourceIds() : [];
       // The mount this Save was started from: a response that lands after it was
       // torn down (a discard, another agent) must not render into the new one.
       var saveSlotTok = currentData_() ? currentData_().token : null;
@@ -710,8 +718,11 @@
                 // or an attached row would regress to the unattached
                 // placeholder immediately after every save.
                 found.kb_tool_names = updated.kb_tool_names;
+                // Likewise the per-agent MCP tool lists (the list route has none).
+                found.mcp_tool_cache = updated.mcp_tool_cache;
                 self._selectedAgent = found;
                 renderEditor(found);
+                if (credIds.length && mcpsTab_()) mcpsTab_().afterSave(found, credIds);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
                 showFlash('Agent saved');
                 // Rewrite the URL so refresh / back-button targets the
@@ -763,7 +774,8 @@
       destroyEditor: destroyEditor,
       onSelfConfigChanged: onSelfConfigChanged,
       shell: shell,
-      toolsTab: toolsTab_
+      toolsTab: toolsTab_,
+      mcpsTab: mcpsTab_
     };
   }
 

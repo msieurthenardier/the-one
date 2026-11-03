@@ -224,7 +224,9 @@ App.registerArea({
       // call-time: the current editor mount's shell (the controller is created after)
       shell: function () { return controller ? controller.shell() : null; },
       // call-time: the current mount's Built-in tools tab handle (field handles for the Save walk)
-      toolsTab: function () { return controller ? controller.toolsTab() : null; }
+      toolsTab: function () { return controller ? controller.toolsTab() : null; },
+      // call-time: the current mount's MCP servers section handle (credential payloads)
+      mcpsTab: function () { return controller ? controller.mcpsTab() : null; }
     });
 
     // The model picker's wiring (M31 F2 L03): the model fetch, capability chips,

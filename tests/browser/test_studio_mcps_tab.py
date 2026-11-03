@@ -22,7 +22,7 @@ Tests cover:
   8. App.areas array-shape lock-test.
   9. Auth-required notice uses source name, not DB id.
 
-Tests 3, 6, 7, 9 use page.route() to mock /api/mcp-sources/{id}/test/connect.
+Tests 3, 6, 7, 9 use page.route() to mock /api/mcp-sources/{id}/test/agent.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ def _navigate_to_agent_mcps_tab(page: Page, base_url: str, agent_name: str) -> N
 
 
 def _mock_tools_connect(page: Page, source_id: str, tools: list[dict]) -> None:
-    """Register a page.route() mock for /test/connect that returns the given tools."""
+    """Register a page.route() mock for /test/agent that returns the given tools."""
     stub_payload = {
         "status": "ok",
         "tools": tools,
@@ -105,7 +105,7 @@ def _mock_tools_connect(page: Page, source_id: str, tools: list[dict]) -> None:
             body=json.dumps(stub_payload),
         )
 
-    page.route(f"**/api/mcp-sources/{source_id}/test/connect", handler)
+    page.route(f"**/api/mcp-sources/{source_id}/test/agent", handler)
 
 
 def _click_switch(toggle) -> None:
@@ -417,7 +417,7 @@ def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> Non
             body=json.dumps(auth_required_payload),
         )
 
-    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_auth_required)
+    page.route(f"**/api/mcp-sources/{sid}/test/agent", handle_auth_required)
 
     popups = []
     page.on("popup", lambda p: popups.append(p))
@@ -513,7 +513,7 @@ def test_auth_required_notice_uses_source_name_not_id(app_clean: str, page: Page
             ),
         )
 
-    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_auth_required)
+    page.route(f"**/api/mcp-sources/{sid}/test/agent", handle_auth_required)
 
     _navigate_to_agent_mcps_tab(page, app_clean, "name-id-test-agent")
     _expand_source_tile(page, sid)
@@ -633,7 +633,7 @@ def test_mcp_error_text_is_one_size_in_the_tab_and_the_editor(app_clean: str, pa
     )
     _seed_agent(app_clean, "a18-size-agent", {"description": "test"})
     page.route(
-        f"**/api/mcp-sources/{sid}/test/connect",
+        f"**/api/mcp-sources/{sid}/test/agent",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -668,7 +668,7 @@ def test_mcps_tab_error_shows_plain_headline_and_details(app_clean: str, page: P
     )
     _seed_agent(app_clean, "dd19-agent", {"description": "test"})
     page.route(
-        f"**/api/mcp-sources/{sid}/test/connect",
+        f"**/api/mcp-sources/{sid}/test/agent",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -837,15 +837,20 @@ def test_tile_shape_switch_refresh_and_chips(app_clean: str, page: Page) -> None
     # The accessible name is reachable by role.
     expect(page.get_by_role("switch", name="Attach shape-source")).to_have_count(1)
 
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile.locator(".ui-group-tile-chip").nth(1)).to_have_text("http")
+    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_text("Tools▸")
+
+    # Refresh sits on the status line inside the expanded body (sortie 09), not on the
+    # collapsed tile's header.
     refresh = page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]')
+    expect(tile.locator(".ui-group-tile-actions")).to_have_count(0)
+    _mock_tools_connect(page, sid, TOOLS_AB)
+    _expand_source_tile(page, sid)
     expect(refresh).to_have_text("Refresh")
     expect(refresh).to_have_attribute("aria-label", "Refresh tools for shape-source")
     box = refresh.bounding_box()
     assert box is not None and round(box["height"]) == 24, box
-
-    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
-    expect(tile.locator(".ui-group-tile-chip").nth(1)).to_have_text("http")
-    expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_text("Tools▸")
 
 
 @pytest.mark.browser
@@ -865,7 +870,8 @@ def test_real_clicks_dirty_the_form(app_clean: str, page: Page) -> None:
     _click_switch(master)
     expect(page.locator(SAVE)).to_be_disabled(timeout=3000)
 
-    _expand_source_tile(page, sid)
+    # The switch-on already expanded the tile (and tested it); switching off leaves it open.
+    expect(page.locator(f'[data-testid="mcp-source-details-body-{sid}"]')).to_be_visible()
     expect(_tool(page, sid, "tool_a")).to_be_checked(timeout=6000)
     _click_row(page, sid, "tool_a")
     expect(_tool(page, sid, "tool_a")).not_to_be_checked()
@@ -1055,7 +1061,7 @@ def test_refresh_error_keeps_rows_then_success_clears_it(app_clean: str, page: P
 
     page.unroute_all()
     page.route(
-        f"**/api/mcp-sources/{sid}/test/connect",
+        f"**/api/mcp-sources/{sid}/test/agent",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
@@ -1077,9 +1083,11 @@ def test_refresh_error_keeps_rows_then_success_clears_it(app_clean: str, page: P
 
 
 @pytest.mark.browser
-def test_refresh_on_collapsed_tile_expands_and_fetches_once(app_clean: str, page: Page) -> None:
+def test_switch_on_expands_the_tile_and_tests_once(app_clean: str, page: Page) -> None:
+    """Refresh lives in the expanded body now, so the collapsed-tile entry point is the
+    attach switch: a user switch-on expands the tile and runs one test."""
     sid = _seed_source(app_clean, "collapsed-refresh")
-    _seed_agent(app_clean, "collapsed-refresh-agent", {"description": "t", "mcp_source_ids": [sid]})
+    _seed_agent(app_clean, "collapsed-refresh-agent", {"description": "t"})
     calls = {"n": 0}
 
     def handler(route) -> None:
@@ -1090,9 +1098,9 @@ def test_refresh_on_collapsed_tile_expands_and_fetches_once(app_clean: str, page
             body=json.dumps({"status": "ok", "tools": TOOLS_AB, "capabilities": {"tools": {}}}),
         )
 
-    page.route(f"**/api/mcp-sources/{sid}/test/connect", handler)
+    page.route(f"**/api/mcp-sources/{sid}/test/agent", handler)
     _navigate_to_agent_mcps_tab(page, app_clean, "collapsed-refresh-agent")
-    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    _click_switch(page.locator(f'[data-testid="mcp-source-toggle-{sid}"]'))
     expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_attribute(
         "aria-expanded", "true", timeout=3000
     )
@@ -1364,7 +1372,8 @@ def test_one_save_covers_built_in_attach_and_mcp_tool_choices(app_clean: str, pa
     first_tool.locator("xpath=ancestor::label[1]").click()
     # 2. the MCP attach switch, 3. one MCP tool
     _click_switch(page.locator(f'[data-testid="mcp-source-toggle-{sid}"]'))
-    _expand_source_tile(page, sid)
+    # (the switch-on expands the tile)
+    expect(page.locator(f'[data-testid="mcp-source-details-body-{sid}"]')).to_be_visible()
     cb = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_b"]')
     expect(cb).to_be_visible(timeout=6000)
     cb.uncheck()

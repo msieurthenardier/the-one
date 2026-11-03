@@ -202,3 +202,45 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - **Skip count resolved:** with `not requires_bwrap`, the unit tier is 8934 passed, 15 skipped, all 15 known netns skips (3 root-permission, 11 Windows-only, 1 locale). The Developer's 19 came from a marker expression without `not requires_bwrap`, which adds 3 bwrap skips; the 4th was likely a timing-conditional watcher skip and did not recur.
   - **Factory order** confirmed: same registration order and filters, an unchanged index for agents with no override, and no extra read for them.
 - Leg 2 status `completed`; checkpoint commit.
+
+### Leg 3 `credentials-ui`: design (2026-11-03)
+- Leg 2 committed as `4b6071f1`.
+- Risk tier: **high**. It changes a shared write path (the agent Save body for `mcp_overrides`) and a security-sensitive UI (credential entry), and replaces the Tools tab's `/test/connect` call. A Developer design review runs.
+- Flight-level review for this leg: **Sonnet Reviewer** plus the **Accessibility Reviewer** (UI change).
+- Developer design review (Sonnet): **approve with changes**. All taken:
+  - **High:** the post-save re-render drops `mcp_tool_cache`. Copy it as `kb_tool_names` is copied.
+  - **High:** the tab handle wasn't reachable from the form or the save path. Add an `mcpsTab` getter through the controller, `studio.js` and `ctx`.
+  - **High:** the controller has only 29 lines of room. The split helper and shared tab logic move into the new module.
+  - **High:** unlisted test breaks: the `tests/test_store_static.py` pin; `test_studio_mcps_tab.py`'s `/test/connect` mocks, Refresh shape test and dirty test.
+  - **Medium:**
+    - `setAgent` always rebases;
+    - the pre-existing snapshot drift (an empty `{}` entry is dropped when nothing is stored);
+    - masks go under the stored name spelling;
+    - `secretInput` show/hide labels;
+    - lane choice: the new file is `test_flow_studio_tools_mcp_credentials.py`, in `agent-tabs`, with a budget check.
+  - **Low:**
+    - Refresh moves into the body;
+    - the master's user-only `onChange`, with `loadStarted` and `gen` set on toggles;
+    - the Library hint goes in the section description;
+    - loc names are mapped to tiles;
+    - `mcp-sources` is invalidated after a no-override `ok`.
+  - The designer's questions were settled by the Flight Director:
+    - one leg with a mid-leg checkpoint commit (part A AC1-9/12/13 testids/test migrations; part B AC10/11/14-16), keeping the operator's three-leg shape;
+    - `setAgent` always discards pending edits;
+    - an empty entry is dropped when nothing is stored;
+    - `secrets` keys are row names;
+    - on a mixed 422, the MCP refusal gets focus.
+  - No second review cycle: precision fixes taken from the review. Leg status `ready`.
+
+### Leg 3 part A (checkpoint): built, not committed (leg stays `in-flight`)
+- **Built:** `areas/studio/mcp-agent-credentials.js` (`App.studio.mcpAgentCredentials`: `create`, `hasStoredCredential`, `splitItems`; handle `setAgent/setSource/payload/isDirty/missing/showErrors/setStatus/destroy`); `mcps-tab.js` mounts the section, status line (Refresh moved there), `runTest` on `testMcpAsAgent`, switch-on/first-expand/Test/Refresh/afterSave triggers, per-tile `gen`, list choice (`listedTools`), handle methods `credentialPayloads/changedSourceIds/afterSave/showCredentialErrors`; `agent-data.js::testMcpAsAgent` (fetchMcpSourceTools deleted); `agent-form-data.js` merges payloads (stored tool filters copied when rows never loaded; empty entry dropped); controller: `mcpsTab_()` getter, `found.mcp_tool_cache` copy, `credIds` + `afterSave` call (783 lines); `studio.js` `mcpsTab` wiring; CSS `mcp-agent-cred-*`; `index.html`; registry rows.
+- **ACs done:** AC1-AC9, AC12, AC13 (testids, registry), AC15 test migrations and new file (16 tests). AC10 (`mcpsTab_` plumbing, `showErrors`, `showCredentialErrors` exist but the controller 422 delegate and its test are part B), AC11, AC14, AC16 left.
+- **Verification:** static guards (ui_guards, token_definitions, a11y, ownership, emitted_classes, area_module_size, store_static, nav_helper, run_tests_lanes) 479 passed; ruff check/format clean; `test_studio_mcps_tab.py` 32 passed; new file 16 passed; lanes `agent-tabs` 179 passed (330 s), `agents` 179 passed + 1 failure (`test_flow_agents_focus_after.py::test_form_is_clean_and_shows_the_stored_model_while_loading`, model-loading timing; 3/3 pass isolated), `routing` 186 passed (450 s).
+- **Falsified (edit out, run, restore):** tool-filter copy (yes), empty-entry drop (yes, after adding a later dirty check to the test), `mcp_tool_cache` copy (yes, after keeping the tile unopened), switch-off gen bump (yes, after restructuring the test). Not falsified: row-state/focus/payload matrix tests, list choice, post-save re-test, stdio, switch-on request body.
+- **Deviations:** (1) the empty-entry drop applies whenever the stored entry has no tool filter (not only when no stored entry), else opening a credentialed agent's tile reads dirty; (2) tests for existing behaviour changed: switch-on now expands the tile, so `test_real_clicks_dirty_the_form` and `test_one_save_covers...` no longer click expand; `test_refresh_on_collapsed_tile...` became `test_switch_on_expands_the_tile_and_tests_once`; (3) an error shows both the status line text and the existing role=alert block (test pins the alert), so it announces twice; (4) cached lists show "Last checked (with this agent's values) · N tools" (wording mine); (5) `mcp-error.js` regex untouched (still matches the old prefix and "Server error").
+- Leg 3 part A checkpoint (Developer `[HANDOFF:review-needed]`): AC1-9, AC12, AC13 testids and the AC15 migrations done; static guards 479 passed; `agent-tabs` 179 passed (330 s, budget 510); `routing` 186 passed. `agents` had 179 passed and 1 failed: `test_flow_agents_focus_after.py::test_form_is_clean_and_shows_the_stored_model_while_loading`, which passed 3/3 isolated. It is the same model-loading timing flake noted in sortie 08's log, so it is accepted under the flake rule.
+- Flight Director calls on part A's deviations:
+  - The broadened empty-entry drop (whenever the stored entry has no tool filter) is accepted. An omitted entry keeps the stored one server-side, so nothing is lost.
+  - The "Last checked · N tools" wording is accepted, and goes to the HAT to confirm.
+  - The double announcement (status line plus the existing `role=alert`) goes to part B to resolve.
+- Checkpoint commit.

@@ -592,6 +592,20 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
 | `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
 | `library-start-` | studio | The Library start page's per-group Add button, suffixed with the group and `-add` (`library-start-providers-add` (first), `library-start-knowledge-add`, `library-start-mcp-add`, `library-start-connectors-add`); each opens the group's `~new` form (model-providers sortie, DD6; it replaced the `library-empty-{group}` family) |
+| `mcp-agent-cred-` | studio | The per-agent credential section of an MCP server tile in the agent Tools tab (sortie 09 leg 3, DD10), `App.studio.mcpAgentCredentials`. Every id is suffixed with the source id; row ids add the row's name (`new-{n}` for a row added in this edit). The base is the wrapped role button family `mcp-agent-cred-{set|replace|reset|undo|cancel}-{id}-{name}` (buttons: "Set for this agent", "Replace", "Use server value" or "Remove", "Undo", "Cancel") |
+| `mcp-agent-cred-add-` | studio | The "Add header" / "Add variable" button, suffixed with the source id |
+| `mcp-agent-cred-empty-` | studio | The one-line "This server sets no headers." / "…no environment variables." note, suffixed with the source id |
+| `mcp-agent-cred-error-` | studio | The section-level error line (a refusal with no row), suffixed with the source id |
+| `mcp-agent-cred-input-` | studio | A row's secret value input (`type=password`, "Value for {name}"), suffixed with the source id and the row name |
+| `mcp-agent-cred-live-` | studio | The section's visually hidden polite live region for edit announcements, suffixed with the source id |
+| `mcp-agent-cred-name-` | studio | The name input of a row added with Add header / Add variable, suffixed with the source id and `new-{n}` |
+| `mcp-agent-cred-reveal-` | studio | A row's show/hide eye for its secret input ("Show value for {name}"), suffixed with the source id and the row name |
+| `mcp-agent-cred-row-` | studio | One row (a `role=group` named by the header or variable name), suffixed with the source id and the row name |
+| `mcp-agent-cred-row-error-` | studio | A row's refusal message, suffixed with the source id and the row name |
+| `mcp-agent-cred-section-` | studio | The "Headers for this agent" / "Environment for this agent" `App.ui.section`, suffixed with the source id |
+| `mcp-agent-cred-state-` | studio | A row's state text ("Server value", "Set per agent · missing", "Set for this agent", "Supplied by the server's sign-in", "Server value · on save", "Removed · on save"), suffixed with the source id and the row name |
+| `mcp-agent-cred-status-` | studio | The connection status line (`App.ui.status`, polite): "Testing…", "Connected with this agent's values · N tools", "Connected · N tools", "Needs a value for X", "Not listed with this agent's values yet", …; suffixed with the source id |
+| `mcp-agent-cred-test-` | studio | The status line's Test button ("Test connection for {server}"), suffixed with the source id; the Refresh button keeps `mcp-refresh-tools-btn-{id}` |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |

@@ -200,6 +200,34 @@
      the same gap as the tile body (M31 F2 L07b). */
   .area-studio .mcp-tool-group { display: flex; flex-direction: column; gap: 6px; }
   .area-studio .mcp-tool-group[data-mcp-tool-group]:empty { display: none; }
+  /* Per-agent credentials (sortie 09 leg 3, DD10): the section above a tile's tools, then
+     the status line with Test and Refresh. Every state is also written as text. */
+  .area-studio .mcp-agent-cred { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+  .area-studio .mcp-agent-cred-rows { display: flex; flex-direction: column; gap: 8px; }
+  .area-studio .mcp-agent-cred-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .mcp-agent-cred-head { display: flex; flex: 1 1 14rem; align-items: baseline; gap: 12px; min-width: 0; }
+  .area-studio .mcp-agent-cred-name { font-weight: 600; overflow-wrap: anywhere; }
+  .area-studio .mcp-agent-cred-state { color: var(--fg-secondary); }
+  .area-studio .mcp-agent-cred-row[data-cred-state="missing"] .mcp-agent-cred-state { color: var(--status-warning); font-weight: 600; }
+  .area-studio .mcp-agent-cred-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .area-studio .mcp-agent-cred-controls > div { min-width: 14rem; }
+  .area-studio .mcp-agent-cred-error { flex-basis: 100%; margin: 0; color: var(--status-danger); }
+  .area-studio .mcp-agent-cred-empty { margin: 0; color: var(--fg-secondary); }
+  .area-studio .mcp-agent-cred-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+  }
+  .area-studio .mcp-agent-cred-status-actions { display: flex; gap: 8px; }
   /* The server's instructions hang off the subtitle as a tooltip (a help cursor and a
      dotted underline say so), as the admin.css rule did for the old subtitle. */
   .area-studio span.has-instructions {
