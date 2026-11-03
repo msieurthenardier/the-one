@@ -185,6 +185,13 @@ files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
 no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
 processes (a `make up` server, another session's tests) (squawk 0160).
 
+Waiting on a long run (a browser lane, the unit tier, a CI build): run it in the
+background and wait for its completion notification, then read its output. Do not
+start backgrounded `sleep N` timers or `pgrep` wait loops. Every background task you
+start must have ended by the time you report. (Mission 34 squawk turnaround: one crew
+missed its own finished unit run, and finished crew left a dozen 15-30 minute
+`sleep` timers on the host.)
+
 When a change renames or deletes a selector, class, testid, symbol or path, or adds
 or removes fields in a response shape, grep the tests (every lane, plus `scripts/` and
 `tests/behavior/`) for its pins, including exact-dict assertions on that shape, and
