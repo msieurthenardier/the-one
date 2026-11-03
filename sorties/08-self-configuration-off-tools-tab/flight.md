@@ -1,6 +1,6 @@
 # Sortie: Self-configuration leaves the Tools tab
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -136,10 +136,10 @@ One leg, because the UI removal is unsafe without the server carry (DD2) and the
    - Comments and docstrings: `self-configuration-tab.js` header (lines 8-11); the `SURFACE_ROW_NAME` comment in `manage.py` (41-55) and `_reject_reserved_surface_name`'s docstring in `api.py` (~3314), both "mirrored in `mcps-tab.js`"; `reconcile_on_startup`'s LD6/LD7 bullets; `manage.status()` (104-109).
 
 ### Checkpoints
-- [ ] Server carries the attachment and refuses surface overrides (unit tests green)
-- [ ] Stored selections removed at startup and ignored at build (unit tests green)
-- [ ] Tools tab shows no surface tile; browser tests green on the `agents`, `agent-tabs` and `routing` lanes as touched
-- [ ] Docs updated; `make test-unit` and the touched browser lanes green
+- [x] Server carries the attachment and refuses surface overrides (unit tests green)
+- [x] Stored selections removed at startup and ignored at build (unit tests green)
+- [x] Tools tab shows no surface tile; browser tests green on the `agents` and `agent-tabs` lanes (`routing` was not touched)
+- [x] Docs updated; `make test-unit` and the touched browser lanes green
 
 ### Adaptation Criteria
 
@@ -164,11 +164,11 @@ No HAT leg (operator, 2026-11-03).
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
-- [ ] Behavior test `self-configuration-off-tools-tab` passed
+- [x] All legs completed
+- [ ] Code merged (PR #355, awaiting operator review)
+- [x] Tests passing
+- [x] Documentation updated
+- [x] Behavior test `self-configuration-off-tools-tab` passed (11/11, `tests/behavior/self-configuration-off-tools-tab/runs/2026-11-03-15-45-56.md`)
 
 ### Verification
 - `make test-unit`; the browser lanes holding the changed files (`agent-tabs` for `test_studio_self_configuration_*`, `agents` for `test_studio_mcps_tab.py`) through `scripts/run-tests.sh` with `THE_ONE_TEST_NETNS=1`.

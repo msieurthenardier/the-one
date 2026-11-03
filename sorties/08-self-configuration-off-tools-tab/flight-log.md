@@ -67,6 +67,13 @@ All findings taken:
   - Reviewer (Sonnet, security tier): **[HANDOFF:confirmed]**, no issues. It re-ran 662 tests across 12 files and ruff, and checked own-vs-foreign carry, the raw-body 422 on both routes, marker-not-name spoofing, startup-strip safety, and that no write path stores a retired entry. One cosmetic over-long docstring line in `_reject_reserved_surface_name` is accepted.
   - Accessibility Reviewer (Sonnet): **[HANDOFF:confirmed]**, no blocking issues. Two non-blocking notes, both accepted: a deep link to a surface id now does nothing (already a known effect in DD1), and the empty-state title "No MCP sources registered yet." stays true for operator-registered sources.
 - Leg 01 status set to `completed`. The flight is committed by a Developer (crew file: commit once per flight).
+- Flight commit `480662d3` (27 files, `env.sh` excluded). Branch pushed. Draft PR #355 opened.
+- **Behavior test `self-configuration-off-tools-tab`: PASS, 11/11 checkpoints** (run `2026-11-03-15-45-56`, log `tests/behavior/self-configuration-off-tools-tab/runs/2026-11-03-15-45-56.md`).
+  - Setup: live mode, Sonnet Executor and Validator, CDP Chromium. The instance was built from `480662d3` on port 8486 with a scratch data dir under `$HOME`; ports 8484 and 8485 were never touched.
+  - The run checked every charter criterion against the real app: no surface tile on the Tools tab (with another source present and with none); General and Tools saves keep the attachment; the API 422; a real `update_my_description` call succeeding with both legacy withholds stored (DD4 build-time ignore and DD7); a restart's startup cleanup removing both, with its log line naming the agent; the tool working after the restart; disable detaching it.
+  - The Validator's six wording observations were applied to the spec, which is now `active`.
+  - Teardown was by PID, and the ports were verified free.
+- All charter criteria met. Flight status set to `landed`. [COMPLETE:flight]
 
 ## Leg Progress
 
