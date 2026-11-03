@@ -366,3 +366,8 @@ Sortie planned 2026-10-27 from an operator report on the Windows build: an agent
 - **Shell, Python and downloads and paths.** An agent's own Allowed and Denied paths limit the file tools only; Shell, Python and downloads use the app-wide paths, and on a computer without the sandbox Shell and Python are not limited by paths at all. The path fields now say so.
 - **One-time cleanup.** On first start after the update, the app removes values earlier saves copied into agents' tool settings (a value equal to the app-wide one, app-wide entries in denied lists, settings that never applied). A copy of an app-wide value you had since changed no longer matches, so it stays as that agent's own value.
 - A chat whose agent can no longer be built now shows the reason in a banner instead of dropping the connection.
+
+### Close (2026-11-03)
+- **Operator decision: skip the HAT.** Leg 6 `hat` was optional, and it was never designed or run. The sortie's code merged in PR #346 (`ae2296f1`) on 2026-10-31, and Mission 34 has run its gates on that code since.
+- **Status `completed`.** The success criteria are assessed as met on the automated tests and the flight review. The flight debrief was run retroactively the same day ([flight-debrief.md](flight-debrief.md)), with Developer and Architect interviews (Sonnet, read-only) and three operator answers.
+- **Mission 34's debrief action item corrected.** It listed "fly sortie 07 next", but the sortie had already flown. The operator says that item was wrong.

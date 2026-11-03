@@ -106,7 +106,7 @@ Plugin version for all entries: mission-control 1.2.3. These restate flight-debr
     - Nothing observable was lost, so this is not an observation.
 
 ## Action Items
-- [ ] Fly **sortie 07** (agent tool overrides) next, then run `/mission-control:routine-maintenance` for a fresh inspection (operator decision). Sortie 07 unblocks findings #3, #4 (agent half), #6 and #7.
+- [x] ~~Fly **sortie 07** (agent tool overrides) next~~. *Corrected 2026-11-03: sortie 07 had already flown and merged in PR #346 on 2026-10-31. Only its optional HAT was open, and the operator skipped it and closed the sortie as `completed`.* Next, run `/mission-control:routine-maintenance` for a fresh inspection (operator decision). Sortie 07's merge unblocks findings #3, #4 (agent half), #6 and #7.
 - [ ] Plan the remainder of **finding #25** (test-only production code: `append_to_session_metadata`, the KB chunk delete/FTS methods, `set_next_run`, Discord REST helpers, `_search_stubs.py`) as a small flight or sortie, using Flight 3's coverage-table method.
 - [ ] Plan the **openai 3 / httpx2 migration** as a sortie. It lifts `openai<3` and extends `test_mcp_httpx_guard`'s approach to the provider layer.
 - [ ] **Browser-tier runtime:** split or trim the longest lanes (`routing`, `agents`). Re-budget the contracts lanes after a second quiet reading on Chromium 156 (they ran 334/162/48 s against 600/330/90 s budgets).
