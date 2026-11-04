@@ -43,6 +43,10 @@ _PROVIDER_ACTION = "acts on the provider in the path; its name is untouched"
 
 EXEMPT = {
     ("PUT", "/api/agents/{name}"): "the name is forced from the path of an existing row",
+    (
+        "PUT",
+        "/api/agents/{name}/mcp-overrides/{source_id}/credentials",
+    ): "sets one source's per-agent credentials for the agent in the path; no name",
     ("POST", "/api/agents/{name}/self-configuration"): _SELF_CONFIG,
     ("POST", "/api/agents/{name}/self-configuration/external-credentials"): _SELF_CONFIG,
     (

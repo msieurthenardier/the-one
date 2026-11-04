@@ -639,6 +639,17 @@ An agent can connect to a shared Library MCP server with its own header values
   values behind the same credential gate; it echoes no value, never touches
   sign-in tokens, and its failure text carries a class name and, for a rejected
   key, header names only.
+- **A value marked non-sensitive is returned in clear.** The operator can mark a
+  per-agent header or variable as non-sensitive (the `plain_names` list in the same
+  encrypted column). Its value is then returned in clear to the operator UI on every
+  agent response, including the agent list, so the operator can read and edit it; it
+  is still encrypted at rest and never logged. A `bearer_token` and an `Authorization`
+  header are always masked and cannot be marked non-sensitive. Marking is a deliberate
+  operator choice; every other value stays masked as above. A non-sensitive value
+  shaped like a mask (`***`, `__MASKED__`) is treated as "keep the stored value" and
+  dropped when nothing is stored, the same limitation as the Library. The route
+  `PUT /api/agents/{name}/mcp-overrides/{source_id}/credentials` saves one source's
+  values behind the same credential gate and echoes no value other than a non-sensitive one.
 - A blank Library value is never sent, which keeps an empty header from being
   mistaken for a credential; a 401 to a source that configures headers is reported
   as rejected credentials (naming the missing values), not as a sign-in prompt.

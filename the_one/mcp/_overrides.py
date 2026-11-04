@@ -65,6 +65,10 @@ class StdioMCPOverride(BaseModel):
     # "no allowlist applied"; an empty list means "no tools enabled".
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] | None = None
+    # Sortie 09 L05: names whose per-agent value the operator marked
+    # non-sensitive (returned in clear on agent responses). A plain field:
+    # it carries no credential, so it is not in MCP_OVERRIDE_CREDENTIAL_KEYS.
+    plain_names: list[str] | None = None
 
 
 class StreamableHttpMCPOverride(BaseModel):
@@ -91,6 +95,8 @@ class StreamableHttpMCPOverride(BaseModel):
     # F8 L1: see StdioMCPOverride for rationale.
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] | None = None
+    # Sortie 09 L05: see StdioMCPOverride.
+    plain_names: list[str] | None = None
 
 
 # M21 F01 L01: marker-derived set of `mcp_overrides` inner-dict keys that

@@ -265,6 +265,14 @@ def _agent_response(
         for source_entry in overrides.values():
             if not isinstance(source_entry, dict):
                 continue
+            # Sortie 09 L05: values of names the operator marked non-sensitive are
+            # returned in clear (headers ignoring case, env exactly). `bearer_token`
+            # and an `Authorization` header are never unmasked.
+            plain = source_entry.get("plain_names")
+            plain_names = (
+                {n for n in plain if isinstance(n, str)} if isinstance(plain, list) else set()
+            )
+            plain_folded = {n.strip().lower() for n in plain_names}
             for key in MCP_OVERRIDE_CREDENTIAL_KEYS:
                 if key not in source_entry or not source_entry[key]:
                     continue
@@ -272,7 +280,27 @@ def _agent_response(
                 if isinstance(value, str):
                     source_entry[key] = _mask_secret_value(value)
                 elif isinstance(value, dict):
-                    source_entry[key] = {k: _mask_secret_value(v) for k, v in value.items()}
+                    if key == "headers":
+
+                        def _is_plain(k: Any) -> bool:
+                            if not isinstance(k, str):
+                                return False
+                            folded = k.strip().lower()
+                            return folded != "authorization" and folded in plain_folded
+
+                    elif key == "env":
+
+                        def _is_plain(k: Any) -> bool:
+                            return k in plain_names
+
+                    else:
+
+                        def _is_plain(k: Any) -> bool:
+                            return False
+
+                    source_entry[key] = {
+                        k: (v if _is_plain(k) else _mask_secret_value(v)) for k, v in value.items()
+                    }
                 else:
                     source_entry[key] = _MASK_PREFIX
     return data
@@ -575,9 +603,44 @@ def _merge_preserved_mcp_credentials(
                     resolved_entry.pop(key, None)
             else:
                 resolved_entry[key] = incoming_value
+        # Sortie 09 L05: `plain_names` follows the same omitted-keeps / null-clears /
+        # list-replaces rule, then is pruned to names that still have a value. This
+        # runs before the empty-entry check so a leftover list alone keeps nothing alive.
+        if "plain_names" in incoming_entry:
+            plain = incoming_entry["plain_names"]
+        else:
+            plain = stored_entry.get("plain_names")
+        resolved_entry.pop("plain_names", None)
+        pruned = _prune_plain_names(plain, resolved_entry)
+        if pruned:
+            resolved_entry["plain_names"] = pruned
         if resolved_entry:
             merged[source_name] = resolved_entry
     return merged or None
+
+
+def _prune_plain_names(plain: Any, entry: dict[str, Any]) -> list[str]:
+    """The names of ``plain`` that still have a value in ``entry``'s ``headers``
+    (matched ignoring case) or ``env`` (exact), in the merged dict's order, once each.
+    Robust to a non-list or non-string ``plain`` (returns what is usable)."""
+    if not isinstance(plain, list):
+        return []
+    wanted = {n for n in plain if isinstance(n, str)}
+    if not wanted:
+        return []
+    wanted_folded = {n.strip().lower() for n in wanted}
+    out: list[str] = []
+    headers = entry.get("headers")
+    if isinstance(headers, dict):
+        for name in headers:
+            if isinstance(name, str) and name.strip().lower() in wanted_folded and name not in out:
+                out.append(name)
+    env = entry.get("env")
+    if isinstance(env, dict):
+        for name in env:
+            if isinstance(name, str) and name in wanted and name not in out:
+                out.append(name)
+    return out
 
 
 async def _kb_repo() -> KnowledgeBaseRepository:
@@ -1495,6 +1558,73 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # Sortie 09 DD7: the agent's next connection must use the new credentials.
     await _evict_changed_mcp_credentials(name, existing.mcp_overrides, cfg.mcp_overrides, mcp_repo)
     return await _full_agent_response(cfg, rows)
+
+
+_TARGETED_CREDENTIAL_BODY_KEYS = frozenset({"headers", "env", "bearer_token", "plain_names"})
+_TARGETED_KEPT_KEYS = ("enabled_tools", "disabled_tools")
+
+
+@router.put("/agents/{name}/mcp-overrides/{source_id}/credentials")
+async def update_agent_mcp_credentials(
+    name: str, source_id: str, request: Request
+) -> dict[str, Any]:
+    """Sortie 09 L05 (DD12): save ONE source's per-agent credentials for one agent.
+
+    The body is ``{"headers"|"env": {...} | null, "bearer_token": ... | null,
+    "plain_names": [...] | null}`` in the agent PUT's write shape (an unchanged
+    sensitive value is ``__MASKED__``, a removed name is left out). It is merged
+    against the stored entry with the same rules as the agent PUT, and ONLY that
+    source's credential keys and ``plain_names`` change: the entry's tool filters,
+    every other source's entry and every other agent field are untouched. A source
+    the agent does not (yet) attach is accepted (an override for it is tolerated);
+    an unknown agent or source is a 404 and a self-configuration row a 422.
+
+    Known narrow race: a whole-agent PUT that loaded the row before this route
+    saved can overwrite it (both load, merge and save the whole row).
+    """
+    from the_one.agent.config import AgentConfig
+
+    store = await _agent_store()
+    try:
+        existing = await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    try:
+        source = await mcp_repo.get(source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+    if self_configuration_manage.is_surface_row(source):
+        raise HTTPException(
+            status_code=422,
+            detail="The self-configuration server's credentials can't be set per agent.",
+        )
+    body = await _read_json(request)
+    if not set(body) <= _TARGETED_CREDENTIAL_BODY_KEYS:
+        raise HTTPException(
+            status_code=422,
+            detail="Only headers, env, bearer_token and plain_names can be set here.",
+        )
+    stored_entry = (existing.mcp_overrides or {}).get(source.name)
+    kept = {
+        k: stored_entry[k]
+        for k in _TARGETED_KEPT_KEYS
+        if isinstance(stored_entry, dict) and k in stored_entry
+    }
+    incoming = {source.name: {**kept, **body}}
+    await _validate_mcp_override_credentials({"mcp_overrides": incoming}, mcp_repo)
+    merged = _drop_surface_override(
+        _merge_preserved_mcp_credentials(incoming, existing.mcp_overrides)
+    )
+    data = existing.model_dump()
+    data["mcp_overrides"] = merged
+    try:
+        cfg = AgentConfig.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
+    await store.save(cfg)
+    await _evict_changed_mcp_credentials(name, existing.mcp_overrides, cfg.mcp_overrides, mcp_repo)
+    return await _full_agent_response(cfg)
 
 
 @router.delete("/agents/{name}")

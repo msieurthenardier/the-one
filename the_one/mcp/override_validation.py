@@ -49,11 +49,13 @@ _TRANSPORT_MANAGED = frozenset(
 
 
 def carries_credentials(incoming: Any) -> bool:
-    """True iff any source entry of ``incoming`` has a credential key (even a null clear)."""
+    """True iff any source entry of ``incoming`` has a credential key or ``plain_names``
+    (even a null clear): the entries ``validate_mcp_overrides`` has something to check in."""
     if not isinstance(incoming, dict):
         return False
     return any(
-        isinstance(entry, dict) and any(k in entry for k in MCP_OVERRIDE_CREDENTIAL_KEYS)
+        isinstance(entry, dict)
+        and (any(k in entry for k in MCP_OVERRIDE_CREDENTIAL_KEYS) or "plain_names" in entry)
         for entry in incoming.values()
     )
 
@@ -96,6 +98,30 @@ def validate_mcp_overrides(
         oauth = source is not None and has_oauth_state(source)
         stdio = source is not None and source.type == "stdio"
         http = source is not None and source.type != "stdio"
+
+        # plain_names (sortie 09 L05): names whose value is returned in clear
+        if "plain_names" in entry and entry["plain_names"] is not None:
+            plain = entry["plain_names"]
+            if not isinstance(plain, list) or not all(isinstance(n, str) for n in plain):
+                details.append(
+                    _detail(
+                        source_name,
+                        "plain_names",
+                        None,
+                        "Plain names must be a list of names.",
+                    )
+                )
+            else:
+                for name in plain:
+                    if not stdio and name.strip().lower() == "authorization":
+                        details.append(
+                            _detail(
+                                source_name,
+                                "plain_names",
+                                name,
+                                "An Authorization value is always sensitive.",
+                            )
+                        )
 
         # headers
         if "headers" in entry and entry["headers"] is not None:

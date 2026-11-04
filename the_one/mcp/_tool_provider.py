@@ -155,7 +155,9 @@ def _apply_override(source: MCPSource, override_payload: dict[str, Any] | None) 
     # consumed by the post-list_tools() filter in get_tools_for_agent.
     # Stripping here keeps the resolver contract clean.
     resolver_payload = {
-        k: v for k, v in override_payload.items() if k not in ("enabled_tools", "disabled_tools")
+        k: v
+        for k, v in override_payload.items()
+        if k not in ("enabled_tools", "disabled_tools", "plain_names")
     }
     if not resolver_payload:
         # Payload had ONLY tool-filter keys — no credential mutation needed.

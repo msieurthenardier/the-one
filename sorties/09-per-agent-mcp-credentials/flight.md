@@ -237,6 +237,54 @@ Library editor, blank value:
 - A request without a matching key gets a bare 401 (no `resource_metadata`). `tools/list` returns only that key's tools.
 - It keeps a request log readable over a control route, so the behavior test can see which key each agent sent. Each entry records a sequence number, the JSON-RPC method (so a `tools/call` can be told apart from a re-test's `tools/list`) and only the last 4 characters of the key.
 
+**DD12 (HAT, operator 2026-11-04): the agent tile's section is the Library headers table, unlocked by one "Override headers" button.** This supersedes DD10's per-row layout (the "Set for this agent" / "Replace" / "Use server value" buttons, the row states and "Add header"). DD10's status line, test triggers, list choice and accessibility rules stay.
+- **Why:** at the HAT the operator found the per-row layout off-style (the wrong font, a value field that was too short) and asked for the section to look identical to the Library MCP editor's headers table, with its key/value columns, "value" placeholder, Sensitive toggle and trash, and one "Override headers" button in place of the per-row buttons.
+- **Locked (default):** the section shows this agent's **effective** headers, a stdio source's environment variables likewise:
+  - the server's names, plus this agent's;
+  - in the Library table's look, with the **Key and Value columns only** (operator: the toggle and trash appear only once Override is on);
+  - values shown as the Library shows them: a sensitive value masked, a non-sensitive value in clear, a blank one empty with the "value" placeholder;
+  - a row this agent overrides is marked (for example "this agent" beside the key).
+  
+  Above the table sits a single **"Override headers"** button ("Override environment variables" for stdio).
+- **Unlocked (after "Override headers"):**
+  - the table becomes the same editable table as the Library's: Key, Value, Sensitive, trash and "+ Add row";
+  - a server row's key is not editable, and its value starts empty with the "value" placeholder;
+  - typing a value sets this agent's override; leaving it empty keeps the server's value;
+  - trash on a server row removes this agent's value and returns to the server's;
+  - trash on an agent-only row removes it;
+  - Cancel discards the edits and locks the table again.
+  
+  Edits join the editor's dirty state and are sent on Save in the DD1 write shape.
+- **Sensitive per row (operator 2026-11-04, "Toggle per row, like Library").** A per-agent value can be marked non-sensitive. It is still stored only in the encrypted `agents.mcp_overrides` column, but agent responses return it in clear, so it is shown again on reload. A sensitive value stays masked (DD9). This narrows charter criterion 1 ("values are write-only") to **sensitive** values; operator decision, recorded here. A new value defaults to sensitive, as in the Library.
+- **Server change (to be confirmed by the design review):** a non-credential list in the override entry naming the non-sensitive names (suggested `plain_names: list[str]`, like `enabled_tools`: not `Substitute`-marked, stripped before the resolver).
+  - `_agent_response` doesn't mask those names.
+  - DD2 validation requires each listed name to be in the entry's `headers`/`env`.
+  - The merge treats the list like the other non-credential keys (it comes from the body when the entry is present).
+  - Studio sends a non-sensitive value back as its clear text and a sensitive unchanged one as `__MASKED__`.
+- **Mockup review changes (operator, 2026-11-04, on the rendered mockup):**
+  - The section title is just "Headers", the Library's own title (stdio: the Library's environment title).
+  - The status-line row's buttons mimic the Library editor's Cancel/Save/Test trio. Test always shows; Cancel and Save show only after "Override headers".
+  - Refresh is removed: it now does what Test does, a fresh per-agent listing with the tile's current values.
+  - **The tile's Save saves right away** (operator: "Saves the overrides right away"). Save writes this server's credential overrides for this agent at once, re-tests and locks the table.
+    - It goes through a new **targeted** route that updates only that source's credential keys (`headers`/`env`/`bearer_token`/`plain_names`) in the agent's `mcp_overrides`, with DD2 validation, DD7 eviction and the DD5 cache-row delete. It never does a whole-row PUT, so other unsaved editor edits and the stored tool filters are untouched.
+    - The agent editor's main Save no longer sends credential keys; the existing omitted-keeps merge rule preserves them.
+    - The tile's Save is disabled for an agent that has never been saved (create mode).
+  - The row marker pill reads **"overridden"**: this agent sends its own value for that name instead of the Library's, or has a name the Library lacks (operator, final mockup review; approved).
+  - The **"Override headers"** button ("Override environment variables" for stdio) lives in the same action row, not the section header (operator, second mockup review). The locked row is: status text, then **Override headers** and **Test**. The unlocked row is: status text, then **Cancel**, **Save** and **Test**. The section header carries only its title.
+- **Mockup** (the first rendered version was approved with the changes above; an ASCII summary follows):
+```
+HEADERS FOR THIS AGENT                       [Override headers]
+KEY                  VALUE
+X-Api-Key  (agent)   ••••••••••-7Q2
+X-Org                acme
+
+-- after Override headers --
+KEY              VALUE                        SENSITIVE
+[X-Api-Key   ]   [••••••••••-7Q2      ](o)    [on ]      🗑
+[X-Org       ]   [value               ]       [off]      🗑
+[+ Add row]                                        [Cancel]
+```
+
 ### Citation Audit
 
 Verified against the working tree at `2958510f` (code interrogation, 2026-11-03); Architect review 1 re-checked a sample and added rows marked (A).

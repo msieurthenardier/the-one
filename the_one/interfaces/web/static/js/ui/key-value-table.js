@@ -44,6 +44,18 @@
   //   setError resolves rowIndex to the row at call time, so the error follows the row through
   //   re-numbering; it renders a small line under the input, linked by an aria-describedby token,
   //   and sets aria-invalid. destroy removes the listeners and leaves the DOM; the caller removes el.
+  //   Row options (sortie 09 L05, flight DD12; each is inert when not passed):
+  //   readOnly (construct-time): every input is read-only and focusable, no Add row, no remove
+  //   column or header, toggles are disabled, and a 'secret' column renders as plain text showing
+  //   the row's value as given (the caller passes the mask string or the clear value); it wins
+  //   over lockBy and removableBy. lockBy '<row field>': a row whose field is 'key' has a read-only
+  //   key input, one whose field is 'row' has every input read-only and its toggle and remove
+  //   disabled. onBeforeRemove(row, index): returning false cancels the splice (no onChange; focus
+  //   returns to that row's remove button). markerBy '<row field>' + markerLabel: a row whose field
+  //   is truthy shows a pill of real text (.ui-kv-marker) in the key cell, linked to the key input
+  //   by aria-describedby. removableBy '<row field>': a row whose field is false has a natively
+  //   disabled remove button (not focusable; it keeps its name). setRow re-evaluates these from a
+  //   patch without rebuilding the row or moving focus.
   App.ui.keyValueTable = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
@@ -67,6 +79,10 @@
     }
     var keyColumn = opts.keyColumn || columns[0].key;
     var emptyHidesHead = opts.emptyHidesHead !== false;
+    var readOnly = opts.readOnly === true;
+    var lockBy = opts.lockBy || null;
+    var markerBy = opts.markerBy || null;
+    var removableBy = opts.removableBy || null;
     var rows = [];
     var keyCounter = 0;
     var destroyed = false;
@@ -89,9 +105,11 @@
         if (columns[c].width) colEl.style.width = String(columns[c].width);
         colgroup.appendChild(colEl);
       }
-      var actionsCol = util.el('col');
-      actionsCol.style.width = '48px';
-      colgroup.appendChild(actionsCol);
+      if (!readOnly) {
+        var actionsCol = util.el('col');
+        actionsCol.style.width = '48px';
+        colgroup.appendChild(actionsCol);
+      }
       table.appendChild(colgroup);
     }
     var thead = util.el('thead', { className: 'ui-kv-head' });
@@ -109,9 +127,11 @@
       }
       headRow.appendChild(th);
     }
-    var actionsTh = util.el('th', { scope: 'col' });
-    actionsTh.appendChild(util.el('span', { className: 'visually-hidden', text: 'Actions' }));
-    headRow.appendChild(actionsTh);
+    if (!readOnly) {
+      var actionsTh = util.el('th', { scope: 'col' });
+      actionsTh.appendChild(util.el('span', { className: 'visually-hidden', text: 'Actions' }));
+      headRow.appendChild(actionsTh);
+    }
     thead.appendChild(headRow);
     var tbody = util.el('tbody', { className: 'ui-kv-body' });
     table.appendChild(thead);
@@ -124,7 +144,7 @@
       testid: opts.addTestid
     });
     root.appendChild(table);
-    root.appendChild(addBtn);
+    if (!readOnly) root.appendChild(addBtn);
 
     function rowOfNode(node) {
       var tr = node && node.closest ? node.closest('tr.ui-kv-row') : null;
@@ -174,7 +194,46 @@
     }
 
     function isMasked(column, row) {
+      if (readOnly) return false;
       return column.maskedBy ? !!row.data[column.maskedBy] : true;
+    }
+
+    // Row state from the row options: which inputs are read-only, whether the toggle and
+    // remove are disabled, and the marker pill. Safe to call at any point of a row's build.
+    function inputLocked(column, row) {
+      if (readOnly) return true;
+      var lock = lockBy ? row.data[lockBy] : null;
+      return lock === 'row' || (lock === 'key' && column.key === keyColumn);
+    }
+
+    function applyMarker(row) {
+      if (!row.marker) return;
+      var on = !!row.data[markerBy];
+      row.marker.hidden = !on;
+      var keyInput = row.inputs[keyColumn];
+      if (!keyInput) return;
+      if (on) util.addDescribedBy(keyInput, row.marker.id);
+      else util.removeDescribedBy(keyInput, row.marker.id);
+    }
+
+    function applyRowState(row) {
+      if (!readOnly && !lockBy && !markerBy && !removableBy) return;
+      var rowLocked = !readOnly && lockBy && row.data[lockBy] === 'row';
+      for (var i = 0; i < columns.length; i++) {
+        var column = columns[i];
+        var ctl = row.inputs[column.key];
+        if (!ctl) continue;
+        if (typeOf(column) === 'toggle') {
+          row.toggles[column.key].setDisabled(readOnly || rowLocked);
+        } else {
+          ctl.readOnly = inputLocked(column, row);
+        }
+      }
+      if (row.remove) {
+        row.remove.disabled =
+          !!rowLocked || (!!removableBy && row.data[removableBy] === false);
+      }
+      applyMarker(row);
     }
 
     // Delegated listeners on the wrapper: removed by destroy.
@@ -188,7 +247,7 @@
           row.data[column.key] = e.target.value;
           if (column.key === keyColumn) {
             checkRename(row);
-            row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
+            if (row.remove) row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
           }
           fire('input');
           return;
@@ -235,6 +294,8 @@
       }
       var rm = t.closest('.ui-kv-remove');
       if (rm) {
+        // WebKit can deliver a click on a disabled button's children.
+        if (rm.disabled) return;
         var owner = rowOfNode(rm);
         if (owner) removeByKey(owner.key);
       }
@@ -307,6 +368,7 @@
       row.inputs[column.key] = input;
       if (secret) row.secrets[column.key] = secret;
       else delete row.secrets[column.key];
+      if (inputLocked(column, row)) input.readOnly = true;
       return node;
     }
 
@@ -421,18 +483,29 @@
       if (opts.rowTestid) tr.setAttribute('data-testid', opts.rowTestid);
       if (typeof opts.rowDataset === 'function') util.applyDataset(tr, opts.rowDataset(copyData(row)));
       for (i = 0; i < columns.length; i++) tr.appendChild(buildCell(columns[i], i, row));
-      var td = util.el('td', { className: 'ui-kv-cell' });
-      row.remove = App.ui.button({
-        variant: 'ghost',
-        iconOnly: true,
-        icon: 'trash',
-        ariaLabel: 'Remove row',
-        className: 'ui-kv-remove',
-        testid: opts.removeTestid
-      });
-      td.appendChild(util.el('div', { className: 'ui-kv-center' }, [row.remove]));
-      tr.appendChild(td);
+      if (!readOnly) {
+        var td = util.el('td', { className: 'ui-kv-cell' });
+        row.remove = App.ui.button({
+          variant: 'ghost',
+          iconOnly: true,
+          icon: 'trash',
+          ariaLabel: 'Remove row',
+          className: 'ui-kv-remove',
+          testid: opts.removeTestid
+        });
+        td.appendChild(util.el('div', { className: 'ui-kv-center' }, [row.remove]));
+        tr.appendChild(td);
+      }
+      if (markerBy && row.cells[keyColumn]) {
+        row.marker = util.el('span', {
+          className: 'ui-kv-marker',
+          id: util.uid('kv-mark'),
+          text: opts.markerLabel || ''
+        });
+        row.cells[keyColumn].insertBefore(row.marker, row.errors[keyColumn]);
+      }
       row.tr = tr;
+      applyRowState(row);
       return row;
     }
 
@@ -441,7 +514,7 @@
         var row = rows[r];
         row.tr.setAttribute('data-row-idx', String(r));
         for (var i = 0; i < columns.length; i++) nameCell(row, i, r + 1);
-        row.remove.setAttribute('aria-label', removeName(row, r + 1));
+        if (row.remove) row.remove.setAttribute('aria-label', removeName(row, r + 1));
       }
     }
 
@@ -459,6 +532,11 @@
       var idx = indexOfKey(key);
       if (idx === -1) return;
       var row = rows[idx];
+      if (typeof opts.onBeforeRemove ==='function' && opts.onBeforeRemove(copyData(row), idx) === false) {
+        // A click does not focus a button in WebKit, so put focus back explicitly.
+        if (row.remove) row.remove.focus();
+        return;
+      }
       rows.splice(idx, 1);
       if (row.tr.parentNode) row.tr.parentNode.removeChild(row.tr);
       renumber();
@@ -556,6 +634,7 @@
         }
         placeHint(row, key);
       }
+      applyRowState(row);
       renumber();
     }
 

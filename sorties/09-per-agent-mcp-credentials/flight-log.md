@@ -294,3 +294,57 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - Fix-vs-feature: a look-and-feel **fix**, one surface, inline.
   - Behavior spec step 3 re-authored to the new wording.
 - H1 fix committed: placeholder `value`, hint by table type; `make test-unit` (netns) 8934 passed, 15 skipped; `mcp` lane 88 passed.
+- **H1 PASS** (operator, after the wording fix).
+- **H2: feature promoted through the fix-vs-feature gate.** The operator found the tile works but is off-style (the wrong font, a value field that is too short) and asked for it to match the Library headers table, with one "Override headers" button replacing the per-row buttons.
+  - Flight Director call: a **feature**. It reshapes an approved surface and changes behaviour: per-agent sensitivity, a table model, and a narrower write-only rule.
+  - Operator answers: a Sensitive toggle per row, like the Library, so a non-sensitive value is shown in clear again. The locked table shows the effective headers with Key and Value only; the toggle and trash appear once Override is on.
+  - Recorded as **DD12** in flight.md. Next: a scoped design review, then implementation, then accessibility and code review, then re-verifying H2.
+- **Debrief item (operator, 2026-11-04): "another time a mockup prior to implementation would have been good."**
+  - DD10 had an operator-approved mockup, but it was ASCII. It fixed the structure and couldn't show the font, field widths or visual consistency with the Library headers table, the existing control the operator expected the section to match.
+  - The gap surfaced only at the HAT and cost a redesign (DD12).
+  - Lesson for the debrief and the methodology: squawk 0293's mockup rule should require a **rendered** mockup in the app's real styles and controls for any new or reshaped surface, and should ask "which existing surface should this look like?" when a comparable control exists.
+  - Applied immediately: DD12 is not implemented until the operator approves a rendered mockup.
+- **DD12 scoped design review (Sonnet): approve with changes.** About two legs:
+  - four generic `App.ui.keyValueTable` options (`readOnly`, `lockBy`, `onBeforeRemove`, `markerBy`) with two-engine contract tests and catalogue rows;
+  - a server `plain_names` field (not a credential, stripped before the resolver, pruned in the merge, unmasked in `_agent_response`, `Authorization` never plain);
+  - a module rewrite on the table, with a shared column builder extracted from `mcp-env-headers.js`;
+  - a rewrite of `test_flow_studio_tools_mcp_credentials.py`, the retired testids, and behavior spec steps 4, 5, 7 and 11.
+- Flight Director calls on the review's questions:
+  - emptying an overridden server value reverts to the server value (as trash does);
+  - a per-agent `Authorization` is always sensitive, refused as plain server-side;
+  - trash on a server row with no override is disabled;
+  - the locked view uses the Library's mask shape;
+  - Test, Refresh and the status line stay as they are, and Cancel appears only while unlocked.
+- **Operator decision (2026-11-04): add legs to sortie 09** (5: server `plain_names` plus the table-control options; 6: the tile rewrite plus tests). Each starts after a **rendered** mockup is approved; then the HAT resumes at H2. Sortie 09 grows to five legs plus HAT, above the soft limit; the operator chose this over a follow-up sortie 10. Still one decision cluster (the per-agent credential surface).
+- **DD12 rendered mockup approved (operator, 2026-11-04)** after three rounds:
+  - the section title is just "Headers";
+  - the action row is status, then Override headers and Test while locked, and Cancel, Save and Test once unlocked; Refresh is removed;
+  - the tile's Save saves immediately through a targeted route;
+  - the row pill reads **"overridden"** (meaning this agent sends its own value instead of the Library's, or has a header the Library lacks).
+  
+  The mockup page was served from the Flight Director's scratchpad on port 8491 (screenshots `dd12-mockup/mockup-{dark,light}.png`). Legs 5 and 6 are designed from it.
+
+### Leg 5 `sensitivity-and-table-options`: design (2026-11-04)
+- Risk tier: **high**. It adds a path that returns a credential value in clear, a new route, and a shared control-library API change. Reviewer tier for its code review: Sonnet, plus the Accessibility Reviewer (factory changes).
+- Developer design review: **approve with changes**, all taken as a binding addendum in the leg:
+  - the validation gate widened to cover `plain_names`;
+  - the targeted route seeds the stored tool filters and resolves the source id to its name;
+  - the `readOnly` null-remove guards;
+  - a disabled-remove CSS override and click guard;
+  - `setRow` re-evaluates the lock, marker and removable state.
+- Flight Director calls:
+  - the targeted route accepts an unattached source (404 only for an unknown agent or source);
+  - the list route returns plain values too;
+  - native `disabled` for the non-removable trash;
+  - toggles are disabled under `readOnly`/`lockBy: 'row'`;
+  - the narrow main-PUT race is accepted and documented.
+- No second review cycle (precision fixes from the review itself). Leg status `ready`.
+
+### Leg 5 `sensitivity-and-table-options`: landed (not committed)
+- **Server:** `plain_names` on both override schemas (plain field; `MCP_OVERRIDE_CREDENTIAL_KEYS` unchanged; stripped in `_apply_override`); validation (list of strings; `Authorization` refused) with the gate widened to entries carrying `plain_names`; merge keeps/clears/replaces it and `_prune_plain_names` prunes before the empty-entry check; `_agent_response` returns plain values in clear (headers case-insensitive, env exact; `bearer_token` and `Authorization` never); new `PUT /api/agents/{name}/mcp-overrides/{source_id}/credentials` (404 unknown agent/source, 422 surface row, unattached source accepted, tool filters seeded from the stored entry, evicts via the existing helper, `_full_agent_response`). Classified in `test_api_name_rule.py` EXEMPT.
+- **Factory:** `readOnly`, `lockBy`, `onBeforeRemove`, `markerBy`/`markerLabel`, `removableBy`, `setRow` re-evaluation; CSS `.ui-kv .ui-kv-remove:disabled` (opaque token) and `.ui-kv-marker`. No change when no option is passed (a contract test pins it).
+- **Docs:** `ui-control-inventory.md` row, `agents.md` sortie 09 block, `SECURITY-MODEL.md` paragraph (incl. the `_looks_masked` limitation).
+- **Verification:** new `tests/test_mcp_plain_names.py` (29 tests) plus 7 new contract tests x 2 engines; related files 488 passed; `make test-unit` (netns) 8963 passed, 15 skipped; `contracts-controls` (WebKit required) 1186 passed, 4 skipped; `mcp` 88; `agent-tabs` 183; `agents` 180, all passed; static guards and inventory/ownership/emitted-class tests 388 passed.
+- **Falsification:** removing the `:disabled` CSS rule fails `test_removable_by_disables_with_the_opaque_look`; disabling the `onBeforeRemove` hook fails `test_on_before_remove_can_cancel` (both yes, restored by edit). Other new tests not falsified.
+- **Deviations / notes:** the credential-gate 401 is covered by the generic gate sweep, not a route test. `ruff check` reports one pre-existing E501 at `tests/browser/test_flow_studio_tools_mcp_credentials.py:777` (committed leg 3 code, untouched here).
+- Leg 5 reviews: code review (Sonnet) `[HANDOFF:confirmed]`, no blocking issues (532 unit and guard tests, 134 contract tests, ruff format clean; the one E501 predates leg 5). Accessibility review (Sonnet) `[HANDOFF:confirmed]`: marker pill contrast about 5.7:1 dark and 5.9:1 light; the disabled remove uses opaque tokens. Notes carried into leg 6: move focus before a `setRow` that disables a focused remove button; two style nits in `key-value-table.js` (a long line at ~250, a missing space at ~535). Leg 5 status `completed`; commit.
