@@ -1,6 +1,6 @@
 # Sortie: Per-agent MCP credentials
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -370,11 +370,11 @@ Verified against the working tree at `2958510f` (code interrogation, 2026-11-03)
 4. **Leg 4, HAT** (optional; the operator opted in): a guided session over the tile, the Library placeholder and two agents on one real server, using `key_server.py` and the operator's own servers where useful. It includes at least one state the operator is not looking at: an open chat in another tab that keeps working after the key is changed (DD7). It also covers criterion 4 (an OAuth server's Authorization row) and the stdio path, which the behavior test leaves out.
 
 ### Checkpoints
-- [ ] Leg 1: validation, blank-drop, classification, eviction and resolve-at-connect green; `mcp` and `mcp-connection` lanes green
-- [ ] Leg 2: per-agent tool list, cache table and test route green; `mcp`, `mcp-connection` and `agents` lanes green
-- [ ] Leg 3: Tools tab and Library UI green; full `--parallel 3` gate green
-- [ ] Behavior test `per-agent-mcp-credentials` passes
-- [ ] HAT complete
+- [x] Leg 1: validation, blank-drop, classification, eviction and resolve-at-connect green; `mcp` and `mcp-connection` lanes green
+- [x] Leg 2: per-agent tool list, cache table and test route green; `mcp`, `mcp-connection` and `agents` lanes green
+- [x] Leg 3: Tools tab and Library UI green; full `--parallel 3` gate green
+- [x] Behavior test `per-agent-mcp-credentials`: run 1 (leg 3 UI) passed 14/14; run 2 (final build) 13/14, with step 5 failing on a spec error the operator resolved (pill timing), spec amended
+- [x] HAT complete
 
 ### Adaptation Criteria
 
@@ -392,17 +392,19 @@ Verified against the working tree at `2958510f` (code interrogation, 2026-11-03)
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `credentials-take-effect` - DD1 (server side), DD2, DD3 (server), DD7, DD8, DD9 (part), DD11: validation, blank values, classification, resolve-at-connect, eviction, OAuth skip, the key-checking fixture
-- [ ] `per-agent-tool-list` - DD4, DD5, DD6: the cache table (v50), the three readers, the per-agent test route with the Phase A extraction
-- [ ] `credentials-ui` - DD1 (client), DD2 (mapping), DD3 (Library), DD10: the tile section, test triggers, write shape, Library placeholder; browser tests; full gate
-- [ ] `hat` - (optional) guided acceptance with the operator
+- [x] `credentials-take-effect` - DD1 (server side), DD2, DD3 (server), DD7, DD8, DD9 (part), DD11: validation, blank values, classification, resolve-at-connect, eviction, OAuth skip, the key-checking fixture
+- [x] `per-agent-tool-list` - DD4, DD5, DD6: the cache table (v50), the three readers, the per-agent test route with the Phase A extraction
+- [x] `credentials-ui` - DD1 (client), DD2 (mapping), DD3 (Library), DD10: the tile section, test triggers, write shape, Library placeholder; browser tests; full gate
+- [x] `hat` - (optional) guided acceptance with the operator
+- [x] `sensitivity-and-table-options` - (added at HAT, DD12) the per-agent `plain_names` flag, the targeted credentials route, five `keyValueTable` options
+- [x] `tile-on-the-table` - (added at HAT, DD12) the agent tile rebuilt on the Library headers table: locked view, Override headers, Cancel/Save/Test, the tile Save
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Charter success criteria assessed
 - [ ] Flight debrief written
 

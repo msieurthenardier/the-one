@@ -1,6 +1,6 @@
 # Leg: hat
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Per-agent MCP credentials](../flight.md)
 
 ## Objective

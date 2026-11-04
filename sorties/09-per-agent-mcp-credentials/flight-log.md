@@ -431,3 +431,30 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
 - **H7 PASS** (operator): the stdio tile reads "Environment variables"; alpha's `HELLO_TOKEN` reached the spawned server (`dump_env` in chat). keyed's missing attachment on alpha was the operator switching it off, not a defect.
 - **Defect found before H8 (operator):** with an unsaved duplicate-key row in an unlocked tile, the leave guard's **Continue** didn't discard the tile edits, and the guard re-prompted on every navigation; the duplicate row stayed. Cause: the `studio-mcp-tiles` `App.nav` source has a no-op `discard`, on the assumption that teardown discards, but the agent editor stays mounted across destinations. Fix (a defect, Studio area): `discard` cancels every dirty unlocked tile (restores the baseline and locks).
 - HAT fix: leave-guard Continue now cancels unlocked MCP tiles (studio-mcp-tiles discard -> mcpsTab.discardAll); tests added in test_flow_studio_tools_mcp_credentials.py.
+- **Leave-guard re-check PASS** (Continue discards the tile edits and doesn't re-prompt; Stay keeps them). Fix `07e05fff`.
+- **H8 PASS** (operator, "all pass"): keyboard order through the locked tile, the unlocked table and the trio; focus rings; Save by keyboard returns focus to Override and re-tests.
+- **HAT complete (H1-H8 pass; H9 operator satisfied).**
+  - Fixes committed during the HAT: `53f441ef` (H1 Library wording), `7b5a822a` (a refused name lands on the key), `926b08c4` (Override keeps the server value), `07e05fff` (leave guard discards on Continue).
+  - Feature promoted through the gate: DD12 (the Library-table tile), built as legs 5 and 6 after a rendered mockup was approved.
+  - The session environment was torn down by PID.
+- **Anomaly (Flight Director, HAT apparatus):** the restart after `926b08c4` did not take effect.
+  - The recorded PID (`$!` of the `nohup` launch) was not the server's PID. The kill missed the running server (3993222), the new instance failed to bind 8486 (`Errno 98` in `hat-serve.log`) and exited, and `/api/live` kept answering from the old process.
+  - **Impact:** the re-checks of H5, H6, the leave guard and H8 ran on server code from `1bce9b4b`. Static JS/CSS is served live from disk, so every client-side fix was live, but **the server half of the H5 fix (`part: name`) was not.** The operator's H5 re-check therefore couldn't have exercised it as built.
+  - H5 rests on the browser test `test_a_refused_header_name_lands_on_the_key_input` (a real server, falsified) unless the operator re-verifies it.
+  - The stale process was stopped by PID after its identity was checked through `/proc/<pid>/environ` (scratch `hat-data`, port 8486).
+  - Lesson for the debrief: after a restart, verify the new PID owns the port (`ss -ltnp`), not just that `/api/live` answers.
+- Operator decision: accept the automated browser test for H5's server half (no manual re-verify). Next: re-run the re-authored behavior test on the final build (`07e05fff`).
+
+### Behavior test run 2 and landing (2026-11-04)
+- **Behavior test `per-agent-mcp-credentials`, run `2026-11-04-18-29-45`** on the final build `07e05fff`: **13/14 PASS**. Step 5 **FAIL on a spec error**: the "overridden" pill shows on a changed, unsaved value, which is the behaviour the operator approved at H6. The operator confirmed it mid-run and the spec's step 5 was amended.
+  - Every other check held, witnessed by the key server log: per-agent keys; `needs_values` without a connection; the tile Save writing immediately with no agent PUT; the open chat picking up the new key through eviction; the shared cache clean; no full key in any log or data file.
+  - Run log: `tests/behavior/per-agent-mcp-credentials/runs/2026-11-04-18-29-45.md`. Teardown by PID with the port ownership verified (`ss -ltnp`).
+- **Flight status `landed`.**
+  - Legs 1-6 and the HAT are `completed`.
+  - Commits on the branch: `4b274ae4`, `4b6071f1`, `0bfdfd38`, `794a4d30`, `9bcc2fe4`, `53f441ef`, `56057a65`, `da200b99`, `1bce9b4b`, `7b5a822a`, `926b08c4`, `07e05fff`, plus this landing commit.
+  - Debrief items collected in this log:
+    - the ASCII-vs-rendered mockup lesson;
+    - the HAT restart PID miss;
+    - the `sed -i` hook gap;
+    - the Validator's spec follow-ups;
+    - sortie scope growth (three legs plus HAT, grown to six legs plus HAT through the DD12 feature).
