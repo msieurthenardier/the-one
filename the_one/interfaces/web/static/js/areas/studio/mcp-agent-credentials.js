@@ -340,6 +340,7 @@
       if (st.unlocked && createMode()) {
         var createNote = makeNote('Save the agent first to set its own headers.');
         createNote.setAttribute('data-testid', 'mcp-agent-cred-create-note-' + id);
+        createNote.id = 'mcp-agent-cred-create-note-' + id;
         noteHost.appendChild(createNote);
       }
       if (st.sectionError) {
@@ -361,6 +362,12 @@
       overrideBtn.disabled = st.busy;
       cancelBtn.disabled = st.busy;
       saveBtn.disabled = st.busy || !isDirty() || createMode() || st.dup;
+      // The reason Save cannot be used in create mode is read with the button (WCAG 3.3.1).
+      if (st.unlocked && createMode()) {
+        saveBtn.setAttribute('aria-describedby', 'mcp-agent-cred-create-note-' + id);
+      } else {
+        saveBtn.removeAttribute('aria-describedby');
+      }
     }
 
     function removeLabel(n, row) {
@@ -577,6 +584,14 @@
           renderNotes();
         }
         updateButtons();
+        // Save was disabled while saving, so focus fell to the page; put it back (WCAG 2.4.3).
+        // A placed 422 error already moved focus to its row.
+        var ae = document.activeElement;
+        if (!ae || ae === document.body || !cur.table.el.contains(ae)) {
+          if (!saveBtn.disabled) saveBtn.focus();
+          else if (cur.table.values().length) cur.table.focusRow(0, 'value');
+          else cancelBtn.focus();
+        }
       });
     }
 

@@ -2648,7 +2648,7 @@
   .ui-kv-marker {
     position: absolute;
     right: 12px;
-    top: 20px;
+    top: 1.25rem;
     transform: translateY(-50%);
     pointer-events: none;
     padding: 0 var(--space-2, 8px);
@@ -2658,6 +2658,8 @@
     font-size: var(--font-size-caption);
     line-height: 1.5;
   }
+  /* Reserve room for the pill so long key text never runs under it (rem: follows text zoom). */
+  .ui-kv-table td:has(> .ui-kv-marker:not([hidden])) input { padding-right: 7.5rem; }
   .ui-kv .ui-kv-remove svg { width: 16px; height: 16px; display: block; }
 
   /* === App.ui.disclosure (M31 F3 L03a, flight DD4) ===

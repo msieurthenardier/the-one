@@ -1,6 +1,6 @@
 # Leg: tile-on-the-table
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Per-agent MCP credentials](../flight.md)
 
 ## Objective

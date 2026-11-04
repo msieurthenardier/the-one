@@ -19,6 +19,7 @@ from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 SAVE = '[data-testid="save-agent-btn"]'
+CANCEL = '[data-testid="cancel-agent-btn"]'
 UNSAVED = '[data-testid="editor-unsaved"]'
 TOOLS_AB = [
     {"name": "tool_a", "description": "tool a", "input_schema": {}},
@@ -620,6 +621,58 @@ def test_the_main_save_of_a_credentialed_agent_keeps_its_credentials(
 
 
 @pytest.mark.browser
+@pytest.mark.parametrize("action", ["save", "cancel"])
+def test_the_main_save_and_cancel_leave_an_unsaved_unlocked_tile_alone(
+    app_clean: str, page: Page, action: str
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, f"main-{action}-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, f"main-{action}-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("unsaved-main-0001")
+    # A harmless General change so the editor's own Save and Cancel are enabled.
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-field="description"]').fill(f"changed by {action}")
+    _tid(page, "tab-tools").click()
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true")
+    if action == "save":
+        _main_save_put(page, f"main-{action}-agent")
+        expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
+    else:
+        page.locator(CANCEL).click()
+        expect(page.locator(CANCEL)).to_be_disabled(timeout=8000)
+    _tid(page, "tab-tools").click()
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true")
+    expect(_btn(page, "save", sid)).to_be_visible()
+    expect(_value(_tr(page, sid, "X-Api-Key"))).to_have_value("unsaved-main-0001")
+    assert not (_get_agent(app_clean, f"main-{action}-agent")["mcp_overrides"] or {}).get("keyed")
+
+
+@pytest.mark.browser
+def test_a_failed_save_with_no_row_to_blame_returns_focus_to_save(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "focus-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    page.route(
+        "**/mcp-overrides/*/credentials",
+        lambda route: route.fulfill(
+            status=500, content_type="application/json", body=json.dumps({"detail": "Boom."})
+        ),
+    )
+    _open_tools(page, app_clean, "focus-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("focus-key-00001")
+    _btn(page, "save", sid).click()
+    expect(_tid(page, f"mcp-agent-cred-error-{sid}")).to_be_visible(timeout=8000)
+    expect(_btn(page, "save", sid)).to_be_focused()
+
+
+@pytest.mark.browser
 def test_a_real_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> None:
     sid = _seed_keyed(app_clean)
     _seed_agent(app_clean, "refuse-agent", mcp_source_ids=[sid])
@@ -645,6 +698,92 @@ def test_a_real_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> N
 
 
 @pytest.mark.browser
+def test_a_422_loc_name_matches_its_header_row_case_insensitively(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "loc-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+
+    def refuse(route):
+        route.fulfill(
+            status=422,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "detail": [
+                        {"loc": ["mcp_overrides", "keyed", "headers", "x-api-key"], "msg": "no"}
+                    ]
+                }
+            ),
+        )
+
+    page.route("**/mcp-overrides/*/credentials", refuse)
+    _open_tools(page, app_clean, "loc-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    row = _tr(page, sid, "X-Api-Key")
+    _value(row).fill("some-value-02")
+    _btn(page, "save", sid).click()
+    expect(row.locator("[role=alert]")).to_have_count(1, timeout=8000)
+    expect(_value(row)).to_be_focused()
+
+
+@pytest.mark.browser
+def test_emptying_an_overridden_server_value_reverts_to_the_server_value(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _credentialed(
+        app_clean,
+        "empty-agent",
+        sid,
+        "keyed",
+        {"headers": {"X-Org": "org-val-000001", "X-Api-Key": "key-val-0000001"}},
+    )
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "empty-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    org = _tr(page, sid, "X-Org")
+    expect(_pill(org)).to_be_visible()
+    _value(org).fill("")
+    body = _tile_save(page, sid)
+    assert list(body["headers"]) == ["X-Api-Key"], body
+    expect(_btn(page, "override", sid)).to_be_focused(timeout=8000)
+    expect(_pill(_tr(page, sid, "X-Org"))).to_be_hidden()
+    stored = _get_agent(app_clean, "empty-agent")["mcp_overrides"]["keyed"]
+    assert list(stored["headers"]) == ["X-Api-Key"]
+
+
+@pytest.mark.browser
+def test_two_unlocked_tiles_save_independently(app_clean: str, page: Page) -> None:
+    sid1 = _seed_keyed(app_clean, "keyed-one")
+    sid2 = _seed_keyed(app_clean, "keyed-two")
+    _seed_agent(app_clean, "two-agent", mcp_source_ids=[sid1, sid2])
+    _mock_agent_test(page, sid1)
+    _mock_agent_test(page, sid2)
+    _open_tools(page, app_clean, "two-agent")
+    _expand(page, sid1)
+    _expand(page, sid2)
+    _btn(page, "override", sid1).click()
+    _btn(page, "override", sid2).click()
+    _value(_tr(page, sid1, "X-Api-Key")).fill("one-key-value-001")
+    _value(_tr(page, sid2, "X-Api-Key")).fill("two-key-value-002")
+    body = _tile_save(page, sid1)
+    assert body == {"headers": {"X-Api-Key": "one-key-value-001"}, "plain_names": None}
+    # Tile two is still unlocked with its own unsaved edit; tile one is locked.
+    expect(_btn(page, "save", sid1)).to_be_hidden()
+    expect(_btn(page, "save", sid2)).to_be_enabled()
+    expect(_value(_tr(page, sid2, "X-Api-Key"))).to_have_value("two-key-value-002")
+    body = _tile_save(page, sid2)
+    assert body == {"headers": {"X-Api-Key": "two-key-value-002"}, "plain_names": None}
+    stored = _get_agent(app_clean, "two-agent")["mcp_overrides"]
+    assert list(stored["keyed-one"]["headers"]) == ["X-Api-Key"]
+    assert list(stored["keyed-two"]["headers"]) == ["X-Api-Key"]
+
+
+@pytest.mark.browser
 def test_save_is_disabled_for_an_agent_that_has_never_been_saved(
     app_clean: str, page: Page
 ) -> None:
@@ -661,6 +800,10 @@ def test_save_is_disabled_for_an_agent_that_has_never_been_saved(
         "Save the agent first to set its own headers."
     )
     expect(_btn(page, "test", sid)).to_be_enabled()
+    # The reason Save is off is linked to it (WCAG 3.3.1).
+    note_id = f"mcp-agent-cred-create-note-{sid}"
+    expect(_btn(page, "save", sid)).to_have_attribute("aria-describedby", note_id)
+    expect(page.locator(f"#{note_id}")).to_have_count(1)
 
 
 @pytest.mark.browser

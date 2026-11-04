@@ -51,10 +51,10 @@
   //   over lockBy and removableBy. lockBy '<row field>': the field is a space-separated list of
   //   'key' (the key input is read-only), 'row' (every input read-only, toggle and remove disabled)
   //   and 'toggle' (the Sensitive-style toggles are checked and disabled, the rest stays editable;
-  //   sortie 09 L06), e.g. 'key toggle'. onBeforeRemove(row, index): returning false cancels the splice (no onChange; focus
-  //   returns to that row's remove button). markerBy '<row field>' + markerLabel: a row whose field
-  //   is truthy shows a pill of real text (.ui-kv-marker) in the key cell, linked to the key input
-  //   by aria-describedby. removableBy '<row field>': a row whose field is false has a natively
+  //   sortie 09 L06), e.g. 'key toggle'. onBeforeRemove(row, index): returning false cancels
+  //   the splice (no onChange; focus returns to that row's remove button).
+  //   markerBy '<row field>' + markerLabel: a row whose field is truthy shows a pill of real
+  //   text (.ui-kv-marker) in the key cell, linked to the key input by aria-describedby. removableBy '<row field>': a row whose field is false has a natively
   //   disabled remove button (not focusable; it keeps its name). setRow re-evaluates these from a
   //   patch without rebuilding the row or moving focus.
   App.ui.keyValueTable = function (opts) {

@@ -396,3 +396,18 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - a blank new row counts as dirty;
   - two added testids (`-oauth-note-`, `-create-note-`).
 - Checkpoint commit.
+- Leg 6 part B (Developer): landed, not committed.
+  - **Built:** three new tests in `test_flow_studio_tools_mcp_credentials.py` (24 total): a mocked 422 whose `loc` name is lowercase lands on the mixed-case header row; emptying an overridden server row's value reverts it (name omitted from the body, pill gone, stored headers match); two unlocked tiles save independently. Behavior spec steps 4, 5, 6, 7 and 11 re-authored around Override, the table, the tile's Save and the locked table with the pill (testids named); Validator follow-ups folded in (pre-save state in step 5, "Last checked ..." wording and `editor-unsaved` in step 7, client-computed needs-values in step 4, global mock response in step 10, `/_log` baselines in Observables). `the_one/agents.md` (Tools-tab half, MCPs-tab paragraph) and `CLAUDE.md` tile sentence updated.
+  - **Verification:** static guards 485 passed; ruff check and format clean; `THE_ONE_TEST_NETNS=1 make test-unit` 8963 passed, 15 skipped; full browser gate `PARALLEL_RESULT rc=0 total=1855s lanes=17 failed=-` (start load about 0.96, no other test process). No lane over budget (`agent-tabs` 425 s against 510 s), so no re-budget.
+  - **Falsified:** none of the three new tests were falsified (no).
+  - **Deviations:** the 422 test mocks the route response, since the real server cannot be made to return a lowercase loc. The focus-before-disable case is already pinned by part A's trash test.
+- Leg 6 review-fix pass (Developer): focus returns to Save (else the first value, else Cancel) after a failed tile save with no row to blame (WCAG 2.4.3); the disabled Save is linked to the create-mode note by `aria-describedby` (the duplicate-name reason already sits on the key row, so no second link); the marker pill is `top: 1.25rem` and a key input in a row with a visible marker reserves `7.5rem` right padding (`:has`), marker contrast `--accent` on `--accent-translucent` over `--surface` is 5.60:1 dark and 5.98:1 light; the `lockBy`/`onBeforeRemove` doc comment is wrapped. New tests (all falsified, yes): main Save and main Cancel leave an unsaved unlocked tile alone (falsified by making `adoptAgent` rebase), focus to Save after a mocked 500, and the `aria-describedby` assertion.
+- Leg 6 reviews: code review (Sonnet) `[HANDOFF:confirmed]`; accessibility review (Sonnet) `[HANDOFF:confirmed]`; no blocking issues.
+- A fix pass took the useful non-blocking items:
+  - focus after a save failure with no row to place it on;
+  - the create-mode note linked to the disabled Save;
+  - padding reserved for the marker pill (contrast 5.60:1 dark, 5.98:1 light);
+  - a test that a dirty unlocked tile survives the main Save and Cancel;
+  - a comment wrapped.
+  
+  All new tests falsified. Results: unit 8934+ green (8963 passed, 15 skipped); `agent-tabs` 190, `contracts-controls` 1190, `mcp` 88. The part B parallel gate was `PARALLEL_RESULT rc=0 total=1855s lanes=17`. Leg 6 status `completed`; commit.
