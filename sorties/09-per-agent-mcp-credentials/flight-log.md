@@ -265,3 +265,19 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - The `routing` failure (`test_store_library.py::test_invalidate_mid_flight_then_get_issues_a_second_request[knowledge-bases]`) is unrelated, passed isolated, and the full lane re-ran green: 186 passed.
   - No lane was over budget (`agent-tabs` 439 s of 510 in the gate; `chats` the tightest at 392 of 420).
 - Leg 3 status `completed`; commit. All three autonomous legs are complete.
+
+### Behavior test `per-agent-mcp-credentials` (2026-11-04)
+- **Run `2026-11-04-00-59-35`: PASS, 14/14 checkpoints** (live mode, Sonnet Executor and Validator, build `794a4d30`). Run log: `tests/behavior/per-agent-mcp-credentials/runs/2026-11-04-00-59-35.md`.
+- **What it proved:**
+  - two agents on one key-less Library server each reached it with their own key and saw their own tools (`echo`; `echo` and `add`);
+  - the key-less agent got `needs_values` without a connection;
+  - a key saved from a second browser context applied on an open chat's next tool call, with the idle TTL pinned at 3600 s, so eviction was the only explanation;
+  - the shared cache was never written;
+  - no full key appeared in any log or data file, the database WAL included.
+- **Preconditions:** set up by the Flight Director, including a dry run of steps 1-2 against a throwaway data directory; teardown by PID, with all ports free afterwards.
+- **For the HAT:**
+  - the row reads "Set per agent · missing" between typing a key and Save (no pending state shown);
+  - the cached wording after a reload is "Last checked with this agent's values · N tools";
+  - switch-on with a known missing value doesn't call `/test/agent` (computed in the client);
+  - the switch track overlay intercepts locator clicks (real pointer clicks work).
+- **Spec follow-ups** (Validator closing): name the pre-save row state, the cached wording and the `editor-unsaved` observable; note that the mock response is global; consider a positive encrypted-column check in step 14.

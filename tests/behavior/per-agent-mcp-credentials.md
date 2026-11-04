@@ -1,8 +1,9 @@
 # Behavior Test: Per-agent MCP Credentials
 
 **Slug**: `per-agent-mcp-credentials`
-**Status**: draft
+**Status**: active
 **Created**: 2026-11-03
+**Last Run**: 2026-11-04-00-59-35 (pass, 14/14; see runs/2026-11-04-00-59-35.md)
 
 ## Intent
 
