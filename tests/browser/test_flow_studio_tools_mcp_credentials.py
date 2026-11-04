@@ -904,6 +904,71 @@ def test_leaving_with_unsaved_tile_edits_asks_once(app_clean: str, page: Page) -
     assert not (_get_agent(app_clean, "guard-agent")["mcp_overrides"] or {}).get("keyed")
 
 
+DIALOG = '[data-testid="confirm-dialog-overlay"]'
+
+
+@pytest.mark.browser
+def test_continue_discards_the_tile_edits_and_the_guard_does_not_return(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "discard-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "discard-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    row = _trs(page, sid).last
+    _key(row).fill("X-Org")
+    expect(row).to_contain_text("This name is already in the table.")
+    rows_before = _trs(page, sid).count()
+    page.locator('[data-testid="rail-chats"]').click()
+    expect(page.locator(DIALOG)).to_have_count(1)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator(DIALOG)).to_have_count(0)
+    expect(page.locator('[data-testid="rail-chats"]')).to_have_attribute("aria-current", "page")
+    # No second prompt on the next move.
+    page.locator('[data-testid="rail-library"]').click()
+    expect(page.locator(DIALOG)).to_have_count(0)
+    expect(page.locator('[data-testid="rail-library"]')).to_have_attribute("aria-current", "page")
+    # Back on the tab the tile is locked with the saved rows only.
+    _nav.set_route(page, "agents/discard-agent/tools")
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true", timeout=8000)
+    _expand(page, sid)
+    expect(_btn(page, "override", sid)).to_be_visible()
+    expect(_btn(page, "save", sid)).to_be_hidden()
+    assert _trs(page, sid).count() < rows_before
+    expect(_table(page, sid)).not_to_contain_text("This name is already in the table.")
+
+
+@pytest.mark.browser
+def test_a_general_edit_and_a_tile_edit_ask_once_and_continue_discards_both(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "both-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "both-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("both-key-000001")
+    page.locator('[data-testid="tab-general"]').click()
+    desc = page.locator('[data-field="description"]')
+    desc.fill("changed description")
+    page.locator('[data-testid="rail-library"]').click()
+    expect(page.locator(DIALOG)).to_have_count(1)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator(DIALOG)).to_have_count(0)
+    page.locator('[data-testid="rail-chats"]').click()
+    expect(page.locator(DIALOG)).to_have_count(0)
+    _nav.set_route(page, "agents/both-agent/tools")
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true", timeout=8000)
+    _expand(page, sid)
+    expect(_btn(page, "override", sid)).to_be_visible()
+    page.locator('[data-testid="tab-general"]').click()
+    expect(page.locator('[data-field="description"]')).to_have_value("t")
+
+
 # ── When a tile tests, and which list it shows ─────────────────────────────
 
 

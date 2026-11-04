@@ -635,6 +635,15 @@
       anyDirty: function () {
         return Object.keys(entries).some(function (id) { return entries[id].cred.isDirty(); });
       },
+      // The leave guard's Continue: every unlocked tile with unsaved edits is cancelled.
+      discardAll: function () {
+        Object.keys(entries).forEach(function (id) {
+          var e = entries[id];
+          if (!e.cred.isDirty()) return;
+          e.cred.discard();
+          patchEntry(e);
+        });
+      },
       destroy: function () {
         destroyed = true;
         Object.keys(entries).forEach(function (id) { destroyEntry(entries[id]); });

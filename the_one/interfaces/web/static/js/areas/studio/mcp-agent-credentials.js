@@ -686,6 +686,12 @@
         st.agent = agent || null;
         rebase();
       },
+      // The leave guard's discard: what Cancel does, without moving focus or announcing.
+      discard: function () {
+        if (!st.unlocked) return;
+        lock(false);
+        onChange();
+      },
       // The agent reference only (a tile with unsaved edits is left alone by a main Save).
       adoptAgent: function (agent) {
         st.agent = agent || null;
