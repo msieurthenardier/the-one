@@ -93,6 +93,19 @@ def test_source_independent_header_rules_apply_to_an_orphan_entry(headers, field
     assert isinstance(details[0]["msg"], str) and details[0]["msg"].endswith(".")
 
 
+def test_refusals_say_whether_the_name_or_the_value_was_refused():
+    """The additive ``part`` key (HAT H5): "name" for a name rule, "value" otherwise."""
+    gh = _http("gh")
+    local = _stdio("local")
+    parts = lambda ov, *srcs: [d["part"] for d in _validate(ov, *srcs)]  # noqa: E731
+    assert parts({"gh": {"headers": {"Bad Header": "x"}}}, gh) == ["name"]
+    assert parts({"gh": {"headers": {"Host": "x"}}}, gh) == ["name"]
+    assert parts({"gh": {"headers": {"X-Ok": "  "}}}, gh) == ["value"]
+    assert parts({"gh": {"bearer_token": ""}}, gh) == ["value"]
+    assert parts({"local": {"env": {"1BAD": "x"}}}, local) == ["name"]
+    assert parts({"local": {"env": {"GOOD": ""}}}, local) == ["value"]
+
+
 def test_two_header_names_differing_only_by_case_are_refused():
     details = _validate({"x": {"headers": {"X-Api-Key": "aaa", "x-api-key": "bbb"}}})
     assert _locs(details) == [("mcp_overrides", "x", "headers", "x-api-key")]

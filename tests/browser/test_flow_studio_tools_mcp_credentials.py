@@ -682,9 +682,9 @@ def test_a_real_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> N
     _btn(page, "override", sid).click()
     _tid(page, f"mcp-agent-cred-add-{sid}").click()
     row = _trs(page, sid).nth(2)
-    # A name with a space is not a header name: the server refuses it.
-    _key(row).fill("Bad Name")
-    _value(row).fill("some-value-01")
+    # A control character is not allowed in a header value: the server refuses the value.
+    _key(row).fill("X-Good-Name")
+    _value(row).fill("some-value-01\x01")
     _btn(page, "save", sid).click()
     err = row.locator("[role=alert]")
     expect(err).to_have_count(1, timeout=8000)
@@ -695,6 +695,27 @@ def test_a_real_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> N
     # Still unlocked, nothing stored.
     expect(_btn(page, "save", sid)).to_be_visible()
     assert not (_get_agent(app_clean, "refuse-agent")["mcp_overrides"] or {}).get("keyed")
+
+
+@pytest.mark.browser
+def test_a_refused_header_name_lands_on_the_key_input(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "refuse-name-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "refuse-name-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    row = _trs(page, sid).nth(2)
+    _key(row).fill("Bad Header")
+    _value(row).fill("x")
+    _btn(page, "save", sid).click()
+    err = row.locator("td").nth(0).locator("[role=alert]")
+    expect(err).to_have_count(1, timeout=8000)
+    expect(err).not_to_be_empty()
+    assert row.locator("td").nth(1).locator("[role=alert]").count() == 0
+    expect(_key(row)).to_be_focused()
+    expect(_key(row)).to_have_attribute("aria-invalid", "true")
 
 
 @pytest.mark.browser

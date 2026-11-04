@@ -60,11 +60,16 @@ def carries_credentials(incoming: Any) -> bool:
     )
 
 
-def _detail(source: str, field: str, name: str | None, msg: str) -> dict[str, Any]:
+def _detail(
+    source: str, field: str, name: str | None, msg: str, part: str = "value"
+) -> dict[str, Any]:
+    """One refusal. ``part`` says which cell of the row the message is about:
+    ``"name"`` for a refused header/variable name, ``"value"`` (the default) for
+    everything else (values, bearer tokens, plain_names, whole-section problems)."""
     loc: list[str] = ["mcp_overrides", source, field]
     if name is not None:
         loc.append(name)
-    return {"type": "mcp_override", "loc": loc, "msg": msg}
+    return {"type": "mcp_override", "loc": loc, "msg": msg, "part": part}
 
 
 def _header_value_problem(value: str) -> str | None:
@@ -159,6 +164,7 @@ def validate_mcp_overrides(
                                     "headers",
                                     name,
                                     "Two header names differ only by case; keep one.",
+                                    part="name",
                                 )
                             )
                         continue
@@ -172,6 +178,7 @@ def validate_mcp_overrides(
                                 "headers",
                                 str(name),
                                 "A header name can only use letters, digits and !#$%&'*+-.^_`|~.",
+                                part="name",
                             )
                         )
                         continue
@@ -183,6 +190,7 @@ def validate_mcp_overrides(
                                 name,
                                 "This header is set by the connection itself and can't be "
                                 "overridden.",
+                                part="name",
                             )
                         )
                         continue
@@ -234,6 +242,7 @@ def validate_mcp_overrides(
                                 str(name),
                                 "An environment variable name can only use letters, digits and "
                                 "underscores, and can't start with a digit.",
+                                part="name",
                             )
                         )
                         continue

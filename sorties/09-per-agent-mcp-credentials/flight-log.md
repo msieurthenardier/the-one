@@ -411,3 +411,18 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - a comment wrapped.
   
   All new tests falsified. Results: unit 8934+ green (8963 passed, 15 skipped); `agent-tabs` 190, `contracts-controls` 1190, `mcp` 88. The part B parallel gate was `PARALLEL_RESULT rc=0 total=1855s lanes=17`. Leg 6 status `completed`; commit.
+- **HAT resumed (2026-11-04)** on the rebuilt tile. Legs 5 and 6 are committed (`56057a65`, `da200b99`, `1bce9b4b`) and the session instance was restarted on the new code (same data).
+- **H2 PASS** (operator: "looks great, pass"):
+  - locked view;
+  - Override into the Library table, with a read-only server key and disabled trash;
+  - Test with the agent's key;
+  - tile Save locks with the "overridden" pill;
+  - reload shows the cached state.
+- **H3 PASS** (operator): beta's own key lists echo and add; plain is told it needs a value; the Library key stays blank.
+- **H4 PASS**: the key server log shows the open chat's first `tools/call` with `-7Q2` (seq 3), the tile Save's re-test with `-3K8` (seq 4-5), then the same open chat (not reloaded) reconnecting and calling with `-3K8` (seq 6-8).
+- **H5:** Cancel, trash-reverts, duplicate names and clean-up PASS. **Defect:** a refused header **name** (`Bad Header`) showed its message on the value field. Cause: the `mcp_override` 422 detail doesn't say whether the name or the value was refused, and `placeErrors` always targets the value. Fix (Flight Director design, two surfaces, small): an additive `part: name|value` on each detail, and the tile places on the key when `part=name`. Spawned; re-verify after it lands.
+- **H5 fix (developer):** every `mcp_override` 422 detail now carries an additive `part` ("name" or "value"); the tile puts a `"name"` refusal on the Key input and focuses it. Tests: `tests/test_mcp_agent_credentials.py::test_refusals_say_whether_the_name_or_the_value_was_refused` and browser `test_a_refused_header_name_lands_on_the_key_input` (falsified); the old real-422 test now uses a value refusal.
+- **H6:** the sign-in note shows; there is no Authorization row; another header can be overridden; Test works ("Connected with this agent's values · 1 tool").
+  - **Operator change:** Override blanked the server's `acme` value to the "value" placeholder until Save, which is confusing. The unlocked view should keep the existing value.
+  - New rule: a server row starts with the server's current value (clear, or its mask); unchanged means no override; changed means an override; trash reverts to the server's value.
+  - A single-surface interaction **fix**, inline. Queued behind the name-vs-value fix, which edits the same module.

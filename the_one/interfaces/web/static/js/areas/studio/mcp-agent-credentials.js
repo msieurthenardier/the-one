@@ -523,6 +523,7 @@
       var vals = cur.table.values();
       var unplaced = [];
       var first = null;
+      var firstCol = 'value';
       items.forEach(function (d) {
         if (!d || !Array.isArray(d.loc) || d.loc[1] !== source.name) {
           unplaced.push(String(d && d.msg != null ? d.msg : d));
@@ -539,8 +540,12 @@
           unplaced.push(String(d.msg == null ? '' : d.msg));
           return;
         }
-        cur.table.setError(idx, 'value', String(d.msg == null ? '' : d.msg));
-        if (first === null) first = idx;
+        var col = d.part === 'name' ? 'key' : 'value';
+        cur.table.setError(idx, col, String(d.msg == null ? '' : d.msg));
+        if (first === null) {
+          first = idx;
+          firstCol = col;
+        }
       });
       var text = unplaced.map(function (t) {
         t = t.trim();
@@ -548,7 +553,7 @@
       }).join(' ');
       st.sectionError = text || null;
       renderNotes();
-      if (first !== null) cur.table.focusRow(first, 'value');
+      if (first !== null) cur.table.focusRow(first, firstCol);
       else if (sectionErrEl) sectionErrEl.scrollIntoView({ block: 'nearest' });
     }
 
