@@ -106,21 +106,30 @@
         return d && d.type === 'tool_override' && Array.isArray(d.loc) &&
           d.loc[0] === 'tool_overrides' && d.loc.length >= 2;
       });
+      var mcp = App.studio.mcpAgentCredentials.splitItems(items, 'mcp_override');
       var plain = err;
-      if (toolItems.length) {
+      if (toolItems.length || mcp.mine.length) {
         plain = { status: err.status, message: err.message, body: err.body,
-          detail: items.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
+          detail: mcp.rest.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
       }
       var fe = App.api.fieldErrors(plain, ['name']);
       setNameError_(fe.fields.name || null);
       var headerText = fe.text || '';
-      if (toolItems.length && !plain.detail.length) headerText = '';
+      if (plain !== err && !plain.detail.length) headerText = '';
+      var placed = null;
+      if (mcp.mine.length) {   // the MCP servers section comes first on the tab: it gets focus
+        setActiveTab('tools');
+        placed = App.studio.mcpAgentCredentials.placeSaveErrors(mcpsTab_(), mcp.mine);
+        headerText = (headerText ? headerText + ' ' : '') + placed.text;
+      }
       setEditorError_(headerText);
       if (fe.fields.name) {
         var input = editorEl.querySelector('#studio-name');
         if (input) input.focus();
+      } else if (placed && placed.focus) placed.focus();
+      if (toolItems.length) {
+        showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name || !!(placed && placed.focus));
       }
-      if (toolItems.length) showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
     }
 
     // Select the Built-in tools tab, open each refused tool's panel and put the

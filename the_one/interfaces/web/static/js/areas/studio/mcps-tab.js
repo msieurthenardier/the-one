@@ -642,8 +642,11 @@
         });
       },
       // Save-422 items of type mcp_override -> the rows (expands each named tile).
+      // Returns { placed: [{focus}], unplaced: [items with no tile] }.
       showCredentialErrors: function (items) {
         var placed = [];
+        var names = Object.keys(entries).map(function (id) { return entries[id].source.name; });
+        var unplaced = (items || []).filter(function (d) { return names.indexOf(d.loc[1]) < 0; });
         Object.keys(entries).forEach(function (id) {
           var e = entries[id];
           var mine = (items || []).filter(function (d) { return d.loc[1] === e.source.name; });
@@ -655,7 +658,7 @@
           }
           placed = placed.concat(e.cred.showErrors(mine));
         });
-        return placed;
+        return { placed: placed, unplaced: unplaced };
       },
       destroy: function () {
         destroyed = true;

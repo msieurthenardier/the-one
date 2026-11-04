@@ -181,11 +181,17 @@ def test_section_shows_each_row_state_and_never_a_value(app_clean: str, page: Pa
     expect(_row(page, sid, "X-Org")).to_have_attribute("aria-label", "X-Org")
     expect(_btn(page, "replace", sid, "X-Org")).to_have_attribute("aria-label", "Replace X-Org")
     expect(_btn(page, "reset", sid, "X-Org")).to_have_attribute(
-        "aria-label", "Use the server value for X-Org"
+        "aria-label", "Use server value for X-Org"
     )
     expect(_btn(page, "set", sid, "X-Api-Key")).to_have_attribute(
-        "aria-label", "Set X-Api-Key for this agent"
+        "aria-label", "Set for this agent: X-Api-Key"
     )
+    # WCAG 2.5.3: each accessible name starts with the visible text.
+    for role, name in (("replace", "X-Org"), ("reset", "X-Org"), ("set", "X-Api-Key")):
+        button = _btn(page, role, sid, name)
+        visible = button.inner_text().strip()
+        label = button.get_attribute("aria-label")
+        assert label.startswith(visible), (visible, label)
     expect(_btn(page, "reset", sid, "Authorization")).to_have_attribute(
         "aria-label", "Remove Authorization"
     )
@@ -680,3 +686,164 @@ def test_save_retests_a_changed_tile_with_the_saved_values(app_clean: str, page:
     )
     assert bodies == [{"agent": "retest-agent", "overrides": None}], bodies
     expect(page.locator(SAVE)).to_be_disabled()
+
+
+# ── Save refusals (DD2) ────────────────────────────────────────────────────
+
+
+def _row_errors(page: Page, sid: str):
+    return page.locator(f'[data-testid^="mcp-agent-cred-row-error-{sid}-"]')
+
+
+def _refuse_put(page: Page, details: list) -> None:
+    def handler(route) -> None:
+        if route.request.method != "PUT":
+            route.continue_()
+            return
+        route.fulfill(status=422, json={"detail": details})
+
+    page.route("**/api/agents/*", handler)
+
+
+@pytest.mark.browser
+def test_a_real_save_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "refuse-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "refuse-agent")
+    _expand(page, sid)
+    # A name with a space is not a header name: the server refuses it on its row.
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    page.locator(f'[data-testid^="mcp-agent-cred-name-{sid}-"]').last.fill("Bad Name")
+    page.locator(f'[data-testid^="mcp-agent-cred-input-{sid}-"]').last.fill("some-value-01")
+    page.locator(SAVE).click()
+    err = _row_errors(page, sid)
+    expect(err).to_have_count(1, timeout=8000)
+    expect(err).not_to_be_empty()
+    assert "some-value-01" not in (err.text_content() or "")
+    focused = _focused_testid(page) or ""
+    # A refused new row puts focus on its name field.
+    assert focused == f"mcp-agent-cred-name-{sid}-new-1", focused
+    expect(page.locator(".editor-error")).not_to_be_visible()
+    # The stored agent is untouched.
+    assert not (_get_agent(app_clean, "refuse-agent")["mcp_overrides"] or {}).get("keyed")
+
+
+@pytest.mark.browser
+def test_an_mcp_refusal_gets_focus_over_a_tool_override_one(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "both-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "both-agent")
+    _expand(page, sid)
+    _btn(page, "set", sid, "X-Api-Key").click()
+    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("some-value-01")
+    page.locator('[data-testid="tab-general"]').click()
+    _refuse_put(
+        page,
+        [
+            {
+                "type": "tool_override",
+                "loc": ["tool_overrides", "grep", "allow_binary_files"],
+                "msg": "Binary files are off.",
+            },
+            {
+                "type": "mcp_override",
+                "loc": ["mcp_overrides", "keyed", "headers", "X-Api-Key"],
+                "msg": "A header value can only contain visible ASCII characters.",
+            },
+        ],
+    )
+    # Record every focus move after the Save, so a late move to the tool field is seen.
+    page.evaluate(
+        """() => {
+            window.__focusLog = [];
+            document.addEventListener('focusin', (e) => {
+                window.__focusLog.push(e.target.closest('details.ui-tool-row') ? 'tool' : 'other');
+            }, true);
+        }"""
+    )
+    page.locator(SAVE).click()
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true", timeout=8000)
+    expect(_tid(page, f"mcp-agent-cred-row-error-{sid}-X-Api-Key")).to_contain_text("visible ASCII")
+    expect(page.locator('details.ui-tool-row[data-tool="grep"]')).to_contain_text(
+        "Binary files are off.", timeout=8000
+    )
+    page.wait_for_timeout(300)
+    assert _focused_testid(page) == f"mcp-agent-cred-input-{sid}-X-Api-Key"
+    # Focus never went to the tool override's field, and ends inside the MCP row.
+    assert "tool" not in page.evaluate("() => window.__focusLog")
+    assert page.evaluate(
+        "(sid) => !!document.activeElement.closest('[data-testid^=\"mcp-agent-cred-row-' + sid + '\"]')"
+        " && !document.activeElement.closest('details.ui-tool-row')",
+        sid,
+    )
+    # The refused value input is marked invalid.
+    expect(_tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key")).to_have_attribute(
+        "aria-invalid", "true"
+    )
+
+
+@pytest.mark.browser
+def test_an_mcp_refusal_with_no_row_or_tile_goes_in_the_header(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "orphan-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "orphan-agent")
+    _expand(page, sid)
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    page.locator(f'[data-testid^="mcp-agent-cred-name-{sid}-"]').last.fill("X-New")
+    page.locator(f'[data-testid^="mcp-agent-cred-input-{sid}-"]').last.fill("some-value-01")
+    _refuse_put(
+        page,
+        [
+            {
+                "type": "mcp_override",
+                "loc": ["mcp_overrides", "ghost", "headers"],
+                "msg": "No server is named ghost",
+            },
+            {
+                "type": "mcp_override",
+                "loc": ["mcp_overrides", "keyed", "headers"],
+                "msg": "Headers must be a set of names and values.",
+            },
+        ],
+    )
+    page.locator(SAVE).click()
+    expect(page.locator(".editor-error")).to_contain_text("No server is named ghost.", timeout=8000)
+    expect(_tid(page, f"mcp-agent-cred-error-{sid}")).to_have_text(
+        "Headers must be a set of names and values."
+    )
+
+
+@pytest.mark.browser
+def test_a_failed_test_is_announced_once(app_clean: str, page: Page) -> None:
+    sid = _seed_plain(app_clean)
+    _seed_agent(app_clean, "once-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid, payload={"status": "error", "error": "ConnectionError: refused"})
+    _open_tools(page, app_clean, "once-agent")
+    _expand(page, sid)
+    err = _tid(page, f"mcp-tools-error-{sid}")
+    expect(err).to_have_count(1, timeout=8000)
+    expect(_status(page, sid)).to_contain_text("Couldn't connect")
+    # The alert block carries the announcement; the status words are not a second live region.
+    expect(err).to_have_attribute("role", "alert")
+    # The status region keeps role=status but is silent (aria-live off) while it shows the error.
+    expect(_status(page, sid)).to_have_attribute("role", "status")
+    expect(_status(page, sid)).to_have_attribute("aria-live", "off")
+    # A later status is written once the region is polite again: record aria-live at each write.
+    page.evaluate(
+        """(sid) => {
+            const el = document.querySelector('[data-testid="mcp-agent-cred-status-' + sid + '"]');
+            window.__liveAtWrite = [];
+            new MutationObserver(() => {
+                window.__liveAtWrite.push([el.textContent, el.getAttribute('aria-live')]);
+            }).observe(el, { childList: true, characterData: true, subtree: true });
+        }""",
+        sid,
+    )
+    _mock_agent_test(page, sid)
+    _tid(page, f"mcp-agent-cred-test-{sid}").click()
+    expect(_status(page, sid)).to_contain_text("Connected", timeout=8000)
+    writes = page.evaluate("() => window.__liveAtWrite")
+    assert writes and all(live == "polite" for _text, live in writes), writes

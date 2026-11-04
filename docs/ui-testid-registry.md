@@ -326,6 +326,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
 | `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
+| `mcp-env-headers-hint` | studio | The section's one hint line, "A blank value isn't sent. Agents can set their own in their Tools tab." (sortie 09 leg 3, DD3) |
 | `mcp-kv-table` | studio | The environment variables / headers `App.ui.keyValueTable` (`<table>`, named like its section); its thead hides while it has no rows (M31 F5 L07) |
 | `mcp-sandbox-section` | studio | |
 | `mcp-server-facts` | studio | The Server section's `App.ui.facts` (Version, Protocol, Offers, Website; only rows with a value) (M31 F5 L09, A16) |
@@ -604,7 +605,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-agent-cred-row-error-` | studio | A row's refusal message, suffixed with the source id and the row name |
 | `mcp-agent-cred-section-` | studio | The "Headers for this agent" / "Environment for this agent" `App.ui.section`, suffixed with the source id |
 | `mcp-agent-cred-state-` | studio | A row's state text ("Server value", "Set per agent · missing", "Set for this agent", "Supplied by the server's sign-in", "Server value · on save", "Removed · on save"), suffixed with the source id and the row name |
-| `mcp-agent-cred-status-` | studio | The connection status line (`App.ui.status`, polite): "Testing…", "Connected with this agent's values · N tools", "Connected · N tools", "Needs a value for X", "Not listed with this agent's values yet", …; suffixed with the source id |
+| `mcp-agent-cred-status-` | studio | The connection status line (`App.ui.status`, polite; on a failed test it drops its live role, because the tile's `role=alert` block is the one announcement): "Testing…", "Connected with this agent's values · N tools", "Connected · N tools", "Needs a value for X", "Not listed with this agent's values yet", …; suffixed with the source id |
 | `mcp-agent-cred-test-` | studio | The status line's Test button ("Test connection for {server}"), suffixed with the source id; the Refresh button keeps `mcp-refresh-tools-btn-{id}` |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |

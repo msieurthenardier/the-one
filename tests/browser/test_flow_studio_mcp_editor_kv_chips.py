@@ -251,6 +251,24 @@ def test_kv_section_has_no_sideways_scroll_at_1024(app_clean: str, page: Page) -
 
 
 @pytest.mark.browser
+def test_kv_empty_value_says_set_per_agent_and_the_hint_is_shown(
+    app_clean: str, page: Page
+) -> None:
+    """Sortie 09 DD3: an empty value input reads "Set per agent" and the table carries
+    one hint line (the section description) about blank values."""
+    sid = _seed_kv_shape(app_clean)
+    _open_source(page, app_clean, sid)
+    _kv_add(page, "X-Blank", "")
+    row = _kv_row_by_key(page, "X-Blank")
+    expect(_kv_val(row)).to_have_attribute("placeholder", "Set per agent")
+    hint = page.get_by_test_id("mcp-env-headers-hint")
+    expect(hint).to_have_count(1)
+    expect(hint).to_have_text(
+        "A blank value isn't sent. Agents can set their own in their Tools tab."
+    )
+
+
+@pytest.mark.browser
 def test_kv_remove_row_uses_trash_icon(app_clean: str, page: Page) -> None:
     """Per-row remove control renders the trash icon, not a text button or close-x icon."""
     sid = _seed_kv_shape(app_clean)

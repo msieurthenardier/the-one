@@ -79,6 +79,17 @@
     return { mine: mine, rest: rest };
   }
 
+  // A Save 422's mcp_override details -> the rows of the MCP servers section. Returns
+  // { focus: fn | null, text } where text is the sentences of details with no tile or row.
+  function placeSaveErrors(tab, items) {
+    var r = tab ? tab.showCredentialErrors(items) : { placed: [], unplaced: items };
+    var text = r.unplaced.map(function (d) {
+      var t = String(d.msg == null ? '' : d.msg).trim();
+      return /[.!?]$/.test(t) ? t : t + '.';
+    }).join(' ');
+    return { focus: r.placed.length ? r.placed[0].focus : null, text: text };
+  }
+
   function create(opts) {
     var ui = window.App.ui;
     var source = opts.source;
@@ -86,6 +97,7 @@
     var onTest = opts.onTest || function () {};
     var st = { agent: opts.agent || null, pend: {}, news: [], newSeq: 0, sectionError: null };
     var nodes = {};          // row key -> element
+    var errSeq = 0;          // unique row-error ids (a name can hold characters an id cannot)
     var destroyed = false;
 
     function isHttp() { return source.type !== 'stdio'; }
@@ -233,11 +245,7 @@
     var listEl = document.createElement('div');
     listEl.className = 'mcp-agent-cred-rows';
     var emptyEl = null;
-    var sectionErrEl = document.createElement('p');
-    sectionErrEl.className = 'mcp-agent-cred-error';
-    sectionErrEl.setAttribute('role', 'alert');
-    sectionErrEl.setAttribute('data-testid', 'mcp-agent-cred-error-' + source.id);
-    sectionErrEl.hidden = true;
+    var sectionErrEl = null;
     var liveEl = document.createElement('div');
     liveEl.className = 'visually-hidden';
     liveEl.setAttribute('role', 'status');
@@ -254,7 +262,7 @@
     var section = ui.section({
       title: sectionTitle, titleTag: 'h3', layout: 'stack',
       testid: 'mcp-agent-cred-section-' + source.id,
-      children: [listEl, sectionErrEl, addBtn, liveEl]
+      children: [listEl, addBtn, liveEl]
     });
 
     var statusLine = ui.status({
@@ -394,13 +402,13 @@
       } else if (r.stored) {
         controls.appendChild(btn(r, 'replace', 'Replace', 'Replace ' + r.name, function () { startEdit(r, 'replace'); }));
         if (r.serverDefined) {
-          controls.appendChild(btn(r, 'reset', 'Use server value', 'Use the server value for ' + r.name,
+          controls.appendChild(btn(r, 'reset', 'Use server value', 'Use server value for ' + r.name,
             function () { remove(r); }, 'ghost'));
         } else {
           controls.appendChild(btn(r, 'reset', 'Remove', 'Remove ' + r.name, function () { remove(r); }, 'ghost'));
         }
       } else {
-        controls.appendChild(btn(r, 'set', 'Set for this agent', 'Set ' + r.name + ' for this agent',
+        controls.appendChild(btn(r, 'set', 'Set for this agent', 'Set for this agent: ' + r.name,
           function () { startEdit(r, 'set'); }));
       }
       var inputEl = secret ? secret.input : nameInput;
@@ -408,13 +416,22 @@
       if (r.error) {
         var err = document.createElement('p');
         err.className = 'mcp-agent-cred-error';
-        err.id = 'mcp-agent-cred-err-' + source.id + '-' + r.tid;
+        errSeq += 1;
+        err.id = 'mcp-agent-cred-err-' + source.id + '-' + errSeq;
         err.setAttribute('role', 'alert');
         err.setAttribute('data-testid', 'mcp-agent-cred-row-error-' + source.id + '-' + r.tid);
         err.textContent = r.error;
         row.appendChild(err);
         var first = secret ? secret.input : (controls.querySelector('button') || inputEl);
         if (first) first.setAttribute('aria-describedby', err.id);
+        // The error's input is the secret value input, or the name input of an added row.
+        var invalidEl = secret ? secret.input : nameInput;
+        if (invalidEl) {
+          invalidEl.setAttribute('aria-invalid', 'true');
+          invalidEl.addEventListener('input', function () {
+            invalidEl.removeAttribute('aria-invalid');
+          });
+        }
       }
       return row;
     }
@@ -441,8 +458,24 @@
         }
         listEl.appendChild(emptyEl);
       }
-      sectionErrEl.hidden = !st.sectionError;
-      sectionErrEl.textContent = st.sectionError || '';
+      setSectionError(st.sectionError);
+    }
+
+    // The section-level refusal node exists only while there is one.
+    function setSectionError(msg) {
+      if (!msg) {
+        if (sectionErrEl && sectionErrEl.parentNode) sectionErrEl.parentNode.removeChild(sectionErrEl);
+        sectionErrEl = null;
+        return;
+      }
+      if (!sectionErrEl) {
+        sectionErrEl = document.createElement('p');
+        sectionErrEl.className = 'mcp-agent-cred-error';
+        sectionErrEl.setAttribute('role', 'alert');
+        sectionErrEl.setAttribute('data-testid', 'mcp-agent-cred-error-' + source.id);
+      }
+      sectionErrEl.textContent = msg;
+      if (!sectionErrEl.parentNode) addBtn.parentNode.insertBefore(sectionErrEl, addBtn);
     }
 
     // Re-renders one row in place; returns its new element (or null once it is gone).
@@ -546,7 +579,27 @@
 
     // ── Handle ───────────────────────────────────────────────────────────────
 
+    var statusSeq = 0;
     function setStatusImpl(kind_, data) {
+      // An error is announced once, by the tile's role=alert block (or the refused row's
+      // message); the status words stay readable but are not a second live announcement.
+      // The region keeps role=status; aria-live is "off" while it shows an error, and
+      // is set back to "polite" a task BEFORE the next text is written, so that text is announced.
+      statusSeq += 1;
+      var mine = statusSeq;
+      if (kind_ === 'error') {
+        statusLine.el.setAttribute('aria-live', 'off');
+        writeStatus(kind_, data);
+      } else if (statusLine.el.getAttribute('aria-live') === 'off') {
+        statusLine.el.setAttribute('aria-live', 'polite');
+        setTimeout(function () { if (mine === statusSeq && !destroyed) writeStatus(kind_, data); }, 0);
+      } else {
+        statusLine.el.setAttribute('aria-live', 'polite');
+        writeStatus(kind_, data);
+      }
+    }
+
+    function writeStatus(kind_, data) {
       data = data || {};
       var withValues = data.withValues === true;
       switch (kind_) {
@@ -590,12 +643,21 @@
         if (field === 'bearer_token') key = 'authorization';
         else if (name !== undefined) key = keyOf(name);
         var r = key !== null ? rows.byKey[key] : null;
-        if (r && !r.oauth) {
+        var fresh = null;    // an added row the server refused: it is keyed by what was typed
+        if (!r && key !== null) {
+          rows.forEach(function (x) {
+            if (!fresh && x.isNew && keyOf(String(x.name || '').trim()) === key) fresh = x;
+          });
+        }
+        if (fresh) {
+          st.news.forEach(function (n) { if (n.uid === fresh.uid) n.error = msg; });
+          placed.push({ key: fresh.key, focus: function () { focusIn(nodes[fresh.key]); } });
+        } else if (r && !r.oauth) {
           pendOf(r.key).error = msg;
           placed.push({ key: r.key, focus: function () { focusIn(nodes[r.key]); } });
         } else {
           st.sectionError = msg;
-          placed.push({ key: null, focus: function () { sectionErrEl.scrollIntoView && sectionErrEl.scrollIntoView({ block: 'nearest' }); addBtn.focus(); } });
+          placed.push({ key: null, focus: function () { sectionErrEl && sectionErrEl.scrollIntoView({ block: 'nearest' }); addBtn.focus(); } });
         }
       });
       renderList();
@@ -638,6 +700,7 @@
   window.App.studio.mcpAgentCredentials = {
     create: create,
     hasStoredCredential: hasStoredCredential,
-    splitItems: splitItems
+    splitItems: splitItems,
+    placeSaveErrors: placeSaveErrors
   };
 })();

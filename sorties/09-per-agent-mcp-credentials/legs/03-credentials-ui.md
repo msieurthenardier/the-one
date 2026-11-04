@@ -1,6 +1,6 @@
 # Leg: credentials-ui
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Per-agent MCP credentials](../flight.md)
 
 ## Objective
@@ -103,7 +103,7 @@ Build the operator-approved Tools tab tile section (DD10) that lets an operator 
 **Accessibility, testids, guards, docs**
 - [ ] AC12. Accessibility (DD10):
   - each row is a labelled group named by its header or variable name, and its state is text;
-  - every button's accessible name includes the name (for example "Set X-Api-Key for this agent", "Replace X-Api-Key", "Use the server value for X-Api-Key"), including `secretInput`'s show and hide button (pass `showLabel`/`hideLabel`, for example "Show value for X-Api-Key");
+  - every button's accessible name includes the name (for example "Set for this agent: X-Api-Key", "Replace X-Api-Key", "Use server value for X-Api-Key"; each name starts with the button's visible text, WCAG 2.5.3), including `secretInput`'s show and hide button (pass `showLabel`/`hideLabel`, for example "Show value for X-Api-Key");
   - the secret input is labelled "Value for X-Api-Key";
   - the status line is a polite live region;
   - the focus rules of AC3 and AC8 hold;
