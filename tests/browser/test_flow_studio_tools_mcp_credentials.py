@@ -386,7 +386,7 @@ def test_trash_on_an_overridden_server_row_returns_to_the_server_value(
     # its value input.
     _trash(org).click()
     expect(_trs(page, sid)).to_have_count(3)
-    expect(_value(org)).to_have_value("acme")   # the server's own value, not empty (H6)
+    expect(_value(org)).to_have_value("acme")  # the server's own value, not empty (H6)
     expect(_toggle(org)).not_to_be_checked()
     expect(_trash(org)).to_be_disabled()
     expect(_pill(org)).to_be_hidden()
