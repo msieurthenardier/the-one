@@ -701,6 +701,19 @@ App.registerArea({
       isDirty: function () { return state.dirty && editorOpen(); },
       discard: discardOpen_
     });
+    // An MCP tile unlocked with unsaved credential edits (sortie 09 L06): leaving asks once.
+    // The tile saves itself and is not part of the editor's Save, so this is its own source;
+    // The editor stays mounted across destinations, so Continue must cancel the tiles itself.
+    App.nav.registerSource('studio-mcp-tiles', {
+      isDirty: function () {
+        var tab = controller ? controller.mcpsTab() : null;
+        return editorOpen() && !!tab && tab.anyDirty();
+      },
+      discard: function () {
+        var tab = controller ? controller.mcpsTab() : null;
+        if (tab) tab.discardAll();
+      }
+    });
 
     // Pre-fetch MCP source types so the editor mount path doesn't have to
     // wait on the first network round-trip when the operator clicks "New

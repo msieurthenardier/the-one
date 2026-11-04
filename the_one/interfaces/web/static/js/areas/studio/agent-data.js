@@ -396,59 +396,51 @@ App.studio.agentData = {
     // survives across agent changes; schemas are static.
     var _schemaPromiseCache = {};
 
-    // F8 L3 — Lazy MCP-source tools fetcher. Closure-cached promise per
-    // sourceId (mirrors fetchToolSchema's pattern above). The cache stores
-    // the in-flight promise so concurrent callers reuse it. The cache
-    // survives across agent changes within the studio area lifetime; tools
-    // are static within a session (no rename within a session).
-    //
-    // On API `{status: "ok"}`: resolves with the full response object
-    // `{tools, capabilities, ...}`.
-    // On API `{status: "auth_required"}`: rejects with an Error whose
-    // .name === "AuthRequired" and .consent_url is the OAuth redirect URL.
-    // UI surfaces an inline notice; NEVER auto-trigger the popup from this
-    // surface — the source-edit page is the OAuth affordance.
-    // On API `{status: "error"}` or HTTP error: rejects with a generic
-    // Error; drops the cache entry so retries land on a fresh promise.
-    var _mcpSourceToolsCache = {};
-
-    function fetchMcpSourceTools(sourceId, options) {
-      options = options || {};
-      if (options.forceRefresh) {
-        delete _mcpSourceToolsCache[sourceId];
-      }
-      if (_mcpSourceToolsCache[sourceId]) return _mcpSourceToolsCache[sourceId];
-
-      var p = fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', {
+    // The agent editor's MCP test (sortie 09, DD6, AC7): POST /test/agent with the agent's
+    // name (null in create mode) and the unsaved credential entry (null = the stored
+    // ones). Nothing is cached here: every call is a new request, and the caller keeps its
+    // own per-tile generation number. Resolves with the route's body
+    // ({status: ok | needs_values | auth_required | error, ...}); rejects with the
+    // fetchJson error (a 422 carries `status` and `detail`).
+    // `opts.credentialed` says the agent has stored credentials for this source: the
+    // route then writes the agent's own list, not the shared one, so the Library list is
+    // not stale.
+    function testMcpAsAgent(sourceId, agentName, overrides, opts) {
+      return App.api.fetchJson('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-      }).then(function (r) {
-        if (!r.ok) {
-          throw new Error('fetchMcpSourceTools: HTTP ' + r.status);
-        }
-        return r.json();
+        body: JSON.stringify({ agent: agentName || null, overrides: overrides || null })
       }).then(function (data) {
-        // Every outcome changes the server-side record (a connect rewrote
-        // config._cache; an error / auth_required Test recorded _cache.last_check,
-        // leg 08a DD6): the Library list is stale either way (M25 F3 L2, DD9).
-        App.store.invalidate('mcp-sources');
-        if (data.status === 'ok') {
-          return data;
+        // An ok test for an agent with no credential override wrote the shared tool
+        // list (config._cache): the Library list is stale (M25 F3 L2, DD9).
+        if (data && data.status === 'ok' && !(opts && opts.credentialed)) {
+          App.store.invalidate('mcp-sources');
         }
-        if (data.status === 'auth_required') {
-          var err = new Error('auth_required');
-          err.name = 'AuthRequired';
-          err.consent_url = data.consent_url;
-          throw err;
-        }
-        throw new Error(data.error || 'unknown error from fetchMcpSourceTools');
-      }).catch(function (err) {
-        // Drop the cached promise on any error so next call retries.
-        delete _mcpSourceToolsCache[sourceId];
-        throw err;
+        return data;
       });
-      _mcpSourceToolsCache[sourceId] = p;
-      return p;
+    }
+
+    // The tile's own Save (sortie 09 L06, DD12): writes ONE source's per-agent credentials
+    // through the targeted route and returns the updated agent. The editor's copies follow
+    // (the selected agent and its list entry take the new overrides and per-agent tool
+    // lists), so a later patch or a re-test reads the saved values; the store refetches.
+    function saveMcpCredentials(agentName, sourceId, body) {
+      return App.api.fetchJson('/api/agents/' + encodeURIComponent(agentName) +
+        '/mcp-overrides/' + encodeURIComponent(sourceId) + '/credentials', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (updated) {
+        var copies = [self._selectedAgent];
+        (self._agents || []).forEach(function (a) { copies.push(a); });
+        copies.forEach(function (a) {
+          if (!a || a.name !== updated.name) return;
+          a.mcp_overrides = updated.mcp_overrides;
+          a.mcp_tool_cache = updated.mcp_tool_cache;
+        });
+        App.store.invalidate('agents');
+        return updated;
+      });
     }
 
     function fetchToolSchema(name) {
@@ -567,7 +559,8 @@ App.studio.agentData = {
       refreshToolConfigsCache: refreshToolConfigsCache,
       refreshMcpSourcesCache: refreshMcpSourcesCache,
       refreshKnowledgeBasesCache: refreshKnowledgeBasesCache,
-      fetchMcpSourceTools: fetchMcpSourceTools,
+      testMcpAsAgent: testMcpAsAgent,
+      saveMcpCredentials: saveMcpCredentials,
       fetchToolSchema: fetchToolSchema,
       loadAll: loadAll,
       showLoadAllError: showLoadAllError,

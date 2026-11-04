@@ -3,8 +3,11 @@
 //
 // Holds: the per-key __MASKED__ sentinel, hasOAuthState (the Reset-connection
 // visibility test), the spec capability keys and the stdio runtime dropdown table with its three
-// lookup helpers. A stateless function namespace: no DOM, no network.
-// Exposes: MASKED_SENTINEL, hasOAuthState, SPEC_CAPABILITY_KEYS,
+// lookup helpers, and (sortie 09 L06) the Headers / Environment variables table builder
+// shared with the agent tile. A stateless function namespace: no network, no state; the
+// table builder uses App.ui lazily, when it is called.
+// Exposes: SENSITIVE_INFO, titleFor, hintFor, rowsFromSource, tableColumns, MASKED_SENTINEL,
+// hasOAuthState, SPEC_CAPABILITY_KEYS,
 // STDIO_CUSTOM_SENTINEL, STDIO_RUNTIME_OPTIONS, findStdioRuntimeOption,
 // deriveStdioRuntimeSelection, lookupStdioRuntimeHint, uniqueStrings.
 (function () {
@@ -171,7 +174,87 @@
     return out;
   }
 
+  // ── The Environment variables / Headers table (sortie 09 L06, shared by the Library
+  // editor's mcp-env-headers.js and the agent tile's mcp-agent-credentials.js) ──────────
+
+  var SENSITIVE_INFO = 'Sensitive values are stored encrypted. Turning this off clears the ' +
+    'stored value; type it again to keep it.';
+
+  function titleFor(type) {
+    return type === 'streamable-http' ? 'Headers' : 'Environment variables';
+  }
+
+  function hintFor(type) {
+    return 'Optionally override ' +
+      (type === 'streamable-http' ? 'headers' : 'environment variables') +
+      ' in agent settings.';
+  }
+
+  // The rows a stored source shows: plaintext first (dict order), then secrets, the
+  // plaintext winning a duplicate key. A stored secret's value is its mask.
+  function rowsFromSource(source, type) {
+    var rows = [];
+    if (!source) return rows;
+    var cfg = source.config || {};
+    var plain = (type === 'streamable-http') ? (cfg.headers || {}) : (cfg.env || {});
+    var secrets = source.secrets || {};
+    var seen = Object.create(null);
+    var k;
+    for (k in plain) {
+      if (!Object.prototype.hasOwnProperty.call(plain, k)) continue;
+      rows.push({ key: k, value: String(plain[k]), sensitive: false, _originalMasked: '' });
+      seen[k] = true;
+    }
+    for (k in secrets) {
+      if (!Object.prototype.hasOwnProperty.call(secrets, k) || seen[k]) continue;
+      var mask = String(secrets[k] == null ? '' : secrets[k]);
+      rows.push({ key: k, value: mask, sensitive: true, _originalMasked: mask });
+    }
+    return rows;
+  }
+
+  // The column definitions the Library table uses, built lazily from App.ui (this file loads
+  // before it is needed). `readOnly` leaves the Sensitive column out. Returns
+  // {columns, finish(table), destroy()}: the caller builds the App.ui.keyValueTable (and so
+  // owns every testid; none is baked in here), calls finish(table) once, and destroy() with
+  // the table.
+  function tableColumns(readOnly) {
+    var ui = window.App.ui;
+    var infoBtn = null;
+    var cols = [
+      { key: 'key', label: 'Key', placeholder: 'KEY', mono: true },
+      {
+        key: 'value', label: 'Value', placeholder: 'value', type: 'secret',
+        maskedBy: 'sensitive', storedKey: '_originalMasked', clearOnUnmask: true
+      }
+    ];
+    if (!readOnly) {
+      infoBtn = ui.infoButton({ description: SENSITIVE_INFO, label: 'Sensitive' });
+      var head = document.createElement('span');
+      head.appendChild(document.createTextNode('Sensitive '));
+      head.appendChild(infoBtn.el);
+      cols.push({ key: 'sensitive', label: head, type: 'toggle', ariaLabel: 'Sensitive', width: '120px' });
+    }
+    return {
+      columns: cols,
+      // The column header's accessible name is the word alone: the info button's own
+      // name and description must not join it.
+      finish: function (table) {
+        var heads = table.el.querySelectorAll('thead th');
+        if (!readOnly && heads[2]) heads[2].setAttribute('aria-label', 'Sensitive');
+      },
+      destroy: function () {
+        if (infoBtn) infoBtn.destroy();
+      }
+    };
+  }
+
   window.App.studio.mcpEditor.shared = {
+    SENSITIVE_INFO: SENSITIVE_INFO,
+    titleFor: titleFor,
+    hintFor: hintFor,
+    rowsFromSource: rowsFromSource,
+    tableColumns: tableColumns,
     uniqueStrings: uniqueStrings,
     MASKED_SENTINEL: MASKED_SENTINEL,
     hasOAuthState: hasOAuthState,

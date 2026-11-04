@@ -12,7 +12,7 @@
 //     panel       — DOM element (the Tools tabpanel)
 //     agent       — AgentConfig object (null for create mode)
 //     allSources  — array of MCPSource objects from /api/mcp-sources
-//     callbacks   — { fetchMcpSourceTools, onChange, onSelectedSourceChange,
+//     callbacks   — { testMcpAsAgent, onChange, onSelectedSourceChange,
 //                     pendingSourceId }
 //                   `onChange` is the editor's dirty callback, called from the
 //                   masters' own onChange and one delegated change handler on each
@@ -34,8 +34,17 @@
 //   [data-mcp-tool-toggle][data-mcp-source]        on each row's input → enabled/disabled tools
 //   closest('[data-mcp-tool-group]')[data-mcp-tool-mode]
 //
-// Per-agent credential overrides (bearer_token, headers, env) are NOT rendered here
-// (flight log Anomaly A5); the backend still accepts them via API.
+// Per-agent credentials (sortie 09 leg 6, DD12): every tile body opens with the section
+// built by App.studio.mcpAgentCredentials (the Library's headers table, locked until
+// "Override headers", then the status line with Test), then the tool rows. The tile's own
+// Save writes through callbacks.saveMcpCredentials (the targeted route) at once and rebases
+// only that tile; the editor's main Save no longer carries credentials. The tab tests through
+// callbacks.testMcpAsAgent (POST /test/agent): on a user switch-on, on the first expand
+// when no applicable list exists, on Test (unsaved values while unlocked) and after a tile
+// Save (saved values). Each test carries a per-tile generation; a stale result is dropped.
+// A credentialed agent's tile lists only its own per-agent cache (agent.mcp_tool_cache) or a
+// test result from this mount, never the shared source cache.
+//   h also exposes anyDirty() (a tile is unlocked with unsaved edits: the leave guard).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -44,7 +53,8 @@
   function renderMcpsTab(panel, agent, allSources, callbacks) {
     callbacks = callbacks || {};
     var ui = window.App.ui;
-    var fetchMcpSourceTools = callbacks.fetchMcpSourceTools;
+    var testMcpAsAgent = callbacks.testMcpAsAgent;
+    var credMod = window.App.studio.mcpAgentCredentials;
     var onChange = callbacks.onChange || function () {};
     var onSelectedSourceChange = callbacks.onSelectedSourceChange || function () {};
     var currentAgent = agent || null;
@@ -103,7 +113,20 @@
       return (o.disabled_tools || []).indexOf(toolName) === -1;
     }
 
-    function cachedTools(source) {
+    // Which list a tile shows (sortie 09 DD4, AC6): a credentialed agent sees its own
+    // list only (a test result from this mount, else its stored per-agent cache), never
+    // the shared one; any other agent sees the shared source cache.
+    function credentialed(source) {
+      return credMod.hasStoredCredential(source, currentAgent);
+    }
+
+    function listedTools(entry) {
+      var source = entry.source;
+      if (credentialed(source)) {
+        var own = (currentAgent && currentAgent.mcp_tool_cache) || {};
+        var cache = own[source.id];
+        return entry.testedTools || (cache && Array.isArray(cache.tools) ? cache.tools : null);
+      }
       return source.config && source.config._cache && Array.isArray(source.config._cache.tools)
         ? source.config._cache.tools : null;
     }
@@ -138,30 +161,26 @@
         rows: {},
         order: [],
         loadStarted: false,
-        gen: 0
+        gen: 0,
+        cred: null,
+        testedTools: null,   // the tools of the last ok test in this mount
+        settled: null,       // the last settled status line {kind, data}
+        testing: false
       };
 
-      // Refresh keeps its visible label at the small size; its name says which source.
-      var refreshBtn = ui.button({
-        size: 'sm',
-        compactIcon: true,
-        icon: 'refresh-cw',
-        label: 'Refresh',
-        ariaLabel: 'Refresh tools for ' + source.name,
-        testid: 'mcp-refresh-tools-btn-' + source.id,
-        onClick: function () {
-          // Opens the panel if closed, then force-reloads the tools. The explicit
-          // selected-source callback replaces onExpand, which setExpanded never fires.
-          if (!entry.tile.isExpanded()) {
-            entry.loadStarted = true;
-            entry.tile.setExpanded(true);
-            setSelected(source.id);
-          }
-          loadTools(entry, true);
-        }
+      // The credential section and the status line with its buttons. Its edits never reach
+      // the editor's main dirty state: the tile saves itself.
+      entry.cred = credMod.create({
+        source: source,
+        agent: currentAgent,
+        onChange: function () { onCredChange(entry); },
+        onTest: function () {
+          entry.loadStarted = true;
+          runTest(entry, {});
+        },
+        saveCredentials: callbacks.saveMcpCredentials,
+        onSaved: function (updated) { onCredSaved(entry, updated); }
       });
-
-      var actions = [refreshBtn];
 
       // Server-declared identity (F4 L2, M08), shown once /test/connect has cached it.
       var subtitle = null;
@@ -183,7 +202,6 @@
       var tile = ui.groupTile({
         name: source.name,
         chips: [source.type === 'stdio' ? 'stdio' : 'http'],
-        actions: actions,
         subtitle: subtitle,
         master: {
           label: 'Attach ' + source.name,
@@ -191,7 +209,14 @@
           state: 'off',
           testid: 'mcp-source-toggle-' + source.id,
           dataset: { mcpSourceToggle: '', mcpSourceId: source.id },
-          onChange: function () { onChange(); }
+          onChange: function (nextChecked) {
+            onChange();
+            // A user toggle only (setMaster is silent): switch-on expands and tests at
+            // once with the tile's current values; focus stays on the switch. Switch-off
+            // drops a result still in flight.
+            if (nextChecked) switchOn(entry);
+            else switchOff(entry);
+          }
         },
         toolLabel: 'Tools',
         // A20: "Tools for Docs search", "3 tools for Docs search" (label in name).
@@ -203,7 +228,10 @@
         onFirstExpand: function () {
           if (entry.loadStarted) return;
           entry.loadStarted = true;
-          loadTools(entry, false);
+          // With an applicable list, show it; otherwise test once (never on a later expand).
+          var listed = listedTools(entry);
+          if (listed) applyTools(entry, listed);
+          else runTest(entry, {});
         },
         onExpand: function (expanded) {
           if (expanded) {
@@ -230,15 +258,18 @@
         onChange();
       };
       entry.group.addEventListener('change', entry.onGroupChange);
+      tile.body.appendChild(entry.cred.el);
       tile.body.appendChild(entry.noteHost);
       tile.body.appendChild(entry.group);
 
       patchEntry(entry);
+      showBaseline(entry);
       return entry;
     }
 
     function destroyEntry(entry) {
       entry.gen += 1;
+      entry.cred.destroy();
       entry.group.removeEventListener('change', entry.onGroupChange);
       Object.keys(entry.rows).forEach(function (name) { entry.rows[name].destroy(); });
       entry.tile.destroy();
@@ -271,7 +302,7 @@
       var names = Object.keys(entry.rows);
       if (names.length === 0) {
         // Rows not built yet: compute from the cache and the stored overrides.
-        var cached = cachedTools(entry.source);
+        var cached = listedTools(entry);
         if (!cached) {
           setCount(entry, null, null);
           return;
@@ -364,14 +395,75 @@
       recount(entry);
     }
 
-    function loadTools(entry, forceRefresh) {
+    // ── Status line and tests (DD6, DD10) ───────────────────────────────────
+
+    function setSettled(entry, kind, data) {
+      entry.settled = { kind: kind, data: data || {} };
+      entry.cred.setStatus(kind, data);
+    }
+
+    // The status line of a tile no test is running on: a missing value, the listed
+    // tools (own or shared), "Not listed with this agent's values yet", or blank.
+    function showBaseline(entry) {
+      var missing = entry.cred.missing();
+      var listed = listedTools(entry);
+      if (missing.length) setSettled(entry, 'needs', { names: missing });
+      else if (listed) setSettled(entry, 'listed', { count: listed.length, perAgent: credentialed(entry.source) });
+      else if (credentialed(entry.source)) setSettled(entry, 'none');
+      else setSettled(entry, 'idle');
+    }
+
+    // A credential edit: a "Needs a value" line follows the names still missing (the
+    // editor's dirty state is not involved: the tile saves itself).
+    function onCredChange(entry) {
+      if (!entry.settled || entry.settled.kind !== 'needs' || entry.testing) return;
+      var missing = entry.cred.missing();
+      if (missing.join('\n') === (entry.settled.data.names || []).join('\n')) return;
+      if (missing.length) setSettled(entry, 'needs', { names: missing });
+      else setSettled(entry, 'idle');
+    }
+
+    // A tile Save landed: the tab follows the saved agent (never a tab-level setAgent: that
+    // would reset the attach switch and the tool rows) and tests once with the saved values.
+    function onCredSaved(entry, updated) {
+      currentAgent = updated || currentAgent;
+      if (updated && updated.name) agentName = updated.name;
+      entry.testedTools = null;
+      entry.loadStarted = true;
+      runTest(entry, { saved: true });
+    }
+
+    function switchOn(entry) {
+      entry.loadStarted = true;
+      if (!entry.tile.isExpanded()) {
+        entry.tile.setExpanded(true);
+        setSelected(entry.source.id);
+      }
+      runTest(entry, {});
+    }
+
+    function switchOff(entry) {
+      entry.gen += 1;
+      entry.testing = false;
+      if (entry.settled) entry.cred.setStatus(entry.settled.kind, entry.settled.data);
+      else showBaseline(entry);
+    }
+
+    // Runs the per-agent test (POST /test/agent). `opts.saved` tests the stored values
+    // (overrides: null), after a Save; otherwise the tile's unsaved values go along. A
+    // missing value is reported before any request.
+    function runTest(entry, opts) {
       var source = entry.source;
-      var cached = cachedTools(source);
-      if (!forceRefresh && cached) {
-        applyTools(entry, cached);
+      var cred = entry.cred;
+      var gen = ++entry.gen;
+      var missing = cred.missing();
+      if (missing.length) {
+        entry.testing = false;
+        setNote(entry, null);
+        setSettled(entry, 'needs', { names: missing });
         return;
       }
-      if (!fetchMcpSourceTools) {
+      if (!testMcpAsAgent) {
         var unavailable = document.createElement('p');
         unavailable.className = 'loading';
         unavailable.textContent = 'Tool discovery not available.';
@@ -384,23 +476,50 @@
         loading.textContent = 'Loading tools…';
         setNote(entry, loading);
       }
-      var gen = ++entry.gen;
-      fetchMcpSourceTools(source.id, { forceRefresh: !!forceRefresh }).then(function (data) {
+      var overrides = opts && opts.saved ? null : cred.payload();
+      var withValues = credentialed(source) || overrides !== null;
+      entry.testing = true;
+      cred.setStatus('testing');
+      testMcpAsAgent(source.id, agentName, overrides, { credentialed: withValues }).then(function (data) {
         if (destroyed || gen !== entry.gen) return;
-        applyTools(entry, (data && data.tools) || []);
+        entry.testing = false;
+        var status = data && data.status;
+        if (status === 'ok') {
+          var tools = data.tools || [];
+          entry.testedTools = tools;
+          applyTools(entry, tools);
+          setSettled(entry, 'ok', { count: tools.length, withValues: withValues });
+        } else if (status === 'needs_values') {
+          setNote(entry, null);
+          setSettled(entry, 'needs', { names: data.missing || [] });
+        } else if (status === 'auth_required') {
+          setNote(entry, authNotice(source));
+          setSettled(entry, 'auth');
+        } else {
+          showTestError(entry, data && data.error ? data.error : 'unknown error', withValues);
+        }
       }).catch(function (err) {
         if (destroyed || gen !== entry.gen) return;
-        if (err && err.name === 'AuthRequired') {
-          setNote(entry, authNotice(source));
-        } else {
-          // The existing rows stay; the error shows above them, replacing any previous one.
-          var errEl = window.App.buildMcpError(err && err.message ? err.message : String(err), {
-            transport: source.type === 'stdio' ? 'stdio' : 'http'
-          });
-          errEl.setAttribute('data-testid', 'mcp-tools-error-' + source.id);
-          setNote(entry, errEl);
+        entry.testing = false;
+        if (err && err.status === 422 && Array.isArray(err.detail)) {
+          if (cred.showErrors(err.detail)) {
+            setNote(entry, null);
+            setSettled(entry, 'error', { withValues: true });
+            return;
+          }
         }
+        showTestError(entry, err && err.message ? err.message : String(err), withValues);
       });
+    }
+
+    // The existing rows stay; the error shows above them, replacing any previous one.
+    function showTestError(entry, raw, withValues) {
+      var errEl = window.App.buildMcpError(raw, {
+        transport: entry.source.type === 'stdio' ? 'stdio' : 'http'
+      });
+      errEl.setAttribute('data-testid', 'mcp-tools-error-' + entry.source.id);
+      setNote(entry, errEl);
+      setSettled(entry, 'error', { withValues: withValues });
     }
 
     // ── Reconcile the tiles with the visible sources ────────────────────────
@@ -419,6 +538,21 @@
       try {
         if (entry.tile.el.scrollIntoView) entry.tile.el.scrollIntoView({ block: 'nearest' });
       } catch (e) { /* best effort */ }
+    }
+
+    // The parts of a source the credential section reads; a tile follows a change in
+    // them (pending edits kept), every other tile state is left alone.
+    function credSignature(s) {
+      var kind = s.type === 'stdio' ? 'env' : 'headers';
+      return JSON.stringify([s.type, (s.config || {})[kind] || null, s.secrets || null, s.oauth_active === true]);
+    }
+
+    function refreshSource(entry, next) {
+      var changed = credSignature(entry.source) !== credSignature(next);
+      entry.source = next;
+      if (!changed) return;
+      entry.cred.setSource(next);
+      if (!entry.testing) showBaseline(entry);
     }
 
     function reconcile() {
@@ -457,6 +591,7 @@
       for (i = 0; i < visible.length; i++) {
         var id = visible[i].id;
         if (!entries[id]) entries[id] = buildEntry(visible[i]);
+        else refreshSource(entries[id], visible[i]);
         var el = entries[id].tile.el;
         if (listEl.children[i] !== el) listEl.insertBefore(el, listEl.children[i] || null);
       }
@@ -469,7 +604,21 @@
       setAgent: function (a, opts) {
         currentAgent = a || null;
         if (a && a.name) agentName = a.name;
-        Object.keys(entries).forEach(function (id) { patchEntry(entries[id]); });
+        // A rebase of the switches and tool rows (select, Save, Cancel). A tile with unsaved
+        // credential edits is left alone (credentials are not part of that Save or Cancel);
+        // a clean tile locks and follows the agent.
+        Object.keys(entries).forEach(function (id) {
+          var e = entries[id];
+          if (e.cred.isDirty()) {
+            e.cred.adoptAgent(currentAgent);
+            patchEntry(e);
+            return;
+          }
+          e.cred.setAgent(currentAgent);
+          e.testedTools = null;
+          patchEntry(e);
+          if (!e.testing) showBaseline(e);
+        });
         // A later deep-link change expands that tile (setExpanded fires no onExpand,
         // so the selected-source callback is explicit). An already-loaded body is
         // not refetched. A null value never collapses anything.
@@ -481,6 +630,19 @@
         sources = nextSources || [];
         if (name !== undefined && name !== null) agentName = name;
         reconcile();
+      },
+      // True while any tile is unlocked with unsaved credential edits (the leave guard).
+      anyDirty: function () {
+        return Object.keys(entries).some(function (id) { return entries[id].cred.isDirty(); });
+      },
+      // The leave guard's Continue: every unlocked tile with unsaved edits is cancelled.
+      discardAll: function () {
+        Object.keys(entries).forEach(function (id) {
+          var e = entries[id];
+          if (!e.cred.isDirty()) return;
+          e.cred.discard();
+          patchEntry(e);
+        });
       },
       destroy: function () {
         destroyed = true;

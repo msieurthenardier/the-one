@@ -44,36 +44,13 @@
   window.App.studio = window.App.studio || {};
   window.App.studio.mcpEditor = window.App.studio.mcpEditor || {};
 
-  var MASKED_SENTINEL = window.App.studio.mcpEditor.shared.MASKED_SENTINEL;
-  var SENSITIVE_INFO = 'Sensitive values are stored encrypted. Turning this off clears the ' +
-    'stored value; type it again to keep it.';
-
-  function titleFor(type) {
-    return type === 'streamable-http' ? 'Headers' : 'Environment variables';
-  }
-
-  // The rows a stored source shows: plaintext first (dict order), then secrets, the
-  // plaintext winning a duplicate key. A stored secret's value is its mask.
-  function rowsFromSource(source, type) {
-    var rows = [];
-    if (!source) return rows;
-    var cfg = source.config || {};
-    var plain = (type === 'streamable-http') ? (cfg.headers || {}) : (cfg.env || {});
-    var secrets = source.secrets || {};
-    var seen = Object.create(null);
-    var k;
-    for (k in plain) {
-      if (!Object.prototype.hasOwnProperty.call(plain, k)) continue;
-      rows.push({ key: k, value: String(plain[k]), sensitive: false, _originalMasked: '' });
-      seen[k] = true;
-    }
-    for (k in secrets) {
-      if (!Object.prototype.hasOwnProperty.call(secrets, k) || seen[k]) continue;
-      var mask = String(secrets[k] == null ? '' : secrets[k]);
-      rows.push({ key: k, value: mask, sensitive: true, _originalMasked: mask });
-    }
-    return rows;
-  }
+  // The title, hint, row source and column definitions are shared with the agent tile
+  // (mcp-editor-shared.js, sortie 09 L06).
+  var shared = window.App.studio.mcpEditor.shared;
+  var MASKED_SENTINEL = shared.MASKED_SENTINEL;
+  var titleFor = shared.titleFor;
+  var hintFor = shared.hintFor;
+  var rowsFromSource = shared.rowsFromSource;
 
   function create(opts) {
     opts = opts || {};
@@ -81,7 +58,7 @@
     var alive = true;
     var ridCounter = 0;
     var currentType = opts.type || '';
-    var infoBtn = null;
+    var built = null;
     var table = null;
 
     function nextRid() {
@@ -108,24 +85,14 @@
     }
 
     function buildTable(type, rows) {
-      if (infoBtn) infoBtn.destroy();
-      infoBtn = ui.infoButton({ description: SENSITIVE_INFO, label: 'Sensitive' });
-      var head = document.createElement('span');
-      head.appendChild(document.createTextNode('Sensitive '));
-      head.appendChild(infoBtn.el);
+      if (built) built.destroy();
+      var cols = shared.tableColumns(false);
       var t = ui.keyValueTable({
         label: titleFor(type),
         testid: 'mcp-kv-table',
         addTestid: 'kv-add-row-btn',
         keyColumn: 'key',
-        columns: [
-          { key: 'key', label: 'Key', placeholder: 'KEY', mono: true },
-          {
-            key: 'value', label: 'Value', placeholder: 'value', type: 'secret',
-            maskedBy: 'sensitive', storedKey: '_originalMasked', clearOnUnmask: true
-          },
-          { key: 'sensitive', label: head, type: 'toggle', ariaLabel: 'Sensitive', width: '120px' }
-        ],
+        columns: cols.columns,
         rows: rows,
         removeLabel: removeLabel,
         onChange: function () {
@@ -133,16 +100,16 @@
           report();
         }
       });
-      // The column header's accessible name is the word alone: the info button's own
-      // name and description must not join it.
-      var heads = t.el.querySelectorAll('thead th');
-      if (heads[2]) heads[2].setAttribute('aria-label', 'Sensitive');
+      cols.finish(t);
+      built = cols;
       return t;
     }
 
     table = buildTable(currentType, baseline.map(function (r) { return snapshotOf(r); }));
     var section = ui.section({
       title: titleFor(currentType), layout: 'stack', testid: 'mcp-env-headers-section',
+      description: hintFor(currentType),
+      descriptionTestid: 'mcp-env-headers-hint',
       children: [table.el]
     });
     section.el.hidden = !currentType;
@@ -192,6 +159,8 @@
       }
       currentType = type;
       section.setTitle(titleFor(type));
+      var hintEl = section.el.querySelector('[data-testid="mcp-env-headers-hint"]');
+      if (hintEl) hintEl.textContent = hintFor(type);
       var old = table;
       var rows = liveRows();
       table = buildTable(type, rows);
@@ -289,7 +258,7 @@
       destroy: function () {
         alive = false;
         table.destroy();
-        if (infoBtn) infoBtn.destroy();
+        if (built) built.destroy();
       }
     };
   }

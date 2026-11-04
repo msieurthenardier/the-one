@@ -326,6 +326,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
 | `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
+| `mcp-env-headers-hint` | studio | The section's one hint line, "Optionally override headers in agent settings." (streamable-http) or "Optionally override environment variables in agent settings." (stdio) (sortie 09 leg 3, DD3) |
 | `mcp-kv-table` | studio | The environment variables / headers `App.ui.keyValueTable` (`<table>`, named like its section); its thead hides while it has no rows (M31 F5 L07) |
 | `mcp-sandbox-section` | studio | |
 | `mcp-server-facts` | studio | The Server section's `App.ui.facts` (Version, Protocol, Offers, Website; only rows with a value) (M31 F5 L09, A16) |
@@ -592,10 +593,21 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
 | `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
 | `library-start-` | studio | The Library start page's per-group Add button, suffixed with the group and `-add` (`library-start-providers-add` (first), `library-start-knowledge-add`, `library-start-mcp-add`, `library-start-connectors-add`); each opens the group's `~new` form (model-providers sortie, DD6; it replaced the `library-empty-{group}` family) |
+| `mcp-agent-cred-add-` | studio | The "+ Add row" button of the tile's unlocked table (the table's `addTestid`), suffixed with the source id (sortie 09 leg 6, DD12; `App.studio.mcpAgentCredentials`; every `mcp-agent-cred-` id is suffixed with the source id; rows are addressed by `data-rid`, server rows also `data-name`, inside the table) |
+| `mcp-agent-cred-cancel-` | studio | The unlocked tile's Cancel button (discards the edits and locks), suffixed with the source id |
+| `mcp-agent-cred-create-note-` | studio | The "Save the agent first to set its own headers." note shown while the table is unlocked on an agent that has never been saved, suffixed with the source id |
+| `mcp-agent-cred-error-` | studio | The section-level error line (a refusal with no row), suffixed with the source id |
+| `mcp-agent-cred-live-` | studio | The section's visually hidden polite live region for announcements ("Saved", "Changes discarded"), suffixed with the source id |
+| `mcp-agent-cred-oauth-note-` | studio | The "Authorization is supplied by this server's sign-in." note under the table of a source with sign-in, suffixed with the source id |
+| `mcp-agent-cred-override-` | studio | The locked tile's "Override headers" / "Override environment variables" button, suffixed with the source id |
+| `mcp-agent-cred-save-` | studio | The unlocked tile's Save button (writes through the targeted credentials route at once), suffixed with the source id |
+| `mcp-agent-cred-section-` | studio | The "Headers" / "Environment variables" `App.ui.section` (the Library's own titles), suffixed with the source id |
+| `mcp-agent-cred-table-` | studio | The tile's `App.ui.keyValueTable` (read-only while locked, the editable Library table while unlocked), suffixed with the source id |
+| `mcp-agent-cred-status-` | studio | The connection status line (`App.ui.status`, polite; on a failed test it drops its live role, because the tile's `role=alert` block is the one announcement): "Testing…", "Connected with this agent's values · N tools", "Connected · N tools", "Needs a value for X", "Not listed with this agent's values yet", …; suffixed with the source id |
+| `mcp-agent-cred-test-` | studio | The status line's Test button ("Test connection for {server}"), suffixed with the source id (Refresh was removed in sortie 09 leg 6: Test does what it did) |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |
-| `mcp-refresh-tools-btn-` | studio | |
 | `mcp-source-details-body-` | studio | |
 | `mcp-source-expand-` | studio | |
 | `mcp-source-row-` | studio | |
@@ -631,6 +643,17 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `mcp-agent-cred-state-` | studio | Sortie 09 L06 (DD12) — the per-row state text of the leg 3 credential layout; the tile is now the Library headers table (locked or unlocked) and a row's state is its value and the "overridden" pill |
+| `mcp-agent-cred-set-` | studio | Sortie 09 L06 — the per-row "Set for this agent" button; **Override headers** (`mcp-agent-cred-override-`) unlocks the whole table |
+| `mcp-agent-cred-replace-` | studio | Sortie 09 L06 — the per-row "Replace" button; type into the row's value |
+| `mcp-agent-cred-reset-` | studio | Sortie 09 L06 — the per-row "Use server value" / "Remove" button; the row's trash |
+| `mcp-agent-cred-undo-` | studio | Sortie 09 L06 — the per-row "Undo" button; the tile's Cancel |
+| `mcp-agent-cred-reveal-` | studio | Sortie 09 L06 — a row's own eye; the table's secret cells have their own |
+| `mcp-agent-cred-name-` | studio | Sortie 09 L06 — the name input of an added row; the table's Key input |
+| `mcp-agent-cred-input-` | studio | Sortie 09 L06 — a row's secret value input; the table's Value input |
+| `mcp-agent-cred-row-` | studio | Sortie 09 L06 — a `role=group` row (also covers the retired `-row-error-`); rows are `tr[data-rid]` in `mcp-agent-cred-table-{id}` |
+| `mcp-agent-cred-empty-` | studio | Sortie 09 L06 — the "This server sets no headers." note |
+| `mcp-refresh-tools-btn-` | studio | Sortie 09 L06 — the tile's Refresh button; Test (`mcp-agent-cred-test-`) does a fresh per-agent listing |
 | `revision-history-summary` | studio | M33 F4 L06 — the Self-configuration tab's nested "History (N)" disclosure is the Agent prompt card's "History" expander; its summary is `revision-history-details-summary` |
 | `routine-form-schedule` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Schedule radio group (Once, Daily, Weekdays, Weekly, Every N hours); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-form-schedule-error` and `-hint` are unaffected |
 | `routine-form-schedule-readonly` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the read-only note over a schedule the old form could not express; every stored recurrence now opens in the form (M33 F3 L4 interim, removed in L7) |

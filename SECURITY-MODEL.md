@@ -604,6 +604,56 @@ The one-megabyte cap on a single server-sent event (a tool result or listing
 larger than that fails with a plain error naming the limit) also bounds how much
 a hostile server can make the client buffer per event.
 
+## Per-agent MCP credentials (sortie 09)
+
+An agent can connect to a shared Library MCP server with its own header values
+(HTTP) or environment variables (stdio), stored in `agents.mcp_overrides`.
+
+- **Where values live.** Only inside the Fernet-encrypted `agents.mcp_overrides`
+  column. No new secret column exists, so encryption rotation is unchanged. Every
+  agent response masks them with the existing rule (a value of 12 characters or
+  more shows its last 4 characters); a value is never shown again, and a save that
+  omits or round-trips a mask keeps the stored value.
+- **Never logged, never echoed.** No new code path logs or returns a value; header
+  and environment *names* may appear in logs, error text and the 422 location.
+  The save-time value grammar (visible ASCII, space and tab for a header value or
+  bearer token; no NUL in an environment value; no empty value) exists partly for
+  this: an HTTP-layer error about an illegal header value embeds the value, and
+  tool errors reach the agent. The connection resolver raises a fixed message, never
+  exception text. `describe_my_capabilities`, `get_my_configuration` and every
+  other text the agent sees exclude `mcp_overrides`.
+- **OAuth servers keep the sign-in's `Authorization`.** A per-agent
+  `Authorization` header or `bearer_token` is refused on save for a source with
+  stored sign-in state, and ignored at connect if one was stored before the source
+  gained a sign-in, so an agent cannot replace the operator's sign-in credential.
+- **A saved change reaches the next connection.** Saving an agent, editing a
+  source, renaming or deleting an agent evicts the affected pooled connections, and
+  the next connection resolves the stored values, so a revoked or rotated key stops
+  being used at the agent's next call rather than at an idle timeout.
+- **An agent's tool list depends on its own credentials.** An agent that uses its own
+  credentials on a source sees the tool list returned to those credentials (the
+  per-agent `agent_mcp_tool_cache` table), never the shared Library list, so one
+  agent's key cannot widen another agent's tools. The table holds tool metadata
+  only (names, descriptions, schemas), never a credential. `POST
+  /api/mcp-sources/{id}/test/agent` connects with an agent's stored or unsaved
+  values behind the same credential gate; it echoes no value, never touches
+  sign-in tokens, and its failure text carries a class name and, for a rejected
+  key, header names only.
+- **A value marked non-sensitive is returned in clear.** The operator can mark a
+  per-agent header or variable as non-sensitive (the `plain_names` list in the same
+  encrypted column). Its value is then returned in clear to the operator UI on every
+  agent response, including the agent list, so the operator can read and edit it; it
+  is still encrypted at rest and never logged. A `bearer_token` and an `Authorization`
+  header are always masked and cannot be marked non-sensitive. Marking is a deliberate
+  operator choice; every other value stays masked as above. A non-sensitive value
+  shaped like a mask (`***`, `__MASKED__`) is treated as "keep the stored value" and
+  dropped when nothing is stored, the same limitation as the Library. The route
+  `PUT /api/agents/{name}/mcp-overrides/{source_id}/credentials` saves one source's
+  values behind the same credential gate and echoes no value other than a non-sensitive one.
+- A blank Library value is never sent, which keeps an empty header from being
+  mistaken for a credential; a 401 to a source that configures headers is reported
+  as rejected credentials (naming the missing values), not as a sign-in prompt.
+
 ## Routines (Mission 33)
 
 A routine is an operator-defined scheduled prompt (`the_one/routines/`). What it adds to the threat model:

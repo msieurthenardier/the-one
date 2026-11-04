@@ -200,6 +200,19 @@
      the same gap as the tile body (M31 F2 L07b). */
   .area-studio .mcp-tool-group { display: flex; flex-direction: column; gap: 6px; }
   .area-studio .mcp-tool-group[data-mcp-tool-group]:empty { display: none; }
+  /* Per-agent credentials (sortie 09 leg 6, DD12): the Library table above a tile's tools, then
+     the status line with its buttons. Every state is also written as text. */
+  .area-studio .mcp-agent-cred { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+  .area-studio .mcp-agent-cred-error { margin: 0; color: var(--status-danger); }
+  .area-studio .mcp-agent-cred-note { margin: 8px 0 0; color: var(--fg-secondary); }
+  .area-studio .mcp-agent-cred-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+  }
+  .area-studio .mcp-agent-cred-status-actions { display: flex; gap: 8px; }
   /* The server's instructions hang off the subtitle as a tooltip (a help cursor and a
      dotted underline say so), as the admin.css rule did for the old subtitle. */
   .area-studio span.has-instructions {

@@ -322,6 +322,21 @@
         }
       }
 
+      // Per-agent credentials are not part of this PUT (sortie 09 L06): a tile saves them
+      // itself, and the server keeps the stored credentials of any entry sent without them.
+      var storedOverrides = (self._selectedAgent && self._selectedAgent.mcp_overrides) || {};
+      // Loading a tile's rows after mount turns "no entry" into "{}" for a denylist source
+      // with nothing disabled, which reads as dirty against the mount snapshot. An empty
+      // entry for a source whose stored entry carries no tool filter says nothing, so it
+      // is dropped (a stored filter still needs its "{}" to be cleared).
+      Object.keys(mcpOverrides).forEach(function (sn) {
+        if (Object.keys(mcpOverrides[sn]).length > 0) return;
+        var so = storedOverrides[sn];
+        var hadFilter = !!so && (Array.isArray(so.enabled_tools) ||
+          (Array.isArray(so.disabled_tools) && so.disabled_tools.length > 0));
+        if (!hadFilter) delete mcpOverrides[sn];
+      });
+
       data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
 

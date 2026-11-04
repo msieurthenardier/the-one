@@ -136,7 +136,19 @@ async def build_describe_my_capabilities(
             source = await mcp_repo.get(source_id)
         except KeyError:
             continue
-        cached = ((source.config or {}).get("_cache") or {}).get("tools")
+        # Sortie 09 DD4: an agent that uses its own credentials on this source is
+        # described from its per-agent cache (read-only here: a cold row reports
+        # `tools_known: False` and never connects). The table is reached through the
+        # source repository's own connection.
+        from the_one.mcp._agent_cache import per_agent_tools
+
+        per_agent, per_agent_payload, _ = await per_agent_tools(
+            mcp_repo.conn, config.name, config.mcp_overrides, source
+        )
+        if per_agent:
+            cached = per_agent_payload
+        else:
+            cached = ((source.config or {}).get("_cache") or {}).get("tools")
         if not cached:
             mcp_sources.append(
                 {"name": source.name, "type": source.type, "tools": [], "tools_known": False}

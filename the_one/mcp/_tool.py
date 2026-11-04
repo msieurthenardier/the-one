@@ -168,6 +168,8 @@ class MCPClientTool(Tool):
         # Lazy import (NOT module-top): `the_one.mcp.__init__` eagerly imports this
         # module (`_tool`), so a top-level SandboxError import re-opens the
         # mcp/__init__ eager-load cycle. Keep it function-local.
+        # Lazy import also: `_tool_provider` imports this module at load time.
+        from the_one.mcp._tool_provider import make_source_resolver
         from the_one.platform.sandbox.errors import SandboxError
 
         try:
@@ -175,6 +177,11 @@ class MCPClientTool(Tool):
                 self._agent_name,
                 self._source_id,
                 source_override=self._effective_source,
+                # Sortie 09 DD7: when a connection OPENS, resolve the agent's
+                # CURRENT override (a Save reaches the next connection).
+                resolve_source=make_source_resolver(
+                    self._agent_name, self._source_id, self._effective_source
+                ),
             )
         except (SandboxError, MCPConnectionError, MCPVersionMismatch) as e:
             return f"[error] MCP source {self._source_name!r} unavailable: {type(e).__name__}: {e}"

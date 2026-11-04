@@ -43,6 +43,7 @@ import contextlib
 import logging
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from the_one.config import settings
@@ -149,8 +150,17 @@ async def _load_source(source_id: str) -> MCPSource:
     return await repo.get(source_id)
 
 
-async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
+async def _entry_worker(
+    source: MCPSource,
+    entry: _RegistryEntry,
+    resolve_source: Callable[[], Awaitable[MCPSource]] | None = None,
+) -> None:
     """Hold the connection on a single task. Run teardown on same task.
+
+    ``resolve_source`` (sortie 09 DD7), when given, is awaited inside the
+    ``try`` below before the OAuth provider and the client are built; its
+    result replaces ``source`` for this connection. Any failure there (or in
+    the provider build) is recorded in ``entry.failure`` like a connect failure.
 
     On connect-failure, populate ``entry.failure`` BEFORE setting
     ``client_ready``. On connect-success, populate ``entry.client``
@@ -199,36 +209,43 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
 
-    # F9 L1 Shape C: skip provider construction entirely when the test
-    # endpoint persisted a definitive no_auth verdict in
-    # source.config._cache.auth_posture. Absent/legacy hint falls through
-    # to the existing logic — its F6.5/F6.6 graceful-skip on 401 is the
-    # safety net for first-time post-deploy sources.
-    cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
-    if cached_posture == "no_auth":
-        auth_provider = None
-    else:
-        csid = current_chat_session_id.get(None)
-        tcid = current_tool_call_id.get(None)
-        if csid is None and source.secrets.get("access_token"):
-            csid = f"agent_build:{source.id}"
-        conn = await get_connection()
-        encryptor = get_encryptor(settings.data_dir)
-        repo = MCPSourceRepository(conn, encryptor)
-        auth_provider = build_oauth_provider_for_source(
-            source,
-            repo,
-            csid,
-            source_id=source.id,
-            tool_call_id=tcid,
-        )
-    # Construction must run INSIDE the try: an exception from MCPClient.__init__
-    # (e.g. a future signature change unmatched by a test double, or a
-    # downstream construction error) escaping this scope would orphan the
-    # worker task without ever setting client_ready, leaving every acquire()
-    # waiter blocked indefinitely. Pool contract: the worker ALWAYS sets
-    # client_ready before returning.
+    # Construction must run INSIDE the try: an exception from the resolver, the
+    # OAuth-provider build (DB reads) or MCPClient.__init__ (e.g. a future
+    # signature change unmatched by a test double, or a downstream construction
+    # error) escaping this scope would orphan the worker task without ever
+    # setting client_ready, leaving every acquire() waiter blocked
+    # indefinitely. Pool contract: the worker ALWAYS sets client_ready before
+    # returning.
     try:
+        # Sortie 09 DD7: resolve the effective source NOW (a connection is
+        # opening), on this task, so a Save made since the tool was built is
+        # picked up. Never runs under ``_lock`` and never on a warm entry.
+        if resolve_source is not None:
+            source = await resolve_source()
+
+        # F9 L1 Shape C: skip provider construction entirely when the test
+        # endpoint persisted a definitive no_auth verdict in
+        # source.config._cache.auth_posture. Absent/legacy hint falls through
+        # to the existing logic — its F6.5/F6.6 graceful-skip on 401 is the
+        # safety net for first-time post-deploy sources.
+        cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
+        if cached_posture == "no_auth":
+            auth_provider = None
+        else:
+            csid = current_chat_session_id.get(None)
+            tcid = current_tool_call_id.get(None)
+            if csid is None and source.secrets.get("access_token"):
+                csid = f"agent_build:{source.id}"
+            conn = await get_connection()
+            encryptor = get_encryptor(settings.data_dir)
+            repo = MCPSourceRepository(conn, encryptor)
+            auth_provider = build_oauth_provider_for_source(
+                source,
+                repo,
+                csid,
+                source_id=source.id,
+                tool_call_id=tcid,
+            )
         client = MCPClient(source, auth_provider=auth_provider)
         await client.connect()
     except BaseException as exc:
@@ -327,6 +344,19 @@ async def _evict_all_for_source(source_id: str) -> None:
     """
     async with _lock:
         keys = [key for key in _pool if key[1] == source_id]
+    for key in keys:
+        await _evict(key)
+
+
+async def _evict_all_for_agent(agent_name: str) -> None:
+    """Evict every pool entry keyed under ``agent_name`` (any source).
+
+    Sortie 09 DD7: agent rename and delete call this so a connection opened with
+    the old name's credentials is not kept. Same shape as
+    :func:`_evict_all_for_source`; idempotent on no-match.
+    """
+    async with _lock:
+        keys = [key for key in _pool if key[0] == agent_name]
     for key in keys:
         await _evict(key)
 
@@ -468,6 +498,7 @@ async def acquire(
     source_id: str,
     *,
     source_override: MCPSource | None = None,
+    resolve_source: Callable[[], Awaitable[MCPSource]] | None = None,
 ) -> MCPClient:
     """Look up or spawn the warm ``MCPClient`` for ``(agent, source)``.
 
@@ -502,10 +533,14 @@ async def acquire(
     F6 L2: ``source_override`` lets ``MCPToolProvider`` apply per-agent
     overrides BEFORE the pool reads the source. When provided, the worker
     uses the override instead of calling ``_load_source(source_id)``.
-    The override is pinned to the FIRST acquire of the ``(agent_name,
-    source_id)`` key for the entry's lifetime — mid-session edits to
-    ``mcp_overrides`` don't take effect until idle reap or restart
-    (carry-forward of F4's task-pinning trade-off).
+    The override is used for the connection that is OPENED by this acquire
+    and kept for that connection's lifetime. Sortie 09 DD7 changes when a
+    saved edit takes effect: ``resolve_source`` (awaited on the worker task
+    when a connection opens, never on a warm entry) re-reads the stored agent
+    and source, and agent saves / source edits / renames / deletes evict the
+    affected keys, so the next acquire opens a connection with the new
+    values. Without ``resolve_source`` the given ``source_override`` is used
+    as before.
     """
     # Pre-load OUTSIDE the lock (cycle-2 medium #2). Different-key
     # acquires must not serialize on the F1 DB read. F6 L2: when
@@ -538,7 +573,11 @@ async def acquire(
                     evict_event=asyncio.Event(),
                     client_ready=asyncio.Event(),
                 )
-                entry.worker = asyncio.create_task(_entry_worker(source, entry))
+                entry.worker = asyncio.create_task(
+                    _entry_worker(source, entry, resolve_source)
+                    if resolve_source is not None
+                    else _entry_worker(source, entry)
+                )
                 _pool[key] = entry
                 # Ensure the reaper is running. Idempotent — the helper
                 # checks ``_reaper_task is None or done()`` before spawning.

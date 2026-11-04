@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 49
+CURRENT_VERSION = 50
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3261,3 +3261,22 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (49,))
         await conn.commit()
         version = 49
+
+    if version < 50:
+        # Sortie 09 (DD5) — the per-agent MCP tool cache: the tool list an agent that
+        # uses its own credentials on a source saw with those credentials. Tool
+        # metadata only (never a credential). Rows follow an agent rename and go with
+        # the agent or the source. Idempotent.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_mcp_tool_cache ("
+            "    agent_name TEXT NOT NULL REFERENCES agents(name)"
+            "        ON DELETE CASCADE ON UPDATE CASCADE,"
+            "    source_id TEXT NOT NULL REFERENCES mcp_sources(id) ON DELETE CASCADE,"
+            "    tools TEXT NOT NULL,"
+            "    fetched_at TEXT NOT NULL,"
+            "    PRIMARY KEY (agent_name, source_id)"
+            ")"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (50,))
+        await conn.commit()
+        version = 50

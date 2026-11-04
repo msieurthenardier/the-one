@@ -505,6 +505,19 @@ RETIRED_SELECTORS = (
     "routine-history-more",
     "routine-done-hint",
     "revision-history-summary",
+    # sortie 09 L06 (DD12): the per-row credential layout and the tile's Refresh. The reused
+    # `-cancel-` and `-add-` names are live, so they are not retired.
+    "mcp-agent-cred-state-",
+    "mcp-agent-cred-set-",
+    "mcp-agent-cred-replace-",
+    "mcp-agent-cred-reset-",
+    "mcp-agent-cred-undo-",
+    "mcp-agent-cred-reveal-",
+    "mcp-agent-cred-name-",
+    "mcp-agent-cred-input-",
+    "mcp-agent-cred-row-",
+    "mcp-agent-cred-empty-",
+    "mcp-refresh-tools-btn-",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix

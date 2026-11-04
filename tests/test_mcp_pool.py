@@ -1255,13 +1255,12 @@ async def test_entry_worker_uses_synthetic_csid_when_tokens_present(
             evict_event=asyncio.Event(),
         )
 
-        # The factory call at ``_pool.py:204`` lives OUTSIDE the
-        # ``except BaseException`` block (which wraps only
-        # ``await client.connect()``), so the sentinel propagates out of
-        # the worker. We catch it here so the assertion can run on the
-        # mock's recorded call args.
-        with pytest.raises(RuntimeError, match="captured-and-stopped"):
-            await _entry_worker(source, entry)
+        # Sortie 09 DD7: the provider build lives INSIDE the worker's ``try``
+        # (so a failure there cannot orphan ``client_ready``), so the sentinel
+        # is recorded as the entry's failure instead of escaping the worker.
+        await _entry_worker(source, entry)
+        assert entry.client_ready.is_set()
+        assert entry.failure is sentinel
 
         # The factory was invoked; the synthetic csid was forwarded as the
         # third positional argument (per provider_factory.py:60 —

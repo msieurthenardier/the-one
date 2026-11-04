@@ -1868,6 +1868,98 @@ def _merge_sources(old: Sequence[str], new: Sequence[str]) -> list[str]:
     return merged[:SOURCES_CAP]
 
 
+class AgentMcpToolCacheRepository:
+    """Async access to ``agent_mcp_tool_cache`` (sortie 09, DD5).
+
+    The tool list an agent that uses its own credentials on a source saw with those
+    credentials: ``tools`` is a JSON list of ``{name, description, input_schema}``.
+    Tool metadata only, never a credential, so the column is not encrypted.
+
+    ``put_if_unchanged`` is the single-statement race guard: it writes only while the
+    agent's ``agents.updated_at`` still equals the value read before the listing, so a
+    save (or a rename or delete) that lands while a listing is in flight cancels the
+    write. Other ``agents.updated_at`` writers (the notes and routines flags, the
+    field setters) also cancel an in-flight write, which is safe: the cost is one
+    more live listing on the next build.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _decode(tools: str, fetched_at: str) -> dict[str, Any]:
+        try:
+            decoded = json.loads(tools)
+        except ValueError:
+            decoded = []
+        return {"tools": decoded if isinstance(decoded, list) else [], "fetched_at": fetched_at}
+
+    async def agent_updated_at(self, name: str) -> str | None:
+        """The agent's stored ``updated_at``, or ``None`` when it is not in the store."""
+        async with self.conn.execute("SELECT updated_at FROM agents WHERE name = ?", (name,)) as c:
+            row = await c.fetchone()
+        return row[0] if row is not None else None
+
+    async def get(self, agent: str, source_id: str) -> dict[str, Any] | None:
+        async with self.conn.execute(
+            "SELECT tools, fetched_at FROM agent_mcp_tool_cache "
+            "WHERE agent_name = ? AND source_id = ?",
+            (agent, source_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._decode(row[0], row[1]) if row is not None else None
+
+    async def get_for_agent(self, agent: str) -> dict[str, dict[str, Any]]:
+        async with self.conn.execute(
+            "SELECT source_id, tools, fetched_at FROM agent_mcp_tool_cache WHERE agent_name = ?",
+            (agent,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {r[0]: self._decode(r[1], r[2]) for r in rows}
+
+    async def put_if_unchanged(
+        self,
+        agent: str,
+        source_id: str,
+        tools: list[dict[str, Any]],
+        expected_updated_at: str | None,
+    ) -> bool:
+        """Write the row iff the agent's ``updated_at`` still equals
+        ``expected_updated_at``. Returns whether a row was written."""
+        if expected_updated_at is None:
+            return False
+        async with write_transaction(self.conn):
+            cur = await self.conn.execute(
+                "INSERT OR REPLACE INTO agent_mcp_tool_cache "
+                "(agent_name, source_id, tools, fetched_at) "
+                "SELECT ?, ?, ?, ? WHERE (SELECT updated_at FROM agents WHERE name = ?) = ? "
+                "AND EXISTS (SELECT 1 FROM mcp_sources WHERE id = ?)",
+                (
+                    agent,
+                    source_id,
+                    json.dumps(tools),
+                    now_iso(),
+                    agent,
+                    expected_updated_at,
+                    source_id,
+                ),
+            )
+            return cur.rowcount > 0
+
+    async def delete(self, agent: str, source_id: str) -> None:
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "DELETE FROM agent_mcp_tool_cache WHERE agent_name = ? AND source_id = ?",
+                (agent, source_id),
+            )
+
+    async def delete_for_source(self, source_id: str) -> None:
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "DELETE FROM agent_mcp_tool_cache WHERE source_id = ?", (source_id,)
+            )
+
+
 class AgentNoteRepository:
     """Async access to ``agent_notes`` (Mission 27 F2, DD1/DD4/DD7/DD8).
 

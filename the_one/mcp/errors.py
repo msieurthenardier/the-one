@@ -5,6 +5,8 @@ single-sentence __str__ for small-model consumption (mission constraint #61).
 No nested causes, no rich tracebacks visible in tool-result strings.
 """
 
+from collections.abc import Sequence
+
 
 class MCPClientError(Exception):
     """Base for all MCPClient-raised errors."""
@@ -60,15 +62,26 @@ class MCPCredentialsRejected(MCPConnectionError):  # noqa: N818  (a result, not 
     carries no ``is_auth_required`` metadata, so chat offers no login button.
     """
 
-    def __init__(self, source_id: str, source_name: str | None = None) -> None:
+    def __init__(
+        self,
+        source_id: str,
+        source_name: str | None = None,
+        missing: Sequence[str] = (),
+    ) -> None:
         self.source_id = source_id
         self.source_name = source_name
+        self.missing = tuple(missing)
         label = source_name or source_id
-        super().__init__(
+        message = (
             f"{label} rejected the configured credentials (401). Check the headers for "
             "this MCP server in Library \u203a MCP servers, or the agent's Tools tab if it "
             "overrides them."
         )
+        if self.missing:
+            # Sortie 09 DD3: names only, never a value.
+            names = ", ".join(self.missing)
+            message += f" It needs a value for {names}, which agents set in their Tools tab."
+        super().__init__(message)
 
 
 class MCPToolNotFoundError(MCPClientError):

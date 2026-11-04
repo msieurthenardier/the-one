@@ -109,7 +109,8 @@
         panel.appendChild(mcpSection.el);
         panel.appendChild(builtinSection.el);
         var mcpsHandle = studio.renderMcpsTab(mcpHost, agent, cb.allMcpSources, {
-          fetchMcpSourceTools: cb.fetchMcpSourceTools,
+          testMcpAsAgent: cb.testMcpAsAgent,
+          saveMcpCredentials: cb.saveMcpCredentials,
           onChange: cb.onChange,
           onSelectedSourceChange: cb.onSelectedMcpSourceChange,
           pendingSourceId: cb.pendingMcpAgentSourceId

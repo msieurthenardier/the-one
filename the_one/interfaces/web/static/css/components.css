@@ -2639,6 +2639,27 @@
   .ui-kv-toggle .ui-toggle { display: inline-flex; justify-content: center; }
   .ui-kv .ui-kv-remove { color: var(--fg-secondary); transition: color var(--motion-fast) ease; }
   .ui-kv .ui-kv-remove:hover { color: var(--status-danger); }
+  /* A row that can't be removed (removableBy, a locked row): the opaque disabled token, never
+     opacity. Placed after the two rules above, which would otherwise win on specificity. */
+  .ui-kv .ui-kv-remove:disabled,
+  .ui-kv .ui-kv-remove:disabled:hover { color: var(--btn-disabled-fg); cursor: not-allowed; }
+  /* markerBy: a small pill of real text in the key cell, at the right end of the key input. */
+  .ui-kv-table td:first-child { position: relative; }
+  .ui-kv-marker {
+    position: absolute;
+    right: 12px;
+    top: 1.25rem;
+    transform: translateY(-50%);
+    pointer-events: none;
+    padding: 0 var(--space-2, 8px);
+    border-radius: var(--radius-sm);
+    background: var(--accent-translucent);
+    color: var(--accent);
+    font-size: var(--font-size-caption);
+    line-height: 1.5;
+  }
+  /* Reserve room for the pill so long key text never runs under it (rem: follows text zoom). */
+  .ui-kv-table td:has(> .ui-kv-marker:not([hidden])) input { padding-right: 7.5rem; }
   .ui-kv .ui-kv-remove svg { width: 16px; height: 16px; display: block; }
 
   /* === App.ui.disclosure (M31 F3 L03a, flight DD4) ===

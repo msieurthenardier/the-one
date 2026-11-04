@@ -35,7 +35,7 @@ time.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -65,6 +65,10 @@ class StdioMCPOverride(BaseModel):
     # "no allowlist applied"; an empty list means "no tools enabled".
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] | None = None
+    # Sortie 09 L05: names whose per-agent value the operator marked
+    # non-sensitive (returned in clear on agent responses). A plain field:
+    # it carries no credential, so it is not in MCP_OVERRIDE_CREDENTIAL_KEYS.
+    plain_names: list[str] | None = None
 
 
 class StreamableHttpMCPOverride(BaseModel):
@@ -91,6 +95,8 @@ class StreamableHttpMCPOverride(BaseModel):
     # F8 L1: see StdioMCPOverride for rationale.
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] | None = None
+    # Sortie 09 L05: see StdioMCPOverride.
+    plain_names: list[str] | None = None
 
 
 # M21 F01 L01: marker-derived set of `mcp_overrides` inner-dict keys that
@@ -115,3 +121,118 @@ MCP_OVERRIDE_CREDENTIAL_KEYS: frozenset[str] = frozenset(
     for name, field_info in schema_cls.model_fields.items()
     if any(m is Substitute for m in field_info.metadata)
 )
+
+
+# ---------------------------------------------------------------------------
+# Sortie 09: per-agent credential helpers (shared by the overlay, the
+# validator, the blank-value classification and the Library Test).
+# ---------------------------------------------------------------------------
+
+
+def has_oauth_state(source: Any) -> bool:
+    """True iff ``source.secrets`` holds any OAuth-managed key (a sign-in exists).
+
+    The cached ``auth_posture`` is deliberately NOT consulted: any 401 to the
+    Test's probe writes ``oauth``, which is also what a "Set per agent" server
+    answers, so only stored sign-in state counts.
+    """
+    from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
+
+    return any(k in source.secrets for k in OAUTH_MANAGED_SECRET_KEYS)
+
+
+def _library_kv(source: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(config layer, secrets layer)`` of the credential-bearing names a source
+    configures: ``config.headers``/``secrets`` minus OAuth keys for streamable-http,
+    ``config.env``/``secrets`` for stdio."""
+    from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
+
+    cfg = source.config or {}
+    if source.type == "stdio":
+        config_layer = cfg.get("env") or {}
+        secrets_layer = dict(source.secrets or {})
+    else:
+        config_layer = cfg.get("headers") or {}
+        secrets_layer = {
+            k: v for k, v in (source.secrets or {}).items() if k not in OAUTH_MANAGED_SECRET_KEYS
+        }
+    return dict(config_layer), secrets_layer
+
+
+def configured_names(source: Any) -> list[str]:
+    """Names (headers for streamable-http, env for stdio) the source configures,
+    blank or not, OAuth-managed keys excluded. Stable order; header names are
+    de-duplicated ignoring case."""
+    http = source.type != "stdio"
+    config_layer, secrets_layer = _library_kv(source)
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in [*config_layer, *secrets_layer]:
+        if not isinstance(name, str):
+            continue
+        key = name.strip() if http else name
+        fold = key.lower() if http else key
+        if fold in seen:
+            continue
+        seen.add(fold)
+        out.append(key)
+    return out
+
+
+def _is_blank(value: Any) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
+def missing_values(library_source: Any, effective_source: Any) -> list[str]:
+    """Names the Library configures whose effective value is blank.
+
+    ``library_source`` is the source as stored; ``effective_source`` is the same
+    source after any per-agent overlay (the Library Test has no overlay and
+    passes the same source twice). Header names match ignoring case, env names
+    exactly. Names only, in a stable order (config layer, then secrets).
+    """
+    http = library_source.type != "stdio"
+    eff_config, eff_secrets = _library_kv(effective_source)
+    merged: dict[str, Any] = {}
+    for layer in (eff_config, eff_secrets):
+        for k, v in layer.items():
+            if isinstance(k, str):
+                merged[k.strip().lower() if http else k] = v
+    out: list[str] = []
+    for name in configured_names(library_source):
+        value = merged.get(name.lower() if http else name)
+        if value is None or _is_blank(value):
+            out.append(name)
+    return out
+
+
+def has_credential_override(entry: Any, source: Any) -> bool:
+    """True iff ``entry`` (already read through ``override_for``) carries a credential
+    that ``_apply_override`` would actually send on ``source`` (sortie 09, DD4).
+
+    A blank value is never sent, so it does not count; a per-agent ``Authorization``
+    header (any case) or ``bearer_token`` on a source with OAuth state is skipped, so it
+    does not count; an entry with only tool filters does not count. Stdio sources
+    count ``env`` only, streamable-http sources ``headers`` and ``bearer_token`` only.
+    """
+    if not isinstance(entry, dict) or not entry:
+        return False
+
+    def _has_value(mapping: Any, *, skip_authorization: bool = False) -> bool:
+        if not isinstance(mapping, dict):
+            return False
+        for k, v in mapping.items():
+            if not isinstance(k, str) or not isinstance(v, str) or _is_blank(v):
+                continue
+            if skip_authorization and k.strip().lower() == "authorization":
+                continue
+            return True
+        return False
+
+    if source.type == "stdio":
+        return _has_value(entry.get("env"))
+    oauth = has_oauth_state(source)
+    if _has_value(entry.get("headers"), skip_authorization=oauth):
+        return True
+    bearer = entry.get("bearer_token")
+    return not oauth and isinstance(bearer, str) and not _is_blank(bearer)

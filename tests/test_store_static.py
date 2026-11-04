@@ -373,10 +373,10 @@ INVALIDATION_ROWS = (
         "if (data.status === 'ok') {",
         ("mcp-sources",),
     ),
-    (  # MCP source: the agent editor's tools load (also /test/connect; agent-data now)
+    (  # MCP source: the agent editor's per-agent test (sortie 09 AC7; /test/agent)
         "areas/studio/agent-data.js",
-        "'/test/connect', {",
-        "if (data.status === 'ok') {",  # leg 08a: before the ok check, every outcome
+        "'/test/agent', {",
+        "return data;",  # the invalidation sits in the ok branch, before the return
         ("mcp-sources",),
     ),
     (  # connector: create and save

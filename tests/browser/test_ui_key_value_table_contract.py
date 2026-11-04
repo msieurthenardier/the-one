@@ -1007,3 +1007,262 @@ def test_row_cells_share_one_top_and_value_widths_match(engine_page: Page) -> No
         assert abs(r["rmMid"] - r["kMid"]) <= 1.5, r
     assert out[1]["hint"] is True
     assert abs(out[0]["vW"] - out[1]["vW"]) <= 1, out
+
+
+# --------------------------------------------------------------------------------------------
+# Sortie 09 L05 (flight DD12): readOnly, lockBy, onBeforeRemove, markerBy/markerLabel,
+# removableBy. Every option is inert when not passed.
+# --------------------------------------------------------------------------------------------
+
+OPT_COLS = """[{key: 'name', label: 'Name', placeholder: 'NAME', inputTestid: 'k'},
+  {key: 'value', label: 'Value', type: 'secret', maskedBy: 'sensitive', storedKey: '_mask', inputTestid: 'v'},
+  {key: 'sensitive', label: 'Sensitive', type: 'toggle', ariaLabel: 'Sensitive', inputTestid: 't'}]"""
+OPT_ROWS = f"""[{{name: 'API', value: '{MASK}', _mask: '{MASK}', sensitive: true, lock: 'key', overridden: true, removable: false}},
+  {{name: 'HOST', value: 'example.org', sensitive: false, lock: 'row', overridden: false, removable: true}},
+  {{name: 'FREE', value: 'x', sensitive: false}}]"""
+
+
+def _opt(page: Page, extra: str = "", rows: str = OPT_ROWS) -> None:
+    _mount(
+        page,
+        "{columns: %s, rows: %s, removeLabel: (n, row) => 'Remove ' + (row.name || 'row ' + n)%s}"
+        % (OPT_COLS, rows, extra),
+    )
+
+
+def test_options_are_inert_when_not_passed(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p)
+    out = p.evaluate(
+        """() => {
+          const el = window.__kv.el;
+          return {ro: el.querySelectorAll('input[readonly]').length,
+                  dis: el.querySelectorAll('button:disabled, input:disabled').length,
+                  marker: el.querySelectorAll('.ui-kv-marker').length,
+                  add: !!el.querySelector('.ui-kv-add'), rm: el.querySelectorAll('.ui-kv-remove').length,
+                  cols: el.querySelectorAll('colgroup > col').length, ths: el.querySelectorAll('th').length};
+        }"""
+    )
+    assert out == {"ro": 0, "dis": 0, "marker": 0, "add": True, "rm": 3, "cols": 4, "ths": 4}
+
+
+def test_read_only_table(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p, ", readOnly: true, lockBy: 'lock', removableBy: 'removable'")
+    out = p.evaluate(
+        """() => {
+          const el = window.__kv.el;
+          const ins = [...el.querySelectorAll('input.ui-kv-input')];
+          return {ro: ins.every((i) => i.readOnly), n: ins.length,
+                  types: ins.map((i) => i.type), vals: ins.map((i) => i.value),
+                  names: ins.map((i) => i.getAttribute('aria-label')),
+                  add: !!el.querySelector('.ui-kv-add'), rm: el.querySelectorAll('.ui-kv-remove').length,
+                  cols: el.querySelectorAll('colgroup > col').length, ths: el.querySelectorAll('th').length,
+                  eye: el.querySelectorAll('.api-key-eye, .api-key-wrap').length,
+                  hint: el.querySelectorAll('.ui-secret-hint').length,
+                  tog: [...el.querySelectorAll('.ui-toggle input')].map((i) => i.disabled)};
+        }"""
+    )
+    assert out["ro"] is True and out["n"] == 6
+    # The secret column is plain text showing the value as given (the mask string here).
+    assert out["types"] == ["text"] * 6 and out["vals"][1] == MASK
+    assert out["names"][:2] == ["Name, row 1", "Value, row 1"]
+    assert out["add"] is False and out["rm"] == 0
+    assert out["cols"] == 3 and out["ths"] == 3
+    assert out["eye"] == 0 and out["hint"] == 0
+    assert out["tog"] == [True, True, True]
+    # Keyboard focus still reaches a read-only input.
+    p.get_by_test_id("k").first.focus()
+    assert p.evaluate("() => document.activeElement.getAttribute('data-testid')") == "k"
+    p.keyboard.press("Tab")
+    assert p.evaluate("() => document.activeElement.getAttribute('data-testid')") == "v"
+    # An empty read-only table is fine.
+    p.evaluate("() => window.__kv.setValues([])")
+    assert p.evaluate("() => window.__kv.el.querySelectorAll('tr.ui-kv-row').length") == 0
+
+
+def test_lock_by_key_and_row(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p, ", lockBy: 'lock'")
+    out = p.evaluate(
+        """() => [...window.__kv.el.querySelectorAll('tr.ui-kv-row')].map((tr) => ({
+          key: tr.querySelector('[data-testid=k]').readOnly, val: tr.querySelector('[data-testid=v]').readOnly,
+          tog: tr.querySelector('[data-testid=t]').disabled, rm: tr.querySelector('.ui-kv-remove').disabled}))"""
+    )
+    assert out[0] == {"key": True, "val": False, "tog": False, "rm": False}
+    assert out[1] == {"key": True, "val": True, "tog": True, "rm": True}
+    assert out[2] == {"key": False, "val": False, "tog": False, "rm": False}
+    # A free row still edits and fires.
+    p.get_by_test_id("k").nth(2).fill("FREE2")
+    assert _vals(p)[2]["name"] == "FREE2"
+
+
+def test_on_before_remove_can_cancel(engine_page: Page) -> None:
+    p = engine_page
+    _opt(
+        p,
+        ", onBeforeRemove: (row, i) => { window.__asked = [row.name, i]; return row.name !== 'API'; }",
+    )
+    p.get_by_role("button", name="Remove API").click()
+    assert p.evaluate("() => window.__asked") == ["API", 0]
+    assert [r["name"] for r in _vals(p)] == ["API", "HOST", "FREE"]
+    assert _events(p) == []  # a cancelled remove fires no onChange
+    assert p.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Remove API"
+    # The caller may patch the row instead.
+    p.evaluate("() => window.__kv.setRow(0, {value: ''})")
+    assert _vals(p)[0]["value"] == ""
+    # A remove that returns anything but false goes through.
+    p.get_by_role("button", name="Remove HOST").click()
+    assert [r["name"] for r in _vals(p)] == ["API", "FREE"]
+    assert _events(p)[-1].startswith("remove:")
+
+
+def test_marker_pill_is_real_text_linked_by_describedby(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p, ", markerBy: 'overridden', markerLabel: 'overridden'")
+    out = p.evaluate(
+        """() => [...window.__kv.el.querySelectorAll('tr.ui-kv-row')].map((tr) => {
+          const pill = tr.querySelector('.ui-kv-marker');
+          const k = tr.querySelector('[data-testid=k]');
+          return {shown: !pill.hidden, text: pill.textContent, id: pill.id,
+                  described: (k.getAttribute('aria-describedby') || '').split(/\\s+/).includes(pill.id)};
+        })"""
+    )
+    assert [o["shown"] for o in out] == [True, False, False]
+    assert out[0]["text"] == "overridden" and out[0]["id"]
+    assert [o["described"] for o in out] == [True, False, False]
+    # setRow flips it live and keeps focus.
+    p.get_by_test_id("k").nth(1).focus()
+    p.evaluate("() => window.__kv.setRow(1, {overridden: true})")
+    assert p.evaluate(
+        "() => document.activeElement === document.querySelectorAll('[data-testid=k]')[1]"
+    )
+    assert p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[1], pill = tr.querySelector('.ui-kv-marker');
+          return !pill.hidden && tr.querySelector('[data-testid=k]').getAttribute('aria-describedby').includes(pill.id); }"""
+    )
+    p.evaluate("() => window.__kv.setRow(0, {overridden: false})")
+    assert p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[0];
+          return tr.querySelector('.ui-kv-marker').hidden && !(tr.querySelector('[data-testid=k]').getAttribute('aria-describedby') || '').includes('ui-kv-mark'); }"""
+    )
+
+
+def test_removable_by_disables_with_the_opaque_look(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p, ", removableBy: 'removable'")
+    out = p.evaluate(
+        """() => {
+          const probe = document.createElement('div');
+          probe.style.color = 'var(--btn-disabled-fg)';
+          window.__kv.el.appendChild(probe);
+          const want = getComputedStyle(probe).color;
+          probe.remove();
+          return [...document.querySelectorAll('.ui-kv-remove')].map((b) => ({
+            disabled: b.disabled, name: b.getAttribute('aria-label'), color: getComputedStyle(b).color,
+            opacity: getComputedStyle(b).opacity, want, cursor: getComputedStyle(b).cursor}));
+        }"""
+    )
+    assert [o["disabled"] for o in out] == [True, False, False]
+    assert out[0]["name"] == "Remove API"  # keeps its name
+    assert out[0]["color"] == out[0]["want"] and out[0]["opacity"] == "1"
+    assert out[0]["cursor"] == "not-allowed"
+    assert out[1]["color"] != out[1]["want"]
+    # A forced click on the disabled button (or its icon) removes nothing.
+    p.evaluate(
+        "() => document.querySelector('.ui-kv-remove').dispatchEvent(new MouseEvent('click', {bubbles: true}))"
+    )
+    p.evaluate(
+        "() => document.querySelector('.ui-kv-remove svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))"
+    )
+    assert len(_vals(p)) == 3
+    # A disabled button is not focusable.
+    p.evaluate("() => document.querySelector('.ui-kv-remove').focus()")
+    assert p.evaluate("() => document.activeElement.classList.contains('ui-kv-remove')") is False
+    # setRow re-enables it live.
+    p.evaluate("() => window.__kv.setRow(0, {removable: true})")
+    assert p.evaluate("() => document.querySelector('.ui-kv-remove').disabled") is False
+    p.evaluate("() => window.__kv.setRow(1, {removable: false})")
+    assert p.evaluate("() => document.querySelectorAll('.ui-kv-remove')[1].disabled") is True
+
+
+def test_set_row_reevaluates_a_lock_without_rebuilding_or_moving_focus(engine_page: Page) -> None:
+    p = engine_page
+    _opt(p, ", lockBy: 'lock'")
+    p.get_by_test_id("v").nth(2).focus()
+    p.evaluate("() => { window.__tr = document.querySelectorAll('tr.ui-kv-row')[2]; }")
+    p.evaluate("() => window.__kv.setRow(2, {lock: 'row'})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          return {same: tr === window.__tr, focus: document.activeElement === tr.querySelector('[data-testid=v]'),
+                  key: tr.querySelector('[data-testid=k]').readOnly, val: tr.querySelector('[data-testid=v]').readOnly,
+                  tog: tr.querySelector('[data-testid=t]').disabled, rm: tr.querySelector('.ui-kv-remove').disabled}; }"""
+    )
+    assert out == {"same": True, "focus": True, "key": True, "val": True, "tog": True, "rm": True}
+    p.evaluate("() => window.__kv.setRow(2, {lock: ''})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          return [tr.querySelector('[data-testid=k]').readOnly, tr.querySelector('[data-testid=t]').disabled,
+                  tr.querySelector('.ui-kv-remove').disabled]; }"""
+    )
+    assert out == [False, False, False]
+
+
+def test_lock_by_toggle_checks_and_disables_only_the_toggle(engine_page: Page) -> None:
+    """Sortie 09 L06: 'toggle' locks the Sensitive switch on; 'key toggle' also locks the key."""
+    p = engine_page
+    _opt(p, ", lockBy: 'lock'")
+    p.evaluate("() => window.__kv.setRow(2, {lock: 'toggle'})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          const t = tr.querySelector('[data-testid=t]');
+          return {checked: t.checked, dis: t.disabled,
+                  key: tr.querySelector('[data-testid=k]').readOnly,
+                  val: tr.querySelector('[data-testid=v]').readOnly,
+                  rm: tr.querySelector('.ui-kv-remove').disabled,
+                  masked: !!tr.querySelector('input[type=password]'),
+                  data: window.__kv.values()[2].sensitive}; }"""
+    )
+    assert out == {
+        "checked": True,
+        "dis": True,
+        "key": False,
+        "val": False,
+        "rm": False,
+        "masked": True,
+        "data": True,
+    }
+    # The value still edits while the toggle is locked.
+    p.get_by_test_id("v").nth(2).fill("typed")
+    assert _vals(p)[2]["value"] == "typed"
+    p.evaluate("() => window.__kv.setRow(2, {lock: 'key toggle'})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          return [tr.querySelector('[data-testid=k]').readOnly,
+                  tr.querySelector('[data-testid=t]').disabled]; }"""
+    )
+    assert out == [True, True]
+    # Lifting the lock re-enables the toggle (it stays checked until the operator changes it).
+    p.evaluate("() => window.__kv.setRow(2, {lock: ''})")
+    assert (
+        p.evaluate(
+            "() => document.querySelectorAll('tr.ui-kv-row')[2].querySelector('[data-testid=t]').disabled"
+        )
+        is False
+    )
+
+
+def test_lock_by_toggle_at_construction(engine_page: Page) -> None:
+    p = engine_page
+    _opt(
+        p,
+        ", lockBy: 'lock'",
+        rows="[{name: 'Authorization', value: 'x', sensitive: false, lock: 'key toggle'}]",
+    )
+    out = p.evaluate(
+        """() => { const tr = document.querySelector('tr.ui-kv-row');
+          const t = tr.querySelector('[data-testid=t]');
+          return [t.checked, t.disabled, tr.querySelector('[data-testid=k]').readOnly,
+                  !!tr.querySelector('input[type=password]')]; }"""
+    )
+    assert out == [True, True, True, True]

@@ -446,6 +446,18 @@ def patch_provider_deps(monkeypatch):
     monkeypatch.setattr(provider_mod, "get_connection", _fake_get_connection)
     monkeypatch.setattr(provider_mod, "get_encryptor", lambda _data_dir: mock_encryptor)
     monkeypatch.setattr(provider_mod, "MCPSourceRepository", lambda c, e: mock_repo)
+
+    # Sortie 09: the mock connection has no `agents` table, so the per-agent cache
+    # lookup sees "the agent is not in the store" (the shared cache applies, as
+    # before). The per-agent behaviour has its own tests on a real database.
+    class _NotStored:
+        def __init__(self, conn):
+            pass
+
+        async def agent_updated_at(self, name):
+            return None
+
+    monkeypatch.setattr("the_one.mcp._agent_cache.AgentMcpToolCacheRepository", _NotStored)
     return mock_repo
 
 
@@ -1402,3 +1414,55 @@ class TestAgentFactoryMCPIntegration:
         # foo registered; bar filtered out via disabled_tools.
         assert "mcp__github__foo" in agent.tools.tool_names
         assert "mcp__github__bar" not in agent.tools.tool_names
+
+    async def test_mcp_tools_are_built_before_the_search_index(self, monkeypatch) -> None:
+        """Sortie 09 AC5: a credentialed agent's cold per-agent cache is filled by the
+        MCP tool build, so that build must run before the ``search_tools`` index is
+        built to let the index see the row in the same ``create``."""
+        store = _InMemoryStore()
+        await store.save(
+            AgentConfig(
+                name="order-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                mcp_source_ids=["src-1"],
+            )
+        )
+        order: list[str] = []
+
+        async def _get_tools(self, cfg, *, agent_name):
+            order.append("tools")
+            return []
+
+        async def _index(**kwargs):
+            order.append("index")
+
+        monkeypatch.setattr(MCPToolProvider, "get_tools_for_agent", _get_tools)
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=_make_provider_config())
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list = AsyncMock(return_value=[])
+        with (
+            patch("the_one.agent.factory.get_provider", _fake_get_provider),
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
+            patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=AsyncMock(list_for_agent=AsyncMock(return_value=[])),
+            ),
+            patch(
+                "the_one.db.repositories.AgentNoteRepository",
+                return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
+            ),
+            patch("the_one.agent.factory._build_source_index", _index),
+        ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+            await AgentFactory(store=store, tool_providers=[_StubToolProvider()]).create(
+                "order-agent"
+            )
+        assert order == ["tools", "index"]

@@ -44,9 +44,14 @@ from the_one.agent.config import AgentConfig
 from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import MCPSource
-from the_one.db.repositories import MCPSourceRepository
+from the_one.db.repositories import AgentMcpToolCacheRepository, MCPSourceRepository
 from the_one.encryption import get_encryptor
-from the_one.mcp._overrides import StdioMCPOverride, StreamableHttpMCPOverride
+from the_one.mcp._agent_cache import per_agent_tools, to_cache_payload
+from the_one.mcp._overrides import (
+    StdioMCPOverride,
+    StreamableHttpMCPOverride,
+    has_oauth_state,
+)
 from the_one.mcp._pool import acquire
 from the_one.mcp._tool import MCPClientTool
 from the_one.mcp.errors import (
@@ -150,7 +155,9 @@ def _apply_override(source: MCPSource, override_payload: dict[str, Any] | None) 
     # consumed by the post-list_tools() filter in get_tools_for_agent.
     # Stripping here keeps the resolver contract clean.
     resolver_payload = {
-        k: v for k, v in override_payload.items() if k not in ("enabled_tools", "disabled_tools")
+        k: v
+        for k, v in override_payload.items()
+        if k not in ("enabled_tools", "disabled_tools", "plain_names")
     }
     if not resolver_payload:
         # Payload had ONLY tool-filter keys — no credential mutation needed.
@@ -174,16 +181,105 @@ def _apply_override(source: MCPSource, override_payload: dict[str, Any] | None) 
         # streamable-http. Overlay-merge headers flat; bearer_token
         # translates to a flat Authorization header.
         new_secrets: dict[str, Any] = dict(source.secrets)
+        new_config = source.config
+        # Sortie 09 DD8: a source with OAuth state keeps the sign-in's
+        # Authorization; a per-agent Authorization header or bearer_token (for
+        # example one stored before the source gained a sign-in) is not sent.
+        if has_oauth_state(source):
+            if headers_value is not None:
+                headers_value = {
+                    k: v
+                    for k, v in headers_value.items()
+                    if not (isinstance(k, str) and k.strip().lower() == "authorization")
+                }
+            bearer_value = None
+        if not headers_value and bearer_value is None:
+            return source
+        # Sortie 09 DD1: header names overlay case-insensitively across BOTH
+        # Library layers (config.headers and secrets), so `x-api-key` and
+        # `X-Api-Key` are never both sent.
+        if bearer_value is not None and headers_value:
+            # `bearer_token` is applied after `headers` and wins: never send both.
+            headers_value = {
+                k: v
+                for k, v in headers_value.items()
+                if not (isinstance(k, str) and k.strip().lower() == "authorization")
+            }
+        agent_names = {k.strip().lower() for k in (headers_value or {}) if isinstance(k, str)}
+        if bearer_value is not None:
+            agent_names.add("authorization")
+        if agent_names:
+            new_secrets = {
+                k: v
+                for k, v in new_secrets.items()
+                if not (isinstance(k, str) and k.strip().lower() in agent_names)
+            }
+            library_headers = (source.config or {}).get("headers")
+            if isinstance(library_headers, dict) and any(
+                isinstance(k, str) and k.strip().lower() in agent_names for k in library_headers
+            ):
+                new_config = {
+                    **source.config,
+                    "headers": {
+                        k: v
+                        for k, v in library_headers.items()
+                        if not (isinstance(k, str) and k.strip().lower() in agent_names)
+                    },
+                }
         if headers_value is not None:
             new_secrets.update(headers_value)
         if bearer_value is not None:
             new_secrets["Authorization"] = f"Bearer {bearer_value}"
-        return source.model_copy(update={"secrets": new_secrets})
+        return source.model_copy(update={"secrets": new_secrets, "config": new_config})
     else:
         # Unknown type — preserve source unchanged. The pool will
         # error on connect; that's the right surface for an
         # unsupported transport.
         return source
+
+
+_RESOLVE_FAILED_MESSAGE = (
+    "the connection settings for this MCP server could not be loaded; check the server "
+    "in Library › MCP servers"
+)
+"""Fixed text for a resolver failure: it never carries exception text, which could
+echo a stored value."""
+
+
+def make_source_resolver(agent_name: str, source_id: str, fallback: MCPSource):
+    """Sortie 09 DD7: the pool's ``resolve_source`` for ``(agent_name, source_id)``.
+
+    Awaited on the pool worker when a connection OPENS (never on a warm entry):
+    loads the stored agent and the stored source and returns the source with the
+    agent's CURRENT override applied, so a Save reaches the agent's next
+    connection even from a tool built before it. An agent that is not in the
+    store (the CLI, a test stub) gets ``fallback``, the build-time effective
+    source. Any other failure is raised as :class:`MCPConnectionError` with a
+    fixed message (no exception text, no value).
+    """
+
+    async def _resolve() -> MCPSource:
+        from the_one.db.repositories import SQLiteAgentStore
+
+        try:
+            conn = await get_connection()
+            encryptor = get_encryptor(settings.data_dir)
+            try:
+                agent = await SQLiteAgentStore(conn, encryptor).load(agent_name)
+            except KeyError:
+                return fallback
+            source = await MCPSourceRepository(conn, encryptor).get(source_id)
+            return _apply_override(source, override_for(agent.mcp_overrides, source))
+        except Exception:
+            logger.warning(
+                "could not resolve MCP source %r for agent %r at connect",
+                source_id,
+                agent_name,
+                exc_info=False,
+            )
+            raise MCPConnectionError(_RESOLVE_FAILED_MESSAGE) from None
+
+    return _resolve
 
 
 def _warn_orphan_overrides(
@@ -281,8 +377,18 @@ class MCPToolProvider:
             override_payload = override_for(config.mcp_overrides, source)
             effective_source = _apply_override(source, override_payload)
 
-            # Path B: hydrate from cache if populated.
-            cached_tools_payload: list[dict] = source.config.get("_cache", {}).get("tools") or []
+            # Path B: hydrate from cache if populated. Sortie 09 DD4: a stored
+            # agent that uses its own credentials on this source reads ITS
+            # per-agent cache, never the shared one (a cold per-agent cache
+            # lists live below and fills the row); everyone else reads the
+            # shared `_cache` exactly as before.
+            per_agent, per_agent_payload, agent_updated_at = await per_agent_tools(
+                conn, agent_name, config.mcp_overrides, source
+            )
+            if per_agent:
+                cached_tools_payload: list[dict] = per_agent_payload or []
+            else:
+                cached_tools_payload = source.config.get("_cache", {}).get("tools") or []
             if cached_tools_payload:
                 logger.debug(
                     "MCP source %r: using %d cached tools for agent build "
@@ -316,6 +422,23 @@ class MCPToolProvider:
                         source_override=effective_source,
                     )
                     mcp_tools = await client.list_tools()
+                    if per_agent and mcp_tools:
+                        # Sortie 09 AC6: fill the per-agent row, guarded by the
+                        # agent's `updated_at` read before the listing.
+                        try:
+                            await AgentMcpToolCacheRepository(conn).put_if_unchanged(
+                                agent_name,
+                                source.id,
+                                to_cache_payload(mcp_tools),
+                                agent_updated_at,
+                            )
+                        except Exception:  # a cache write never fails a build
+                            logger.warning(
+                                "could not store the per-agent tool list for agent %r, source %r",
+                                agent_name,
+                                source.name,
+                                exc_info=False,
+                            )
                 except MCPAuthRequired as e:
                     logger.warning(
                         "MCP source %r requires authorization; skipping "

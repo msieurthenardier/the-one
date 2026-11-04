@@ -84,6 +84,12 @@
       return d && d.handle ? d.handle.tools || null : null;
     }
 
+    // The MCP servers section handle of the current mount (null with no editor open).
+    function mcpsTab_() {
+      var d = currentData_();
+      return d && d.handle ? d.handle.mcps || null : null;
+    }
+
     function setNameError_(text) {
       var d = currentData_();
       if (d && d.handle && d.handle.general) d.handle.general.setNameError(text);
@@ -108,13 +114,15 @@
       var fe = App.api.fieldErrors(plain, ['name']);
       setNameError_(fe.fields.name || null);
       var headerText = fe.text || '';
-      if (toolItems.length && !plain.detail.length) headerText = '';
+      if (plain !== err && !plain.detail.length) headerText = '';
       setEditorError_(headerText);
       if (fe.fields.name) {
         var input = editorEl.querySelector('#studio-name');
         if (input) input.focus();
       }
-      if (toolItems.length) showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
+      if (toolItems.length) {
+        showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
+      }
     }
 
     // Select the Built-in tools tab, open each refused tool's panel and put the
@@ -291,7 +299,8 @@
         knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
         // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
-        fetchMcpSourceTools: agentData.fetchMcpSourceTools,
+        testMcpAsAgent: agentData.testMcpAsAgent,
+        saveMcpCredentials: agentData.saveMcpCredentials,
         // The studio owns the source focus (hydrate applies the URL's value to
         // both slots); the tab reads it from here, never from location.hash.
         pendingMcpAgentSourceId: self._selectedMcpAgentSourceId || self._pendingMcpAgentSourceId || null,
@@ -710,6 +719,8 @@
                 // or an attached row would regress to the unattached
                 // placeholder immediately after every save.
                 found.kb_tool_names = updated.kb_tool_names;
+                // Likewise the per-agent MCP tool lists (the list route has none).
+                found.mcp_tool_cache = updated.mcp_tool_cache;
                 self._selectedAgent = found;
                 renderEditor(found);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
@@ -763,7 +774,8 @@
       destroyEditor: destroyEditor,
       onSelfConfigChanged: onSelfConfigChanged,
       shell: shell,
-      toolsTab: toolsTab_
+      toolsTab: toolsTab_,
+      mcpsTab: mcpsTab_
     };
   }
 
