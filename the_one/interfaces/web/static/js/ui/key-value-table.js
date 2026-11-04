@@ -48,9 +48,10 @@
   //   readOnly (construct-time): every input is read-only and focusable, no Add row, no remove
   //   column or header, toggles are disabled, and a 'secret' column renders as plain text showing
   //   the row's value as given (the caller passes the mask string or the clear value); it wins
-  //   over lockBy and removableBy. lockBy '<row field>': a row whose field is 'key' has a read-only
-  //   key input, one whose field is 'row' has every input read-only and its toggle and remove
-  //   disabled. onBeforeRemove(row, index): returning false cancels the splice (no onChange; focus
+  //   over lockBy and removableBy. lockBy '<row field>': the field is a space-separated list of
+  //   'key' (the key input is read-only), 'row' (every input read-only, toggle and remove disabled)
+  //   and 'toggle' (the Sensitive-style toggles are checked and disabled, the rest stays editable;
+  //   sortie 09 L06), e.g. 'key toggle'. onBeforeRemove(row, index): returning false cancels the splice (no onChange; focus
   //   returns to that row's remove button). markerBy '<row field>' + markerLabel: a row whose field
   //   is truthy shows a pill of real text (.ui-kv-marker) in the key cell, linked to the key input
   //   by aria-describedby. removableBy '<row field>': a row whose field is false has a natively
@@ -200,10 +201,24 @@
 
     // Row state from the row options: which inputs are read-only, whether the toggle and
     // remove are disabled, and the marker pill. Safe to call at any point of a row's build.
+    // The lock field is a space-separated list of 'key', 'row' and 'toggle'.
+    function lockHas(row, token) {
+      var lock = lockBy ? row.data[lockBy] : null;
+      if (typeof lock !== 'string' || !lock) return false;
+      return (' ' + lock + ' ').indexOf(' ' + token + ' ') !== -1;
+    }
+
     function inputLocked(column, row) {
       if (readOnly) return true;
-      var lock = lockBy ? row.data[lockBy] : null;
-      return lock === 'row' || (lock === 'key' && column.key === keyColumn);
+      return lockHas(row, 'row') || (lockHas(row, 'key') && column.key === keyColumn);
+    }
+
+    // 'toggle' lock: every toggle column of the row is checked and cannot change.
+    function enforceToggleLock(row) {
+      if (readOnly || !lockHas(row, 'toggle')) return;
+      for (var i = 0; i < columns.length; i++) {
+        if (typeOf(columns[i]) === 'toggle') row.data[columns[i].key] = true;
+      }
     }
 
     function applyMarker(row) {
@@ -218,13 +233,14 @@
 
     function applyRowState(row) {
       if (!readOnly && !lockBy && !markerBy && !removableBy) return;
-      var rowLocked = !readOnly && lockBy && row.data[lockBy] === 'row';
+      var rowLocked = !readOnly && lockHas(row, 'row');
+      var toggleLocked = !readOnly && lockHas(row, 'toggle');
       for (var i = 0; i < columns.length; i++) {
         var column = columns[i];
         var ctl = row.inputs[column.key];
         if (!ctl) continue;
         if (typeOf(column) === 'toggle') {
-          row.toggles[column.key].setDisabled(readOnly || rowLocked);
+          row.toggles[column.key].setDisabled(readOnly || rowLocked || toggleLocked);
         } else {
           ctl.readOnly = inputLocked(column, row);
         }
@@ -247,7 +263,9 @@
           row.data[column.key] = e.target.value;
           if (column.key === keyColumn) {
             checkRename(row);
-            if (row.remove) row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
+            if (row.remove) {
+              row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
+            }
           }
           fire('input');
           return;
@@ -478,6 +496,7 @@
         var sk = columns[i].storedKey;
         if (sk && row.data[sk] !== undefined && row.data[sk] !== null) row.data[sk] = String(row.data[sk]);
       }
+      enforceToggleLock(row);
       captureBaselines(row);
       var tr = util.el('tr', { className: 'ui-kv-row' });
       if (opts.rowTestid) tr.setAttribute('data-testid', opts.rowTestid);
@@ -532,7 +551,7 @@
       var idx = indexOfKey(key);
       if (idx === -1) return;
       var row = rows[idx];
-      if (typeof opts.onBeforeRemove ==='function' && opts.onBeforeRemove(copyData(row), idx) === false) {
+      if (typeof opts.onBeforeRemove === 'function' && opts.onBeforeRemove(copyData(row), idx) === false) {
         // A click does not focus a button in WebKit, so put focus back explicitly.
         if (row.remove) row.remove.focus();
         return;
@@ -585,6 +604,7 @@
         else if (column || isStoredKey(k)) row.data[k] = v === undefined || v === null ? '' : String(v);
         else row.data[k] = v;
       }
+      enforceToggleLock(row);
       for (var ci = 0; ci < columns.length; ci++) {
         var sk = columns[ci].storedKey;
         if (sk && Object.prototype.hasOwnProperty.call(patch, sk) && row.data[sk]) {

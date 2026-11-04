@@ -2643,10 +2643,14 @@
      opacity. Placed after the two rules above, which would otherwise win on specificity. */
   .ui-kv .ui-kv-remove:disabled,
   .ui-kv .ui-kv-remove:disabled:hover { color: var(--btn-disabled-fg); cursor: not-allowed; }
-  /* markerBy: a small pill of real text in the key cell, under the key input. */
+  /* markerBy: a small pill of real text in the key cell, at the right end of the key input. */
+  .ui-kv-table td:first-child { position: relative; }
   .ui-kv-marker {
-    display: inline-block;
-    margin-top: 2px;
+    position: absolute;
+    right: 12px;
+    top: 20px;
+    transform: translateY(-50%);
+    pointer-events: none;
     padding: 0 var(--space-2, 8px);
     border-radius: var(--radius-sm);
     background: var(--accent-translucent);

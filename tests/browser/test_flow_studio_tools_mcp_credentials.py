@@ -1,14 +1,16 @@
 """Browser tests for the per-agent MCP credential section of the agent Tools tab
-(sortie 09 leg 3, DD1, DD4, DD10): row states, edit transitions and their focus, the
-exact save payload, the list a tile shows, and when a tile tests.
+(sortie 09 leg 6, DD12): the locked table of effective headers, Override and Cancel, the
+tile's own Save through the targeted route, the list a tile shows and when it tests.
 
-`/test/agent` is mocked with `page.route` and its request bodies are checked; the
-PUT bodies are read from the real request, so the write shape is the one the server gets.
+`/test/agent` is mocked with `page.route` and its request bodies are checked; the PUT
+bodies are read from the real request, so the write shape is the one the server gets.
+Rows are addressed by the table's `data-name` (server rows) or by position.
 """
 
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 import pytest
@@ -74,24 +76,53 @@ def _seed_agent(base: str, name: str, **fields) -> dict:
     return _post(base, "/api/agents", {"name": name, "description": "t", **fields})
 
 
+def _credentialed(base: str, name: str, sid: str, source_name: str, entry: dict, **extra) -> None:
+    _seed_agent(base, name, mcp_source_ids=[sid], mcp_overrides={source_name: entry}, **extra)
+
+
 def _tid(page: Page, testid: str):
     return page.locator(f'[data-testid="{testid}"]')
 
 
-def _row(page: Page, sid: str, name: str):
-    return _tid(page, f"mcp-agent-cred-row-{sid}-{name}")
+def _table(page: Page, sid: str):
+    return _tid(page, f"mcp-agent-cred-table-{sid}")
 
 
-def _state(page: Page, sid: str, name: str):
-    return _tid(page, f"mcp-agent-cred-state-{sid}-{name}")
+def _trs(page: Page, sid: str):
+    return _table(page, sid).locator("tr.ui-kv-row")
 
 
-def _btn(page: Page, role: str, sid: str, name: str):
-    return _tid(page, f"mcp-agent-cred-{role}-{sid}-{name}")
+def _tr(page: Page, sid: str, name: str):
+    """A server row (they carry `data-name`)."""
+    return _table(page, sid).locator(f'tr.ui-kv-row[data-name="{name}"]')
+
+
+def _key(tr):
+    return tr.locator("td").nth(0).locator("input")
+
+
+def _value(tr):
+    return tr.locator("td").nth(1).locator("input").first
+
+
+def _toggle(tr):
+    return tr.locator("td").nth(2).locator("input")
+
+
+def _trash(tr):
+    return tr.get_by_role("button", name=re.compile(r"^Remove"))
+
+
+def _pill(tr):
+    return tr.locator(".ui-kv-marker")
 
 
 def _status(page: Page, sid: str):
     return _tid(page, f"mcp-agent-cred-status-{sid}")
+
+
+def _btn(page: Page, role: str, sid: str):
+    return _tid(page, f"mcp-agent-cred-{role}-{sid}")
 
 
 def _focused_testid(page: Page) -> str | None:
@@ -125,103 +156,97 @@ def _click_switch(toggle) -> None:
     toggle.locator("xpath=ancestor::label[1]").click()
 
 
-def _save_put(page: Page, agent: str) -> dict:
+def _tile_save(page: Page, sid: str) -> dict:
+    """Click the tile's Save; return the targeted route's request body."""
     with page.expect_request(
-        lambda r: f"/api/agents/{agent}" in r.url and r.method == "PUT"
+        lambda r: (
+            r.method == "PUT" and "/mcp-overrides/" in r.url and r.url.endswith("/credentials")
+        )
+    ) as info:
+        _btn(page, "save", sid).click()
+    return json.loads(info.value.post_data or "{}")
+
+
+def _main_save_put(page: Page, agent: str) -> dict:
+    with page.expect_request(
+        lambda r: f"/api/agents/{agent}" in r.url and r.method == "PUT" and "/mcp-" not in r.url
     ) as info:
         page.locator(SAVE).click()
     return json.loads(info.value.post_data or "{}")
 
 
-def _credentialed(base: str, name: str, sid: str, source_name: str, entry: dict, **extra) -> None:
-    _seed_agent(base, name, mcp_source_ids=[sid], mcp_overrides={source_name: entry}, **extra)
-
-
-# ── The section and its rows ───────────────────────────────────────────────
+# ── The locked view ────────────────────────────────────────────────────────
 
 
 @pytest.mark.browser
-def test_section_shows_each_row_state_and_never_a_value(app_clean: str, page: Page) -> None:
+def test_locked_table_shows_effective_rows_pills_and_never_a_value(
+    app_clean: str, page: Page
+) -> None:
     sid = _seed_keyed(app_clean)
     _credentialed(
         app_clean,
-        "states-agent",
+        "locked-agent",
         sid,
         "keyed",
-        {"headers": {"X-Org": "org-secret-value-123"}, "bearer_token": "bearer-secret-value-456"},
+        {
+            "headers": {"X-Org": "org-secret-value-123", "X-Extra": "extra-clear-1"},
+            "bearer_token": "bearer-secret-value-456",
+            "plain_names": ["X-Extra"],
+        },
     )
+    stored = _get_agent(app_clean, "locked-agent")["mcp_overrides"]["keyed"]
+    org_mask = stored["headers"]["X-Org"]
+    bearer_mask = stored["bearer_token"]
+    assert org_mask != "org-secret-value-123"
     _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "states-agent")
+    _open_tools(page, app_clean, "locked-agent")
     _expand(page, sid)
 
     section = _tid(page, f"mcp-agent-cred-section-{sid}")
-    expect(section).to_be_visible()
-    expect(section.locator(".section-title")).to_have_text("Headers for this agent")
-    # In order: the section, the status line, the tool rows.
-    order = page.evaluate(
-        """(sid) => {
-          const sel = '[data-testid="mcp-source-details-body-' + sid + '"]';
-          const body = document.querySelector(sel);
-          const names = (el) => Array.from(el.children).map(c => c.className.split(' ')[0]);
-          return [names(body), names(body.firstElementChild)];
-        }""",
-        sid,
+    expect(section.locator(".section-title")).to_have_text("Headers")
+    # No button in the section header; the action row is status, Override, Test.
+    expect(section.locator(".section-title").locator("xpath=..").locator("button")).to_have_count(0)
+    expect(_btn(page, "override", sid)).to_have_text("Override headers")
+    expect(_btn(page, "test", sid)).to_be_visible()
+    expect(_btn(page, "save", sid)).to_be_hidden()
+    expect(_btn(page, "cancel", sid)).to_be_hidden()
+    expect(page.get_by_role("button", name=re.compile("Refresh"))).to_have_count(0)
+
+    # Rows: the server's names in its order, then this agent's own A-Z.
+    expect(_trs(page, sid)).to_have_count(4)
+    keys = [_key(_trs(page, sid).nth(i)).input_value() for i in range(4)]
+    assert keys == ["X-Org", "X-Api-Key", "Authorization", "X-Extra"], keys
+    org, api, auth, extra = (_trs(page, sid).nth(i) for i in range(4))
+    expect(_value(org)).to_have_value(org_mask)
+    expect(_value(api)).to_have_value("")
+    expect(_value(api)).to_have_attribute("placeholder", "value")
+    expect(_value(auth)).to_have_value(bearer_mask)
+    expect(_value(extra)).to_have_value("extra-clear-1")
+    # The "overridden" pill on the rows this agent overrides, none on the server's own.
+    for tr in (org, auth, extra):
+        expect(_pill(tr)).to_have_text("overridden")
+        expect(_pill(tr)).to_be_visible()
+    expect(_pill(api)).to_be_hidden()
+    # Read-only: no eye, no Sensitive column, no trash, no Add row.
+    expect(_table(page, sid).locator("input")).to_have_count(8)
+    assert all(
+        _table(page, sid).locator("input").nth(i).get_attribute("readonly") is not None
+        for i in range(8)
     )
-    assert order[0] == ["mcp-agent-cred", "", "mcp-tool-group"], order
-    assert order[1] == ["editor-section", "mcp-agent-cred-status"], order
-    expect(_state(page, sid, "X-Org")).to_have_text("Set for this agent")
-    expect(_state(page, sid, "X-Api-Key")).to_have_text("Set per agent · missing")
-    expect(_state(page, sid, "Authorization")).to_have_text("Set for this agent")
-    # A stored value is never shown, anywhere in the page.
+    expect(_table(page, sid).get_by_role("button")).to_have_count(0)
+    expect(_table(page, sid).get_by_role("columnheader")).to_have_count(2)
+    expect(_tid(page, f"mcp-agent-cred-add-{sid}")).to_have_count(0)
+    # A stored sensitive value is never shown, anywhere in the page.
     html = page.content()
-    assert "org-secret-value-123" not in html
-    assert "bearer-secret-value-456" not in html
-    # Each row is a labelled group named by the header, and every button names it.
-    expect(_row(page, sid, "X-Org")).to_have_attribute("role", "group")
-    expect(_row(page, sid, "X-Org")).to_have_attribute("aria-label", "X-Org")
-    expect(_btn(page, "replace", sid, "X-Org")).to_have_attribute("aria-label", "Replace X-Org")
-    expect(_btn(page, "reset", sid, "X-Org")).to_have_attribute(
-        "aria-label", "Use server value for X-Org"
-    )
-    expect(_btn(page, "set", sid, "X-Api-Key")).to_have_attribute(
-        "aria-label", "Set for this agent: X-Api-Key"
-    )
-    # WCAG 2.5.3: each accessible name starts with the visible text.
-    for role, name in (("replace", "X-Org"), ("reset", "X-Org"), ("set", "X-Api-Key")):
-        button = _btn(page, role, sid, name)
-        visible = button.inner_text().strip()
-        label = button.get_attribute("aria-label")
-        assert label.startswith(visible), (visible, label)
-    expect(_btn(page, "reset", sid, "Authorization")).to_have_attribute(
-        "aria-label", "Remove Authorization"
-    )
-    expect(_status(page, sid)).to_have_attribute("role", "status")
+    for secret in ("org-secret-value-123", "bearer-secret-value-456"):
+        assert secret not in html
+        assert secret not in page.evaluate(
+            "() => Array.from(document.querySelectorAll('input')).map(i => i.value).join('|')"
+        )
 
 
 @pytest.mark.browser
-def test_server_value_row_and_the_signin_row(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _seed_agent(app_clean, "server-agent", mcp_source_ids=[sid])
-
-    def patch_sources(route):
-        resp = route.fetch()
-        data = resp.json()
-        for s in data:
-            s["oauth_active"] = True
-        route.fulfill(response=resp, json=data)
-
-    page.route("**/api/mcp-sources?*", patch_sources)
-    _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "server-agent")
-    _expand(page, sid)
-    expect(_state(page, sid, "X-Org")).to_have_text("Server value")
-    expect(_btn(page, "set", sid, "X-Org")).to_be_visible()
-    expect(_state(page, sid, "Authorization")).to_have_text("Supplied by the server's sign-in")
-    expect(_row(page, sid, "Authorization").locator("button")).to_have_count(0)
-
-
-@pytest.mark.browser
-def test_stdio_source_shows_environment(app_clean: str, page: Page) -> None:
+def test_stdio_source_shows_environment_variables(app_clean: str, page: Page) -> None:
     sid = _post(
         app_clean,
         "/api/mcp-sources",
@@ -233,202 +258,434 @@ def test_stdio_source_shows_environment(app_clean: str, page: Page) -> None:
         },
     )["id"]
     _seed_agent(app_clean, "stdio-agent", mcp_source_ids=[sid])
-    bodies: list = []
-    _mock_agent_test(page, sid, bodies)
+    _mock_agent_test(page, sid)
     _open_tools(page, app_clean, "stdio-agent")
     _expand(page, sid)
-    section = _tid(page, f"mcp-agent-cred-section-{sid}")
-    expect(section.locator(".section-title")).to_have_text("Environment for this agent")
-    expect(_state(page, sid, "MODE")).to_have_text("Server value")
-    expect(_state(page, sid, "API_KEY")).to_have_text("Set per agent · missing")
-    expect(_tid(page, f"mcp-agent-cred-add-{sid}")).to_have_text("Add variable")
+    expect(_tid(page, f"mcp-agent-cred-section-{sid}").locator(".section-title")).to_have_text(
+        "Environment variables"
+    )
+    expect(_btn(page, "override", sid)).to_have_text("Override environment variables")
+    expect(_trs(page, sid)).to_have_count(2)
+    expect(_value(_tr(page, sid, "MODE"))).to_have_value("fast")
     expect(_status(page, sid)).to_have_text("Needs a value for API_KEY")
-    _btn(page, "set", sid, "API_KEY").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-API_KEY").fill("env-secret-1")
-    put = _save_put(page, "stdio-agent")
-    assert put["mcp_overrides"] == {"stdio-keyed": {"env": {"API_KEY": "env-secret-1"}}}
-    assert "headers" not in put["mcp_overrides"]["stdio-keyed"]
-
-
-# ── Edit transitions: event, announcement, focus ───────────────────────────
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "API_KEY")).fill("env-secret-1")
+    body = _tile_save(page, sid)
+    assert body == {"env": {"API_KEY": "env-secret-1"}, "plain_names": None}
 
 
 @pytest.mark.browser
-def test_set_cancel_and_undo_move_focus_and_announce(app_clean: str, page: Page) -> None:
+def test_signin_source_shows_no_authorization_row_only_a_note(app_clean: str, page: Page) -> None:
     sid = _seed_keyed(app_clean)
-    _credentialed(app_clean, "focus-agent", sid, "keyed", {"headers": {"X-Org": "org-val-0001"}})
+    _seed_agent(app_clean, "signin-agent", mcp_source_ids=[sid])
+
+    def patch_sources(route):
+        resp = route.fetch()
+        data = resp.json()
+        for s in data:
+            s["oauth_active"] = True
+        route.fulfill(response=resp, json=data)
+
+    page.route("**/api/mcp-sources?*", patch_sources)
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "signin-agent")
+    _expand(page, sid)
+    note = _tid(page, f"mcp-agent-cred-oauth-note-{sid}")
+    expect(note).to_have_text("Authorization is supplied by this server's sign-in.")
+    expect(_trs(page, sid)).to_have_count(2)
+    expect(_tr(page, sid, "Authorization")).to_have_count(0)
+    _btn(page, "override", sid).click()
+    expect(_trs(page, sid)).to_have_count(2)
+    expect(_tr(page, sid, "Authorization")).to_have_count(0)
+    expect(note).to_be_visible()
+
+
+# ── Override and Cancel ────────────────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_override_unlocks_the_library_table_and_cancel_restores_the_baseline(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _credentialed(app_clean, "focus-agent", sid, "keyed", {"headers": {"X-Org": "org-val-000001"}})
+    org_mask = _get_agent(app_clean, "focus-agent")["mcp_overrides"]["keyed"]["headers"]["X-Org"]
     _mock_agent_test(page, sid)
     _open_tools(page, app_clean, "focus-agent")
     _expand(page, sid)
     live = _tid(page, f"mcp-agent-cred-live-{sid}")
 
-    # Set for this agent -> the input takes focus; Cancel returns to the button.
-    _btn(page, "set", sid, "X-Api-Key").click()
-    inp = _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key")
-    expect(inp).to_be_focused()
-    expect(inp).to_have_attribute("aria-label", "Value for X-Api-Key")
-    expect(inp).to_have_attribute("type", "password")
-    expect(_btn(page, "cancel", sid, "X-Api-Key")).to_have_attribute(
-        "aria-label", "Cancel editing X-Api-Key"
-    )
-    expect(_tid(page, f"mcp-agent-cred-reveal-{sid}-X-Api-Key")).to_have_attribute(
-        "aria-label", "Show value for X-Api-Key"
-    )
-    inp.fill("typed-value-1")
-    expect(page.locator(SAVE)).to_be_enabled()
-    expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
-    _btn(page, "cancel", sid, "X-Api-Key").click()
-    expect(_btn(page, "set", sid, "X-Api-Key")).to_be_focused()
-    expect(page.locator(SAVE)).to_be_disabled()
-    expect(live).to_have_text("X-Api-Key unchanged")
+    _btn(page, "override", sid).click()
+    # Cancel, Save (primary) and Test; Override is gone. Focus is on the first value input.
+    expect(_btn(page, "override", sid)).to_be_hidden()
+    expect(_btn(page, "cancel", sid)).to_be_visible()
+    expect(_btn(page, "save", sid)).to_be_visible()
+    expect(_btn(page, "save", sid)).to_be_disabled()
+    expect(_btn(page, "test", sid)).to_be_visible()
+    org, api = _tr(page, sid, "X-Org"), _tr(page, sid, "X-Api-Key")
+    expect(_value(org)).to_be_focused()
+    expect(live).to_have_text("Editing headers for this agent")
+    # The Library table's columns, Key, Value, Sensitive and the remove column; Add row.
+    expect(_table(page, sid).get_by_role("columnheader")).to_have_count(4)
+    expect(_tid(page, f"mcp-agent-cred-add-{sid}")).to_have_text("+ Add row")
+    # Server keys are read-only; an overridden row shows its mask and can be removed, a server
+    # row with no override starts empty with a disabled trash.
+    expect(_key(org)).not_to_be_editable()
+    expect(_key(api)).not_to_be_editable()
+    expect(_value(org)).to_have_value(org_mask)
+    expect(_value(api)).to_have_value("")
+    expect(_value(api)).to_have_attribute("placeholder", "value")
+    expect(_trash(org)).to_be_enabled()
+    expect(_trash(api)).to_be_disabled()
+    expect(_toggle(org)).to_be_checked()
 
-    # Erasing the typed value while editing a stored name leaves the form clean.
-    _btn(page, "replace", sid, "X-Org").click()
-    expect(_tid(page, f"mcp-agent-cred-input-{sid}-X-Org")).to_be_focused()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Org").fill("abc")
-    expect(page.locator(SAVE)).to_be_enabled()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Org").fill("")
+    _value(api).fill("typed-value-0001")
+    expect(_btn(page, "save", sid)).to_be_enabled()
+    expect(_pill(api)).to_be_visible()
+    expect(_trash(api)).to_be_enabled()
+    # The tile's edits never reach the editor's own dirty state.
     expect(page.locator(SAVE)).to_be_disabled()
-    _btn(page, "cancel", sid, "X-Org").click()
-    expect(_btn(page, "replace", sid, "X-Org")).to_be_focused()
+    expect(page.locator(UNSAVED)).to_have_text("")
 
-    # Use server value -> "Server value · on save", focus on Undo; Undo restores.
-    _btn(page, "reset", sid, "X-Org").click()
-    expect(_state(page, sid, "X-Org")).to_have_text("Server value · on save")
-    expect(_btn(page, "undo", sid, "X-Org")).to_be_focused()
-    expect(live).to_have_text("X-Org will use the server value when you save")
-    expect(page.locator(SAVE)).to_be_enabled()
-    _btn(page, "undo", sid, "X-Org").click()
-    expect(_state(page, sid, "X-Org")).to_have_text("Set for this agent")
-    expect(page.locator(SAVE)).to_be_disabled()
-    expect(live).to_have_text("X-Org restored")
+    _btn(page, "cancel", sid).click()
+    expect(_btn(page, "override", sid)).to_be_focused()
+    expect(live).to_have_text("Changes discarded")
+    expect(_btn(page, "save", sid)).to_be_hidden()
+    expect(_value(_tr(page, sid, "X-Api-Key"))).to_have_value("")
+    expect(_pill(_tr(page, sid, "X-Api-Key"))).to_be_hidden()
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value(org_mask)
+    # Unlocking again starts from the baseline, and editing then undoing reads clean.
+    _btn(page, "override", sid).click()
+    expect(_value(_tr(page, sid, "X-Api-Key"))).to_have_value("")
+    _value(_tr(page, sid, "X-Api-Key")).fill("abc")
+    expect(_btn(page, "save", sid)).to_be_enabled()
+    _value(_tr(page, sid, "X-Api-Key")).fill("")
+    expect(_btn(page, "save", sid)).to_be_disabled()
 
 
 @pytest.mark.browser
-def test_add_header_focus_cancel_and_empty_row(app_clean: str, page: Page) -> None:
+def test_trash_on_an_overridden_server_row_returns_to_the_server_value(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _credentialed(
+        app_clean,
+        "trash-agent",
+        sid,
+        "keyed",
+        {"headers": {"X-Org": "org-val-000001", "X-Own": "own-val-0000001"}},
+    )
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "trash-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    org = _tr(page, sid, "X-Org")
+    expect(_trs(page, sid)).to_have_count(3)
+    # Server row: the row stays, empty, with a disabled trash; focus moves to its value input.
+    _trash(org).click()
+    expect(_trs(page, sid)).to_have_count(3)
+    expect(_value(org)).to_have_value("")
+    expect(_trash(org)).to_be_disabled()
+    expect(_pill(org)).to_be_hidden()
+    expect(_value(org)).to_be_focused()
+    # Agent-only row: removed.
+    own = _trs(page, sid).nth(2)
+    expect(_key(own)).to_have_value("X-Own")
+    _trash(own).click()
+    expect(_trs(page, sid)).to_have_count(2)
+    body = _tile_save(page, sid)
+    assert body == {"headers": None, "plain_names": None}
+
+
+@pytest.mark.browser
+def test_add_row_is_sensitive_by_default_and_duplicates_block_save(
+    app_clean: str, page: Page
+) -> None:
     sid = _seed_plain(app_clean)
     _seed_agent(app_clean, "add-agent", mcp_source_ids=[sid])
     _mock_agent_test(page, sid)
     _open_tools(page, app_clean, "add-agent")
     _expand(page, sid)
-    expect(_tid(page, f"mcp-agent-cred-empty-{sid}")).to_have_text("This server sets no headers.")
-
+    expect(_trs(page, sid)).to_have_count(0)
+    _btn(page, "override", sid).click()
     add = _tid(page, f"mcp-agent-cred-add-{sid}")
     add.click()
-    name_input = _tid(page, f"mcp-agent-cred-name-{sid}-new-1")
-    expect(name_input).to_be_focused()
-    expect(_tid(page, f"mcp-agent-cred-empty-{sid}")).to_have_count(0)
-    # An empty new row adds nothing: the form stays clean.
-    expect(page.locator(SAVE)).to_be_disabled()
-    name_input.fill("X-New")
-    expect(page.locator(SAVE)).to_be_disabled()
-    _btn(page, "cancel", sid, "new-1").click()
-    expect(add).to_be_focused()
-    expect(_row(page, sid, "new-1")).to_have_count(0)
-
+    row = _trs(page, sid).nth(0)
+    expect(_key(row)).to_be_focused()
+    expect(_toggle(row)).to_be_checked()
+    _key(row).fill("X-New")
+    _value(row).fill("new-secret-001")
     add.click()
-    _tid(page, f"mcp-agent-cred-name-{sid}-new-2").fill("X-New")
-    _tid(page, f"mcp-agent-cred-input-{sid}-new-2").fill("new-secret-1")
-    put = _save_put(page, "add-agent")
-    assert put["mcp_overrides"] == {"plain": {"headers": {"X-New": "new-secret-1"}}}
+    row2 = _trs(page, sid).nth(1)
+    _key(row2).fill("x-new")
+    _value(row2).fill("other-secret-02")
+    expect(row2).to_contain_text("This name is already in the table.")
+    expect(_btn(page, "save", sid)).to_be_disabled()
+    _key(row2).fill("X-Other")
+    expect(row2).not_to_contain_text("This name is already in the table.")
+    expect(_btn(page, "save", sid)).to_be_enabled()
+    body = _tile_save(page, sid)
+    assert body == {
+        "headers": {"X-New": "new-secret-001", "X-Other": "other-secret-02"},
+        "plain_names": None,
+    }
 
 
-# ── The exact PUT body ─────────────────────────────────────────────────────
+# ── Authorization ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.browser
-def test_put_bodies_mask_unchanged_names_and_leave_removed_ones_out(
+def test_authorization_keeps_an_editable_value_with_the_toggle_locked_on(
     app_clean: str, page: Page
 ) -> None:
     sid = _seed_keyed(app_clean)
-    _credentialed(
-        app_clean,
-        "put-agent",
-        sid,
-        "keyed",
-        {"headers": {"X-Org": "org-val-0001", "X-Api-Key": "key-val-00002"}},
-    )
-    _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "put-agent")
-    _expand(page, sid)
-    # Replace one: the other keeps its mask.
-    _btn(page, "replace", sid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("brand-new-key-3")
-    put = _save_put(page, "put-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] == {
-        "X-Org": "__MASKED__",
-        "X-Api-Key": "brand-new-key-3",
-    }
-    assert "bearer_token" not in put["mcp_overrides"]["keyed"]
-    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
-
-    # Remove one: it is left out.
-    _btn(page, "reset", sid, "X-Org").click()
-    put = _save_put(page, "put-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] == {"X-Api-Key": "__MASKED__"}
-    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
-
-    # Remove the last: headers is null.
-    _btn(page, "reset", sid, "X-Api-Key").click()
-    put = _save_put(page, "put-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] is None
-    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
-    stored = (_get_agent(app_clean, "put-agent")["mcp_overrides"] or {}).get("keyed") or {}
-    assert not stored.get("headers")
-
-
-@pytest.mark.browser
-def test_authorization_row_clears_a_stored_bearer_token(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _credentialed(
-        app_clean,
-        "bearer-agent",
-        sid,
-        "keyed",
-        {"bearer_token": "bearer-token-value-1"},
-    )
+    _credentialed(app_clean, "bearer-agent", sid, "keyed", {"bearer_token": "bearer-token-value-1"})
     _mock_agent_test(page, sid)
     _open_tools(page, app_clean, "bearer-agent")
     _expand(page, sid)
-    expect(_state(page, sid, "Authorization")).to_have_text("Set for this agent")
-    _btn(page, "replace", sid, "Authorization").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-Authorization").fill("Bearer replaced-token-2")
-    put = _save_put(page, "bearer-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] == {"Authorization": "Bearer replaced-token-2"}
-    assert put["mcp_overrides"]["keyed"]["bearer_token"] is None
-    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
-
-    # Removing it later leaves no Authorization at all.
-    _btn(page, "reset", sid, "Authorization").click()
-    put = _save_put(page, "bearer-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] is None
+    _btn(page, "override", sid).click()
+    auth = _trs(page, sid).nth(2)
+    expect(_key(auth)).to_have_value("Authorization")
+    expect(_toggle(auth)).to_be_checked()
+    expect(_toggle(auth)).to_be_disabled()
+    expect(_value(auth)).to_be_editable()
+    # Unchanged: a bearer is kept (nothing sent for it).
+    _value(_tr(page, sid, "X-Api-Key")).fill("api-key-value-01")
+    body = _tile_save(page, sid)
+    assert body == {"headers": {"X-Api-Key": "api-key-value-01"}, "plain_names": None}
+    # Replace it: the new value goes in headers and the stored bearer is cleared.
+    _btn(page, "override", sid).click()
+    auth = _trs(page, sid).nth(2)
+    _value(auth).fill("Bearer replaced-token-2")
+    body = _tile_save(page, sid)
+    assert body["headers"]["Authorization"] == "Bearer replaced-token-2"
+    assert body["bearer_token"] is None
+    assert body["plain_names"] is None
 
 
 @pytest.mark.browser
-def test_stored_spelling_is_sent_for_an_unchanged_or_replaced_name(
+def test_a_typed_authorization_key_locks_its_toggle(app_clean: str, page: Page) -> None:
+    sid = _seed_plain(app_clean)
+    _seed_agent(app_clean, "auth-typed-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "auth-typed-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    row = _trs(page, sid).nth(0)
+    _key(row).fill("X-Thing")
+    expect(_toggle(row)).to_be_enabled()
+    _key(row).fill("authorization")
+    expect(_toggle(row)).to_be_disabled()
+    expect(_toggle(row)).to_be_checked()
+    _key(row).fill("X-Thing")
+    expect(_toggle(row)).to_be_enabled()
+
+
+# ── The tile's Save ────────────────────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_set_a_value_then_save_writes_through_the_targeted_route_and_retests(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "set-agent", mcp_source_ids=[sid])
+    bodies: list = []
+    _mock_agent_test(page, sid, bodies)
+    _open_tools(page, app_clean, "set-agent")
+    _expand(page, sid)
+    expect(_status(page, sid)).to_have_text("Needs a value for X-Api-Key")
+    assert bodies == []
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("set-key-value-0001")
+    body = _tile_save(page, sid)
+    assert body == {"headers": {"X-Api-Key": "set-key-value-0001"}, "plain_names": None}
+    # Locked again, focus on Override, announced, the row overridden, the value masked.
+    live = _tid(page, f"mcp-agent-cred-live-{sid}")
+    expect(_btn(page, "override", sid)).to_be_focused(timeout=8000)
+    expect(live).to_have_text("Saved")
+    expect(_btn(page, "save", sid)).to_be_hidden()
+    api = _tr(page, sid, "X-Api-Key")
+    expect(_pill(api)).to_be_visible()
+    expect(_value(api)).not_to_have_value("set-key-value-0001")
+    expect(_value(api)).not_to_have_value("")
+    # One re-test with the saved values (overrides: null), then its result.
+    expect(_status(page, sid)).to_have_text(
+        "Connected with this agent's values · 2 tools", timeout=8000
+    )
+    assert bodies == [{"agent": "set-agent", "overrides": None}], bodies
+    stored = _get_agent(app_clean, "set-agent")["mcp_overrides"]["keyed"]
+    assert list(stored["headers"]) == ["X-Api-Key"]
+    assert "set-key-value-0001" not in page.content()
+    # The editor's own Save was never involved.
+    expect(page.locator(SAVE)).to_be_disabled()
+    expect(page.locator(UNSAVED)).to_have_text("")
+
+
+@pytest.mark.browser
+def test_a_non_sensitive_value_round_trips_in_clear(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "plain-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "plain-agent")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    org = _tr(page, sid, "X-Org")
+    _value(org).fill("acme-clear-text")
+    _toggle(org).uncheck()  # a typed value stays (only a stored mask is cleared)
+    expect(_value(org)).to_have_value("acme-clear-text")
+    body = _tile_save(page, sid)
+    assert body == {"headers": {"X-Org": "acme-clear-text"}, "plain_names": ["X-Org"]}
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value("acme-clear-text")
+    page.reload()  # the route names the source, so its tile opens by itself
+    expect(_tid(page, f"mcp-source-expand-{sid}")).to_have_attribute(
+        "aria-expanded", "true", timeout=8000
+    )
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value("acme-clear-text")
+    _btn(page, "override", sid).click()
+    expect(_toggle(_tr(page, sid, "X-Org"))).not_to_be_checked()
+
+
+@pytest.mark.browser
+def test_a_tile_save_keeps_an_unsaved_attach_and_tool_check_and_the_main_save_sends_no_credentials(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "survive-agent")
+    bodies: list = []
+    _mock_agent_test(page, sid, bodies)
+    _open_tools(page, app_clean, "survive-agent")
+    toggle = _tid(page, f"mcp-source-toggle-{sid}")
+    _click_switch(toggle)  # an unsaved attach: it expands and finds a value missing
+    expect(toggle).to_be_checked()
+    expect(_status(page, sid)).to_have_text("Needs a value for X-Api-Key")
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("survive-key-0001")
+    _btn(page, "test", sid).click()
+    expect(_tid(page, f"mcp-tool-toggle-{sid}-tool_a")).to_be_visible(timeout=8000)
+    assert bodies[-1] == {
+        "agent": "survive-agent",
+        "overrides": {"headers": {"X-Api-Key": "survive-key-0001"}, "plain_names": None},
+    }, bodies
+    tool_a = _tid(page, f"mcp-tool-toggle-{sid}-tool_a")
+    tool_a.uncheck()  # an unsaved tool edit
+    expect(page.locator(SAVE)).to_be_enabled()
+
+    _tile_save(page, sid)
+    expect(_btn(page, "override", sid)).to_be_focused(timeout=8000)
+    # Both unsaved edits survive the tile's Save, and the main Save is still pending.
+    expect(toggle).to_be_checked()
+    expect(_tid(page, f"mcp-tool-toggle-{sid}-tool_a")).not_to_be_checked()
+    expect(_tid(page, f"mcp-tool-toggle-{sid}-tool_b")).to_be_checked()
+    expect(page.locator(SAVE)).to_be_enabled()
+    expect(_status(page, sid)).to_have_text(
+        "Connected with this agent's values · 2 tools", timeout=8000
+    )
+    assert _get_agent(app_clean, "survive-agent")["mcp_source_ids"] == []
+
+    # The main Save carries the attach and the tool filter, and no credential key.
+    put = _main_save_put(page, "survive-agent")
+    assert sid in put["mcp_source_ids"]
+    assert put["mcp_overrides"] == {"keyed": {"disabled_tools": ["tool_a"]}}, put["mcp_overrides"]
+    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
+    stored = _get_agent(app_clean, "survive-agent")["mcp_overrides"]["keyed"]
+    assert stored["disabled_tools"] == ["tool_a"]
+    assert list(stored["headers"]) == ["X-Api-Key"]  # kept by the server's omitted-keeps rule
+
+
+@pytest.mark.browser
+def test_the_main_save_of_a_credentialed_agent_keeps_its_credentials(
     app_clean: str, page: Page
 ) -> None:
     sid = _seed_keyed(app_clean)
     _credentialed(
         app_clean,
-        "case-agent",
+        "main-agent",
         sid,
         "keyed",
-        {"headers": {"x-api-key": "lowercase-key-0001", "x-org": "lowercase-org-0002"}},
+        {"headers": {"X-Api-Key": "main-key-value-1"}, "disabled_tools": ["tool_b"]},
     )
     _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "case-agent")
+    _open_tools(page, app_clean, "main-agent")
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-field="description"]').fill("changed description")
+    put = _main_save_put(page, "main-agent")
+    for entry in (put.get("mcp_overrides") or {}).values():
+        assert "headers" not in entry and "env" not in entry and "bearer_token" not in entry
+    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
+    stored = _get_agent(app_clean, "main-agent")["mcp_overrides"]["keyed"]
+    assert list(stored["headers"]) == ["X-Api-Key"]
+    assert stored["disabled_tools"] == ["tool_b"]
+
+
+@pytest.mark.browser
+def test_a_real_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "refuse-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "refuse-agent")
     _expand(page, sid)
-    # One row per name, the server's spelling on the row.
-    expect(_row(page, sid, "X-Api-Key")).to_have_count(1)
-    expect(_state(page, sid, "X-Api-Key")).to_have_text("Set for this agent")
-    _btn(page, "replace", sid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("spelled-new-value-1")
-    put = _save_put(page, "case-agent")
-    assert put["mcp_overrides"]["keyed"]["headers"] == {
-        "x-api-key": "spelled-new-value-1",
-        "x-org": "__MASKED__",
-    }
+    _btn(page, "override", sid).click()
+    _tid(page, f"mcp-agent-cred-add-{sid}").click()
+    row = _trs(page, sid).nth(2)
+    # A name with a space is not a header name: the server refuses it.
+    _key(row).fill("Bad Name")
+    _value(row).fill("some-value-01")
+    _btn(page, "save", sid).click()
+    err = row.locator("[role=alert]")
+    expect(err).to_have_count(1, timeout=8000)
+    expect(err).not_to_be_empty()
+    assert "some-value-01" not in (err.text_content() or "")
+    expect(_value(row)).to_be_focused()
+    expect(_value(row)).to_have_attribute("aria-invalid", "true")
+    # Still unlocked, nothing stored.
+    expect(_btn(page, "save", sid)).to_be_visible()
+    assert not (_get_agent(app_clean, "refuse-agent")["mcp_overrides"] or {}).get("keyed")
+
+
+@pytest.mark.browser
+def test_save_is_disabled_for_an_agent_that_has_never_been_saved(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _mock_agent_test(page, sid)
+    _nav.goto(page, app_clean, "agents/~new")
+    _tid(page, "tab-tools").click()
+    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true", timeout=8000)
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("create-key-0001")
+    expect(_btn(page, "save", sid)).to_be_disabled()
+    expect(_tid(page, f"mcp-agent-cred-create-note-{sid}")).to_have_text(
+        "Save the agent first to set its own headers."
+    )
+    expect(_btn(page, "test", sid)).to_be_enabled()
+
+
+@pytest.mark.browser
+def test_leaving_with_unsaved_tile_edits_asks_once(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "guard-agent", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "guard-agent")
+    _expand(page, sid)
+    # Opening, looking and closing a tile stays clean: no dialog on leaving.
+    _btn(page, "override", sid).click()
+    _btn(page, "cancel", sid).click()
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("guard-key-00001")
+    page.locator('[data-testid="rail-library"]').click()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(1)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(_value(_tr(page, sid, "X-Api-Key"))).to_have_value("guard-key-00001")
+    page.locator('[data-testid="rail-library"]').click()
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
+    assert not (_get_agent(app_clean, "guard-agent")["mcp_overrides"] or {}).get("keyed")
+
+
+# ── When a tile tests, and which list it shows ─────────────────────────────
 
 
 @pytest.mark.browser
@@ -458,36 +715,6 @@ def test_open_and_close_stays_clean(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_a_credential_edit_on_an_unloaded_tile_keeps_the_stored_filters(
-    app_clean: str, page: Page
-) -> None:
-    kid = _seed_keyed(app_clean, "filtered")
-    _seed_agent(
-        app_clean,
-        "filter-agent",
-        mcp_source_ids=[kid],
-        mcp_overrides={"filtered": {"disabled_tools": ["tool_b"]}},
-    )
-    _mock_agent_test(page, kid)
-    _open_tools(page, app_clean, "filter-agent")
-    _expand(page, kid)
-    expect(_status(page, kid)).to_have_text("Needs a value for X-Api-Key")
-    expect(_tid(page, f"mcp-tool-toggle-{kid}-tool_a")).to_have_count(0)
-    _btn(page, "set", kid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{kid}-X-Api-Key").fill("filter-key-0001")
-    put = _save_put(page, "filter-agent")
-    assert put["mcp_overrides"]["filtered"] == {
-        "disabled_tools": ["tool_b"],
-        "headers": {"X-Api-Key": "filter-key-0001"},
-    }
-    stored = _get_agent(app_clean, "filter-agent")["mcp_overrides"]["filtered"]
-    assert stored["disabled_tools"] == ["tool_b"]
-
-
-# ── When a tile tests, and which list it shows ─────────────────────────────
-
-
-@pytest.mark.browser
 def test_switch_on_tests_at_once_with_the_unsaved_values(app_clean: str, page: Page) -> None:
     sid = _seed_plain(app_clean, "switch-src")
     _seed_agent(app_clean, "switch-agent")
@@ -511,7 +738,9 @@ def test_switch_on_tests_at_once_with_the_unsaved_values(app_clean: str, page: P
 
 
 @pytest.mark.browser
-def test_switch_on_reports_a_missing_value_without_a_request(app_clean: str, page: Page) -> None:
+def test_switch_on_reports_a_missing_value_and_test_sends_the_unsaved_values(
+    app_clean: str, page: Page
+) -> None:
     sid = _seed_keyed(app_clean)
     _seed_agent(app_clean, "needs-agent")
     bodies: list = []
@@ -519,27 +748,29 @@ def test_switch_on_reports_a_missing_value_without_a_request(app_clean: str, pag
     _open_tools(page, app_clean, "needs-agent")
     _click_switch(_tid(page, f"mcp-source-toggle-{sid}"))
     expect(_status(page, sid)).to_have_text("Needs a value for X-Api-Key")
-    expect(_state(page, sid, "X-Api-Key")).to_have_text("Set per agent · missing")
     expect(_tid(page, f"mcp-tool-toggle-{sid}-tool_a")).to_have_count(0)
     page.wait_for_timeout(300)
     assert bodies == []
 
-    # Typing the value, then Test, sends the unsaved values.
-    _btn(page, "set", sid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("typed-key-0001")
-    _tid(page, f"mcp-agent-cred-test-{sid}").click()
+    # Typing the value, then Test, sends the unsaved values; the line follows the typing.
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("typed-key-0001")
+    expect(_status(page, sid)).to_have_text("")  # the "Needs a value" line follows the typing
+    _btn(page, "test", sid).click()
     expect(_status(page, sid)).to_have_text(
         "Connected with this agent's values · 2 tools", timeout=6000
     )
     assert bodies == [
-        {"agent": "needs-agent", "overrides": {"headers": {"X-Api-Key": "typed-key-0001"}}}
+        {
+            "agent": "needs-agent",
+            "overrides": {"headers": {"X-Api-Key": "typed-key-0001"}, "plain_names": None},
+        }
     ], bodies
-    # Refresh forces a new request, too.
-    _tid(page, f"mcp-refresh-tools-btn-{sid}").click()
-    expect(_status(page, sid)).to_have_text(
-        "Connected with this agent's values · 2 tools", timeout=6000
-    )
-    assert len(bodies) == 2
+    # Cancel discards the typed value; the locked table has a value missing again.
+    _btn(page, "cancel", sid).click()
+    _btn(page, "test", sid).click()
+    expect(_status(page, sid)).to_have_text("Needs a value for X-Api-Key")
+    assert len(bodies) == 1, bodies
 
 
 @pytest.mark.browser
@@ -626,197 +857,6 @@ def test_a_credentialed_agent_is_never_shown_the_shared_list(app_clean: str, pag
 
 
 @pytest.mark.browser
-def test_a_stored_per_agent_list_shows_without_a_request_and_survives_a_save(
-    app_clean: str, page: Page
-) -> None:
-    sid = _seed_keyed(app_clean)
-    entry = {"headers": {"X-Api-Key": "cache-key-0001"}}
-    _credentialed(app_clean, "cache-agent", sid, "keyed", entry)
-    cache = {sid: {"tools": TOOLS_AB, "fetched_at": "2026-11-03T10:00:00+00:00"}}
-    bodies: list = []
-    _mock_agent_test(page, sid, bodies)
-
-    def with_cache(route):
-        resp = route.fetch()
-        data = resp.json()
-        data["mcp_tool_cache"] = cache
-        route.fulfill(response=resp, json=data)
-
-    def route_agent(route):
-        if route.request.method in ("GET", "PUT"):
-            with_cache(route)
-        else:
-            route.continue_()
-
-    page.route("**/api/agents/cache-agent", route_agent)
-    _open_tools(page, app_clean, "cache-agent")
-    tile = _tid(page, f"mcp-source-row-{sid}")
-    expect(tile.locator(".ui-group-tile-chip").nth(0)).to_have_text("2 / 2 enabled", timeout=6000)
-    expect(_status(page, sid)).to_have_text("Last checked with this agent's values · 2 tools")
-
-    # A save of an unrelated field keeps the list (the list route has no cache). The tile
-    # has not been opened, so its count comes from the cache, not from loaded rows.
-    page.locator('[data-testid="tab-general"]').click()
-    page.locator('[data-field="description"]').fill("changed description")
-    _save_put(page, "cache-agent")
-    expect(page.locator(SAVE)).to_be_disabled(timeout=8000)
-    page.locator('[data-testid="tab-tools"]').click()
-    expect(tile.locator(".ui-group-tile-chip").nth(0)).to_have_text("2 / 2 enabled")
-    expect(_status(page, sid)).to_have_text("Last checked with this agent's values · 2 tools")
-    _expand(page, sid)
-    expect(_tid(page, f"mcp-tool-toggle-{sid}-tool_a")).to_be_visible()
-    assert bodies == []
-
-
-@pytest.mark.browser
-def test_save_retests_a_changed_tile_with_the_saved_values(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _seed_agent(app_clean, "retest-agent", mcp_source_ids=[sid])
-    bodies: list = []
-    _mock_agent_test(page, sid, bodies)
-    _open_tools(page, app_clean, "retest-agent")
-    _expand(page, sid)
-    expect(_status(page, sid)).to_have_text("Needs a value for X-Api-Key")
-    _btn(page, "set", sid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("retest-key-0001")
-    page.locator(SAVE).click()
-    expect(_state(page, sid, "X-Api-Key")).to_have_text("Set for this agent", timeout=8000)
-    expect(_status(page, sid)).to_have_text(
-        "Connected with this agent's values · 2 tools", timeout=8000
-    )
-    assert bodies == [{"agent": "retest-agent", "overrides": None}], bodies
-    expect(page.locator(SAVE)).to_be_disabled()
-
-
-# ── Save refusals (DD2) ────────────────────────────────────────────────────
-
-
-def _row_errors(page: Page, sid: str):
-    return page.locator(f'[data-testid^="mcp-agent-cred-row-error-{sid}-"]')
-
-
-def _refuse_put(page: Page, details: list) -> None:
-    def handler(route) -> None:
-        if route.request.method != "PUT":
-            route.continue_()
-            return
-        route.fulfill(status=422, json={"detail": details})
-
-    page.route("**/api/agents/*", handler)
-
-
-@pytest.mark.browser
-def test_a_real_save_422_lands_on_its_row_with_focus(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _seed_agent(app_clean, "refuse-agent", mcp_source_ids=[sid])
-    _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "refuse-agent")
-    _expand(page, sid)
-    # A name with a space is not a header name: the server refuses it on its row.
-    _tid(page, f"mcp-agent-cred-add-{sid}").click()
-    page.locator(f'[data-testid^="mcp-agent-cred-name-{sid}-"]').last.fill("Bad Name")
-    page.locator(f'[data-testid^="mcp-agent-cred-input-{sid}-"]').last.fill("some-value-01")
-    page.locator(SAVE).click()
-    err = _row_errors(page, sid)
-    expect(err).to_have_count(1, timeout=8000)
-    expect(err).not_to_be_empty()
-    assert "some-value-01" not in (err.text_content() or "")
-    focused = _focused_testid(page) or ""
-    # A refused new row puts focus on its name field.
-    assert focused == f"mcp-agent-cred-name-{sid}-new-1", focused
-    expect(page.locator(".editor-error")).not_to_be_visible()
-    # The stored agent is untouched.
-    assert not (_get_agent(app_clean, "refuse-agent")["mcp_overrides"] or {}).get("keyed")
-
-
-@pytest.mark.browser
-def test_an_mcp_refusal_gets_focus_over_a_tool_override_one(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _seed_agent(app_clean, "both-agent", mcp_source_ids=[sid])
-    _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "both-agent")
-    _expand(page, sid)
-    _btn(page, "set", sid, "X-Api-Key").click()
-    _tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key").fill("some-value-01")
-    page.locator('[data-testid="tab-general"]').click()
-    _refuse_put(
-        page,
-        [
-            {
-                "type": "tool_override",
-                "loc": ["tool_overrides", "grep", "allow_binary_files"],
-                "msg": "Binary files are off.",
-            },
-            {
-                "type": "mcp_override",
-                "loc": ["mcp_overrides", "keyed", "headers", "X-Api-Key"],
-                "msg": "A header value can only contain visible ASCII characters.",
-            },
-        ],
-    )
-    # Record every focus move after the Save, so a late move to the tool field is seen.
-    page.evaluate(
-        """() => {
-            window.__focusLog = [];
-            document.addEventListener('focusin', (e) => {
-                window.__focusLog.push(e.target.closest('details.ui-tool-row') ? 'tool' : 'other');
-            }, true);
-        }"""
-    )
-    page.locator(SAVE).click()
-    expect(_tid(page, "tab-tools")).to_have_attribute("aria-selected", "true", timeout=8000)
-    expect(_tid(page, f"mcp-agent-cred-row-error-{sid}-X-Api-Key")).to_contain_text("visible ASCII")
-    expect(page.locator('details.ui-tool-row[data-tool="grep"]')).to_contain_text(
-        "Binary files are off.", timeout=8000
-    )
-    page.wait_for_timeout(300)
-    assert _focused_testid(page) == f"mcp-agent-cred-input-{sid}-X-Api-Key"
-    # Focus never went to the tool override's field, and ends inside the MCP row.
-    assert "tool" not in page.evaluate("() => window.__focusLog")
-    assert page.evaluate(
-        "(sid) => !!document.activeElement.closest('[data-testid^=\"mcp-agent-cred-row-' + sid + '\"]')"
-        " && !document.activeElement.closest('details.ui-tool-row')",
-        sid,
-    )
-    # The refused value input is marked invalid.
-    expect(_tid(page, f"mcp-agent-cred-input-{sid}-X-Api-Key")).to_have_attribute(
-        "aria-invalid", "true"
-    )
-
-
-@pytest.mark.browser
-def test_an_mcp_refusal_with_no_row_or_tile_goes_in_the_header(app_clean: str, page: Page) -> None:
-    sid = _seed_keyed(app_clean)
-    _seed_agent(app_clean, "orphan-agent", mcp_source_ids=[sid])
-    _mock_agent_test(page, sid)
-    _open_tools(page, app_clean, "orphan-agent")
-    _expand(page, sid)
-    _tid(page, f"mcp-agent-cred-add-{sid}").click()
-    page.locator(f'[data-testid^="mcp-agent-cred-name-{sid}-"]').last.fill("X-New")
-    page.locator(f'[data-testid^="mcp-agent-cred-input-{sid}-"]').last.fill("some-value-01")
-    _refuse_put(
-        page,
-        [
-            {
-                "type": "mcp_override",
-                "loc": ["mcp_overrides", "ghost", "headers"],
-                "msg": "No server is named ghost",
-            },
-            {
-                "type": "mcp_override",
-                "loc": ["mcp_overrides", "keyed", "headers"],
-                "msg": "Headers must be a set of names and values.",
-            },
-        ],
-    )
-    page.locator(SAVE).click()
-    expect(page.locator(".editor-error")).to_contain_text("No server is named ghost.", timeout=8000)
-    expect(_tid(page, f"mcp-agent-cred-error-{sid}")).to_have_text(
-        "Headers must be a set of names and values."
-    )
-
-
-@pytest.mark.browser
 def test_a_failed_test_is_announced_once(app_clean: str, page: Page) -> None:
     sid = _seed_plain(app_clean)
     _seed_agent(app_clean, "once-agent", mcp_source_ids=[sid])
@@ -843,7 +883,7 @@ def test_a_failed_test_is_announced_once(app_clean: str, page: Page) -> None:
         sid,
     )
     _mock_agent_test(page, sid)
-    _tid(page, f"mcp-agent-cred-test-{sid}").click()
+    _btn(page, "test", sid).click()
     expect(_status(page, sid)).to_contain_text("Connected", timeout=8000)
     writes = page.evaluate("() => window.__liveAtWrite")
     assert writes and all(live == "polite" for _text, live in writes), writes

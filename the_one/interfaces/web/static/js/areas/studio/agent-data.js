@@ -420,6 +420,29 @@ App.studio.agentData = {
       });
     }
 
+    // The tile's own Save (sortie 09 L06, DD12): writes ONE source's per-agent credentials
+    // through the targeted route and returns the updated agent. The editor's copies follow
+    // (the selected agent and its list entry take the new overrides and per-agent tool
+    // lists), so a later patch or a re-test reads the saved values; the store refetches.
+    function saveMcpCredentials(agentName, sourceId, body) {
+      return App.api.fetchJson('/api/agents/' + encodeURIComponent(agentName) +
+        '/mcp-overrides/' + encodeURIComponent(sourceId) + '/credentials', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (updated) {
+        var copies = [self._selectedAgent];
+        (self._agents || []).forEach(function (a) { copies.push(a); });
+        copies.forEach(function (a) {
+          if (!a || a.name !== updated.name) return;
+          a.mcp_overrides = updated.mcp_overrides;
+          a.mcp_tool_cache = updated.mcp_tool_cache;
+        });
+        App.store.invalidate('agents');
+        return updated;
+      });
+    }
+
     function fetchToolSchema(name) {
       if (_schemaPromiseCache[name]) return _schemaPromiseCache[name];
       var p = fetch('/api/tools/configs/' + encodeURIComponent(name)).then(function (r) {
@@ -537,6 +560,7 @@ App.studio.agentData = {
       refreshMcpSourcesCache: refreshMcpSourcesCache,
       refreshKnowledgeBasesCache: refreshKnowledgeBasesCache,
       testMcpAsAgent: testMcpAsAgent,
+      saveMcpCredentials: saveMcpCredentials,
       fetchToolSchema: fetchToolSchema,
       loadAll: loadAll,
       showLoadAllError: showLoadAllError,

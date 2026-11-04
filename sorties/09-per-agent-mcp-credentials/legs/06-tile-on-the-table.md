@@ -1,6 +1,6 @@
 # Leg: tile-on-the-table
 
-**Status**: planning
+**Status**: in-flight
 **Flight**: [Per-agent MCP credentials](../flight.md)
 
 ## Objective
@@ -143,3 +143,58 @@ The agent editor's main Save stops carrying credentials, Refresh is removed, and
 
 ## Citation Audit
 Re-check every citation after leg 5 lands: its factory option names, `setRow` behaviour, the route path and response shape. The leg 3 module structure was cited from its landing report and code review (flight log).
+
+---
+
+## Design review changes (binding; they override the AC text above where they differ)
+From the Developer design review (2026-11-04), with the Flight Director's calls on its questions. Leg 5 was committed at `56057a65`; re-run the Citation Audit against it.
+
+1. **The tile's Save rebases only that tile** (`entry.cred.setAgent(saved)` and the tab's `currentAgent`), **never** the tab-level `mcps-tab.js::setAgent`/`patchEntry`. Those reset the attach switch and the tool rows from the stored agent, which would drop an unsaved attach or tool edit. New AC9 case: an unsaved attach switch and an unsaved tool check both survive a tile Save.
+2. **The controller's copies follow a tile Save.**
+   - A callback from the tab to the editor (for example `cb.onCredentialsSaved(updatedAgent)`), implemented in `agent-data.js` (the controller is at 792 of 800 lines), merges `mcp_overrides` and `mcp_tool_cache` into `self._selectedAgent` and the `self._agents` entry, as the existing `found.mcp_tool_cache = …` copy does, then calls `App.store.invalidate('agents')`.
+   - The post-save re-test (`overrides: null`) reads the updated `currentAgent`, so the credentialed list choice holds.
+3. **Authorization (Flight Director calls).**
+   - On a source with `oauth_active`: **no** `Authorization` row in the table, locked or unlocked. A one-line note under the table reads "Authorization is supplied by this server's sign-in."
+   - Elsewhere, an `Authorization` row (a stored `bearer_token`, a server-defined name, or a typed key matching `authorization` case-insensitively, re-evaluated on input) has an editable value and its Sensitive toggle **locked on**.
+   - This needs one new factory value, **`lockBy: 'toggle'`**: the toggle is disabled and checked, and the rest stays editable. It is added in this leg with an engine-parametrised contract test and a catalogue update; `setRow` re-evaluates it.
+   - The tile never puts `Authorization` in `plain_names`.
+4. **Main Save, main Cancel and tile edits (Flight Director call).**
+   - A dirty, unlocked tile is **left alone** by the main Save and the main Cancel, since credentials aren't part of that PUT. `patch`/`setAgent` skip a dirty unlocked tile's credentials section; the tool rows and switches rebase as today.
+   - A clean tile rebases normally.
+   - Only a new identity (another agent, a remount) discards tile edits, and the tile-level leave-guard source asks first.
+5. **The leave guard.**
+   - Register a **separate** `App.nav` source id (for example `'studio-mcp-tiles'`), with `isDirty = editorOpen && mcpsTab()?.anyDirty()` and a no-op `discard` (teardown already discards). Register it once, at studio level, beside the existing source (`studio.js:~702`), reaching the tab through the existing getter.
+   - Remove the `onChange()` call from the credentials change path in `mcps-tab.js` (~415), so tile edits never enable the main Save.
+6. **Dead main-Save credential code** is deleted, which also frees controller lines:
+   - the `mcp_override` branch of `onSaveError_` (`splitItems`/`placeSaveErrors`, controller ~109-125);
+   - `credIds` and the `afterSave` call (~590-591, ~734);
+   - the `credentialPayloads` loop and the stored-filter copy rule in `agent-form-data.js` (~325-343).
+   
+   The empty-entry drop stays. `placeSaveErrors`/`splitItems` survive only if the tile's own 422 handling uses them. Context's "stays" list is superseded by this item.
+7. **Shared helper.**
+   - Extract into `mcpEditor.shared` (`mcp-editor-shared.js`): `titleFor`, `hintFor`, `rowsFromSource`, the column-definition builder, `SENSITIVE_INFO` and `MASKED_SENTINEL` (already there).
+   - The builder takes testids from the caller and carries no Library testids. Update that file's header comment ("no DOM, stateless": the builder uses `App.ui` lazily).
+   - **Load order:** `index.html` loads `mcp-agent-credentials.js` (~106) before `mcp-editor-shared.js` (~127). Read the helper lazily inside `create()`, or reorder the tags (and check any test pinning the order).
+   - AC1's server-order rule is `rowsFromSource`.
+8. **Testids** (this replaces AC8's list).
+   - **Retire only:** `mcp-agent-cred-state-`, `-set-`, `-replace-`, `-reset-`, `-undo-`, `-reveal-`, `-name-`, `-input-`, `-row-`, `-row-error-`, `-empty-` and `mcp-refresh-tools-btn-`.
+   - **Not retired**, since the names are reused for the new controls: `mcp-agent-cred-cancel-` and `mcp-agent-cred-add-`. `RETIRED_SELECTORS` matches by left boundary, so retiring them would break the new ids.
+   - **Registry:** remove the live parametric rows for the retired prefixes, add rows for `-override-`, `-save-`, `-table-` (and update `-cancel-`/`-add-`), and move `mcp-refresh-tools-btn-` from the live table (~613) to the retired table. `tests/test_ui_guards.py` fails on a registered prefix with no build site, and on a built prefix that isn't registered.
+   - **Convention:** the registry note says a retired id can't sit under a live family prefix. Retire the **exact full prefixes** above (each ends with its own segment); if the guard still objects, report it rather than weakening it.
+9. **Rows addressing.** `rowDataset` is evaluated once, at row creation. Give every row a stable `data-rid` (the tile's `_rid`) through `rowDataset` and address rows by it in tests. Server rows also carry `data-name`.
+10. **Mapping rules.**
+    - A 422 `loc` name maps to its row case-insensitively for headers (exactly for env).
+    - An unchanged stored sensitive name is sent as `__MASKED__` under the **stored override's** spelling, even when its row shows the server's spelling.
+    - Emptying an overridden server row's value reverts to the server value: the name is omitted from the payload.
+    - A typed key that duplicates another row's name (case-insensitively for headers) gets a row error, "This name is already in the table.", and Save is disabled until it's fixed.
+    - Before `setRow` disables a focused remove button (trash on an overridden server row reverting it), move focus to that row's value input (accessibility review of leg 5).
+11. **Create mode.** The tile reads `agentName == null` as create mode. Test and Override stay usable; Save is disabled with the note. Edge Cases gains: a new, never-saved agent can no longer carry credentials in its first Save (a change from leg 3, by design).
+12. **`test_studio_mcps_tab.py`:** the Refresh dependencies (~844-851, ~1007-1087, and the clicks at ~1018/1047/1071) are re-driven with **Test**, keeping the merge-on-reload checks rather than deleting them. Keep `.mcp-agent-cred-status`/`-status-actions` CSS (`studio.css:~223-230`); delete `.mcp-agent-cred-row*` (~206-222).
+13. **Housekeeping.**
+    - The Checkpoint's "16 ACs" is 12.
+    - AC10's follow-ups are from `tests/behavior/per-agent-mcp-credentials/runs/2026-11-04-00-59-35.md`.
+    - Fix the leg 5 style nits in `ui/key-value-table.js` (the long line at ~250, the missing space at ~535).
+    - Fix the pre-existing ruff E501 in the rewritten test file.
+14. **Checkpoint (revised).**
+    - **Part A:** the shared extraction; the module rewrite (locked and unlocked tables, trio, Override, tile Save and Cancel, `lockBy: 'toggle'` with its contract test); the tab and editor wiring (items 1, 2, 4, 5, 6); the testid and registry edits (item 8); and the new test file's core cases.
+    - **Part B:** the remaining AC9 cases, AC10, AC11 and AC12.

@@ -106,29 +106,22 @@
         return d && d.type === 'tool_override' && Array.isArray(d.loc) &&
           d.loc[0] === 'tool_overrides' && d.loc.length >= 2;
       });
-      var mcp = App.studio.mcpAgentCredentials.splitItems(items, 'mcp_override');
       var plain = err;
-      if (toolItems.length || mcp.mine.length) {
+      if (toolItems.length) {
         plain = { status: err.status, message: err.message, body: err.body,
-          detail: mcp.rest.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
+          detail: items.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
       }
       var fe = App.api.fieldErrors(plain, ['name']);
       setNameError_(fe.fields.name || null);
       var headerText = fe.text || '';
       if (plain !== err && !plain.detail.length) headerText = '';
-      var placed = null;
-      if (mcp.mine.length) {   // the MCP servers section comes first on the tab: it gets focus
-        setActiveTab('tools');
-        placed = App.studio.mcpAgentCredentials.placeSaveErrors(mcpsTab_(), mcp.mine);
-        headerText = (headerText ? headerText + ' ' : '') + placed.text;
-      }
       setEditorError_(headerText);
       if (fe.fields.name) {
         var input = editorEl.querySelector('#studio-name');
         if (input) input.focus();
-      } else if (placed && placed.focus) placed.focus();
+      }
       if (toolItems.length) {
-        showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name || !!(placed && placed.focus));
+        showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
       }
     }
 
@@ -307,6 +300,7 @@
         // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
         testMcpAsAgent: agentData.testMcpAsAgent,
+        saveMcpCredentials: agentData.saveMcpCredentials,
         // The studio owns the source focus (hydrate applies the URL's value to
         // both slots); the tab reads it from here, never from location.hash.
         pendingMcpAgentSourceId: self._selectedMcpAgentSourceId || self._pendingMcpAgentSourceId || null,
@@ -587,8 +581,6 @@
         return;
       }
       var focusTok = App.focusAfter.begin(saveBtnEl_());
-      // The sources whose credentials this Save changes (re-tested once it lands).
-      var credIds = mcpsTab_() ? mcpsTab_().changedSourceIds() : [];
       // The mount this Save was started from: a response that lands after it was
       // torn down (a discard, another agent) must not render into the new one.
       var saveSlotTok = currentData_() ? currentData_().token : null;
@@ -731,7 +723,6 @@
                 found.mcp_tool_cache = updated.mcp_tool_cache;
                 self._selectedAgent = found;
                 renderEditor(found);
-                if (credIds.length && mcpsTab_()) mcpsTab_().afterSave(found, credIds);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
                 showFlash('Agent saved');
                 // Rewrite the URL so refresh / back-button targets the

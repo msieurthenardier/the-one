@@ -34,17 +34,17 @@
 //   [data-mcp-tool-toggle][data-mcp-source]        on each row's input → enabled/disabled tools
 //   closest('[data-mcp-tool-group]')[data-mcp-tool-mode]
 //
-// Per-agent credentials (sortie 09 leg 3, DD10): every tile body opens with the section
-// built by App.studio.mcpAgentCredentials (headers or environment for this agent, then the
-// connection status line with Test and Refresh), then the tool rows. The tab tests through
+// Per-agent credentials (sortie 09 leg 6, DD12): every tile body opens with the section
+// built by App.studio.mcpAgentCredentials (the Library's headers table, locked until
+// "Override headers", then the status line with Test), then the tool rows. The tile's own
+// Save writes through callbacks.saveMcpCredentials (the targeted route) at once and rebases
+// only that tile; the editor's main Save no longer carries credentials. The tab tests through
 // callbacks.testMcpAsAgent (POST /test/agent): on a user switch-on, on the first expand
-// when no applicable list exists, on Test and Refresh (unsaved values), and after a Save
-// that changed a tile's credentials (afterSave, saved values). Each test carries a per-tile
-// generation; a stale result is dropped. A credentialed agent's tile lists only its own
-// per-agent cache (agent.mcp_tool_cache) or a test result from this mount, never the
-// shared source cache.
-//   h also exposes credentialPayloads() ({source name: payload}), changedSourceIds(),
-//   afterSave(savedAgent, changedSourceIds) and showCredentialErrors(items).
+// when no applicable list exists, on Test (unsaved values while unlocked) and after a tile
+// Save (saved values). Each test carries a per-tile generation; a stale result is dropped.
+// A credentialed agent's tile lists only its own per-agent cache (agent.mcp_tool_cache) or a
+// test result from this mount, never the shared source cache.
+//   h also exposes anyDirty() (a tile is unlocked with unsaved edits: the leave guard).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -168,8 +168,8 @@
         testing: false
       };
 
-      // The credential section and the status line with Test and Refresh (Refresh moved
-      // here from the tile header; it keeps its testid and "Refresh tools for {name}").
+      // The credential section and the status line with its buttons. Its edits never reach
+      // the editor's main dirty state: the tile saves itself.
       entry.cred = credMod.create({
         source: source,
         agent: currentAgent,
@@ -177,7 +177,9 @@
         onTest: function () {
           entry.loadStarted = true;
           runTest(entry, {});
-        }
+        },
+        saveCredentials: callbacks.saveMcpCredentials,
+        onSaved: function (updated) { onCredSaved(entry, updated); }
       });
 
       // Server-declared identity (F4 L2, M08), shown once /test/connect has cached it.
@@ -411,15 +413,24 @@
       else setSettled(entry, 'idle');
     }
 
-    // A credential edit: the editor's dirty check, and a "Needs a value" line follows
-    // the names still missing.
+    // A credential edit: a "Needs a value" line follows the names still missing (the
+    // editor's dirty state is not involved: the tile saves itself).
     function onCredChange(entry) {
-      onChange();
       if (!entry.settled || entry.settled.kind !== 'needs' || entry.testing) return;
       var missing = entry.cred.missing();
       if (missing.join('\n') === (entry.settled.data.names || []).join('\n')) return;
       if (missing.length) setSettled(entry, 'needs', { names: missing });
       else setSettled(entry, 'idle');
+    }
+
+    // A tile Save landed: the tab follows the saved agent (never a tab-level setAgent: that
+    // would reset the attach switch and the tool rows) and tests once with the saved values.
+    function onCredSaved(entry, updated) {
+      currentAgent = updated || currentAgent;
+      if (updated && updated.name) agentName = updated.name;
+      entry.testedTools = null;
+      entry.loadStarted = true;
+      runTest(entry, { saved: true });
     }
 
     function switchOn(entry) {
@@ -491,11 +502,9 @@
         if (destroyed || gen !== entry.gen) return;
         entry.testing = false;
         if (err && err.status === 422 && Array.isArray(err.detail)) {
-          var placed = cred.showErrors(err.detail);
-          if (placed.length) {
+          if (cred.showErrors(err.detail)) {
             setNote(entry, null);
             setSettled(entry, 'error', { withValues: true });
-            placed[0].focus();
             return;
           }
         }
@@ -595,11 +604,16 @@
       setAgent: function (a, opts) {
         currentAgent = a || null;
         if (a && a.name) agentName = a.name;
-        // Always a rebase (select, Save, Cancel): pending credential edits are
-        // discarded, and a test still running on those unsaved values is dropped.
+        // A rebase of the switches and tool rows (select, Save, Cancel). A tile with unsaved
+        // credential edits is left alone (credentials are not part of that Save or Cancel);
+        // a clean tile locks and follows the agent.
         Object.keys(entries).forEach(function (id) {
           var e = entries[id];
-          if (e.cred.isDirty()) { e.gen += 1; e.testing = false; }
+          if (e.cred.isDirty()) {
+            e.cred.adoptAgent(currentAgent);
+            patchEntry(e);
+            return;
+          }
           e.cred.setAgent(currentAgent);
           e.testedTools = null;
           patchEntry(e);
@@ -617,48 +631,9 @@
         if (name !== undefined && name !== null) agentName = name;
         reconcile();
       },
-      // {source name: credential payload} for every tile with unsaved credential edits
-      // (the keys of mcp_overrides are source NAMES).
-      credentialPayloads: function () {
-        var out = {};
-        Object.keys(entries).forEach(function (id) {
-          var p = entries[id].cred.payload();
-          if (p) out[entries[id].source.name] = p;
-        });
-        return out;
-      },
-      changedSourceIds: function () {
-        return Object.keys(entries).filter(function (id) { return entries[id].cred.payload() !== null; });
-      },
-      // After a Save: the handles have rebased on the saved agent (setAgent); each tile
-      // whose credentials the Save changed tests once with the saved values.
-      afterSave: function (saved, changedIds) {
-        if (saved && saved.name) agentName = saved.name;
-        (changedIds || []).forEach(function (id) {
-          var e = entries[id];
-          if (!e) return;
-          e.loadStarted = true;
-          runTest(e, { saved: true });
-        });
-      },
-      // Save-422 items of type mcp_override -> the rows (expands each named tile).
-      // Returns { placed: [{focus}], unplaced: [items with no tile] }.
-      showCredentialErrors: function (items) {
-        var placed = [];
-        var names = Object.keys(entries).map(function (id) { return entries[id].source.name; });
-        var unplaced = (items || []).filter(function (d) { return names.indexOf(d.loc[1]) < 0; });
-        Object.keys(entries).forEach(function (id) {
-          var e = entries[id];
-          var mine = (items || []).filter(function (d) { return d.loc[1] === e.source.name; });
-          if (!mine.length) return;
-          if (!e.tile.isExpanded()) {
-            e.loadStarted = true;
-            e.tile.setExpanded(true);
-            setSelected(e.source.id);
-          }
-          placed = placed.concat(e.cred.showErrors(mine));
-        });
-        return { placed: placed, unplaced: unplaced };
+      // True while any tile is unlocked with unsaved credential edits (the leave guard).
+      anyDirty: function () {
+        return Object.keys(entries).some(function (id) { return entries[id].cred.isDirty(); });
       },
       destroy: function () {
         destroyed = true;

@@ -348,3 +348,51 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
 - **Falsification:** removing the `:disabled` CSS rule fails `test_removable_by_disables_with_the_opaque_look`; disabling the `onBeforeRemove` hook fails `test_on_before_remove_can_cancel` (both yes, restored by edit). Other new tests not falsified.
 - **Deviations / notes:** the credential-gate 401 is covered by the generic gate sweep, not a route test. `ruff check` reports one pre-existing E501 at `tests/browser/test_flow_studio_tools_mcp_credentials.py:777` (committed leg 3 code, untouched here).
 - Leg 5 reviews: code review (Sonnet) `[HANDOFF:confirmed]`, no blocking issues (532 unit and guard tests, 134 contract tests, ruff format clean; the one E501 predates leg 5). Accessibility review (Sonnet) `[HANDOFF:confirmed]`: marker pill contrast about 5.7:1 dark and 5.9:1 light; the disabled remove uses opaque tokens. Notes carried into leg 6: move focus before a `setRow` that disables a focused remove button; two style nits in `key-value-table.js` (a long line at ~250, a missing space at ~535). Leg 5 status `completed`; commit.
+
+### Leg 6 `tile-on-the-table`: design (2026-11-04)
+- Leg 5 committed as `56057a65`.
+- Risk tier: **high**. It rewrites a credential UI and changes the main Save's write path. Reviewers: Sonnet code review plus the Accessibility Reviewer.
+- Developer design review: **approve with changes**, all taken as a binding addendum:
+  - the tile Save rebases only its own tile (never the tab-level `setAgent`);
+  - an `onCredentialsSaved` callback keeps the controller's copies current;
+  - the dead main-Save credential code is deleted;
+  - a separate leave-guard source;
+  - the shared helper's load order;
+  - the testid retirement list corrected (`-cancel-`/`-add-` reused, not retired);
+  - stable `data-rid` row addressing;
+  - mapping rules (case, stored spelling, duplicate keys, emptying an override reverts it);
+  - focus before disabling a focused remove button.
+- Flight Director calls:
+  - a sign-in server shows no `Authorization` row, only a note;
+  - other `Authorization` rows keep an editable value with the toggle locked on, via a new `lockBy: 'toggle'` factory value in this leg;
+  - the main Save and Cancel leave a dirty unlocked tile alone;
+  - create mode disables the tile Save (a change from leg 3).
+- Leg status `ready`. Part A then a checkpoint commit, then Part B.
+
+### Leg 6 part A (checkpoint): built, not committed (leg stays `in-flight`)
+- **Built:**
+  - `mcp-editor-shared.js`: `titleFor`, `hintFor`, `rowsFromSource`, `SENSITIVE_INFO` and `tableColumns(readOnly)` (columns + info button, no testids; callers build the table so testids stay literal for the registry guard). `mcp-env-headers.js` uses them, no behaviour change (`mcp` lane 88 passed untouched).
+  - `ui/key-value-table.js`: `lockBy` now a space-separated token list (`key`, `row`, new `toggle` = toggle checked and disabled, the rest editable; `setRow` re-evaluates); style nits fixed. Contract tests `test_lock_by_toggle_*` (x2 engines) and the catalogue row. CSS: the marker pill sits at the right end of the key input (as in the mockup).
+  - `mcp-agent-credentials.js` rewritten (697 lines): locked read-only table (effective rows, "overridden" pill, masks, clear plain values), Override/Cancel/Save/Test action row, unlocked Library table (server keys read-only, empty value + disabled trash on non-overridden server rows, trash reverts an overridden server row with focus moved to its value first, Authorization toggle locked on, no Authorization row on a sign-in source but a note, duplicate-name row error blocking Save, Add row defaults to sensitive), the DD12 payload (`__MASKED__` under the stored spelling, `plain_names`, `bearer_token: null`), the tile Save with 422 placement on rows, the create-mode note.
+  - `mcps-tab.js`: mounts it; tile Save rebases only that tile (`onCredSaved`, never tab `setAgent`) and re-tests with `overrides: null`; credential edits no longer call the editor's `onChange`; `setAgent` leaves a dirty unlocked tile alone (`adoptAgent`); `anyDirty()`; the leg 3 payload/afterSave/showCredentialErrors hooks and Refresh are gone.
+  - `agent-data.js::saveMcpCredentials` (the targeted PUT, then merges `mcp_overrides` and `mcp_tool_cache` into `_selectedAgent` and the list entry and invalidates `agents`), wired through `agent-editor-controller.js` and `agent-editor.js`. `agent-form-data.js` no longer merges credentials. `studio.js` registers the separate `studio-mcp-tiles` leave-guard source.
+  - Controller 783 lines (was 792); `studio.js` 783. `.mcp-agent-cred-row*` CSS deleted. Registry and `RETIRED_SELECTORS` updated (12 retired prefixes; `-cancel-`/`-add-` reused; new `-override-`, `-save-`, `-table-`, `-oauth-note-`, `-create-note-`).
+- **Tests:** `test_flow_studio_tools_mcp_credentials.py` rewritten (21 tests: locked view, stdio, sign-in note, Override/Cancel, trash on server/agent rows, Add row + duplicates, Authorization, typed Authorization, set + Save body + re-test + pill + lock, non-sensitive round trip across a reload, attach and tool check surviving a tile Save with the main Save body carrying no credentials, main Save keeping credentials, real 422 on a row, create mode, leave guard, plus the kept switch-on, missing-value, stale-result, shared-list, announced-once and clean-open tests). `test_studio_mcps_tab.py` Refresh clicks re-driven with Test (merge-on-reload checks kept; the shape test now pins Test at 32px and the Override button).
+- **Verification:** static guards (ui_guards, token_definitions, a11y, ownership, emitted_classes, control_inventory, area_module_size, store_static, nav_helper, run_tests_lanes) 485 passed; ruff check and format clean; key-value-table contract with `THE_ONE_REQUIRE_WEBKIT=1` 138 passed; new file 21 passed; lanes (`THE_ONE_TEST_NETNS=1`, one at a time): `agent-tabs` 184 passed (356 s), `agents` 180 passed (433 s), `mcp` 88 passed (223 s).
+- **Falsified:** `lockBy: 'toggle'` (enforcement removed: the 4 new contract tests failed; restored). Not falsified: the tile tests (tile-only rebase, targeted body, retest, leave guard).
+- **Deviations:** (1) the controller callback is one function, `agentData.saveMcpCredentials`, that does the PUT and merges the copies itself (no separate `onCredentialsSaved` callback). (2) The two leg 3 tests about a main-Save 422 with mcp_override details (focus over a tool override, header placement) are dropped: the main Save no longer carries credentials; the tile's own 422 test replaces them. (3) The "Needs a value" line clears while typing (existing follow-the-names rule). (4) `lockBy` accepts a token list so a server-defined Authorization row can lock key and toggle together. (5) A blank new row counts as an unsaved tile change (row set differs). (6) Added `-oauth-note-` and `-create-note-` testids (not in AC8).
+- **Screenshots (compare with the approved mockup):** `scratchpad/tile-locked-dark.png`, `tile-unlocked-dark.png`, `tile-locked-light.png`, `tile-unlocked-light.png`.
+- **Left for part B:** remaining AC9 cases, AC10 (behavior spec), AC11 (docs), AC12 (full gate).
+- Leg 6 part A checkpoint (Developer `[HANDOFF:review-needed]`):
+  - static guards 485 passed; key-value-table contract tests 138 passed (WebKit required);
+  - the new credentials test file 21 passed;
+  - `agent-tabs` 184 passed (356 s), `agents` 180 (433 s), `mcp` 88 (223 s); ruff clean.
+  
+  The Flight Director compared the real tile's screenshots (locked and unlocked, dark) with the approved mockup: they match (the "Headers" title, the "overridden" pill, masks and clear values, Override/Test, then the Library table with Cancel/Save/Test).
+- Deviations accepted:
+  - `saveMcpCredentials` in `agent-data.js` merges the editor's copies, in place of a separate callback;
+  - the leg 3 main-Save 422 tests are dropped, replaced by the tile's real 422 test;
+  - `lockBy` is a token list (`key`/`row`/`toggle`), because a server `Authorization` row needs key and toggle locked together;
+  - a blank new row counts as dirty;
+  - two added testids (`-oauth-note-`, `-create-note-`).
+- Checkpoint commit.

@@ -841,16 +841,19 @@ def test_tile_shape_switch_refresh_and_chips(app_clean: str, page: Page) -> None
     expect(tile.locator(".ui-group-tile-chip").nth(1)).to_have_text("http")
     expect(page.locator(f'[data-testid="mcp-source-expand-{sid}"]')).to_have_text("Tools▸")
 
-    # Refresh sits on the status line inside the expanded body (sortie 09), not on the
-    # collapsed tile's header.
-    refresh = page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]')
+    # Test sits on the status line inside the expanded body (sortie 09 leg 6 removed Refresh:
+    # Test does what it did), not on the collapsed tile's header.
+    test_btn = page.locator(f'[data-testid="mcp-agent-cred-test-{sid}"]')
     expect(tile.locator(".ui-group-tile-actions")).to_have_count(0)
     _mock_tools_connect(page, sid, TOOLS_AB)
     _expand_source_tile(page, sid)
-    expect(refresh).to_have_text("Refresh")
-    expect(refresh).to_have_attribute("aria-label", "Refresh tools for shape-source")
-    box = refresh.bounding_box()
-    assert box is not None and round(box["height"]) == 24, box
+    expect(test_btn).to_have_text("Test")
+    expect(test_btn).to_have_attribute("aria-label", "Test connection for shape-source")
+    expect(page.locator(f'[data-testid="mcp-agent-cred-override-{sid}"]')).to_have_text(
+        "Override headers"
+    )
+    box = test_btn.bounding_box()
+    assert box is not None and round(box["height"]) == 32, box
 
 
 @pytest.mark.browser
@@ -1015,7 +1018,7 @@ def test_refresh_patches_rows_by_tool_name_per_mode(app_clean: str, page: Page) 
             {"name": "tool_c", "description": "tool c", "input_schema": {}},
         ],
     )
-    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    page.locator(f'[data-testid="mcp-agent-cred-test-{sid}"]').click()
     expect(_tool(page, sid, "tool_c")).to_be_checked(timeout=6000)
     expect(_tool(page, sid, "tool_b")).to_have_count(0)
     expect(_tool(page, sid, "tool_a")).not_to_be_checked()
@@ -1044,7 +1047,7 @@ def test_refresh_new_tool_is_unchecked_in_allowlist_mode(app_clean: str, page: P
     _mock_tools_connect(
         page, sid, [*TOOLS_AB, {"name": "tool_c", "description": "", "input_schema": {}}]
     )
-    page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]').click()
+    page.locator(f'[data-testid="mcp-agent-cred-test-{sid}"]').click()
     expect(_tool(page, sid, "tool_c")).to_have_count(1, timeout=6000)
     expect(_tool(page, sid, "tool_c")).not_to_be_checked()
     expect(_tool(page, sid, "tool_a")).to_be_checked()
@@ -1068,7 +1071,7 @@ def test_refresh_error_keeps_rows_then_success_clears_it(app_clean: str, page: P
             body=json.dumps({"status": "error", "error": _OPERATOR_ERROR}),
         ),
     )
-    refresh = page.locator(f'[data-testid="mcp-refresh-tools-btn-{sid}"]')
+    refresh = page.locator(f'[data-testid="mcp-agent-cred-test-{sid}"]')
     refresh.click()
     err = page.locator(f'[data-testid="mcp-tools-error-{sid}"]')
     expect(err).to_be_visible(timeout=4000)

@@ -224,9 +224,7 @@ App.registerArea({
       // call-time: the current editor mount's shell (the controller is created after)
       shell: function () { return controller ? controller.shell() : null; },
       // call-time: the current mount's Built-in tools tab handle (field handles for the Save walk)
-      toolsTab: function () { return controller ? controller.toolsTab() : null; },
-      // call-time: the current mount's MCP servers section handle (credential payloads)
-      mcpsTab: function () { return controller ? controller.mcpsTab() : null; }
+      toolsTab: function () { return controller ? controller.toolsTab() : null; }
     });
 
     // The model picker's wiring (M31 F2 L03): the model fetch, capability chips,
@@ -702,6 +700,16 @@ App.registerArea({
     App.nav.registerSource('studio', {
       isDirty: function () { return state.dirty && editorOpen(); },
       discard: discardOpen_
+    });
+    // An MCP tile unlocked with unsaved credential edits (sortie 09 L06): leaving asks once.
+    // The tile saves itself and is not part of the editor's Save, so this is its own source;
+    // teardown discards the edits, so there is nothing for discard to do.
+    App.nav.registerSource('studio-mcp-tiles', {
+      isDirty: function () {
+        var tab = controller ? controller.mcpsTab() : null;
+        return editorOpen() && !!tab && tab.anyDirty();
+      },
+      discard: function () {}
     });
 
     // Pre-fetch MCP source types so the editor mount path doesn't have to

@@ -1206,3 +1206,63 @@ def test_set_row_reevaluates_a_lock_without_rebuilding_or_moving_focus(engine_pa
                   tr.querySelector('.ui-kv-remove').disabled]; }"""
     )
     assert out == [False, False, False]
+
+
+def test_lock_by_toggle_checks_and_disables_only_the_toggle(engine_page: Page) -> None:
+    """Sortie 09 L06: 'toggle' locks the Sensitive switch on; 'key toggle' also locks the key."""
+    p = engine_page
+    _opt(p, ", lockBy: 'lock'")
+    p.evaluate("() => window.__kv.setRow(2, {lock: 'toggle'})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          const t = tr.querySelector('[data-testid=t]');
+          return {checked: t.checked, dis: t.disabled,
+                  key: tr.querySelector('[data-testid=k]').readOnly,
+                  val: tr.querySelector('[data-testid=v]').readOnly,
+                  rm: tr.querySelector('.ui-kv-remove').disabled,
+                  masked: !!tr.querySelector('input[type=password]'),
+                  data: window.__kv.values()[2].sensitive}; }"""
+    )
+    assert out == {
+        "checked": True,
+        "dis": True,
+        "key": False,
+        "val": False,
+        "rm": False,
+        "masked": True,
+        "data": True,
+    }
+    # The value still edits while the toggle is locked.
+    p.get_by_test_id("v").nth(2).fill("typed")
+    assert _vals(p)[2]["value"] == "typed"
+    p.evaluate("() => window.__kv.setRow(2, {lock: 'key toggle'})")
+    out = p.evaluate(
+        """() => { const tr = document.querySelectorAll('tr.ui-kv-row')[2];
+          return [tr.querySelector('[data-testid=k]').readOnly,
+                  tr.querySelector('[data-testid=t]').disabled]; }"""
+    )
+    assert out == [True, True]
+    # Lifting the lock re-enables the toggle (it stays checked until the operator changes it).
+    p.evaluate("() => window.__kv.setRow(2, {lock: ''})")
+    assert (
+        p.evaluate(
+            "() => document.querySelectorAll('tr.ui-kv-row')[2].querySelector('[data-testid=t]').disabled"
+        )
+        is False
+    )
+
+
+def test_lock_by_toggle_at_construction(engine_page: Page) -> None:
+    p = engine_page
+    _opt(
+        p,
+        ", lockBy: 'lock'",
+        rows="[{name: 'Authorization', value: 'x', sensitive: false, lock: 'key toggle'}]",
+    )
+    out = p.evaluate(
+        """() => { const tr = document.querySelector('tr.ui-kv-row');
+          const t = tr.querySelector('[data-testid=t]');
+          return [t.checked, t.disabled, tr.querySelector('[data-testid=k]').readOnly,
+                  !!tr.querySelector('input[type=password]')]; }"""
+    )
+    assert out == [True, True, True, True]
