@@ -1,6 +1,6 @@
 # Sortie: Per-agent MCP credentials
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -11,10 +11,11 @@ One MCP server in the Library can be shared by many agents, each connecting with
 Today, giving agents different keys or permissions on the same server means registering a duplicate server per agent. The backend already stores and applies per-agent overrides (`mcp_overrides[<server>]` `headers` / `bearer_token` / `env`, encrypted, masked, preserved on PUT), but there's no way to set them in the app. The override fields were removed in Mission 07 Flight 8 (Anomaly A5), and the follow-up flight it recommended was never planned.
 
 ### Success Criteria
-- [ ] In an agent's Tools tab, each MCP server tile lets the operator give this agent its own value for any header or environment variable the server defines, or add new ones. Values are write-only: they're never shown again, and saving the agent keeps them. A value left blank in the Library is labelled "Set per agent" and isn't sent unless an agent supplies one.
-- [ ] After Save, the agent's next chat turn uses its new values, with no restart and no waiting for the idle connection to close. Two agents on the same server reach it with different keys, proven against a test server that checks the key.
-- [ ] Each agent's tools, both the Tools tab list and what it can call in chat, come from a listing made with that agent's own credentials. Switching a server on for an agent tests the connection immediately with that agent's credentials and shows the result in the tile: its tools, or a plain reason it needs more configuration (such as a missing or rejected key). So a server with no key in the Library still lists tools for an agent that has one, and two agents with different permissions see different lists.
-- [ ] On a server that uses OAuth sign-in, a per-agent Authorization override is refused with a plain reason, while other headers can still be overridden.
+*(Assessed at close, 2026-11-04: all four met; criterion 1 with operator-approved changes: write-only narrowed to sensitive values, and "Set per agent" replaced by the `value` placeholder and an override hint. See flight-debrief.md, "Charter Criteria Assessment".)*
+- [x] In an agent's Tools tab, each MCP server tile lets the operator give this agent its own value for any header or environment variable the server defines, or add new ones. Values are write-only: they're never shown again, and saving the agent keeps them. A value left blank in the Library is labelled "Set per agent" and isn't sent unless an agent supplies one.
+- [x] After Save, the agent's next chat turn uses its new values, with no restart and no waiting for the idle connection to close. Two agents on the same server reach it with different keys, proven against a test server that checks the key.
+- [x] Each agent's tools, both the Tools tab list and what it can call in chat, come from a listing made with that agent's own credentials. Switching a server on for an agent tests the connection immediately with that agent's credentials and shows the result in the tile: its tools, or a plain reason it needs more configuration (such as a missing or rejected key). So a server with no key in the Library still lists tools for an agent that has one, and two agents with different permissions see different lists.
+- [x] On a server that uses OAuth sign-in, a per-agent Authorization override is refused with a plain reason, while other headers can still be overridden.
 
 ### Constraints
 - Per-agent values are secrets: encrypted at rest, hidden in every API response, kept when the agent is saved (existing rules), never shown to the agent through self-configuration or any other text the agent sees, and never logged.

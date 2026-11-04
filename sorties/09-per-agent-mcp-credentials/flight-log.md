@@ -458,3 +458,4 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
     - the `sed -i` hook gap;
     - the Validator's spec follow-ups;
     - sortie scope growth (three legs plus HAT, grown to six legs plus HAT through the DD12 feature).
+- **Debrief (2026-11-04):** `flight-debrief.md` written. The Developer and Architect interviews, plus the operator (a sortie was the right vehicle; the UI mismatch and the HAT bugs slowed things most). Squawks 0327-0329 were logged as deferred. Version bumped to 0.14.0 (`0e96ea17`). **Sortie status `completed`.**
