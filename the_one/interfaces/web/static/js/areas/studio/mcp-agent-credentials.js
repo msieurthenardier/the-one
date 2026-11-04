@@ -24,8 +24,11 @@
 // UNLOCKED: the Library's editable table (shared.buildTable), model rows
 //   {_rid, key, value, sensitive, _originalMasked, _server, _serverSet, _serverValue,
 //    _serverSensitive, _stored, _bearer, overridden, lock, removable}.
-// A server row's key is read-only and its value starts empty (the server's value applies);
-// trash on an overridden server row returns it to the server's value. Authorization (a stored
+// A server row's key is read-only and its value starts as the server's own (clear for a plain
+// value, the mask for a secret, shown the way the Library shows a stored secret); an unchanged
+// server row is no override (omitted, no pill), changing it makes one (sensitivity alone does
+// not; clearing the value means "no override"). Superseded DD12 at HAT H6. Trash on an
+// overridden server row returns it to the server's value. Authorization (a stored
 // bearer token, a server-defined name, or any typed key matching it) keeps an editable value
 // with the Sensitive toggle locked on; a server with sign-in shows no Authorization row, only a
 // note. Save writes through the targeted route immediately; Cancel restores the baseline.
@@ -109,7 +112,11 @@
     // ── Model ────────────────────────────────────────────────────────────────
 
     function decorate(r) {
-      r.overridden = r._server ? nonBlank(r.value) : true;
+      // A server row is an override once it holds a value that is not the server's own (a stored
+      // override or bearer counts as one while it has a value, HAT H6).
+      r.overridden = r._server
+        ? nonBlank(r.value) && (r._stored || r._bearer || String(r.value) !== String(r._serverValue))
+        : true;
       r.removable = r._server ? r.overridden : true;
       var tok = [];
       if (r._server) tok.push('key');
@@ -143,8 +150,9 @@
 
       function row(key, server, s) {
         return {
-          _rid: nextRid(), key: key, value: '', sensitive: server ? s.sensitive : true,
-          _originalMasked: '', _server: server, _serverSet: server && nonBlank(s.value),
+          _rid: nextRid(), key: key, value: server ? String(s.value) : '',
+          sensitive: server ? s.sensitive : true,
+          _originalMasked: server && s.sensitive ? String(s.value) : '', _server: server, _serverSet: server && nonBlank(s.value),
           _serverValue: server ? s.value : '', _serverSensitive: server ? s.sensitive : true,
           _stored: null, _bearer: false
         };
@@ -245,6 +253,8 @@
         if (r._bearer) bearerRow = r;
         if (!key || val === '') return;
         if (r._bearer && val === r._originalMasked) return;     // an unchanged bearer is kept
+        // An unchanged server row is not an override (the server's value applies).
+        if (r._server && !r._stored && !r._bearer && val === String(r._serverValue)) return;
         var name = r._stored && keyOf(r._stored) === keyOf(key) ? r._stored : key;
         if (r.sensitive) {
           out[name] = r._stored && r._originalMasked && val === r._originalMasked ? MASK : val;
@@ -441,7 +451,8 @@
       st.dup = false;
       vals.forEach(function (r, i) {
         var want = decorate({
-          key: r.key, value: r.value, sensitive: r.sensitive, _server: !!r._server
+          key: r.key, value: r.value, sensitive: r.sensitive, _server: !!r._server,
+          _stored: r._stored, _bearer: r._bearer, _serverValue: r._serverValue
         });
         var patch = {};
         if (!!r.overridden !== want.overridden) patch.overridden = want.overridden;
@@ -487,8 +498,9 @@
       if (!row._server) return true;
       cur.table.focusRow(index, 'value');
       cur.table.setRow(index, {
-        value: '', _originalMasked: '', sensitive: !!row._serverSensitive,
-        overridden: false, removable: false
+        value: String(row._serverValue), sensitive: !!row._serverSensitive,
+        _originalMasked: row._serverSensitive ? String(row._serverValue) : '',
+        _stored: null, _bearer: false, overridden: false, removable: false
       });
       afterEdit();
       return false;

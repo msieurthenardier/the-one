@@ -248,7 +248,7 @@ Library editor, blank value:
   Above the table sits a single **"Override headers"** button ("Override environment variables" for stdio).
 - **Unlocked (after "Override headers"):**
   - the table becomes the same editable table as the Library's: Key, Value, Sensitive, trash and "+ Add row";
-  - a server row's key is not editable, and its value starts empty with the "value" placeholder;
+  - a server row's key is not editable, and its value starts empty with the "value" placeholder; (superseded at HAT H6: it starts at the server's own value, clear or its mask; unchanged is no override, changing it is one, clearing it means none)
   - typing a value sets this agent's override; leaving it empty keeps the server's value;
   - trash on a server row removes this agent's value and returns to the server's;
   - trash on an agent-only row removes it;

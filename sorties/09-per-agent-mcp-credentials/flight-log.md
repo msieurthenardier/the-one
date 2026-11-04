@@ -426,3 +426,4 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - **Operator change:** Override blanked the server's `acme` value to the "value" placeholder until Save, which is confusing. The unlocked view should keep the existing value.
   - New rule: a server row starts with the server's current value (clear, or its mask); unchanged means no override; changed means an override; trash reverts to the server's value.
   - A single-surface interaction **fix**, inline. Queued behind the name-vs-value fix, which edits the same module.
+- HAT H6 (inline fix): the unlocked agent-tile table starts a non-overridden server row at the server's own value (clear, or its mask in stored-secret mode); unchanged = no override (omitted, no pill), changed = override, cleared = none; trash reverts to the server value; sensitivity alone is not an override. Supersedes DD12's empty-with-placeholder start.

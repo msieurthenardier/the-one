@@ -382,10 +382,12 @@ def test_trash_on_an_overridden_server_row_returns_to_the_server_value(
     _btn(page, "override", sid).click()
     org = _tr(page, sid, "X-Org")
     expect(_trs(page, sid)).to_have_count(3)
-    # Server row: the row stays, empty, with a disabled trash; focus moves to its value input.
+    # Server row: the row stays at the server's value with a disabled trash; focus moves to
+    # its value input.
     _trash(org).click()
     expect(_trs(page, sid)).to_have_count(3)
-    expect(_value(org)).to_have_value("")
+    expect(_value(org)).to_have_value("acme")   # the server's own value, not empty (H6)
+    expect(_toggle(org)).not_to_be_checked()
     expect(_trash(org)).to_be_disabled()
     expect(_pill(org)).to_be_hidden()
     expect(_value(org)).to_be_focused()
@@ -775,6 +777,59 @@ def test_emptying_an_overridden_server_value_reverts_to_the_server_value(
     expect(_pill(_tr(page, sid, "X-Org"))).to_be_hidden()
     stored = _get_agent(app_clean, "empty-agent")["mcp_overrides"]["keyed"]
     assert list(stored["headers"]) == ["X-Api-Key"]
+
+
+@pytest.mark.browser
+def test_an_unchanged_server_row_keeps_the_server_value_and_sends_no_override(
+    app_clean: str, page: Page
+) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "h6-keep", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "h6-keep")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    org = _tr(page, sid, "X-Org")
+    # The server's value shows (no blank, no placeholder), no pill, trash disabled.
+    expect(_value(org)).to_have_value("acme")
+    expect(_pill(org)).to_be_hidden()
+    expect(_trash(org)).to_be_disabled()
+    expect(_btn(page, "save", sid)).to_be_disabled()
+    # Override then Cancel with no change reads clean and restores the same view.
+    _btn(page, "cancel", sid).click()
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value("acme")
+    _btn(page, "override", sid).click()
+    _value(_tr(page, sid, "X-Api-Key")).fill("h6-key-value-001")
+    body = _tile_save(page, sid)
+    assert body == {"headers": {"X-Api-Key": "h6-key-value-001"}, "plain_names": None}, body
+    stored = _get_agent(app_clean, "h6-keep")["mcp_overrides"]["keyed"]
+    assert list(stored["headers"]) == ["X-Api-Key"]
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value("acme")
+    expect(_pill(_tr(page, sid, "X-Org"))).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_editing_a_server_row_value_overrides_it(app_clean: str, page: Page) -> None:
+    sid = _seed_keyed(app_clean)
+    _seed_agent(app_clean, "h6-edit", mcp_source_ids=[sid])
+    _mock_agent_test(page, sid)
+    _open_tools(page, app_clean, "h6-edit")
+    _expand(page, sid)
+    _btn(page, "override", sid).click()
+    org = _tr(page, sid, "X-Org")
+    _value(org).fill("other-org")
+    expect(_pill(org)).to_be_visible()
+    expect(_trash(org)).to_be_enabled()
+    expect(_btn(page, "save", sid)).to_be_enabled()
+    # Clearing it means no override (no pill; the value is left out of a Save).
+    _value(org).fill("")
+    expect(_pill(org)).to_be_hidden()
+    expect(_trash(org)).to_be_disabled()
+    _value(org).fill("other-org")
+    body = _tile_save(page, sid)
+    assert body == {"headers": {"X-Org": "other-org"}, "plain_names": ["X-Org"]}, body
+    expect(_pill(_tr(page, sid, "X-Org"))).to_be_visible()
+    expect(_value(_tr(page, sid, "X-Org"))).to_have_value("other-org")
 
 
 @pytest.mark.browser
