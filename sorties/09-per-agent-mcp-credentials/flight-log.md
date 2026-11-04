@@ -281,3 +281,16 @@ Review 1's findings are resolved in the text. The rewrite introduced four medium
   - switch-on with a known missing value doesn't call `/test/agent` (computed in the client);
   - the switch track overlay intercepts locator clicks (real pointer clicks work).
 - **Spec follow-ups** (Validator closing): name the pre-save row state, the cached wording and the `editor-unsaved` observable; note that the mock response is global; consider a positive encrypted-column check in step 14.
+
+### Leg 4 `hat` (2026-11-04)
+- Session environment (Flight Director):
+  - scratch instance on port 8486 (`~/the-one-bt-s09/hat-data`, `THE_ONE_SANDBOX_DISABLED=1` for the stdio step) and a key server;
+  - seeded with `alpha`, `beta`, `plain`, `keyed` (blank `X-Api-Key`), `signin-demo` (fake OAuth tokens written to the scratch database through the encrypted repository, so `oauth_active` is true) and `hello-stdio` (blank `HELLO_TOKEN`).
+- Two handoff links lapsed for the operator. The log shows the second was used and the app loaded with every request at 200 before the WebSocket closed, which is consistent with the window being closed or a different browser opened. A third link was minted with guidance to keep the same browser window.
+- **H1, operator decision (changes charter criterion 1's wording):** the Library wording was confusing.
+  - The value placeholder returns to its pre-sortie `value`; "Set per agent" is dropped from the Library editor.
+  - The hint becomes "Optionally override headers in agent settings." (stdio: "Optionally override environment variables in agent settings.").
+  - A blank Library value is still never sent, and the agent tile's "Set per agent · missing" row state is unchanged.
+  - Fix-vs-feature: a look-and-feel **fix**, one surface, inline.
+  - Behavior spec step 3 re-authored to the new wording.
+- H1 fix committed: placeholder `value`, hint by table type; `make test-unit` (netns) 8934 passed, 15 skipped; `mcp` lane 88 passed.

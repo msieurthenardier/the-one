@@ -326,7 +326,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
 | `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
-| `mcp-env-headers-hint` | studio | The section's one hint line, "A blank value isn't sent. Agents can set their own in their Tools tab." (sortie 09 leg 3, DD3) |
+| `mcp-env-headers-hint` | studio | The section's one hint line, "Optionally override headers in agent settings." (streamable-http) or "Optionally override environment variables in agent settings." (stdio) (sortie 09 leg 3, DD3) |
 | `mcp-kv-table` | studio | The environment variables / headers `App.ui.keyValueTable` (`<table>`, named like its section); its thead hides while it has no rows (M31 F5 L07) |
 | `mcp-sandbox-section` | studio | |
 | `mcp-server-facts` | studio | The Server section's `App.ui.facts` (Version, Protocol, Offers, Website; only rows with a value) (M31 F5 L09, A16) |

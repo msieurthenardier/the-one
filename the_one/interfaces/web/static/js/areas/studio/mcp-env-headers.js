@@ -52,6 +52,12 @@
     return type === 'streamable-http' ? 'Headers' : 'Environment variables';
   }
 
+  function hintFor(type) {
+    return 'Optionally override ' +
+      (type === 'streamable-http' ? 'headers' : 'environment variables') +
+      ' in agent settings.';
+  }
+
   // The rows a stored source shows: plaintext first (dict order), then secrets, the
   // plaintext winning a duplicate key. A stored secret's value is its mask.
   function rowsFromSource(source, type) {
@@ -121,7 +127,7 @@
         columns: [
           { key: 'key', label: 'Key', placeholder: 'KEY', mono: true },
           {
-            key: 'value', label: 'Value', placeholder: 'Set per agent', type: 'secret',
+            key: 'value', label: 'Value', placeholder: 'value', type: 'secret',
             maskedBy: 'sensitive', storedKey: '_originalMasked', clearOnUnmask: true
           },
           { key: 'sensitive', label: head, type: 'toggle', ariaLabel: 'Sensitive', width: '120px' }
@@ -143,7 +149,7 @@
     table = buildTable(currentType, baseline.map(function (r) { return snapshotOf(r); }));
     var section = ui.section({
       title: titleFor(currentType), layout: 'stack', testid: 'mcp-env-headers-section',
-      description: "A blank value isn't sent. Agents can set their own in their Tools tab.",
+      description: hintFor(currentType),
       descriptionTestid: 'mcp-env-headers-hint',
       children: [table.el]
     });
@@ -194,6 +200,8 @@
       }
       currentType = type;
       section.setTitle(titleFor(type));
+      var hintEl = section.el.querySelector('[data-testid="mcp-env-headers-hint"]');
+      if (hintEl) hintEl.textContent = hintFor(type);
       var old = table;
       var rows = liveRows();
       table = buildTable(type, rows);
