@@ -12,14 +12,15 @@
 //                          library/knowledge[/~new|/{kbId}] knowledge[/new|/{kbId}]
 //                          library/mcp[/~new|/{id}]      mcp-sources[/new|/{id}]
 //                          library/connectors[/~new|/{id}] connectors[/new|/{id}]
-//   settings      admin    settings/appearance           appearance
+//                          library/secrets[/~new|/{id}]  secrets[/new|/{id}]  (sortie 10)
+//   settings     admin    settings/appearance           appearance
 //                          settings/prompts              prompts
 //                          settings/encryption           encryption
 //                          settings/tools[/{name}]       tools[/{name}]
 //                          settings/knowledge-indexing   knowledge
 //
 // `#library` is Library's own route (the start page). A bare section URL
-// (`library/providers`, `library/knowledge`, `library/mcp`, `library/connectors`: no id, no `~new`)
+// (`library/providers`, `library/knowledge`, `library/mcp`, `library/connectors`, `library/secrets`: no id, no `~new`)
 // is an alias that redirects to it, like `settings/general`; nothing produces one.
 //
 // `settings/general` (the pre-M25-F3-L5a single General page) is an alias that
@@ -87,6 +88,7 @@
     { dest: 'library', area: 'studio', route: 'knowledge', sub: 'knowledge', create: true },
     { dest: 'library', area: 'studio', route: 'mcp', sub: 'mcp-sources', create: true },
     { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: true },
+    { dest: 'library', area: 'studio', route: 'secrets', sub: 'secrets', create: true },
     // General is three pages (M25 F3 L5a, DD6); `settings/general` is an alias
     // in resolve(), not a row. The Settings rows' routes equal
     // App.settingsPages' sections, in order: a static test
@@ -444,7 +446,8 @@
   // The Library labels are destination-keyed (LIBRARY_LABELS), apart from the
   // route-keyed Settings labels in SECTION_LABELS.
   var LIBRARY_LABELS = {
-    providers: 'Model providers', knowledge: 'Knowledge bases', mcp: 'MCP servers', connectors: 'Connectors'
+    providers: 'Model providers', knowledge: 'Knowledge bases', mcp: 'MCP servers', connectors: 'Connectors',
+    secrets: 'Secrets'
   };
   var SECTION_LABELS = {};
   var settingsLabelsMerged = false;
@@ -476,7 +479,8 @@
     'library/providers': { collection: 'providers', noun: 'Model provider' },
     'library/knowledge': { collection: 'knowledge-bases', noun: 'Knowledge base' },
     'library/mcp': { collection: 'mcp-sources', noun: 'MCP server' },
-    'library/connectors': { collection: 'connectors', noun: 'Connector' }
+    'library/connectors': { collection: 'connectors', noun: 'Connector' },
+    'library/secrets': { collection: 'secrets', noun: 'Secret' }
   };
   // Route key -> the name a sync() hint supplied: a just-created item is not in
   // the store until its collection reloads, so a later same-key retitle (or a

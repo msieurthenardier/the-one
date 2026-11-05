@@ -123,6 +123,7 @@ LISTS: dict[str, _List] = {
     "library/knowledge": _List('[data-testid="knowledge-base-card"]', True),
     "library/mcp": _List('[data-testid="mcp-source-card"]', True),
     "library/connectors": _List('[data-testid="connector-card"]', True),
+    "library/secrets": _List('[data-testid="secret-card"]', True),
     "settings/tools": _List('[data-testid="tool-card"]', True, link="a"),
 }
 
@@ -193,7 +194,7 @@ def agents_empty_state(page: Page) -> Locator:
     return page.locator('[data-testid="agent-select-empty"], [data-testid="agent-empty"]')
 
 
-LIBRARY_KINDS = ("providers", "knowledge", "mcp", "connectors")
+LIBRARY_KINDS = ("providers", "knowledge", "mcp", "connectors", "secrets")
 
 # The Add menu item per kind (an unknown kind raises in ``_kind``, never falls
 # back to the connector).
@@ -202,6 +203,7 @@ LIBRARY_ADD_ITEMS = {
     "knowledge": "library-add-knowledge",
     "mcp": "library-add-mcp",
     "connectors": "library-add-connector",
+    "secrets": "library-add-secret",
 }
 
 

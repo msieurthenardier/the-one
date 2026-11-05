@@ -102,6 +102,19 @@ async def test_an_environment_key_with_no_key_file_still_counts(env) -> None:
     assert status["key_file_pending"] is False
 
 
+async def test_a_stored_secret_counts_once_however_many_values(env) -> None:
+    resp = await env.client.post(
+        "/api/secrets",
+        json={
+            "name": "Two values",
+            "allowed_tools": ["write_file"],
+            "values": [{"key": "a", "value": "first-plain"}, {"key": "b", "value": "second-plain"}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert (await _status(env))["credential_count"] == 1
+
+
 async def test_a_provider_without_a_key_or_secrets_counts_zero(env) -> None:
     pid = await _provider(env, "Plain")
     # Its secrets column holds an encrypted empty object.

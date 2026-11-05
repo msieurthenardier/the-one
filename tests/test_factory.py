@@ -140,6 +140,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
             "the_one.db.repositories.AgentNoteRepository",
             return_value=AsyncMock(list_if_enabled=AsyncMock(return_value=None)),
         ),
+        patch("the_one.agent.prompt_layers.load_secrets_block", AsyncMock(return_value="")),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -200,6 +201,30 @@ class TestDefaultAgent:
         # Use _default_config directly since create() will fail without provider
         config = factory._default_config()
         assert compose_system_prompt(PLATFORM_TOOLS, config.system_prompt) != ""
+
+
+class TestSecretResolverInjection:
+    """Sortie 10 DD7 (AC7): every factory-built Agent has a resolver, grants or not."""
+
+    @pytest.mark.parametrize(
+        ("name", "secret_ids"), [("plain", []), ("granted", ["s1"]), ("default", [])]
+    )
+    async def test_every_agent_has_a_resolver(
+        self, factory: AgentFactory, store: InMemoryStore, name: str, secret_ids: list[str]
+    ) -> None:
+        from the_one.secret_store.runtime import SecretResolver
+
+        await store.save(
+            AgentConfig(
+                name=name,
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                secret_ids=secret_ids,
+            )
+        )
+        agent = await factory.create(name)
+        assert isinstance(agent._secrets, SecretResolver)
+        assert agent._secrets.agent_name == name
 
 
 class TestNamedAgent:

@@ -397,7 +397,9 @@
           .catch(function () {
             freshAgentLoaded = false;
             return agent;
-          })
+          }),
+        // Sortie 10: after the fresh agent, so `results[3]` stays the agent.
+        agentData.refreshSecretsCache()
       ]).then(function (results) {
         // Stale-then guard (M25 F2 L3 (a)): the user may have left Agents, closed
         // the editor or opened another agent while the fetches were in flight.
@@ -474,7 +476,8 @@
         self._allProviders = list;
       }, function () { /* keep the prior list; the form still renders */ });
       Promise.all([
-        agentData.refreshToolConfigsCache(), agentData.refreshMcpSourcesCache(), agentData.refreshKnowledgeBasesCache(), providersReady
+        agentData.refreshToolConfigsCache(), agentData.refreshMcpSourcesCache(), agentData.refreshKnowledgeBasesCache(),
+        agentData.refreshSecretsCache(), providersReady
       ]).then(function () {
         if (myCreate !== state.selectSeq || self._activeSection !== 'agents' || !self._createMode) return;
         renderEditor(null);

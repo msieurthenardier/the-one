@@ -140,7 +140,24 @@
     return box;
   }
 
+  // Sortie 10: the secrets an agent is granted, A-Z, as drawer list items (name only; a
+  // granted id the store no longer has is skipped). Never reads a key or a value.
+  function grantedSecrets(agent) {
+    var peek = App.store.peek('secrets');
+    var rows = peek.loaded ? peek.value : [];
+    var out = [];
+    var ids = arr(agent.secret_ids);
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = 0; j < arr(rows).length; j++) {
+        if (rows[j] && rows[j].id === ids[i]) out.push({ name: String(rows[j].name || rows[j].id) });
+      }
+    }
+    out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return out;
+  }
+
   window.App.chat.drawerParts = {
+    grantedSecrets: grantedSecrets,
     noticesGroup: noticesGroup,
     whenLabel: whenLabel,
     routineMeta: routineMeta,

@@ -20,7 +20,11 @@ _HANDLER_SENTINEL = "_the_one_stdout_handler"
 # here on every call is what wins. Discord's REST client sends its token
 # in a header, never the URL, so it was never exposed by this and is
 # unaffected by quieting these loggers.
-_QUIETED_THIRD_PARTY_LOGGERS = ("httpx", "httpcore")
+# Sortie 10 (secrets): the ``mcp`` SDK logs whole JSON-RPC messages at DEBUG
+# (``Sending client message: ...`` in ``mcp.client.streamable_http`` / ``sse``), which
+# carry a tool call's arguments with any substituted secret value; ``httpx2`` and
+# ``httpcore2`` are the same clients under the 2.x SDK. All three are held at WARNING.
+_QUIETED_THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "httpx2", "httpcore2", "mcp")
 
 
 def _drop_the_one_records(record: logging.LogRecord) -> bool:

@@ -1032,6 +1032,31 @@ def test_search_list_rules_consume_the_gated_pairs() -> None:
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_chip_list_suggest_pairs_pass_body_aa(theme: str) -> None:
+    """Sortie 10 (DD3): the chipList search-ahead popover paints on --surface with the
+    searchList's active wash; the option label (--fg) and detail (--fg-secondary) are the
+    same audited pairs as the searchList row, so the rules must use exactly those."""
+    palette = _palette(theme)
+    card = palette["surface"]
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_HOVER_ALPHA[theme], card)
+    for name, (ink, ground) in {
+        "label on card": (palette["fg"], card),
+        "label on wash": (palette["fg"], wash),
+        "detail on card": (palette["fg_secondary"], card),
+        "detail on wash": (palette["fg_secondary"], wash),
+    }.items():
+        ratio = contrast_ratio(ink, ground)
+        assert ratio >= 4.5, f"{theme} chipList suggest {name} = {ratio:.2f}:1"
+    pop = " ".join(_rule_bodies("components.css", ".ui-chip-list-suggest"))
+    assert "background: var(--surface)" in pop, pop
+    opt = " ".join(_rule_bodies("components.css", '.ui-chip-list-option[aria-selected="true"]'))
+    assert "background: var(--accent-translucent-hover)" in opt, opt
+    assert "color: var(--fg-secondary)" in " ".join(
+        _rule_bodies("components.css", ".ui-chip-list-option-detail")
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_chats_row_pairs_pass_body_aa(theme: str) -> None:
     """M25 F4 L1 (AC13, DD5): a listPane 'chats' row on the aside
     (--sidebar-bg). Its 11px time is --fg-muted and its 11px meta (the agent

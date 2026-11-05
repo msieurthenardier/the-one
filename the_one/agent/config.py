@@ -41,6 +41,7 @@ def compose_system_prompt(
     *,
     rules: Sequence[str] = (),
     notes: Sequence[RenderedNote] | None = None,
+    secrets: str = "",
     date_line: str | None = None,
     tools: bool = True,
 ) -> str:
@@ -58,6 +59,9 @@ def compose_system_prompt(
 
     With ``rules`` empty and ``notes`` ``None`` the output is byte-identical to the
     pre-Mission-27 ``{base}\\n\\n---\\n\\n{persona}`` shape.
+
+    ``secrets`` (sortie 10, DD8) is the rendered secrets block, placed after notes and
+    before the date line; empty adds nothing.
 
     ``date_line`` (M28 F1, DD4), when not ``None``, is appended as the LAST
     layer after a "---" separator (so notes are no longer the final layer).
@@ -80,6 +84,10 @@ def compose_system_prompt(
 
         parts.append("---")
         parts.append(render_notes_block(notes, tools=tools))
+    if secrets:
+        # Sortie 10 DD8: the rendered secrets block (placeholders only), after notes.
+        parts.append("---")
+        parts.append(secrets)
     if date_line is not None:
         parts.append("---")
         parts.append(date_line)
@@ -108,6 +116,8 @@ class AgentConfig(BaseModel):
 
     # Associations (reference IDs only — no functional behavior yet)
     kb_ids: list[str] = Field(default_factory=list)
+    # Sortie 10: ids of the Library secrets this agent may pass to its tools.
+    secret_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
 
     # Tool-level constraint overrides (per-agent narrowing or substitution).

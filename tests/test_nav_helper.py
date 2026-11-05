@@ -48,6 +48,9 @@ DD2_ROWS = [
     ("library/connectors", "#studio/connectors"),
     ("library/connectors/~new", "#studio/connectors/new"),
     ("library/connectors/c1", "#studio/connectors/c1"),
+    ("library/secrets", "#studio/secrets"),
+    ("library/secrets/~new", "#studio/secrets/new"),
+    ("library/secrets/s1", "#studio/secrets/s1"),
     ("settings", "#admin"),
     ("settings/appearance", "#admin/appearance"),
     ("settings/date-and-time", "#admin/date-and-time"),
@@ -79,7 +82,7 @@ def test_canonical_folds_default_redirects():
     assert _nav.canonical("library") == "library"
     # A bare Library section is the app's alias for the root; an item or a
     # create route is not folded.
-    for section in ("knowledge", "mcp", "connectors", "providers"):
+    for section in ("knowledge", "mcp", "connectors", "providers", "secrets"):
         assert _nav.canonical(f"library/{section}") == "library"
         assert _nav.canonical(f"library/{section}/x") == f"library/{section}/x"
         assert _nav.canonical(f"library/{section}/~new") == f"library/{section}/~new"
@@ -736,7 +739,7 @@ _STATIC_JS = (
 )
 _LIBRARY_HREF_RE = re.compile(r"href\(\s*\{[^{}]*?destination:\s*'library'[^{}]*?\}", re.S)
 _BARE_SYNC_RE = re.compile(
-    r"sync\(\s*'studio'\s*,\s*'(?:knowledge|mcp-sources|connectors|providers)'\s*[,)]"
+    r"sync\(\s*'studio'\s*,\s*'(?:knowledge|mcp-sources|connectors|providers|secrets)'\s*[,)]"
 )
 
 

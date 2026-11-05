@@ -32,6 +32,7 @@ from the_one.agent.platform_prompt import (
 from the_one.agent.prompt_layers import (
     SystemPrompts,
     build_system_prompts,
+    load_secrets_block,
     time_tool_available,
 )
 from the_one.llm.base import Message
@@ -148,8 +149,17 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
                 agent_name,
                 exc_info=True,
             )
+            # Sortie 10 DD8: try to keep the secrets layer; never raise from here.
+            try:
+                from the_one.db.connection import get_connection
+
+                secrets_block = await load_secrets_block(await get_connection(), agent_name)
+            except Exception:  # noqa: BLE001 - the fallback must never raise
+                secrets_block = ""
             prompts = SystemPrompts(
-                tool_capable=compose_system_prompt(render_platform(caps), system_prompt),
+                tool_capable=compose_system_prompt(
+                    render_platform(caps), system_prompt, secrets=secrets_block
+                ),
                 tool_free=compose_system_prompt(render_tool_free(caps), system_prompt, tools=False),
             )
         composed = prompts.tool_capable

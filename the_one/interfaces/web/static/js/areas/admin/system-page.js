@@ -180,6 +180,8 @@
     notes.el.setAttribute('data-testid', 'notes-prompt-content');
     var notesFree = promptBlock('Notes prompt without tools');
     notesFree.el.setAttribute('data-testid', 'notes-prompt-content-tool-free');
+    var secretsBlock = promptBlock('Secrets prompt');
+    secretsBlock.el.setAttribute('data-testid', 'secrets-prompt-content');
     var dateWith = promptBlock('Date prompt');
     dateWith.el.setAttribute('data-testid', 'date-prompt-content');
     var dateWithout = promptBlock('Date prompt without the time tool');
@@ -202,6 +204,8 @@
         variantHeading('Without tools (it can’t save notes, so the saving instructions are left out)'),
         notesFree.el
       ]).el,
+      promptLayer('Secrets', 'Added after the notes when the agent has secrets granted. ' +
+        'It lists each key’s placeholder with the secret’s name, description and allowed tools, never a value.', [secretsBlock.el]).el,
       promptLayer('Date',
         'Added last to every agent’s prompt, with the date in your time zone. ' +
         'The first wording is used when the agent has the current_time tool; ' +
@@ -215,7 +219,7 @@
     function fill(block, value) {
       block.set(typeof value === 'string' ? value : '(unavailable)');
     }
-    var blocks = [rules, notes, notesFree, dateWith, dateWithout];
+    var blocks = [rules, notes, notesFree, secretsBlock, dateWith, dateWithout];
     App.api.fetchJson('/api/info').then(function (data) {
       if (!platform.isConnected) { return; }
       if (Array.isArray(data.platform_sections)) {
@@ -228,6 +232,7 @@
       fill(rules, data.rules_prompt_example);
       fill(notes, data.notes_prompt_example);
       fill(notesFree, data.notes_prompt_example_tool_free);
+      fill(secretsBlock, data.secrets_prompt_example);
       fill(dateWith, data.date_prompt_example);
       fill(dateWithout, data.date_prompt_example_without_tool);
     }).catch(function (err) {

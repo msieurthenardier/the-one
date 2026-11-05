@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 STUDIO = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/js/areas/studio"
-SECTIONS = ("providers", "knowledge", "mcp-sources", "connectors")
+SECTIONS = ("providers", "knowledge", "mcp-sources", "connectors", "secrets")
 
 
 def _lit(section: str) -> str:
@@ -14,8 +14,8 @@ def _lit(section: str) -> str:
 def test_group_table_entries_have_sections():
     src = (STUDIO / "library-pane.js").read_text()
     table = src[src.index("var LIBRARY_GROUPS = [") : src.index("window.App.studio.libraryGroups")]
-    assert table.count("{ id:") == 4
-    assert len(re.findall(r"\bsection: '[a-z-]+'", table)) == 4
+    assert table.count("{ id:") == 5
+    assert len(re.findall(r"\bsection: '[a-z-]+'", table)) == 5
 
 
 def test_is_library_section_derives_from_table():

@@ -47,7 +47,7 @@ def test_library_list_has_the_mcp_group_and_no_section_nav(app_clean: str, page:
     expect(library).to_be_visible(timeout=5000)
     captions = library.locator(".ui-list-pane-caption")
     expect(captions).to_have_text(
-        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors", "Secrets"]
     )
     expect(page.locator(".area-studio .section-nav")).to_have_count(0)
     expect(page.get_by_role("navigation", name="Library sections")).to_have_count(0)

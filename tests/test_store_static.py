@@ -80,10 +80,11 @@ def test_store_urls_name_the_six_collections() -> None:
         ("'knowledge-bases'", "/api/knowledge-bases"),
         ("'mcp-sources'", "/api/mcp-sources"),
         ("connectors", "/api/connectors"),
+        ("secrets", "/api/secrets"),
         ("sessions", "/api/chat/sessions"),
     ):
         assert f"{name}: '{url}'" in urls, name
-    assert len(re.findall(r"'/api/[^']+'", urls)) == 6
+    assert len(re.findall(r"'/api/[^']+'", urls)) == 7  # six, plus secrets (sortie 10)
     # The plain MCP list: the surfaces variant stays a direct fetch.
     assert "include_agent_surfaces" not in urls
 
@@ -463,7 +464,7 @@ def test_describe_route_reads_the_store_guarded_and_known_collections_only() -> 
     assert "typeof store.peek !== 'function'" in store_name
     table = _window(src, "var ITEM_COLLECTIONS = {", "};")
     named = set(re.findall(r"collection: '([\w-]+)'", table))
-    assert named == {"providers", "knowledge-bases", "mcp-sources", "connectors"}
+    assert named == {"providers", "knowledge-bases", "mcp-sources", "connectors", "secrets"}
     urls = _window(_src("store.js"), "var URLS = {", "};")
     for name in named:
         assert re.search(rf"'?{re.escape(name)}'?: '/api/", urls), name

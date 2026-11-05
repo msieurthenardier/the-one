@@ -2281,6 +2281,44 @@
     font-size: var(--font-size-body);
   }
 
+  /* App.ui.chipList `suggest` (sortie 10, DD3): the search-ahead popover. It paints only audited
+     pairs: --fg and --fg-secondary on the --surface card, and on the active row's
+     --accent-translucent-hover wash with an --accent border (the searchList active row). */
+  .ui-chip-list--suggest { position: relative; }
+  .ui-chip-list-suggest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-popover);
+    padding: 4px;
+  }
+  .ui-chip-list-listbox { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .ui-chip-list-option {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+  }
+  .ui-chip-list-option[aria-selected="true"] {
+    background: var(--accent-translucent-hover);
+    border-color: var(--accent);
+  }
+  .ui-chip-list-option-label { font-family: var(--font-family-mono); min-width: 0; overflow-wrap: anywhere; }
+  .ui-chip-list-option-detail { color: var(--fg-secondary); flex: none; }
+  .ui-chip-list-status { padding: 8px 10px; color: var(--fg-secondary); font-size: var(--font-size-body-sm); }
+
   /* === App.ui.toolTile (M31 F4 L04e): the Built-in tools card === */
   /* The Built-in tools card. The switch is the in-flow App.ui.toggle, end-aligned
      below the description. The tile also carries its legacy class names (entity-tile,

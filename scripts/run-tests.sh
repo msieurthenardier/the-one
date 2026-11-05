@@ -198,7 +198,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).
 library_pat=('test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
-             'test_studio_connector_editor.py' \
+             'test_studio_connector_editor.py' 'test_flow_studio_secrets.py' \
              'test_flow_studio_library_focus.py' 'test_flow_studio_library_list.py')
 # Knowledge lane (M31 F3 L09, split from library when it ran 1.32x over budget): the
 # knowledge-base inventory file alone, about 60% of the old library lane's time.
@@ -219,10 +219,12 @@ mcp_connection_pat=('test_flow_studio_mcp_editor_signin_lifecycle.py' \
 studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*' \
             'test_flow_agents_*' 'test_agents_*')
 # Agent-tabs (M31 F2 L11, squawk 0217, split from `agents` when it ran 1.3x over
-# budget): the self-configuration, Rules and notes, and Tools-override files.
+# budget): the self-configuration, Rules and notes, and Tools-override files, and the Tools
+# tab's Secrets section and drawer group (sortie 10).
 agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
                 'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
-                'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py')
+                'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py' \
+                'test_flow_agent_secrets.py')
 # Agent-routines (M33 F2 L5): the Routines tab and the Self-configuration Routines item. Split
 # from `agent-tabs` with a 240 s budget set from the Batch B quiet-host gate. Its glob
 # also matches the Flight 1 Routines tab files, which therefore leave `agent-tabs`.

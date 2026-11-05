@@ -78,6 +78,7 @@ from the_one.db.repositories import (
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
+    SecretRepository,
     SQLiteAgentStore,
     ToolConfigRepository,
     _encrypt_overrides_column,
@@ -208,6 +209,27 @@ async def _agent_store() -> SQLiteAgentStore:
     # test fixtures already install governs it — mirrors `_mcp_repo()` /
     # `_tool_config_repo()` above.
     return SQLiteAgentStore(conn, get_encryptor(settings.data_dir))
+
+
+async def _secret_repo() -> SecretRepository:
+    """The Library secrets repository (sortie 10); the encryptor is the app's reference."""
+    return SecretRepository(await get_connection(), get_encryptor(settings.data_dir))
+
+
+async def _validate_secret_grants(stored: list[str], cfg: AgentConfig) -> None:
+    """422 on ``["secret_ids", i]`` for a granted id that is new relative to ``stored`` and
+    not a Library secret (sortie 10, DD2). Stored ids are not re-checked."""
+    fresh = [(i, s) for i, s in enumerate(cfg.secret_ids) if s not in stored]
+    if not fresh:
+        return
+    found = await (await _secret_repo()).exists_many(s for _, s in fresh)
+    missing = [
+        {"type": "value_error", "loc": ["secret_ids", i], "msg": "This secret doesn't exist."}
+        for i, s in fresh
+        if s not in found
+    ]
+    if missing:
+        raise HTTPException(status_code=422, detail=missing)
 
 
 def _agent_response(
@@ -1455,6 +1477,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     # is a 422 on its field, before the provider check and the name conflict.
     rows = await _tool_config_rows(cfg)
     await _validate_tool_overrides(None, cfg, rows)
+    await _validate_secret_grants([], cfg)
     await _check_agent_provider(cfg.provider_config_id)
     store = await _agent_store()
     if await store.exists(cfg.name):
@@ -1531,6 +1554,9 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # it; omission and empty are distinguishable and mean different things.
     if "kb_ids" not in data:
         data["kb_ids"] = existing.kb_ids
+    # Sortie 10 DD2: `secret_ids` follows the same rule (omitted keeps, `[]` clears).
+    if "secret_ids" not in data:
+        data["secret_ids"] = existing.secret_ids
     # Squawk 0223: `tool_overrides` omitted from the PUT body preserves the
     # stored map (same pattern as `kb_ids`). An explicit `null` still clears
     # it and a supplied map replaces it.
@@ -1550,6 +1576,7 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # STORED map (an omitted `tool_overrides` was carried above, so it is unchanged).
     rows = await _tool_config_rows(cfg)
     await _validate_tool_overrides(existing.tool_overrides, cfg, rows)
+    await _validate_secret_grants(existing.secret_ids, cfg)
     if cfg.provider_config_id != existing.provider_config_id:
         # Squawk 0277: only a CHANGED id is checked, so an agent whose provider was
         # deleted later stays editable (and fixable).
@@ -3797,6 +3824,21 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         else:
             await carry_mcp_rename(
                 source_id, existing.name, updated.name, agent_store=agent_store, mcp_repo=repo
+            )
+        # Sortie 10 (DD3): a secret's allowed tools follow the rename too. Its own try
+        # (the carry never raises, but acquiring the repository can), so an agent-store
+        # failure above never skips it.
+        try:
+            from the_one.mcp.rename_references import carry_mcp_rename_into_secrets
+
+            await carry_mcp_rename_into_secrets(
+                existing.name, updated.name, secret_repo=await _secret_repo(), mcp_repo=repo
+            )
+        except Exception:
+            logger.warning(
+                "MCP source %r rename: failed to carry the rename into secrets' allowed tools",
+                source_id,
+                exc_info=True,
             )
     return _mcp_source_response(updated)
 
@@ -6947,8 +6989,8 @@ async def encryption_status() -> dict[str, Any]:
     ``last_rotated_at`` is the UTC ISO time the rotate route last committed a
     rotation on this install (``None`` before the first). ``credential_count``
     is the number of items holding at least one non-empty secret across the
-    seven encrypted corpora: one per provider, MCP source, connector, agent,
-    tool config and external credential (a provider with an API key and a
+    eight encrypted corpora: one per provider, MCP source, connector, agent,
+    tool config, external credential and Library secret (a provider with an API key and a
     secrets blob counts once). It is computed by decrypting in-process
     (``the_one.db.encryption_corpora``); nothing decrypted leaves it.
     ``key_file_pending`` is true while a rotated key is staged but not yet
@@ -6986,7 +7028,8 @@ async def rotate_encryption_key() -> dict[str, str]:
     every agent row's ``tool_overrides`` / ``mcp_overrides`` columns (M21
     F01 L01 / flight-log Decision D1), every tool config row's ``secrets``
     blob, AND every external-credential row's ``secret`` (flight-log
-    Decision D1) — SEVEN corpora total — using a freshly generated key in
+    Decision D1), AND every Library secret value (``secret_values.value``, sortie 10)
+    — EIGHT corpora total — using a freshly generated key in
     memory, all inside a single DB transaction.
 
     Handoff ordering (flight Design Decision Q1): the new key is staged to
@@ -7033,7 +7076,7 @@ async def rotate_encryption_key() -> dict[str, str]:
     #    prevents that for the write below by holding the write lock across
     #    it (Squawk 0051; see Flight 2 DD-13 and the corrected comment at
     #    schema.py's v8 migration block for the measured rule).
-    #    The seven corpora are gathered by the helper the status route shares
+    #    The eight corpora are gathered by the helper the status route shares
     #    (``the_one.db.encryption_corpora``), so the two cannot drift. Strict
     #    mode keeps this route's decrypt policy: the provider ``api_key`` and the
     #    external-credential ``secret`` decrypt strictly (an ``InvalidToken``
@@ -7050,6 +7093,7 @@ async def rotate_encryption_key() -> dict[str, str]:
     decrypted_agents = corpora.agents
     decrypted_tool_configs = corpora.tool_configs
     decrypted_ext_credentials = corpora.ext_credentials
+    decrypted_secret_values = corpora.secret_values
 
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
@@ -7085,6 +7129,9 @@ async def rotate_encryption_key() -> dict[str, str]:
         (identifier, new_encryptor.encrypt(secret))
         for identifier, secret in decrypted_ext_credentials
     ]
+    reencrypted_secret_values = [
+        (value_id, new_encryptor.encrypt(plain)) for value_id, plain in decrypted_secret_values
+    ]
 
     # 3b. Stage the new key to a `.next` sidecar BEFORE the DB commit
     #     (Design Decision Q1 — two-phase handoff). If this raises, the
@@ -7106,10 +7153,10 @@ async def rotate_encryption_key() -> dict[str, str]:
     #    uncommitted ciphertext encrypted with the new (not-yet-on-disk)
     #    key. The key file is untouched at this point, so re-raising
     #    leaves the system fully recoverable. The single transaction covers
-    #    ALL SEVEN surfaces (llm_providers.api_key, llm_providers.secrets,
+    #    ALL EIGHT surfaces (llm_providers.api_key, llm_providers.secrets,
     #    mcp_sources.secrets, connectors.secrets, agents.tool_overrides /
     #    agents.mcp_overrides, tool_configs.secrets,
-    #    agent_external_credentials.secret) — a failure in any UPDATE loop
+    #    agent_external_credentials.secret, secret_values.value) — a failure in any UPDATE loop
     #    rolls back all of them atomically.
     try:
         async with write_transaction(conn):
@@ -7147,6 +7194,11 @@ async def rotate_encryption_key() -> dict[str, str]:
                 await conn.execute(
                     "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
                     (ct, identifier),
+                )
+            for value_id, ct in reencrypted_secret_values:
+                await conn.execute(
+                    "UPDATE secret_values SET value = ? WHERE id = ?",
+                    (ct, value_id),
                 )
             # B12 (M31 F4 L08b): record when the key last changed, in the SAME
             # transaction as the re-encryption (it commits and rolls back with
@@ -7222,7 +7274,8 @@ async def rotate_encryption_key() -> dict[str, str]:
 
     logger.info(
         "encryption key rotated: key=%s providers=%d provider_secrets=%d mcp_sources=%d "
-        "connectors=%d agents=%d tool_configs=%d external_credentials=%d key_file=%s",
+        "connectors=%d agents=%d tool_configs=%d external_credentials=%d secret_values=%d "
+        "key_file=%s",
         hashlib.sha256(new_key).hexdigest()[:8],
         len(reencrypted),
         len(reencrypted_provider_secrets),
@@ -7231,6 +7284,7 @@ async def rotate_encryption_key() -> dict[str, str]:
         len(reencrypted_agents),
         len(reencrypted_tool_configs),
         len(reencrypted_ext_credentials),
+        len(reencrypted_secret_values),
         key_file,
     )
 
@@ -7242,3 +7296,8 @@ async def rotate_encryption_key() -> dict[str, str]:
 from the_one.interfaces.web.routines_api import router as _routines_router  # noqa: E402
 
 router.include_router(_routines_router)
+
+# ── Secret routes (sortie 10) live in ``secrets_api.py``, attached after routines. ──
+from the_one.interfaces.web.secrets_api import router as _secrets_router  # noqa: E402
+
+router.include_router(_secrets_router)

@@ -14,7 +14,8 @@ STUDIO_JS = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/sta
 SHELL = STUDIO_JS / "studio.js"
 MODULES = sorted((STUDIO_JS / "studio").glob("*.js"))
 
-# The documented set of ``state`` keys (21 at Mission 31 Flight 3 Leg 01). Adding or
+# The documented set of ``state`` keys (21 at Mission 31 Flight 3 Leg 01; 26 with the secrets
+# keys of sortie 10). Adding or
 # removing a key means updating this set AND the agents.md subsection.
 STATE_KEYS = {
     "dirty",
@@ -30,6 +31,10 @@ STATE_KEYS = {
     "editingConnector",
     "pendingConnectorId",
     "pendingConnectorFormMode",
+    "secretFormMode",
+    "editingSecret",
+    "pendingSecretId",
+    "pendingSecretFormMode",
     "kbCreateMode",
     "kbFocusFolderFor",
     "knowledgeDetailHandle",
@@ -37,6 +42,7 @@ STATE_KEYS = {
     "knowledgeBases",
     "mcpSources",
     "connectors",
+    "secrets",
     "providersCache",
 }
 

@@ -15,6 +15,7 @@ from the_one.config import settings
 from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
+from the_one.secret_store.runtime import SecretResolver
 from the_one.self_configuration.constants import override_for
 from the_one.time_zones import CURRENT_TIME_TOOL_NAME
 from the_one.tools._search_tools import SearchTools
@@ -640,6 +641,8 @@ class AgentFactory:
             max_iterations=config.max_iterations,
             loaded_schemas=loaded_schemas,
             loaded_tool_names=loaded_tool_names,
+            # Sortie 10 DD7: every factory-built agent gets a resolver, grants or not.
+            secrets=SecretResolver(config.name),
         )
         # Mission 27 F2 (DD5/DD6): each notes tool reads its owning Agent's
         # messages at execute time to compute the untrusted flag. Bound after

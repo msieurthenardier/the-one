@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 50
+CURRENT_VERSION = 51
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3280,3 +3280,40 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (50,))
         await conn.commit()
         version = 50
+
+    if version < 51:
+        # Sortie 10 (DD4) — secrets: a named group of key/value pairs whose values are
+        # Fernet ciphertext (the eighth encrypted corpus), an allowed-tools list and a
+        # per-agent grant list. Names and keys are unique ignoring case. The guarded
+        # ALTER follows v46. Idempotent.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS secrets ("
+            "    id TEXT PRIMARY KEY,"
+            "    name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "    description TEXT NOT NULL DEFAULT '',"
+            "    allowed_tools TEXT NOT NULL DEFAULT '[]',"
+            "    created_at TEXT NOT NULL,"
+            "    updated_at TEXT NOT NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS secret_values ("
+            "    id TEXT PRIMARY KEY,"
+            "    secret_id TEXT NOT NULL REFERENCES secrets(id) ON DELETE CASCADE,"
+            "    key TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "    value TEXT NOT NULL,"
+            "    position INTEGER NOT NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_secret_values_secret ON secret_values (secret_id)"
+        )
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            agent_cols_51 = {row[1] for row in await cursor.fetchall()}
+        if agent_cols_51 and "secret_ids" not in agent_cols_51:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN secret_ids TEXT NOT NULL DEFAULT '[]'"
+            )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (51,))
+        await conn.commit()
+        version = 51

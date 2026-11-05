@@ -299,6 +299,10 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     notes_free = page.locator('[data-testid="notes-prompt-content-tool-free"]')
     date_with = page.locator('[data-testid="date-prompt-content"]')
     date_without = page.locator('[data-testid="date-prompt-content-without-tool"]')
+    # Sortie 10: the Secrets layer (after notes, before the date), the real render.
+    secrets_block = page.locator('[data-testid="secrets-prompt-content"]')
+    expect(secrets_block).to_contain_text("{{secret:home_address}}", timeout=8000)
+    expect(secrets_block).to_contain_text("(tools: mcp__goldfinch__typeText)")
     expect(date_with).to_contain_text("{today's date}", timeout=8000)
     expect(date_with).to_contain_text("current_time")
     expect(date_without).to_contain_text("{today's date}", timeout=8000)
@@ -315,6 +319,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         "platform prompt",
         "rules",
         "notes",
+        "secrets",
         "date",
     ]
     expect(page.locator(".platform-sections .prompt-variant")).to_have_count(0)

@@ -106,8 +106,20 @@
           title: 'MCP servers', titleTag: 'h2', testid: 'agent-tools-mcp-section',
           children: [mcpHost]
         });
+        // Secrets first (sortie 10, DD2): the operator's grants, above the tools.
+        var secretsHost = document.createElement('div');
+        secretsHost.setAttribute('data-testid', 'agent-tools-secrets-host');
+        var secretsSection = ui.section({
+          title: 'Secrets', titleTag: 'h2', testid: 'agent-tools-secrets-section',
+          children: [secretsHost]
+        });
+        panel.appendChild(secretsSection.el);
         panel.appendChild(mcpSection.el);
         panel.appendChild(builtinSection.el);
+        var secretsHandle = studio.renderSecretsSection(secretsHost, agent, cb.allSecrets, {
+          onChange: cb.onChange,
+          secretsLoaded: cb.secretsLoaded
+        });
         var mcpsHandle = studio.renderMcpsTab(mcpHost, agent, cb.allMcpSources, {
           testMcpAsAgent: cb.testMcpAsAgent,
           saveMcpCredentials: cb.saveMcpCredentials,
@@ -126,8 +138,10 @@
         return {
           builtin: builtinHandle,
           mcps: mcpsHandle,
+          secrets: secretsHandle,
           setAgent: function (a, opts) { builtinHandle.setAgent(a, opts); },
           destroy: function () {
+            if (secretsHandle && secretsHandle.destroy) secretsHandle.destroy();
             if (mcpsHandle && mcpsHandle.destroy) mcpsHandle.destroy();
             if (builtinHandle && builtinHandle.destroy) builtinHandle.destroy();
           }
@@ -300,6 +314,7 @@
           h.toolsTab = built;
           h.mcps = built.mcps;
           h.tools = built.builtin;
+          h.secrets = built.secrets;
         }
         if (TAB_ITEMS[i].id === 'routines') h.routines = built;
         if (TAB_ITEMS[i].id === 'self-configuration') h.selfConfig = built;
@@ -339,6 +354,10 @@
       h.knowledge.setAgent(a, {
         allKnowledgeBases: cb.allKnowledgeBases,
         knowledgeBasesLoaded: cb.knowledgeBasesLoaded
+      });
+      h.secrets.setAgent(a, {
+        allSecrets: cb.allSecrets,
+        secretsLoaded: cb.secretsLoaded
       });
       // The source list first (the agent's own self-configuration surface may have
       // appeared or gone), then the agent's choices.

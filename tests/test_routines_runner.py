@@ -387,3 +387,26 @@ async def test_log_never_carries_the_prompt_or_raw_names(routine_app, caplog):
     assert any(f"routine={rt['id']}" in m for m in msgs)
     assert not any(marker in m for m in msgs)
     assert not any("Bad\nna" in m for m in msgs)
+
+
+async def test_a_routine_run_reaches_the_secrets_hook(routine_app):
+    """Sortie 10 DD7 (AC13): an unattended run builds its agent through the factory, so a
+    placeholder in a tool argument is refused when the agent has no grant."""
+    from the_one.db.codec import decode_messages
+    from the_one.db.repositories import SecretRepository
+    from the_one.llm.base import Role, ToolCall
+
+    h = routine_app
+    await SecretRepository(await get_connection()).create(
+        "Home", "", ["current_time"], [{"key": "home_city", "value": "Springfield-77"}]
+    )
+    r = await h.routine()
+    call = ToolCall(id="c1", name="current_time", arguments={"x": "{{secret:home_city}}"})
+    h.llm.script = [Message.assistant("", tool_calls=[call]), Message.assistant(content="done")]
+    await h.run_now(r["id"])
+    run = await h.last_run(r["id"])
+    row = await ChatSessionRepository(await get_connection()).get(run["session_id"])
+    tool_msgs = [m for m in decode_messages(row.messages) if m.role == Role.TOOL]
+    assert [m.tool_result.content for m in tool_msgs] == [
+        "Secret `home_city` is not granted to this agent."
+    ]

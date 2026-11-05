@@ -167,7 +167,7 @@ def test_groups_order_sorting_icons_and_meta(app_with_agent: SeededApp, page: Pa
     )
     expect(lib.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(lib.locator(".ui-list-pane-caption")).to_have_text(
-        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors", "Secrets"]
     )
     # No filter and no count on the Library list.
     expect(lib.locator("input[type=search]")).to_have_count(0)
@@ -219,7 +219,7 @@ def test_group_empty_lines(app_with_agent: SeededApp, page: Page) -> None:
     seed_knowledge_base(base, "Only KB")
     _ready(page, base, "library/knowledge")
     lines = page.locator(f"{LIST} .ui-list-pane-group-empty")
-    expect(lines).to_have_text(["No MCP servers yet.", "No connectors yet."])
+    expect(lines).to_have_text(["No MCP servers yet.", "No connectors yet.", "No secrets yet."])
     expect(_rows(page)).to_have_count(2)  # the seeded provider and "Only KB"
 
 
@@ -391,7 +391,7 @@ def test_add_menu_is_not_clipped(app_clean: str, page: Page, viewport: tuple[int
         """() => {
           const aside = document.getElementById('app-sidebar').getBoundingClientRect();
           return ['library-add-provider', 'library-add-knowledge', 'library-add-mcp',
-                  'library-add-connector'].map((tid) => {
+                  'library-add-connector', 'library-add-secret'].map((tid) => {
             const el = document.querySelector(`[data-testid="${tid}"]`);
             const r = el.getBoundingClientRect();
             const inside = r.left >= aside.left - 0.5 && r.right <= aside.right + 0.5 &&
@@ -415,7 +415,7 @@ def test_add_menu_is_not_clipped(app_clean: str, page: Page, viewport: tuple[int
         != -1
     )
     expect(page.get_by_role("menuitem")).to_have_text(
-        ["Model provider", "Knowledge base", "MCP server", "Connector"]
+        ["Model provider", "Knowledge base", "MCP server", "Connector", "Secret"]
     )
 
 
@@ -538,7 +538,9 @@ def test_delete_each_type_replaces_to_the_root_and_moves_focus(
         "() => document.activeElement && document.activeElement.closest('.ui-list-pane-row')"
     )
     assert _focused_label(page) == "alpha-mcp"
-    expect(page.locator(f"{LIST} .ui-list-pane-group-empty")).to_have_text(["No connectors yet."])
+    expect(page.locator(f"{LIST} .ui-list-pane-group-empty")).to_have_text(
+        ["No connectors yet.", "No secrets yet."]
+    )
 
 
 def test_list_follows_create_rename_and_delete_without_reload(
@@ -857,7 +859,7 @@ def test_no_empty_line_flash_before_data_arrives(app_with_agent: SeededApp, page
     expect(lib.locator(".ui-list-pane-row")).to_have_count(0)
     hold.release()
     expect(lib.locator(".ui-list-pane-group-empty")).to_have_text(
-        ["No MCP servers yet.", "No connectors yet."], timeout=8000
+        ["No MCP servers yet.", "No connectors yet.", "No secrets yet."], timeout=8000
     )
     expect(_lists.list_row(page, "library/knowledge", "Held KB")).to_be_visible()
 

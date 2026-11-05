@@ -1342,7 +1342,7 @@ def test_tools_tab_holds_built_in_and_mcp_sections_in_order(app_clean: str, page
     headings = page.locator(
         '[data-testid="agent-tab-panel-tools"], #agent-tab-panel-tools'
     ).locator("h2.section-title")
-    expect(headings).to_have_text(["MCP servers", "Built-in tools"])
+    expect(headings).to_have_text(["Secrets", "MCP servers", "Built-in tools"])
     # The MCP section sits above the built-in one (operator decision, M33 F4 HAT A2).
     assert page.evaluate(
         """() => {

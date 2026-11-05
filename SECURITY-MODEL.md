@@ -975,7 +975,7 @@ with the unsandboxed Windows posture.
   key-file replace — self-healing on next process start via a startup
   reconcile, rather than leaving any credential stranded on a key the
   process does not hold. See `the_one/agents.md` "Encryption-rotation
-  invariant (seven corpora)" for the full handoff contract.
+  invariant (eight corpora)" for the full handoff contract.
   `GET /api/encryption/status` (read-only, behind the same credential gate) returns
   the time of the last rotation, a count of items that hold a stored secret and a
   flag for a staged-but-unpromoted key file: counts and a timestamp, no secret
@@ -995,7 +995,7 @@ with the unsandboxed Windows posture.
   its secret encryption persisted independently throughout, and the
   reset connector contract — Flight 2 — has a real masking/rotation
   surface again: see "Connector Channel Contract" above and
-  `the_one/agents.md` "Encryption-rotation invariant (seven corpora)".)
+  `the_one/agents.md` "Encryption-rotation invariant (eight corpora)".)
   Built-in tool secrets (schema v32 `tool_configs.secrets`) are
   marker-driven — any tool Config field tagged `secret: true` is stored
   encrypted and masked over the API. `web_search`'s keyed-engine API keys
@@ -1049,6 +1049,63 @@ with the unsandboxed Windows posture.
   grant. See "Authentication" → "External-client access to the
   self-configuration surface" above for the credential's scope and the
   governance invariant.
+- **Library secrets** (sortie 10): named key/value pairs the operator
+  stores once and grants to agents. Each value is Fernet ciphertext in
+  `secret_values.value`, the eighth corpus: it is re-encrypted by
+  `POST /api/encryption/rotate` in the same transaction as the others and is
+  counted by `GET /api/encryption/status`. Values are **write-only**: no
+  route returns a stored value or any fragment of it (every value is the
+  constant `__MASKED__`, with no tail); the repository's list/get never
+  decrypt, and the two decrypting reads are internal. The routes read the
+  body by hand (never a pydantic body parameter, whose default 422 would echo
+  the submitted input) and build every 422 from fixed sentences, so a value
+  also never appears in an error; a test sends values through every failure
+  kind, including malformed JSON, and under `caplog` at DEBUG. The routes
+  and `GET /api/tool-names` sit behind the credential gate, and the
+  self-configuration loopback credential is confined away from them (403), so
+  an agent can neither read nor grant secrets over HTTP; `secret_ids` is
+  operator-owned, never written by the self-configuration tools. Each
+  secret carries a required `allowed_tools` list, and tools that store or
+  publish what they receive (notes, routines, the self-configuration tools,
+  `send_to_platform_channel` and the loop's virtual tools) cannot be on it.
+  `__MASKED__` is the API's keep-this-value sentinel and cannot be stored as a
+  real value.
+  **Runtime (leg 2).** The model writes `{{secret:key}}`; the agent loop fills
+  the value into a *copy* of the tool arguments just before the tool runs, so
+  the stored conversation, the WebSocket frames and the provider request hold
+  only the placeholder. A call is refused (naming only the key as written,
+  never a value) when the agent is not granted the key or the tool is not in
+  the secret's `allowed_tools`; the refused set is also enforced at run time
+  whatever a stored row lists. Every stored value, granted or not, is masked
+  to `[secret:key]` in the tool's result and in timeout and error strings,
+  before the context-budget governor truncates it, in the raw form and its
+  `repr`, JSON (both escapings) and URL encodings; a failure to read secrets
+  or to mask fails closed (the call is refused or the output withheld). The
+  `mcp`, `httpx2` and `httpcore2` loggers are held at WARNING because the
+  `mcp` SDK logs whole JSON-RPC requests at DEBUG. Residual risks, accepted:
+  a tool that transforms a value before echoing it (base64, hashing,
+  case-folding, splitting across lines or fields) defeats literal masking;
+  short values are masked everywhere: there is no minimum length, so a short
+  or common value (a postcode of digits, say) can replace unrelated text in a
+  tool result with `[secret:key]` (in the HAT a postcode matched inside a
+  page script's base64 alphabet); that corrupts the text the model sees but
+  never leaks the value, and the operator chose it over a length floor;
+  images are not masked: the masker checks text only (strings, and strings
+  nested in dicts and lists). An MCP image block, such as a browser
+  screenshot tool's PNG, reaches the model and the stored chat only as the
+  `[image: N bytes, mime=...]` text line; the block itself stays in
+  `ToolResult.raw`, which no model or storage path reads, so an image
+  carries no secret today. If image results are ever forwarded to a model,
+  masking will not cover them, and that change must address secrets; a
+  tool the operator allows can send the value anywhere it is designed to send
+  its input (that is the point of `allowed_tools`), so allow only tools you
+  trust with it; a result that is not str, dict, list or tuple (a set or a
+  custom object that `json.dumps` accepts) is not walked by the masker, which
+  is unreachable today because no built-in or MCP tool returns one;
+  `ToolResult.metadata` is not masked (it is set only by the MCP
+  sign-in branch, with fixed fields); a secret prompt layer is fixed when an
+  Agent is built, so a newly granted key is substituted at once but only
+  advertised to the model after the chat's next rebuild.
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries
   placeholders only).

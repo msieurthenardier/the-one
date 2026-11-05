@@ -76,6 +76,7 @@ caught — but it cannot see where the attribute is emitted.
 | `routine-origin` | studio | "Made by the agent" on a routine row whose `created_by` is `agent` (M33 F2 L5) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
+| `secrets-prompt-content` | admin | The Prompts page's read-only secrets-layer example (sortie 10 B4) |
 | `notes-prompt-content-tool-free` | admin | The Prompts page's read-only notes-layer example for a model without tools (no saving instructions; Flight 2 leg 1c) |
 | `date-prompt-content` | admin | The Prompts page's read-only date-layer wording for an agent with the `current_time` tool (M28 F1 L3) |
 | `date-prompt-content-without-tool` | admin | The Prompts page's read-only date-layer wording for an agent without the tool (M28 F1 L3) |
@@ -169,7 +170,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
-| `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|tools|self-configuration]` (Rules first, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
+| `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|secrets|tools|self-configuration]` (Rules first, Secrets between MCP servers and Built-in tools in sortie 10, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
 | `chat-discarded` | chat | The muted "Queued message discarded." line after "Stopped." when the Stop discarded a held message; never stored (M31 F6 L05c, B9) |
 | `chat-empty-new-btn` | chat | The empty state's New chat (`App.ui.button` primary, square-pen icon), inside `chat-welcome` when setup is complete and no chat is open; opens the agent picker. Absent in the setup-guidance state (M25 F4 L4b) |
 | `chat-header` | chat | The chat header (`<header>`, 48px, hairline; reference spec 5.2): an `h1` with the chat's title (read from the `sessions` store by id, so it follows the auto-title) or "New chat", and `chat-agent-line`. Hidden while idle (M25 F4 L4b) |
@@ -211,6 +212,36 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
+| `cancel-secret-btn` | studio | Secret-editor header Cancel (`App.ui.editorShell`); enabled from the first render on the create form, else once the form is dirty (sortie 10) |
+| `save-secret-btn` | studio | Secret-editor header Save / Create (sortie 10) |
+| `delete-secret-btn` | studio | Secret-editor Danger zone "Delete secret"; armed with `App.ui.confirm`, and the arm text names the granting agents' count (sortie 10) |
+| `secret-delete-error` | studio | Secret-editor Danger zone error notice (sortie 10) |
+| `library-add-secret` | studio | Library Add menu item "Secret" -> `#library/secrets/~new` (sortie 10) |
+| `secret-card` | studio | Library list secret row (an `<a href="#library/secrets/{id}">`; meta "N values · N agents", sortie 10) |
+| `secret-name` | studio | Secret editor Name input (sortie 10) |
+| `secret-name-error` | studio | Secret editor Name field error line (422 on `["name"]`, a 409) |
+| `secret-description` | studio | Secret editor Description input |
+| `secret-description-error` | studio | Secret editor Description field error line |
+| `secret-kv-table` | studio | Secret editor Values table (`App.ui.keyValueTable`) |
+| `secret-kv-row` | studio | One row of the Values table |
+| `secret-kv-remove-btn` | studio | A Values row's remove button |
+| `secret-add-pair-btn` | studio | The Values table's "+ Add pair" button |
+| `secret-key-input` | studio | A Values row's Key input |
+| `secret-value-input` | studio | A Values row's Value input (a masked `secretInput`; never carries the value in an attribute) |
+| `secret-values-error` | studio | Section-level error under the Values table (422 on `["values"]`) |
+| `secret-allowed-tools` | studio | The Allowed tools `App.ui.chipList` (with `suggest` search-ahead) |
+| `secret-tools-hint` | studio | The Allowed tools field hint (also says when suggestions are unavailable) |
+| `secret-tools-error` | studio | The Allowed tools field error line (422 on `["allowed_tools"]` and `["allowed_tools", i]`) |
+| `secret-used-by` | studio | The Used by sentence (granting agents as links, or the empty sentence) |
+| `secret-used-by-link` | studio | One granting agent's link, to `#agents/{name}/tools` |
+| `agent-tools-secrets-section` | studio | Agent Tools tab "Secrets" section (`h2`), before MCP servers (sortie 10 B1) |
+| `agent-tools-secrets-host` | studio | The div the Secrets section module fills inside that section |
+| `agent-secrets-root` | studio | Secrets section content root; carries `data-secret-list-loaded="true"` only after a successful load (the `secret_ids` save gate, like `data-kb-list-loaded`) |
+| `agent-secrets-intro` | studio | The Secrets section's intro line |
+| `agent-secrets-list` | studio | The list of secret rows |
+| `agent-secrets-empty-state` | studio | "No secrets yet." with a Library link |
+| `agent-secrets-load-error` | studio | Danger status when the secrets list failed to load (no loaded marker; Save omits `secret_ids`) |
+| `agent-secrets-error` | studio | Section error line for a 422 on `["secret_ids", i]` (hidden until shown) |
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
 | `delete-mcp-source-btn` | studio | The MCP editor's Danger zone Delete (`App.ui.dangerZone`, label "Delete MCP server", armed "Confirm delete?", `data-name`); a failed Delete shows in the header's editor error (`role=alert`), reverts the button and returns focus to it (M31 F5 L10, row 29) |
@@ -588,6 +619,9 @@ caught — but it cannot see where the attribute is emitted.
 |--------|---------|-------|
 | `routine-custom-day-` | studio | The Custom recurrence dialog's day toggles: `routine-custom-day-{0..6}`, Monday = 0 (M33 F3 L7) |
 | `platform-section-` | admin | The Prompts page's platform prompt blocks: `platform-section-{variant}-{id}` (`variant` `tools` or `tool_free`; one list, in assembly order, the tool-free Identity beside the tools Identity; the tool-free Formatting block is absent while its text equals the tools Formatting text, so only the tools block shows; a retired id cannot sit under a live family prefix, so it is not in the retired table, and `platform-variant-` is the retired entry) is a block, with `-applies-when` (its "Applies when" line) and `-text` (its `<pre>`) suffixes (Flight 2 leg 1c, DD8) |
+| `agent-secret-row-` | studio | Agent Tools tab Secrets section — one row per secret, suffixed with the secret id (sortie 10) |
+| `agent-secret-toggle-` | studio | A secret's grant switch (`data-secret-toggle`, `data-secret-id`), suffixed with the secret id (sortie 10) |
+| `agent-secret-meta-` | studio | A row's "{description} · N tool(s)" text, the switch's accessible description, suffixed with the secret id (sortie 10) |
 | `agent-knowledge-row-` | studio | Agent editor Knowledge tab — one row per knowledge base, suffixed with the knowledge base id (M24 F06 L03) |
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |

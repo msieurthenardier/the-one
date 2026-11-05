@@ -41,7 +41,7 @@ def test_model_providers_is_the_first_group_with_badge_and_used_by(
     captions = page.locator(f"{LIST} .ui-list-pane-caption")
     expect(captions.first).to_have_text("Model providers", timeout=8000)
     expect(captions).to_have_text(
-        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors", "Secrets"]
     )
     row = _lists.list_row(page, "library/providers", "mock")
     expect(row).to_have_count(1)
@@ -52,7 +52,7 @@ def test_model_providers_is_the_first_group_with_badge_and_used_by(
     expect(row).to_contain_text("1 agent")
     # An empty library says so in the group, not with a missing group.
     _nav.goto_settled(page, app_with_agent.base_url, "library")
-    expect(page.locator(f"{LIST} .ui-list-pane-group-empty")).to_have_count(3)
+    expect(page.locator(f"{LIST} .ui-list-pane-group-empty")).to_have_count(4)
 
 
 @pytest.mark.browser
@@ -61,7 +61,7 @@ def test_start_page_has_four_cards_providers_first(app_clean: str, page: Page) -
     start = _lists.library_start(page)
     expect(start).to_be_visible(timeout=8000)
     expect(start.locator(".start-page-card-title")).to_have_text(
-        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors", "Secrets"]
     )
     expect(start).to_contain_text("The connection an agent uses to reach a model")
     page.locator('[data-testid="library-start-providers-add"]').click()

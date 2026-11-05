@@ -180,6 +180,25 @@ async def test_repairs_every_kind_and_carries_references(env, caplog) -> None:
         assert any(f"renamed {word} {old!r} to {new!r}" in m for m in messages), (kind, old, new)
 
 
+async def test_repair_carries_an_mcp_rename_into_secrets_allowed_tools(env) -> None:
+    """Sortie 10 DD3: the startup repair's MCP rename moves secrets' allowed tools too."""
+    from the_one.db.repositories import SecretRepository
+
+    await _seed(env)
+    secrets = SecretRepository(env.conn, env.mcp.encryptor)
+    s = await secrets.create(
+        "Vault",
+        "",
+        [f"mcp__{_normalize_source_name('team/tools')}__typeText", "write_file"],
+        [{"key": "k", "value": "kval-123"}],
+    )
+    await _repair(env)
+    assert (await secrets.get(s.id)).allowed_tools == [
+        f"mcp__{_normalize_source_name('team tools')}__typeText",
+        "write_file",
+    ]
+
+
 async def test_second_pass_does_nothing(env, caplog) -> None:
     await _seed(env)
     await _repair(env)

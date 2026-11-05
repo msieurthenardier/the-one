@@ -109,6 +109,9 @@ App.registerArea({
       editingConnector: null,
       pendingConnectorId: self._pendingConnectorId || null,
       pendingConnectorFormMode: self._pendingConnectorFormMode || null,
+      secretFormMode: null, editingSecret: null, // Secrets form state (sortie 10)
+      pendingSecretId: self._pendingSecretId || null,
+      pendingSecretFormMode: self._pendingSecretFormMode || null,
       // Knowledge-base create form (M25 F3 L4a, DD8; squawk 0101)
       kbCreateMode: !!self._kbCreateMode,
       kbFocusFolderFor: null, // a just-created KB's id: focus its folder field on mount
@@ -120,6 +123,7 @@ App.registerArea({
       knowledgeBases: null,
       mcpSources: null,
       connectors: null,
+      secrets: null,
       providersCache: null
     };
 
@@ -325,6 +329,8 @@ App.registerArea({
     var mcpGlue = App.studio.mcpGlue.create(glueCtx);
     glueCtx.mcp = mcpGlue; // the connector module takes it for the pending-item rule
     var connectorGlue = App.studio.connectorGlue.create(glueCtx);
+    glueCtx.connectors = connectorGlue; // secrets joins its pending-item rule
+    var secretGlue = App.studio.secretGlue.create(glueCtx);
 
     // The Agents list column and agent selection (M31 F2 L03). Created after the
     // controller (selection calls renderEditor); the controller and agentData reach
@@ -392,6 +398,7 @@ App.registerArea({
       self._createMode = false;
       mcpGlue.reset();
       connectorGlue.reset();
+      secretGlue.reset();
       providersSection.reset();
       state.kbCreateMode = false;
       knowledgeGlue.reset();
@@ -492,6 +499,10 @@ App.registerArea({
         connectorGlue.reset();
         state.dirty = false;
       }
+      if (prevSection === 'secrets' && section !== 'secrets') {
+        secretGlue.reset();
+        state.dirty = false;
+      }
       if (prevSection === 'providers' && section !== 'providers') {
         providersSection.reset();
         state.dirty = false;
@@ -540,6 +551,8 @@ App.registerArea({
         mcpGlue.render();
       } else if (section === 'connectors') {
         connectorGlue.render();
+      } else if (section === 'secrets') {
+        secretGlue.render();
       } else {
         renderAgentsSection();
       }
@@ -694,6 +707,7 @@ App.registerArea({
       return (self._activeSection === 'agents' && !!(self._selectedAgent || self._createMode)) ||
         (self._activeSection === 'mcp-sources' && mcpGlue.isOpen()) ||
         (self._activeSection === 'connectors' && connectorGlue.isOpen()) ||
+        (self._activeSection === 'secrets' && secretGlue.isOpen()) ||
         (self._activeSection === 'providers' && providersSection.editorOpen()) ||
         (self._activeSection === 'knowledge' && knowledgeGlue.isOpen());
     }

@@ -1,4 +1,4 @@
-"""The seven encrypted corpora, gathered decrypted (M31 F4 L08b).
+"""The eight encrypted corpora, gathered decrypted (M31 F4 L08b; secret values: sortie 10).
 
 One gather shared by the key-rotation route (``POST /api/encryption/rotate``,
 which then re-encrypts and writes every corpus under a new key) and the
@@ -8,7 +8,9 @@ items that hold a secret), so the two cannot drift apart on which columns count.
 The corpora are the ones the rotate route's docstring lists: provider
 ``api_key``, provider ``secrets``, MCP source ``secrets``, connector
 ``secrets``, agent ``tool_overrides`` / ``mcp_overrides``, tool config
-``secrets`` and external-credential ``secret``.
+``secrets``, external-credential ``secret`` and Library secret values
+(``secret_values.value``, the eighth; nine (table, column) pairs in all, since providers
+hold two).
 
 ``strict=True`` is the rotation's decrypt policy: the provider ``api_key`` and
 the external-credential ``secret`` decrypt strictly (an ``InvalidToken`` aborts
@@ -47,6 +49,19 @@ class Corpora:
     )
     tool_configs: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     ext_credentials: list[tuple[str, str]] = field(default_factory=list)
+    # Sortie 10: (secret_values.id, plaintext value). Never logged or returned.
+    secret_values: list[tuple[str, str]] = field(default_factory=list)
+    # secret_values.id -> secrets.id, for the status count only (not a corpus column).
+    secret_value_owners: dict[str, str] = field(default_factory=dict)
+
+
+async def _secret_value_owners(conn: aiosqlite.Connection) -> dict[str, str]:
+    """``{secret_values.id: secret_id}``; empty before the v51 table exists."""
+    try:
+        async with conn.execute("SELECT id, secret_id FROM secret_values") as cur:
+            return {r[0]: r[1] for r in await cur.fetchall()}
+    except aiosqlite.OperationalError:
+        return {}
 
 
 async def _rows(
@@ -72,7 +87,7 @@ async def _rows(
 async def gather_corpora(
     conn: aiosqlite.Connection, encryptor: Encryptor, *, strict: bool
 ) -> Corpora:
-    """Decrypt the seven corpora. See the module docstring for ``strict``."""
+    """Decrypt the eight corpora. See the module docstring for ``strict``."""
     c = Corpora()
     c.api_keys = await _rows(
         conn,
@@ -125,6 +140,13 @@ async def gather_corpora(
         lambda r: (r["identifier"], encryptor.decrypt(r["secret"])),
         strict=strict,
     )
+    c.secret_values = await _rows(
+        conn,
+        "SELECT id, value FROM secret_values",
+        lambda r: (r["id"], encryptor.decrypt(r["value"])),
+        strict=strict,
+    )
+    c.secret_value_owners = await _secret_value_owners(conn)
     return c
 
 
@@ -149,7 +171,18 @@ def count_items_with_secrets(c: Corpora) -> int:
     agents = {name for name, tool, mcp in c.agents if _has_value(tool) or _has_value(mcp)}
     tools = {name for name, blob in c.tool_configs if _has_value(blob)}
     ext = {ident for ident, secret in c.ext_credentials if secret}
-    return len(providers) + len(mcps) + len(connectors) + len(agents) + len(tools) + len(ext)
+    # A secret counts once however many values it holds: map each non-empty value row
+    # to its owning secret.
+    secrets = {c.secret_value_owners.get(vid, vid) for vid, value in c.secret_values if value}
+    return (
+        len(providers)
+        + len(mcps)
+        + len(connectors)
+        + len(agents)
+        + len(tools)
+        + len(ext)
+        + len(secrets)
+    )
 
 
 __all__ = ["Corpora", "count_items_with_secrets", "gather_corpora"]
