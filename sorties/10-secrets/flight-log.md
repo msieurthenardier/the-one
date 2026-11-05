@@ -173,3 +173,17 @@ The operator approved the plan, including the Flight Director calls (refusing `s
 - Pre-existing, noted: `_govern` accepts only `str`, so a dict or list tool result already becomes an error result; masking covers that error string.
 - AC18: `measure-prompt` before and after identical (bare 420, all-on 773, tool-free 54 platform tokens).
 - Leg status `completed`; committed. Next: behavior test `secrets-round-trip`, run 1.
+
+### Behavior test `secrets-round-trip`, run 1 (2026-11-05)
+- **10/10 PASS** on build `c0d75b27` (after leg 2), live mode, Sonnet Executor and Validator. Run log: `tests/behavior/secrets-round-trip/runs/2026-11-05-00-43-42.md`.
+- Setup: the seed was dry-run on a throwaway instance (8494, all 201) and then applied to the test instance (8493). Both PIDs were taken from `ss -ltnp`, verified through `/proc/<pid>/environ` and stopped by PID. Scratch under `$HOME/the-one-behavior-test-scratch/`.
+- Charter evidence:
+  - **criterion 1:** the file on disk held the real values while the stored tool call, the `/api/chat` body and the stored session held only placeholders;
+  - **criterion 2:** `read_file` returned `[secret:bt_token] … [secret:bt_pin]`;
+  - **criterion 3:** the exact "not granted" and "can't be used with the tool `list_dir`" refusals, naming only the key;
+  - **criterion 4:** a Library change and a key rotation applied on the next call; `__MASKED__` only in every API body.
+  
+  The server log and all SQLite files (main, `-wal`, `-shm`) had 0 plaintext matches. Deleting the secret scrubbed the grant and the next call was refused.
+- Not covered here, by design (DD9): an Agent built before a change picking it up (leg 2 unit tests; HAT open-tab step).
+- Spec updated after the run: steps 5 and 6 pin the exact refusal wording (Validator suggestion); status `active`.
+- Validator notes for the debrief: a replaced pair gets a new id (re-read ids from the PUT response); the zero-count step proves absence, not encryption, which is adequate alongside the decrypting steps.

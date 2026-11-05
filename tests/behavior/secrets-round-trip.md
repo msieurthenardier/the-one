@@ -1,9 +1,9 @@
 # Behavior Test: Secrets Round Trip
 
 **Slug**: `secrets-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-11-04
-**Last Run**: never
+**Last Run**: 2026-11-05-00-43-42 — pass (10/10; run 1, sortie 10 after leg 2, build `c0d75b27`, port 8493; [run log](secrets-round-trip/runs/2026-11-05-00-43-42.md)). Steps 5 and 6 then pinned to the exact refusal wording seen in this run.
 
 ## Intent
 
@@ -60,8 +60,8 @@ The unit tests in legs 1 and 2 prove the substitution and masking mechanics with
 | 2 | `POST /api/chat` as `writer`. Record the `session_id` from the result. Then `cat <out>/token.txt`. | The file reads exactly `token=<V1> pin=<V2>`, so the tool received the real values. The `/api/chat` result body contains neither V1 nor V2. |
 | 3 | `GET /api/chat/sessions/{writer session}`. | The stored assistant message's `tool_calls[0].arguments.content` is exactly `token={{secret:bt_token}} pin={{secret:bt_pin}}`. No stored message contains V1 or V2. The tool result is not an error. |
 | 4 | `POST /api/chat` as `reader`, then `GET /api/chat/sessions/{reader session}`. | Every stored tool result's content **contains** `token=[secret:bt_token] pin=[secret:bt_pin]`. `read_file` output is line-numbered (`filesystem.py:427`), so the line carries a number prefix. This shows masking of a value the tool read back. No stored message and no part of the `/api/chat` result contains V1 or V2. |
-| 5 | `POST /api/chat` as `outsider`, then `GET` its session. `ls <out>`. | The stored tool result is an error that reads "Secret `bt_token` is not granted to this agent." (or the leg's final wording that names only the key). It contains neither V1 nor V2. `outsider.txt` does not exist. |
-| 6 | `POST /api/chat` as `wrongtool`, then `GET` its session. | The stored tool result is an error naming the key `bt_token` and the tool `list_dir`, saying the secret can't be used with that tool. It contains neither V1 nor V2. |
+| 5 | `POST /api/chat` as `outsider`, then `GET` its session. `ls <out>`. | The stored tool result is an error that reads exactly "Secret `bt_token` is not granted to this agent." It contains neither V1 nor V2. `outsider.txt` does not exist. |
+| 6 | `POST /api/chat` as `wrongtool`, then `GET` its session. | The stored tool result is an error that reads exactly "Secret `bt_token` can't be used with the tool `list_dir`." It contains neither V1 nor V2. |
 | 7 | `PUT /api/secrets/{SID}` keeping `bt_pin` (`"__MASKED__"` with its pair `id`) and setting `bt_token` to V3. Delete `<out>/token.txt`. `POST /api/chat` as `writer`, continuing the step-2 session (`{"message":"go","agent_name":"writer","session_id":"<writer session>"}`). `cat <out>/token.txt`. | The PUT returns 200 with values `__MASKED__` only. The file now reads `token=<V3> pin=<V2>`, so the changed value applied on the session's next tool call with no agent edit. |
 | 8 | `POST /api/encryption/rotate` (wait until it reports success). Delete `<out>/token.txt`. `POST /api/chat` as `writer`, again with the step-2 `session_id`. `cat <out>/token.txt`. | Rotation succeeds. The file reads `token=<V3> pin=<V2>`, so the secret survived the key rotation. |
 | 9 | `grep -c` each of V1, V2 and V3 in the server log file. Run `grep -c` for each value on the SQLite database file(s) under the data directory (`*.db`, plus any `-wal` file). | Every count is 0: no plaintext value in the log or the database. |
