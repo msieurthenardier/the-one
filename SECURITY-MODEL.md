@@ -1084,7 +1084,19 @@ with the unsandboxed Windows posture.
   `mcp`, `httpx2` and `httpcore2` loggers are held at WARNING because the
   `mcp` SDK logs whole JSON-RPC requests at DEBUG. Residual risks, accepted:
   a tool that transforms a value before echoing it (base64, hashing,
-  case-folding, splitting across lines or fields) defeats literal masking; a
+  case-folding, splitting across lines or fields) defeats literal masking;
+  short values are masked everywhere: there is no minimum length, so a short
+  or common value (a postcode of digits, say) can replace unrelated text in a
+  tool result with `[secret:key]` (in the HAT a postcode matched inside a
+  page script's base64 alphabet); that corrupts the text the model sees but
+  never leaks the value, and the operator chose it over a length floor;
+  images are not masked: the masker checks text only (strings, and strings
+  nested in dicts and lists). An MCP image block, such as a browser
+  screenshot tool's PNG, reaches the model and the stored chat only as the
+  `[image: N bytes, mime=...]` text line; the block itself stays in
+  `ToolResult.raw`, which no model or storage path reads, so an image
+  carries no secret today. If image results are ever forwarded to a model,
+  masking will not cover them, and that change must address secrets; a
   tool the operator allows can send the value anywhere it is designed to send
   its input (that is the point of `allowed_tools`), so allow only tools you
   trust with it; a result that is not str, dict, list or tuple (a set or a

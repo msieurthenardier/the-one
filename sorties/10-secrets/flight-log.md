@@ -279,3 +279,30 @@ The operator approved the plan, including the Flight Director calls (refusing `s
   - a secret deleted in another tab leaves its row until refresh (the next Save drops it, matching the server).
 - **Debrief item:** part A's gate ran only `library`, `routing` and `contracts-controls`, while a fifth Library group pins counts in `agents`, `providers` and `settings` too. When a leg changes a shared list or table, the gate should include every lane that asserts on it, found by grepping the old count or labels.
 - B2 falsified (yes). Leg status `completed`; committed. Next: the HAT.
+
+### Leg 4 `hat`: start (2026-11-05)
+- Leg artifact `legs/04-hat.md` (H1-H9, state transitions; status `ready`).
+- Operator choices: Goldfinch is added by hand in the scratch Library (no credential copied by the Flight Director); the operator sets up their own model provider; start now, with the host loaded (timing ignored).
+- Scratch instance: port 8495, data `~/the-one-hat-s10/data`, cwd `~/the-one-hat-s10/cwd`, `THE_ONE_DEV_MODE=true`, build `2bcc2a04`. PID 595430 from `ss -ltnp`, verified through `/proc/<pid>/environ`.
+- The first handoff link expired before it was used; a second was minted (same PID).
+- **H1: pass.** The operator added their own provider and Goldfinch and created an agent. The empty Secrets state looked right: the group, the Add menu entry and the start-page card, with no errors.
+- **H2: pass.** "Goldfinch vault key" created: the generated key, the masked value with Show, the Allowed tools refusal, search-ahead to `mcp__goldfinch__vaultUnlock`, then the stored masked value, "1 value · 0 agents" and an empty Used by.
+- **H3: pass.** "Home address" with three pairs: add and remove a pair, the duplicate-key refusal on its row, the duplicate-name refusal on Name, "3 values · 0 agents", a renamed key's value clearing, and the leave guard (Stay kept the edits, Continue discarded them).
+- **H4: pass.** The Secrets section comes first with name and "description · N tools" only; the grant and Save worked, a reopen stayed clean, the Library meta reads "1 agent" with Used by filled, the drawer has its Secrets group, and Prompts has the Secrets block. The operator raised none of the carried polish items, so they go to the debrief as non-blocking.
+- **H5: pass** (operator), checked against the stored session `dd808fd2…` by the Flight Director through the scratch API.
+  - Unprompted, the model found the tool with `search_tools`, then called `mcp__Goldfinch__vaultUnlock` with `{"accessKey": "{{secret:goldfinch_vault_key}}"}`. The result was `{"unlocked":["test-secrets"]}`, not an error, so the real value reached Goldfinch while the stored call keeps the placeholder.
+  - The MCP server is named `Goldfinch` (capital G), and the secret's allowed tool was stored as `mcp__Goldfinch__vaultUnlock` from search-ahead, so the names matched exactly.
+  - Prompt wording accepted (DD8 option b).
+  - The typeText request was **refused by the model itself**: no tool call was made. The runtime refusal (the tool not on the list) was not exercised with a real model. It is covered by behavior run 1 step 6 and leg 2's unit tests.
+  - The Flight Director did not grep for the plaintext value: that would mean decrypting the operator's real key. The placeholder in the stored call plus behavior run 1 step 9 are the evidence.
+- **H6: pass, by the operator's own variant.**
+  - The Goldfinch vault does not relock (a Goldfinch bug), so the unlock version could not show a changed key.
+  - The operator granted Home address instead, and in one open chat (session `15226a31…`) had the model type `{{secret:home_postcode}}` into DuckDuckGo through `mcp__Goldfinch__typeText` several times, with no reload, changing the value in another tab between runs. The operator observed the new value typed.
+  - Every stored call kept the placeholder. The Flight Director could not see the typed values, so the value change rests on the operator's observation. The flight's other evidence is leg 2's same-Agent unit tests.
+  - **Two doc gaps found by reading the session** (no code change):
+    - (a) A short value masks unrelated text: the dummy postcode matched inside a base64 alphabet in a page script (`…XYZ0[secret:home_postcode]6789+/=`). This is the operator's accepted "no minimum length" choice; flight.md says SECURITY-MODEL.md notes it, but it does not.
+    - (b) Image results are not masked. **Corrected after the F1 Developer checked the code:** an MCP image reaches the model and the stored chat only as `[image: N bytes, mime=...]`; the block stays in `ToolResult.raw`, which no model or storage path reads. The model said so itself ("unable to read the specific text content from the image"). So no secret leaks through images today; the doc records the limit for any future change that forwards images.
+  - Both go to a doc-only HAT fix: add them to SECURITY-MODEL.md's accepted risks and to agents.md.
+- **H7: pass.** Deleting granted Home address showed "Delete and remove from 1 agent?". The agent's Tools tab and the drawer then listed only Goldfinch vault key; no errors.
+- **HAT fix F1 (doc-only):** recorded the short-value over-masking and unmasked-image limits as accepted risks in `SECURITY-MODEL.md` (sortie 10 Secrets runtime paragraph) and `the_one/agents.md` ("Secrets (sortie 10)", masking bullet). `sorties/10-secrets/flight.md` left unchanged; its claim is now true. The image item was corrected after checking the code: images never reach the model today (only the `[image: N bytes, ...]` line does; the block stays in `ToolResult.raw`, which nothing reads), so finding (b) was wrong and the item records only the forward-looking limit. No code or tests changed.
+  - Flight Director call: a doc-only, two-paragraph diff, so the Flight Director read the diff directly instead of spawning a Reviewer (the crew Reviewer is for code). No lanes to re-run, and the behavior test needs no re-run (no server change). Committed on its own.
