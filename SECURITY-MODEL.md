@@ -1049,8 +1049,7 @@ with the unsandboxed Windows posture.
   grant. See "Authentication" → "External-client access to the
   self-configuration surface" above for the credential's scope and the
   governance invariant.
-- **Library secrets** (sortie 10, storage; the runtime substitution and its
-  residual risks are added with leg 2): named key/value pairs the operator
+- **Library secrets** (sortie 10): named key/value pairs the operator
   stores once and grants to agents. Each value is Fernet ciphertext in
   `secret_values.value`, the eighth corpus: it is re-encrypted by
   `POST /api/encryption/rotate` in the same transaction as the others and is
@@ -1071,6 +1070,30 @@ with the unsandboxed Windows posture.
   `send_to_platform_channel` and the loop's virtual tools) cannot be on it.
   `__MASKED__` is the API's keep-this-value sentinel and cannot be stored as a
   real value.
+  **Runtime (leg 2).** The model writes `{{secret:key}}`; the agent loop fills
+  the value into a *copy* of the tool arguments just before the tool runs, so
+  the stored conversation, the WebSocket frames and the provider request hold
+  only the placeholder. A call is refused (naming only the key as written,
+  never a value) when the agent is not granted the key or the tool is not in
+  the secret's `allowed_tools`; the refused set is also enforced at run time
+  whatever a stored row lists. Every stored value, granted or not, is masked
+  to `[secret:key]` in the tool's result and in timeout and error strings,
+  before the context-budget governor truncates it, in the raw form and its
+  `repr`, JSON (both escapings) and URL encodings; a failure to read secrets
+  or to mask fails closed (the call is refused or the output withheld). The
+  `mcp`, `httpx2` and `httpcore2` loggers are held at WARNING because the
+  `mcp` SDK logs whole JSON-RPC requests at DEBUG. Residual risks, accepted:
+  a tool that transforms a value before echoing it (base64, hashing,
+  case-folding, splitting across lines or fields) defeats literal masking; a
+  tool the operator allows can send the value anywhere it is designed to send
+  its input (that is the point of `allowed_tools`), so allow only tools you
+  trust with it; a result that is not str, dict, list or tuple (a set or a
+  custom object that `json.dumps` accepts) is not walked by the masker, which
+  is unreachable today because no built-in or MCP tool returns one;
+  `ToolResult.metadata` is not masked (it is set only by the MCP
+  sign-in branch, with fixed fields); a secret prompt layer is fixed when an
+  Agent is built, so a newly granted key is substituted at once but only
+  advertised to the model after the chat's next rebuild.
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries
   placeholders only).

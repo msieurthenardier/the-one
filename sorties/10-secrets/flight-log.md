@@ -128,3 +128,48 @@ The operator approved the plan, including the Flight Director calls (refusing `s
   3. Pre-existing, all corpora: `rotate_encryption_key` gathers corpora before its write transaction, so a secret written in that window keeps old-key ciphertext. Not introduced by this leg; noted for the debrief.
 - Flight Director re-ran the unit gate after the Developer's late `shared_app()` fix: `THE_ONE_TEST_NETNS=1 make test-unit` gave **9065 passed, 15 skipped** (the expected netns count) in 246 s.
 - Leg status `completed`; committed.
+
+### Leg 2 `secrets-at-runtime`: design (2026-11-04)
+- Risk tier **high**: the agent loop (the frozen `core.py`), substitution and masking of key material, and platform prompt text.
+- **Frozen-loop touch.** By convention `core.py` changes only with owner approval. The operator approved DD7, which places the hook in `_execute_tool`, and was told at leg design that this counts as the approved touch, scoped minimal: a `secrets=None` kwarg, one call before execution and one after, plus masking of the two error strings. agents.md records it beside the `send_to_platform_channel` precedent.
+- Developer design review (Sonnet): **approve with changes**, all taken:
+  - `prepared = None` is set before the `try`, and `prepare` sits inside the inner `try` after `bind_positional_args`. A mask failure on any path withholds the output.
+  - Only `content` and the error strings are masked (`metadata` is fixed).
+  - A concrete type rule: str, dict (keys too), list and tuple are masked; other types pass unchanged; `bytes` already errors (pinned).
+  - No resolver cache now, and a fixed number of queries per `prepare`.
+  - Entry-point context coverage recorded, plus a session-row-missing fallback test.
+  - Connector, routine and MCP `echo` test seams named.
+  - The `pending.py` fallback passes `secrets=""` when the load fails, and never raises.
+  - The existing exact-output prompt tests are the byte-identity guard.
+  - The `measure-prompt` check is honestly framed: identical by construction; the output path must be outside the repo.
+- No second pass (changes adopt verified code facts). Status `ready`.
+
+### Leg 2 `secrets-at-runtime`: implementation (2026-11-04)
+- Landed AC1-AC20 (status `landed`, uncommitted). New: `secret_store/runtime.py` (resolver, token pattern, one-pass masker, `Prepared`, `SecretMaskError`), `db/_secrets.py`, `tests/_secret_env.py`, `test_secret_runtime.py`, `test_secret_loop.py`, `test_secret_prompt_layer.py`. Changed: `agent/core.py` (the approved touch: `secrets=None` kwarg, `prepare` after `bind_positional_args`, `safe_mask` before `_govern`, mask of the timeout and generic error strings, a `SecretMaskError` branch), `agent/factory.py` (resolver on every Agent), `agent/config.py` (`secrets=""`), `agent/prompt_layers.py` (`load_secrets_block`, tool-capable only, omitted with a WARNING if the load fails), `self_configuration/pending.py` (main path via `build_system_prompts`; fallback retries the load, `""` if it raises), `/api/info` (`secrets_prompt_example`), `logging_config.py`, plus `test_factory.py` (resolver test, `load_secrets_block` stub in the shared fixture), `test_inbound_session_updated.py` and `test_routines_runner.py` (entry-point tests). Docs: agents.md, SECURITY-MODEL.md, CLAUDE.md.
+- AC18: `measure-prompt` before and after are identical (same JSON; fingerprint `df5f2249...`). Totals (platform tokens): bare 420, all-on 773, tool-free 54, bare-connector 872, all-on-connector 1225, routines-on 1670. Files in `$HOME/the-one-s10-eval/`.
+- AC14 log sweep: grep of `the_one/mcp/*.py` and `agent/core.py` for logging of arguments/bodies found nothing in the app. **Finding:** the `mcp` SDK logs whole JSON-RPC messages at DEBUG (`mcp/client/streamable_http.py:635` "Sending client message", `:191` SSE message, `sse.py:111,135`), which carry substituted tool arguments. `logging_config._QUIETED_THIRD_PARTY_LOGGERS` now also holds `httpx2`, `httpcore2`, `mcp` (WARNING). httpx2 logs only the URL line at INFO and httpcore2 only connection events, but they are quieted too.
+- **Surprise (pre-existing, not changed):** `_govern` takes a `str`, so a tool returning a dict or list already becomes an `[error] ... 'dict' object has no attribute 'encode'` result in the loop. AC9's dict/list cases therefore assert the value is absent from that error; the container walk (keys included) is pinned in the masker unit tests. Noted in agents.md and SECURITY-MODEL.md.
+- AC13: connector and routine entry points each reach the hook (placeholder from an agent with no grant is refused in the stored chat, using `current_time`). A routine/connector substitution case was not added (a refusal proves the hook; substitution is proven in the loop tests).
+- AC6: `resume_after_auth` -> `_dispatch_tool_calls` -> `_execute_tool`, pinned by a source-level test (no MCP auth machinery).
+- Design note: with no secret stored at all, `prepare` is a pass-through (AC4), so a token stays literal; the refusal tests store a secret first.
+- Falsified (fix removed by editing, test shown to fail, fix restored): AC2 no-mutation yes; AC3 single pass (sequential `str.replace`) yes; AC4 fail-closed load yes, mask failure yes; AC5 mask-before-govern yes; AC7 every-agent resolver yes; AC8 provider-request/placeholder-only (core assigns `tool_call.arguments`) yes; AC9 repr needle yes, ungranted-value masking yes; AC10 refused-set runtime check yes; AC11 same-Agent freshness (added a cache) yes; AC14 log check (mcp/httpx2/httpcore2 quieting removed) yes. The real-MCP-stdio echo test proves masking of an MCP result but cannot produce HTTP request logs, so the log guarantee rests on the quieting test.
+- Gate: `THE_ONE_TEST_NETNS=1 make test-unit` after the last code change: 9126 passed, 15 skipped (expected netns count), 252 s. ruff check and format clean.
+
+### Leg 2 `secrets-at-runtime`: review fix (2026-11-04)
+- AC2 vs AC4 inconsistency fixed in `secret_store/runtime.py::prepare`: tokens are collected first (`_collect`, a cheap walk), and the fast path (args unchanged, identity mask) applies only with NO tokens and NO stored values. Any token always goes through the lookup, so with an empty Library `{{secret:x}}` is refused "Secret `x` is not granted to this agent." and the tool is not called. A load failure still refuses (fail closed).
+- Tests: `test_empty_library_with_a_token_is_refused` (test_secret_runtime.py) and `test_empty_library_token_refused_and_tool_not_called` (test_secret_loop.py) added; the old `test_no_secrets_stored_is_identity_and_one_query` that pinned the pass-through became `test_no_secrets_and_no_tokens_is_identity`. Falsified (condition reverted by editing, both new tests failed, restored): yes.
+- Leg AC4 fast-path sentence amended ("with no tokens and no stored secrets"); agents.md Secrets runtime paragraph updated, and now notes that once any secret exists every tool call decrypts all values (uncached by design) and a DB fault refuses every tool call.
+
+### Leg 2 `secrets-at-runtime`: review and commit (2026-11-04)
+- Reviewer (Sonnet, security tier): **[HANDOFF:confirmed]**. It confirmed the `core.py` change is exactly the approved minimal hook, the substituted copy never aliases `tool_call.arguments`, masking is single-pass, longest-first and runs before `_govern` and on both error strings, fail-closed holds, and the prompt layer is `tool_capable`-only and byte-identical when empty.
+- It ruled on the AC2/AC4 inconsistency (the Flight Director's spec slip): with an empty Library a token passed through as literal text. Non-blocking per the Reviewer; fixed anyway, since DD7 requires the refusal. The fast path now applies only with no tokens and no stored values. Two new tests, both falsified. Unit gate after the fix: **9128 passed, 15 skipped**.
+- Non-blocking, accepted:
+  - every tool call decrypts all values once any secret exists (uncached by design);
+  - a DB fault refuses every tool call (fail-closed);
+  - case-colliding keys are prevented by leg 1's validation.
+
+  The first two are recorded in agents.md.
+- **Log-sweep finding (fixed in leg):** the `mcp` SDK logs whole JSON-RPC messages at DEBUG (`streamable_http.py:635`, `sse.py:111,135`), which would carry substituted arguments; `httpx2`, `httpcore2` and `mcp` are now quieted to WARNING.
+- Pre-existing, noted: `_govern` accepts only `str`, so a dict or list tool result already becomes an error result; masking covers that error string.
+- AC18: `measure-prompt` before and after identical (bare 420, all-on 773, tool-free 54 platform tokens).
+- Leg status `completed`; committed. Next: behavior test `secrets-round-trip`, run 1.

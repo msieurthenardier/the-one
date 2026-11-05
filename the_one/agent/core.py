@@ -18,6 +18,7 @@ from the_one.llm.base import (
     ToolResult,
 )
 from the_one.mcp.errors import MCPAuthRequired
+from the_one.secret_store.runtime import WITHHELD_MESSAGE, Prepared, SecretMaskError, SecretResolver
 from the_one.tools.base import ToolRegistry
 
 _TOOL_CALL_TIMEOUT_ENV = "THE_ONE_TOOL_CALL_TIMEOUT_SECONDS"
@@ -169,7 +170,11 @@ class Agent:
         loaded_schemas: list[dict] | None = None,
         loaded_tool_names: set[str] | None = None,
         degraded_system_prompt: str | None = None,
+        secrets: SecretResolver | None = None,
     ) -> None:
+        # Sortie 10 DD7 (owner-approved touch of the frozen loop): the secrets hook.
+        # ``None`` keeps today's behaviour exactly.
+        self._secrets = secrets
         self.llm = llm
         self.tools = tools
         self.system_prompt = system_prompt
@@ -614,10 +619,19 @@ class Agent:
         # exception fall-through, both of which return through the
         # outer finally.
         token = current_tool_call_id.set(tool_call.id)
+        prepared: Prepared | None = None
         try:
             try:
                 tool = self.tools.get(tool_call.name)
                 args = tool.bind_positional_args(tool_call.arguments)
+                if self._secrets is not None:
+                    # Sortie 10 DD7: fill {{secret:key}} into a copy, or refuse the call.
+                    prepared = await self._secrets.prepare(tool_call.name, args)
+                    if prepared.refusal is not None:
+                        return ToolResult(
+                            tool_call_id=tool_call.id, content=prepared.refusal, is_error=True
+                        )
+                    args = prepared.args
                 # DD2 / Leg 2: bound every tool invocation with a configurable
                 # ceiling so no single tool call can wedge a turn indefinitely.
                 # ``asyncio.wait_for`` cancels the wrapped coroutine on expiry;
@@ -625,6 +639,8 @@ class Agent:
                 # — the guarantee is best-effort on tool cooperation.
                 timeout = _get_tool_call_timeout()
                 output = await asyncio.wait_for(tool.execute(**args), timeout=timeout)
+                if prepared is not None:
+                    output = prepared.safe_mask(output)  # before the governor truncates
                 # M16 F08 L01 (DD1 / LOW-3): govern the normal-path output so no
                 # single tool result can consume a disproportionate share of the
                 # context window. Direction is tool-declared (head for prose/
@@ -650,23 +666,39 @@ class Agent:
                         "consent_url": e.consent_url,
                     },
                 )
+            except SecretMaskError:
+                return ToolResult(
+                    tool_call_id=tool_call.id, content=WITHHELD_MESSAGE, is_error=True
+                )
             except asyncio.TimeoutError:
                 # DD2 / Leg 2: tool exceeded the configured ceiling.
                 # Return a tool-error so the loop records the result and
                 # terminates the turn cleanly with ``done`` semantics.
                 # The outer ``finally`` still resets ``current_tool_call_id``.
+                text = f"tool {tool_call.name} timed out after {timeout:.0f}s"
+                try:
+                    if prepared is not None:
+                        text = prepared.safe_mask(text)
+                except SecretMaskError:
+                    return ToolResult(
+                        tool_call_id=tool_call.id, content=WITHHELD_MESSAGE, is_error=True
+                    )
                 return ToolResult(
-                    tool_call_id=tool_call.id,
-                    content=self._govern(f"tool {tool_call.name} timed out after {timeout:.0f}s"),
-                    is_error=True,
+                    tool_call_id=tool_call.id, content=self._govern(text), is_error=True
                 )
             except Exception as e:
                 # M16 F08 L01: govern the error string too — a tool may surface a
                 # large exception payload (e.g. an embedded response body).
+                text = f"[error] Tool execution failed: {e}"
+                try:
+                    if prepared is not None:
+                        text = prepared.safe_mask(text)
+                except SecretMaskError:
+                    return ToolResult(
+                        tool_call_id=tool_call.id, content=WITHHELD_MESSAGE, is_error=True
+                    )
                 return ToolResult(
-                    tool_call_id=tool_call.id,
-                    content=self._govern(f"[error] Tool execution failed: {e}"),
-                    is_error=True,
+                    tool_call_id=tool_call.id, content=self._govern(text), is_error=True
                 )
         finally:
             current_tool_call_id.reset(token)

@@ -3091,6 +3091,7 @@ async def info() -> dict[str, Any]:
     from the_one.agent.config import RenderedNote
     from the_one.db._notes import render_notes_block
     from the_one.db._rules import render_rules_block
+    from the_one.db._secrets import render_secrets_block
     from the_one.time_zones import render_date_line
 
     # The rules and notes layers are rendered by the same functions that build a
@@ -3109,6 +3110,12 @@ async def info() -> dict[str, Any]:
         ),
         "rules_prompt_example": render_rules_block(
             ["{first enabled rule}", "{second enabled rule}"], notes_present=True
+        ),
+        "secrets_prompt_example": render_secrets_block(
+            [
+                ("home_address", "Home address", "Where I live", ["mcp__goldfinch__typeText"]),
+                ("home_city", "Home address", "Where I live", ["mcp__goldfinch__typeText"]),
+            ]
         ),
         "notes_prompt_example": render_notes_block(
             [

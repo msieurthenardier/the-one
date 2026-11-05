@@ -274,3 +274,30 @@ async def test_an_unmapped_build_failure_is_logged_with_the_agent_and_returns(re
     assert len(ws.frames) == 1 and ws.frames[0][1] is False
     assert turn_seq(ws.session_id).endswith(":0")
     assert not session_locks[ws.session_id].locked()
+
+
+# ── Sortie 10 DD7 (AC13): a connector turn reaches the secrets hook ─────────
+
+
+async def test_connector_turn_reaches_the_secrets_hook(repos):
+    """A tool call that writes a secret placeholder, from an agent with no grants, gets the
+    "not granted" refusal in the stored chat: the factory-built Agent has a resolver and the
+    connector path runs through ``_execute_tool``."""
+    from the_one.db.codec import decode_messages
+    from the_one.db.repositories import SecretRepository
+    from the_one.llm.base import Role, ToolCall
+
+    conn_repo, chat_repo = repos
+    store = await _setup(conn_repo)
+    await SecretRepository(conn_repo.conn, conn_repo.encryptor).create(
+        "Home", "", ["current_time"], [{"key": "home_city", "value": "Springfield-77"}]
+    )
+    ws = _WS()
+    call = ToolCall(id="c1", name="current_time", arguments={"x": "{{secret:home_city}}"})
+    llm = FakeLLM(responses=[Message.assistant("", tool_calls=[call]), Message.assistant("ok")])
+    await _run(store, llm, [ws])
+    row = await chat_repo.get(ws.session_id)
+    tool_msgs = [m for m in decode_messages(row.messages) if m.role == Role.TOOL]
+    assert [m.tool_result.content for m in tool_msgs] == [
+        "Secret `home_city` is not granted to this agent."
+    ]
