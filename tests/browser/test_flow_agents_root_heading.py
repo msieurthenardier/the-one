@@ -60,7 +60,7 @@ def test_library_roots_have_one_hidden_h1(app_clean: str, page: Page, section: s
     expect(page.locator('[data-testid="root-heading"]')).to_have_text("Library", timeout=8000)
     assert _h1_texts(page) == ["Library"]
     # The start page's blocks are h2s (DD15): one per type.
-    expect(page.locator('[data-testid="library-start"] h2')).to_have_count(4)
+    expect(page.locator('[data-testid="library-start"] h2')).to_have_count(5)
 
 
 @pytest.mark.browser
@@ -90,6 +90,7 @@ LIBRARY_ORDER = [
     ("knowledge", "Knowledge bases"),
     ("mcp", "MCP servers"),
     ("connectors", "Connectors"),
+    ("secrets", "Secrets"),
 ]
 
 

@@ -39,7 +39,7 @@
 //            Knowledge bases (kb_ids against the store), MCP servers
 //            (mcp_source_ids found in the PLAIN `mcp-sources` list, so the
 //            self-configuration loopback source is skipped, with "{n} tools"
-//            where App.usage.mcpToolCount knows it), Built-in tools (the
+//            where App.usage.mcpToolCount knows it), Secrets (names), Built-in tools (the
 //            categories with their effective enabled count: globally enabled
 //            AND the agent's AgentConfig.is_tool_enabled), Self-configuration
 //            (On or Off). An empty group says "None"; a failed load says
@@ -105,7 +105,7 @@
   // AgentConfig's UNGATED_TOOL_PREFIXES: exempt from the enabled_tools
   // whitelist (it gates built-ins only); disabled_tools is universal.
   var UNGATED_PREFIXES = (window.App.toolCategories && window.App.toolCategories.ungatedPrefixes) || [];
-  var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'sessions'];
+  var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'secrets', 'sessions'];
 
   function el(tag, attrs, children) {
     return App.ui.util.el(tag, attrs, children);
@@ -567,6 +567,7 @@
       }
       box.appendChild(group('mcp', 'MCP servers', mcps, mcpStatus));
 
+      box.appendChild(group('secrets', 'Secrets', App.chat.drawerParts.grantedSecrets(agent), storeStatus('secrets')));
       var toolItems = [];
       var toolStatus = configs.status === 'ok' ? 'ok' : configs.status === 'error' ? 'error' : 'loading';
       if (toolStatus === 'ok') {
@@ -693,7 +694,7 @@
         var rSame = routinesState.gen === gen && routinesState.agent === info.name && routinesState.status === 'ok';
         loadRoutines(info.name, gen, rSame);
       }
-      ['knowledge-bases', 'mcp-sources'].forEach(function (name) {
+      ['knowledge-bases', 'mcp-sources', 'secrets'].forEach(function (name) {
         if (storeTried[name] === gen) return;
         storeTried[name] = gen;
         App.store.get(name).then(function () {

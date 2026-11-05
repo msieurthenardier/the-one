@@ -202,6 +202,18 @@
         }
       }
 
+      // Sortie 10: `secret_ids` follows the same rule through the Tools tab's Secrets
+      // section: sent only when its root carries `data-secret-list-loaded="true"`
+      // (a failed load omits it and the server keeps the stored grants), in Library order.
+      var secretsRoot = editorEl.querySelector('[data-secret-list-loaded="true"]');
+      if (secretsRoot) {
+        var secretToggles = editorEl.querySelectorAll('[data-secret-toggle][data-secret-id]:checked');
+        data.secret_ids = [];
+        for (var si = 0; si < secretToggles.length; si++) {
+          data.secret_ids.push(secretToggles[si].dataset.secretId);
+        }
+      }
+
       // F6 leg 05 — collect tool_overrides from per-tool override panels.
       // Each override control carries `data-tool-override-tool="{name}"` and
       // `data-tool-override-field="{field}"` (App.toolConfigFields, M31 F4 L05b,

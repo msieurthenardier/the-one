@@ -390,6 +390,19 @@ App.studio.agentData = {
       });
     }
 
+    // Sortie 10: the secrets list for the Tools tab's Secrets section, refreshed on every
+    // agent-edit mount like refreshKnowledgeBasesCache; `_secretsLoaded` is false after a
+    // failed refresh, so the section shows the failure and Save omits `secret_ids`.
+    function refreshSecretsCache() {
+      return App.store.get('secrets', { force: true }).then(function (list) {
+        self._allSecrets = list;
+        self._secretsLoaded = true;
+      }).catch(function () {
+        self._allSecrets = self._allSecrets || [];
+        self._secretsLoaded = false;
+      });
+    }
+
     // Lazy schema fetcher — closure-cached. Stores the PROMISE (not the
     // resolved value) so concurrent callers during an in-flight fetch
     // reuse the same in-flight promise (no double-fetch). The cache
@@ -559,6 +572,7 @@ App.studio.agentData = {
       refreshToolConfigsCache: refreshToolConfigsCache,
       refreshMcpSourcesCache: refreshMcpSourcesCache,
       refreshKnowledgeBasesCache: refreshKnowledgeBasesCache,
+      refreshSecretsCache: refreshSecretsCache,
       testMcpAsAgent: testMcpAsAgent,
       saveMcpCredentials: saveMcpCredentials,
       fetchToolSchema: fetchToolSchema,

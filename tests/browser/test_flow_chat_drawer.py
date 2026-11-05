@@ -365,6 +365,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
         "Routines",
         "Knowledge bases",
         "MCP servers",
+        "Secrets",
         "Built-in tools",
         "Self-configuration",
     ]
@@ -376,6 +377,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
     expect(_group(page, "self-configuration").locator("p")).to_have_text("Off", timeout=8000)
     expect(_group(page, "knowledge").locator("p")).to_have_text("None")
     expect(_group(page, "mcp").locator("p")).to_have_text("None")
+    expect(_group(page, "secrets").locator("p")).to_have_text("None")
     expect(_group(page, "tools").locator("li")).to_have_count(2)
     # current_time is exempt from the whitelist (M28), so it stays.
     assert _group_items(page, "tools") == ["Filesystem 1 of 9", "Time 1 of 1"]
@@ -679,7 +681,7 @@ def test_the_drawer_subscribes_to_five_stores_and_releases_them_on_destroy(
           }
         }"""
     )
-    stores = ["agents", "knowledge-bases", "mcp-sources", "providers", "sessions"]
+    stores = ["agents", "knowledge-bases", "mcp-sources", "providers", "secrets", "sessions"]
     assert sorted(out["during"]) == stores and set(out["during"].values()) == {1}, out
     assert set(out["after"].values()) == {0}, out
     assert (out["duringListeners"], out["afterListeners"]) == (1, 0), out

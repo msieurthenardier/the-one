@@ -484,9 +484,7 @@ def test_leave_guard_continue_discards_into_the_detaching_nodes(
     assert page.evaluate(_SCAN_JS, "typed-secret-never-saved") == []
 
 
-def test_leave_guard_stay_keeps_typed_name_and_value(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_leave_guard_stay_keeps_typed_name_and_value(app_with_agent: SeededApp, page: Page) -> None:
     base = app_with_agent.base_url
     a = seed_secret(base, "Alpha", values=[("alpha_k", "stored-a")])
     _open_secret(page, base, a, "Alpha")

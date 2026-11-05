@@ -283,6 +283,7 @@ def test_prompt_headings_layers_are_h2_and_platform_blocks_h3(app_clean: str, pa
         "platform prompt",
         "rules",
         "notes",
+        "secrets",
         "date",
     ]
     blocks = panel.locator('[data-testid^="platform-section-"][data-testid$="-identity"] h3')
@@ -298,8 +299,8 @@ def test_prompt_variants_are_subheadings_not_eyebrows(app_clean: str, page: Page
     _open_prompts(page, app_clean)
     assert page.locator(".platform-sections .prompt-variant").count() == 0
     assert page.locator(".content-panel.active .prompt-variant").count() == 4
-    # The eyebrow family is only the four layer titles.
-    assert page.locator(".content-panel.active .section-title").count() == 4
+    # The eyebrow family is only the five layer titles.
+    assert page.locator(".content-panel.active .section-title").count() == 5
 
 
 @pytest.mark.browser

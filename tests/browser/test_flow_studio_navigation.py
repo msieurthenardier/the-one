@@ -72,7 +72,7 @@ def test_library_list_renders_title_intro_add_and_groups(app_clean: str, page: P
     )
     expect(library.locator('[data-testid="library-add-btn"]')).to_have_text("Add")
     expect(library.locator(".ui-list-pane-caption")).to_have_text(
-        ["Model providers", "Knowledge bases", "MCP servers", "Connectors"]
+        ["Model providers", "Knowledge bases", "MCP servers", "Connectors", "Secrets"]
     )
     # The aside is labelled by the destination; no section nav exists.
     expect(page.locator("#app-sidebar")).to_have_attribute("aria-label", "Library")

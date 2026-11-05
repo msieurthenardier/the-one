@@ -106,10 +106,23 @@
         return d && d.type === 'tool_override' && Array.isArray(d.loc) &&
           d.loc[0] === 'tool_overrides' && d.loc.length >= 2;
       });
+      // Sortie 10: ["secret_ids", i] refusals show on the Tools tab's Secrets section.
+      var secretItems = items.filter(function (d) {
+        return d && Array.isArray(d.loc) && d.loc[0] === 'secret_ids';
+      });
       var plain = err;
-      if (toolItems.length) {
+      if (toolItems.length || secretItems.length) {
         plain = { status: err.status, message: err.message, body: err.body,
-          detail: items.filter(function (d) { return toolItems.indexOf(d) < 0; }) };
+          detail: items.filter(function (d) {
+            return toolItems.indexOf(d) < 0 && secretItems.indexOf(d) < 0;
+          }) };
+      }
+      if (secretItems.length) {
+        setActiveTab('tools');
+        var sd = currentData_();
+        if (sd && sd.handle && sd.handle.secrets) {
+          sd.handle.secrets.showError(secretItems.map(function (d) { return d.msg; }).join(' '));
+        }
       }
       var fe = App.api.fieldErrors(plain, ['name']);
       setNameError_(fe.fields.name || null);
@@ -297,6 +310,9 @@
         // selectAgent / doSelect / doEnterCreateMode above).
         allKnowledgeBases: self._allKnowledgeBases,
         knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
+        // Sortie 10: the Secrets section's list + load flag (agent-data.js owns them).
+        allSecrets: self._allSecrets || [],
+        secretsLoaded: self._secretsLoaded === true,
         // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
         allMcpSources: self._allMcpSources,
         testMcpAsAgent: agentData.testMcpAsAgent,

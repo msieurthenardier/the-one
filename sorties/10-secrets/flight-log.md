@@ -246,3 +246,36 @@ The operator approved the plan, including the Flight Director calls (refusing `s
 - Fix pass: the Continue leave-guard test pins `discard()` (**falsified: yes**; it also asserts no typed value remains in the page), plus a Stay test, the late-catalogue focus guard and the nit. `library` 122 passed; `contracts-controls` 1230 passed, 4 skipped.
 - Unit run: one failure, `tests/test_chat_history_purge.py::test_purge_loop_catch_up_sweeps_due_db`, timing-dependent on the loaded host (operator note); 6/6 in isolation. This flight doesn't touch that code, so it is **accepted as a load flake** per the gate-flake rule. Watch it at G2.
 - The Reviewer's condition is met. Part A committed; leg status stays `in-flight` for part B.
+
+### Leg 3 `secrets-ui`: part B implementation
+- **Built.**
+  - **Tools tab:** `areas/studio/secrets-section.js` (the Secrets section before MCP servers: toggle per secret, "{description} · N tool(s)" as the accessible description, empty state, danger load-failure status, `data-secret-list-loaded` marker).
+  - **Save path:** `agent-form-data.js` sends `secret_ids` only when the marker is present. `agent-data.js::refreshSecretsCache` owns `_allSecrets` / `_secretsLoaded` (not declared in `studio.js`, which is pinned at 800 lines). `agents-list.js` refreshes it after the fresh-agent fetch in the `Promise.all` (so `results[3]` stays the agent; first attempt inserted it before and broke the editor). A 422 on `["secret_ids", i]` is split off in `onSaveError_` and shown on the section.
+  - **Drawer:** a Secrets group between MCP servers and Built-in tools (`drawerParts.grantedSecrets`, because `agent-drawer.js` is pinned at 800 lines).
+  - **Prompts:** a Secrets layer (`secrets-prompt-content`) between Notes and Date.
+  - **Docs and lanes:** registry, `agents.md`, CLAUDE.md, `run-tests.sh` (`agent_tabs_pat`).
+- **Tests.** New `test_flow_agent_secrets.py` (6, lane `agent-tabs`); Prompts, drawer and tools-tab-order assertions updated.
+- **Falsification.** B2 omit-on-load-failure (forced the gate always on): the load-failure test failed, restored: **yes**. The other new tests: no.
+- **Part A pins found at G2.** The first full gate (`rc=1`, failed=agents,providers,settings) failed 12 tests that count four Library groups or Prompts layers in files outside part A's lanes. Fixed: `test_flow_agents_root_heading`, `test_flow_studio_navigation`, `test_flow_provider_library`, `test_studio_mcps_tab`, `test_flow_admin_encryption_page`; those files plus the drawer and settings-nav files re-ran 146 passed. No other lane failed.
+- **Unit.** `THE_ONE_TEST_NETNS=1 make test-unit`: 9136 passed, 15 skipped. (Without netns, `test_mcp_library_test_missing_values.py::test_cached_no_auth_posture...` fails with `consent_url_timeout`; it passes under netns.) Static guards fixed along the way: area-module size (800), testid registry prefixes, raw route hash in a test.
+- Leg status `landed`. Timings not valid (loaded host).
+
+### Leg 3 `secrets-ui`: part B review and commit (2026-11-05)
+- Gate G2 (`--parallel 3`, quiet-host precondition waived by the operator's loaded-host note): `PARALLEL_RESULT rc=1 total=1944s lanes=17 failed=agents,providers,settings`.
+  - All 12 failures were stale pins counting four Library groups, two Tools-tab sections or four Prompts layers. Part A's G1 never ran those files because they sit in other lanes.
+  - The Developer updated them, and the files re-ran at 146 passed.
+  - **The Flight Director re-ran the three lanes in full:** `agents` 180 passed, `providers` 139 passed, `settings` 108 passed. Every other lane was green in the gate.
+- Reviewer (Sonnet): **[HANDOFF:confirmed]**. It confirmed:
+  - `secret_ids` is sent only when loaded, in Library order, with the other fields untouched;
+  - the `agents-list.js` refresh reorder keeps `results[3]` the agent, with no race or extra fetch;
+  - the composite `setAgent`/`destroy` includes the section;
+  - the controller and drawer moves are additive only, and `STORES` holds `secrets`;
+  - the pin updates are genuine (none weakened).
+- Accessibility Reviewer (Sonnet): **[HANDOFF:confirmed]**. Switch names equal the secret names, `aria-describedby` points to the meta text, the h2 sits alongside the other sections, and the drawer and Prompts blocks reuse their siblings.
+- **Carried to the HAT (non-blocking polish):**
+  - the section's 422 status is un-hidden and filled in one step (the announcement may be unreliable, as fixed for the chip list in part A);
+  - the error isn't linked to the switches, and the list isn't a labelled group;
+  - a stale section error survives a toggle until the next save;
+  - a secret deleted in another tab leaves its row until refresh (the next Save drops it, matching the server).
+- **Debrief item:** part A's gate ran only `library`, `routing` and `contracts-controls`, while a fifth Library group pins counts in `agents`, `providers` and `settings` too. When a leg changes a shared list or table, the gate should include every lane that asserts on it, found by grepping the old count or labels.
+- B2 falsified (yes). Leg status `completed`; committed. Next: the HAT.

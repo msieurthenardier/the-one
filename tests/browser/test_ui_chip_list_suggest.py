@@ -226,9 +226,12 @@ def test_accessible_names_input_has_the_label_and_listbox_is_named(engine_page: 
     )
     assert names == ["Allowed tools", "Tool suggestions"]
     _mount(engine_page)
-    assert engine_page.evaluate(
-        "() => Array.from(document.querySelectorAll('[role=listbox]')).pop().getAttribute('aria-label')"
-    ) == "Suggestions"
+    assert (
+        engine_page.evaluate(
+            "() => Array.from(document.querySelectorAll('[role=listbox]')).pop().getAttribute('aria-label')"
+        )
+        == "Suggestions"
+    )
 
 
 def test_arrows_wrap_and_enter_adds_with_keyboard_only(engine_page: Page) -> None:

@@ -1,6 +1,6 @@
 # Leg: secrets-ui
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Secrets](../flight.md)
 
 ## Objective
