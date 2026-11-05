@@ -1,10 +1,10 @@
 # Squawk 0331: Three missing secret-runtime tests
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-05
-**Completed**: —
+**Completed**: 2026-11-05
 
 ## Report
 The sortie 10 debrief Developer found three untested cases in the secret runtime. The code is believed correct in each case, but nothing pins it:
@@ -18,13 +18,15 @@ The sortie 10 debrief Developer found three untested cases in the secret runtime
 - `sorties/10-secrets/flight-debrief.md` "Technical".
 
 ## Corrective Action
-*(written at completion)* Planned: add (1) and (2) to `tests/test_secret_runtime.py` or `tests/test_secret_loop.py`. Add a granted case beside each of the two hook tests: a session whose agent has the grant runs a stub tool and receives the value, and the stored arguments keep the placeholder. Falsify (1) by removing `re.escape`. If (3) fails, stop: that is a defect and is escalated, not folded in.
+Tests only; nothing under `the_one/` changed. Added:
+1. `tests/test_secret_runtime.py::TestMasker::test_regex_metacharacters_are_matched_literally`: `a.b*(c)[d]|e` is masked where it appears literally, and look-alikes (`aXbbb(c)d|e`, `e`, ...) are untouched.
+2. `tests/test_secret_loop.py::TestSubstitution::test_a_placeholder_in_a_dict_key_is_neither_filled_nor_refused`: a `{{secret:k}}` dict key reaches the tool unchanged, not filled and not refused (comment says this is deliberate and safe).
+3. `tests/test_routines_runner.py::test_a_routine_run_fills_a_granted_secret_and_masks_the_result` and `tests/test_inbound_session_updated.py::test_connector_turn_fills_a_granted_secret_and_masks_the_result`: with the grant and `current_time` allowed, the real value reaches the tool (observed through its bad-zone error), the stored result carries `[secret:home_city]`, and the stored tool call keeps the placeholder. Both paths applied the grant correctly.
 
 ## Verification
-The new tests pass under `THE_ONE_TEST_NETNS=1 make test-unit` (expected 15 skipped), and (1)'s falsification fails as expected.
+Touched files pass (79 passed). Falsification of (1): with `re.escape` removed in `build_masker`, the new test fails (`KeyError: 'e'`, the unescaped alternation matches a bare `e`); the line was restored exactly and `git diff -- the_one/` is empty. `ruff check` and `ruff format --check` are clean. `THE_ONE_TEST_NETNS=1 make test-unit` result recorded in the Developer report.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (Sonnet; secret-runtime tests), batch review of the 2026-11-05 squawk turnaround, scoped to the diff. `[HANDOFF:confirmed]`, no blocking issues; it confirmed tests only (nothing under `the_one/`), and that the positive-grant tests prove the value reached the tool through the masked `current_time` echo while the stored arguments keep the placeholder. The Developer's `THE_ONE_TEST_NETNS=1 make test-unit`: 9141 passed, 15 skipped. `ruff` clean.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-05` commit on `squawk/turnaround-2026-11-05`.

@@ -410,3 +410,39 @@ async def test_a_routine_run_reaches_the_secrets_hook(routine_app):
     assert [m.tool_result.content for m in tool_msgs] == [
         "Secret `home_city` is not granted to this agent."
     ]
+
+
+async def test_a_routine_run_fills_a_granted_secret_and_masks_the_result(routine_app):
+    """Squawk 0331 (3): with the grant and the tool allowed, the unattended run fills the
+    value into the tool call (current_time echoes a bad zone in its error), the stored
+    result masks it, and the stored tool call keeps the placeholder."""
+    import json
+
+    from the_one.db.codec import decode_messages
+    from the_one.db.repositories import SecretRepository
+    from the_one.llm.base import Role, ToolCall
+
+    h = routine_app
+    conn = await get_connection()
+    secret = await SecretRepository(conn).create(
+        "Home", "", ["current_time"], [{"key": "home_city", "value": "Springfield-77"}]
+    )
+    await conn.execute(
+        "UPDATE agents SET secret_ids = ? WHERE name = 'bot'", (json.dumps([secret.id]),)
+    )
+    await conn.commit()
+    r = await h.routine()
+    call = ToolCall(id="c1", name="current_time", arguments={"zone": "{{secret:home_city}}"})
+    h.llm.script = [Message.assistant("", tool_calls=[call]), Message.assistant(content="done")]
+    await h.run_now(r["id"])
+    run = await h.last_run(r["id"])
+    row = await ChatSessionRepository(await get_connection()).get(run["session_id"])
+    msgs = decode_messages(row.messages)
+    tool_msgs = [m for m in msgs if m.role == Role.TOOL]
+    assert len(tool_msgs) == 1
+    content = tool_msgs[0].tool_result.content
+    # The tool saw the real value (the unfilled placeholder would echo as itself).
+    assert "Unknown time zone '[secret:home_city]'" in content, content
+    assert "Springfield-77" not in content and "{{secret" not in content
+    stored_calls = [tc for m in msgs for tc in (m.tool_calls or [])]
+    assert [tc.arguments for tc in stored_calls] == [{"zone": "{{secret:home_city}}"}]

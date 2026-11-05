@@ -223,6 +223,54 @@ def test_a_422_on_secret_ids_shows_on_the_section(app_with_agent: SeededApp, pag
 
 
 @pytest.mark.browser
+def test_section_error_is_a_permanent_live_region_linked_to_the_switches(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    doomed = seed_secret(base, "Doomed", [("doomed_k", "v")])
+    other = seed_secret(base, "Other", [("other_k", "v")])
+    _open_tools(page, base)
+    err = page.locator('[data-testid="agent-secrets-error"]')
+    # A live region from mount: present, visible-to-AT (not hidden), empty.
+    expect(err).to_have_attribute("role", "status")
+    assert err.evaluate("e => e.hidden") is False
+    expect(err).to_have_text("")
+    err_id = err.get_attribute("id")
+    assert err_id
+    # The switch list is a group labelled by the section heading.
+    group = page.locator('[data-testid="agent-secrets-list"]')
+    expect(group).to_have_attribute("role", "group")
+    label_id = group.get_attribute("aria-labelledby")
+    assert label_id
+    expect(page.locator(f"#{label_id}")).to_have_text("Secrets")
+
+    def described(sid: str) -> str:
+        return (
+            page.locator(f'[data-testid="agent-secret-toggle-{sid}"]').get_attribute(
+                "aria-describedby"
+            )
+            or ""
+        )
+
+    assert err_id not in described(doomed).split()
+    _click_switch(page.locator(f'[data-testid="agent-secret-toggle-{doomed}"]'))
+    r = httpx.delete(f"{base}/api/secrets/{doomed}", headers=auth_headers_for(base), timeout=5.0)
+    assert r.status_code in (200, 204), r.text
+    page.locator('[data-testid="save-agent-btn"]').click()
+    expect(err).not_to_have_text("", timeout=5000)
+    assert err.evaluate("e => e.hidden") is False
+    assert err.get_attribute("id") == err_id
+    for sid in (doomed, other):
+        assert err_id in described(sid).split(), described(sid)
+        assert len(described(sid).split()) == 2
+    # Any toggle clears the error and the reference.
+    _click_switch(page.locator(f'[data-testid="agent-secret-toggle-{other}"]'))
+    expect(err).to_have_text("")
+    for sid in (doomed, other):
+        assert err_id not in described(sid).split()
+
+
+@pytest.mark.browser
 def test_drawer_secrets_group_follows_grants_and_is_read_only(
     app_with_agent: SeededApp, page: Page
 ) -> None:

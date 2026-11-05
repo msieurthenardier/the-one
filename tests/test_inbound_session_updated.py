@@ -301,3 +301,32 @@ async def test_connector_turn_reaches_the_secrets_hook(repos):
     assert [m.tool_result.content for m in tool_msgs] == [
         "Secret `home_city` is not granted to this agent."
     ]
+
+
+async def test_connector_turn_fills_a_granted_secret_and_masks_the_result(repos):
+    """Squawk 0331 (3): with the grant and the tool allowed, a connector turn fills the
+    value into the tool call (current_time echoes a bad zone in its error), the stored
+    result masks it, and the stored tool call keeps the placeholder."""
+    from the_one.db.codec import decode_messages
+    from the_one.db.repositories import SecretRepository
+    from the_one.llm.base import Role, ToolCall
+
+    conn_repo, chat_repo = repos
+    store = await _setup(conn_repo)
+    secret = await SecretRepository(conn_repo.conn, conn_repo.encryptor).create(
+        "Home", "", ["current_time"], [{"key": "home_city", "value": "Springfield-77"}]
+    )
+    await store.save(AgentConfig(name="bot", provider_config_id="prov-1", secret_ids=[secret.id]))
+    ws = _WS()
+    call = ToolCall(id="c1", name="current_time", arguments={"zone": "{{secret:home_city}}"})
+    llm = FakeLLM(responses=[Message.assistant("", tool_calls=[call]), Message.assistant("ok")])
+    await _run(store, llm, [ws])
+    row = await chat_repo.get(ws.session_id)
+    msgs = decode_messages(row.messages)
+    tool_msgs = [m for m in msgs if m.role == Role.TOOL]
+    assert len(tool_msgs) == 1
+    content = tool_msgs[0].tool_result.content
+    assert "Unknown time zone '[secret:home_city]'" in content, content
+    assert "Springfield-77" not in content and "{{secret" not in content
+    stored_calls = [tc for m in msgs for tc in (m.tool_calls or [])]
+    assert [tc.arguments for tc in stored_calls] == [{"zone": "{{secret:home_city}}"}]

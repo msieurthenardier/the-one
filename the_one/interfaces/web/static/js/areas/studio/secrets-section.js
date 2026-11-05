@@ -28,6 +28,7 @@
     var ui = window.App.ui;
     var onChange = callbacks.onChange || function () {};
     var rows = {};   // secret id -> toggle handle
+    var metaIds = {};   // secret id -> its meta text's element id
     var builtIds = null;
     var builtLoaded = null;
     var errorEl = null;
@@ -38,10 +39,18 @@
       return out.join('\n');
     }
 
+    // The error is a permanent live region (never hidden): it only changes text, so a
+    // screen reader announces it. While it shows, each switch also references it.
     function clearError() {
       if (!errorEl) return;
       errorEl.set('idle', '');
-      errorEl.el.hidden = true;
+      Object.keys(rows).forEach(function (id) { describe(id, false); });
+    }
+
+    function describe(id, withError) {
+      var ids = [metaIds[id]];
+      if (withError && errorEl) ids.push(errorEl.el.id);
+      rows[id].control.setAttribute('aria-describedby', ids.join(' '));
     }
 
     function patchRows(a) {
@@ -54,6 +63,7 @@
     function build(a, secrets, loaded) {
       host.textContent = '';
       rows = {};
+      metaIds = {};
       errorEl = null;
       builtIds = idsOf(secrets);
       builtLoaded = loaded;
@@ -80,7 +90,7 @@
       root.setAttribute('data-secret-list-loaded', 'true');
 
       errorEl = ui.status({ testid: 'agent-secrets-error', led: false, textTone: true });
-      errorEl.el.hidden = true;
+      errorEl.el.id = ui.util.uid('secerr');
       root.appendChild(errorEl.el);
 
       if (!secrets || secrets.length === 0) {
@@ -99,6 +109,9 @@
       var listEl = document.createElement('div');
       listEl.className = 'agent-knowledge-list';
       listEl.setAttribute('data-testid', 'agent-secrets-list');
+      listEl.setAttribute('role', 'group');
+      if (callbacks.headingId) listEl.setAttribute('aria-labelledby', callbacks.headingId);
+      else listEl.setAttribute('aria-label', 'Secrets');
       root.appendChild(listEl);
 
       secrets.forEach(function (s) {
@@ -111,7 +124,7 @@
           label: s.name,
           dataset: { secretToggle: '', secretId: s.id },
           testid: 'agent-secret-toggle-' + s.id,
-          onChange: function () { onChange(); }
+          onChange: function () { clearError(); onChange(); }
         });
         row.appendChild(toggle.el);
 
@@ -122,10 +135,11 @@
         text.setAttribute('data-testid', 'agent-secret-meta-' + s.id);
         text.textContent = (s.description ? s.description + ' · ' : '') +
           n + (n === 1 ? ' tool' : ' tools');
-        toggle.control.setAttribute('aria-describedby', text.id);
+        metaIds[s.id] = text.id;
         row.appendChild(text);
 
         rows[s.id] = toggle;
+        describe(s.id, false);
         listEl.appendChild(row);
       });
       patchRows(a);
@@ -154,7 +168,7 @@
       showError: function (text) {
         if (!errorEl) return;
         errorEl.set('danger', text);
-        errorEl.el.hidden = false;
+        Object.keys(rows).forEach(function (id) { describe(id, true); });
       },
       destroy: function () { host.textContent = ''; rows = {}; errorEl = null; }
     };
