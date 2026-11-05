@@ -1,10 +1,10 @@
 # Squawk 0330: Re-budget the `agent-tabs` and `library` browser lanes
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-05
-**Completed**: —
+**Completed**: 2026-11-05
 
 ## Report
 Sortie 10 added a browser test file to each of these lanes. On the sortie 10 debrief's quiet-host gate (commit `ba5ff7ee`, `PARALLEL_RESULT rc=0 total=1938s lanes=17`, start load 0.88):
@@ -19,13 +19,12 @@ The next sortie that adds tests to either lane will push it over budget.
 - `sorties/10-secrets/flight-debrief.md` "Test Metrics".
 
 ## Corrective Action
-*(written at completion)* Planned: apply the CLAUDE.md rule (measured plus 25%, rounded up to 30 s), which gives `agent-tabs` 600 s and `library` 480 s. Update `scripts/run-tests.sh` and the CLAUDE.md table and notes, citing this reading. Splitting `agent-tabs` is a separate decision, not this squawk.
+Applied the CLAUDE.md rule (measured plus 25%, rounded up to 30 s): `agent-tabs` 510 to 600 s (measured 466 s) and `library` 420 to 480 s (measured 379 s). Updated the `BUDGET` table in `scripts/run-tests.sh` (with comments citing the reading) and the CLAUDE.md lane-budget table rows, and added one "re-budgeted at the sortie 10 debrief gate" sentence after the table. No other doc or `--help` text lists these budgets. Splitting `agent-tabs` is a separate decision, not done here.
 
 ## Verification
 `tests/test_run_tests_lanes.py` passes (it pins the budget table), and `bash scripts/run-tests.sh --parallel 3 --plan` shows the new budgets.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (Sonnet; the batch touches secret-runtime tests), batch review of the 2026-11-05 squawk turnaround, scoped to the diff. `[HANDOFF:confirmed]`, no blocking issues; it re-checked the rounding (582.5 → 600, 473.75 → 480) and that the table, its comments and CLAUDE.md agree. `tests/test_run_tests_lanes.py` passed.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-05` commit on `squawk/turnaround-2026-11-05`.

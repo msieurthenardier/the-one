@@ -74,6 +74,20 @@ class TestSubstitution:
         await agent._execute_tool(call("probe", {"text": "{{secret:home_city}}"}))
         assert probe.calls == [{"text": "{{secret:home_city}}"}]
 
+    async def test_a_placeholder_in_a_dict_key_is_neither_filled_nor_refused(self, env) -> None:
+        # Squawk 0331 (2). Deliberate and safe: only string leaves are scanned, so a key
+        # is left as written. The tool gets the literal key (never the value), and a key
+        # naming an ungranted secret is not refused either, since nothing is substituted.
+        await _granted(env)
+        probe = Probe("probe", lambda kw: "done")
+        agent = env.agent(probe)
+        result = await agent._execute_tool(
+            call("probe", {"{{secret:home_city}}": "plain", "{{secret:nope}}": "plain"})
+        )
+        assert probe.calls == [{"{{secret:home_city}}": "plain", "{{secret:nope}}": "plain"}]
+        assert "not granted" not in repr(result)
+        assert COMPLEX not in repr(probe.calls)
+
 
 class TestMasking:
     async def _run(self, env, result, *, text="{{secret:home_city}}", pairs=None, **kw):

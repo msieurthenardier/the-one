@@ -113,12 +113,15 @@
           title: 'Secrets', titleTag: 'h2', testid: 'agent-tools-secrets-section',
           children: [secretsHost]
         });
+        var secretsTitle = secretsSection.el.querySelector('h2');
+        if (secretsTitle) secretsTitle.id = ui.util.uid('secrets-title');
         panel.appendChild(secretsSection.el);
         panel.appendChild(mcpSection.el);
         panel.appendChild(builtinSection.el);
         var secretsHandle = studio.renderSecretsSection(secretsHost, agent, cb.allSecrets, {
           onChange: cb.onChange,
-          secretsLoaded: cb.secretsLoaded
+          secretsLoaded: cb.secretsLoaded,
+          headingId: secretsTitle ? secretsTitle.id : null
         });
         var mcpsHandle = studio.renderMcpsTab(mcpHost, agent, cb.allMcpSources, {
           testMcpAsAgent: cb.testMcpAsAgent,

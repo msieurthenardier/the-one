@@ -57,6 +57,15 @@ class TestMasker:
         assert out == {"[secret:k]": ["a [secret:k]", ["[secret:k]"]], "n": 3, "none": None}
         assert mask(b"VALUE12") == b"VALUE12"  # bytes are left alone (ToolResult rejects them)
 
+    def test_regex_metacharacters_are_matched_literally(self) -> None:
+        # Squawk 0331 (1): the value is escaped, so it masks only where it appears as is.
+        value = "a.b*(c)[d]|e"
+        mask = build_masker([("k", value)])
+        assert mask(f"x {value} y") == "x [secret:k] y"
+        # Strings the unescaped pattern would match (or error on) stay as they are.
+        for lookalike in ("aXbbb(c)d|e", "a.b*(c)d", "abbbc", "e", "a b c"):
+            assert mask(lookalike) == lookalike, lookalike
+
     def test_no_values_is_identity(self) -> None:
         obj = {"a": ["b"]}
         assert build_masker([])(obj) is obj
