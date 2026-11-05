@@ -1,6 +1,6 @@
 # Leg: hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Secrets](../flight.md)
 
 ## Objective
@@ -69,10 +69,10 @@ Issues are fixed as they come up, through the fix-vs-feature gate.
   - image results are not masked. Today an MCP image reaches the model and the stored chat only as an `[image: N bytes, mime=...]` line, so no pixels carry a value; a future change that forwards images to a model must address secrets.
 
 ## Acceptance Criteria
-- [ ] H1-H8 pass as observed by the operator, or each failure is fixed and re-verified. A FEATURE request goes through the fix-vs-feature gate.
-- [ ] Every HAT fix is committed with its test, and the owning lanes are re-run.
-- [ ] Behavior test `secrets-round-trip` is re-run on the final build if any HAT fix changed server behaviour.
-- [ ] H9: the operator is satisfied.
+- [x] H1-H8 pass as observed by the operator, or each failure is fixed and re-verified. A FEATURE request goes through the fix-vs-feature gate. (H6 by the operator's Home address variant; no FEATURE requests.)
+- [x] Every HAT fix is committed with its test, and the owning lanes are re-run. (F1 was doc-only, `1b08099a`: no test and no lanes.)
+- [x] Behavior test `secrets-round-trip` is re-run on the final build if any HAT fix changed server behaviour. (Not needed: no server change.)
+- [x] H9: the operator is satisfied.
 
 ## Verification Steps
 The operator's observations, step by step, recorded in the flight log.

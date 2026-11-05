@@ -306,3 +306,11 @@ The operator approved the plan, including the Flight Director calls (refusing `s
 - **H7: pass.** Deleting granted Home address showed "Delete and remove from 1 agent?". The agent's Tools tab and the drawer then listed only Goldfinch vault key; no errors.
 - **HAT fix F1 (doc-only):** recorded the short-value over-masking and unmasked-image limits as accepted risks in `SECURITY-MODEL.md` (sortie 10 Secrets runtime paragraph) and `the_one/agents.md` ("Secrets (sortie 10)", masking bullet). `sorties/10-secrets/flight.md` left unchanged; its claim is now true. The image item was corrected after checking the code: images never reach the model today (only the `[image: N bytes, ...]` line does; the block stays in `ToolResult.raw`, which nothing reads), so finding (b) was wrong and the item records only the forward-looking limit. No code or tests changed.
   - Flight Director call: a doc-only, two-paragraph diff, so the Flight Director read the diff directly instead of spawning a Reviewer (the crew Reviewer is for code). No lanes to re-run, and the behavior test needs no re-run (no server change). Committed on its own.
+- **H8: pass.** Keyboard only, in light and dark, across the editor, search-ahead, the Tools-tab switch and the drawer.
+- **H9: the operator is satisfied.** Leg 4 status `completed`.
+- HAT instance stopped: PID 595430 re-verified as the owner of port 8495 (`/proc/<pid>/environ`: port 8495, data `~/the-one-hat-s10/data`), then killed by PID; the port is free. The scratch data directory is kept until the operator decides; it holds the operator's own provider and vault key.
+
+### Flight completion (2026-11-05)
+- Legs 1-4 `completed`; every leg has flight-log entries. Success criteria and checkpoints checked off in `flight.md`.
+- Docs: CLAUDE.md, `the_one/agents.md` and SECURITY-MODEL.md carry the Secrets sections (legs 1-3 plus F1); `docs/ui-control-inventory.md` and `docs/ui-testid-registry.md` updated in leg 3. No new commands or configuration.
+- Sortie status `landed`; draft PR opened. Next: `/mission-control:flight-debrief sortie 10` on this branch (operator request).

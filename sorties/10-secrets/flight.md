@@ -1,6 +1,6 @@
 # Sortie: Secrets
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -11,10 +11,10 @@ An operator stores a secret once in the Library and grants it to agents. Those a
 Today secrets (a Goldfinch vault key for `vaultUnlock`, website passwords, PII such as an address, email or phone number) sit in plain text in agent system prompts. They are sent to the model provider every turn, stored unencrypted, and the agent can repeat them back into a reply.
 
 ### Success Criteria
-- [ ] A granted secret used as `{{secret:key}}` in a tool call reaches the tool as its real value. The saved chat, the trace and the request to the provider contain only the placeholder.
-- [ ] A tool result or error containing a stored secret value reaches the model and the database as `[secret:key]`.
-- [ ] Using a secret that isn't granted, or in a tool that isn't on its allowed list, is refused with an error that names only the key.
-- [ ] Changing a secret in the Library changes what every granted agent uses on its next tool call, with no agent edits. No API ever returns the value.
+- [x] A granted secret used as `{{secret:key}}` in a tool call reaches the tool as its real value. The saved chat, the trace and the request to the provider contain only the placeholder.
+- [x] A tool result or error containing a stored secret value reaches the model and the database as `[secret:key]`.
+- [x] Using a secret that isn't granted, or in a tool that isn't on its allowed list, is refused with an error that names only the key.
+- [x] Changing a secret in the Library changes what every granted agent uses on its next tool call, with no agent edits. No API ever returns the value.
 
 ### Constraints
 - Secrets are encrypted with the app's Fernet key and included in key rotation; values are write-only.
@@ -223,7 +223,7 @@ Spot-checked by the Flight Director on 2026-11-04 (others are from the code-mapp
 - [x] Eval prerequisites present: plan token at `~/.config/the-one-evals/plan-token`; Ollama answering with `gpt-oss:20b` (checked 2026-11-04). **Re-verify at the start of leg 2** (external session).
 - [x] `mock` provider supports scripted `tool_calls` (CLAUDE.md, `llm/mock.py`); step-limit precedent in `tests/behavior/agent-step-limit-notice.md`.
 - [x] Ports: the mockup instance uses 8492; legs and the behavior test use 8486 or 8490+, never 8484/8485.
-- [ ] HAT (external sessions, **re-verify at the start of leg 4**): Goldfinch running and reachable as an MCP source on the scratch instance; the operator's own model provider available; the Goldfinch vault holding a test entry the operator is willing to use.
+- [x] HAT (external sessions, **re-verify at the start of leg 4**): Goldfinch running and reachable as an MCP source on the scratch instance; the operator's own model provider available; the Goldfinch vault holding a test entry the operator is willing to use.
 
 ### Pre-Flight Checklist
 - [x] Open questions resolved
@@ -305,10 +305,10 @@ Spot-checked by the Flight Director on 2026-11-04 (others are from the code-mapp
 4. **Leg 4, `hat`** (operator opted in): a guided session over the Library editor, the Tools-tab grants, the drawer and the Prompts page, and a real chat (the operator's own provider) that uses a secret through Goldfinch (`vaultUnlock`, `typeText`), on a scratch instance. It includes at least one state the operator is not watching: an open chat in another tab whose next tool call picks up a changed value (criterion 4).
 
 ### Checkpoints
-- [ ] Leg 1: storage, routes, corpus and grants green; `make test-unit`
-- [ ] Leg 2: substitution, masking, prompt layer green; eval no-leak check recorded; `make test-unit`; behavior test run 1
-- [ ] Leg 3: UI green (parts A and B); full `--parallel 3` gate green
-- [ ] HAT complete; behavior test re-run on the final build if the HAT changed behaviour
+- [x] Leg 1: storage, routes, corpus and grants green; `make test-unit`
+- [x] Leg 2: substitution, masking, prompt layer green; eval no-leak check recorded; `make test-unit`; behavior test run 1
+- [x] Leg 3: UI green (parts A and B); full `--parallel 3` gate green (G2 `rc=1` on 12 stale pins in `agents`, `providers` and `settings`; pins fixed and those three lanes re-run in full green)
+- [x] HAT complete; behavior test re-run on the final build if the HAT changed behaviour (not needed: the one HAT fix was doc-only)
 
 ### Adaptation Criteria
 
