@@ -9,7 +9,12 @@
 //                     ?include_agent_surfaces=1 variant is detail-shaped and
 //                     stays a direct fetch.
 //   'connectors'      GET /api/connectors
-//   'sessions'        GET /api/chat/sessions            (M25 F4 L1, DD4)
+//   'secrets'         GET /api/secrets                (sortie 10, DD1) rows
+//                     {id, name, description, allowed_tools, values: [{id, key,
+//                     value: "__MASKED__"}], ...}; every secret write
+//                     invalidates it, a secret DELETE also invalidates 'agents'
+//                     (the server strips the id from their secret_ids).
+//   'sessions'       GET /api/chat/sessions            (M25 F4 L1, DD4)
 //                     rows {id, agent_name, title, created_at, updated_at,
 //                     platform}; the chat area also PRIMES it from every
 //                     WebSocket session_list reply (mapped to that shape).
@@ -45,6 +50,7 @@
     'knowledge-bases': '/api/knowledge-bases',
     'mcp-sources': '/api/mcp-sources',
     connectors: '/api/connectors',
+    secrets: '/api/secrets',
     sessions: '/api/chat/sessions'
   };
   var cols = {};
@@ -152,6 +158,18 @@
     return countAgents(agents, function (a) { return arr(a.mcp_source_ids).indexOf(sourceId) !== -1; });
   }
 
+  // The DISTINCT agent names (first-seen order) whose secret_ids hold `secretId`
+  // (sortie 10); its length is the count.
+  function secretAgents(agents, secretId) {
+    var out = [];
+    var list = arr(agents);
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (a && arr(a.secret_ids).indexOf(secretId) !== -1 && out.indexOf(a.name) === -1) out.push(a.name);
+    }
+    return out;
+  }
+
   // The DISTINCT agent names a connector routes to: config.default_agent plus
   // every config.channel_map value (inbound routing reads channel_map first,
   // then the default).  Empty and non-string values are skipped.  Returns the
@@ -221,6 +239,7 @@
     kbAgents: kbAgents,
     mcpAgents: mcpAgents,
     connectorAgents: connectorAgents,
+    secretAgents: secretAgents,
     mcpToolCount: mcpToolCount,
     mcpState: mcpState,
     mcpStateLabel: mcpStateLabel

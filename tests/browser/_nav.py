@@ -31,6 +31,9 @@ Route table (new scheme -> legacy hash)::
     library/connectors             -> #studio/connectors
     library/connectors/~new        -> #studio/connectors/new
     library/connectors/{id}        -> #studio/connectors/{id}
+    library/secrets                -> #studio/secrets
+    library/secrets/~new           -> #studio/secrets/new
+    library/secrets/{id}           -> #studio/secrets/{id}
     settings                       -> #admin           (app redirects to #settings/appearance)
     settings/appearance            -> #admin/appearance
     settings/date-and-time         -> #admin/date-and-time
@@ -110,7 +113,7 @@ LEGACY_URL_TESTS: frozenset[str] = frozenset(
 DESTINATIONS = ("chats", "agents", "library", "settings")
 
 # Library's group sections: a bare ``library/<section>`` is an alias for ``library``.
-LIBRARY_SECTIONS = ("knowledge", "mcp", "connectors", "providers")
+LIBRARY_SECTIONS = ("knowledge", "mcp", "connectors", "providers", "secrets")
 
 _RESERVED_NEW = "~new"
 
@@ -206,6 +209,8 @@ def legacy_hash(route: str) -> str:
             return "#" + _join(["studio", "mcp-sources", *tail])
         if sec == "connectors":
             return "#" + _join(["studio", "connectors", *tail])
+        if sec == "secrets":
+            return "#" + _join(["studio", "secrets", *tail])
         raise ValueError(f"unknown library route: {route!r}")
     if head == "settings":
         if not rest:
@@ -246,6 +251,8 @@ def _from_legacy(hash_: str) -> str:
             return canonical(_join(["library", "mcp", *library_tail]))
         if sec == "connectors":
             return canonical(_join(["library", "connectors", *library_tail]))
+        if sec == "secrets":
+            return canonical(_join(["library", "secrets", *library_tail]))
         return canonical(hash_)
     if head == "admin":
         if not rest:

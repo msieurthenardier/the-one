@@ -324,7 +324,10 @@
         state.editingConnector = null;
       },
       isOpen: function () { return !!state.connectorFormMode; },
-      resolvePendingLibraryItem: resolvePendingLibraryItem
+      resolvePendingLibraryItem: resolvePendingLibraryItem,
+      // Sortie 10: a later Library group (secrets) joins the one pending-item rule with
+      // its own kind {collection, mode(), id(), consume(allowCache), heal()}.
+      registerPending: function (section, kind) { PENDING_KINDS[section] = kind; }
     };
   }
 

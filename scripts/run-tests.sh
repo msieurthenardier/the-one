@@ -198,7 +198,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).
 library_pat=('test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
-             'test_studio_connector_editor.py' \
+             'test_studio_connector_editor.py' 'test_flow_studio_secrets.py' \
              'test_flow_studio_library_focus.py' 'test_flow_studio_library_list.py')
 # Knowledge lane (M31 F3 L09, split from library when it ran 1.32x over budget): the
 # knowledge-base inventory file alone, about 60% of the old library lane's time.

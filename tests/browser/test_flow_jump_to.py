@@ -29,6 +29,7 @@ from browser.seeders import (
     seed_knowledge_base,
     seed_mcp_source,
     seed_mock_agent,
+    seed_secret,
     seed_session,
 )
 from playwright.sync_api import Page, Route, expect
@@ -942,3 +943,19 @@ def test_provider_query_lists_only_library_provider_rows(world: dict, page: Page
     page.locator(INPUT).fill("mock")
     row = page.locator(f'{RESULT}[data-kind="provider"][data-id="{world["provider"]}"]')
     expect(row).to_contain_text("Library · Model provider")
+
+
+def test_secrets_are_listed_and_a_pick_opens_the_editor(world: dict, page: Page) -> None:
+    """Sortie 10: a secret is a Jump to candidate ("Library · Secret") and a pick
+    opens its editor at ``#library/secrets/{id}``."""
+    sid = seed_secret(world["base"], "Home address", description="Shipping address.")
+    _boot(page, world["base"], "agents")
+    _open_with_keys(page)
+    page.locator(INPUT).fill("home address")
+    expect(page.locator(RESULT)).to_have_count(1)
+    assert _rows(page) == [["secret", sid, "Home address", "Library · Secret"]]
+    page.keyboard.press("Escape")
+    _jump(page, "home address", "secret", sid)
+    _nav.expect_route(page, f"library/secrets/{_nav.seg(sid)}", timeout=8000)
+    _lists.expect_selected(page, "library/secrets", "Home address")
+    expect(page.locator('[data-testid="save-secret-btn"]')).to_be_visible(timeout=8000)

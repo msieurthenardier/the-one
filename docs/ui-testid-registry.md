@@ -211,6 +211,28 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
+| `cancel-secret-btn` | studio | Secret-editor header Cancel (`App.ui.editorShell`); enabled from the first render on the create form, else once the form is dirty (sortie 10) |
+| `save-secret-btn` | studio | Secret-editor header Save / Create (sortie 10) |
+| `delete-secret-btn` | studio | Secret-editor Danger zone "Delete secret"; armed with `App.ui.confirm`, and the arm text names the granting agents' count (sortie 10) |
+| `secret-delete-error` | studio | Secret-editor Danger zone error notice (sortie 10) |
+| `library-add-secret` | studio | Library Add menu item "Secret" -> `#library/secrets/~new` (sortie 10) |
+| `secret-card` | studio | Library list secret row (an `<a href="#library/secrets/{id}">`; meta "N values · N agents", sortie 10) |
+| `secret-name` | studio | Secret editor Name input (sortie 10) |
+| `secret-name-error` | studio | Secret editor Name field error line (422 on `["name"]`, a 409) |
+| `secret-description` | studio | Secret editor Description input |
+| `secret-description-error` | studio | Secret editor Description field error line |
+| `secret-kv-table` | studio | Secret editor Values table (`App.ui.keyValueTable`) |
+| `secret-kv-row` | studio | One row of the Values table |
+| `secret-kv-remove-btn` | studio | A Values row's remove button |
+| `secret-add-pair-btn` | studio | The Values table's "+ Add pair" button |
+| `secret-key-input` | studio | A Values row's Key input |
+| `secret-value-input` | studio | A Values row's Value input (a masked `secretInput`; never carries the value in an attribute) |
+| `secret-values-error` | studio | Section-level error under the Values table (422 on `["values"]`) |
+| `secret-allowed-tools` | studio | The Allowed tools `App.ui.chipList` (with `suggest` search-ahead) |
+| `secret-tools-hint` | studio | The Allowed tools field hint (also says when suggestions are unavailable) |
+| `secret-tools-error` | studio | The Allowed tools field error line (422 on `["allowed_tools"]` and `["allowed_tools", i]`) |
+| `secret-used-by` | studio | The Used by sentence (granting agents as links, or the empty sentence) |
+| `secret-used-by-link` | studio | One granting agent's link, to `#agents/{name}/tools` |
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `kb-delete-error` | studio | Knowledge detail view Danger Zone notice, role=alert, shows why a Delete failed (M31 F3 L05b) |
 | `delete-mcp-source-btn` | studio | The MCP editor's Danger zone Delete (`App.ui.dangerZone`, label "Delete MCP server", armed "Confirm delete?", `data-name`); a failed Delete shows in the header's editor error (`role=alert`), reverts the button and returns focus to it (M31 F5 L10, row 29) |

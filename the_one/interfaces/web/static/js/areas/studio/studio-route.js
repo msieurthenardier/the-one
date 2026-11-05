@@ -26,6 +26,8 @@ App.studio.route = {
   //   1. _activeSection === 'knowledge' → 'knowledge/new' (the create form,
   //      checked FIRST; M25 F3 L4a) | 'knowledge/{kb_id}' | 'knowledge'
   //      (Flight 6 leg 1, L1-D1 — mirrors the mcp-sources deep-link shape)
+  //   1b. _activeSection === 'secrets' → 'secrets/new' | 'secrets/<id>' | 'library'
+  //      (sortie 10; the connectors shape)
   //   2. _activeSection === 'connectors' → 'connectors/new' | 'connectors/<id>'
   //      | 'connectors' (M25 F3 L4a, DD8: connector URLs, MCP's pending shape)
   //   3. _activeSection === 'mcp-sources' → 'mcp-sources' | 'mcp-sources/new'
@@ -75,6 +77,16 @@ App.studio.route = {
       if (self._pendingConnectorId) {
         return 'connectors/' + encodeURIComponent(self._pendingConnectorId);
       }
+      return 'library';
+    }
+    // Sortie 10: secrets, the connectors shape.
+    if (self._activeSection === 'secrets') {
+      if (self._secretFormMode === 'add') return 'secrets/new';
+      if (self._secretFormMode === 'edit' && self._editingSecret) {
+        return 'secrets/' + encodeURIComponent(self._editingSecret.id);
+      }
+      if (self._pendingSecretFormMode === 'add') return 'secrets/new';
+      if (self._pendingSecretId) return 'secrets/' + encodeURIComponent(self._pendingSecretId);
       return 'library';
     }
     if (self._activeSection === 'mcp-sources') {
@@ -170,6 +182,8 @@ App.studio.route = {
     var pendingMcpSourceFormMode_local = null;
     var pendingConnectorId_local = null;
     var pendingConnectorFormMode_local = null;
+    var pendingSecretId_local = null;
+    var pendingSecretFormMode_local = null;
     var pendingProviderId_local = null;
     var pendingProviderMode_local = null;
     // A bare Library section sub, derived from the one group table (squawk 0191).
@@ -232,6 +246,14 @@ App.studio.route = {
       section = 'connectors';
       pendingConnectorFormMode_local = 'edit';
       pendingConnectorId_local = firstSeg(sub.slice('connectors/'.length));
+    } else if (sub === 'secrets/new') {
+      // Sortie 10: matched BEFORE the item prefix, like connectors.
+      section = 'secrets';
+      pendingSecretFormMode_local = 'add';
+    } else if (sub && sub.indexOf('secrets/') === 0) {
+      section = 'secrets';
+      pendingSecretFormMode_local = 'edit';
+      pendingSecretId_local = firstSeg(sub.slice('secrets/'.length));
     } else if (sub === 'mcp-sources/new') {
       section = 'mcp-sources';
       pendingMcpSourceFormMode_local = 'add';
@@ -306,6 +328,8 @@ App.studio.route = {
     self._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
     self._pendingConnectorId = pendingConnectorId_local;
     self._pendingConnectorFormMode = pendingConnectorFormMode_local;
+    self._pendingSecretId = pendingSecretId_local;
+    self._pendingSecretFormMode = pendingSecretFormMode_local;
     if (self._providersSection) self._providersSection.setPending(pendingProviderMode_local, pendingProviderId_local);
     // The Tools tab's source focus: the URL's value (or none) replaces the
     // previous one, so `#agents/x/tools/s2` while on s1 focuses s2.
@@ -333,6 +357,11 @@ App.studio.route = {
           skipSectionRender = self._tryConsumePendingConnector(true);
         }
         if (!skipSectionRender && self._closeConnectorForm) self._closeConnectorForm();
+      } else if (section === 'secrets' && pendingSecretFormMode_local) {
+        if (!fresh && self._tryConsumePendingSecret) {
+          skipSectionRender = self._tryConsumePendingSecret(true);
+        }
+        if (!skipSectionRender && self._closeSecretForm) self._closeSecretForm();
       } else if (section === 'providers' && pendingProviderMode_local && self._providersSection) {
         if (!fresh) skipSectionRender = self._providersSection.consume(true);
         if (!skipSectionRender) self._providersSection.reset();

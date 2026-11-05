@@ -187,3 +187,62 @@ The operator approved the plan, including the Flight Director calls (refusing `s
 - Not covered here, by design (DD9): an Agent built before a change picking it up (leg 2 unit tests; HAT open-tab step).
 - Spec updated after the run: steps 5 and 6 pin the exact refusal wording (Validator suggestion); status `active`.
 - Validator notes for the debrief: a replaced pair gets a new id (re-read ids from the PUT response); the zero-count step proves absence, not encryption, which is adequate alongside the decrypting steps.
+
+### Leg 3 `secrets-ui`: design (2026-11-05)
+- Risk tier **high**: a shared control-library factory change (`chipList` `suggest`), a fifth routed Library group, and the agent save path. Accessibility Reviewer required.
+- Developer design review (Sonnet): **approve with changes**. All findings were taken as a **binding addendum** in the leg:
+  - the full registration inventory for a fifth group (studio.js, studio-route.js, library-pane.js, router.js, index.html, `_nav.py`, `_lists.py`);
+  - the static and unit pins that count four groups;
+  - the agent-editor loaded-flag plumbing and the composite `setAgent`;
+  - the drawer `STORES`;
+  - a secret delete invalidates `agents`;
+  - the `suggest` decisions: copy `search-list.js`'s ARIA contract with no reuse, popover DOM only when set, keys inside `onKeydown`, Escape stops propagation, picks through `validate`;
+  - testid `secret-kv-table`; the server message for empty allowed tools; Jump to moved into part A; the Prompts block placement; lane assignments.
+- Flight Director call: `library` sits at 83% of its budget. If the G2 gate shows it over 1.15x, re-budget it in that quiet-host run rather than split the lane now.
+- No second pass (the addendum adopts verified code facts). Status `ready`; implementation starts with part A.
+- **Operator note (2026-11-05): ignore timing.** The host is loaded with the operator's own work, so test runs will be slower than usual. Lane wall times and budget readings from this flight are **not** valid quiet-host measurements:
+  - no re-budgeting from them, which supersedes the leg 3 design's "re-budget `library` at G2" call;
+  - OVER BUDGET flags are not treated as problems;
+  - timing-looking failures are still re-run in isolation before being called flakes.
+
+  The Developer was told mid-run.
+
+### Leg 3 `secrets-ui`: part A implementation
+- **Built.** `chipList` `suggest` (search-ahead combobox, no reuse of `search-list.js`/`menu.js`; ARIA contract copied; no document listener), Library › Secrets (fifth group, routes `#library/secrets/~new|{id}`, Add menu, start card, key icon, `secrets` store collection, `App.usage.secretAgents`, editor `secret-editor.js` + glue `secret-glue.js`), Jump to (secrets, "Library · Secret").
+- **Deviations/decisions.**
+  - The glue defines its own `self._secret*` seams and the `secrets` store subscription (studio.js is pinned at 800 lines); it joins the connector glue's pending-item rule through a new `registerPending`.
+  - Secret DELETE answers 204, so the editor uses a plain `fetch` (`fetchJson` would fail on the empty body).
+  - The server's name rule stops at the first error, so an empty name shows alone, then allowed-tools after the name is filled.
+  - The arm text is the button title "Used by N agent(s); deleting removes it from them" (the announced sentence reads awkwardly: "Press Delete secret again to used by ..."; flagged for the HAT).
+  - A late `/api/tool-names` response re-fires the open suggestions.
+- **Tests added.** `test_ui_chip_list_suggest.py` (Chromium + WebKit, 17 tests x 2), `test_flow_studio_secrets.py` (14), a Jump to test, an a11y pair test; pins updated for the fifth group (library list, mcp navigation, store, nav helper, state keys).
+- **Falsification.** A1 no-suggest regression: yes. A6 no-plaintext: yes. A8 discard reset: **no**. Making `secretGlue.reset` a no-op did not fail the leave-guard test, because a different-key remount covers it; the `handle.discard()` belt-and-braces is untested by observable behaviour.
+- **Gate G1.** `make test-unit`: 9136 passed, 15 skipped (netns). `library` 120 passed; `routing` 186 passed; `contracts-controls` (WebKit required) 1224 passed, 4 skipped; `test_flow_jump_to.py` 25 passed. Timings not valid (loaded host).
+- Part B not started; leg left `in-flight`.
+
+### Leg 3 `secrets-ui`: part A review fixes
+
+- **Leave-guard discard pinned.** New `test_leave_guard_continue_discards_into_the_detaching_nodes` (held name and first value input; rename and type a value, rail to Agents, Continue: the name node is detached and back at "Alpha", the value input is gone or at its mask, no typed value anywhere in the page) and `test_leave_guard_stay_keeps_typed_name_and_value`. Note: the reset rebuilds the value rows, so the held value input is detached rather than reset; the name node is what pins `discard()`. Falsified: removed `handle.discard()` from `teardown()`, the Continue test failed (`'Renamed in flight' == 'Alpha'`), restored: yes.
+- **Arm text** is now "Delete and remove from N agent(s)?" (approved copy updated in the leg file); test updated.
+- **Late `/api/tool-names` re-render** only fires when the chip input is focused.
+- `recomputeDirty` split onto two lines.
+- **chipList a11y (suggest path only):** one permanent visually hidden `role=status` node (`ui-chip-list-live`) outside the popover, written after 60 ms; the visible line is `aria-hidden`; `aria-expanded` is false (listbox hidden) when there are no options; the input's `aria-label` is `opts.label` ("Allowed tools"); the listbox has `aria-label` from `suggestLabel` (default "Suggestions"; the editor passes "Tool suggestions"); "Showing 8 of N. Keep typing to narrow." when more than 8 match. New contract tests: live region permanent/outside popover, 8-of-N, accessible names; two existing assertions updated. Falsified: no (contract assertions written against the new behaviour; the old role/expanded assertions they replace failed against the previous code by construction). Catalogue row updated.
+
+### Leg 3 `secrets-ui`: part A review and commit (2026-11-05)
+- Reviewer (Sonnet, security tier): no blocking issues. It confirmed:
+  - a typed value lives only in `.value`, and untouched stored values go back as `__MASKED__`;
+  - the plain-`fetch` delete is sound (same-origin cookie, `.ok`, guarded);
+  - the no-`suggest` chip list is unchanged and has no document listeners;
+  - `registerPending` is a generic one-line extension;
+  - the `studio.js` size pin holds.
+
+  Its one condition was a direct `discard()` test.
+- Accessibility Reviewer (Sonnet): **[HANDOFF:confirmed]** with five non-blocking findings, all fixed:
+  - a permanent visually hidden live region;
+  - the input's accessible name follows its label;
+  - the listbox has a name;
+  - "Showing 8 of N";
+  - a grammatical Delete arm text ("Delete and remove from N agents?").
+- Fix pass: the Continue leave-guard test pins `discard()` (**falsified: yes**; it also asserts no typed value remains in the page), plus a Stay test, the late-catalogue focus guard and the nit. `library` 122 passed; `contracts-controls` 1230 passed, 4 skipped.
+- Unit run: one failure, `tests/test_chat_history_purge.py::test_purge_loop_catch_up_sweeps_due_db`, timing-dependent on the loaded host (operator note); 6/6 in isolation. This flight doesn't touch that code, so it is **accepted as a load flake** per the gate-flake rule. Watch it at G2.
+- The Reviewer's condition is met. Part A committed; leg status stays `in-flight` for part B.

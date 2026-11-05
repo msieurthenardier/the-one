@@ -1,6 +1,6 @@
 // App.studio.libraryPane -- the Library list column (M31 F2 L02b, DD1): the
 // grouped App.ui.listPane (Model providers, Knowledge bases, MCP servers,
-// Connectors) with its Add menu, the four section caches' sync, the gated
+// Connectors, Secrets (sortie 10)) with its Add menu, the section caches' sync, the gated
 // first fill, the selection rule, the row-focus helpers and the Library start
 // page. Moved verbatim out of studio.js; a factory it calls once in init, on
 // the providers-section.js precedent:
@@ -53,7 +53,11 @@
     { id: 'connectors', section: 'connectors', route: 'connectors', collection: 'connectors',
       label: 'Connectors', emptyText: 'No connectors yet.',
       failText: 'Couldn\u2019t load connectors.', icon: 'plug',
-      testid: 'connector-card', prefix: 'connector:' }
+      testid: 'connector-card', prefix: 'connector:' },
+    { id: 'secrets', section: 'secrets', route: 'secrets', collection: 'secrets',
+      label: 'Secrets', emptyText: 'No secrets yet.',
+      failText: 'Couldn’t load secrets.', icon: 'key',
+      testid: 'secret-card', prefix: 'secret:' }
   ];
   window.App.studio.libraryGroups = function () {
     return LIBRARY_GROUPS.map(function (g) {
@@ -108,6 +112,11 @@
         add: 'Add connector',
         text: 'Links to chat platforms such as Discord, so people can talk to your agents there. ' +
           'Each connector routes its channels to the agents you choose.'
+      },
+      secrets: {
+        add: 'Add secret',
+        text: 'Passwords, keys and other values an agent can use in a tool call without ever ' +
+          'seeing them. Choose which agents get which secrets on each agent’s Tools tab.'
       }
     };
     var LIBRARY_INTRO = 'Add something here once, then choose which agents use it in each ' +
@@ -137,6 +146,7 @@
       if (collection === 'knowledge-bases') return state.knowledgeBases;
       if (collection === 'mcp-sources') return state.mcpSources;
       if (collection === 'connectors') return state.connectors;
+      if (collection === 'secrets') return state.secrets;
       return null;
     }
 
@@ -146,6 +156,7 @@
       else if (collection === 'knowledge-bases') state.knowledgeBases = list;
       else if (collection === 'mcp-sources') state.mcpSources = list;
       else if (collection === 'connectors') state.connectors = list;
+      else if (collection === 'secrets') state.secrets = list;
     }
 
     // The section cache follows the STORE's value, never a request's own
@@ -196,6 +207,14 @@
         }
         return null;
       }
+      if (section === 'secrets') {
+        if (state.secretFormMode === 'add') return null;
+        if (state.secretFormMode === 'edit' && state.editingSecret) return 'secret:' + state.editingSecret.id;
+        if (state.pendingSecretFormMode === 'edit' && state.pendingSecretId) {
+          return 'secret:' + state.pendingSecretId;
+        }
+        return null;
+      }
       return null;
     }
 
@@ -231,10 +250,16 @@
         meta.push(ms.state === 'connected' ? plural(ms.tools, 'tool', 'tools') :
           App.usage.mcpStateLabel(ms.state));
       }
+      if (group.id === 'secrets') {
+        // "N values" first (known from the row itself), then the agent count.
+        var vn = (row.values || []).length;
+        meta.push(plural(vn, 'value', 'values'));
+      }
       if (agents && group.id !== 'providers') {
         var n = group.id === 'knowledge' ? App.usage.kbAgents(agents, row.id)
           : group.id === 'mcp' ? App.usage.mcpAgents(agents, row.id)
-            : App.usage.connectorAgents(row).length;
+            : group.id === 'secrets' ? App.usage.secretAgents(agents, row.id).length
+              : App.usage.connectorAgents(row).length;
         meta.push(plural(n, 'agent', 'agents'));
       }
       var item = {
@@ -380,6 +405,7 @@
       if (route === 'knowledge') return self._activeSection === 'knowledge' && state.kbCreateMode;
       if (route === 'mcp') return self._activeSection === 'mcp-sources' && state.mcpSourceFormMode === 'add';
       if (route === 'connectors') return self._activeSection === 'connectors' && state.connectorFormMode === 'add';
+      if (route === 'secrets') return self._activeSection === 'secrets' && state.secretFormMode === 'add';
       return false;
     }
 
@@ -414,7 +440,9 @@
           { label: 'MCP server', testid: 'library-add-mcp',
             onSelect: function () { goLibraryCreate('mcp', libraryAddMenu && libraryAddMenu.trigger); } },
           { label: 'Connector', testid: 'library-add-connector',
-            onSelect: function () { goLibraryCreate('connectors', libraryAddMenu && libraryAddMenu.trigger); } }
+            onSelect: function () { goLibraryCreate('connectors', libraryAddMenu && libraryAddMenu.trigger); } },
+          { label: 'Secret', testid: 'library-add-secret',
+            onSelect: function () { goLibraryCreate('secrets', libraryAddMenu && libraryAddMenu.trigger); } }
         ]
       });
       libraryList = App.ui.listPane({

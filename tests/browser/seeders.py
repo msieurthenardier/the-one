@@ -258,6 +258,35 @@ def seed_connector(
     return r.json()["id"]
 
 
+def seed_secret(
+    base_url: str,
+    name: str,
+    values: list[tuple[str, str]] | None = None,
+    allowed_tools: list[str] | None = None,
+    description: str = "",
+) -> str:
+    """POST a Library secret via /api/secrets and return its id (sortie 10)."""
+    r = httpx.post(
+        f"{base_url}/api/secrets",
+        json={
+            "name": name,
+            "description": description,
+            "values": [
+                {"key": k, "value": v}
+                for k, v in (
+                    values
+                    or [("k_" + "".join(c if c.isalnum() else "_" for c in name.lower()), "v")]
+                )
+            ],
+            "allowed_tools": allowed_tools or ["shell"],
+        },
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code in (200, 201), f"seed_secret failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
 @dataclass
 class StubConnectorApp:
     """A running app with a mock agent and an enabled ``stub`` connector."""
