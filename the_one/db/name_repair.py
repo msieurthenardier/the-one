@@ -111,6 +111,17 @@ async def _repair_mcp_sources(conn, agent_store, mcp_repo) -> list[tuple[str, st
             await carry_mcp_rename(row["id"], old, new, agent_store=agent_store, mcp_repo=mcp_repo)
         except Exception:
             logger.warning("could not carry MCP server rename %r -> %r", old, new, exc_info=True)
+        try:
+            from the_one.db.repositories import SecretRepository
+            from the_one.mcp.rename_references import carry_mcp_rename_into_secrets
+
+            await carry_mcp_rename_into_secrets(
+                old, new, secret_repo=SecretRepository(conn), mcp_repo=mcp_repo
+            )
+        except Exception:
+            logger.warning(
+                "could not carry MCP server rename %r -> %r into secrets", old, new, exc_info=True
+            )
     return done
 
 

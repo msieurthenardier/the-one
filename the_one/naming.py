@@ -20,6 +20,7 @@ CONTROL = "A name can't contain control characters."
 TOO_LONG = f"A name can be at most {MAX_NAME_LENGTH} characters."
 SAME_AS_CURRENT = "The new name is the same as the current name."
 NAME_CONFLICT_AGENT = "An agent with this name already exists."
+NAME_CONFLICT_SECRET = "A secret with this name already exists."
 
 # U+202A-U+202E (embedding/override) and U+2066-U+2069 (isolates): not Cc, but they
 # reorder how a name is drawn.

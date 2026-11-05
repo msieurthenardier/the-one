@@ -40,6 +40,40 @@ from the_one.mcp._tool import _normalize_source_name
 logger = logging.getLogger(__name__)
 
 
+async def carry_mcp_rename_into_secrets(
+    old_name: str,
+    new_name: str,
+    *,
+    secret_repo,  # SecretRepository — untyped to avoid a repositories<->mcp cycle
+    mcp_repo,  # MCPSourceRepository
+) -> None:
+    """Move ``mcp__{old}__`` entries of every secret's ``allowed_tools`` to the new
+    prefix (sortie 10, DD3), so a secret keeps working after its server is renamed.
+
+    Global, not agent-scoped: secrets are attached to no agent, and MCP names are not
+    unique, so a no-op when another source still normalises to the old name. The
+    renamed row is already saved under its new name. One write transaction; never
+    raises (a failure logs a WARNING naming the two names).
+    """
+    try:
+        old_norm = _normalize_source_name(old_name)
+        new_norm = _normalize_source_name(new_name)
+        if old_norm == new_norm:
+            return
+        for source in await mcp_repo.list():
+            if _normalize_source_name(source.name) == old_norm:
+                return
+        await secret_repo.rewrite_tool_prefix(f"mcp__{old_norm}__", f"mcp__{new_norm}__")
+    except Exception:
+        logger.warning(
+            "MCP server rename %r -> %r: failed to carry the rename into secrets' "
+            "allowed tools; they may still list the old name",
+            old_name,
+            new_name,
+            exc_info=True,
+        )
+
+
 async def carry_mcp_rename(
     source_id: str,
     old_name: str,

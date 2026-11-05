@@ -5016,7 +5016,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 50
+        assert CURRENT_VERSION == 51
 
         await conn.close()
 
@@ -5372,7 +5372,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 51 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5518,7 +5518,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 51 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5659,13 +5659,13 @@ class TestSchemaV44:
         return conn
 
     async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 50
+        assert CURRENT_VERSION == 51
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5798,7 +5798,7 @@ class TestSchemaV45:
         fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
         assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         await conn.close()
 
     async def test_v44_database_migrates(self, tmp_path) -> None:
@@ -5950,7 +5950,7 @@ class TestSchemaV46:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         async with conn.execute(
             "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
         ) as cur:
@@ -5997,7 +5997,7 @@ class TestSchemaV47:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
             assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
         async with conn.execute(
@@ -6356,7 +6356,7 @@ class TestSchemaV48:
         second = await _routine(conn, "d")
         assert first[:4] == second[:4]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         await conn.close()
 
     async def test_database_without_routine_tables_migrates(self, tmp_path) -> None:
@@ -6369,7 +6369,7 @@ class TestSchemaV48:
         await conn.commit()
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         await conn.close()
 
 
@@ -6561,7 +6561,7 @@ class TestSchemaV49:
             ("u2", None, 1, "still_running"),
         ]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 50
+            assert (await cur.fetchone())[0] == 51
         await conn.close()
 
     async def test_indexes_unique_checks_and_foreign_keys_survive(self, tmp_path) -> None:
@@ -6776,4 +6776,75 @@ class TestSchemaV50:
         await conn.commit()
         async with conn.execute("SELECT COUNT(*) FROM agent_mcp_tool_cache") as cur:
             assert (await cur.fetchone())[0] == 0
+        await conn.close()
+
+
+class TestSchemaV51:
+    """Sortie 10 DD4: secrets, secret_values and agents.secret_ids."""
+
+    async def test_fresh_replay_has_the_tables_and_column(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh51.db")
+        await ensure_schema(conn)
+        assert CURRENT_VERSION >= 51
+        async with conn.execute("PRAGMA table_info(secrets)") as cur:
+            rows = await cur.fetchall()
+        assert [r["name"] for r in rows] == [
+            "id",
+            "name",
+            "description",
+            "allowed_tools",
+            "created_at",
+            "updated_at",
+        ]
+        async with conn.execute("PRAGMA table_info(secret_values)") as cur:
+            rows = await cur.fetchall()
+        assert [r["name"] for r in rows] == ["id", "secret_id", "key", "value", "position"]
+        fks = await _fk_rows(conn, "secret_values")
+        assert (fks["secret_id"]["table"], fks["secret_id"]["on_delete"]) == (
+            "secrets",
+            "CASCADE",
+        )
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert cols["secret_ids"]["notnull"] == 1
+        assert cols["secret_ids"]["dflt_value"] == "'[]'"
+        await conn.close()
+
+    async def test_names_and_keys_are_unique_ignoring_case(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "nocase51.db")
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO secrets (id, name, created_at, updated_at) VALUES ('1', 'Home', 'n', 'n')"
+        )
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO secrets (id, name, created_at, updated_at) "
+                "VALUES ('2', 'home', 'n', 'n')"
+            )
+        await conn.execute(
+            "INSERT INTO secret_values (id, secret_id, key, value, position) "
+            "VALUES ('a', '1', 'Key', 'x', 0)"
+        )
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO secret_values (id, secret_id, key, value, position) "
+                "VALUES ('b', '1', 'KEY', 'x', 1)"
+            )
+        await conn.close()
+
+    async def test_v50_agents_migrate_with_empty_secret_ids(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v50.db")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await conn.execute("DROP TABLE secret_values")
+        await conn.execute("DROP TABLE secrets")
+        await conn.execute("ALTER TABLE agents DROP COLUMN secret_ids")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 51")
+        await conn.commit()
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT secret_ids FROM agents WHERE name = 'a'") as cur:
+            assert (await cur.fetchone())[0] == "[]"
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 51") as cur:
+            assert (await cur.fetchone())[0] == 1
         await conn.close()

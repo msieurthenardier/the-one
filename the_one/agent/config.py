@@ -108,6 +108,8 @@ class AgentConfig(BaseModel):
 
     # Associations (reference IDs only — no functional behavior yet)
     kb_ids: list[str] = Field(default_factory=list)
+    # Sortie 10: ids of the Library secrets this agent may pass to its tools.
+    secret_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
 
     # Tool-level constraint overrides (per-agent narrowing or substitution).

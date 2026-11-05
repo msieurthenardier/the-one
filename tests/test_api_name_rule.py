@@ -21,7 +21,13 @@ from the_one.db.models import MCPSource
 from the_one.db.repositories import SQLiteAgentStore
 from the_one.interfaces.web.api import router
 
-PREFIXES = ("/api/agents", "/api/providers", "/api/knowledge-bases", "/api/mcp-sources")
+PREFIXES = (
+    "/api/agents",
+    "/api/providers",
+    "/api/knowledge-bases",
+    "/api/mcp-sources",
+    "/api/secrets",
+)
 
 CHECKED = {
     ("POST", "/api/agents"),
@@ -34,6 +40,8 @@ CHECKED = {
     ("PUT", "/api/mcp-sources/{source_id}"),
     ("POST", "/api/agents/{name}/routines"),
     ("PUT", "/api/agents/{name}/routines/{routine_id}"),
+    ("POST", "/api/secrets"),
+    ("PUT", "/api/secrets/{secret_id}"),
 }
 
 _SELF_CONFIG = "never sets a name: the surface row's name is a constant"
@@ -129,6 +137,7 @@ def _conflict() -> list[dict]:
 
 _PROVIDER = {"type": "ollama", "base_url": "http://localhost:11434/v1"}
 _MCP = {"type": "stdio", "config": {"command": "echo"}}
+_SECRET = {"allowed_tools": ["write_file"], "values": [{"key": "k", "value": "v-1234"}]}
 
 
 def test_every_route_is_classified() -> None:
@@ -155,6 +164,7 @@ class TestCreateRefuses:
             ("/api/providers", _PROVIDER),
             ("/api/knowledge-bases", {}),
             ("/api/mcp-sources", _MCP),
+            ("/api/secrets", _SECRET),
         ],
     )
     async def test_slash_refused(self, client, path, body) -> None:
@@ -170,6 +180,7 @@ class TestCreateRefuses:
             ("/api/providers", _PROVIDER),
             ("/api/knowledge-bases", {}),
             ("/api/mcp-sources", _MCP),
+            ("/api/secrets", _SECRET),
         ],
     )
     @pytest.mark.parametrize(
@@ -198,6 +209,7 @@ class TestCreateRefuses:
             ("/api/providers", _PROVIDER),
             ("/api/knowledge-bases", {}),
             ("/api/mcp-sources", _MCP),
+            ("/api/secrets", _SECRET),
         ],
     )
     async def test_padded_name_is_stored_trimmed(self, client, path, body) -> None:

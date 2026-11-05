@@ -7,6 +7,7 @@ import logging
 import sqlite3
 import uuid
 from collections.abc import AsyncIterator, Iterable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
@@ -222,6 +223,24 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_secret(self, secret_id: str) -> list[str]:
+        """Return agent names whose ``secret_ids`` contains ``secret_id``.
+
+        Same ``json_each`` membership test and NULL/empty guard as :meth:`list_by_kb`.
+        """
+        async with self.conn.execute(
+            """\
+            SELECT name FROM agents
+            WHERE secret_ids IS NOT NULL AND secret_ids != ''
+              AND EXISTS (
+                  SELECT 1 FROM json_each(agents.secret_ids) WHERE json_each.value = ?
+              )
+            ORDER BY name
+            """,
+            (secret_id,),
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
     async def list_by_mcp_source(self, source_id: str) -> list[str]:
         """Return agent names whose ``mcp_source_ids`` contains ``source_id``.
 
@@ -261,8 +280,9 @@ class SQLiteAgentStore:
                     self_revision_requires_approval,
                     notes_enabled,
                     routines_require_approval,
+                    secret_ids,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     description=excluded.description,
                     provider_config_id=excluded.provider_config_id,
@@ -278,6 +298,7 @@ class SQLiteAgentStore:
                     chat_history_retention_days=excluded.chat_history_retention_days,
                     self_revision_requires_approval=excluded.self_revision_requires_approval,
                     notes_enabled=excluded.notes_enabled,
+                    secret_ids=excluded.secret_ids,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -297,6 +318,7 @@ class SQLiteAgentStore:
                     int(config.self_revision_requires_approval),
                     int(config.notes_enabled),
                     int(config.routines_require_approval),
+                    json.dumps(config.secret_ids),
                     now,
                     now,
                 ),
@@ -496,6 +518,7 @@ class SQLiteAgentStore:
             disabled_tools=json.loads(row["disabled_tools"] or "[]"),
             max_iterations=row["max_iterations"] or 20,
             kb_ids=json.loads(row["kb_ids"] or "[]"),
+            secret_ids=json.loads(row["secret_ids"] or "[]"),
             mcp_source_ids=json.loads(row["mcp_source_ids"] or "[]"),
             # Truthiness mirrors `enabled_tools` above: NULL and empty
             # string both deserialize to None. Missing-column safety
@@ -1946,6 +1969,15 @@ class AgentMcpToolCacheRepository:
             )
             return cur.rowcount > 0
 
+    async def list_all(self) -> list[tuple[str, list[dict[str, Any]]]]:
+        """Every row as ``(source_id, tools)``, across all agents (sortie 10, tool names)."""
+        async with self.conn.execute(
+            "SELECT source_id, tools, fetched_at FROM agent_mcp_tool_cache "
+            "ORDER BY agent_name, source_id"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [(r[0], self._decode(r[1], r[2])["tools"]) for r in rows]
+
     async def delete(self, agent: str, source_id: str) -> None:
         async with write_transaction(self.conn):
             await self.conn.execute(
@@ -1958,6 +1990,368 @@ class AgentMcpToolCacheRepository:
             await self.conn.execute(
                 "DELETE FROM agent_mcp_tool_cache WHERE source_id = ?", (source_id,)
             )
+
+
+# ── Secrets (sortie 10) ──────────────────────────────────────────────────
+
+SECRET_MASK = "__MASKED__"
+
+
+class SecretNameConflict(Exception):  # noqa: N818 - a condition, like NoteDuplicateError's kin
+    """Another secret already has this name (compared ignoring case)."""
+
+
+class SecretInvalid(Exception):  # noqa: N818 - carries 422 details
+    """A secret write the database state refuses. ``details`` are 422-shaped dicts
+    (``type``, ``loc``, ``msg``) that never carry a value."""
+
+    def __init__(self, details: list[dict[str, Any]]) -> None:
+        super().__init__("invalid secret write")
+        self.details = details
+
+
+@dataclass
+class SecretValueRef:
+    """A stored pair as the routes see it: id and key, never the value."""
+
+    id: str
+    key: str
+    position: int
+
+
+@dataclass
+class Secret:
+    id: str
+    name: str
+    description: str
+    allowed_tools: list[str]
+    values: list[SecretValueRef]
+    created_at: str
+    updated_at: str
+
+
+class SecretRepository:
+    """Async access to ``secrets`` and ``secret_values`` (sortie 10, DD4, DD5).
+
+    Values are Fernet ciphertext. ``list``/``get`` never decrypt; only
+    :meth:`get_values` and :meth:`all_values` do, and the routes never call them.
+    The encryptor is a reference to the app's (so ``install_key`` after a rotation
+    reaches it), never a copy of the key. Each write is one ``write_transaction``.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor | None = None) -> None:
+        self.conn = conn
+        self._encryptor = encryptor
+
+    @property
+    def encryptor(self) -> Encryptor:
+        if self._encryptor is None:
+            from the_one.config import settings
+            from the_one.encryption import get_encryptor
+
+            self._encryptor = get_encryptor(settings.data_dir)
+        return self._encryptor
+
+    @staticmethod
+    def _tools(raw: str | None) -> list[str]:
+        try:
+            decoded = json.loads(raw or "[]")
+        except ValueError:
+            return []
+        return [t for t in decoded if isinstance(t, str)] if isinstance(decoded, list) else []
+
+    async def _load(self, secret_id: str | None = None) -> list[Secret]:
+        sql = "SELECT id, name, description, allowed_tools, created_at, updated_at FROM secrets"
+        params: tuple[Any, ...] = ()
+        if secret_id is not None:
+            sql += " WHERE id = ?"
+            params = (secret_id,)
+        sql += " ORDER BY name COLLATE NOCASE, id"
+        async with self.conn.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        vsql = "SELECT id, secret_id, key, position FROM secret_values"
+        if secret_id is not None:
+            vsql += " WHERE secret_id = ?"
+        vsql += " ORDER BY secret_id, position, id"
+        async with self.conn.execute(vsql, params) as cur:
+            vrows = await cur.fetchall()
+        by_secret: dict[str, list[SecretValueRef]] = {}
+        for v in vrows:
+            by_secret.setdefault(v[1], []).append(SecretValueRef(id=v[0], key=v[2], position=v[3]))
+        return [
+            Secret(
+                id=r[0],
+                name=r[1],
+                description=r[2],
+                allowed_tools=self._tools(r[3]),
+                values=by_secret.get(r[0], []),
+                created_at=r[4],
+                updated_at=r[5],
+            )
+            for r in rows
+        ]
+
+    async def list(self) -> list[Secret]:
+        return await self._load()
+
+    async def get(self, secret_id: str) -> Secret | None:
+        found = await self._load(secret_id)
+        return found[0] if found else None
+
+    async def get_values(self, secret_id: str) -> list[tuple[str, str]]:
+        """``[(key, plaintext)]`` in position order. Internal: no route calls this."""
+        async with self.conn.execute(
+            "SELECT key, value FROM secret_values WHERE secret_id = ? ORDER BY position, id",
+            (secret_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [(r[0], self.encryptor.decrypt(r[1])) for r in rows]
+
+    async def all_values(self) -> list[tuple[str, str, str]]:
+        """``[(secret_id, key, plaintext)]`` for every stored pair. Internal."""
+        async with self.conn.execute(
+            "SELECT secret_id, key, value FROM secret_values ORDER BY secret_id, position, id"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [(r[0], r[1], self.encryptor.decrypt(r[2])) for r in rows]
+
+    @staticmethod
+    def _is_name_clash(e: sqlite3.IntegrityError) -> bool:
+        return "secrets.name" in str(e)
+
+    async def _name_taken(self, name: str, *, exclude_id: str | None) -> bool:
+        async with self.conn.execute(
+            "SELECT id FROM secrets WHERE name = ? COLLATE NOCASE AND id != ?",
+            (name, exclude_id or ""),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    async def _other_keys(self, secret_id: str) -> set[str]:
+        async with self.conn.execute(
+            "SELECT key FROM secret_values WHERE secret_id != ?", (secret_id,)
+        ) as cur:
+            return {r[0].lower() for r in await cur.fetchall()}
+
+    async def create(
+        self,
+        name: str,
+        description: str,
+        allowed_tools: list[str],
+        values: list[dict[str, str]],
+    ) -> Secret:
+        """Insert a secret with its ``[{key, value}]`` pairs. Raises
+        :class:`SecretNameConflict` / :class:`SecretInvalid`."""
+        secret_id = uuid.uuid4().hex
+        now = now_iso()
+        try:
+            async with write_transaction(self.conn):
+                if await self._name_taken(name, exclude_id=None):
+                    raise SecretNameConflict
+                taken = await self._other_keys(secret_id)
+                errors = [
+                    {
+                        "type": "value_error",
+                        "loc": ["values", i, "key"],
+                        "msg": "Another secret already uses this key.",
+                    }
+                    for i, pair in enumerate(values)
+                    if pair["key"].lower() in taken
+                ]
+                if errors:
+                    raise SecretInvalid(errors)
+                await self.conn.execute(
+                    "INSERT INTO secrets "
+                    "(id, name, description, allowed_tools, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (secret_id, name, description, json.dumps(allowed_tools), now, now),
+                )
+                for i, pair in enumerate(values):
+                    await self.conn.execute(
+                        "INSERT INTO secret_values (id, secret_id, key, value, position) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (
+                            uuid.uuid4().hex,
+                            secret_id,
+                            pair["key"],
+                            self.encryptor.encrypt(pair["value"]),
+                            i,
+                        ),
+                    )
+        except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as e:
+            raise self._map_integrity(e, values) from None
+        created = await self.get(secret_id)
+        assert created is not None
+        return created
+
+    def _map_integrity(
+        self, e: sqlite3.IntegrityError, values: list[dict[str, Any]] | None
+    ) -> Exception:
+        if self._is_name_clash(e):
+            return SecretNameConflict()
+        # A key race with another writer: the constraint does not say which row, so the
+        # message is generic and lands on the first pair (no value is ever echoed).
+        return SecretInvalid(
+            [
+                {
+                    "type": "value_error",
+                    "loc": ["values", 0, "key"],
+                    "msg": "Another secret already uses one of these keys.",
+                }
+            ]
+        )
+
+    async def update(
+        self,
+        secret_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        allowed_tools: list[str] | None = None,
+        values: list[dict[str, Any]] | None = None,
+    ) -> Secret:
+        """Partial update. ``values`` is the full ordered ``[{id?, key, value}]`` list:
+        ``SECRET_MASK`` with this secret's pair ``id`` keeps its ciphertext, any other
+        string is encrypted, an omitted pair is deleted. Raises ``KeyError`` (unknown
+        secret), :class:`SecretNameConflict`, :class:`SecretInvalid`."""
+        try:
+            async with write_transaction(self.conn):
+                async with self.conn.execute(
+                    "SELECT name, description, allowed_tools FROM secrets WHERE id = ?",
+                    (secret_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                if row is None:
+                    raise KeyError(secret_id)
+                new_name = row[0] if name is None else name
+                if name is not None and await self._name_taken(name, exclude_id=secret_id):
+                    raise SecretNameConflict
+                if values is not None:
+                    async with self.conn.execute(
+                        "SELECT id, value FROM secret_values WHERE secret_id = ?", (secret_id,)
+                    ) as cur:
+                        existing = {r[0]: r[1] for r in await cur.fetchall()}
+                    taken = await self._other_keys(secret_id)
+                    errors: list[dict[str, Any]] = []
+                    resolved: list[tuple[str, str, str]] = []  # (id, key, ciphertext)
+                    for i, pair in enumerate(values):
+                        if pair["key"].lower() in taken:
+                            errors.append(
+                                {
+                                    "type": "value_error",
+                                    "loc": ["values", i, "key"],
+                                    "msg": "Another secret already uses this key.",
+                                }
+                            )
+                            continue
+                        pair_id = pair.get("id")
+                        if pair["value"] == SECRET_MASK:
+                            if pair_id is None or pair_id not in existing:
+                                errors.append(
+                                    {
+                                        "type": "value_error",
+                                        "loc": ["values", i, "value"],
+                                        "msg": "This value is not a stored value of this secret.",
+                                    }
+                                )
+                                continue
+                            resolved.append((pair_id, pair["key"], existing[pair_id]))
+                        else:
+                            resolved.append(
+                                (
+                                    uuid.uuid4().hex,
+                                    pair["key"],
+                                    self.encryptor.encrypt(pair["value"]),
+                                )
+                            )
+                    if errors:
+                        raise SecretInvalid(errors)
+                    await self.conn.execute(
+                        "DELETE FROM secret_values WHERE secret_id = ?", (secret_id,)
+                    )
+                    for i, (pair_id, key, ciphertext) in enumerate(resolved):
+                        await self.conn.execute(
+                            "INSERT INTO secret_values (id, secret_id, key, value, position) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (pair_id, secret_id, key, ciphertext, i),
+                        )
+                await self.conn.execute(
+                    "UPDATE secrets SET name = ?, description = ?, allowed_tools = ?, "
+                    "updated_at = ? WHERE id = ?",
+                    (
+                        new_name,
+                        row[1] if description is None else description,
+                        row[2] if allowed_tools is None else json.dumps(allowed_tools),
+                        now_iso(),
+                        secret_id,
+                    ),
+                )
+        except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as e:
+            raise self._map_integrity(e, values) from None
+        updated = await self.get(secret_id)
+        assert updated is not None
+        return updated
+
+    async def delete(self, secret_id: str) -> list[str]:
+        """Delete the secret, its values (cascade) and its id from every agent's
+        ``secret_ids``, in one transaction. Returns the agents whose grants changed.
+        The scrub does not bump ``agents.updated_at``. ``KeyError`` when unknown."""
+        scrubbed: list[str] = []
+        async with write_transaction(self.conn):
+            async with self.conn.execute("SELECT 1 FROM secrets WHERE id = ?", (secret_id,)) as c:
+                if await c.fetchone() is None:
+                    raise KeyError(secret_id)
+            async with self.conn.execute(
+                "SELECT name, secret_ids FROM agents WHERE secret_ids IS NOT NULL "
+                "AND secret_ids != '' AND EXISTS ("
+                "SELECT 1 FROM json_each(agents.secret_ids) WHERE json_each.value = ?) "
+                "ORDER BY name",
+                (secret_id,),
+            ) as cur:
+                holders = await cur.fetchall()
+            for agent_name, raw in holders:
+                kept = [s for s in json.loads(raw) if s != secret_id]
+                await self.conn.execute(
+                    "UPDATE agents SET secret_ids = ? WHERE name = ?",
+                    (json.dumps(kept), agent_name),
+                )
+                scrubbed.append(agent_name)
+            await self.conn.execute("DELETE FROM secrets WHERE id = ?", (secret_id,))
+        return scrubbed
+
+    async def exists_many(self, ids: Iterable[str]) -> set[str]:
+        """Which of ``ids`` are stored secrets."""
+        wanted = list(dict.fromkeys(ids))
+        if not wanted:
+            return set()
+        marks = ",".join("?" for _ in wanted)
+        async with self.conn.execute(
+            f"SELECT id FROM secrets WHERE id IN ({marks})",  # noqa: S608 - placeholders only
+            wanted,
+        ) as cur:
+            return {r[0] for r in await cur.fetchall()}
+
+    async def rewrite_tool_prefix(self, old_prefix: str, new_prefix: str) -> int:
+        """In one transaction, turn every ``allowed_tools`` entry that starts with
+        ``old_prefix`` into ``new_prefix`` + the rest, de-duplicating (first kept).
+        Returns the number of secrets changed (the MCP rename carry's helper)."""
+        changed = 0
+        async with write_transaction(self.conn):
+            async with self.conn.execute("SELECT id, allowed_tools FROM secrets") as cur:
+                rows = await cur.fetchall()
+            for secret_id, raw in rows:
+                tools = self._tools(raw)
+                rewritten = [
+                    new_prefix + t[len(old_prefix) :] if t.startswith(old_prefix) else t
+                    for t in tools
+                ]
+                rewritten = list(dict.fromkeys(rewritten))
+                if rewritten != tools:
+                    await self.conn.execute(
+                        "UPDATE secrets SET allowed_tools = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(rewritten), now_iso(), secret_id),
+                    )
+                    changed += 1
+        return changed
 
 
 class AgentNoteRepository:

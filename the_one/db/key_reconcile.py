@@ -26,6 +26,7 @@ _ENCRYPTED_CORPORA: tuple[tuple[str, str], ...] = (
     ("agents", "mcp_overrides"),
     ("tool_configs", "secrets"),
     ("agent_external_credentials", "secret"),
+    ("secret_values", "value"),
 )
 
 

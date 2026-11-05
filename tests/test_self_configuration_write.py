@@ -157,6 +157,7 @@ class TestAC2PersistExactField:
             system_prompt="orig prompt",
             mcp_source_ids=["src-1"],
             enabled_tools=["shell"],
+            secret_ids=["sec-1"],
         )
         before_updated_at = await _row_updated_at(conn, "a1")
 
@@ -175,6 +176,7 @@ class TestAC2PersistExactField:
         assert after.description == "orig description"
         assert after.mcp_source_ids == ["src-1"]
         assert after.enabled_tools == ["shell"]
+        assert after.secret_ids == ["sec-1"]  # sortie 10: an agent cannot change its grants
         after_updated_at = await _row_updated_at(conn, "a1")
         assert after_updated_at != before_updated_at
 

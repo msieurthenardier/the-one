@@ -785,6 +785,13 @@ class TestConfinedSourceScoping:
             ("/", "GET"),
             ("/static/app.js", "GET"),
             ("/api/mutate", "POST"),
+            # Sortie 10: an agent's loopback credential never reaches the secret routes,
+            # so it cannot grant itself a secret or read tool names (AC14).
+            ("/api/secrets", "GET"),
+            ("/api/secrets", "POST"),
+            ("/api/secrets/abc", "PUT"),
+            ("/api/secrets/abc", "DELETE"),
+            ("/api/tool-names", "GET"),
         ],
     )
     def test_confined_caller_refused_403_outside_mount_path(
