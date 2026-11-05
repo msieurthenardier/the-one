@@ -314,3 +314,11 @@ The operator approved the plan, including the Flight Director calls (refusing `s
 - Legs 1-4 `completed`; every leg has flight-log entries. Success criteria and checkpoints checked off in `flight.md`.
 - Docs: CLAUDE.md, `the_one/agents.md` and SECURITY-MODEL.md carry the Secrets sections (legs 1-3 plus F1); `docs/ui-control-inventory.md` and `docs/ui-testid-registry.md` updated in leg 3. No new commands or configuration.
 - Sortie status `landed`; draft PR opened. Next: `/mission-control:flight-debrief sortie 10` on this branch (operator request).
+- Draft PR #358 opened.
+
+### Debrief (2026-11-05)
+- `flight-debrief.md` written. Developer and Architect crew on Sonnet. Four false crew claims were checked by the Flight Director and left out (recorded in the debrief).
+- Fresh quiet-host gate on `ba5ff7ee`: unit 9136 passed, 15 skipped, 258.5 s; browser `PARALLEL_RESULT rc=0 total=1938s lanes=17 failed=-`.
+- Operator: masking kept as is; the operator moves prompt secrets by hand. Squawks 0330-0334 logged (open).
+- No maintenance prompt: mission 34 completed after the last maintenance report (2026-10-30).
+- Sortie status `completed`.

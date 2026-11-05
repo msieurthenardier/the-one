@@ -1,6 +1,6 @@
 # Sortie: Secrets
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
