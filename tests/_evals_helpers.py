@@ -53,6 +53,8 @@ def evals_isolation(request, monkeypatch, tmp_path):
         "THE_ONE_OLLAMA_NUM_CTX",
         "THE_ONE_STOP",
         "THE_ONE_RESPONSE_FORMAT",
+        "THE_ONE_TOOL_EXPOSURE_FRACTION",
+        "THE_ONE_TOOL_EXPOSURE_CEILING_TOKENS",
     ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
@@ -155,8 +157,12 @@ def synth_record(
     effective: dict | None = None,
     model_info: dict | None = None,
     saved: int | None = None,
+    not_exposed: bool = False,
+    exposure: dict | None = None,
+    tools_off: bool = False,
 ) -> dict[str, Any]:
-    counted = outcome in ("pass", "fail")
+    """A final record. ``not_exposed`` makes a counted run whose cell value is ``None``."""
+    counted = outcome in ("pass", "fail") or not_exposed
     checks = []
     if saved is not None:
         checks.append(
@@ -180,10 +186,12 @@ def synth_record(
         "attempt": 1,
         "outcome": outcome,
         "counted": counted,
-        "cells": {cell: outcome == "pass"} if counted else None,
+        "cells": ({cell: None if not_exposed else outcome == "pass"} if counted else None),
         "checks": checks,
         "effective": effective if effective is not None else {"temperature": 0.0},
         "model_info": model_info if model_info is not None else {"model_digest": "sha256:d1"},
+        "exposure": exposure,
+        "tools_off": tools_off,
     }
 
 
@@ -196,8 +204,13 @@ def make_run_dir(
     effective: dict | None = None,
     saved: dict[str, int] | None = None,
     measure: dict | None | bool = None,
+    not_exposed: dict[tuple[str, str], int] | None = None,
+    exposure: dict | None = None,
 ) -> Path:
-    """``cells[(cell, model)] = (class, passes, fails, excluded)`` -> one run directory."""
+    """``cells[(cell, model)] = (class, passes, fails, excluded)`` -> one run directory.
+
+    ``not_exposed[(cell, model)] = n`` adds n counted runs whose cell value is ``None``;
+    ``exposure`` is the ``exposure`` record every run carries (default none)."""
     import json
 
     d = root / name
@@ -212,15 +225,19 @@ def make_run_dir(
             "config": {},
         }
         outcomes = ["pass"] * passes + ["fail"] * fails + ["cut-short"] * excluded
+        hidden = (not_exposed or {}).get((cell, model), 0)
+        outcomes += ["not-exposed"] * hidden
         for i, outcome in enumerate(outcomes):
             rec = synth_record(
                 cell,
                 model,
                 i,
-                outcome,
+                "pass" if outcome == "not-exposed" else outcome,
                 klass=klass,
                 effective=effective,
                 saved=(saved or {}).get(cell),
+                not_exposed=outcome == "not-exposed",
+                exposure=exposure,
             )
             lines.append(json.dumps(rec))
     (d / "results.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -281,3 +298,25 @@ def synth_measure(
         "fingerprints": {"prompt": prompt_fp},
         "model_counts": {},
     }
+
+
+def synth_measure2(
+    *,
+    tools_full: dict[str, int] | None = None,
+    exposure: dict | None = None,
+    **kw: Any,
+) -> dict:
+    """A schema-2 measurement: ``synth_measure`` plus each configuration's ``prompt_text``,
+    ``tools_full`` (default: its ``tools`` plus 50, 0 for ``tool-free``), ``tools_full_names``
+    and ``exposure`` (the same record for every configuration)."""
+    doc = synth_measure(**kw)
+    doc["schema"] = 2
+    for name, cfg in doc["configs"].items():
+        t = cfg["totals"]
+        t["prompt_text"] = t["platform"] - t["tools"]
+        t["tools_full"] = (tools_full or {}).get(
+            name, 0 if name == "tool-free" else t["tools"] + 50
+        )
+        cfg["tools_full_names"] = [] if name == "tool-free" else ["search_tools", "x"]
+        cfg["exposure"] = exposure
+    return doc

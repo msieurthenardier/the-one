@@ -135,3 +135,50 @@ name = "search_tools_used"
 """
     sc = parse_scenario(write(tmp_path, text))
     assert len(sc.variants()) == 1
+
+
+# ── exposed_if (DD6) and the report class (DD7) ───────────────────────────
+
+
+def test_exposed_if_is_expanded_and_lifted_into_the_decl(tmp_path):
+    text = BASE + (
+        '\n[[checks]]\nname = "no_note_matches"\npattern = "x"\ncell = "late"\n'
+        "exposed_if = '/{place}\\.html$'\n"
+    )
+    sc = parse_scenario(write(tmp_path, text))
+    decls = sc.instantiate(sc.variants()[0]).checks
+    assert [d.exposed_if for d in decls] == [None, "/Lisbon\\.html$"]
+    assert "exposed_if" not in decls[1].params  # not a parameter of the check itself
+
+
+def test_exposed_if_must_be_a_non_empty_valid_regex(tmp_path):
+    chk = '\n[[checks]]\nname = "no_note_matches"\npattern = "x"\ncell = "late"\n'
+    with pytest.raises(ScenarioError, match=r"exposed_if.*valid regex"):
+        parse_scenario(write(tmp_path, BASE + chk + "exposed_if = '('\n"))
+    with pytest.raises(ScenarioError, match=r"exposed_if: must be a non-empty regex"):
+        parse_scenario(write(tmp_path, BASE + chk + "exposed_if = ''\n"))
+    with pytest.raises(ScenarioError, match=r"exposed_if: must be a non-empty regex"):
+        parse_scenario(write(tmp_path, BASE + chk + "exposed_if = 3\n"))
+
+
+def test_a_cell_that_mixes_checks_with_and_without_exposed_if_is_refused(tmp_path):
+    chk = '\n[[checks]]\nname = "no_note_matches"\npattern = "x"\ncell = "demo"\n'
+    with pytest.raises(ScenarioError, match=r"cell 'demo' mixes checks with and without"):
+        parse_scenario(write(tmp_path, BASE + chk + "exposed_if = 'a'\n"))
+    # two checks in a cell that both carry it, or neither, are fine
+    both = (
+        BASE.replace('pattern = "{place}"', 'pattern = "{place}"\nexposed_if = "a"')
+        + chk
+        + "exposed_if = 'b'\n"
+    )
+    parse_scenario(write(tmp_path, both))
+
+
+def test_report_is_a_check_class_only(tmp_path):
+    chk = '\n[[checks]]\nname = "reply_matches"\npattern = "x"\ncell = "r"\nclass = "report"\n'
+    sc = parse_scenario(write(tmp_path, BASE + chk))
+    assert sc.cell_classes() == {"demo": "hold", "r": "report"}
+    with pytest.raises(ScenarioError, match=r"class: must be one of safety, improve, hold$"):
+        parse_scenario(write(tmp_path, BASE.replace('class = "hold"', 'class = "report"', 1)))
+    with pytest.raises(ScenarioError, match=r"checks\[1\]\.class.*safety, improve, hold, report"):
+        parse_scenario(write(tmp_path, BASE + chk.replace("report", "nonsense")))

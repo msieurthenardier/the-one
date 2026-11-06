@@ -1,14 +1,35 @@
 # Model presets for the prompt evals (DD4). Each becomes one LLMProviderConfig row
 # in the scratch database; the factory builds the provider from it exactly as the
-# app does. `haiku` needs the plan token (--plan-token-file); `gpt-oss` is a local
-# Ollama.
+# app does. `haiku` needs the plan token (--plan-token-file); the others are local
+# Ollama models.
+#
+# Small-model first (sortie 11, DD9): a run with no --models selects the presets
+# that do not say `default = false`, here haiku, qwen3-4b and lfm3. `gpt-oss`
+# (20b) slows a typical PC to a crawl, so it is not a default; select it by name
+# (`--models gpt-oss`). `default` is not part of a preset's fingerprint.
+#
+# The smallest num_ctx among the default Ollama presets is the window `measure-prompt`
+# pins its scripted provider to (evals/tokens.py::MEASURE_WINDOW); a test keeps them equal.
 
 [haiku]
 type = "anthropic-plan-token"
 model = "claude-haiku-4-5-20251001"
 base_url = "https://api.anthropic.com"
 
+[qwen3-4b]
+type = "ollama"
+model = "qwen3:4b-instruct-2507-q4_K_M"
+base_url = "http://localhost:11434"
+config = { num_ctx = 16384 }
+
+[lfm3]
+type = "ollama"
+model = "lfm3:1.7b-q4_K_M"
+base_url = "http://localhost:11434"
+config = { num_ctx = 16384 }
+
 [gpt-oss]
 type = "ollama"
 model = "gpt-oss:20b"
 base_url = "http://localhost:11434"
+default = false

@@ -325,6 +325,253 @@ async def test_model_counts_unload_before_each_ollama_measurement(evals_isolatio
     assert unloads == ["gpt-oss"] * 4 and infos == ["gpt-oss"]
 
 
+async def test_model_counts_with_no_models_selects_the_default_presets(evals_isolation):
+    """``measure-prompt --with-model-counts`` with no ``--models`` takes the default presets."""
+    from evals import scripted
+
+    async def unload(preset):
+        return None
+
+    async def info(preset):
+        return {}
+
+    opts = tokens.MeasureOptions(
+        counter=C,
+        run_dir=evals_isolation / "m",
+        with_model_counts=True,
+        models=None,
+        token_file=h.token_file(evals_isolation),
+        unload=unload,
+        server_info=info,
+        model_hook=lambda spec, base: scripted.ScriptedProvider([scripted.text("ok")]),
+    )
+    doc = await tokens.measure_prompt(opts)
+    assert list(doc["model_counts"]) == ["haiku", "qwen3-4b", "lfm3"]  # not gpt-oss
+
+
+# ── sortie 11 leg 1: tools_full, prompt_text, exposure, the pinned window (DD8, DD1) ──
+
+
+def test_tool_exposure_record_contract():
+    import ast
+    import dataclasses
+    from pathlib import Path
+
+    from the_one.agent.tool_exposure import ToolExposure
+
+    assert [f.name for f in dataclasses.fields(ToolExposure)] == [
+        "decided",
+        "budget",
+        "estimate",
+        "window_known",
+        "window",
+    ]
+    e = ToolExposure(decided=True, budget=None, estimate=7, window_known=False, window=None)
+    assert e.to_dict() == {
+        "decided": True,
+        "budget": None,
+        "estimate": 7,
+        "window_known": False,
+        "window": None,
+    }
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        e.decided = False  # type: ignore[misc]
+    root = Path(__file__).resolve().parent.parent / "the_one"
+    tree = ast.parse((root / "agent" / "tool_exposure.py").read_text())
+    for node in ast.walk(tree):  # a leaf: nothing from the_one, only the standard library
+        if isinstance(node, ast.ImportFrom):
+            assert node.module in ("__future__", "dataclasses", "typing"), node.module
+        if isinstance(node, ast.Import):
+            assert not any(a.name.startswith("the_one") for a in node.names)
+    users = [
+        p.name
+        for p in root.rglob("*.py")
+        if p.name != "tool_exposure.py" and "tool_exposure" in p.read_text()
+    ]
+    assert users == []  # unused by product code in this leg
+
+
+def _raw(**kw):
+    base = dict(
+        name="c",
+        system="",
+        schemas=[],
+        kb_schema=None,
+        persona="",
+        rule_texts=[],
+        note_texts=[],
+        date_lines=[],
+    )
+    return tokens.RawConfig(**{**base, **kw})
+
+
+def _s(name, size=1):
+    return {"name": name, "description": "d" * size, "parameters": {}}
+
+
+def test_tools_full_is_the_starting_set_plus_the_rest_of_the_registry_in_order():
+    rc = _raw(
+        schemas=[_s("search_tools"), _s("continue"), _s("fetch_url")],
+        registry_schemas=[
+            _s("search_tools"),
+            _s("save_note"),
+            _s("continue"),
+            _s("send_to_platform_channel"),
+            _s("find_platform_destination"),
+            _s("fetch_channel_history"),
+            _s("fetch_url"),
+            _s("kb__x__search"),
+        ],
+    )
+    names = [tokens.schema_name(s) for s in tokens.tools_full_schemas(rc)]
+    # starting names first, then registry extras in registry order; connector tools left out
+    assert names == ["search_tools", "continue", "fetch_url", "save_note", "kb__x__search"]
+    bound = _raw(**{**rc.__dict__, "connector_bound": True})
+    assert [tokens.schema_name(s) for s in tokens.tools_full_schemas(bound)] == [
+        "search_tools",
+        "continue",
+        "fetch_url",
+        "save_note",
+        "send_to_platform_channel",
+        "find_platform_destination",
+        "fetch_channel_history",
+        "kb__x__search",
+    ]
+    assert tokens.EXPOSURE_CONNECTOR_TOOLS == (
+        "send_to_platform_channel",
+        "find_platform_destination",
+        "fetch_channel_history",
+    )
+    # ``search_tools`` is never ADDED from the registry (an exposed starting set may lack it)
+    exposed = _raw(
+        schemas=[_s("fetch_url")], registry_schemas=[_s("search_tools"), _s("fetch_url")]
+    )
+    assert [tokens.schema_name(s) for s in tokens.tools_full_schemas(exposed)] == ["fetch_url"]
+    # a tools_off scenario still has a built registry, but its set is empty
+    off = _raw(**{**rc.__dict__, "tools_off": True})
+    assert tokens.tools_full_schemas(off) == []
+
+
+async def test_measurement_is_schema_two_and_every_configuration_carries_the_new_keys(
+    evals_isolation,
+):
+    doc = await build(evals_isolation)
+    assert doc["schema"] == 2
+    for name, cfg in doc["configs"].items():
+        t = cfg["totals"]
+        assert {"prompt_sections", "tools", "platform"} <= set(t)  # existing keys keep meaning
+        assert t["prompt_text"] == t["platform"] - t["tools"], name
+        assert isinstance(t["tools_full"], int) and "tools_full_names" in cfg, name
+        assert "exposure" in cfg and cfg["exposure"] is None, name  # no record on the agent yet
+        starting = [p["name"][5:] for p in cfg["parts"] if p["group"] == "tools"]
+        if name == "tool-free":
+            assert t["tools_full"] == 0 and cfg["tools_full_names"] == []
+        else:
+            assert cfg["tools_full_names"][: len(starting)] == starting, name
+            assert t["tools_full"] >= t["tools"], name
+    connector = set(tokens.EXPOSURE_CONNECTOR_TOOLS)
+    assert not connector & set(doc["configs"]["bare"]["tools_full_names"])
+    assert not connector & set(doc["configs"]["all-on"]["tools_full_names"])
+    for name in ("bare-connector", "all-on-connector"):
+        assert connector <= set(doc["configs"][name]["tools_full_names"]), name
+    # all-on's registry holds its knowledge-base search tool, which is not in the starting set
+    allon = doc["configs"]["all-on"]
+    assert any(n.startswith("kb__") for n in allon["tools_full_names"])
+    assert allon["totals"]["tools_full"] > allon["totals"]["tools"]
+    # the fingerprint hashes only the rendered prompt, schemas and kb tool: unchanged by these keys
+    assert doc["fingerprints"]["prompt"]
+
+
+def test_measure_window_is_the_smallest_default_ollama_num_ctx_and_the_provider_density():
+    from evals.models import load_presets, select_presets
+    from the_one.llm.ollama_provider import OllamaProvider
+
+    ollama = [p for p in select_presets(load_presets(), None) if p.type == "ollama"]
+    assert ollama, "the default presets include local models"
+    assert tokens.MEASURE_WINDOW == min(p.config["num_ctx"] for p in ollama)
+    assert tokens.MEASURE_BYTES_PER_TOKEN == OllamaProvider.bytes_per_token
+
+
+async def test_measure_prompt_pins_the_scripted_provider_and_other_use_keeps_defaults(
+    evals_isolation, monkeypatch
+):
+    from evals import scripted
+    from the_one.llm.base import LLMProvider
+
+    made = []
+
+    class Spy(scripted.ScriptedProvider):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            made.append(self)
+
+    monkeypatch.setattr(scripted, "ScriptedProvider", Spy)
+    await build(evals_isolation)
+    assert made, "measure-prompt built scripted providers"
+    for p in made:
+        assert p.max_context_tokens == tokens.MEASURE_WINDOW == 16384
+        assert p.bytes_per_token == tokens.MEASURE_BYTES_PER_TOKEN == 3.5
+        assert p.context_window_known is True
+    # the same class built anywhere else keeps the base class defaults (no pin)
+    plain = scripted.ScriptedProvider([])
+    assert plain.max_context_tokens == LLMProvider.max_context_tokens == 128_000
+    assert plain.bytes_per_token == LLMProvider.bytes_per_token == 4.0
+    assert "context_window_known" not in vars(plain)
+
+
+async def test_measure_prompt_builds_its_harness_with_no_fixture_server_or_self_test(
+    evals_isolation, monkeypatch
+):
+    from evals.harness import Harness
+
+    def must_not_run(*a, **k):
+        raise AssertionError("measure-prompt must not use the fixture host rewrite")
+
+    monkeypatch.setattr("evals.harness.fixture_host_patch", must_not_run)
+    monkeypatch.setattr(Harness, "_self_test", must_not_run)
+    doc = await build(evals_isolation)
+    assert doc["schema"] == 2
+
+
+async def test_the_exposure_record_the_agent_carries_reaches_run_and_transcript_records(
+    evals_isolation, monkeypatch
+):
+    """The first conversation's record is stored as ``exposure``, outside ``effective``."""
+    from _evals_helpers import make_tree, run
+
+    from evals import scripted
+    from the_one.agent.core import Agent
+    from the_one.agent.tool_exposure import ToolExposure
+
+    reads = []
+
+    def record(self):
+        reads.append(1)
+        return ToolExposure(len(reads) == 1, 1000, 50 * len(reads), True, 16384)
+
+    monkeypatch.setattr(Agent, "tool_exposure", property(record), raising=False)
+    two_conversations = (
+        'id = "demo"\nclass = "hold"\n\n'
+        '[[conversations]]\nturns = ["a"]\n\n[[conversations]]\nturns = ["b"]\n\n'
+        '[[checks]]\nname = "reply_matches"\npattern = "ok"\n'
+    )
+    sdir = make_tree(evals_isolation, {})
+    (sdir / "demo.toml").write_text(two_conversations)
+
+    def hook(spec, base):
+        return scripted.ScriptedProvider([scripted.text("ok"), scripted.text("ok")])
+
+    code, run_dir = await run(evals_isolation, sdir, hook)
+    assert code == 0
+    (rec,) = [json.loads(x) for x in (run_dir / "results.jsonl").read_text().splitlines()]
+    want = {"decided": True, "budget": 1000, "estimate": 50, "window_known": True, "window": 16384}
+    assert rec["exposure"] == want and rec["tools_off"] is False
+    assert "exposure" not in rec["effective"]
+    tr = json.loads((run_dir / "transcripts" / "demo__gpt-oss__f0p0__a1.json").read_text())
+    assert tr["exposure"] == want and tr["tools_off"] is False and "exposure" not in tr["effective"]
+    assert len(reads) == 1  # read once per run, at the first conversation's create
+
+
 def test_render_tables_lists_totals_and_fingerprint():
     doc = {
         "counter": "standin",

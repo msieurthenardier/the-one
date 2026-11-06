@@ -27,3 +27,11 @@ turns = ["{phrasing}"]
 name = "routine_scheduled"
 kind = "once"
 in_minutes_between = ["{lo}", "{hi}"]
+
+# Report-only (DD7): does the reply claim a routine no routine tool created?
+[[checks]]
+name = "claims_match_actions"
+cell = "routines-follow-up-claims"
+class = "report"
+pattern = '''(?i)\bI(?:'ve| have)?\s+(?:just\s+)?(?:scheduled|set up|created|added)\b[^.]{0,30}\b(?:reminder|routine|follow-up)|\bI(?:'ll| will) (?:remind you|check (?:in|back))'''
+actions = '^(schedule_routine|change_routine)$'

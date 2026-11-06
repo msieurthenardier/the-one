@@ -36,6 +36,9 @@ class CellStat:
     counted: int = 0
     excluded: int = 0
     total: int = 0
+    # Counted runs that were not exposed to what the cell measures (``exposed_if``, DD6): the
+    # cell's value is ``None``, neither a pass nor a fail, and outside ``counted``.
+    not_exposed: int = 0
     phrasing: dict[str, list[int]] = field(default_factory=dict)  # index -> [passes, counted]
     facts: dict[str, list[int]] = field(default_factory=dict)
     saved_runs: int | None = None  # runs that saved a note (notes_from_untrusted_flagged cells)
@@ -55,7 +58,8 @@ class CellStat:
 
     @property
     def incomplete(self) -> bool:
-        return self.counted == 0 or self.excluded_rate > INCOMPLETE_ABOVE
+        # A cell with zero exposed runs is not incomplete: it has nothing to measure.
+        return self.counted + self.not_exposed == 0 or self.excluded_rate > INCOMPLETE_ABOVE
 
     def to_dict(self) -> dict[str, Any]:
         iv = self.interval
@@ -64,6 +68,7 @@ class CellStat:
             "passes": self.passes,
             "counted": self.counted,
             "excluded": self.excluded,
+            "not_exposed": self.not_exposed,
             "total": self.total,
             "rate": self.rate,
             "wilson": list(iv) if iv else None,
@@ -189,7 +194,11 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, dict[str, CellStat]]:
             if not rec.get("counted"):
                 st.excluded += 1
                 continue
-            passed = bool((rec.get("cells") or {}).get(cell, False))
+            cells = rec.get("cells") or {}
+            if cell in cells and cells[cell] is None:  # a missing key stays distinct (a fail)
+                st.not_exposed += 1
+                continue
+            passed = bool(cells.get(cell, False))
             st.counted += 1
             st.passes += int(passed)
             _bump(st.phrasing, rec.get("phrasing_index"), passed)
@@ -206,6 +215,54 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, dict[str, CellStat]]:
     return out
 
 
+def exposure_counts(records: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Per model, how many runs' agents had every tool schema up front (``exposed``), had
+    discovery (``not exposed``) or carry no exposure record (``no record``)."""
+    out: dict[str, dict[str, int]] = {}
+    for rec in records:
+        row = out.setdefault(rec["model"], {"exposed": 0, "not_exposed": 0, "no_record": 0})
+        exp = rec.get("exposure")
+        if not exp:
+            row["no_record"] += 1
+        elif exp.get("decided"):
+            row["exposed"] += 1
+        else:
+            row["not_exposed"] += 1
+    return out
+
+
+def decided_mismatches(records: list[dict[str, Any]], measure: dict[str, Any] | None) -> list[str]:
+    """One line per model and scenario whose runs' exposure ``decided`` differs from the
+    measurement's ``all-on`` configuration (``tools_off`` scenarios excluded). A missing record
+    reads as ``None``, so a measurement and runs that both carry none never differ."""
+    if not measure:
+        return []
+    cfg = (measure.get("configs") or {}).get("all-on") or {}
+    want = (cfg.get("exposure") or {}).get("decided")
+    seen: dict[tuple[str, str], set[bool | None]] = {}
+    for rec in records:
+        if rec.get("tools_off"):
+            continue
+        got = (rec.get("exposure") or {}).get("decided")
+        seen.setdefault((rec["model"], rec["scenario"]), set()).add(got)
+    lines = []
+    for (model, scenario), values in sorted(seen.items()):
+        if values != {want}:
+            shown = ", ".join(sorted(str(v) for v in values))
+            lines.append(
+                f"WARNING: {model} / {scenario}: runs decided {shown} but the measurement's "
+                f"all-on agent decided {want}"
+            )
+    return lines
+
+
+def _exposure_line(counts: dict[str, int]) -> str:
+    return (
+        f"Tool exposure: exposed {counts['exposed']}, not exposed {counts['not_exposed']}, "
+        f"no record {counts['no_record']}"
+    )
+
+
 def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{x * 100:.1f}%"
 
@@ -220,8 +277,14 @@ def _noun(st: CellStat) -> str:
 
 def cell_note(st: CellStat) -> str:
     notes = []
-    if st.counted == 0:
+    if st.counted == 0 and st.not_exposed:
+        notes.append("not exposed")
+    elif st.counted == 0:
         notes.append("n/a: no counted runs")
+    elif st.not_exposed:
+        notes.append(f"exposed {st.counted} of {st.counted + st.not_exposed} runs")
+    if st.klass == "report":
+        notes.append("reported, never gated")
     if st.incomplete:
         notes.append("incomplete")
     if st.saved_runs is not None and st.counted:
@@ -240,8 +303,14 @@ def render_report(runset: RunSet) -> str:
     for k in ("prompt", "scenarios", "models"):
         lines.append(f"- {k} fingerprint: `{fps[k] or 'not measured'}`")
     lines.append("")
+    exposure = exposure_counts(runset.records)
+    warnings = decided_mismatches(runset.records, runset.measure)
+    if warnings:
+        lines += [*warnings, ""]
     for model in sorted(stats):
         lines += [f"## {model}", ""]
+        if model in exposure:
+            lines += [_exposure_line(exposure[model]), ""]
         lines.append("| cell | class | passes / counted | rate | Wilson 95% | excluded | note |")
         lines.append("|---|---|---|---|---|---|---|")
         for cell, st in sorted(stats[model].items()):
@@ -271,10 +340,13 @@ def render_parts(measure: dict[str, Any] | None) -> list[str]:
     lines.append(f"Counter: {measure['counter']}")
     for name, cfg in measure["configs"].items():
         t = cfg["totals"]
+        extra = ""
+        if "tools_full" in t:
+            extra = f", prompt text {t.get('prompt_text')}, tools full {t['tools_full']}"
         lines += [
             "",
             f"### {name} (prompt sections {t['prompt_sections']}, tools {t['tools']}, "
-            f"platform total {t['platform']})",
+            f"platform total {t['platform']}{extra})",
             "",
             "| part | group | tokens |",
             "|---|---|---|",

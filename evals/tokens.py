@@ -48,6 +48,13 @@ EXTRA_CONFIGS = ("routines-on",)
 ALL_CONFIGS = (*CONFIGS, *CONNECTOR_VARIANTS, *EXTRA_CONFIGS)
 # the starting tools that exist only for a connector-mapped agent's benefit (DD13 a')
 CONNECTOR_TOOLS = ("send_to_platform_channel", "find_platform_destination")
+# the tools an exposed agent gets only when a connector names it (DD8: the schema-2 ``tools_full``
+# set; ``CONNECTOR_TOOLS`` above serves the schema-1 gates)
+EXPOSURE_CONNECTOR_TOOLS = (*CONNECTOR_TOOLS, "fetch_channel_history")
+# measure-prompt pins the scripted provider to the small presets' window and density (DD2, DD8),
+# so the exposure decision it records does not depend on the class defaults (128k, 4.0).
+MEASURE_WINDOW = 16384
+MEASURE_BYTES_PER_TOKEN = 3.5
 CONFIG_FILES = {c: MEASURE_DIR / f"{c}.toml" for c in CONFIGS}
 GROUP_PROMPT = "prompt"
 GROUP_TOOLS = "tools"
@@ -294,6 +301,32 @@ class RawConfig:
     note_texts: list[str]
     date_lines: list[str]
     notes_present: bool = False
+    # The first ``create``'s registry (registry order), whether the agent was connector-bound,
+    # its exposure record (``ToolExposure.to_dict()`` or None) and the scenario's ``tools_off``.
+    registry_schemas: list[dict[str, Any]] | None = None
+    connector_bound: bool = False
+    exposure: dict[str, Any] | None = None
+    tools_off: bool = False
+
+
+def tools_full_schemas(rc: RawConfig) -> list[dict[str, Any]]:
+    """DD8's would-be starting set: the run's actual starting schemas plus every registry
+    schema not already in them (registry order), except ``search_tools``, and except the
+    connector tools unless the agent is connector-bound. Empty for a ``tools_off`` scenario:
+    its agent still has a built registry, but the provider patch only flips ``supports_tools``."""
+    if rc.tools_off:
+        return []
+    out = list(rc.schemas)
+    have = {schema_name(s) for s in out}
+    for s in rc.registry_schemas or []:
+        name = schema_name(s)
+        if name in have or name == "search_tools":
+            continue
+        if name in EXPOSURE_CONNECTOR_TOOLS and not rc.connector_bound:
+            continue
+        out.append(s)
+        have.add(name)
+    return out
 
 
 def _script_for(config: str, kb_query: str):
@@ -351,6 +384,10 @@ async def build_raw_configs(harness: Any, scenarios: dict[str, Any]) -> dict[str
 
         def hook(spec: Any, _b: str, config: str = config, holder: list[Any] = holder) -> Any:
             p = scripted.ScriptedProvider(_script_for(config, "measurement"))
+            # Instance attributes: the measurement is taken at the small presets' window.
+            p.max_context_tokens = MEASURE_WINDOW
+            p.bytes_per_token = MEASURE_BYTES_PER_TOKEN
+            p.context_window_known = True  # type: ignore[attr-defined]
             holder.append(p)
             return p
 
@@ -386,6 +423,10 @@ async def build_raw_configs(harness: Any, scenarios: dict[str, Any]) -> dict[str
             note_texts=[n.text for n in sc.seeded_notes],
             date_lines=expected_date_lines(sc),
             notes_present=bool(sc.notes_enabled),
+            registry_schemas=attempt.registry_schemas,
+            connector_bound=attempt.connector_bound,
+            exposure=attempt.exposure,
+            tools_off=sc.tools_off,
         )
     return out
 
@@ -408,7 +449,16 @@ def measure_configs(
             notes_present=rc.notes_present,
             platform_sections=platform_sections or strict_platform_prompt_sections,
         )
-        out[name] = {"parts": [p.to_dict() for p in parts], "totals": totals(parts)}
+        t = totals(parts)
+        full = tools_full_schemas(rc)
+        t["prompt_text"] = t["platform"] - t["tools"]
+        t["tools_full"] = sum(counter.count(schema_text(s)) for s in full)
+        out[name] = {
+            "parts": [p.to_dict() for p in parts],
+            "totals": t,
+            "tools_full_names": [schema_name(s) for s in full],
+            "exposure": rc.exposure,
+        }
     return out
 
 
@@ -563,7 +613,8 @@ async def measure_prompt(opts: MeasureOptions) -> dict[str, Any]:
         await harness.setup()
         raw = await build_raw_configs(harness, scenarios)
         doc = {
-            "schema": 1,
+            # 2: every configuration carries tools_full, tools_full_names, prompt_text, exposure
+            "schema": 2,
             "counter": counter.name,
             "pinned": {"instant": DEFAULT_INSTANT.isoformat(), "zone": DEFAULT_ZONE},
             "configs": measure_configs(raw, counter),
@@ -619,6 +670,8 @@ def render_tables(doc: dict[str, Any]) -> str:
         t = cfg["totals"]
         lines.append(f"{'prompt sections':34} {'':8} {t['prompt_sections']:>7}")
         lines.append(f"{'tool schemas':34} {'':8} {t['tools']:>7}")
+        if "tools_full" in t:
+            lines.append(f"{'tool schemas, all up front':34} {'':8} {t['tools_full']:>7}")
         lines.append(f"{'platform text total':34} {'':8} {t['platform']:>7}")
         lines.append("")
     kb = doc.get("kb_tool")

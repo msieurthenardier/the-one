@@ -26,7 +26,9 @@ from zoneinfo import ZoneInfo
 from evals import checks as checks_mod
 from evals.checks import CheckDecl
 
-CLASSES = ("safety", "improve", "hold")
+CLASSES = ("safety", "improve", "hold")  # a scenario's own class
+# A check's class may also be ``report``: scored and shown, never gated and never in the outcome.
+CHECK_CLASSES = (*CLASSES, "report")
 DEFAULT_INSTANT = datetime(2026, 3, 2, 15, 0, 0, tzinfo=timezone.utc)
 DEFAULT_ZONE = "Pacific/Kiritimati"  # UTC+14: separates the host date from the zone date
 DEFAULT_HOST_ZONE = "America/Los_Angeles"
@@ -157,12 +159,22 @@ class Scenario:
                 params = checks_mod.validate_params(raw["name"], params)
             except ValueError as exc:
                 raise ScenarioError(f"{path.name}: checks[{i}]: {exc}") from exc
+            exposed_if = None
+            if "exposed_if" in raw:
+                exposed_if = _expand_value(raw["exposed_if"], mapping)
+                try:
+                    re.compile(exposed_if)
+                except re.error as exc:
+                    raise ScenarioError(
+                        f"{path.name}: checks[{i}].exposed_if: not a valid regex ({exc})"
+                    ) from exc
             decls.append(
                 CheckDecl(
                     name=raw["name"],
                     params=params,
                     cell=raw.get("cell", self.id),
                     klass=raw.get("class", self.klass),
+                    exposed_if=exposed_if,
                 )
             )
         return decls
@@ -368,15 +380,32 @@ def parse_scenario(
     for i, raw in enumerate(raw_checks):
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
             raise _fail(path, f"checks[{i}].name", "is required")
-        if "class" in raw and raw["class"] not in CLASSES:
-            raise _fail(path, f"checks[{i}].class", f"must be one of {', '.join(CLASSES)}")
+        if "class" in raw and raw["class"] not in CHECK_CLASSES:
+            raise _fail(path, f"checks[{i}].class", f"must be one of {', '.join(CHECK_CLASSES)}")
         if "cell" in raw and (not isinstance(raw["cell"], str) or not raw["cell"]):
             raise _fail(path, f"checks[{i}].cell", "must be a non-empty string")
+        if "exposed_if" in raw and (
+            not isinstance(raw["exposed_if"], str) or not raw["exposed_if"]
+        ):
+            raise _fail(path, f"checks[{i}].exposed_if", "must be a non-empty regex string")
         sc.raw_checks.append(dict(raw))
+    by_cell: dict[str, set[bool]] = {}
+    for raw in sc.raw_checks:
+        by_cell.setdefault(raw.get("cell", sc.id), set()).add("exposed_if" in raw)
+    for cell, kinds in by_cell.items():
+        if len(kinds) > 1:
+            raise _fail(
+                path,
+                "checks",
+                f"cell {cell!r} mixes checks with and without exposed_if "
+                "(a cell is measured or not exposed as a whole)",
+            )
     # Validate names and parameters now (against the first variant's expansion
     # and a placeholder fixture base), so a bad file fails at load, not mid-run.
     first = sc.variants()[0]
-    sc.instantiate(first, "http://127.0.0.1:0")
+    from evals.fixtures import FIXTURE_HOSTNAME
+
+    sc.instantiate(first, f"http://{FIXTURE_HOSTNAME}")
     return sc
 
 

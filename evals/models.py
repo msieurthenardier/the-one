@@ -31,6 +31,9 @@ class Preset:
     model: str
     base_url: str
     config: dict[str, Any] = field(default_factory=dict)
+    # In the set a run selects when no ``--models`` names any (DD9). A non-default preset stays
+    # selectable by name. Not part of the preset's fingerprint (``fingerprint.preset_dict``).
+    default: bool = True
 
     @property
     def needs_token(self) -> bool:
@@ -54,22 +57,26 @@ def load_presets(path: Path | None = None) -> dict[str, Preset]:
         for key in ("type", "model", "base_url"):
             if not isinstance(body.get(key), str) or not body[key]:
                 raise PresetError(f"{path.name}: {name}.{key}: is required")
-        unknown = set(body) - {"type", "model", "base_url", "config"}
+        unknown = set(body) - {"type", "model", "base_url", "config", "default"}
         if unknown:
             raise PresetError(f"{path.name}: {name}.{sorted(unknown)[0]}: unknown field")
+        if "default" in body and not isinstance(body["default"], bool):
+            raise PresetError(f"{path.name}: {name}.default: must be true or false")
         out[name] = Preset(
             name=name,
             type=body["type"],
             model=body["model"],
             base_url=body["base_url"],
             config=dict(body.get("config", {})),
+            default=body.get("default", True),
         )
     return out
 
 
 def select_presets(all_presets: dict[str, Preset], names: list[str] | None) -> list[Preset]:
+    """The named presets, or (no names) only the default ones, in file order."""
     if not names:
-        return list(all_presets.values())
+        return [p for p in all_presets.values() if p.default]
     out = []
     for n in names:
         if n not in all_presets:

@@ -20,7 +20,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m evals", description="Prompt evals runner.")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="run scenarios against models in a scratch environment")
-    run.add_argument("--models", type=_csv, help="comma-separated model presets (default: all)")
+    run.add_argument(
+        "--models",
+        type=_csv,
+        help="comma-separated model presets (default: the default presets, i.e. those "
+        "without default = false in models.toml; --models gpt-oss selects a non-default one)",
+    )
     run.add_argument("--scenarios", type=_csv, help="comma-separated scenario ids (default: all)")
     run.add_argument(
         "--scenarios-dir",
@@ -59,7 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the platform text's size by part for the bare, all-on and tool-free agents",
     )
     mp.add_argument("--with-model-counts", action="store_true", help="add each model's cold count")
-    mp.add_argument("--models", type=_csv, help="comma-separated model presets (default: all)")
+    mp.add_argument(
+        "--models",
+        type=_csv,
+        help="comma-separated model presets for --with-model-counts "
+        "(default: the default presets, i.e. those without default = false in models.toml)",
+    )
     mp.add_argument("--models-file", type=Path, help="alternative presets file")
     mp.add_argument("--plan-token-file", dest="token_file", type=Path, help="plan token file")
     mp.add_argument("--json", dest="json_out", type=Path, help="also write the measurement here")

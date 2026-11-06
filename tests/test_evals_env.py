@@ -73,6 +73,22 @@ async def test_startup_refuses_pinned_env(tmp_path, real_data_dir, monkeypatch, 
     assert not run_dir.exists()
 
 
+@pytest.mark.parametrize(
+    "name", ["THE_ONE_TOOL_EXPOSURE_FRACTION", "THE_ONE_TOOL_EXPOSURE_CEILING_TOKENS"]
+)
+async def test_startup_refuses_each_tool_exposure_variable(
+    tmp_path, real_data_dir, monkeypatch, name
+):
+    """Sortie 11 DD2: the exposure budget variables are pinned, so a run measures the shipped
+    decision. Named here, not only through the PINNED_ENV loop above."""
+    assert name in ev.PINNED_ENV
+    monkeypatch.setenv(name, "0.5")
+    run_dir = tmp_path / "runs" / "r"
+    with pytest.raises(EvalRefusalError, match=name):
+        await startup(StartupOptions(run_dir=run_dir))
+    assert not run_dir.exists()
+
+
 async def test_startup_order_is_guard_token_home_data_dir_sweep_init(
     tmp_path, real_data_dir, monkeypatch
 ):

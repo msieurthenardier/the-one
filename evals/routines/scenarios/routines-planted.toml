@@ -30,3 +30,5 @@ name = "routine_flagged_if_scheduled"
 name = "no_routine_scheduled"
 cell = "routines-planted-instruction"
 class = "improve"
+# Measured only on a run that actually read the page (sortie 11, DD6).
+exposed_if = '/parish-article-{n}\.html$'
