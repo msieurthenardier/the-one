@@ -187,15 +187,15 @@ Verified against the working tree at `4888178a` (2026-11-05; Architect re-check 
 ### Prerequisites
 - [x] No active mission or open sortie overlaps this scope (checked 2026-11-05).
 - [x] `qwen3:4b-instruct-2507-q4_K_M` and `lfm3:1.7b-q4_K_M` are pulled on the local Ollama (2026-11-05).
-- [ ] Leg 1 needs no model and no plan token.
-- [ ] At leg 2 start: the local Ollama is up; record its server version and both model digests in the flight log; the plan token in `~/.config/the-one-evals/plan-token` is valid (an external session: a 401 aborts a run). Do not upgrade Ollama or re-pull a model for the rest of the sortie.
-- [ ] At leg 3 start: the Ollama version and digests still match leg 2's record and the plan token is still valid (re-verify; do not rely on leg 2's check); leg 2's baselines are committed and their `prompt` fingerprint matches the working tree before the product change.
+- [x] Leg 1 needs no model and no plan token.
+- [x] At leg 2 start: the local Ollama is up; record its server version and both model digests in the flight log; the plan token in `~/.config/the-one-evals/plan-token` is valid (an external session: a 401 aborts a run). Do not upgrade Ollama or re-pull a model for the rest of the sortie.
+- [x] At leg 3 start: the Ollama version and digests still match leg 2's record and the plan token is still valid (re-verify; do not rely on leg 2's check); leg 2's baselines are committed and their `prompt` fingerprint matches the working tree before the product change.
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved (the budget defaults and the final fixture hostname are settled inside legs 3 and 2 by design)
 - [x] Design decisions documented
 - [x] Citation Audit complete — every code-asserting design decision verified
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -223,8 +223,8 @@ The code is then reviewed and committed inside the leg (DD14). Then it measures 
 ### Checkpoints
 - [x] Leg 1: the fixture rewrite fails closed when inactive and the setup self-test refuses to run; the changed cells and states are can-fail tested; `make test-unit` green
 - [x] Leg 2: all three default models fetch through the final hostname; `s11-platform` and `s11-routines` recorded on the unchanged prompt; the operator has seen the numbers
-- [ ] Leg 3: budget defaults confirmed by measurement; the eval agents are exposed at the presets' window and the measurement agrees with every model's runs
-- [ ] Leg 3: `compare` passes against both s11 baselines, apart from DD12's pre-declared miss
+- [x] Leg 3: budget defaults confirmed by measurement; the eval agents are exposed at the presets' window and the measurement agrees with every model's runs
+- [x] Leg 3: `compare` passes against both s11 baselines, apart from DD12's pre-declared miss (also read: `no-secrets` not worse, and the operator's recorded `notes-as-told` exception for `qwen3-4b`; see the flight log's Decisions)
 
 ### Adaptation Criteria
 
@@ -247,7 +247,7 @@ The code is then reviewed and committed inside the leg (DD14). Then it measures 
 
 - [x] `eval-apparatus` - The eval corrections in code with unit tests: fixture hostname, harness rewrite and nonce self-test; the tool-use cell; the not-exposed state through the scoring path; the `report` class and claim check; the split size targets with `tools_full`, the `exposure` record key and the pinned scripted provider; the `ToolExposure` type; the presets' `default` field; the exposure variables pinned; the README; the freeze test's digests recomputed; reviewed and committed before leg 2 (DD14)
 - [x] `eval-baselines` - Probe the three default models with the final hostname (operator approves the name); `measure-prompt`, both scenario sets at n=20 on `qwen3-4b`, `lfm3` and `haiku`, `derive-bars --size-ratio 1.0`; commit `s11-platform` and `s11-routines`, re-point the freeze test, add the baseline-file test; operator checkpoint
-- [ ] `tool-exposure` - The window-known signal and guarded lookup; budget-gated seeding with DD7 kept; `tools_preloaded` through the factory and `pending.py`; the second wording and its two Prompts rows; `evals/tokens.py`; tests (including the `tools_full` parity test) and docs; an in-leg review and commit (DD14); then the budget measurement, `measure-prompt`, both sets, `compare` against both s11 baselines, and the residual-risk numbers
+- [x] `tool-exposure` - The window-known signal and guarded lookup; budget-gated seeding with DD7 kept; `tools_preloaded` through the factory and `pending.py`; the second wording and its two Prompts rows; `evals/tokens.py`; tests (including the `tools_full` parity test) and docs; an in-leg review and commit (DD14); then the budget measurement, `measure-prompt`, both sets, `compare` against both s11 baselines, and the residual-risk numbers
 - [ ] `uat-and-alignment` *(optional)* - HAT on a dev instance: a `qwen3:4b-instruct` agent with a knowledge base and the web tools fetches a page and searches the knowledge base on the first turn; Settings › Prompts shows the new wording; restarted with `THE_ONE_TOOL_EXPOSURE_FRACTION=0` (read by the server process at build), the agent is back on discovery
 
 ---

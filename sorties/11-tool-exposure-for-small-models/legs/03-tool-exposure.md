@@ -1,6 +1,6 @@
 # Leg: tool-exposure
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Tool exposure for small local models](../flight.md)
 
 ## Objective
