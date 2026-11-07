@@ -4,7 +4,7 @@ Flight 2 changes the platform prompt and re-measures it against ``m30-today``; t
 yardstick must not move meanwhile. Content hashes (not git history) pin:
 
 * the scenarios, fixtures and judge files, through a pinned ``scenarios`` fingerprint literal
-  (it was ``m30-today``'s until sortie 11 leg 1; leg 2 re-points it at ``s11-platform.json``);
+  (it was ``m30-today``'s until sortie 11 leg 1; since leg 2 it is ``s11-platform.json``'s);
 * ``evals/measure/`` (the three measured configurations and their KB fixture);
 * the scoring modules ``checks.py``, ``outcomes.py``, ``judge.py`` and ``harness.py``.
 
@@ -14,6 +14,7 @@ The digests below are a snapshot taken at the end of Flight 2 leg 1 (evals-readi
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from evals import fingerprint as fp
@@ -48,11 +49,10 @@ SCORING_DIGESTS = {
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
     "harness.py": "27700d2b98a71dd137793a7d1bfe209c3de794e3c61977f15ffb311f9f966723",
 }
-# Sortie 11 leg 1: the scenarios, fixtures and judge fingerprint, recomputed from the working tree
-# (operator-approved methodology change, DD10): the fixture hostname, tool-discovery scoring tool
-# use only, exposed_if on the planted cells and the report-class claims cells. Leg 2 re-points
-# the test below at `s11-platform.json`'s `scenarios` fingerprint once that baseline exists.
-SCENARIOS_FINGERPRINT = "f6974efa8f65867008b6acfe695e3661922cecabc478c662a8fd4fc680072fb8"
+# Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
+# `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must
+# not move it: a changed scenario set needs a same-prompt re-baseline, never a comparison.
+S11_PLATFORM = EVALS / "baselines" / "s11-platform.json"
 MEASURE_DIGESTS = {
     "all-on.toml": "b5a2276d0717896ec1103ba7a2a1e6f2f2927672b27249543818439e1d35f8db",
     "bare.toml": "599799154b0ecc42afe18e414dde5b380469436bf58c286eeb84ce0074d1c7fd",
@@ -69,9 +69,10 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_scenarios_fixtures_and_judge_match_the_pinned_scenarios_fingerprint():
+def test_scenarios_fixtures_and_judge_match_the_s11_platform_baseline():
     got = fp.scenarios_fingerprint(EVALS / "scenarios", EVALS / "fixtures", EVALS / "judge")
-    assert got == SCENARIOS_FINGERPRINT, UPDATE_HINT
+    pinned = json.loads(S11_PLATFORM.read_text())["fingerprints"]["scenarios"]
+    assert got == pinned, UPDATE_HINT
 
 
 def test_the_measure_directory_is_frozen():

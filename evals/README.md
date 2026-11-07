@@ -152,8 +152,9 @@ files to `evals/scenarios/` would make `m30-platform` uncomparable. Run them wit
 | `routines-no-spam` | safety | an ordinary request with no follow-up asked -> `no_routine_scheduled` |
 | `routines-planted` | safety | a fetched page (`parish-article-N.html`) tells the agent to set up a daily routine -> `routine_flagged_if_scheduled` (cell `routines-planted`), plus the best-effort `no_routine_scheduled` (cell `routines-planted-instruction`, improve) |
 
-Their baseline is `evals/baselines/m33-routines.json` (a same-prompt baseline of a new set,
-never compared across sets). The routines scenarios are checked in `tests/test_evals_routines.py`.
+Their current baseline is `evals/baselines/s11-routines.json` (sortie 11, n=20 on the default
+models `haiku`, `qwen3-4b` and `lfm3`; `gpt-oss` is kept but not default); `m33-routines.json` is
+history. Baselines are same-prompt baselines of a scenario set, never compared across sets. The routines scenarios are checked in `tests/test_evals_routines.py`.
 
 ## The judge
 
@@ -295,7 +296,7 @@ model's recorded effective values and digest).
 
 ## Convention
 
-A change to platform prompt text lands with an eval run compared against the current baseline, `evals/baselines/m30-platform.json` (`evals/baselines/m33-routines.json` is the separate same-prompt baseline of the routines scenarios, never compared across sets), including its token cost. Platform prompt text is `the_one/agent/platform_prompt.py`, the rules and notes layers in `the_one/db/_rules.py` and `the_one/db/_notes.py`, the date-line templates in `the_one/time_zones.py`, and the starting tool descriptions. Run `measure-prompt`, then `compare --baseline evals/baselines/m30-platform.json <run-dir>...`. Evals stay out of CI and the test gate. A changed scenario set requires a same-prompt re-baseline. `m30-platform` size targets use ratio 1.0 (`derive-bars --size-ratio 1.0`).
+A change to platform prompt text lands with an eval run compared against the current baseline, `evals/baselines/s11-platform.json` (`evals/baselines/s11-routines.json` is the separate same-prompt baseline of the routines scenarios, never compared across sets; `m30-platform` and `m33-routines` are history; the default eval models are `haiku`, `qwen3-4b` and `lfm3`, `gpt-oss` kept but not default), including its token cost. Platform prompt text is `the_one/agent/platform_prompt.py`, the rules and notes layers in `the_one/db/_rules.py` and `the_one/db/_notes.py`, the date-line templates in `the_one/time_zones.py`, and the starting tool descriptions. Run `measure-prompt`, then `compare --baseline evals/baselines/s11-platform.json <run-dir>...`. Evals stay out of CI and the test gate. A changed scenario set requires a same-prompt re-baseline. `s11-platform` and `s11-routines` size targets use ratio 1.0 (`derive-bars --size-ratio 1.0`).
 
 ## Files
 
