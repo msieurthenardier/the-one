@@ -145,7 +145,7 @@ Plugin version for all of these: mission-control 1.2.3.
 4. **flight-debrief Phase 2 Developer brief: the reuse/run-fresh rule worked as written.** The flight never ran a full browser gate, so the debrief ran one: about 40 minutes of wall time at the debrief. A flight that only runs per-leg lanes always pays this at the debrief. That is fine, but worth knowing when sizing a debrief.
 
 ## Recommendations
-1. **Plan a "claimed actions" sortie.** It covers:
+1. **Plan a "claimed actions" sortie** (logged as [sortie 12](../12-claimed-actions/flight.md), status planning). It covers:
    - a preloaded-wording line along the lines of "call the tool; never describe a result you did not get from one", screened at fact 0;
    - the claims-pattern fix for result-style wording;
    - a decision on whether the claimed-action guard is a runtime check or a gated cell.
@@ -158,7 +158,7 @@ Plugin version for all of these: mission-control 1.2.3.
    - Add a leg 2 exit check: "every cell already failing its own bar gets its reading decided now".
    - Record these in `.flightops/agent-crews/leg-execution.md` or the eval section of `CLAUDE.md` at the next planning conversation. **Important.**
 4. **Close the reach gap for connector-bound agents**: embedding pre-load or a priority fill for over-budget agents (already a charter follow-up), and say so in `agents.md` meanwhile. **Important.**
-5. **Run the Ollama wire sortie** once an n=20 A-vs-B on `qwen3:4b-thinking` is in. Also consider Anthropic prompt caching to offset the larger first call on plan quota. **Minor.**
+5. **Run the Ollama wire sortie** once an n=20 A-vs-B on `qwen3:4b-thinking` is in. Also consider Anthropic prompt caching to offset the larger first call on plan quota. **Minor.** Logged as [sortie 13](../13-ollama-wire-fidelity/flight.md) (Ollama wire, gated on the A-vs-B) and [sortie 14](../14-anthropic-prompt-caching/flight.md) (prompt caching), both status planning.
 
 ## Operator Interview
 - **DD14 cadence.** "Worked well, keep it." Review and commit before quota-heavy runs should be standard for eval-driven flights.
@@ -171,9 +171,9 @@ Plugin version for all of these: mission-control 1.2.3.
 ## Action Items
 - [x] Squawk 0335 (logged, open): test-order dependence between `tests/test_prompt_layers.py` and `tests/test_evals_tokens.py` (`no active connection`; pre-existing at `HEAD`).
 - [x] Squawk 0336 (logged, open): `evals/README.md` platform-prompt-text list omits `the_one/db/_secrets.py`.
-- [ ] Sortie candidate: claimed actions (wording, claims patterns, guard), recommendation 1.
+- [x] Sortie 12 logged (planning): claimed actions (wording, claims patterns, guard), recommendation 1.
 - [ ] Sortie candidate: secrets in notes, recommendation 2.
-- [ ] Sortie candidate: Ollama wire, after the `qwen3:4b-thinking` n=20 A-vs-B.
+- [x] Sortie 13 logged (planning): Ollama wire, gated on the `qwen3:4b-thinking` n=20 A-vs-B. Sortie 14 logged (planning): Anthropic prompt caching.
 - [ ] Follow-up: embedding pre-load or priority fill for over-budget agents. In the meantime, document the connector-bound 16k case in `agents.md`.
 - [ ] Before the next release: run leg 4's three HAT checks once by hand (the prompt wording in Settings › Prompts, first-turn tool use on a `qwen3:4b-instruct` agent, and `THE_ONE_TOOL_EXPOSURE_FRACTION=0` back on discovery).
 - [ ] Methodology: write the eval-flight standards from recommendation 3 into the crew file or `CLAUDE.md`.
