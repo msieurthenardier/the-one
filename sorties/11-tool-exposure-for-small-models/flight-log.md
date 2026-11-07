@@ -304,6 +304,16 @@ Findings for the Flight Director:
   - Escalated to the operator with four options: land with the exception, a wording fix as a new Part A, a re-run, or stop. The operator chose to land with the exception (recommended).
   - Leg 3 → `landed`.
 - **Flight-end review (Phase 2d) of Part B.** A Developer (Sonnet) added the known-limitation bullet to `the_one/agents.md`. The Reviewer (Sonnet) checked the docs-only diff against the compare outputs and the raw records and returned `[HANDOFF:confirmed]` with no blocking issues. Of its low-severity notes, the `no-secrets` Fisher p values were added above. The historical mentions of the `TBD` placeholders in the leg 3 Part A entry and the leg file were kept as history. Leg 3 → `completed`, and Part B was committed.
+- **Leg 4 (optional HAT) skipped** (operator, 2026-11-07). The n=20 evals already measured the first-turn behaviour on all three models, so the HAT would have repeated them by hand.
+- **Flight completion (Phase 3).** All three legs are `completed`, and the flight log has entries for each.
+  - Docs checked: `CLAUDE.md` has the tool-exposure paragraph and the s11 baselines; `the_one/agents.md` "Tool exposure (sortie 11)" has the known limitation; `evals/README.md` covers the exposure variables and the s11 baselines; `SECURITY-MODEL.md` has DD12's numbers.
+  - Flight → `landed`. A draft PR was opened.
+  - For the debrief, the follow-ups are:
+    - small models storing secrets in notes (a sortie candidate);
+    - the `notes-as-told` regression together with the claims-check gap and the claimed-action guard;
+    - the test-order dependence (a routine squawk);
+    - the Ollama wire sortie, after an n=20 A-vs-B run on `qwen3:4b-thinking`;
+    - embedding pre-load.
 
 ---
 

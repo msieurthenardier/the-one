@@ -1,6 +1,6 @@
 # Sortie: Tool exposure for small local models
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -248,7 +248,7 @@ The code is then reviewed and committed inside the leg (DD14). Then it measures 
 - [x] `eval-apparatus` - The eval corrections in code with unit tests: fixture hostname, harness rewrite and nonce self-test; the tool-use cell; the not-exposed state through the scoring path; the `report` class and claim check; the split size targets with `tools_full`, the `exposure` record key and the pinned scripted provider; the `ToolExposure` type; the presets' `default` field; the exposure variables pinned; the README; the freeze test's digests recomputed; reviewed and committed before leg 2 (DD14)
 - [x] `eval-baselines` - Probe the three default models with the final hostname (operator approves the name); `measure-prompt`, both scenario sets at n=20 on `qwen3-4b`, `lfm3` and `haiku`, `derive-bars --size-ratio 1.0`; commit `s11-platform` and `s11-routines`, re-point the freeze test, add the baseline-file test; operator checkpoint
 - [x] `tool-exposure` - The window-known signal and guarded lookup; budget-gated seeding with DD7 kept; `tools_preloaded` through the factory and `pending.py`; the second wording and its two Prompts rows; `evals/tokens.py`; tests (including the `tools_full` parity test) and docs; an in-leg review and commit (DD14); then the budget measurement, `measure-prompt`, both sets, `compare` against both s11 baselines, and the residual-risk numbers
-- [ ] `uat-and-alignment` *(optional)* - HAT on a dev instance: a `qwen3:4b-instruct` agent with a knowledge base and the web tools fetches a page and searches the knowledge base on the first turn; Settings › Prompts shows the new wording; restarted with `THE_ONE_TOOL_EXPOSURE_FRACTION=0` (read by the server process at build), the agent is back on discovery
+- [ ] `uat-and-alignment` *(optional; skipped by the operator, 2026-11-07: the n=20 evals already measured the behaviour)* - HAT on a dev instance: a `qwen3:4b-instruct` agent with a knowledge base and the web tools fetches a page and searches the knowledge base on the first turn; Settings › Prompts shows the new wording; restarted with `THE_ONE_TOOL_EXPOSURE_FRACTION=0` (read by the server process at build), the agent is back on discovery
 
 ---
 
