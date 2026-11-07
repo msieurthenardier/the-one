@@ -125,6 +125,7 @@ class OpenAIProvider(LLMProvider):
         window = context_window_for("openai", self.model)
         if window is not None:
             self.max_context_tokens = window
+            self.context_window_known = True
         else:
             logger.warning(
                 "openai: no catalog context window for model %r; using default %d",

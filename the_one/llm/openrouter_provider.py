@@ -183,6 +183,7 @@ class OpenRouterProvider(OpenAIProvider):
         )
         if resolved is not None and resolved > 0:
             self.max_context_tokens = resolved
+            self.context_window_known = True
         # else: leave at class default (128k); the wrapper catches errors
         # from the helper and flips the sentinel either way.
 

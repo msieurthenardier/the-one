@@ -649,3 +649,135 @@ def test_nothing_under_the_one_imports_evals_and_evals_never_imports_tests():
 
     assert "evals" not in imported(REPO / "the_one")
     assert not imported(REPO / "evals") & {"tests", "conftest", "_evals_helpers"}
+
+
+# ── the not-exposed state and the report class in decide / build_record (DD6, DD7) ──
+
+
+def _decl(name, cell, klass, exposed_if=None, **params):
+    from evals import checks as ck
+
+    return ck.CheckDecl(name, ck.validate_params(name, params), cell, klass, exposed_if)
+
+
+def _attempt(reply="hello", notes=(), **kw):
+    from evals.checks import NoteView, RunTrace, TurnTrace
+    from evals.harness import Attempt, CallRecorder
+    from the_one.llm.base import Message
+
+    trace = RunTrace(
+        turns=[TurnTrace(0, 0, "hi", [Message.assistant(content=reply)])],
+        saved_notes=[NoteView(n) for n in notes],
+    )
+    return Attempt(trace=trace, recorder=CallRecorder(), **kw)
+
+
+def _spec(sid="demo"):
+    from pathlib import Path
+
+    from evals.harness import RunSpec
+    from evals.scenario import Scenario
+
+    sc = Scenario(id=sid, klass="improve", description="", path=Path("demo.toml"))
+    return RunSpec(sc, sc.variants()[0], "haiku")
+
+
+class _Redactor:
+    def redact(self, s):
+        return s
+
+
+def _record(verdict, attempt=None):
+    from evals.runner import build_record
+
+    return build_record(
+        _spec(),
+        attempt or _attempt(),
+        verdict,
+        retries=0,
+        model_info={},
+        redactor=_Redactor(),
+    )
+
+
+def test_decide_a_not_exposed_check_is_neither_a_pass_nor_a_fail():
+    from evals.runner import decide
+
+    decls = [
+        _decl("no_note_matches", "planted", "improve", exposed_if="/never\\.html$", pattern="X"),
+        _decl("reply_matches", "other", "hold", pattern="hello"),
+    ]
+    v = decide(_attempt(notes=["X"]), decls)  # the note would fail the check if it were read
+    assert v.outcome == oc.PASS
+    assert [r.passed for r in v.results] == [None, True]
+
+
+def test_decide_a_failing_report_check_never_fails_the_run():
+    from evals.runner import decide
+
+    decls = [
+        _decl("reply_matches", "main", "improve", pattern="hello"),
+        _decl("reply_matches", "claims", "report", pattern="never said"),
+    ]
+    v = decide(_attempt(), decls)
+    assert v.outcome == oc.PASS
+    assert [r.passed for r in v.results] == [True, False]
+    failing_main = decide(_attempt(reply="nope"), decls)
+    assert failing_main.outcome == oc.FAIL and failing_main.reason.startswith("reply_matches")
+
+
+def test_build_record_cell_is_none_when_every_result_in_it_is_not_exposed():
+    from evals.checks import CheckResult
+    from evals.runner import Verdict
+
+    results = [
+        CheckResult("a", "hidden", "improve", None, exposed=False),
+        CheckResult("b", "hidden", "improve", None, exposed=False),
+        CheckResult("c", "seen", "improve", True),
+        CheckResult("d", "seen", "improve", None, exposed=False),
+        CheckResult("e", "bad", "improve", False),
+        CheckResult("f", "bad", "improve", None, exposed=False),
+    ]
+    rec = _record(Verdict(oc.FAIL, "x", results=results))
+    # None over all-None; all() over the non-None results otherwise
+    assert rec["cells"] == {"hidden": None, "seen": True, "bad": False}
+    assert [c["passed"] for c in rec["checks"]] == [None, None, True, None, False, None]
+    assert [c["exposed"] for c in rec["checks"]] == [False, False, True, False, True, False]
+
+
+def test_build_record_fail_without_a_failing_check_forces_only_the_measured_cells_false():
+    from evals.checks import CheckResult
+    from evals.runner import Verdict
+
+    results = [
+        CheckResult("a", "measured", "improve", True),
+        CheckResult("b", "hidden", "improve", None, exposed=False),
+        CheckResult("c", "claims-ok", "report", True),
+        CheckResult("d", "claims-bad", "report", False),
+    ]
+    # the model stopped (a FAIL with no failing gated check): not-exposed and report cells keep
+    # their computed values; every other cell is forced False
+    rec = _record(Verdict(oc.FAIL, "max_iterations exhausted", results=results))
+    assert rec["cells"] == {
+        "measured": False,
+        "hidden": None,
+        "claims-ok": True,
+        "claims-bad": False,
+    }
+    # a PASS keeps every computed value
+    ok = _record(Verdict(oc.PASS, results=results[:3]))
+    assert ok["cells"] == {"measured": True, "hidden": None, "claims-ok": True}
+
+
+def test_build_record_carries_exposure_and_tools_off_outside_effective():
+    from evals.runner import Verdict, build_transcript
+
+    exposure = {"decided": True, "budget": 9, "estimate": 3, "window_known": True, "window": 8}
+    attempt = _attempt(exposure=exposure, effective={"temperature": 0.0})
+    rec = _record(Verdict(oc.PASS), attempt)
+    assert rec["exposure"] == exposure and rec["tools_off"] is False
+    assert rec["effective"] == {"temperature": 0.0} and "exposure" not in rec["effective"]
+    tr = build_transcript(_spec(), attempt, Verdict(oc.PASS), rec, [])
+    assert tr["exposure"] == exposure and tr["tools_off"] is False
+    assert "exposure" not in tr["effective"]
+    assert _record(Verdict(oc.PASS))["exposure"] is None  # an agent with no record

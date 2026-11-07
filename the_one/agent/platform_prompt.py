@@ -36,6 +36,9 @@ class Capabilities:
     rules: bool = True
     time_tool: bool = True
     exec_tools: bool = True
+    # Sortie 11 DD3: every enabled tool schema is offered up front, so the discovery
+    # section says so instead of describing `search_tools` discovery.
+    tools_preloaded: bool = False
 
     @classmethod
     def all_on(cls) -> "Capabilities":
@@ -98,7 +101,22 @@ KB_LINE = (
 )
 
 
+# The wording for an agent whose whole toolset is offered up front (sortie 11 DD3,
+# operator-approved copy B). Pinned verbatim by tests.
+PRELOADED_TOOL_DISCOVERY = (
+    "\nTools:\n"
+    "- All your tools are available now: call them directly (`search_tools` only lists "
+    "them again).\n"
+)
+PRELOADED_KB_LINE = (
+    "- Knowledge bases are attached: search them before answering from memory on topics "
+    "they cover.\n"
+)
+
+
 def _tool_discovery(caps: Capabilities) -> str:
+    if caps.tools_preloaded:
+        return PRELOADED_TOOL_DISCOVERY + (PRELOADED_KB_LINE if caps.knowledge else "")
     return NO_KB_TOOL_DISCOVERY + (KB_LINE if caps.knowledge else "")
 
 
@@ -185,6 +203,19 @@ FRAGMENTS: tuple[Fragment, ...] = (
     ),
 )
 
+# Settings-only rows for the preloaded wording (sortie 11 DD3). Kept out of ``FRAGMENTS``
+# so that tuple stays the knowledge line alone; ``tool_discovery_preloaded`` is built from
+# ``_tool_discovery`` in :func:`platform_sections_for_ui`.
+PRELOADED_FRAGMENTS: tuple[Fragment, ...] = (
+    Fragment(
+        "knowledge_preloaded",
+        "Knowledge-base wording (tools preloaded)",
+        "tool-capable agents whose tools fit the exposure budget, with a knowledge base "
+        "attached (inside Tool discovery)",
+        PRELOADED_KB_LINE.strip(),
+    ),
+)
+
 
 def platform_sections_for_ui() -> list[dict[str, str]]:
     """Rows for Settings \u203a Prompts: ``{id, title, applies_when, text, variant}``.
@@ -200,6 +231,17 @@ def platform_sections_for_ui() -> list[dict[str, str]]:
             rows.append(_row(sec.id, sec.title, sec.applies_when, sec.text(on), "tools"))
             if sec.id == "tool_discovery":
                 for frag in FRAGMENTS:
+                    rows.append(_row(frag.id, frag.title, frag.applies_when, frag.text, "tools"))
+                rows.append(
+                    _row(
+                        "tool_discovery_preloaded",
+                        "Tool discovery (tools preloaded)",
+                        "tool-capable agents whose tools fit the exposure budget",
+                        _tool_discovery(replace(on, tools_preloaded=True)),
+                        "tools",
+                    )
+                )
+                for frag in PRELOADED_FRAGMENTS:
                     rows.append(_row(frag.id, frag.title, frag.applies_when, frag.text, "tools"))
     free = tool_free_capabilities(on)
     for sec in SECTIONS:
@@ -229,7 +271,14 @@ def render_platform(caps: Capabilities) -> str:
 
 
 def tool_free_capabilities(caps: Capabilities) -> Capabilities:
-    return replace(caps, tools=False, knowledge=False, time_tool=False, exec_tools=False)
+    return replace(
+        caps,
+        tools=False,
+        knowledge=False,
+        time_tool=False,
+        exec_tools=False,
+        tools_preloaded=False,
+    )
 
 
 def render_tool_free(caps: Capabilities) -> str:
@@ -238,7 +287,7 @@ def render_tool_free(caps: Capabilities) -> str:
 
 
 def capabilities_from_registry(
-    registry: Any, *, notes: bool, rules: bool, time_tool: bool
+    registry: Any, *, notes: bool, rules: bool, time_tool: bool, tools_preloaded: bool = False
 ) -> Capabilities:
     """Derive the capabilities from a built tool registry (``None`` -> no tools).
 
@@ -258,4 +307,5 @@ def capabilities_from_registry(
         rules=rules,
         time_tool=time_tool,
         exec_tools=any(n in _EXEC_TOOL_NAMES for n in names),
+        tools_preloaded=tools_preloaded,
     )

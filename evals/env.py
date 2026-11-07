@@ -34,6 +34,9 @@ PINNED_ENV = (
     "THE_ONE_OLLAMA_NUM_CTX",
     "THE_ONE_STOP",
     "THE_ONE_RESPONSE_FORMAT",
+    # sortie 11 (DD2): the tool-exposure budget variables, so a run measures the shipped decision
+    "THE_ONE_TOOL_EXPOSURE_FRACTION",
+    "THE_ONE_TOOL_EXPOSURE_CEILING_TOKENS",
 )
 DEFAULT_TOKEN_FILE = "~/.config/the-one-evals/plan-token"
 REDACTED = "[REDACTED]"

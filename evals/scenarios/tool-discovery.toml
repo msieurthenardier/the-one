@@ -20,9 +20,9 @@ facts = [
 [[conversations]]
 turns = ["{phrasing}"]
 
-[[checks]]
-name = "search_tools_used"
-
+# The cell scores tool use only (sortie 11, DD5): reaching the web tool by any route is a pass.
+# The id stays "tool-discovery" so the baselines' cell keys stay comparable; the old
+# search_tools_used check is still in the vocabulary but no longer declared here.
 [[checks]]
 name = "tool_called"
 pattern = 'fetch_url|http_request'

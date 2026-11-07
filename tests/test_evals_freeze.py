@@ -3,8 +3,8 @@
 Flight 2 changes the platform prompt and re-measures it against ``m30-today``; the
 yardstick must not move meanwhile. Content hashes (not git history) pin:
 
-* the scenarios, fixtures and judge files, through the baseline's own ``scenarios``
-  fingerprint;
+* the scenarios, fixtures and judge files, through a pinned ``scenarios`` fingerprint literal
+  (it was ``m30-today``'s until sortie 11 leg 1; since leg 2 it is ``s11-platform.json``'s);
 * ``evals/measure/`` (the three measured configurations and their KB fixture);
 * the scoring modules ``checks.py``, ``outcomes.py``, ``judge.py`` and ``harness.py``.
 
@@ -40,11 +40,19 @@ SCORING_DIGESTS = {
     # Mission 33 F4 L02: routines lose their target, so checks.py drops the `target` param and
     # RoutineView/RunTrace target fields, and harness.py drops the chat-row setup and target copies
     # (routine scenarios only; the evals/scenarios/ scoring is unchanged).
-    "checks.py": "bc1c762076de52210bd99007d785d6e0dda01ef954092b06446a084f00f52733",
+    # Sortie 11 leg 1: the fixture hostname and self-test, the not-exposed state, the report
+    # class and claim check, the exposure record (operator-approved methodology change, DD10).
+    # checks.py gains exposed_if, the tri-state CheckResult and claims_match_actions; harness.py
+    # the hostname rewrite, the nonce self-test and the registry/exposure capture.
+    "checks.py": "e998ea5f02aa083beb881dc5a4b9097bb08dafdce201dd333a4377defeae9bb0",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "0da8f0b411a32800c60503eeabb5a9ce95bfa1c90674109982b36af74293b055",
+    "harness.py": "27700d2b98a71dd137793a7d1bfe209c3de794e3c61977f15ffb311f9f966723",
 }
+# Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
+# `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must
+# not move it: a changed scenario set needs a same-prompt re-baseline, never a comparison.
+S11_PLATFORM = EVALS / "baselines" / "s11-platform.json"
 MEASURE_DIGESTS = {
     "all-on.toml": "b5a2276d0717896ec1103ba7a2a1e6f2f2927672b27249543818439e1d35f8db",
     "bare.toml": "599799154b0ecc42afe18e414dde5b380469436bf58c286eeb84ce0074d1c7fd",
@@ -61,10 +69,10 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_scenarios_fixtures_and_judge_match_the_m30_today_fingerprint():
-    base = json.loads((EVALS / "baselines" / "m30-today.json").read_text(encoding="utf-8"))
+def test_scenarios_fixtures_and_judge_match_the_s11_platform_baseline():
     got = fp.scenarios_fingerprint(EVALS / "scenarios", EVALS / "fixtures", EVALS / "judge")
-    assert got == base["fingerprints"]["scenarios"], UPDATE_HINT
+    pinned = json.loads(S11_PLATFORM.read_text())["fingerprints"]["scenarios"]
+    assert got == pinned, UPDATE_HINT
 
 
 def test_the_measure_directory_is_frozen():

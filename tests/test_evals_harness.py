@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
 import _evals_helpers as h
+import httpx
+import pytest
 from _evals_helpers import make_tree, run, simple_scenario
 
 from evals import scripted
+from evals.fixtures import FIXTURE_HOSTNAME, NONCE_PATH, FixtureServer
+from evals.harness import fixture_host_patch
 from evals.scripted import call, text
 from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
 
@@ -430,8 +435,8 @@ async def test_tool_config_rows_restrict_the_web_tools_and_narrow_the_filesystem
         repo = ToolConfigRepository(await get_connection(), get_encryptor(settings.data_dir))
         rows = {c.name: c for c in await repo.list()}
         for name in ("http_request", "fetch_url"):
-            assert rows[name].config["extra_allowed_hosts"] == ["127.0.0.1"]
-            assert rows[name].config["host_allowlist"] == ["127.0.0.1"]
+            assert rows[name].config["extra_allowed_hosts"] == [FIXTURE_HOSTNAME]
+            assert rows[name].config["host_allowlist"] == [FIXTURE_HOSTNAME]
         for name in FS_TOOLS:
             assert rows[name].config["path_allowlist"] == [str(env.home)]
         for name in DISABLED_TOOLS:
@@ -439,3 +444,225 @@ async def test_tool_config_rows_restrict_the_web_tools_and_narrow_the_filesystem
         assert {"web_search", "download_file", "shell", "python_exec"} <= set(DISABLED_TOOLS)
     finally:
         await shutdown(env)
+
+
+# ── the fixture hostname, its rewrite and the nonce self-test (DD4) ───────
+
+REPO_WEB = Path(__file__).resolve().parent.parent / "evals" / "fixtures" / "web"
+TEST_WEB = h.FIXTURE_ROOT / "fixtures" / "web"
+ORIGINAL_SEND = httpx.AsyncHTTPTransport.handle_async_request
+
+
+def test_fixture_server_serves_the_hostname_with_no_port_and_exposes_port_and_nonce():
+    assert FIXTURE_HOSTNAME == "town.example"
+    with FixtureServer(TEST_WEB) as srv:
+        assert srv.base_url == "http://town.example"
+        assert isinstance(srv.port, int) and srv.port > 0
+        assert srv._server.server_address[0] == "127.0.0.1"  # still bound to loopback
+        assert len(srv.nonce) == 32 and int(srv.nonce, 16) >= 0
+        got = httpx.get(f"http://127.0.0.1:{srv.port}{NONCE_PATH}")
+        assert got.status_code == 200 and got.text == srv.nonce  # the bare nonce, no newline
+        assert got.headers["content-type"].startswith("text/plain")
+    with FixtureServer(TEST_WEB) as other:
+        assert other.nonce != srv.nonce  # per invocation
+
+
+def test_no_fixture_directory_can_shadow_the_nonce_path():
+    top = NONCE_PATH.strip("/").split("/")[0]
+    for web in (REPO_WEB, TEST_WEB, REPO_WEB.parent.parent / "routines" / "fixtures" / "web"):
+        assert not (web / top).exists(), web
+
+
+def _Sink():  # noqa: N802 - reads as the class it replaced
+    """Stands in for the saved original ``handle_async_request``: records what it was given."""
+    seen: list[httpx.Request] = []
+
+    async def send(transport, request):
+        seen.append(request)
+        return httpx.Response(200, request=request)
+
+    send.requests = seen  # type: ignore[attr-defined]
+    return send
+
+
+def _get(url="/x"):
+    return httpx.Request("GET", f"http://{FIXTURE_HOSTNAME}{url}")
+
+
+async def test_rewrite_builds_a_new_request_keeping_everything_but_the_host(monkeypatch):
+    sink = _Sink()
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", sink)
+    transport = httpx.AsyncHTTPTransport()
+    req = httpx.Request(
+        "POST", f"http://{FIXTURE_HOSTNAME}/a/b?x=1&y=2", headers={"X-T": "1"}, content=b"payload"
+    )
+    with fixture_host_patch(4321):
+        await transport.handle_async_request(req)
+        other = httpx.Request("GET", "http://elsewhere.example/q")
+        await transport.handle_async_request(other)
+    sent, passed = sink.requests
+    assert sent is not req
+    assert (sent.url.host, sent.url.port) == ("127.0.0.1", 4321)
+    assert sent.method == "POST" and sent.url.raw_path == b"/a/b?x=1&y=2"
+    assert sent.headers["host"] == FIXTURE_HOSTNAME and sent.headers["x-t"] == "1"
+    assert b"".join([c async for c in sent.stream]) == b"payload"
+    # the caller's request keeps its name, and another host is passed through untouched
+    assert (req.url.host, req.url.port) == (FIXTURE_HOSTNAME, None)
+    assert passed is other
+
+
+async def test_a_relative_redirect_resolves_against_the_hostname_and_keeps_it(evals_isolation):
+    from the_one.tools._web_config import SSRFGuardedTransport
+
+    with FixtureServer(REPO_WEB) as srv, fixture_host_patch(srv.port):
+        transport = SSRFGuardedTransport(
+            extra_allowed_hosts=[FIXTURE_HOSTNAME], host_allowlist=[FIXTURE_HOSTNAME]
+        )
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+            resp = await client.get(f"{srv.base_url}/links")  # the server answers 301 to /links/
+    assert resp.status_code == 200
+    assert len(resp.history) == 1 and resp.history[0].status_code == 301
+    assert resp.url.host == FIXTURE_HOSTNAME and resp.url.path == "/links/"
+    assert resp.url.port is None
+
+
+async def test_the_rewrite_fails_closed_before_after_and_after_an_exception(monkeypatch):
+    sink = _Sink()
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", sink)
+    transport = httpx.AsyncHTTPTransport()  # no network, no DNS: the sink records what it got
+    await transport.handle_async_request(_get())  # before: not rewritten
+    with fixture_host_patch(1234):
+        assert httpx.AsyncHTTPTransport.handle_async_request is not sink
+        await transport.handle_async_request(_get())  # inside: rewritten
+    assert httpx.AsyncHTTPTransport.handle_async_request is sink  # restored by identity
+    await transport.handle_async_request(_get())  # after: not rewritten
+    with pytest.raises(RuntimeError, match="boom"), fixture_host_patch(1234):
+        raise RuntimeError("boom")
+    assert httpx.AsyncHTTPTransport.handle_async_request is sink  # restored after an exception
+    await transport.handle_async_request(_get())
+    assert [r.url.host for r in sink.requests] == [
+        FIXTURE_HOSTNAME,
+        "127.0.0.1",
+        FIXTURE_HOSTNAME,
+        FIXTURE_HOSTNAME,
+    ]
+
+
+async def _env(tmp):
+    from evals.env import StartupOptions, startup
+
+    return await startup(StartupOptions(run_dir=tmp / "runs" / "selftest"))
+
+
+async def test_setup_passes_the_nonce_self_test_with_the_rewrite_active(evals_isolation):
+    from evals.env import shutdown
+    from evals.harness import Harness
+    from evals.models import load_presets
+
+    env = await _env(evals_isolation)
+    try:
+        with FixtureServer(TEST_WEB) as srv:
+            harness = Harness(env, {"gpt-oss": load_presets()["gpt-oss"]}, fixture_server=srv)
+            await harness.setup()
+            assert httpx.AsyncHTTPTransport.handle_async_request is not ORIGINAL_SEND  # active
+            assert ("GET", NONCE_PATH) in srv.requests  # the self-test went through the server
+            harness.close()
+            harness.close()  # idempotent
+            assert httpx.AsyncHTTPTransport.handle_async_request is ORIGINAL_SEND
+    finally:
+        await shutdown(env)
+
+
+async def test_setup_refuses_when_the_served_nonce_differs_and_leaves_no_patch(evals_isolation):
+    from evals.env import EvalRefusalError, shutdown
+    from evals.harness import Harness
+    from evals.models import load_presets
+
+    env = await _env(evals_isolation)
+    try:
+        with FixtureServer(TEST_WEB) as srv:
+            srv.nonce = "not-what-the-server-serves"
+            harness = Harness(env, {"gpt-oss": load_presets()["gpt-oss"]}, fixture_server=srv)
+            with pytest.raises(EvalRefusalError, match=r"failed its self-test") as info:
+                await harness.setup()
+            assert "\n" not in str(info.value)  # one line
+            assert httpx.AsyncHTTPTransport.handle_async_request is ORIGINAL_SEND  # closed
+    finally:
+        await shutdown(env)
+
+
+def _break_the_rewrite(monkeypatch):
+    """No rewrite is entered, and a request to the hostname fails to connect (no DNS)."""
+
+    async def unreachable(self, request):
+        raise httpx.ConnectError("no route to host", request=request)
+
+    monkeypatch.setattr("evals.harness.fixture_host_patch", lambda port: contextlib.nullcontext())
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", unreachable)
+
+
+async def test_setup_refuses_when_the_rewrite_is_not_active(evals_isolation, monkeypatch):
+    from evals.env import EvalRefusalError, shutdown
+    from evals.harness import Harness
+    from evals.models import load_presets
+
+    env = await _env(evals_isolation)
+    try:
+        with FixtureServer(TEST_WEB) as srv:
+            _break_the_rewrite(monkeypatch)
+            harness = Harness(env, {"gpt-oss": load_presets()["gpt-oss"]}, fixture_server=srv)
+            with pytest.raises(EvalRefusalError, match=r"refusing to run: .*self-test"):
+                await harness.setup()
+            assert ("GET", NONCE_PATH) not in srv.requests  # nothing reached the server
+    finally:
+        await shutdown(env)
+
+
+async def test_the_refusal_reaches_the_cli_as_exit_two_with_the_server_stopped(
+    evals_isolation, monkeypatch, capsys
+):
+    tmp = evals_isolation
+    sdir = make_tree(tmp, {"demo": simple_scenario()})
+    stopped = []
+    real_stop = FixtureServer.stop
+
+    def spy_stop(self):
+        stopped.append(self)
+        real_stop(self)
+
+    monkeypatch.setattr(FixtureServer, "stop", spy_stop)
+    _break_the_rewrite(monkeypatch)
+    code, run_dir = await run(tmp, sdir, hook_for(lambda spec, base: [text("hello")]))
+    assert code == 2
+    assert "refusing to run: the fixture hostname rewrite failed its self-test" in (
+        capsys.readouterr().out
+    )
+    assert len(stopped) == 1 and stopped[0]._server is None  # stopped by _run_with_env's finally
+    assert not (run_dir / "results.jsonl").exists() or not records(run_dir)  # no run was made
+
+
+async def test_without_a_fixture_server_setup_enters_no_patch_and_runs_no_self_test(
+    evals_isolation, monkeypatch
+):
+    """``measure-prompt`` builds its Harness with no fixture server: no rewrite, no self-test."""
+    from evals.env import shutdown
+    from evals.harness import Harness
+    from evals.models import load_presets
+
+    def must_not_run(*a, **k):
+        raise AssertionError("ran without a fixture server")
+
+    monkeypatch.setattr("evals.harness.fixture_host_patch", must_not_run)
+    monkeypatch.setattr(Harness, "_self_test", must_not_run)
+    env = await _env(evals_isolation)
+    try:
+        await Harness(env, {"gpt-oss": load_presets()["gpt-oss"]}).setup()
+    finally:
+        await shutdown(env)
+
+
+async def test_a_run_through_the_runner_closes_the_patch_in_its_finally(evals_isolation):
+    sdir = make_tree(evals_isolation, {"demo": simple_scenario()})
+    code, _run_dir = await run(evals_isolation, sdir, hook_for(lambda spec, base: [text("hello")]))
+    assert code == 0
+    assert httpx.AsyncHTTPTransport.handle_async_request is ORIGINAL_SEND

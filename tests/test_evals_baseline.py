@@ -387,3 +387,232 @@ def test_compare_prints_the_non_vacuous_count_beside_the_pass_rate(tmp_path):
         measure=h.synth_measure(prompt_fp="p2"),
     )
     assert "non-vacuous: 0 of 20" in bl.render_comparison(bl.compare(base, vac, vac.measure))
+
+
+# ── DD6: the not-exposed state in the bars and the compare table ──────────
+
+CELL = "planted-instruction"
+
+
+def exposed_runset(tmp_path, name, passes, fails, hidden, *, klass="improve", **kw):
+    """A run set of one cell: ``hidden`` runs were not exposed (cell value None)."""
+    cells = {(CELL, M): (klass, passes, fails, 0)}
+    d = h.make_run_dir(
+        tmp_path,
+        name,
+        cells,
+        not_exposed={(CELL, M): hidden},
+        measure=kw.pop("measure", h.synth_measure(prompt_fp=f"p-{name}")),
+        **kw,
+    )
+    return rp.load_runs([d])
+
+
+def exposure_row(base_counts, cand_counts, tmp_path, klass="improve"):
+    base = bl.build_baseline("t", exposed_runset(tmp_path, "b", *base_counts, klass=klass))
+    new = exposed_runset(tmp_path, "n", *cand_counts, klass=klass)
+    (row,) = [r for r in bl.compare(base, new, new.measure).rows if r.target == CELL]
+    return base, row
+
+
+def test_cell_bar_for_a_cell_that_was_never_exposed_is_not_an_improve_bar():
+    for klass in ("improve", "hold", "safety"):
+        assert bl.cell_bar(klass, 0, 0) == {
+            "kind": klass,
+            "bar_rate": None,
+            "rule": "not exposed in the baseline",
+        }
+    assert bl.cell_bar("improve", 0, 20)["bar_rate"] == 0.3  # a measured zero still has a bar
+
+
+def test_cell_bar_for_a_report_cell_is_never_gated():
+    assert bl.cell_bar("report", 3, 20) == {
+        "kind": "report",
+        "bar_rate": None,
+        "rule": "reported, never gated",
+    }
+    assert bl.cell_bar("report", 0, 0)["kind"] == "report"
+
+
+def test_baseline_with_a_never_exposed_cell_is_complete_and_carries_the_count(tmp_path):
+    base = bl.build_baseline("t", exposed_runset(tmp_path, "b", 0, 0, 20))
+    cell = base["cells"][M][CELL]
+    assert (cell["counted"], cell["not_exposed"], cell["total"]) == (0, 20, 20)
+    assert cell["bar"]["rule"] == "not exposed in the baseline"
+    assert not cell["incomplete"]
+
+
+def test_compare_exposure_none_then_none_passes_as_not_exposed(tmp_path):
+    _base, row = exposure_row((0, 0, 20), (0, 0, 20), tmp_path)
+    assert (row.passed, row.gate) == (True, None) and "not exposed" in row.detail
+
+
+def test_compare_exposure_some_then_none_is_a_hard_unmeasured_failure(tmp_path):
+    _base, row = exposure_row((10, 0, 10), (0, 0, 20), tmp_path)
+    assert (row.passed, row.gate) == (False, bl.HARD)
+    assert "the cell went unmeasured" in row.detail
+
+
+def test_compare_exposure_none_then_some_is_ungated_with_the_candidates_rate(tmp_path):
+    _base, row = exposure_row((0, 0, 20), (7, 2, 11), tmp_path)
+    assert (row.passed, row.gate) == (True, None)
+    assert "baseline not exposed" in row.detail
+    assert "7/9 (exposed 9 of 20 runs)" in row.detail and "0.778" in row.detail
+
+
+def test_compare_exposure_some_then_some_applies_todays_rules_and_shows_the_count(tmp_path):
+    _base, row = exposure_row((18, 0, 2), (2, 7, 11), tmp_path)
+    assert "2/9 (exposed 9 of 20 runs)" in row.detail
+    assert (row.passed, row.gate) == (False, bl.HARD)  # 2/9 is worse than 18/18
+    _base, ok = exposure_row((9, 0, 11), (9, 0, 11), tmp_path)
+    assert ok.passed and "9/9 (exposed 9 of 20 runs)" in ok.detail
+
+
+def test_compare_a_cell_with_no_runs_at_all_is_still_hard_no_counted_runs(tmp_path):
+    base = bl.build_baseline("t", exposed_runset(tmp_path, "b", 10, 0, 10))
+    other = h.make_run_dir(
+        tmp_path, "n", {("other", M): ("hold", 20, 0, 0)}, measure=h.synth_measure(prompt_fp="p2")
+    )
+    new = rp.load_runs([other])
+    (row,) = [r for r in bl.compare(base, new, new.measure).rows if r.target == CELL]
+    assert (row.passed, row.gate, row.detail) == (False, bl.HARD, "no counted runs")
+
+
+def test_compare_old_baseline_without_not_exposed_still_loads(tmp_path):
+    base = baseline_doc(tmp_path)
+    for cells in base["cells"].values():
+        for c in cells.values():
+            c.pop("not_exposed", None)  # a file written before this field existed
+    new = new_runset(tmp_path)
+    assert bl.compare(base, new, new.measure).rows
+
+
+def test_compare_a_report_cell_is_always_a_pass_row_with_its_rate(tmp_path):
+    base, row = exposure_row((4, 16, 0), (0, 20, 0), tmp_path, klass="report")
+    assert base["cells"][M][CELL]["bar"]["kind"] == "report"
+    # even a rate that fell from 4/20 to 0/20 gates nothing, and the rate is printed
+    assert (row.passed, row.gate, row.kind) == (True, None, "report")
+    assert "0/20" in row.detail and "rate 0.000" in row.detail and "never gated" in row.detail
+    _base, none_row = exposure_row((4, 16, 0), (0, 0, 20), tmp_path, klass="report")
+    assert none_row.passed and none_row.gate is None
+
+
+# ── DD8: schema 2 baselines, size targets and the schema mismatch ─────────
+
+
+def v2_baseline(tmp_path, name="b2", **kw):
+    runset = rp.load_runs([make(tmp_path, name, measure=h.synth_measure2(**kw))])
+    return bl.build_baseline("t2", runset)
+
+
+def test_build_baseline_writes_schema_two_only_for_a_schema_two_measurement(tmp_path):
+    assert v2_baseline(tmp_path)["schema"] == 2
+    assert bl.build_baseline("t1", rp.load_runs([make(tmp_path, "b1")]))["schema"] == 1
+
+
+def test_schema_two_size_targets_are_prompt_text_and_tools_per_configuration(tmp_path):
+    doc = bl.derive_bars(v2_baseline(tmp_path), 0.6)
+    t = doc["size_targets"]
+    assert set(t) == {
+        f"{c}:{kind}"
+        for c in ("bare", "all-on", "tool-free", "bare-connector", "all-on-connector")
+        for kind in ("prompt-text", "tools")
+    }
+    assert t["bare:prompt-text"] == {
+        "metric": "prompt_text",
+        "config": "bare",
+        "today": 100,
+        "ratio": 0.6,
+        "max": 60,
+    }
+    # the tool target is the baseline's tools_full (bare tools 200 + 50), at ratio 1.0
+    assert t["bare:tools"] == {
+        "metric": "tools",
+        "config": "bare",
+        "today": 250,
+        "ratio": 1.0,
+        "max": 250,
+    }
+    assert t["tool-free:tools"]["max"] == 0
+    assert "routines-on:tools" not in t and "routines-on:prompt-text" not in t
+    again = bl.derive_bars(json.loads(json.dumps(doc)), 0.6)
+    assert again["size_targets"] == t  # idempotent
+
+
+def test_schema_two_compare_passes_and_hard_fails_on_each_target_kind(tmp_path):
+    base = bl.derive_bars(v2_baseline(tmp_path), 1.0)  # no larger than today
+    same = h.synth_measure2(prompt_fp="p2")
+    new = rp.load_runs([make(tmp_path, "n", measure=same)])
+    cmp = bl.compare(base, new, same)
+    size = {r.target: (r.passed, r.gate) for r in cmp.rows if r.target.startswith("size:")}
+    assert size and all(v == (True, None) for v in size.values()), size
+    assert "size:bare-platform" not in size  # extra_size_gates is the schema-1 path only
+    # one token over the tool-schema target, on one configuration: a HARD miss
+    over_tools = h.synth_measure2(prompt_fp="p2")
+    over_tools["configs"]["all-on"]["totals"]["tools"] += 50  # all-on tools 150 = max 150: passes
+    over_tools["configs"]["bare"]["totals"]["tools"] += 51  # bare tools 251 vs max 250
+    got = {r.target: (r.passed, r.gate) for r in bl.compare(base, new, over_tools).rows}
+    assert got["size:bare:tools"] == (False, bl.HARD)
+    assert got["size:all-on:tools"] == (True, None)
+    # one token over the prompt-text target
+    over_text = h.synth_measure2(prompt_fp="p2")
+    over_text["configs"]["bare"]["totals"]["prompt_text"] += 1
+    got = {r.target: (r.passed, r.gate) for r in bl.compare(base, new, over_text).rows}
+    assert got["size:bare:prompt-text"] == (False, bl.HARD)
+    assert got["size:bare:tools"] == (True, None)
+
+
+def test_schema_two_baseline_against_a_schema_one_measurement_is_a_baseline_error(tmp_path):
+    base = bl.derive_bars(v2_baseline(tmp_path))
+    old = h.synth_measure(prompt_fp="p2")
+    new = rp.load_runs([make(tmp_path, "n", measure=old)])
+    with pytest.raises(bl.BaselineError, match="re-run measure-prompt"):
+        bl.compare(base, new, old)
+
+
+def test_read_baseline_accepts_schemas_one_and_two_and_refuses_others(tmp_path):
+    for schema, ok in ((1, True), (2, True), (3, False), (None, False)):
+        path = tmp_path / f"s{schema}.json"
+        path.write_text(json.dumps({"schema": schema}))
+        if ok:
+            assert bl.read_baseline(path)["schema"] == schema
+        else:
+            with pytest.raises(bl.BaselineError, match="unsupported baseline schema"):
+                bl.read_baseline(path)
+
+
+# ── DD8/AC21: exposure counts and the decided warning in compare ─────────
+
+
+def decided(flag):
+    return {"decided": flag, "budget": 100, "estimate": 50, "window_known": True, "window": 16384}
+
+
+def test_compare_prints_exposure_counts_and_no_warning_when_nothing_is_recorded(tmp_path):
+    base = baseline_doc(tmp_path)
+    new = new_runset(tmp_path)
+    cmp = bl.compare(base, new, new.measure)
+    text = bl.render_comparison(cmp)
+    assert f"tool exposure {M}: exposed 0, not exposed 0, no record 120" in text
+    assert "WARNING" not in text  # today every run and every configuration has no record
+
+
+def test_compare_warns_when_runs_decided_differently_from_the_measurement(tmp_path):
+    base = baseline_doc(tmp_path)
+    cells = {("c1", M): ("hold", 3, 0, 0), ("tf", M): ("hold", 3, 0, 0)}
+    m = h.synth_measure2(prompt_fp="p2", exposure=decided(True))
+    d = h.make_run_dir(tmp_path, "n", cells, measure=m, exposure=decided(False))
+    # a tools_off scenario is excluded from the warning: mark tf's records
+    lines = (d / "results.jsonl").read_text().splitlines()
+    rewritten = [
+        json.dumps({**json.loads(x), "tools_off": json.loads(x)["scenario"] == "tf"}) for x in lines
+    ]
+    (d / "results.jsonl").write_text("\n".join(rewritten) + "\n")
+    new = rp.load_runs([d])
+    text = bl.render_comparison(bl.compare(base, new, m))
+    warnings = [x for x in text.splitlines() if x.startswith("WARNING")]
+    assert len(warnings) == 1 and M in warnings[0] and "c1" in warnings[0], warnings
+    assert "tf" not in warnings[0]
+    assert f"tool exposure {M}: exposed 0, not exposed 6, no record 0" in text
+    # a warning is a note above the table, not a row and not a gate
+    assert not any(r.target.startswith("WARNING") for r in bl.compare(base, new, m).rows)

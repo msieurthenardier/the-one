@@ -535,6 +535,11 @@ class LLMProvider(ABC):
     # consumers can't drift apart.
     bytes_per_token: float = 4.0
 
+    # Sortie 11 DD2: True only when a resolver assigned ``max_context_tokens`` from real
+    # provider metadata (a catalog hit, ``/api/show``, a listed ``context_length``), so
+    # ``max_context_tokens`` is the model's actual window and not the class default.
+    context_window_known: bool = False
+
     def __init__(self) -> None:
         self._init_provider_state()
 

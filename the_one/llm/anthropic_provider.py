@@ -204,6 +204,7 @@ class AnthropicProvider(LLMProvider):
         window = context_window_for("anthropic", self.model)
         if window is not None:
             self.max_context_tokens = window
+            self.context_window_known = True
         else:
             logger.warning(
                 "anthropic: no catalog context window for model %r; using default %d",

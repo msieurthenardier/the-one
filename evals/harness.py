@@ -42,7 +42,14 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from evals.checks import CheckDecl, NoteView, RoutineView, RunTrace, TurnTrace
-from evals.fixtures import FIXTURE_HOST, FixtureServer, KBFixtures
+from evals.env import EvalRefusalError
+from evals.fixtures import (
+    FIXTURE_HOST,
+    FIXTURE_HOSTNAME,
+    NONCE_PATH,
+    FixtureServer,
+    KBFixtures,
+)
 from evals.models import Preset, effective_values, provider_row
 from evals.scenario import Scenario, Variant, expand
 
@@ -159,10 +166,50 @@ class Attempt:
     effective: dict[str, Any] = field(default_factory=dict)
     fixture_requests: list[tuple[str, str]] = field(default_factory=list)
     notes: list[dict[str, Any]] = field(default_factory=list)
+    # Captured at the run's first ``factory.create`` (leg 1 of sortie 11): the registry's schemas
+    # in registry order, whether the agent is connector-bound, and the exposure record the agent
+    # carries (``ToolExposure.to_dict()``, or None when the agent has none).
+    registry_schemas: list[dict[str, Any]] | None = None
+    connector_bound: bool = False
+    exposure: dict[str, Any] | None = None
 
 
 async def _supports_no_tools() -> bool:
     return False
+
+
+@contextlib.contextmanager
+def fixture_host_patch(port: int):
+    """Rewrite requests to ``FIXTURE_HOSTNAME`` onto the loopback fixture server (DD4).
+
+    Wraps ``httpx.AsyncHTTPTransport.handle_async_request``. ``SSRFGuardedTransport`` reaches
+    that method through ``super()`` only after its host policy check and its
+    ``extra_allowed_hosts`` branch, so the rewrite sits behind the real policy for every web
+    tool. A request whose host is another name passes through untouched. The rewrite builds a
+    NEW request (the caller's keeps its hostname, so a relative redirect resolves against the
+    name and ``response.url`` keeps it). Class-level and process-wide: restored in a
+    ``finally``, which is why runs are sequential.
+    """
+    import httpx
+
+    original = httpx.AsyncHTTPTransport.handle_async_request
+
+    async def rewriting(self: Any, request: httpx.Request) -> httpx.Response:
+        if request.url.host == FIXTURE_HOSTNAME:
+            request = httpx.Request(
+                request.method,
+                request.url.copy_with(host=FIXTURE_HOST, port=port),
+                headers=httpx.Headers(request.headers),  # Host is kept: the original netloc
+                stream=request.stream,
+                extensions=request.extensions,
+            )
+        return await original(self, request)
+
+    httpx.AsyncHTTPTransport.handle_async_request = rewriting  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        httpx.AsyncHTTPTransport.handle_async_request = original  # type: ignore[method-assign]
 
 
 @contextlib.contextmanager
@@ -228,34 +275,88 @@ class Harness:
         self.model_info = model_info or {}
         self.provider_hook = provider_hook
         self.turn_timeout = turn_timeout
+        self._stack = contextlib.ExitStack()
 
     @property
     def fixture_base(self) -> str:
         return self.fixture_server.base_url if self.fixture_server else ""
 
+    def close(self) -> None:
+        """Leave the fixture-host rewrite (idempotent). Call in the invocation's ``finally``."""
+        self._stack.close()
+
     async def setup(self) -> None:
-        """Write the provider rows and the containment ToolConfig rows (once per invocation)."""
+        """Write the provider rows and the containment ToolConfig rows (once per invocation).
+
+        With a fixture server this also enters the hostname rewrite (kept until ``close()``) and
+        runs the nonce self-test; a refusal closes the rewrite before it propagates.
+        """
         from the_one.config import settings
         from the_one.db.connection import get_connection
         from the_one.db.repositories import LLMProviderRepository, ToolConfigRepository
         from the_one.encryption import get_encryptor
 
-        conn = await get_connection()
-        enc = get_encryptor(settings.data_dir)
-        providers = LLMProviderRepository(conn, enc)
-        for preset in self.presets.values():
-            await providers.create(provider_row(preset, self.env.token))
-        tools = ToolConfigRepository(conn, enc)
-        home = str(self.env.home)
-        for name in FS_TOOLS:
-            await tools.upsert(name, {"path_allowlist": [home]})
-        for name in WEB_TOOLS:
-            await tools.upsert(
-                name,
-                {"extra_allowed_hosts": [FIXTURE_HOST], "host_allowlist": [FIXTURE_HOST]},
+        if self.fixture_server is not None:
+            self._stack.enter_context(fixture_host_patch(self.fixture_server.port))
+        try:
+            conn = await get_connection()
+            enc = get_encryptor(settings.data_dir)
+            providers = LLMProviderRepository(conn, enc)
+            for preset in self.presets.values():
+                await providers.create(provider_row(preset, self.env.token))
+            tools = ToolConfigRepository(conn, enc)
+            home = str(self.env.home)
+            for name in FS_TOOLS:
+                await tools.upsert(name, {"path_allowlist": [home]})
+            for name in WEB_TOOLS:
+                await tools.upsert(
+                    name,
+                    {
+                        "extra_allowed_hosts": [FIXTURE_HOSTNAME],
+                        "host_allowlist": [FIXTURE_HOSTNAME],
+                    },
+                )
+            for name in DISABLED_TOOLS:
+                await tools.upsert(name, {}, enabled=False)
+            if self.fixture_server is not None:
+                await self._self_test()
+        except BaseException:
+            self.close()
+            raise
+
+    async def _self_test(self) -> None:
+        """Fetch a per-invocation nonce through the REAL ``fetch_url`` (DD4).
+
+        The tool is built the way the factory builds it, from the ``WebConfig`` the scratch
+        database now holds, so a policy refusal or a failed rewrite shows up here, at start,
+        and not as a model "failure" in every run. Anything but ``"[200]\\n" + nonce`` refuses.
+        """
+        from the_one.config import settings
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+        from the_one.tools.builtins import BuiltinToolProvider
+
+        assert self.fixture_server is not None
+        nonce = self.fixture_server.nonce
+        url = f"{self.fixture_server.base_url}{NONCE_PATH}"
+        try:
+            repo = ToolConfigRepository(await get_connection(), get_encryptor(settings.data_dir))
+            configs = {c.name: c.merged_config() for c in await repo.list()}
+            tools = BuiltinToolProvider().get_tools(configs, {}, agent_name="evals-self-test")
+            tool = next(t for t in tools if t.name == "fetch_url")
+            got = await tool.execute(url=url)
+        except Exception as exc:  # noqa: BLE001 - every failure is a refusal
+            raise EvalRefusalError(
+                "refusing to run: the fixture hostname rewrite failed its self-test "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
+        if got != f"[200]\n{nonce}":
+            shown = got if len(got) <= 80 else got[:80] + "..."
+            raise EvalRefusalError(
+                "refusing to run: the fixture hostname rewrite failed its self-test "
+                f"(fetching {url} returned {shown!r}, not the nonce)"
             )
-        for name in DISABLED_TOOLS:
-            await tools.upsert(name, {}, enabled=False)
 
     async def discard_agent(self, name: str) -> None:
         """Remove a partial attempt's agent (and, by cascade, its notes and rules)."""
@@ -374,6 +475,13 @@ class Harness:
                     ):
                         agent = await factory.create(spec.agent_name)
                     trace.system_prompts.append(agent.system_prompt)
+                    if attempt.registry_schemas is None:
+                        from the_one.db.repositories import agent_names_in_use
+
+                        attempt.registry_schemas = [dict(s) for s in agent.tools.all_schemas()]
+                        attempt.connector_bound = spec.agent_name in await agent_names_in_use(conn)
+                        exp = getattr(agent, "tool_exposure", None)
+                        attempt.exposure = exp.to_dict() if exp is not None else None
                     session_id = f"ev-{spec.stem}-c{ci}"
                     attempt.effective = effective_values(agent.llm)
                     for text in turns:
@@ -436,6 +544,7 @@ class Harness:
         attempt.wall_s = round(time.monotonic() - t_run, 3)
         if self.fixture_server:
             attempt.fixture_requests = list(self.fixture_server.requests[fixture_mark:])
+        trace.fixture_requests = list(attempt.fixture_requests)
         return attempt
 
 
@@ -472,7 +581,7 @@ def off_fixture_fetches(trace: RunTrace) -> list[str]:
     for tc in trace.tool_calls():
         if tc.name in WEB_TOOLS:
             url = str(tc.arguments.get("url", ""))
-            if urlparse(url).hostname != FIXTURE_HOST:
+            if urlparse(url).hostname != FIXTURE_HOSTNAME:
                 out.append(url)
     return out
 
@@ -488,6 +597,7 @@ __all__ = [
     "RunSpec",
     "clock_patch",
     "expected_date_lines",
+    "fixture_host_patch",
     "off_fixture_fetches",
     "provider_patch",
 ]

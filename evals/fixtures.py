@@ -11,6 +11,7 @@ per invocation with the real ``IndexingManager`` and the bundled embedding model
 from __future__ import annotations
 
 import functools
+import secrets
 import shutil
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -18,28 +19,52 @@ from pathlib import Path
 
 from evals.scenario import KBRef
 
-FIXTURE_HOST = "127.0.0.1"
+FIXTURE_HOST = "127.0.0.1"  # the address the server binds
+# The name every fixture URL carries (DD4). Small models refuse a loopback address ("I can't
+# reach a local address"), so scenarios use a name that looks public; ``harness.fixture_host_patch``
+# rewrites a request to it onto the loopback server. A single constant, so leg 2 may change it.
+FIXTURE_HOSTNAME = "town.example"
+# Answered by the handler itself, before any file lookup: no file under fixtures/web/ can shadow it.
+NONCE_PATH = "/.well-known/evals-nonce"
 
 
 class FixtureServer:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
         self.requests: list[tuple[str, str]] = []
+        self.nonce: str = ""
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
     @property
+    def port(self) -> int:
+        assert self._server is not None, "fixture server not started"
+        return int(self._server.server_address[1])
+
+    @property
     def base_url(self) -> str:
         assert self._server is not None, "fixture server not started"
-        return f"http://{FIXTURE_HOST}:{self._server.server_address[1]}"
+        return f"http://{FIXTURE_HOSTNAME}"
 
     def start(self) -> FixtureServer:
         log = self.requests
         directory = str(self.directory)
+        self.nonce = secrets.token_hex(16)
+        nonce_body = self.nonce.encode("ascii")
 
         class Handler(SimpleHTTPRequestHandler):
             def log_message(self, fmt: str, *args: object) -> None:  # noqa: D102
                 log.append((self.command, self.path))
+
+            def do_GET(self) -> None:  # noqa: N802, D102
+                if self.path == NONCE_PATH:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain")
+                    self.send_header("Content-Length", str(len(nonce_body)))
+                    self.end_headers()
+                    self.wfile.write(nonce_body)  # send_response already logged the request
+                    return
+                super().do_GET()
 
         handler = functools.partial(Handler, directory=directory)
         self._server = ThreadingHTTPServer((FIXTURE_HOST, 0), handler)

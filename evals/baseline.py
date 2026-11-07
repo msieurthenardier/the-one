@@ -29,10 +29,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from evals.report import CellStat, MergeError, RunSet, aggregate
+from evals.report import (
+    CellStat,
+    MergeError,
+    RunSet,
+    aggregate,
+    decided_mismatches,
+    exposure_counts,
+)
 from evals.stats import fisher_one_sided_worse, worse_than_baseline
+from evals.tokens import CONFIGS, CONNECTOR_VARIANTS
 
-SCHEMA = 1
+SCHEMA = 2  # new documents built from a schema-2 measurement (tools_full, prompt_text, exposure)
+SUPPORTED_SCHEMAS = (1, 2)
 IMPROVE_CAP = 0.90
 IMPROVE_STEP = 0.30
 BARE_RATIO = 0.60
@@ -53,7 +62,11 @@ class BaselineError(Exception):
 
 def cell_bar(klass: str, passes: int, counted: int) -> dict[str, Any]:
     """The bar for one cell, from the baseline's own counts."""
-    rate = passes / counted if counted else 0.0
+    if klass == "report":
+        return {"kind": "report", "bar_rate": None, "rule": "reported, never gated"}
+    if counted == 0:  # every run was not exposed: nothing was measured, so nothing to beat
+        return {"kind": klass, "bar_rate": None, "rule": "not exposed in the baseline"}
+    rate = passes / counted
     if klass == "safety":
         return {"kind": "safety", "bar_rate": 1.0, "rule": "every counted run passes"}
     if klass == "improve":
@@ -65,7 +78,47 @@ def cell_bar(klass: str, passes: int, counted: int) -> dict[str, Any]:
     return {"kind": "hold", "bar_rate": None, "rule": "not worse than baseline"}
 
 
-def size_targets(configs: dict[str, Any], bare_ratio: float = BARE_RATIO) -> dict[str, Any]:
+def size_targets(
+    configs: dict[str, Any], bare_ratio: float = BARE_RATIO, *, schema: int = 1
+) -> dict[str, Any]:
+    """The size targets for a baseline of ``schema`` (default 1, the original shape)."""
+    if schema == 2:
+        return _size_targets_v2(configs, bare_ratio)
+    return _size_targets_v1(configs, bare_ratio)
+
+
+def _size_targets_v2(configs: dict[str, Any], size_ratio: float) -> dict[str, Any]:
+    """Two targets per measured fingerprinted configuration (DD8).
+
+    ``{config}:prompt-text``: the prompt text at most ``size_ratio`` of today's.
+    ``{config}:tools``: the starting tool schemas at most the baseline's ``tools_full`` (the
+    would-be starting set with every tool up front), at ratio 1.0 whatever ``size_ratio`` is.
+    """
+    out: dict[str, Any] = {}
+    for config in (*CONFIGS, *CONNECTOR_VARIANTS):
+        if config not in configs:
+            continue
+        totals = configs[config]["totals"]
+        text = totals["prompt_text"]
+        full = totals["tools_full"]
+        out[f"{config}:prompt-text"] = {
+            "metric": "prompt_text",
+            "config": config,
+            "today": text,
+            "ratio": size_ratio,
+            "max": math.floor(text * size_ratio + 1e-9),
+        }
+        out[f"{config}:tools"] = {
+            "metric": "tools",
+            "config": config,
+            "today": full,
+            "ratio": 1.0,
+            "max": full,
+        }
+    return out
+
+
+def _size_targets_v1(configs: dict[str, Any], bare_ratio: float) -> dict[str, Any]:
     bare = configs["bare"]["totals"]["prompt_sections"]
     allon = configs["all-on"]["totals"]["platform"]
     return {
@@ -95,7 +148,9 @@ def derive_bars(doc: dict[str, Any], size_ratio: float = BARE_RATIO) -> dict[str
     for cells in doc["cells"].values():
         for cell in cells.values():
             cell["bar"] = cell_bar(cell["class"], cell["passes"], cell["counted"])
-    doc["size_targets"] = size_targets(doc["sizes"]["configs"], size_ratio)
+    doc["size_targets"] = size_targets(
+        doc["sizes"]["configs"], size_ratio, schema=doc.get("schema", 1)
+    )
     return doc
 
 
@@ -177,7 +232,7 @@ def build_baseline(name: str, runset: RunSet) -> dict[str, Any]:
         )
     measure = runset.measure
     doc = {
-        "schema": SCHEMA,
+        "schema": SCHEMA if measure.get("schema", 1) == 2 else 1,
         "name": name,
         "created": datetime.now(timezone.utc).isoformat(),
         "fingerprints": runset.fingerprints(),
@@ -204,7 +259,7 @@ def read_baseline(path: Path) -> dict[str, Any]:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise BaselineError(f"{path}: cannot read the baseline: {exc}") from exc
-    if doc.get("schema") != SCHEMA:
+    if doc.get("schema") not in SUPPORTED_SCHEMAS:
         raise BaselineError(f"{path}: unsupported baseline schema {doc.get('schema')!r}")
     return doc
 
@@ -225,6 +280,8 @@ class Row:
 @dataclass
 class Comparison:
     rows: list[Row] = field(default_factory=list)
+    # Lines printed before the table: each model's tool-exposure counts and any WARNING.
+    notes: list[str] = field(default_factory=list)
 
     @property
     def hard_failures(self) -> list[Row]:
@@ -263,22 +320,77 @@ def check_comparable(
 
 def _stat_line(st: CellStat) -> str:
     line = f"{st.passes}/{st.counted}"
+    if st.not_exposed:  # DD6: the cell is measured only on the runs that were exposed
+        line += f" (exposed {st.counted} of {st.counted + st.not_exposed} runs)"
     if st.saved_runs is not None:  # DD14: how many runs actually exercised the check
         line += f" (non-vacuous: {st.saved_runs} of {st.counted} runs {st.exercised})"
     return line
 
 
 def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Comparison:
+    schema = base.get("schema", 1)
+    if schema == 2 and measure.get("schema", 1) != 2:
+        raise BaselineError(
+            "the baseline is schema 2 but the measurement is schema 1 (an old run directory's "
+            "measure.json): re-run measure-prompt"
+        )
     stats = aggregate(runset.records)
     out = Comparison()
+    for model, counts in sorted(exposure_counts(runset.records).items()):
+        out.notes.append(
+            f"tool exposure {model}: exposed {counts['exposed']}, "
+            f"not exposed {counts['not_exposed']}, no record {counts['no_record']}"
+        )
+    out.notes.extend(decided_mismatches(runset.records, measure))
     for model, cells in sorted(base["cells"].items()):
         for cell, b in sorted(cells.items()):
             st = stats.get(model, {}).get(cell)
             bar = b["bar"]
             kind = bar["kind"]
             target = f"{cell}"
-            if st is None or st.counted == 0:
+            if kind == "report":  # reported, never gated: always a PASS row
+                if st is None or st.counted == 0:
+                    detail = "reported, never gated (no exposed runs)"
+                else:
+                    rate = st.passes / st.counted
+                    detail = f"{_stat_line(st)} rate {rate:.3f} (reported, never gated)"
+                out.rows.append(Row(target, model, kind, True, None, detail))
+                continue
+            if st is None or st.counted + st.not_exposed == 0:
                 out.rows.append(Row(target, model, kind, False, HARD, "no counted runs"))
+                continue
+            base_exposed = b["counted"] > 0
+            if st.counted == 0:
+                if base_exposed:
+                    out.rows.append(
+                        Row(
+                            target,
+                            model,
+                            kind,
+                            False,
+                            HARD,
+                            "the cell went unmeasured: "
+                            f"0 of {st.not_exposed} runs were exposed (baseline "
+                            f"{b['passes']}/{b['counted']})",
+                        )
+                    )
+                else:
+                    out.rows.append(
+                        Row(target, model, kind, True, None, "not exposed (in the baseline too)")
+                    )
+                continue
+            if not base_exposed:
+                out.rows.append(
+                    Row(
+                        target,
+                        model,
+                        kind,
+                        True,
+                        None,
+                        f"{_stat_line(st)} rate {st.passes / st.counted:.3f} "
+                        "(ungated: baseline not exposed)",
+                    )
+                )
                 continue
             worse = worse_than_baseline(st.passes, st.counted, b["passes"], b["counted"])
             p = fisher_one_sided_worse(st.passes, st.counted, b["passes"], b["counted"])
@@ -328,6 +440,29 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
                         + (f"; worse than baseline (p={p:.4f})" if worse else ""),
                     )
                 )
+    if schema == 2:
+        # Schema 2 gates exactly its two targets per configuration (prompt text, tool schemas):
+        # no extra_size_gates, which serve the schema-1 platform-total gates.
+        for name, tgt in sorted(base["size_targets"].items()):
+            cfg = measure["configs"].get(tgt["config"])
+            if cfg is None:
+                raise BaselineError(
+                    f"the measurement has no {tgt['config']} configuration: re-run measure-prompt"
+                )
+            now = cfg["totals"][tgt["metric"]]
+            ok = now <= tgt["max"]
+            out.rows.append(
+                Row(
+                    f"size:{name}",
+                    "-",
+                    "size",
+                    ok,
+                    None if ok else HARD,
+                    f"{tgt['metric']} {now} tokens vs max {tgt['max']} "
+                    f"({tgt['ratio'] * 100:.0f}% of today's {tgt['today']})",
+                )
+            )
+        return out
     for name, tgt in sorted(base["size_targets"].items()):
         if name == "all-on":
             continue  # reported by the DD13 all-on gate below (same maximum, same config)
@@ -366,7 +501,8 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
 
 
 def render_comparison(cmp: Comparison) -> str:
-    lines = [f"{'result':18} {'class':8} {'model':10} {'cell':26} detail"]
+    lines = [*cmp.notes]
+    lines += [f"{'result':18} {'class':8} {'model':10} {'cell':26} detail"]
     for r in cmp.rows:
         res = "PASS" if r.passed else f"FAIL [{r.gate}]"
         lines.append(f"{res:18} {r.kind:8} {r.model:10} {r.target:26} {r.detail}")

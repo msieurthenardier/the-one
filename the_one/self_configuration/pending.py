@@ -127,11 +127,14 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
         except Exception:  # noqa: BLE001 - must never break the turn
             tool_available = False
         registry = getattr(agent, "tools", None)
+        # Sortie 11 AC9: keep the wording the agent was built with (tools preloaded or not).
+        exposure = getattr(agent, "tool_exposure", None)
         caps = capabilities_from_registry(
             registry,
             notes=_has_tool(registry, SAVE_NOTE_TOOL_NAME),
             rules=True,
             time_tool=tool_available,
+            tools_preloaded=bool(exposure and exposure.decided),
         )
         try:
             prompts = await build_system_prompts(
@@ -141,6 +144,7 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
                 knowledge=caps.knowledge,
                 time_tool=caps.time_tool,
                 exec_tools=caps.exec_tools,
+                tools_preloaded=caps.tools_preloaded,
             )
         except Exception:
             logger.warning(

@@ -155,7 +155,9 @@ def decide(attempt: Attempt, decls: list[CheckDecl]) -> Verdict:
             return Verdict(oc.ERROR, f"a check raised {type(exc).__name__}: {exc}")
         if base == "fail":
             return Verdict(oc.FAIL, reason, results=results)
-        failed = [r for r in results if not r.passed]
+        # A not-exposed result (passed None) is neither a pass nor a fail, and a report-class
+        # result is shown and counted per cell but never decides the run.
+        failed = [r for r in results if r.passed is False and r.klass != "report"]
         if failed:
             return Verdict(oc.FAIL, f"{failed[0].name}: {failed[0].detail}", results=results)
         return Verdict(oc.PASS, results=results)
@@ -184,12 +186,22 @@ def build_record(
     redactor,
 ) -> dict[str, Any]:
     msgs = [m for t in attempt.trace.turns for m in t.messages]
-    cells: dict[str, bool] | None = None
+    cells: dict[str, bool | None] | None = None
     if verdict.outcome in oc.COUNTED:
         names = {r.cell for r in verdict.results} or {spec.scenario.id}
-        cells = {c: all(r.passed for r in verdict.results if r.cell == c) for c in names}
-        if verdict.outcome == oc.FAIL and not any(not r.passed for r in verdict.results):
-            cells = {c: False for c in names}
+        cells = {}
+        for c in names:
+            # None when every result in the cell is not exposed; else all() over the rest.
+            scored = [r.passed for r in verdict.results if r.cell == c and r.passed is not None]
+            in_cell = [r for r in verdict.results if r.cell == c]
+            cells[c] = None if in_cell and not scored else all(scored)
+        if verdict.outcome == oc.FAIL and not any(
+            r.passed is False and r.klass != "report" for r in verdict.results
+        ):
+            # A run that failed without a failing check (the model stopped): the cells that were
+            # measured fail; a not-exposed cell stays None and a report cell keeps its value.
+            report_cells = {r.cell for r in verdict.results if r.klass == "report"}
+            cells = {c: v if (v is None or c in report_cells) else False for c, v in cells.items()}
     return {
         "run_key": "/".join(spec.key),
         "scenario": spec.scenario.id,
@@ -212,6 +224,9 @@ def build_record(
         "timings": {"wall_s": attempt.wall_s, "turn_s": attempt.turn_s},
         "usage": oc.usage_totals(msgs),
         "effective": attempt.effective,
+        # Not part of ``effective``: the exposure record is outside every fingerprint (DD1).
+        "exposure": attempt.exposure,
+        "tools_off": spec.scenario.tools_off,
         "model_info": model_info,
         "execution_tools": EXECUTION_TOOLS_STATE,
         "tool_calls": len(attempt.trace.tool_calls()),
@@ -249,6 +264,8 @@ def build_transcript(
         "checks": record["checks"],
         "error": f"{type(attempt.exc).__name__}: {attempt.exc}" if attempt.exc else None,
         "effective": attempt.effective,
+        "exposure": record["exposure"],
+        "tools_off": record["tools_off"],
     }
 
 
@@ -328,7 +345,11 @@ async def run_invocation(
         await shutdown(env)
         print(str(exc), flush=True)
         return 2
-    return await _run_with_env(env, plan, hooks)
+    try:
+        return await _run_with_env(env, plan, hooks)
+    except EvalRefusalError as exc:  # e.g. the fixture hostname self-test (after cleanup)
+        print(str(exc), flush=True)
+        return 2
 
 
 def write_fingerprints(run_dir: Path, opts: RunOptions, plan: Plan, *, resume: bool) -> dict:
@@ -389,6 +410,7 @@ async def _run_with_env(env: EvalEnv, plan: Plan, hooks: Hooks) -> int:
     aborted: str | None = None
     server: FixtureServer | None = None
     code = 0
+    harness: Harness | None = None
     try:
         web_dir = plan.fixtures_root / "web"
         if web_dir.is_dir():
@@ -438,6 +460,8 @@ async def _run_with_env(env: EvalEnv, plan: Plan, hooks: Hooks) -> int:
         env.warn(f"invocation aborted: {aborted}")
         code = 1
     finally:
+        if harness is not None:
+            harness.close()
         if server is not None:
             server.stop()
         summary = oc.render_summary(store.finals(), stopped_models=stopped, aborted=aborted)
