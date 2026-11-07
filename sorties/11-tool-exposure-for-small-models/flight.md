@@ -1,6 +1,6 @@
 # Sortie: Tool exposure for small local models
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
