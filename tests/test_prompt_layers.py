@@ -407,8 +407,9 @@ def test_info_prompt_examples_match_composed_prompt():
     assert "base_prompt" not in data
     rows = data["platform_sections"]
     assert {r["variant"] for r in rows} == {"tools", "tool_free"}
+    extra = {"knowledge", "tool_discovery_preloaded", "knowledge_preloaded"}
     assert (
-        "".join(r["text"] for r in rows if r["variant"] == "tools" and r["id"] != "knowledge")
+        "".join(r["text"] for r in rows if r["variant"] == "tools" and r["id"] not in extra)
         == PLATFORM_TOOLS
     )
     assert "".join(r["text"] for r in rows if r["variant"] == "tool_free") == PLATFORM_TOOL_FREE

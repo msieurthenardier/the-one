@@ -8,6 +8,8 @@ from the_one.agent.platform_prompt import (
     _EXECUTION,
     KB_LINE,
     NO_KB_TOOL_DISCOVERY,
+    PRELOADED_KB_LINE,
+    PRELOADED_TOOL_DISCOVERY,
     SECTIONS,
     Capabilities,
     capabilities_from_registry,
@@ -122,6 +124,8 @@ def test_fragments_do_not_tile_and_ui_rows():
         "identity",
         "tool_discovery",
         "knowledge",
+        "tool_discovery_preloaded",
+        "knowledge_preloaded",
         "tool_use",
         "execution",
         "tool_use_tail",
@@ -131,13 +135,60 @@ def test_fragments_do_not_tile_and_ui_rows():
     assert set(rows[0]) == {"id", "title", "applies_when", "text", "variant"}
     knowledge = next(r for r in rows if r["id"] == "knowledge")
     assert KB_LINE.strip() == knowledge["text"]
-    # The tools rows' texts tile the all-on render (the fragment row is extra).
+    # The tools rows' texts tile the all-on render (the fragment rows are extra).
+    extra = {"knowledge", "tool_discovery_preloaded", "knowledge_preloaded"}
     assert "".join(
-        r["text"] for r in rows if r["variant"] == "tools" and r["id"] != "knowledge"
+        r["text"] for r in rows if r["variant"] == "tools" and r["id"] not in extra
     ) == render_platform(Capabilities.all_on())
+    # The preloaded rows (sortie 11 AC10): titles, applies-when, and the signed-off texts.
+    pre = next(r for r in rows if r["id"] == "tool_discovery_preloaded")
+    assert pre["title"] == "Tool discovery (tools preloaded)"
+    assert pre["applies_when"] == "tool-capable agents whose tools fit the exposure budget"
+    assert pre["text"] == PRELOADED_TOOL_DISCOVERY + PRELOADED_KB_LINE
+    pre_kb = next(r for r in rows if r["id"] == "knowledge_preloaded")
+    assert pre_kb["title"] == "Knowledge-base wording (tools preloaded)"
+    assert pre_kb["applies_when"] == (
+        "tool-capable agents whose tools fit the exposure budget, with a knowledge base "
+        "attached (inside Tool discovery)"
+    )
+    assert pre_kb["text"] == PRELOADED_KB_LINE.strip()
     assert "".join(r["text"] for r in rows if r["variant"] == "tool_free") == render_tool_free(
         Capabilities.all_on()
     )
+
+
+def test_preloaded_wording_is_pinned_and_follows_the_flag():
+    assert PRELOADED_TOOL_DISCOVERY == (
+        "\nTools:\n- All your tools are available now: call them directly "
+        "(`search_tools` only lists them again).\n"
+    )
+    assert PRELOADED_KB_LINE == (
+        "- Knowledge bases are attached: search them before answering from memory on "
+        "topics they cover.\n"
+    )
+    # today's wording is unchanged
+    assert render_platform(Capabilities.all_on()) == PLATFORM_TOOLS_ALL_ON_PIN
+    on = Capabilities(tools_preloaded=True)
+    text = render_platform(on)
+    assert PRELOADED_TOOL_DISCOVERY + PRELOADED_KB_LINE in text
+    assert NO_KB_TOOL_DISCOVERY not in text and KB_LINE not in text
+    no_kb = render_platform(Capabilities(knowledge=False, tools_preloaded=True))
+    assert PRELOADED_TOOL_DISCOVERY in no_kb and PRELOADED_KB_LINE not in no_kb
+    # the tool-free render never carries it
+    assert render_tool_free(on) == PLATFORM_TOOL_FREE_PIN
+
+
+def test_capabilities_from_registry_carries_tools_preloaded():
+    assert (
+        capabilities_from_registry(
+            _Reg([]), notes=False, rules=True, time_tool=True
+        ).tools_preloaded
+        is False
+    )
+    caps = capabilities_from_registry(
+        _Reg([]), notes=False, rules=True, time_tool=True, tools_preloaded=True
+    )
+    assert caps.tools_preloaded is True
 
 
 def test_tool_free_ignores_other_capabilities():

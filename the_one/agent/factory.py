@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from the_one.agent.config import AgentConfig
-from the_one.agent.core import Agent
+from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA, Agent
 from the_one.agent.platform_prompt import capabilities_from_registry
 from the_one.agent.prompt_layers import build_system_prompts, time_tool_available
 from the_one.agent.store import AgentConfigStore
+from the_one.agent.tool_exposure import decide_exposure
 from the_one.config import settings
 from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.llm import get_provider
@@ -21,6 +23,7 @@ from the_one.time_zones import CURRENT_TIME_TOOL_NAME
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import Tool, ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.connector_history import FETCH_CHANNEL_HISTORY_TOOL_NAME
 from the_one.tools.connector_lookup import FIND_PLATFORM_DESTINATION_TOOL_NAME
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 from the_one.tools.provider import ToolProvider
@@ -40,6 +43,34 @@ if TYPE_CHECKING:
     from the_one.routines.tool_provider import RoutineToolProvider
 
 logger = logging.getLogger(__name__)
+
+# Sortie 11 AC3: the bound on the build-time context-window lookup. A resolver that is
+# slower keeps running in the background (held in `_WINDOW_LOOKUP_TASKS`), the agent is
+# built on discovery, and the provider's sentinel is set when the resolver finishes.
+WINDOW_LOOKUP_TIMEOUT_S = 2.0
+# Module-level, not per factory: the context-window route builds a throwaway factory per
+# request, and a task with no strong reference can be collected mid-flight.
+_WINDOW_LOOKUP_TASKS: set[asyncio.Future] = set()
+
+
+def _window_lookup_done(task: asyncio.Future) -> None:
+    _WINDOW_LOOKUP_TASKS.discard(task)
+    if not task.cancelled():
+        task.exception()  # retrieve it, so a late failure leaves no "never retrieved" noise
+
+
+async def _lookup_context_window(llm: Any) -> None:
+    """Resolve the provider's context window, bounded; never raises (unknown on any failure)."""
+    try:
+        resolver = getattr(llm, "_resolve_max_context_tokens_if_needed", None)
+        if resolver is None:
+            return
+        task = asyncio.ensure_future(resolver())
+        _WINDOW_LOOKUP_TASKS.add(task)
+        task.add_done_callback(_window_lookup_done)
+        await asyncio.wait_for(asyncio.shield(task), WINDOW_LOOKUP_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 - any failure means "window unknown"
+        logger.debug("context window lookup did not complete", exc_info=True)
 
 
 def _kb_tool_is_disabled(tool: Tool, disabled_tools: list[str]) -> bool:
@@ -575,7 +606,9 @@ class AgentFactory:
         # sanctioned seed block (a two-name iteration; `agent/core.py`
         # stays untouched, the seed/reset mechanism already handles N
         # entries). `fetch_channel_history` deliberately stays
-        # search-discovered (not chain-critical) and is NOT seeded here.
+        # search-discovered (not chain-critical) and is NOT seeded here for an agent
+        # that is not exposed; an exposed agent (sortie 11 DD1, below) gets it with the
+        # pair when connector-bound, like every other enabled tool.
         #
         # Flight 2 leg 1c (DD7): the connector pair is seeded only for an
         # agent some connector's binding names (default_agent or a
@@ -615,10 +648,49 @@ class AgentFactory:
             loaded_schemas.append(routine_tool.to_schema())
             loaded_tool_names.add(routine_tool.name)
 
+        # Sortie 11 DD1/DD2: tool exposure. One bounded provider-metadata lookup, run
+        # beside the `supports_tools` probe so an unresponsive provider costs one bound.
+        _, tool_available = await asyncio.gather(
+            _lookup_context_window(llm), time_tool_available(registry, llm)
+        )
+        window_known = getattr(llm, "context_window_known", False) is True
+        window = getattr(llm, "max_context_tokens", None) if window_known else None
+        # `fetch_channel_history` joins the connector pair for a bound agent (DD1).
+        unbound_excluded = (
+            set()
+            if connector_bound
+            else {
+                SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+                FIND_PLATFORM_DESTINATION_TOOL_NAME,
+                FETCH_CHANNEL_HISTORY_TOOL_NAME,
+            }
+        )
+        exposure_names = [
+            n
+            for n in registry.tool_names
+            if n != SEARCH_TOOLS_SCHEMA["name"]
+            and n not in loaded_tool_names
+            and n not in unbound_excluded
+        ]
+        exposure_schemas = [registry.get(n).to_schema() for n in exposure_names]
+        tool_exposure, to_append = decide_exposure(
+            window_known=window_known,
+            window=window,
+            bytes_per_token=getattr(llm, "bytes_per_token", 4.0),
+            starting=[SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA] + loaded_schemas,
+            candidates=exposure_schemas,
+        )
+        if tool_exposure.decided:
+            loaded_schemas.extend(to_append)
+            loaded_tool_names.update(exposure_names)
+
         # 3. Resolve system prompt
-        tool_available = await time_tool_available(registry, llm)
         caps = capabilities_from_registry(
-            registry, notes=bool(notes_tools), rules=True, time_tool=tool_available
+            registry,
+            notes=bool(notes_tools),
+            rules=True,
+            time_tool=tool_available,
+            tools_preloaded=tool_exposure.decided,
         )
         prompts = await build_system_prompts(
             config.name,
@@ -628,6 +700,7 @@ class AgentFactory:
             knowledge=caps.knowledge,
             time_tool=caps.time_tool,
             exec_tools=caps.exec_tools,
+            tools_preloaded=caps.tools_preloaded,
         )
 
         # 4. Create agent
@@ -644,6 +717,7 @@ class AgentFactory:
             # Sortie 10 DD7: every factory-built agent gets a resolver, grants or not.
             secrets=SecretResolver(config.name),
         )
+        agent.tool_exposure = tool_exposure  # type: ignore[attr-defined]
         # Mission 27 F2 (DD5/DD6): each notes tool reads its owning Agent's
         # messages at execute time to compute the untrusted flag. Bound after
         # construction (the Agent does not exist while tools are built).

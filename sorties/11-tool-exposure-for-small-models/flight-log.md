@@ -74,6 +74,55 @@ Sortie planned on 2026-11-05 from the local-LLM layer benchmark. Charter agreed 
 **Files changed.** `tests/test_evals_freeze.py` (scenarios pin now reads `s11-platform.json`; literal dropped, test renamed `test_scenarios_fixtures_and_judge_match_the_s11_platform_baseline`), `tests/test_evals_baseline_file.py` (two s11 tests), `evals/README.md`, `CLAUDE.md`; new `evals/baselines/s11-platform.json`, `evals/baselines/s11-routines.json`. Nothing under `the_one/`.
 **Verification.** `THE_ONE_TEST_NETNS=1 make test-unit`: `9250 passed, 15 skipped, 4079 deselected in 259.85s`; `ruff check` and `ruff format --check` clean.
 
+### Leg 3 — tool-exposure, Part A (landed, uncommitted)
+
+**What landed (Part A, ACs 1-14; no model calls, `core.py` and the frozen eval files untouched).**
+- `context_window_known` on `LLMProvider` (False), set True by the Ollama resolver only for `native_api` with a resolved effective window, by the Anthropic (and so both plan types) and OpenAI catalog hits, and by OpenRouter on a positive `context_length`.
+- `the_one/agent/tool_exposure.py` grew `exposure_defaults()` (fraction 0.25 clamped to [0, 1], ceiling 8000; process environment, call time; bad or negative values warn and fall back; fraction 0 disables), `estimate_tokens` and the pure `decide_exposure(...)`.
+- `AgentFactory.create`: bounded lookup (`WINDOW_LOOKUP_TIMEOUT_S` 2.0, module-level `_WINDOW_LOOKUP_TASKS`, shielded) run with `time_tool_available` in one `asyncio.gather`; decision after today's seed block; exposed schemas appended to `loaded_schemas`/`loaded_tool_names`; `agent.tool_exposure` bound after `Agent(...)`; `fetch_channel_history` is exposed with the pair for a bound agent, none of the three for an unbound one.
+- Wording: `Capabilities.tools_preloaded`, `PRELOADED_TOOL_DISCOVERY`/`PRELOADED_KB_LINE` (copy B, pinned verbatim), threaded through `capabilities_from_registry`, `build_system_prompts`, `build_system_prompt`, the factory and `pending.apply_pending_revision`; two Settings › Prompts rows (`tool_discovery_preloaded`, `knowledge_preloaded`) from `PRELOADED_FRAGMENTS`.
+- `evals/tokens.py`: `platform_prompt_sections` tries `tools_preloaded`; `kb_tool` gains `in_starting_set` and `render_tables` labels it accordingly.
+- Docs: CLAUDE.md (new paragraph, Prompt evals sentence), `the_one/agents.md` "Tool exposure (sortie 11)", `evals/README.md`, `SECURITY-MODEL.md` DD12 section with `TBD (leg 3 Part B)` placeholders.
+- Existing tests updated: `test_platform_prompt.py` (row list, tiling), `test_prompt_layers.py` (tiling), `test_evals_tokens.py` (KB tool in the starting set, decided exposure for every configuration but `tool-free`, `tools_full == tools`, the tool_exposure leaf test, and the harness-reads-the-record test, whose monkeypatched property now accepts the factory's write). No M30 F2 DD7 connector test needed a change.
+
+**AC12b: exposure estimates (tokens) and margin against the budget** (budget = min(int(0.25 x window), 8000): 1024, 2048, 4096, 8000). Margin = budget minus estimate; negative = over budget = discovery.
+
+| Agent | est @3.5 | est @4.0 | 4096 (3.5 / 4.0) | 8192 (3.5 / 4.0) | 16384 (3.5 / 4.0) | 200000 (3.5 / 4.0) |
+|---|---|---|---|---|---|---|
+| bare | 1944 | 1701 | -920 / -677 | +104 / +347 | +2152 / +2395 | +6056 / +6299 |
+| all-on | 2328 | 2037 | -1304 / -1013 | -280 / +11 | +1768 / +2059 | +5672 / +5963 |
+| all-on-connector | 3153 | 2759 | -2129 / -1735 | -1105 / -711 | +943 / +1337 | +4847 / +5241 |
+| routines-on | 3408 | 2982 | -2384 / -1958 | -1360 / -934 | +688 / +1114 | +4592 / +5018 |
+| real default, every built-in on, unbound | 3780 | 3307 | -2756 / -2283 | -1732 / -1259 | +316 / +789 | +4220 / +4693 |
+| real default, every built-in on, connector-bound | 4604 | 4028 | -3580 / -3004 | -2556 / -1980 | **-508** / +68 | +3396 / +3972 |
+
+Findings for the Flight Director:
+1. The eval `all-on`, `all-on-connector` and `routines-on` agents are exposed at 16384 and 3.5 (asserted); eval `all-on` is discovery at 4096 and 8192 at 3.5 (asserted), the density the Ollama presets use. At 4.0 bytes per token `all-on` at 8192 would be exposed by 11 tokens, so the 8k boundary depends on the density constant.
+2. The real execution-on default agent fits a 16384 window only when no connector names it (+316 at 3.5, matching the design review's 3779). **A connector-bound agent with every built-in tool on is over budget at 16384 and 3.5 (-508): it keeps discovery.** No code issue (the rule is as specified), but the product's headline case for a 16k Ollama user with a connector is discovery.
+3. `bare` is exposed at 8192 (+104) while `all-on` is not, as the sizes imply.
+
+**Verification.**
+- Full unit gate before the final falsification pass: `THE_ONE_TEST_NETNS=1 make test-unit`: `9304 passed, 15 skipped, 4079 deselected in 270.35s` (15 is the documented netns skip count). After the falsification restores, the changed files' tests re-ran green (`test_platform_prompt`, `test_prompt_layers`, `test_tool_exposure`, `test_evals_tokens`, `test_evals_freeze`, `test_llm_context_window_known`, `test_factory`, `test_search_tools`, `test_api_context_window`: 259 passed). `ruff check` and `ruff format --check` clean over `the_one tests scripts evals`.
+- Browser: the `settings` lane (the only lane owning a Prompts row pin: `test_flow_admin_settings_nav.py`, `test_flow_admin_encryption_page.py`), 108 passed in 235.79 s (`THE_ONE_TEST_NETNS=1 ... --lane settings`). No static file was touched, so the static guards were not required.
+- Pre-existing, not caused by this leg: `tests/test_prompt_layers.py` followed by `tests/test_evals_tokens.py` in one pytest process fails `no active connection` in the eval KB seed, identically at HEAD (checked in a detached worktree); the full unit run is unaffected. A new test file that builds a factory under a patched `get_connection` must import `the_one.vectors` at module top (it binds `get_connection` at import).
+
+**Falsification (remove the fix by edit, see the test fail, put it back by edit).**
+
+| New test | Falsified |
+|---|---|
+| `test_llm_context_window_known.py` (known rules: anthropic, openai, openrouter hit; ollama native gate; each miss/fallback) | yes (hits by removing the assignments; misses by setting True unconditionally; ollama gate by dropping `native_api`) |
+| `test_tool_exposure.py` defaults, bad values, fraction 0 | yes (default fraction 0.25 to 0.3 failed the defaults, bad-value, estimate, budget and exposure tests) |
+| `decide_exposure` pure tests | yes (same edit) |
+| slow-resolver lookup test | yes (dropped the `shield`) |
+| raising resolver, skipped-init double, late-failure | no (they pin fail-closed behaviour the code gets from its broad `except`; not individually reverted) |
+| unbound agent has no connector tools | yes (exclusion set forced empty) |
+| exposure set / order / whitelist, bound trio | yes (dropped the last appended schema) |
+| over-budget, fraction 0, 4096/8192 discovery | yes (default fraction edit made 4096/8192 and over-budget fail) |
+| preloaded wording (factory) | yes (factory passed `tools_preloaded=False`) |
+| `apply_pending_revision` keeps the wording | yes (pending passed False; both paths failed for the preloaded case) |
+| platform prompt pins and Prompts rows | yes (reverted `_tool_discovery`; removed the `PRELOADED_FRAGMENTS` rows) |
+| DD8 parity test and AC12b budget test (`test_evals_tokens.py`) | yes (dropped a schema from the exposed set; the default fraction edit failed the budget test) |
+
 ## Flight Director Notes
 
 ### 2026-11-06 — execution start
@@ -142,6 +191,47 @@ Sortie planned on 2026-11-05 from the local-LLM layer benchmark. Charter agreed 
 - **Operator checkpoint (2026-11-07).** The operator saw the rates and approved the commit. On `no-secrets`, see the Decisions entry below.
 - **No per-leg code review for leg 2.** No product or scoring code changed. The diff is two generated baseline files, a test re-point, two baseline-file tests and docs, all verified by the unit gate (9250 passed, 15 skipped under netns). The flight-end review covers it.
 - Leg 2 → `completed`.
+- **Leg 2 committed**: `40446186`.
+- **Leg 3 copy sign-off (DD3, operator, 2026-11-07): option B.** The two lines are:
+  - "Tools: All your tools are available now: call them directly (`search_tools` only lists them again)." (23 o200k tokens)
+  - "Knowledge bases are attached: search them before answering from memory on topics they cover." (17 tokens)
+
+  The new pair is 40 tokens against today's 78. Option A, 46 tokens, was declined.
+- **Leg 3 (`tool-exposure`) risk tier: high.** It touches:
+  - the provider base class, a shared interface;
+  - the factory's seeding and the prompt builders' signatures, which have several callers;
+  - `pending.py`'s live-agent recomposition;
+  - security-sensitive surface (injected text can call more tools directly, DD12).
+
+  The leg is split, per DD14, into Part A (code, in-leg review, commit) and Part B (measurement, runs, compare), each its own Developer spawn. Design review requested.
+- **Leg 3 design review (cycle 1): approve with changes.**
+  - **High: the default fraction 0.20 did not expose the routines eval agent at 16384.** Offline estimate about 3.45k against a 3.28k budget, which would have failed Part B after Part A's commit.
+    - The default is now **0.25**, an acceptable variation under the flight's "budget defaults move after leg 3's measurement".
+    - Budgets: 1024 at 4k, 2048 at 8k, 4096 at 16k, 8000 at the ceiling.
+    - Eval all-on (about 2330) stays on discovery at 4k and 8k, so the divert criterion holds, with a 12% margin at 8k.
+    - routines-on, all-on-connector and a real execution-on agent (3779) are exposed at 16k.
+    - The budget measurement moved into Part A as an offline test (AC12b). Part B changes no code; a defect there is a stop.
+  - Medium fixes:
+    - a module-level task set and a timeout constant (the context-window route builds a throwaway factory);
+    - the lookup runs concurrently with `time_tool_available`;
+    - the Edge Case on provider reuse corrected (`get_provider` is fresh per build);
+    - the existing unit tests that flip are named (`test_platform_prompt`, `test_prompt_layers` info examples, `test_evals_tokens` around lines 170, 467, 477 and 733);
+    - the new rows are a separate `PRELOADED_FRAGMENTS` tuple; no browser pin was found, but the `settings` lane still runs;
+    - tool-free and tools-off are exempt from the parity and "all exposed" checks;
+    - AC6 compares against an explicit expected list.
+  - Low fixes: `bool(native_api)`; `tool_free_capabilities` resets `tools_preloaded`; `build_system_prompts`' internal `Capabilities` named.
+  - No second cycle: every change adopts the reviewer's own recommended fix or a value it computed. Leg 3 → `ready`.
+- **Leg 3 Part A implemented** (Developer, Sonnet).
+  - It signalled `[HANDOFF:review-needed]`. Unit gate: 9304 passed, 15 skipped. The `settings` lane passed 108.
+  - AC12b confirms the boundaries at 3.5 bytes per token:
+    - eval all-on, all-on-connector and routines-on are exposed at 16k;
+    - all-on is on discovery at 4k and at 8k (-280).
+  - **Accepted, recorded:** a real default agent with every built-in tool on *and* a connector binding is 508 tokens over the 16k budget, so it keeps discovery. This is the rule working as designed (DD2's trade-off). At 4.0 bytes per token, eval all-on at 8k would be exposed by 11 tokens; Ollama's density constant is 3.5.
+- **Leg 3 Part A in-leg review (DD14).**
+  - Reviewer tier: Sonnet. The diff widens what injected content can reach in one turn (DD12), and it touches the provider base class.
+  - Verdict `[HANDOFF:confirmed]`, no blocking issues. The Reviewer re-ran the unit gate (9304 passed, 15 skipped) and ruff (clean).
+  - One non-blocking note: a second resolver task is possible if a provider instance is reused across a timed-out build. That is theoretical, since providers are built per `create`, and harmless, since the resolvers are idempotent. No action.
+- Part A committed (see the next note). The leg stays `in-flight` for Part B.
 
 ---
 
@@ -171,6 +261,9 @@ Sortie planned on 2026-11-05 from the local-LLM layer benchmark. Charter agreed 
 ---
 
 ## Anomalies
+
+### Test-order dependence between `test_prompt_layers.py` and `test_evals_tokens.py` (pre-existing; squawk candidate)
+Found in leg 3 Part A. Running `tests/test_prompt_layers.py` and then `tests/test_evals_tokens.py` in one pytest process fails with `no active connection` in the eval knowledge-base seed. It reproduces at `HEAD` in a detached worktree, so this sortie did not cause it, and the full unit run passes. Related trap: `the_one.vectors` binds `get_connection` at import, so a test that patches `get_connection` must import `the_one.vectors` first (recorded in `agents.md`). To be logged as a `routine` squawk at the debrief.
 
 ### Small local models store secrets in notes (found in leg 2's baseline; follow-up, out of scope)
 On the shipped product, `qwen3-4b` stored a shared secret in a note in 2 of 20 `no-secrets` runs and `lfm3` in 2 of 20 (a Wi-Fi password, door codes); haiku 0 of 20. Notes are a starting tool for any notes-enabled agent, independent of this sortie's exposure change. A fix needs a design call (a write-time secret screen on `save_note`, prompt wording, or both), so it is a candidate sortie, not a squawk. Raise it at the debrief.

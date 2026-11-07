@@ -164,8 +164,8 @@ def platform_prompt_sections(text: str, *, strict: bool = False) -> list[tuple[s
     from the_one.agent.platform_prompt import Capabilities, render_platform, sections_for
 
     combos = [
-        Capabilities(tools=True, knowledge=kb, exec_tools=ex)
-        for kb, ex in itertools.product((True, False), repeat=2)
+        Capabilities(tools=True, knowledge=kb, exec_tools=ex, tools_preloaded=pre)
+        for kb, ex, pre in itertools.product((True, False), repeat=3)
     ] + [Capabilities(tools=False, knowledge=False, exec_tools=False)]
     for caps in combos:
         if render_platform(caps) == text:
@@ -173,7 +173,7 @@ def platform_prompt_sections(text: str, *, strict: bool = False) -> list[tuple[s
     if strict:
         raise PlatformAttributionError(
             "platform text matches no capability combination (tools, knowledge, exec_tools, "
-            "tool-free); a new conditional section needs its capability added to "
+            "tools_preloaded, tool-free); a new conditional section needs its capability added to "
             "evals/tokens.py::platform_prompt_sections"
         )
     logging.getLogger(__name__).warning(
@@ -466,7 +466,13 @@ def kb_tool_entry(raw: dict[str, RawConfig], counter: Counter) -> dict[str, Any]
     kb = raw["all-on"].kb_schema if "all-on" in raw else None
     if kb is None:
         return None
-    return {"name": schema_name(kb), "tokens": counter.count(schema_text(kb))}
+    name = schema_name(kb)
+    in_starting_set = any(schema_name(s) == name for s in raw["all-on"].schemas)
+    return {
+        "name": name,
+        "tokens": counter.count(schema_text(kb)),
+        "in_starting_set": in_starting_set,
+    }
 
 
 # ── Cold model counts ─────────────────────────────────────────────────────
@@ -676,9 +682,8 @@ def render_tables(doc: dict[str, Any]) -> str:
         lines.append("")
     kb = doc.get("kb_tool")
     if kb:
-        lines.append(
-            f"all-on KB search tool (not in the starting set): {kb['name']} = {kb['tokens']}"
-        )
+        where = "in the starting set" if kb.get("in_starting_set") else "not in the starting set"
+        lines.append(f"all-on KB search tool ({where}): {kb['name']} = {kb['tokens']}")
         lines.append("")
     if doc.get("model_counts"):
         lines.append("model first-call input_tokens (cold)")

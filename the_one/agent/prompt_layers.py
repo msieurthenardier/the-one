@@ -110,13 +110,15 @@ async def build_system_prompts(
     knowledge: bool = True,
     time_tool: bool | None = None,
     exec_tools: bool = True,
+    tools_preloaded: bool = False,
 ) -> SystemPrompts:
     """Return both system prompts: platform + persona + rules + notes + date line.
 
     The date layer (M28 F1, DD4) is last; ``tool_available`` selects whether it
     names ``current_time``. ``knowledge``, ``time_tool`` (default: ``tool_available``)
-    and ``exec_tools`` are the capabilities the platform prompt renders from; their
-    defaults keep today's text.
+    and ``exec_tools`` are the capabilities the platform prompt renders from, and
+    ``tools_preloaded`` selects the "tools preloaded" discovery wording (sortie 11, DD3);
+    their defaults keep today's text.
 
     ``conn`` defaults to the process connection. An agent with no stored row
     has no rules and no notes (``notes=None``), so the result is platform +
@@ -151,6 +153,7 @@ async def build_system_prompts(
         rules=bool(rules),
         time_tool=tool_available if time_tool is None else time_tool,
         exec_tools=exec_tools,
+        tools_preloaded=tools_preloaded,
     )
     layers = {"rules": [r.text for r in rules], "notes": notes}
     # Sortie 10 DD8: the secrets layer is part of the tool-capable prompt only.
@@ -179,6 +182,7 @@ async def build_system_prompt(
     knowledge: bool = True,
     time_tool: bool | None = None,
     exec_tools: bool = True,
+    tools_preloaded: bool = False,
 ) -> str:
     """The tool-capable system prompt (see :func:`build_system_prompts`)."""
     return (
@@ -191,5 +195,6 @@ async def build_system_prompt(
             knowledge=knowledge,
             time_tool=time_tool,
             exec_tools=exec_tools,
+            tools_preloaded=tools_preloaded,
         )
     ).tool_capable

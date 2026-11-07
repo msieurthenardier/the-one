@@ -295,6 +295,9 @@ class OllamaProvider(LLMProvider):
         self._runtime_num_ctx = effective
         if effective is not None:
             self.max_context_tokens = effective
+        # Sortie 11 DD2: known only for real Ollama (native /api/chat honours num_ctx);
+        # an openai-compatible server's /api/show answer is not a window we load at.
+        self.context_window_known = bool(self.native_api) and effective is not None
         # else: leave at class default; sentinel still flips in the wrapper.
 
     async def supports_tools(self) -> bool:

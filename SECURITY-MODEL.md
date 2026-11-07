@@ -312,6 +312,10 @@ agent's own Self-configuration tab in Studio.
   Approval mode is therefore the recommended posture for any agent whose context can
   carry attacker-influenced content.
 
+### Tool exposure and planted content (sortie 11, DD12)
+
+When an agent's whole enabled toolset fits the exposure budget (`agents.md` "Tool exposure (sortie 11)"), every tool schema, the notes tools and the routine tools included, is in front of the model from the first call instead of being found through `search_tools`. This removes a discovery step that a small model sometimes did not take, and so it also removes a friction an injected instruction had to get past. The control that bounds the planted-content risk is unchanged: a note or routine written after non-operator content is flagged "Check this", and an agent write to a routine is held for approval when the operator turns that on. Measured on exposed runs (leg 3 Part B of the sortie, `n = 20` per cell): obedience to the planted instruction per model: TBD (leg 3 Part B); stored planted notes and routines flagged: TBD (leg 3 Part B). The recorded residual: a small local model is more likely to follow a planted instruction when it can call the tool at once, and the flag marks what it then writes rather than preventing it.
+
 ### Agent notes (M27 F2)
 
 An agent may be given three tools, `save_note`, `update_note` and `forget_note`,
