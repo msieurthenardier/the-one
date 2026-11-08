@@ -1,7 +1,7 @@
 """``python -m evals cache-probe``: prove prompt caching and its telemetry live (sortie 14 DD4).
 
 A developer tool, like the rest of ``evals/``: it builds one ``haiku`` agent through the app's real
-factory (padded persona, so the prompt passes Claude Haiku 4.5's 4096-token cache minimum), runs
+factory (padded persona, so the prompt passes the model's cache minimum in ``CACHE_MINIMUMS``), runs
 one turn that asks for the current time, and reads each model call's usage from the turn trace.
 It spends a few thousand plan-quota tokens per run and is never run by CI or the test gate.
 
@@ -23,11 +23,34 @@ SCENARIO_PATH = PACKAGE_DIR / "cache_probe_data" / "cache-probe.toml"
 PROBE_MODEL = "haiku"
 PROVIDER_LOGGER = "the_one.llm.anthropic_provider"
 
-# Claude Haiku 4.5's cache minimum, plus headroom so a prompt just over it is not trusted.
-CACHE_MINIMUM_TOKENS = 4096
-PRECONDITION_FLOOR = CACHE_MINIMUM_TOKENS + 256
+# The cache minimum in tokens, keyed by the model id the preset resolves to. A model not listed
+# is refused before any call: add it here once its minimum is known.
+CACHE_MINIMUMS = {
+    "claude-haiku-4-5-20251001": 4096,
+    "claude-haiku-5-5": 512,
+}
+# Headroom over the minimum, so a prompt just over it is not trusted.
+FLOOR_HEADROOM = 256
 # How much of a request may stay uncached (token-count rounding and the last few tokens).
 MARGIN = 32
+
+
+def cache_minimum(model: str) -> int:
+    """The cache minimum for ``model``; ``EvalRefusalError`` (one line) when it is not listed."""
+    from evals.env import EvalRefusalError
+
+    try:
+        return CACHE_MINIMUMS[model]
+    except KeyError:
+        raise EvalRefusalError(
+            f"cache-probe: no cache minimum known for model {model!r}; "
+            "add it to CACHE_MINIMUMS in evals/cache_probe.py"
+        ) from None
+
+
+def precondition_floor(model: str) -> int:
+    return cache_minimum(model) + FLOOR_HEADROOM
+
 
 PASS, FAIL, REFUSED, INCONCLUSIVE, RUN_ERROR = 0, 1, 2, 3, 4
 VERDICT_NAMES = {
@@ -64,6 +87,7 @@ def decide(
     tool_called: bool,
     strip_fired: bool,
     run_error: str | None,
+    minimum: int,
     margin: int = MARGIN,
 ) -> tuple[int, list[str]]:
     """The verdict and its reasons. Precedence: run error (4), inconclusive preconditions (3),
@@ -77,10 +101,11 @@ def decide(
         pre.append(f"fewer than two model calls ({len(calls)})")
     if not tool_called:
         pre.append("the agent made no tool call")
-    if calls and calls[0].total <= PRECONDITION_FLOOR:
+    floor = minimum + FLOOR_HEADROOM
+    if calls and calls[0].total <= floor:
         pre.append(
-            f"call 1's prompt is {calls[0].total} tokens, at or below {PRECONDITION_FLOOR} "
-            f"(the {CACHE_MINIMUM_TOKENS}-token cache minimum plus headroom)"
+            f"call 1's prompt is {calls[0].total} tokens, at or below {floor} "
+            f"(the {minimum}-token cache minimum plus headroom)"
         )
     if pre:
         return INCONCLUSIVE, pre
@@ -199,6 +224,7 @@ async def run_probe(opts: ProbeOptions) -> int:
 
     presets = select_presets(load_presets(opts.models_file), [PROBE_MODEL])
     preset = presets[0]
+    minimum = cache_minimum(preset.model)  # refuses an unknown model before anything is spent
     scenario = parse_scenario(SCENARIO_PATH)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = opts.run_dir or (PACKAGE_DIR / "runs" / f"cache-probe-{stamp}")
@@ -234,6 +260,7 @@ async def run_probe(opts: ProbeOptions) -> int:
             tool_called=tool_called,
             strip_fired=capture.strip_fired,
             run_error=run_error,
+            minimum=minimum,
         )
         env.say(
             render(
