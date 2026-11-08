@@ -1,6 +1,6 @@
 # Sortie: Anthropic prompt caching
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
