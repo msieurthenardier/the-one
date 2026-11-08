@@ -137,7 +137,14 @@ def _tool_result_to_dict(tr: ToolResult) -> dict[str, Any]:
 
 
 def _usage_to_dict(u: TokenUsage) -> dict[str, Any]:
-    return {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens}
+    d = {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens}
+    # Sortie 14 DD2: cache counts only when non-zero, so a non-caching message
+    # encodes byte-identically to before.
+    if u.cache_read_tokens:
+        d["cache_read_tokens"] = u.cache_read_tokens
+    if u.cache_write_tokens:
+        d["cache_write_tokens"] = u.cache_write_tokens
+    return d
 
 
 def _routine_sources(raw: Any) -> list[str] | None:
@@ -233,6 +240,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         usage = TokenUsage(
             input_tokens=u.get("input_tokens", 0),
             output_tokens=u.get("output_tokens", 0),
+            cache_read_tokens=u.get("cache_read_tokens", 0),
+            cache_write_tokens=u.get("cache_write_tokens", 0),
         )
     # M16 F12 L02: content-aware — str decodes unchanged (byte-identical to
     # pre-multimodal rows); list decodes each block via

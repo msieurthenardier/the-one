@@ -77,6 +77,23 @@ class TestCodecRoundTrip:
         assert result[0].usage.input_tokens == 100
         assert result[0].usage.output_tokens == 50
 
+    def test_token_usage_cache_counts_round_trip(self) -> None:
+        usage = TokenUsage(
+            input_tokens=9000, output_tokens=50, cache_read_tokens=8000, cache_write_tokens=700
+        )
+        d = message_to_dict(Message.assistant("ok", usage=usage))
+        assert d["usage"]["cache_read_tokens"] == 8000
+        assert d["usage"]["cache_write_tokens"] == 700
+        result = decode_messages(encode_messages([Message.assistant("ok", usage=usage)]))
+        assert result[0].usage == usage
+
+    def test_token_usage_without_cache_counts_encodes_byte_identically(self) -> None:
+        d = message_to_dict(Message.assistant("ok", usage=TokenUsage(100, 50)))
+        assert d["usage"] == {"input_tokens": 100, "output_tokens": 50}
+        # A row stored before the cache fields decodes with zeros.
+        old = message_from_dict({"role": "assistant", "content": "x", "usage": d["usage"]})
+        assert old.usage == TokenUsage(100, 50, 0, 0)
+
     def test_empty_list(self) -> None:
         result = decode_messages(encode_messages([]))
         assert result == []

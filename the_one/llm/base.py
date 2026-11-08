@@ -137,6 +137,11 @@ class ToolResult:
 class TokenUsage:
     input_tokens: int = 0
     output_tokens: int = 0
+    # Sortie 14 DD2: prompt-cache counts. ``input_tokens`` stays the WHOLE prompt
+    # (uncached + cache writes + cache reads); these two say how much of it was
+    # written to / read from the provider's prompt cache. Zero when not cached.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 # M10 F03 L02: visibility tag literal for ``Message.visibility`` (below).

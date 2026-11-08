@@ -50,6 +50,40 @@ _TOOLS_INDEX_RE = re.compile(r"tools\.(\d+)\.")
 _UNEXPECTED_KWARG_RE = re.compile(r"unexpected keyword argument '([^']+)'")
 
 
+# Sortie 14 DD1: prompt caching. One constant feeds BOTH markers (the system block
+# and the top-level automatic breakpoint) so their TTLs can never differ -
+# Anthropic 400s a longer-TTL entry that comes after a shorter one. Copied per
+# request so no caller can mutate the shared dict.
+_CACHE_CONTROL: dict[str, str] = {"type": "ephemeral"}
+
+
+def _cache_int(value: Any) -> int:
+    """A cache count counts only when it is a real ``int``; None, missing or a test
+    ``MagicMock`` count as 0 (sortie 14 DD2)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _usage_from_sdk(u: Any) -> TokenUsage:
+    """Map an SDK ``usage`` to ``TokenUsage`` (sortie 14 DD2).
+
+    With caching on, the SDK's ``input_tokens`` is only the uncached remainder, so
+    ``TokenUsage.input_tokens`` (the whole prompt, as every consumer reads it) is
+    ``input + cache_creation + cache_read``. When both cache counts are 0 the SDK's
+    raw ``input_tokens`` object is returned unchanged.
+    """
+    write = _cache_int(getattr(u, "cache_creation_input_tokens", None))
+    read = _cache_int(getattr(u, "cache_read_input_tokens", None))
+    raw_input = u.input_tokens
+    if write == 0 and read == 0:
+        return TokenUsage(input_tokens=raw_input, output_tokens=u.output_tokens)
+    return TokenUsage(
+        input_tokens=_cache_int(raw_input) + write + read,
+        output_tokens=u.output_tokens,
+        cache_read_tokens=read,
+        cache_write_tokens=write,
+    )
+
+
 def _unexpected_kwarg_name(exc: TypeError) -> str | None:
     """Extract the parameter name from an ``unexpected keyword argument '<name>'``
     ``TypeError`` message, or ``None`` when the message doesn't match that shape."""
@@ -167,6 +201,9 @@ class AnthropicProvider(LLMProvider):
         self._reasoning_effort_config = _coerce_effort(_cfg.get("reasoning_effort"))
         self._response_format_config = _coerce_response_format(_cfg.get("response_format"))
         self._stop_config = _coerce_stop(_cfg.get("stop"))
+        # Sortie 14 DD5: set on the first cache_control refusal; this instance then
+        # stops adding cache markers. Never persisted - a rebuilt agent tries again.
+        self._cache_disabled = False
 
     def _build_client(self, api_key: str | None) -> anthropic.AsyncAnthropic:
         """Construct the SDK client. Seam for subclasses (M19 F01 DD-4):
@@ -250,7 +287,21 @@ class AnthropicProvider(LLMProvider):
             "temperature": temperature,
         }
         if system_prompt:
-            kwargs["system"] = system_prompt
+            if self._cache_disabled:
+                kwargs["system"] = system_prompt
+            else:
+                # DD1: render order is tools -> system -> messages, so this marker
+                # caches the tool schemas and the system prompt together.
+                kwargs["system"] = [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": dict(_CACHE_CONTROL),
+                    }
+                ]
+        if not self._cache_disabled:
+            # DD1: top-level automatic caching follows the end of the conversation.
+            kwargs["cache_control"] = dict(_CACHE_CONTROL)
         if tools:
             # DD5: sanitize each tool's input_schema immediately before send;
             # drop (don't crash on) a genuinely-unsanitizable tool with a named
@@ -328,41 +379,23 @@ class AnthropicProvider(LLMProvider):
         await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
 
-        try:
-            response = await self.client.messages.create(**kwargs)
-        except anthropic.BadRequestError as exc:
-            # Ordered checks (load-bearing): (1) temperature retry first
-            # (unchanged), (2) tools.N → tool-name mapping (DD6), (3) plain
-            # re-raise otherwise.
-            if "temperature" in str(exc).lower():
-                # Newer Claude models (Opus 4.x, Sonnet 4.x) reject the
-                # `temperature` parameter entirely. Retry once without it.
-                kwargs.pop("temperature", None)
-                try:
-                    response = await self.client.messages.create(**kwargs)
-                except anthropic.BadRequestError as exc2:
-                    # The retry can itself 400 on a tool schema — map it too.
-                    named = _name_offending_tool(exc2, kwargs.get("tools"))
-                    raise (named or exc2) from exc2
-            else:
+        # Sortie 14 DD5: a bounded attempt loop. Each strip (temperature, a named
+        # unexpected kwarg, the cache markers) removes its key and re-runs the whole
+        # attempt; a strip fires only while its key is still in kwargs, so a repeat
+        # failure naming an already-stripped key falls through to the re-raise.
+        while True:
+            try:
+                response = await self.client.messages.create(**kwargs)
+                break
+            except anthropic.BadRequestError as exc:
+                if self._strip_for_bad_request(exc, kwargs):
+                    continue
+                # tools.N -> tool-name mapping (DD6), else plain re-raise.
                 named = _name_offending_tool(exc, kwargs.get("tools"))
                 raise (named or exc) from exc
-        except TypeError as exc:
-            # Squawk 0009: SDK signature drift — the installed anthropic dropped a
-            # kwarg we always send (e.g. `temperature`). Strip the named param and
-            # retry once, but only when it's actually a key we sent (so an unrelated
-            # TypeError re-raises unchanged). A retry that still TypeErrors propagates.
-            name = _unexpected_kwarg_name(exc)
-            if name is not None and name in kwargs:
-                logger.warning(
-                    "anthropic: installed SDK rejected %r as an unexpected keyword "
-                    "argument; retrying without it — the bundled anthropic version "
-                    "may be out of range (expected <0.97)",
-                    name,
-                )
-                kwargs.pop(name, None)
-                response = await self.client.messages.create(**kwargs)
-            else:
+            except TypeError as exc:
+                if self._strip_for_type_error(exc, kwargs):
+                    continue
                 raise
 
         content = ""
@@ -389,10 +422,7 @@ class AnthropicProvider(LLMProvider):
 
         usage = None
         if response.usage:
-            usage = TokenUsage(
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-            )
+            usage = _usage_from_sdk(response.usage)
 
         return Message.assistant(
             content=content, tool_calls=tool_calls, usage=usage, thinking=thinking_blocks
@@ -419,43 +449,72 @@ class AnthropicProvider(LLMProvider):
         await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
         yielded_any = False
-        try:
-            async for chunk in self._stream_inner(kwargs):
-                yielded_any = True
-                yield chunk
-        except anthropic.BadRequestError as exc:
-            # Mirror complete()'s ordered checks: temperature retry first
-            # (gated by yielded_any), then tools.N → tool-name (DD6), then
-            # plain re-raise. Streaming 400s arrive pre-delta, so the
-            # temperature-retry → tools.N sub-path is defence-in-depth.
-            if not yielded_any and "temperature" in str(exc).lower():
-                kwargs.pop("temperature", None)
-                try:
-                    async for chunk in self._stream_inner(kwargs):
-                        yield chunk
-                except anthropic.BadRequestError as exc2:
-                    named = _name_offending_tool(exc2, kwargs.get("tools"))
-                    raise (named or exc2) from exc2
-            else:
+        # Sortie 14 DD5: same bounded strip loop as complete(), gated by
+        # yielded_any - once a chunk has been emitted a retry would duplicate
+        # output, so the failure goes straight to the tools.N mapping / re-raise.
+        while True:
+            try:
+                async for chunk in self._stream_inner(kwargs):
+                    yielded_any = True
+                    yield chunk
+                return
+            except anthropic.BadRequestError as exc:
+                if not yielded_any and self._strip_for_bad_request(exc, kwargs):
+                    continue
                 named = _name_offending_tool(exc, kwargs.get("tools"))
                 raise (named or exc) from exc
-        except TypeError as exc:
-            # Squawk 0009: mirror complete()'s SDK-signature-drift net. Gated by
-            # not-yielded_any, exactly like the temperature-retry above, since a
-            # signature TypeError is raised at submission — before any delta.
-            name = _unexpected_kwarg_name(exc)
-            if not yielded_any and name is not None and name in kwargs:
-                logger.warning(
-                    "anthropic: installed SDK rejected %r as an unexpected keyword "
-                    "argument; retrying without it — the bundled anthropic version "
-                    "may be out of range (expected <0.97)",
-                    name,
-                )
-                kwargs.pop(name, None)
-                async for chunk in self._stream_inner(kwargs):
-                    yield chunk
-            else:
+            except TypeError as exc:
+                # A signature TypeError is raised at submission, before any delta.
+                if not yielded_any and self._strip_for_type_error(exc, kwargs):
+                    continue
                 raise
+
+    def _strip_cache_markers(self, kwargs: dict[str, Any]) -> bool:
+        """Drop both cache markers from ``kwargs`` and disable caching on this
+        instance. Returns False (nothing done) when no top-level marker is present."""
+        if "cache_control" not in kwargs:
+            return False
+        kwargs.pop("cache_control", None)
+        system = kwargs.get("system")
+        if isinstance(system, list) and system:
+            kwargs["system"] = system[0]["text"]
+        self._cache_disabled = True
+        logger.warning(
+            "anthropic: the endpoint or SDK refused cache_control; retrying without "
+            "prompt caching (disabled for this provider instance)"
+        )
+        return True
+
+    def _strip_for_bad_request(
+        self, exc: anthropic.BadRequestError, kwargs: dict[str, Any]
+    ) -> bool:
+        """Strip the key a 400 names, once. True when kwargs changed (re-run)."""
+        text = str(exc).lower()
+        if "temperature" in text and "temperature" in kwargs:
+            # Newer Claude models (Opus 4.x, Sonnet 4.x) reject `temperature`.
+            kwargs.pop("temperature", None)
+            return True
+        if "cache_control" in text:
+            return self._strip_cache_markers(kwargs)
+        return False
+
+    def _strip_for_type_error(self, exc: TypeError, kwargs: dict[str, Any]) -> bool:
+        """Squawk 0009: SDK signature drift - strip the unexpected kwarg the
+        TypeError names, only when it is a key we sent. ``cache_control`` takes the
+        full cache strip so an old SDK pays one failed attempt per instance."""
+        name = _unexpected_kwarg_name(exc)
+        if name is None or name not in kwargs:
+            return False
+        if name == "cache_control":
+            return self._strip_cache_markers(kwargs)
+        logger.warning(
+            "anthropic: installed SDK rejected %r as an unexpected keyword "
+            "argument; retrying without it — the bundled anthropic version "
+            "may be out of range (expected <0.97)",
+            name,
+        )
+        kwargs.pop(name, None)
+        return True
 
     async def _stream_inner(self, kwargs: dict[str, Any]) -> AsyncIterator[StreamChunk]:
         # F7 L04 / M12 F6 L1: shared byte-emitter for mid-stream usage
@@ -497,10 +556,7 @@ class AnthropicProvider(LLMProvider):
 
         usage = None
         if final.usage:
-            usage = TokenUsage(
-                input_tokens=final.usage.input_tokens,
-                output_tokens=final.usage.output_tokens,
-            )
+            usage = _usage_from_sdk(final.usage)
 
         msg = Message.assistant(
             content=content, tool_calls=tool_calls, usage=usage, thinking=thinking_blocks

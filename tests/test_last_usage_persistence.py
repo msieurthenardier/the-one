@@ -509,3 +509,63 @@ async def test_resume_settle_in_memory_matches_db(
     loaded = await chat_repo.get("s-r04")
     assert session.session_metadata is not None
     assert session.session_metadata["last_usage"] == loaded.session_metadata["last_usage"]  # type: ignore[index]
+
+
+# ---------------------------------------------------------------------------
+# Sortie 14 DD2 - cache counts never reach the usage frame or last_usage
+# ---------------------------------------------------------------------------
+
+
+async def test_cache_fields_do_not_change_usage_frame_or_last_usage(
+    agent_store: SQLiteAgentStore,
+    chat_repo: ChatSessionRepository,
+    conn: aiosqlite.Connection,
+    monkeypatch,
+) -> None:
+    """A TokenUsage carrying cache counts produces the same ``usage`` frame and
+    ``last_usage`` as the same totals with the cache counts zeroed."""
+    await agent_store.save(AgentConfig(name="agent1"))
+    results: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+
+    for label, (read, write) in {"cached": (7000, 900), "plain": (0, 0)}.items():
+        sid = f"s-cache-{label}"
+        await chat_repo.create(ChatSession(id=sid, agent_name="agent1"))
+        msg = Message.assistant(
+            "reply",
+            usage=TokenUsage(
+                input_tokens=8000,
+                output_tokens=40,
+                cache_read_tokens=read,
+                cache_write_tokens=write,
+            ),
+        )
+        session = Session(
+            id=sid,
+            agent=StubAgent(step_messages=[msg]),  # type: ignore[arg-type]
+            created="2026-06-20T00:00:00+00:00",
+        )
+        send = AsyncMock(return_value=None)
+        monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+        monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
+        monkeypatch.setattr(web_app, "_send_to_session", send)
+
+        with patch("the_one.interfaces.web.app.get_connection", return_value=conn):
+            await _process_and_broadcast(session, "hello")
+
+        frames = [c.args[1] for c in send.call_args_list if c.args[1].get("type") == "usage"]
+        assert len(frames) == 1
+        loaded = await chat_repo.get(sid)
+        assert loaded.session_metadata is not None
+        results[label] = (frames[0], loaded.session_metadata["last_usage"])
+
+    frame, last_usage = results["cached"]
+    assert set(frame) == {
+        "type",
+        "input_tokens",
+        "output_tokens",
+        "context_tokens",
+        "max_context_tokens",
+    }
+    assert frame["context_tokens"] == 8000
+    assert results["cached"] == results["plain"]
+    assert not any("cache" in k for k in last_usage)

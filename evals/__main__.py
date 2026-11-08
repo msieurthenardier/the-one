@@ -77,6 +77,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-dir", type=Path, help="scratch directory (default: evals/runs/measure-<pid>)"
     )
 
+    cp = sub.add_parser(
+        "cache-probe",
+        help="prove Anthropic prompt caching live on haiku (spends plan quota; exits 0-4)",
+    )
+    cp.add_argument("--plan-token-file", dest="token_file", type=Path, help="plan token file")
+    cp.add_argument("--models-file", type=Path, help="alternative presets file")
+    cp.add_argument(
+        "--run-dir", type=Path, help="run directory (default: evals/runs/cache-probe-<UTC time>)"
+    )
+
     for name, help_ in (
         ("report", "merge run directories and write report.md"),
         ("baseline", "write evals/baselines/<name>.json from run directories"),
@@ -91,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
                 "--same-prompt",
                 action="store_true",
                 help="mark a re-measurement of the same prompt",
+            )
+            sp.add_argument(
+                "--models",
+                type=_csv,
+                help="comma-separated model names: compare only these models' cells "
+                "(the models fingerprint is recomputed for the selection; size:* gates still run)",
             )
         sp.add_argument("run_dirs", nargs="+", type=Path, metavar="run-dir")
         sp.add_argument(
@@ -149,6 +165,21 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_cache_probe(args: argparse.Namespace) -> int:
+    from evals import cache_probe
+    from evals.env import EvalRefusalError
+    from evals.models import PresetError
+    from evals.scenario import ScenarioError
+
+    opts = cache_probe.ProbeOptions(
+        token_file=args.token_file, run_dir=args.run_dir, models_file=args.models_file
+    )
+    try:
+        return asyncio.run(cache_probe.run_probe(opts))
+    except (EvalRefusalError, PresetError, ScenarioError) as exc:
+        return _err(str(exc))
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     runset = rp.load_runs(args.run_dirs, args.measure)
     path = rp.write_report(runset, args.out)
@@ -205,8 +236,13 @@ def _cmd_compare(args: argparse.Namespace) -> int:
             file=sys.stderr,
             flush=True,
         )
-    bl.check_comparable(base, runset, same_prompt=args.same_prompt, measure=measure)
-    cmp = bl.compare(base, runset, measure)
+    selected: list[str] | None = None
+    if getattr(args, "models", None) is not None:
+        runset, selected = bl.select_models(base, runset, args.models)
+    bl.check_comparable(
+        base, runset, same_prompt=args.same_prompt, measure=measure, models=selected
+    )
+    cmp = bl.compare(base, runset, measure, models=selected)
     print(bl.render_comparison(cmp), end="")
     return cmp.exit_code
 
@@ -222,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "measure-prompt": _cmd_measure,
+        "cache-probe": _cmd_cache_probe,
         "report": _cmd_report,
         "baseline": _cmd_baseline,
         "derive-bars": _cmd_derive,
