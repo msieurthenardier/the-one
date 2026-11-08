@@ -59,7 +59,10 @@ Tables go to stdout, progress to stderr.
 | `baseline <name> <run-dir>...` | write `evals/baselines/<name>.json`, bars and size targets included |
 | `derive-bars <baseline> [--size-ratio R]` | (re)write the bars and size targets into a baseline file; `R` (default 0.60) is the bare prompt-sections target as a fraction of the baseline's, `1.0` = "no larger than this baseline" |
 | `selftest` | run the can-fail suite at full width (20 variants per scenario), offline, no model call |
-| `compare --baseline FILE [--same-prompt] <run-dir>...` | PASS/FAIL per cell and per size target; exit 1 only on a hard failure |
+| `compare --baseline FILE [--same-prompt] [--models a,b] <run-dir>...` | PASS/FAIL per cell and per size target; exit 1 only on a hard failure. `--models` compares only the named models: the run is filtered to them, the baseline's models digest is recomputed for the selection (so a Claude-only change needs only haiku quota), the `size:*` gates still run and the header states the subset; a name the baseline lacks, or a selected model with no records in the run, is refused |
+| `cache-probe [--plan-token-file F] [--run-dir D]` | prove Anthropic prompt caching live (sortie 14): one padded `haiku` turn through the real factory (`evals/cache_probe_data/cache-probe.toml`); spends plan quota, never in CI. Prints each model call's `input_tokens`, `cache_read_tokens`, `cache_write_tokens` and uncached remainder, the exposure, the effective thinking and whether a cache strip fired. Exit codes: 0 pass, 1 fail, 2 refused (start-up refusal), 3 inconclusive (fewer than two calls, no tool call, or call 1's prompt at or below 4352 tokens), 4 run error (a model failure or exception) |
+
+Provider `input_tokens` (and so the informational `model_counts`) is the whole prompt: for Anthropic with prompt caching it is the uncached remainder plus cache writes plus cache reads, with the parts in `cache_read_tokens` and `cache_write_tokens`. The `size:*` gates compare tiktoken counts and never read provider usage.
 
 ## Scenarios
 

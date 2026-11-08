@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evals.fingerprint import models_fingerprint
 from evals.report import (
     CellStat,
     MergeError,
@@ -282,6 +283,8 @@ class Comparison:
     rows: list[Row] = field(default_factory=list)
     # Lines printed before the table: each model's tool-exposure counts and any WARNING.
     notes: list[str] = field(default_factory=list)
+    # The --models selection, or None for a full compare (stated in the header).
+    models: list[str] | None = None
 
     @property
     def hard_failures(self) -> list[Row]:
@@ -292,17 +295,68 @@ class Comparison:
         return 1 if self.hard_failures else 0
 
 
+def select_models(
+    base: dict[str, Any], runset: RunSet, models: list[str]
+) -> tuple[RunSet, list[str]]:
+    """Restrict a run to the ``--models`` selection (sortie 14 DD7).
+
+    Returns the run with its records filtered to the selected models (so every
+    later fingerprint, aggregate, exposure and mismatch step sees the same subset)
+    and the de-duplicated selection. Refuses an empty selection, a name the baseline
+    lacks, and a selected model with no records in the run.
+    """
+    selected = list(dict.fromkeys(m for m in models if m))
+    if not selected:
+        raise BaselineError("--models needs at least one model name")
+    unknown = [m for m in selected if m not in base["models"]]
+    if unknown:
+        raise BaselineError(
+            f"--models names {', '.join(unknown)}, which the baseline does not have "
+            f"(it has: {', '.join(sorted(base['models']))})"
+        )
+    present = {r["model"] for r in runset.records}
+    missing = [m for m in selected if m not in present]
+    if missing:
+        raise BaselineError(
+            f"--models names {', '.join(missing)}, which has no records in the run "
+            f"(the run has: {', '.join(sorted(present)) or 'none'})"
+        )
+    keep = set(selected)
+    filtered = replace(runset, records=[r for r in runset.records if r["model"] in keep])
+    return filtered, selected
+
+
+def baseline_models_fingerprint(base: dict[str, Any], models: list[str]) -> str:
+    """The baseline's models digest restricted to ``models``, recomputed from the
+    stored ``models.{name}.{preset, effective, model_info}``."""
+    return models_fingerprint(
+        {m: base["models"][m]["preset"] for m in models},
+        {m: base["models"][m]["effective"] for m in models},
+        {m: base["models"][m]["model_info"] for m in models},
+    )
+
+
 def check_comparable(
-    base: dict[str, Any], runset: RunSet, *, same_prompt: bool, measure: dict[str, Any] | None
+    base: dict[str, Any],
+    runset: RunSet,
+    *,
+    same_prompt: bool,
+    measure: dict[str, Any] | None,
+    models: list[str] | None = None,
 ) -> None:
-    """Refuse (raise ``BaselineError``) when the comparison would not be valid."""
+    """Refuse (raise ``BaselineError``) when the comparison would not be valid.
+
+    With ``models`` (already applied to ``runset`` by ``select_models``) the models
+    digest is recomputed from the baseline's stored entries for that selection;
+    without it the stored digest is used, as before."""
     fps = base["fingerprints"]
     new = runset.fingerprints()
     if new["scenarios"] != fps["scenarios"]:
         raise BaselineError(
             "refusing to compare: the scenarios fingerprints differ from the baseline's"
         )
-    if new["models"] != fps["models"]:
+    expected_models = baseline_models_fingerprint(base, models) if models else fps["models"]
+    if new["models"] != expected_models:
         raise BaselineError(
             "refusing to compare: the models fingerprints differ from the baseline's"
         )
@@ -327,7 +381,14 @@ def _stat_line(st: CellStat) -> str:
     return line
 
 
-def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Comparison:
+def compare(
+    base: dict[str, Any],
+    runset: RunSet,
+    measure: dict[str, Any],
+    models: list[str] | None = None,
+) -> Comparison:
+    """Compare ``runset`` with ``base``. ``models`` (a ``select_models`` selection;
+    ``runset`` is already filtered) limits the cell loop to those models."""
     schema = base.get("schema", 1)
     if schema == 2 and measure.get("schema", 1) != 2:
         raise BaselineError(
@@ -335,7 +396,7 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
             "measure.json): re-run measure-prompt"
         )
     stats = aggregate(runset.records)
-    out = Comparison()
+    out = Comparison(models=list(models) if models else None)
     for model, counts in sorted(exposure_counts(runset.records).items()):
         out.notes.append(
             f"tool exposure {model}: exposed {counts['exposed']}, "
@@ -343,6 +404,8 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
         )
     out.notes.extend(decided_mismatches(runset.records, measure))
     for model, cells in sorted(base["cells"].items()):
+        if models and model not in models:
+            continue
         for cell, b in sorted(cells.items()):
             st = stats.get(model, {}).get(cell)
             bar = b["bar"]
@@ -501,7 +564,13 @@ def compare(base: dict[str, Any], runset: RunSet, measure: dict[str, Any]) -> Co
 
 
 def render_comparison(cmp: Comparison) -> str:
-    lines = [*cmp.notes]
+    lines: list[str] = []
+    if cmp.models:
+        lines.append(
+            f"SUBSET compare: models {', '.join(cmp.models)} only; the baseline's other "
+            "models are not compared. The model-independent size:* gates still run."
+        )
+    lines += cmp.notes
     lines += [f"{'result':18} {'class':8} {'model':10} {'cell':26} detail"]
     for r in cmp.rows:
         res = "PASS" if r.passed else f"FAIL [{r.gate}]"

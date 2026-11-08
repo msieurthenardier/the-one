@@ -36,6 +36,7 @@ def test_run_help_and_subcommands_listed():
         "derive-bars",
         "compare",
         "selftest",
+        "cache-probe",
     ):
         assert name in out
     run_help = subprocess.run(
