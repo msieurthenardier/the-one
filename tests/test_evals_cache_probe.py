@@ -19,8 +19,18 @@ from the_one.llm.base import Message, TokenUsage, ToolCall
 GOOD = [CallUsage(6000, 0, 6000), CallUsage(6400, 6000, 400)]
 
 
-def verdict(calls=GOOD, *, tool_called=True, strip_fired=False, run_error=None):
-    return decide(calls, tool_called=tool_called, strip_fired=strip_fired, run_error=run_error)
+HAIKU_45 = "claude-haiku-4-5-20251001"
+HAIKU_55 = "claude-haiku-5-5"
+
+
+def verdict(calls=GOOD, *, tool_called=True, strip_fired=False, run_error=None, model=HAIKU_45):
+    return decide(
+        calls,
+        tool_called=tool_called,
+        strip_fired=strip_fired,
+        run_error=run_error,
+        minimum=cp.cache_minimum(model),
+    )
 
 
 def test_pass():
@@ -91,6 +101,30 @@ def test_each_inconclusive_precondition(kwargs, needle):
 
 def test_one_token_over_the_floor_is_conclusive():
     assert verdict([CallUsage(4353, 0, 4353), CallUsage(4400, 4353, 47)])[0] == cp.PASS
+
+
+def test_the_minimum_and_floor_follow_the_model():
+    assert cp.cache_minimum(HAIKU_45) == 4096 and cp.precondition_floor(HAIKU_45) == 4352
+    assert cp.cache_minimum(HAIKU_55) == 512 and cp.precondition_floor(HAIKU_55) == 768
+    small = [CallUsage(769, 0, 769), CallUsage(800, 769, 31)]
+    assert verdict(small, model=HAIKU_45)[0] == cp.INCONCLUSIVE
+    assert verdict(small, model=HAIKU_55)[0] == cp.PASS
+    code, reasons = verdict([CallUsage(768, 0, 768), CallUsage(800, 768, 32)], model=HAIKU_55)
+    assert code == cp.INCONCLUSIVE and any("at or below 768" in r for r in reasons)
+
+
+def test_an_unknown_model_is_refused_before_any_call(tmp_path, capsys):
+    models = tmp_path / "models.toml"
+    models.write_text(
+        '[haiku]\ntype = "anthropic-plan-token"\nmodel = "claude-mystery-9"\n'
+        'base_url = "https://api.anthropic.com"\n'
+    )
+    run_dir = tmp_path / "run"
+    rc = main(["cache-probe", "--models-file", str(models), "--run-dir", str(run_dir)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "claude-mystery-9" in err and "CACHE_MINIMUMS" in err
+    assert not run_dir.exists()
 
 
 def test_run_error_outranks_everything():

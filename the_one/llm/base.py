@@ -135,6 +135,16 @@ class ToolResult:
 
 @dataclass
 class TokenUsage:
+    """Token counts for one model call.
+
+    ``input_tokens`` is the WHOLE prompt. For Anthropic it is uncached input
+    plus cache writes plus cache reads. ``cache_read_tokens`` and
+    ``cache_write_tokens`` are a breakdown of that total, not extra tokens:
+    no consumer adds them to ``input_tokens`` again. A future provider mapping
+    (for example OpenAI ``cached_tokens``) must keep ``input_tokens`` as the
+    whole prompt and report the cached part only in the breakdown.
+    """
+
     input_tokens: int = 0
     output_tokens: int = 0
     # Sortie 14 DD2: prompt-cache counts. ``input_tokens`` stays the WHOLE prompt
