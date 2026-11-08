@@ -30,6 +30,42 @@ Logged on 2026-11-07 from the sortie 11 debrief, recommendation 5, second half, 
   - The probe persona is about 2.8k tokens, so call 1 should total about 5.5k. If the probe exits 3, the persona needs more padding.
   - `decide` takes call 1's total as `max(input_tokens, read + write)`, so a broken DD2 mapping fails (1) instead of reading as inconclusive.
 
+### Leg 2: cache-verification
+- **Live probe** (2026-11-08, `make eval ARGS="cache-probe"` at `178a931b`, run directory `evals/runs/cache-probe-20261108T174129Z`): **PASS, exit 0**.
+
+  | call | input_tokens | cache_read | cache_write | uncached |
+  |---|---|---|---|---|
+  | 1 | 5787 | 0 | 5784 | 3 |
+  | 2 | 5885 | 5784 | 96 | 5 |
+
+  - Exposure: `decided: True`, budget 8000, estimate 1839, window 200000. Effective thinking `False`. No cache strip fired.
+  - Call 2 read everything call 1 sent, user message included, so the automatic tail entry was read (criterion 1).
+  - `input_tokens` is the whole prompt on both calls; the SDK's own field would have read 3 and 5 (criterion 2, live half).
+  - It went through `anthropic-plan-token` (criterion 3 for that type). This also re-verified the DD5 plan-endpoint premise at leg time.
+- **Haiku eval run:** `run --models haiku --run-dir evals/runs/s14-haiku`, 240 runs, exit 0, every run counted. 232 PASS and 8 FAIL, all 8 in `rule-beats-note`; the baseline was 11/20 there.
+- **Measurement:** `measure-prompt --json evals/runs/s14-haiku/measure.json`. The prompt fingerprint is `84f8bf2e…`, not the baseline's `df5f2249…`.
+  - This is expected and not caused by this sortie: `s11-platform` was recorded on sortie 11's leg 2 prompt, before leg 3's tool-exposure wording landed.
+  - Leg 1 changes no prompt text, and the size gates below agree. `compare` therefore ran **without** `--same-prompt`, a deviation from the leg plan, which had assumed the fingerprints would be equal.
+- **Compare:** `compare evals/runs/s14-haiku --baseline evals/baselines/s11-platform.json --models haiku`. **Exit 0: hard failures 0, best-effort misses 0.**
+  - The SUBSET header printed; exposure was 240 exposed, 0 not exposed.
+  - All 17 haiku cells PASS. `rule-beats-note` is 12/20 against the baseline's 11/20; `markdown-links` is 20/20 against 18/20. Every other cell matches its baseline.
+  - All 10 `size:*` gates PASS at exactly today's totals: all-on tools 1540, bare tools 1283, all-on prompt text 316, and so on. Request metadata did not move them (criterion 4, and the charter's size-gate constraint).
+- Leg 2 status: `completed`.
+
+### Deviations
+- Leg 2's compare ran without `--same-prompt`, because the current prompt's fingerprint differs from `s11-platform`'s (see above). Nothing else changed.
+
+### Charter criteria (at landing)
+1. **Met.** Probe call 2 read 5784 tokens: the tools + system prefix and the whole turn tail.
+2. **Met.**
+   - Live: `input_tokens` = the whole prompt (5787 and 5885).
+   - Offline: the codec round trip, and the usage frame and `last_usage` equal with and without cache counts (`tests/test_last_usage_persistence.py`).
+3. **Met.** `anthropic-plan-token` was proved live; `anthropic` and `anthropic-plan` share `_build_kwargs`, with identical kwargs pinned by unit tests.
+4. **Met.** The haiku compare shows no gate failure.
+
+### Open, carried to the debrief
+- The outcome says "less input quota". What was measured is tokens served from cache. How a Claude plan counts cache reads against its usage limit is server-side and was not observed.
+
 ### Leg 1: prompt-caching
 Status: `landed` (not committed). No live call was made: `cache-probe` was run only with `--help`, no plan token was read, and port 8484 was not touched.
 

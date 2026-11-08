@@ -1,6 +1,6 @@
 # Sortie: Anthropic prompt caching
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -193,7 +193,7 @@ Verified against the working tree at `baf9f8c3`, then re-checked by the Architec
 ### Prerequisites
 - [x] Plan token at `~/.config/the-one-evals/plan-token` is valid and the endpoint accepts `cache_control` (planning probe, DD5). Leg 2's probe run re-verifies it.
 - [x] Baseline `evals/baselines/s11-platform.json` exists and stores per-model presets, effective settings and model info (DD7).
-- [ ] The `[evals]` extra (tiktoken) is installed in `.venv`, for `measure-prompt --json` in leg 2. Re-check at leg 2.
+- [x] The `[evals]` extra (tiktoken) is installed in `.venv`, for `measure-prompt --json` in leg 2: tiktoken 0.14.0, re-checked at leg 2.
 - [x] Ollama is not needed: leg 2 runs and compares `haiku` only (DD7).
 
 ### Pre-Flight Checklist
@@ -244,8 +244,8 @@ Verified against the working tree at `baf9f8c3`, then re-checked by the Architec
 
 ### Checkpoints
 - [x] Leg 1 implemented, unit tier green, reviewed and committed before any quota-heavy run (sortie 11 DD14).
-- [ ] Live probe exits 0 on haiku 4.5 (criteria 1, 2 live half, 3 for plan-token).
-- [ ] `compare --models haiku --same-prompt` against `s11-platform.json` shows no gate failure (criterion 4).
+- [x] Live probe exits 0 on haiku 4.5 (criteria 1, 2 live half, 3 for plan-token).
+- [x] `compare --models haiku` against `s11-platform.json` shows no gate failure (criterion 4). It ran without `--same-prompt`, because the current prompt postdates the baseline; see the flight log, Deviations.
 
 ### Adaptation Criteria
 
@@ -265,7 +265,7 @@ Verified against the working tree at `baf9f8c3`, then re-checked by the Architec
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `prompt-caching`: breakpoints and the composed retries in the provider, the `TokenUsage` cache fields through provider and codec, the `cache-probe` tool, `compare --models`, unit tests and docs. Autonomous; reviewed and committed before leg 2.
-- [ ] `cache-verification`: run by the Flight Director. Quota-heavy; no code changes unless a defect is found. Steps, in order:
+- [x] `cache-verification`: run by the Flight Director. Quota-heavy; no code changes unless a defect is found. Steps, in order:
   1. `make eval ARGS="cache-probe"`.
   2. `make eval ARGS="run --models haiku"`.
   3. `make eval ARGS="measure-prompt --json <run-dir>/measure.json"`.
@@ -277,10 +277,10 @@ Verified against the working tree at `baf9f8c3`, then re-checked by the Architec
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` green (offline; no network), including `tests/test_evals_freeze.py` with unchanged digests.
