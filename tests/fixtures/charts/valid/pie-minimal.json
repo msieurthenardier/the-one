@@ -1,0 +1,1 @@
+{"type": "pie", "title": "Browser share", "x": {"values": ["Firefox", "Chrome", "Safari", "Other"]}, "y": {"unit": "%"}, "series": [{"name": "Share", "values": [18, 62, 15, 5]}]}

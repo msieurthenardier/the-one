@@ -157,6 +157,11 @@ class AgentConfig(BaseModel):
     # `agents.notes_enabled INTEGER NOT NULL DEFAULT 0` column. The per-agent
     # number counter `agents.notes_next_number` is deliberately NOT a field.
     notes_enabled: bool = False
+    # M35 F1 DD11 — per-agent rich-visuals switch (tells the agent it may answer
+    # with charts). Operator-owned: a form field on the General tab; the
+    # `get_my_configuration` projection omits it. Persisted in the v52
+    # `agents.rich_visuals INTEGER NOT NULL DEFAULT 1` column. On for every agent.
+    rich_visuals: bool = True
     # Operator-owned Routines switches (M33 F2 DD4). Stored in
     # `agents.routines_self_config_enabled` (default 0) and
     # `agents.routines_require_approval` (DDL default 1, but `save`'s INSERT

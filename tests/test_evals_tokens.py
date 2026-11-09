@@ -690,9 +690,13 @@ def test_platform_prompt_sections_split_matches_the_whole_count():
     from evals.tokens import platform_prompt_sections
     from the_one.agent.platform_prompt import render_platform, render_tool_free
 
+    off = Capabilities(visuals=False)
     for text, caps in (
         (render_platform(Capabilities.all_on()), Capabilities.all_on()),
         (render_tool_free(Capabilities.all_on()), Capabilities(tools=False)),
+        # Mission 35: an agent with Rich visuals off renders without the section.
+        (render_platform(off), off),
+        (render_tool_free(off), Capabilities(tools=False, visuals=False)),
     ):
         assert platform_prompt_sections(text) == sections_for(caps)
         parts = extract_parts(text, [], C, platform_sections=platform_prompt_sections)
@@ -709,9 +713,9 @@ def test_platform_prompt_sections_handle_every_conditional_render(caplog):
     from the_one.agent.platform_prompt import render_platform
 
     combos = [
-        Capabilities(tools=True, knowledge=kb, exec_tools=ex, time_tool=tt)
-        for kb, ex, tt in itertools.product((True, False), repeat=3)
-    ] + [Capabilities(tools=False)]
+        Capabilities(tools=True, knowledge=kb, exec_tools=ex, time_tool=tt, visuals=vis)
+        for kb, ex, tt, vis in itertools.product((True, False), repeat=4)
+    ] + [Capabilities(tools=False, visuals=vis) for vis in (True, False)]
     for caps in combos:
         text = render_platform(caps)
         parts = extract_parts(text, [], C, platform_sections=platform_prompt_sections)

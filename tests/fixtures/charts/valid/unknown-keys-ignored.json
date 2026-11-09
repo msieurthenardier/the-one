@@ -1,0 +1,1 @@
+{"type": "bar", "colors": ["red", "blue"], "theme": "dark", "title": "Unknown keys", "x": {"values": ["A", "B"], "format": "text"}, "y": {"unit": "ms", "ticks": 4}, "series": [{"name": "S", "values": [1, 2], "color": "#ff0000"}], "annotations": [{"axis": "y", "value": 1.5, "label": "Mid", "style": "dotted"}], "legend": false}

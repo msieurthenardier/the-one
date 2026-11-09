@@ -53,7 +53,13 @@
   //                       cut from the tail's start
   //   finalize(frag|null) removes the tail (even when empty), appends the fragment, and
   //                       makes every later appendText, commit and finalize a no-op
-  //   tail()              the tail STRING ('' once finalized or when not streaming)
+  //   tail()              the tail STRING ('' once finalized or when not streaming); always
+  //                       the FULL logical tail, with or without a hold
+  //   setTailHold(off, node|null)  (M35 F1 L2) keeps `node` (a streaming chart placeholder)
+  //                       right after the tail text, which then shows only tail.slice(0, off);
+  //                       a commit that consumes past off clears the hold (node removed, never
+  //                       destroyed), otherwise off shifts down by the consumed count; finalize
+  //                       and null clear it. With a hold, el.lastChild is the node, not the text.
   // destroy() only marks the handle spent; it never removes the node.
   App.ui.message = function (opts) {
     opts = opts || {};
@@ -120,24 +126,61 @@
     }
     var finalized = false;
 
+    // The logical tail string. Without a hold the tail text node shows all of it; with a hold
+    // (setTailHold) the node shows tail.slice(0, holdOffset) and holdNode sits right after it.
+    // The text node's value is written only through syncTail().
+    var logical = '';
+    var holdOffset = 0;
+    var holdNode = null;
+    function syncTail() {
+      if (!tailNode) return;
+      var shown = holdNode ? logical.slice(0, holdOffset) : logical;
+      if (tailNode.nodeValue !== shown) tailNode.nodeValue = shown;
+      if (holdNode && tailNode.parentNode === root && tailNode.nextSibling !== holdNode) {
+        root.insertBefore(holdNode, tailNode.nextSibling);
+      }
+    }
+    function clearHold() {
+      if (holdNode && holdNode.parentNode === root) root.removeChild(holdNode);
+      holdNode = null;
+      holdOffset = 0;
+    }
+
     return {
       el: root,
       appendText: function (s) {
         if (!tailNode || finalized) return;
-        tailNode.nodeValue += String(s === undefined || s === null ? '' : s);
+        logical += String(s === undefined || s === null ? '' : s);
+        syncTail();
       },
       commit: function (fragment, consumed) {
         if (!tailNode || finalized || !fragment || !fragment.firstChild) return;
+        var n = Number(consumed) || 0;
+        if (holdNode && n > holdOffset) clearHold();
         root.insertBefore(fragment, tailNode);
-        tailNode.nodeValue = tailNode.nodeValue.slice(Number(consumed) || 0);
+        logical = logical.slice(n);
+        if (holdNode) holdOffset -= n;
+        syncTail();
+      },
+      // setTailHold(offset, node|null): keep `node` right after the visible tail text, which
+      // then shows only the first `offset` characters of the tail. null clears it. A repeat
+      // call with the same node and offset changes nothing (the node is never re-inserted).
+      setTailHold: function (offset, node) {
+        if (!tailNode || finalized) return;
+        if (!node) { clearHold(); syncTail(); return; }
+        if (holdNode && holdNode !== node && holdNode.parentNode === root) root.removeChild(holdNode);
+        holdNode = node;
+        holdOffset = Math.max(0, Number(offset) || 0);
+        syncTail();
       },
       finalize: function (fragment) {
         if (!tailNode || finalized) return;
         finalized = true;
+        clearHold();
         if (tailNode.parentNode === root) root.removeChild(tailNode);
         if (fragment && fragment.nodeType) root.appendChild(fragment);
       },
-      tail: function () { return tailNode && !finalized ? tailNode.nodeValue : ''; },
+      tail: function () { return tailNode && !finalized ? logical : ''; },
       destroy: function () { finalized = true; }
     };
   };

@@ -179,6 +179,87 @@ def test_reply_has_markdown_link(reply, expected):
     assert res.passed is expected, res.detail
 
 
+# ── reply_has_valid_chart (Mission 35 F1 L4) ──────────────────────────────
+
+BAR = '{"type": "bar", "x": {"values": ["a", "b"]}, "series": [{"values": [1, 2]}]}'
+LINE = '{"type": "line", "x": {"values": [1, 2]}, "series": [{"values": [3, 4]}]}'
+PIE = '{"type": "pie", "x": {"values": ["a", "b"]}, "series": [{"values": [1, 2]}]}'
+BAD = '{"type": "bar", "x": {"values": ["a"]}}'
+
+
+def chart(body: str, info: str = "chart") -> str:
+    return f"```{info}\n{body}\n```"
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (f"Here:\n{chart(BAR)}\nDone.", True),
+        (f"Here:\n{chart(BAR, 'chart extra words')}\n", True),  # first token only
+        (f"{chart(BAD)}\n\n{chart(LINE)}", True),  # one of two blocks is valid
+        (f"{chart(LINE)}\n\n{chart(BAD)}", True),
+        (f"```chart\n{BAR}\n", True),  # unterminated: runs to the end, the parser decides
+        (f"text\n```chart\n{BAR}", True),
+        (f"```chart\n{BAR}\n```   \nafter", True),  # a closer may carry trailing whitespace
+        (chart(BAD), False),  # a chart block, but not a valid chart
+        (chart("not json at all"), False),
+        ("Just prose, no block.", False),
+        (chart(BAR, "json"), False),  # a json block is not a chart
+        (chart(BAR, "Chart"), False),  # the tag is lowercase exactly
+        (chart(BAR, "charts"), False),
+        (f"~~~chart\n{BAR}\n~~~", False),  # tildes are never a fence
+        (f"- item\n\n  ```chart\n  {BAR}\n  ```", False),  # list-nested (indented): not counted
+        (f" ```chart\n{BAR}\n```", False),  # an indented fence is not a fence
+        (f"```json\n```chart\n{BAR}\n```\n```", False),  # quoted inside a json fence: code
+        (f"```\n```chart\n{BAR}\n```\n```\nmore", False),  # ... or inside a plain fence
+        (f"```chart\n{BAR}\n```\n```json\n{{}}\n```", True),
+        ("```chart\n```", False),  # empty body
+    ],
+)
+def test_reply_has_valid_chart(reply, expected):
+    res = run("reply_has_valid_chart", trace_with_reply(reply))
+    assert res.passed is expected, res.detail
+
+
+def test_reply_has_valid_chart_types_and_reasons():
+    tr = trace_with_reply(chart(PIE))
+    assert run("reply_has_valid_chart", tr, types=["pie", "bar"]).passed
+    wrong = run("reply_has_valid_chart", tr, types=["line", "area"])
+    assert wrong.passed is False and "pie" in wrong.detail
+    # a valid chart of a wanted type wins over an earlier wrong one
+    two = trace_with_reply(f"{chart(PIE)}\n\n{chart(LINE)}")
+    assert run("reply_has_valid_chart", two, types=["line"]).passed
+    # failure reasons name the parser's sentence or the missing block
+    from the_one.visuals.chart_spec import ChartError, parse_chart
+
+    sentence = parse_chart(BAD + "\n")
+    assert isinstance(sentence, ChartError)
+    assert sentence.message in run("reply_has_valid_chart", trace_with_reply(chart(BAD))).detail
+    assert run("reply_has_valid_chart", trace_with_reply("prose")).detail == "no chart block"
+    # an outcome of "fail", not an error class: nothing raised, passed is False
+    assert run("reply_has_valid_chart", trace_with_reply("prose")).passed is False
+
+
+def test_reply_has_valid_chart_reads_the_reply_only_and_picks_a_turn():
+    t1 = turn([asst(chart(BAR), ("c1", "x", {})), tool("c1"), asst("no chart in the reply")])
+    assert not run("reply_has_valid_chart", RunTrace(turns=[t1])).passed
+    two = RunTrace(turns=[turn([asst(chart(BAR))]), turn([asst("prose")], index=1)])
+    assert not run("reply_has_valid_chart", two).passed
+    assert run("reply_has_valid_chart", two, turn=0).passed
+    assert not run("reply_has_valid_chart", two, turn=5).passed
+
+
+def test_reply_has_valid_chart_validates_its_params():
+    assert checks.validate_params("reply_has_valid_chart", {}) == {}
+    assert checks.validate_params("reply_has_valid_chart", {"types": ["line"], "turn": 0}) == {
+        "types": ["line"],
+        "turn": 0,
+    }
+    for bad in ({"types": "line"}, {"types": []}, {"types": [1]}, {"pattern": "x"}):
+        with pytest.raises(ValueError):
+            checks.validate_params("reply_has_valid_chart", bad)
+
+
 # ── no_tool_call_text, date_line_present, judge ───────────────────────────
 
 

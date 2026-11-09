@@ -39,6 +39,8 @@ class Capabilities:
     # Sortie 11 DD3: every enabled tool schema is offered up front, so the discovery
     # section says so instead of describing `search_tools` discovery.
     tools_preloaded: bool = False
+    # Mission 35 DD12: the agent's Rich visuals switch; the chart-writing instructions.
+    visuals: bool = True
 
     @classmethod
     def all_on(cls) -> "Capabilities":
@@ -137,6 +139,14 @@ _TOOL_USE_TAIL = (
 
 _FORMATTING = "\nWrite replies in Markdown, and write links as [text](url).\n"
 
+_VISUALS = (
+    "\nTo chart data, write a fenced block with the language `chart` holding one JSON "
+    'object, `type` first: {"type": "bar", "x": {"values": ["Q1", "Q2"]}, '
+    '"series": [{"name": "Sales", "values": [12, 19]}]}. '
+    "Types: bar, line, area, scatter, pie, sparkline. Optional: `title`, axis `label` and "
+    '`unit`, `"stacked": true`. Chart only when it makes numbers clearer.\n'
+)
+
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"
 
 SECTIONS: tuple[Section, ...] = (
@@ -177,6 +187,13 @@ SECTIONS: tuple[Section, ...] = (
         _const(_TOOL_USE_TAIL),
     ),
     Section("formatting", "Formatting", "always", _always, _const(_FORMATTING)),
+    Section(
+        "visuals",
+        "Rich visuals",
+        "agents with Rich visuals on",
+        lambda c: c.visuals,
+        _const(_VISUALS),
+    ),
 )
 
 
@@ -287,7 +304,13 @@ def render_tool_free(caps: Capabilities) -> str:
 
 
 def capabilities_from_registry(
-    registry: Any, *, notes: bool, rules: bool, time_tool: bool, tools_preloaded: bool = False
+    registry: Any,
+    *,
+    notes: bool,
+    rules: bool,
+    time_tool: bool,
+    tools_preloaded: bool = False,
+    visuals: bool = True,
 ) -> Capabilities:
     """Derive the capabilities from a built tool registry (``None`` -> no tools).
 
@@ -308,4 +331,5 @@ def capabilities_from_registry(
         time_tool=time_tool,
         exec_tools=any(n in _EXEC_TOOL_NAMES for n in names),
         tools_preloaded=tools_preloaded,
+        visuals=visuals,
     )

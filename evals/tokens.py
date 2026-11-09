@@ -164,17 +164,20 @@ def platform_prompt_sections(text: str, *, strict: bool = False) -> list[tuple[s
     from the_one.agent.platform_prompt import Capabilities, render_platform, sections_for
 
     combos = [
-        Capabilities(tools=True, knowledge=kb, exec_tools=ex, tools_preloaded=pre)
-        for kb, ex, pre in itertools.product((True, False), repeat=3)
-    ] + [Capabilities(tools=False, knowledge=False, exec_tools=False)]
+        Capabilities(tools=True, knowledge=kb, exec_tools=ex, tools_preloaded=pre, visuals=vis)
+        for kb, ex, pre, vis in itertools.product((True, False), repeat=4)
+    ] + [
+        Capabilities(tools=False, knowledge=False, exec_tools=False, visuals=vis)
+        for vis in (True, False)
+    ]
     for caps in combos:
         if render_platform(caps) == text:
             return sections_for(caps)
     if strict:
         raise PlatformAttributionError(
             "platform text matches no capability combination (tools, knowledge, exec_tools, "
-            "tools_preloaded, tool-free); a new conditional section needs its capability added to "
-            "evals/tokens.py::platform_prompt_sections"
+            "tools_preloaded, visuals, tool-free); a new conditional section needs its "
+            "capability added to evals/tokens.py::platform_prompt_sections"
         )
     logging.getLogger(__name__).warning(
         "platform text matches no capability combination; counted as one part"

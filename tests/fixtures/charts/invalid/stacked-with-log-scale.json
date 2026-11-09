@@ -1,0 +1,1 @@
+{"type": "bar", "stacked": true, "x": {"values": ["A", "B"]}, "y": {"scale": "log"}, "series": [{"name": "S", "values": [1, 2]}, {"name": "T", "values": [3, 4]}]}

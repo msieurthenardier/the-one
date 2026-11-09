@@ -1,0 +1,1 @@
+{"type": "bar", "x": {"values": ["Q1", "Q2"]}, "series": [{"name": "S", "values": [1, 2]}], "annotations": [{"axis": "x", "value": "Q9", "label": "Launch"}]}

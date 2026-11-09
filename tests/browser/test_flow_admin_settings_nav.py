@@ -271,6 +271,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         "execution",
         "tool_use_tail",
         "formatting",
+        "visuals",
     ):
         expect(page.locator(f'[data-testid="platform-section-tools-{sid}"]')).to_be_visible()
     expect(
@@ -284,8 +285,16 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
     ]
     assert order[:2] == ["tools-identity", "tool_free-identity_tool_free"], order
     assert order[2] == "tools-tool_discovery", order
-    assert order[-1] == "tools-formatting", order
+    assert order[-2:] == ["tools-formatting", "tools-visuals"], order
     assert "tool_free-formatting" not in order, order
+    # Rich visuals (M35): shown once, with its own "Applies when" line.
+    assert "tool_free-visuals" not in order, order
+    expect(
+        page.locator('[data-testid="platform-section-tools-visuals-applies-when"]')
+    ).to_contain_text("Rich visuals on")
+    expect(page.locator('[data-testid="platform-section-tools-visuals-text"]')).to_contain_text(
+        "fenced block with the language `chart`"
+    )
     # The tool-free blocks never name a tool.
     free_text = page.locator('[data-testid^="platform-section-tool_free-"][data-testid$="-text"]')
     for t in free_text.all_inner_texts():

@@ -164,7 +164,7 @@ AST_CASES: list[tuple[str, dict]] = [
         _doc(
             {
                 "type": "codeBlock",
-                "meta": {"lang": "js"},
+                "meta": {"lang": "js", "closed": True},
                 "value": "console.log(1);\n",
             }
         ),
@@ -174,7 +174,7 @@ AST_CASES: list[tuple[str, dict]] = [
         _doc(
             {
                 "type": "codeBlock",
-                "meta": {"lang": None},
+                "meta": {"lang": None, "closed": True},
                 "value": "plain text\n",
             }
         ),
@@ -184,7 +184,7 @@ AST_CASES: list[tuple[str, dict]] = [
         _doc(
             {
                 "type": "codeBlock",
-                "meta": {"lang": "python"},
+                "meta": {"lang": "python", "closed": True},
                 "value": "a = 1\nb = 2\n",
             }
         ),
@@ -1462,3 +1462,130 @@ def test_safe_url_rejects_backslash_controls_and_other_schemes(
 )
 def test_safe_url_passes_ordinary_http_urls_unchanged(page_with_app: Page, url: str) -> None:
     assert page_with_app.evaluate("(u) => App.safeUrl(u)", url) == url
+
+
+# ── codeBlockRenderers, re-entrancy and meta.closed (M35 F1 L2) ────────────────
+
+
+@pytest.mark.browser
+def test_code_block_renderers_replace_the_well_for_the_exact_lang(page_with_app: Page) -> None:
+    """AC1: a renderer gets (source, {lang, closed}); the lang is the parser's first token."""
+    result = page_with_app.evaluate(
+        """() => {
+          var calls = [];
+          var opts = { codeBlockRenderers: { chart: function (src, meta) {
+            calls.push([src, meta.lang, meta.closed]);
+            var d = document.createElement('div');
+            d.setAttribute('data-x', 'drawn');
+            return d;
+          } } };
+          function html(t, o) {
+            var host = document.createElement('div');
+            host.appendChild(App.markdown.render(t, o));
+            return host;
+          }
+          var a = html('```chart\\n{"a":1}\\n```\\n', opts);
+          var b = html('```chart extra\\n{}\\n```\\n', opts);
+          var c = html('```Chart\\n{}\\n```\\n', opts);
+          var d = html('```python\\nx\\n```\\n', opts);
+          var plain = '```chart\\n{"a":1}\\n```\\nafter\\n';
+          return {
+            a: a.querySelectorAll('[data-x]').length, aWell: a.querySelectorAll('pre').length,
+            b: b.querySelectorAll('[data-x]').length,
+            c: c.querySelectorAll('[data-x]').length, cWell: c.querySelectorAll('pre').length,
+            d: d.querySelectorAll('[data-x]').length, dWell: d.querySelectorAll('pre').length,
+            calls: calls,
+            sameHtml: html(plain).innerHTML === html(plain, {}).innerHTML
+          };
+        }"""
+    )
+    assert result["a"] == 1 and result["aWell"] == 0
+    assert result["b"] == 1
+    assert result["c"] == 0 and result["cWell"] == 1
+    assert result["d"] == 0 and result["dWell"] == 1
+    assert result["calls"][0] == ['{"a":1}\n', "chart", True]
+    assert result["sameHtml"] is True
+
+
+@pytest.mark.browser
+def test_code_block_renderer_falsy_non_node_and_throw_fall_back(page_with_app: Page) -> None:
+    """AC1: a falsy or non-Node return, or a throw, gives the normal code well with its copy."""
+    result = page_with_app.evaluate(
+        """() => {
+          var src = '```chart\\nx\\n```\\n';
+          var out = [];
+          [function () { return null; }, function () { return 'text'; },
+           function () { return {}; }, function () { throw new Error('boom'); }
+          ].forEach(function (fn) {
+            var host = document.createElement('div');
+            host.appendChild(App.markdown.render(src, { codeBlockRenderers: { chart: fn } }));
+            out.push([host.querySelectorAll('pre').length,
+                      host.querySelectorAll('.markdown-copy-btn').length]);
+          });
+          return out;
+        }"""
+    )
+    assert result == [[1, 1]] * 4
+
+
+@pytest.mark.browser
+def test_code_block_renderers_ignore_inherited_names(page_with_app: Page) -> None:
+    result = page_with_app.evaluate(
+        """() => {
+          var host = document.createElement('div');
+          host.appendChild(App.markdown.render('```constructor\\nx\\n```\\n',
+            { codeBlockRenderers: {} }));
+          return host.querySelectorAll('pre').length;
+        }"""
+    )
+    assert result == 1
+
+
+@pytest.mark.browser
+def test_render_restores_outer_options_when_a_renderer_renders(page_with_app: Page) -> None:
+    """AC2: a renderer that calls render with other options leaves the outer options in force."""
+    result = page_with_app.evaluate(
+        """() => {
+          var inner = 0;
+          var opts = { codeBlockRenderers: { chart: function () {
+            App.markdown.render('```x\\ny\\n```\\n', { copyLiveEl: null });
+            inner++;
+            var d = document.createElement('div');
+            d.setAttribute('data-x', '1');
+            return d;
+          } } };
+          var host = document.createElement('div');
+          host.appendChild(App.markdown.render(
+            '```chart\\na\\n```\\n\\n```chart\\nb\\n```\\n\\n```chart\\nc\\n```\\n', opts));
+          return { drawn: host.querySelectorAll('[data-x]').length, inner: inner,
+                   wells: host.querySelectorAll('pre').length };
+        }"""
+    )
+    assert result == {"drawn": 3, "inner": 3, "wells": 0}
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    ("text", "closed"),
+    [
+        ("```chart\nx\n```\n", True),
+        ("```chart\nx\n```", True),
+        ("```chart\nx\n", False),
+        ("```chart\n", False),
+        ("- item\n  ```python\n  x = 1\n\nafter\n", False),
+    ],
+)
+def test_parse_marks_whether_a_fence_closed(page_with_app: Page, text: str, closed: bool) -> None:
+    """AC3: meta.closed is true only when a closing fence line was consumed."""
+    result = page_with_app.evaluate(
+        """(t) => {
+          var found = [];
+          (function walk(n) {
+            if (n.type === 'codeBlock') found.push(n.meta.closed);
+            (n.children || []).forEach(walk);
+          })(App.markdown.parse(t));
+          return found;
+        }""",
+        text,
+    )
+    assert result == [closed]

@@ -39,18 +39,32 @@
     // message bubble's height (typical ~40-80px) so a user who WAS at the
     // bottom stays pinned after an event.
     var SCROLL_PIN_THRESHOLD = 80;
+    function isPinned() {
+      return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <= SCROLL_PIN_THRESHOLD;
+    }
     function scrollToBottomIfPinned() {
-      var dist = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
-      if (dist <= SCROLL_PIN_THRESHOLD) {
+      if (isPinned()) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
+    }
+    // M35 F1 L2 (AC10): for later layout (a chart's first draw, a width change) the pinned state
+    // cannot be re-measured, because the content already grew. The flag is true after content was
+    // inserted while pinned and false once the reader scrolls away from the bottom.
+    var pinnedFlag = true;
+    messagesEl.addEventListener('scroll', function () { pinnedFlag = isPinned(); });
+    function onChartLayout() {
+      if (pinnedFlag) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     // The one shared role=status node the "Copy reply" confirmations announce in (it lives
     // outside the role=log message list, so the confirmation is not read as a new message).
     function liveEl() { return ctx.copyLiveEl; }
     // Code-block copy confirmations announce in the same shared node.
-    function mdOpts() { return { copyLiveEl: ctx.copyLiveEl }; }
+    // Charts draw from ```chart blocks in assistant replies only (M35 F1 L2, DD6).
+    function drawChart(source, meta) {
+      return App.ui.chart.block(source, { closed: meta.closed, testid: 'chat-chart', onLayout: onChartLayout });
+    }
+    function mdOpts() { return { copyLiveEl: ctx.copyLiveEl, codeBlockRenderers: { chart: drawChart } }; }
 
     // The side of a bubble's attribution: a peer-attributed user bubble aligns left (M11 F06
     // L04), an operator-typed one right, every other bubble left.
@@ -64,6 +78,8 @@
     // always spelled it. opts: ts, visibility, peerName.
     function addMsg(cls, text, attribution, opts) {
       App.perf.mark('addMsg:start');
+      // Sampled BEFORE the insert: a chart can add more than the pin threshold at once.
+      var wasPinned = isPinned();
       opts = opts || {};
       var tokens = cls.split(' ');
       var role = tokens[0];
@@ -99,7 +115,8 @@
         });
         messagesEl.appendChild(attr.el);
       }
-      scrollToBottomIfPinned();
+      if (wasPinned) messagesEl.scrollTop = messagesEl.scrollHeight;
+      else scrollToBottomIfPinned();
       App.perf.mark('addMsg:end');
       App.perf.measure('addMsg', 'addMsg:start', 'addMsg:end');
     }
@@ -131,12 +148,15 @@
       resetStream();
       traceShells = Object.create(null);
       iterationAnchor = null;
+      pinnedFlag = true;
       messagesEl.replaceChildren();
     }
 
     // Drop a streaming bubble that belongs to the conversation being left.
     function resetStream() {
       stopPacing();
+      dropChartHold();
+      boundaries.reset();
       pendingChars = '';
       streamMsg = null;
       streamAttr = null;
@@ -234,49 +254,83 @@
     var pendingChars = '';
     var pacingTimer = null;
 
-    // Find the last "safe" position for incremental markdown rendering:
-    // the index AFTER a blank-line block boundary (`\n\n`) that is NOT
-    // inside an unclosed code fence. Returns 0 if no safe boundary.
-    // A real blank line requires two adjacent newlines, which appears in
-    // text.split('\n') as a sequence ["...non-empty", "", "..."] — so we
-    // require lines[i+1]==='' AND i+2<lines.length (the trailing "" from
-    // a single \n at end-of-input has no element after it, so we skip it).
-    function findSafeRenderBoundary(text) {
-      var lines = text.split('\n');
-      var inFence = false;
-      var lastSafe = 0;
-      var pos = 0;
-      for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
-        if (line.replace(/^\s+/, '').indexOf('```') === 0) inFence = !inFence;
-        pos += line.length + 1;
-        if (!inFence && lines[i + 1] === '' && i + 2 < lines.length) {
-          lastSafe = pos + 1;
-        }
-      }
-      return lastSafe;
+    // Safe incremental rendering (M35 F1 L2, DD8/DD10). The candidate boundaries (a blank line,
+    // a top-level closing fence's line end, a top-level ```chart opener) come from
+    // App.chat.chartStream; a candidate is committed only when the parser agrees its prefix holds
+    // no unclosed code block, so a fence is never split.
+    var boundaries = App.chat.chartStream.create();
+
+    // The streaming chart placeholder, if one is up: {placeholder, offset} where offset is where
+    // its ```chart opener lies in the bubble's tail. A placeholder is raised only after the
+    // opener's prefix was parser-confirmed (so it never sits on text the parser treats as code).
+    var chartHold = null;
+
+    function dropChartHold() {
+      var hold = chartHold;
+      chartHold = null;
+      if (!hold) return;
+      try { if (streamMsg) streamMsg.setTailHold(0, null); } catch (e) { /* defensive */ }
+      try { hold.placeholder.destroy(); } catch (e2) { /* defensive */ }
+      if (hold.placeholder.el.parentNode) hold.placeholder.el.parentNode.removeChild(hold.placeholder.el);
     }
 
-    // After paced text is appended to the pending tail, check whether a
-    // new block boundary became visible. If yes, render the committed
-    // prefix as markdown and shrink the pending tail.
+    // After paced text is appended to the pending tail, plan the commit. If a boundary was
+    // confirmed, render the prefix as markdown and shrink the tail; then keep the placeholder
+    // for an open top-level chart block in step with the tail.
     function commitSafeBoundary() {
       if (!streamMsg) return;
       var tail = streamMsg.tail();
-      var boundary = findSafeRenderBoundary(tail);
-      if (boundary <= 0) return;
-      var prefix = tail.slice(0, boundary);
-      streamMsg.commit(App.markdown.render(prefix, mdOpts()), prefix.length);
+      var plan = boundaries.plan(tail);
+      var consumed = 0;
+      if (plan.boundary > 0) {
+        var frag = App.markdown.render(tail.slice(0, plan.boundary), mdOpts());
+        if (frag.firstChild) {
+          streamMsg.commit(frag, plan.boundary);
+          consumed = plan.boundary;
+          boundaries.reset();
+        } else {
+          boundaries.markEmpty(plan.boundary);
+        }
+      }
+      // A commit that cut text removed the bubble's hold with it (or the block it held is now
+      // drawn): the placeholder is spent, and a new open block gets a new one below.
+      if (consumed > 0) dropChartHold();
+      var openAt = plan.open === null ? null : plan.open - consumed;
+      if (openAt === null || openAt < 0) {
+        dropChartHold();
+        return;
+      }
+      if (!chartHold) {
+        chartHold = {
+          placeholder: App.ui.chart.placeholder({ type: null, testid: 'chat-chart-placeholder' }),
+          offset: openAt,
+          source: null
+        };
+        streamMsg.setTailHold(openAt, chartHold.placeholder.el);
+      }
+      var blockText = streamMsg.tail().slice(openAt);
+      var nl = blockText.indexOf('\n');
+      var body = nl < 0 ? '' : blockText.slice(nl + 1);
+      if (body !== chartHold.source) {
+        chartHold.source = body;
+        chartHold.placeholder.setSource(body);
+      }
+      var type = App.chat.chartStream.typeOf(blockText);
+      if (type) chartHold.placeholder.setType(type);
     }
 
     function pacingTick() {
       if (!pendingChars.length || !streamMsg) return;
+      // Sampled before the text and any commit (a chart swap can grow the log by more than the
+      // pin threshold at once).
+      var wasPinned = isPinned();
       var n = Math.max(1, Math.ceil(pendingChars.length / 30));
       var slice = pendingChars.slice(0, n);
       pendingChars = pendingChars.slice(n);
       streamMsg.appendText(slice);
       commitSafeBoundary();
-      scrollToBottomIfPinned();
+      if (wasPinned) { messagesEl.scrollTop = messagesEl.scrollHeight; pinnedFlag = true; }
+      else scrollToBottomIfPinned();
     }
 
     function startPacing() {
@@ -302,6 +356,11 @@
       drainPacing();
       var bubble = streamMsg;
       if (!bubble) return;
+      var wasPinned = isPinned();
+      // The placeholder is destroyed before the tail renders: the tail may hold the block it
+      // stood for, which now draws as a chart or as the error / cut-off notice.
+      dropChartHold();
+      boundaries.reset();
       var attr = streamAttr;
       var source = streamSource;
       streamMsg = null;
@@ -310,6 +369,7 @@
       var tail = bubble.tail();
       bubble.finalize(tail ? App.markdown.render(tail, mdOpts()) : null);
       if (attr && source) attr.setCopy(source);
+      if (wasPinned) { messagesEl.scrollTop = messagesEl.scrollHeight; pinnedFlag = true; }
     }
 
     // The thinking line (A8): "Thinking" and the control's dots, which read as "Thinking…"
@@ -580,6 +640,9 @@
     function onAssistantChunk(data) {
       hideThinking();
       if (!streamMsg) {
+        // A stale placeholder from an earlier bubble never carries over (never throws).
+        dropChartHold();
+        boundaries.reset();
         // M10 F05 L05: capture visibility from the FIRST chunk so the marker lands at
         // construction (not at finalize — that would cause a visual flip).
         currentStreamingVisibility = data.visibility || null;

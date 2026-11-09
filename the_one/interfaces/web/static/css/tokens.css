@@ -58,6 +58,9 @@
     /* The agent drawer (M25 F4 L6, reference spec 5.7): App.ui.drawer's
        width, border-box, so its 1px left border sits inside the 320px. */
     --drawer-w: 320px;
+    /* The current chart series colour (M35 F1 L1): each ui-chart-series-N class sets it from
+       --chart-N (theme blocks below); this is only the default. */
+    --chart-c: var(--chart-1);
   }
 
   [data-theme="dark"] {
@@ -151,6 +154,21 @@
     --status-danger: #f87171;
     --status-danger-muted: #d98c8c;
     --status-danger-bg-soft: rgba(248, 113, 113, 0.08);
+
+    /* chart palette (M35 F1 L1, DD7): eight categorical series colours plus the reference
+       line. Each is >= 3.0:1 (WCAG 1.4.11, non-text) on bg, on surface and on the assistant
+       bubble (--surface-translucent composited over bg); gated in
+       tests/test_design_tokens_a11y.py. Grid and axis reuse --border, --border-strong and
+       --fg-tertiary. The values are listed in docs/chart-format.md for the server renderer. */
+    --chart-1: #a78bfa;
+    --chart-2: #22d3ee;
+    --chart-3: #fbbf24;
+    --chart-4: #f472b6;
+    --chart-5: #4ade80;
+    --chart-6: #fb923c;
+    --chart-7: #60a5fa;
+    --chart-8: #94a3b8;
+    --chart-ref: #fbbf24;
 
     /* provider badges
        NOTE: badge FILL tokens are theme- and accent-stable (brand identity);
@@ -289,6 +307,18 @@
     --status-warning-bg-soft: rgba(143, 86, 6, 0.08);
     --status-warning-bg-soft-2: rgba(143, 86, 6, 0.12);
     --status-warning-border: rgba(143, 86, 6, 0.30);
+
+    /* chart palette (M35 F1 L1, DD7): see the dark block. Light values are the 700-weight
+       family, each >= 4.7:1 on bg, surface and the composited assistant bubble. */
+    --chart-1: #6d28d9;
+    --chart-2: #0e7490;
+    --chart-3: #b45309;
+    --chart-4: #be185d;
+    --chart-5: #15803d;
+    --chart-6: #c2410c;
+    --chart-7: #1d4ed8;
+    --chart-8: #475569;
+    --chart-ref: #b45309;
     /* danger — red-700 (deepened from red-600 #dc2626 in M17 F3 fix): the
        #dc2626 text failed body AA (1.4.3) on the composited --status-danger-bg-soft
        fill over surface-elevated (4.02:1). red-700 clears ≥4.5 on the soft fill

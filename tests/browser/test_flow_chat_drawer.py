@@ -367,6 +367,7 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
         "MCP servers",
         "Secrets",
         "Built-in tools",
+        "Rich visuals",
         "Self-configuration",
     ]
 

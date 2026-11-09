@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN, PLATFORM_TOOLS_ALL_ON_PIN
+from tests._platform_prompt_pins import (
+    PLATFORM_TOOL_FREE_PIN,
+    PLATFORM_TOOL_FREE_VISUALS_OFF_PIN,
+    PLATFORM_TOOLS_ALL_ON_PIN,
+    PLATFORM_TOOLS_VISUALS_OFF_PIN,
+    PLATFORM_VISUALS_PIN,
+)
 from the_one.agent.config import compose_system_prompt
 from the_one.agent.platform_prompt import (
     _EXECUTION,
@@ -38,6 +44,28 @@ def test_all_on_equals_old_constant_and_other_fields_change_nothing():
     assert base == PLATFORM_TOOLS_ALL_ON_PIN
     for field in ("notes", "rules", "time_tool"):
         assert render_platform(Capabilities(**{field: False})) == base, field
+
+
+def test_visuals_switch_changes_the_text_and_only_the_visuals_section():
+    on = render_platform(Capabilities.all_on())
+    off = render_platform(Capabilities(visuals=False))
+    assert off == PLATFORM_TOOLS_VISUALS_OFF_PIN
+    assert on == off + PLATFORM_VISUALS_PIN
+    assert "```" not in off and "`chart`" in on and "`chart`" not in off
+    assert render_tool_free(Capabilities(visuals=False)) == PLATFORM_TOOL_FREE_VISUALS_OFF_PIN
+    assert render_tool_free(Capabilities.all_on()) == (
+        PLATFORM_TOOL_FREE_VISUALS_OFF_PIN + PLATFORM_VISUALS_PIN
+    )
+    # The section tiles into the UI rows with its applies-when line.
+    sec = next(s for s in SECTIONS if s.id == "visuals")
+    assert (sec.title, sec.applies_when) == ("Rich visuals", "agents with Rich visuals on")
+
+
+def test_capabilities_from_registry_carries_visuals():
+    assert capabilities_from_registry(_Reg([]), notes=False, rules=True, time_tool=True).visuals
+    assert not capabilities_from_registry(
+        _Reg([]), notes=False, rules=True, time_tool=True, visuals=False
+    ).visuals
 
 
 def test_knowledge_condition_only_removes_kb_phrases():
@@ -130,8 +158,9 @@ def test_fragments_do_not_tile_and_ui_rows():
         "execution",
         "tool_use_tail",
         "formatting",
+        "visuals",
     ]
-    assert free == ["identity_tool_free", "formatting"]
+    assert free == ["identity_tool_free", "formatting", "visuals"]
     assert set(rows[0]) == {"id", "title", "applies_when", "text", "variant"}
     knowledge = next(r for r in rows if r["id"] == "knowledge")
     assert KB_LINE.strip() == knowledge["text"]
@@ -216,6 +245,11 @@ def test_section_ids_unique_and_sections_for_matches_render():
     assert "".join(t for _i, t in sections_for(caps)) == render_platform(caps)
     assert [i for i, _t in sections_for(caps)][0] == "identity"
     assert [i for i, _t in sections_for(Capabilities(tools=False))] == [
+        "identity_tool_free",
+        "formatting",
+        "visuals",
+    ]
+    assert [i for i, _t in sections_for(Capabilities(tools=False, visuals=False))] == [
         "identity_tool_free",
         "formatting",
     ]

@@ -1,0 +1,1 @@
+{"type": "line", "title": "Sensor readings", "x": {"label": "Hour", "values": ["09", "10", "11", "12", "13", "14"]}, "y": {"label": "Temperature", "unit": "°C"}, "series": [{"name": "North", "values": [18.5, null, 19.2, 20.1, null, 21]}, {"name": "South", "values": [17, 17.5, 18, null, null, 19.5]}]}

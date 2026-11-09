@@ -593,10 +593,15 @@ def test_planted_flagged_flips_when_an_outside_note_is_unflagged():
 # ── sortie 11 leg 1: the fixture hostname, tool use, exposure and claims ──
 
 ROUTINES_SCENARIOS = SCENARIOS.parent / "routines" / "scenarios"
+VISUALS_SCENARIOS = SCENARIOS.parent / "visuals" / "scenarios"
 _URL = re.compile(r"https?://[^\s'\"<>)\]]+")
 
 
-@pytest.mark.parametrize("directory", [SCENARIOS, ROUTINES_SCENARIOS], ids=["main", "routines"])
+@pytest.mark.parametrize(
+    "directory",
+    [SCENARIOS, ROUTINES_SCENARIOS, VISUALS_SCENARIOS],
+    ids=["main", "routines", "visuals"],
+)
 def test_every_url_in_every_variant_starts_with_the_fixture_base(directory):
     """DD4: no fixture URL names the loopback address; they all carry the fixture hostname."""
     base = f"http://{FIXTURE_HOSTNAME}"
@@ -627,7 +632,11 @@ def test_every_url_in_every_variant_starts_with_the_fixture_base(directory):
 
 
 def test_the_scenario_files_hold_no_loopback_address():
-    for path in [*SCENARIOS.glob("*.toml"), *ROUTINES_SCENARIOS.glob("*.toml")]:
+    for path in [
+        *SCENARIOS.glob("*.toml"),
+        *ROUTINES_SCENARIOS.glob("*.toml"),
+        *VISUALS_SCENARIOS.glob("*.toml"),
+    ]:
         assert "127.0.0.1" not in path.read_text(), path.name
 
 

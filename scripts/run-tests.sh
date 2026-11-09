@@ -32,7 +32,7 @@ set -euo pipefail
 # store files that used to be the long pole of `shared`. `contracts-overlay` and
 # `contracts-chat` (M31 F6 L04) and `contracts-controls` (M25 F4 L1 squawk 0117; split in M31 F3 L01)
 # hold the `App.ui` control-library contract files (`test_ui_*`): overlay and chat are explicit
-# lists (chat: the six chat controls), controls the rest.
+# lists (chat: the six chat controls plus, since M35 F1 L1, the chart files), controls the rest.
 # `shared` is the COMPLEMENT (every browser test file not claimed by the named
 # lanes), so the lanes' union is always exactly the whole browser suite and no
 # test file can be orphaned — a newly-added test file lands in `shared` until it
@@ -59,7 +59,7 @@ set -euo pipefail
 LANE_LIST="chats|chats-transcript|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
 CANON_LANES=(chats chats-transcript agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-controls shared)
 
-# Per-lane wall-clock budgets in seconds (M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
+# Per-lane wall-clock budgets in seconds (M35 F1 L1: contracts-chat re-budgeted 90 to 120 s when the two chart contract files joined it, measured 83 s solo on a host at load 1.2-2.4, not a quiet --parallel 3 reading, so M35's closing gate re-measures it; earlier: M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
 # QUIET-HOST RULE (squawk 0259): a budget reading counts only from a `--parallel 3` run with no
 # other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
@@ -79,7 +79,7 @@ declare -A BUDGET=(
   [settings-tools]=330
   [providers]=420
   [contracts-overlay]=330
-  [contracts-chat]=90
+  [contracts-chat]=120
   [contracts-controls]=600
   [shared]=420
 )
@@ -193,7 +193,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
-                      'test_flow_chat_drafts.py')
+                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py')
 # Library-owned files (explicit): connectors, library focus, and the
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).
@@ -248,9 +248,10 @@ providers_pat=('test_flow_provider_*')
 contracts_overlay_pat=('test_ui_modal*' 'test_ui_menu*' 'test_ui_rail*' 'test_ui_list_pane_chats*' \
   'test_ui_search_list*' 'test_ui_drawer*' 'test_ui_nav_groups*' 'test_ui_confirm*' \
   'test_ui_focus_after*' 'test_ui_dialog_rule*' 'test_ui_dialog_scroll*')
-# Contracts-chat (M31 F6 L04, flight DD15): the six chat-control contract files.
+# Contracts-chat (M31 F6 L04, flight DD15): the six chat-control contract files, plus the
+# chart and chart-placeholder contracts (M35 F1 L1).
 contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' 'test_ui_trace*' \
-  'test_ui_telemetry*' 'test_ui_notice*')
+  'test_ui_telemetry*' 'test_ui_notice*' 'test_ui_chart*')
 contracts_all_pat=('test_ui_*')
 
 # Files matching the studio globs minus the library, knowledge, mcp, mcp-connection,

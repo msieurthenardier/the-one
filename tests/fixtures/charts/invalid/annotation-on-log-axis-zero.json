@@ -1,0 +1,1 @@
+{"type": "line", "x": {"values": ["A", "B"]}, "y": {"scale": "log"}, "series": [{"name": "S", "values": [1, 2]}], "annotations": [{"axis": "y", "value": 0, "label": "Zero"}]}

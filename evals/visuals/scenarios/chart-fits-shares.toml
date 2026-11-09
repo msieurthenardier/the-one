@@ -1,0 +1,25 @@
+id = "chart-fits-shares"
+class = "improve"
+description = "Shares of a whole; the chart asked for must be a pie or a bar chart."
+
+[variants]
+phrasings = [
+  "Chart the split of {what}: {data}.",
+  "Please draw a chart showing how {what} divides up. {data}.",
+  "Can you chart {what}? {data}.",
+  "Show me a chart of {what} by share. {data}.",
+]
+facts = [
+  {what = "the harbour fund's income", data = "mooring fees 45%, grants 30%, donations 15%, café 10%"},
+  {what = "where the parish council's budget goes", data = "roads 40%, hall upkeep 25%, grants 20%, admin 15%"},
+  {what = "how members of the choir are split", data = "sopranos 12, altos 9, tenors 5, basses 7"},
+  {what = "the bakery's sales by product", data = "bread 55%, pastries 25%, cakes 15%, other 5%"},
+  {what = "how visitors to the museum arrived", data = "on foot 38%, by car 34%, by bus 20%, by bike 8%"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_has_valid_chart"
+types = ["pie", "bar"]

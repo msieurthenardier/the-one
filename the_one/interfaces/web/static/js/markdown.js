@@ -178,11 +178,13 @@
           codeLines.push(lines[i]);
           i++;
         }
-        // Skip the closing fence (if any — be lenient if missing).
-        if (i < endIdx) i++;
+        // Skip the closing fence (if any — be lenient if missing). `closed` records whether
+        // one was consumed (false: the input ran out first).
+        var closed = i < endIdx;
+        if (closed) i++;
         nodes.push({
           type: NodeType.CODE_BLOCK,
-          meta: { lang: lang },
+          meta: { lang: lang, closed: closed },
           value: codeLines.join('\n') + (codeLines.length ? '\n' : '')
         });
         continue;
@@ -921,6 +923,19 @@
   }
 
   function renderCodeBlock(node) {
+    // A per-call renderer for a language (options.codeBlockRenderers, own keys only). It gets
+    // (source, {lang, closed}) and returns a Node that stands in for the code well; a falsy or
+    // non-Node return, or a throw, falls back to the normal well.
+    var custom = renderOptions && renderOptions.codeBlockRenderers;
+    var langName = node.meta && node.meta.lang;
+    if (custom && typeof langName === 'string' &&
+        Object.prototype.hasOwnProperty.call(custom, langName) &&
+        typeof custom[langName] === 'function') {
+      try {
+        var made = custom[langName](node.value || '', { lang: langName, closed: node.meta.closed !== false });
+        if (made && made.nodeType) return made;
+      } catch (err) { /* fall back to the code well */ }
+    }
     var wrap = document.createElement('div');
     wrap.className = 'markdown-code-wrap';
     var pre = document.createElement('pre');
@@ -968,11 +983,13 @@
       return frag;
     }
     var ast = parse(text);
+    // Re-entrant: a code-block renderer may itself call render, so restore the caller's options.
+    var prev = renderOptions;
     renderOptions = options || null;
     try {
       renderNodes(ast.children || [], frag);
     } finally {
-      renderOptions = null;
+      renderOptions = prev;
     }
     return frag;
   }

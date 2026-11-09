@@ -1,0 +1,1 @@
+{"type": "pie", "title": "Spend by month", "x": {"values": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]}, "y": {"unit": "$"}, "series": [{"values": [10, 12, 9, 14, 11, 13, 8, 15, 10, 12, 9, 16]}]}

@@ -104,6 +104,9 @@
           data[key] = Number.isNaN(n) ? 30 : n;
         } else if (key === 'provider_config_id') {
           data[key] = f.value || null;
+        } else if (f.type === 'checkbox') {
+          // A switch field (rich_visuals): a boolean, never the string "on".
+          data[key] = !!f.checked;
         } else {
           data[key] = f.value;
         }

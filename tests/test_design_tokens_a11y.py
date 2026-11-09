@@ -202,6 +202,41 @@ def test_lapsed_outline_and_led_colours_pass_non_text_ui_aa(
     )
 
 
+_CHART_SERIES_TOKENS = tuple(f"chart_{n}" for n in range(1, 9)) + ("chart_ref",)
+
+
+def _assistant_bubble_background(theme: str) -> str:
+    """The opaque colour of the assistant bubble: ``--surface-translucent`` composited over
+    ``--bg``. The rgba is parsed from tokens.css so this test cannot drift from the CSS."""
+    raw = parse_tokens_css_theme_blocks()[theme]["--surface-translucent"]
+    m = re.fullmatch(r"rgba\((\d+), (\d+), (\d+), ([0-9.]+)\)", raw)
+    assert m, f"--surface-translucent is not a plain rgba(): {raw!r}"
+    fg_hex = "#" + "".join(f"{int(m.group(i)):02x}" for i in (1, 2, 3))
+    return _alpha_composite(fg_hex, float(m.group(4)), _palette(theme)["bg"])
+
+
+# M35 F1 L1 (DD7): chart series and reference-line colours are non-text graphics (WCAG
+# 1.4.11, 3.0:1) on the surfaces a chart sits on: the page, the chart card, and the assistant
+# bubble (the translucent wash composited over the page). tokens.css carries no --chart-* in
+# the fg-role completeness net (its prefixes are fg/accent/status/code-block/control), so no
+# _CONTRAST_EXEMPT entry is needed.
+@pytest.mark.parametrize("surface", ("bg", "surface", "bubble"))
+@pytest.mark.parametrize("token", _CHART_SERIES_TOKENS)
+@pytest.mark.parametrize("theme", THEMES)
+def test_chart_palette_passes_non_text_aa(theme: str, token: str, surface: str) -> None:
+    palette = _palette(theme)
+    bg = _assistant_bubble_background(theme) if surface == "bubble" else palette[surface]
+    ratio = contrast_ratio(palette[token], bg)
+    assert ratio >= 3.0, f"{theme}: {token} on {surface} ({bg}) = {ratio:.2f}:1 (need >= 3.0:1)"
+
+
+def test_chart_palette_series_are_distinct_in_each_theme() -> None:
+    for theme in THEMES:
+        palette = _palette(theme)
+        series = [palette[f"chart_{n}"] for n in range(1, 9)]
+        assert len(set(series)) == 8, f"{theme}: chart series colours repeat"
+
+
 @pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
 @pytest.mark.parametrize(
     "fg_key",

@@ -1,0 +1,1 @@
+{"type": "bar", "x": {"values": ["A", "B"]}, "series": [{"name": "First", "values": [1, 2]}, {"values": [3, 4]}]}

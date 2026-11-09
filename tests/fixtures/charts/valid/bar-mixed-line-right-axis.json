@@ -1,0 +1,1 @@
+{"type": "bar", "title": "Orders and conversion", "x": {"values": ["Jan", "Feb", "Mar", "Apr"]}, "y": {"label": "Orders"}, "y2": {"label": "Conversion", "unit": "%", "min": 0, "max": 10}, "series": [{"name": "Orders", "values": [820, 910, 1050, 990]}, {"name": "Conversion", "type": "line", "axis": "right", "values": [2.4, 2.9, 3.4, 3.1]}]}

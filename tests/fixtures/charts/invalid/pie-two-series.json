@@ -1,0 +1,1 @@
+{"type": "pie", "x": {"values": ["A", "B"]}, "series": [{"name": "This year", "values": [1, 2]}, {"name": "Last year", "values": [3, 4]}]}

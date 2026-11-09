@@ -9,6 +9,44 @@
     system: 'ui-message--system'
   };
 
+  // App.ui.thinking.dots() -> {el, destroy()}  (M35 F1 L1, DD8)
+  //
+  // The spinner dots on their own: span.ui-thinking-dots[aria-hidden=true], a braille frame
+  // every 120ms. The chart placeholder reuses it. The frame is read once from the user's
+  // motion preference: reduced motion gets one static ' …' and no interval. The interval
+  // stops on destroy() and once the dots node has been connected and then disconnected; a
+  // node that was built but never attached keeps ticking until it is attached. destroy() is
+  // safe to repeat and never removes the node.
+  function makeDots() {
+    var el = App.ui.util.el('span', { className: 'ui-thinking-dots', 'aria-hidden': 'true' });
+    var timer = null;
+    var wasConnected = false;
+    var frame = 0;
+    function stop() {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+    var reduceMotion = !!(window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (reduceMotion) {
+      el.textContent = ' …';
+    } else {
+      timer = setInterval(function () {
+        if (el.isConnected) {
+          wasConnected = true;
+        } else if (wasConnected) {
+          stop();
+          return;
+        }
+        frame = (frame + 1) % FRAMES.length;
+        el.textContent = ' ' + FRAMES[frame];
+      }, 120);
+    }
+    return { el: el, destroy: stop };
+  }
+
   // App.ui.thinking(opts) -> {el, settle(text), destroy()}  (M31 F6 L04, DD4)
   //
   // The ephemeral "the model is working" line. Its root composes the message look:
@@ -36,44 +74,19 @@
       className: 'ui-thinking-text',
       text: opts.label === undefined || opts.label === null ? 'thinking' : String(opts.label)
     });
-    var dotEl = util.el('span', { className: 'ui-thinking-dots', 'aria-hidden': 'true' });
-    var root = util.el('div', { className: 'ui-message ' + TONE_CLASS[tone] + ' ui-thinking' }, [textEl, dotEl]);
+    var dots = makeDots();
+    var root = util.el('div', { className: 'ui-message ' + TONE_CLASS[tone] + ' ui-thinking' }, [textEl, dots.el]);
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
-
-    var timer = null;
-    var wasConnected = false;
-    var frame = 0;
-    function stop() {
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    }
-    var reduceMotion = !!(window.matchMedia
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    if (reduceMotion) {
-      dotEl.textContent = ' …';
-    } else {
-      timer = setInterval(function () {
-        if (root.isConnected) {
-          wasConnected = true;
-        } else if (wasConnected) {
-          stop();
-          return;
-        }
-        frame = (frame + 1) % FRAMES.length;
-        dotEl.textContent = ' ' + FRAMES[frame];
-      }, 120);
-    }
 
     return {
       el: root,
       settle: function (text) {
-        stop();
+        dots.destroy();
         root.classList.remove('ui-thinking');
         root.textContent = text === undefined || text === null ? '' : String(text);
       },
-      destroy: function () { stop(); }
+      destroy: function () { dots.destroy(); }
     };
   };
+  App.ui.thinking.dots = makeDots;
 })();

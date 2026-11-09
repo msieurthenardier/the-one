@@ -156,7 +156,17 @@
     return out;
   }
 
+  // M35 F1 DD11: the read-only Rich visuals line, from the agent row in hand; a row without
+  // the field (an older cached row) is On.
+  function richVisualsGroup(agent) {
+    return el('div', { className: 'chat-drawer-group', dataset: { group: 'rich-visuals' } }, [
+      el('h4', { className: 'chat-drawer-group-label', text: 'Rich visuals' }),
+      el('p', { className: 'chat-drawer-value', text: agent.rich_visuals === false ? 'Off' : 'On' })
+    ]);
+  }
+
   window.App.chat.drawerParts = {
+    richVisualsGroup: richVisualsGroup,
     grantedSecrets: grantedSecrets,
     noticesGroup: noticesGroup,
     whenLabel: whenLabel,

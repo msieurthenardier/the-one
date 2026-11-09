@@ -691,6 +691,7 @@ class AgentFactory:
             rules=True,
             time_tool=tool_available,
             tools_preloaded=tool_exposure.decided,
+            visuals=config.rich_visuals,
         )
         prompts = await build_system_prompts(
             config.name,
@@ -701,6 +702,7 @@ class AgentFactory:
             time_tool=caps.time_tool,
             exec_tools=caps.exec_tools,
             tools_preloaded=caps.tools_preloaded,
+            visuals=caps.visuals,
         )
 
         # 4. Create agent
@@ -718,6 +720,7 @@ class AgentFactory:
             secrets=SecretResolver(config.name),
         )
         agent.tool_exposure = tool_exposure  # type: ignore[attr-defined]
+        agent.rich_visuals = config.rich_visuals  # type: ignore[attr-defined]
         # Mission 27 F2 (DD5/DD6): each notes tool reads its owning Agent's
         # messages at execute time to compute the untrusted flag. Bound after
         # construction (the Agent does not exist while tools are built).

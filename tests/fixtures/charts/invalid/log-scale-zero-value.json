@@ -1,0 +1,1 @@
+{"type": "line", "x": {"values": ["A", "B", "C"]}, "y": {"scale": "log"}, "series": [{"name": "Latency", "values": [5, 0, 50]}]}

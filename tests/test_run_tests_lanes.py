@@ -94,12 +94,22 @@ def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[
     assert not (lanes["shared"] & ui)
 
 
-def test_contracts_chat_lane_is_the_six_chat_control_files(lanes: dict[str, set[str]]) -> None:
+def test_contracts_chat_lane_is_the_chat_control_files(lanes: dict[str, set[str]]) -> None:
     """M31 F6 L04 (DD15): the six chat-control contract files are their own lane, so
-    `contracts-controls` no longer lists them and the `contracts` alias still does."""
+    `contracts-controls` no longer lists them and the `contracts` alias still does. M35 F1 L1
+    adds the two chart files (`test_ui_chart*`)."""
     chat = {
         f"tests/browser/test_ui_{n}_contract.py"
-        for n in ("composer", "message", "thinking", "trace", "telemetry", "notice")
+        for n in (
+            "composer",
+            "message",
+            "thinking",
+            "trace",
+            "telemetry",
+            "notice",
+            "chart",
+            "chart_placeholder",
+        )
     }
     assert lanes["contracts-chat"] == chat
     assert not (lanes["contracts-controls"] & chat)

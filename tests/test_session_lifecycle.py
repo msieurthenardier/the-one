@@ -360,3 +360,37 @@ class TestGetOrRestoreSession:
         mock_factory.create.assert_called_once()
         # Cache entry was dropped on the degraded outcome
         assert "warm-cache" not in patched_app._sessions
+
+    async def test_rich_visuals_change_takes_effect_at_the_next_join(self, patched_app):
+        """M35 F1 L4 timing pin (flight log, rich-visuals-switch): the system prompt is built
+        by the factory, so a saved switch change reaches an open chat at its next join
+        (a rejoin rebinds ``.agent``), not on the next turn, and not at all for a join that
+        arrives while a turn is in flight (it waits for the first join after the turn)."""
+        flag = {"on": True}
+
+        async def create(name="default"):
+            agent = _make_fake_agent()
+            agent.rich_visuals = flag["on"]
+            return agent
+
+        patched_app._get_factory.return_value.create = create
+        session = await patched_app._create_session(session_id="visuals-join")
+        await patched_app._save_session_to_db(session)
+        assert session.agent.rich_visuals is True
+
+        flag["on"] = False  # the operator saves the agent with the switch off
+        # An open chat's turns use the agent the session already holds.
+        assert patched_app._sessions["visuals-join"].agent.rich_visuals is True
+
+        # A join while a turn is in flight keeps the running agent.
+        patched_app._session_inflight["visuals-join"] = {object()}
+        try:
+            during = await patched_app._get_or_restore_session("visuals-join")
+            assert during.session.agent.rich_visuals is True
+        finally:
+            del patched_app._session_inflight["visuals-join"]
+
+        # The next join after the turn rebinds the agent built from the current config.
+        after = await patched_app._get_or_restore_session("visuals-join")
+        assert after.session is session
+        assert session.agent.rich_visuals is False

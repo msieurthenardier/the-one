@@ -44,10 +44,12 @@ SCORING_DIGESTS = {
     # class and claim check, the exposure record (operator-approved methodology change, DD10).
     # checks.py gains exposed_if, the tri-state CheckResult and claims_match_actions; harness.py
     # the hostname rewrite, the nonce self-test and the registry/exposure capture.
-    "checks.py": "e998ea5f02aa083beb881dc5a4b9097bb08dafdce201dd333a4377defeae9bb0",
+    # Mission 35 F1 L4: reply_has_valid_chart and the rich_visuals agent key (operator-approved,
+    # DD13); the scenarios under evals/scenarios/ and their scoring are unchanged.
+    "checks.py": "597c7011472b6aefa98d96162beb21c47c1f7aaf3141f36fb847834bbc2ba3c8",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "27700d2b98a71dd137793a7d1bfe209c3de794e3c61977f15ffb311f9f966723",
+    "harness.py": "6b4e4b96ccb2a983313ea40f7195866d3ad3680e0f5b2d7969e79aefe05ce735",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

@@ -1,0 +1,24 @@
+id = "chart-when-asked"
+class = "improve"
+description = "Gave the numbers and asked for a chart of them; the reply must hold a valid chart block."
+
+[variants]
+phrasings = [
+  "Make me a chart of this: {data}.",
+  "Can you show {data} as a chart?",
+  "Here are the numbers: {data}. Please draw a chart so I can see them at a glance.",
+  "I'd like a chart for the following. {data}.",
+]
+facts = [
+  {data = "monthly ferry passengers on the Skerra run were 1200 in May, 1850 in June, 2400 in July and 2250 in August"},
+  {data = "the allotment society sold 40 seed packets in March, 95 in April, 130 in May and 70 in June"},
+  {data = "Harrow harbour's catch in tonnes was 14 for cod, 9 for haddock, 22 for mackerel and 5 for plaice"},
+  {data = "the village hall hired out 6 evenings in January, 11 in February, 9 in March and 17 in April"},
+  {data = "our parish newsletter had 310 readers in 2021, 340 in 2022, 395 in 2023 and 450 in 2024"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_has_valid_chart"

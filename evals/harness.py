@@ -394,6 +394,7 @@ class Harness:
             kb_ids=kb_ids,
             notes_enabled=sc.notes_enabled,
             **({"max_iterations": sc.max_iterations} if sc.max_iterations else {}),
+            **({"rich_visuals": sc.rich_visuals} if sc.rich_visuals is not None else {}),
         )
         store = SQLiteAgentStore(conn)
         await store.save(cfg)
