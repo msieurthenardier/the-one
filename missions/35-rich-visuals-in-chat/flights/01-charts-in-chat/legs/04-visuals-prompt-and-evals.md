@@ -1,6 +1,6 @@
 # Leg: visuals-prompt-and-evals
 
-**Status**: landed (Part A landed; Part B pending)
+**Status**: completed
 **Flight**: [Charts in Chat](../flight.md)
 
 ## Objective
