@@ -143,8 +143,13 @@ _VISUALS = (
     "\nTo chart data, write a fenced block with the language `chart` holding one JSON "
     'object, `type` first: {"type": "bar", "x": {"values": ["Q1", "Q2"]}, '
     '"series": [{"name": "Sales", "values": [12, 19]}]}. '
-    "Types: bar, line, area, scatter, pie, sparkline. Optional: `title`, axis `label` and "
-    '`unit`, `"stacked": true`. Chart only when it makes numbers clearer.\n'
+    "Types: bar, line, area, scatter, pie, sparkline. "
+    'A pie takes slice names from `"x": {"values": [...]}` and has one series. '
+    "Optional: `title`, axis `label` and "
+    '`unit`, `"stacked": true`. Two axes: add `"y2"` shaped like `"y"` and set a series '
+    '`"axis": "right"`; a series `"type": "line"` mixes a line into bars; reference lines: '
+    '`"annotations": [{"axis": "y", "value": 150, "label": "Target"}]`; log scale: '
+    '`"scale": "log"` on an axis. Chart only when it makes numbers clearer.\n'
 )
 
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"

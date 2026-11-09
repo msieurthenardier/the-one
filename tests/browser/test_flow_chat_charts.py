@@ -126,6 +126,35 @@ def test_streamed_chart_shows_the_placeholder_then_the_chart_before_the_stream_e
     expect(bubble.locator("p").last).to_have_text("Closing words.")
 
 
+def test_chart_and_placeholder_fill_the_reply_width(app_clean: str, page: Page) -> None:
+    chunks = [
+        "Short.\n\n",
+        "```chart\n",
+        '{"type": "line", "x": {"values": [1, 2, 3]}, "series": [{"values": [3, 5, 4]}]}\n',
+        "```\n",
+        "Done.",
+    ]
+    _open(page, app_clean, chunks, delay_ms=900)
+    _send(page)
+    ph = page.locator(PLACEHOLDER)
+    expect(ph).to_be_visible(timeout=10000)
+    # expected width: the bubble's computed cap, limited by the pane it sits in
+    measure = """() => {
+      const b = document.querySelector('.ui-message--assistant');
+      const cap = parseFloat(getComputedStyle(b).maxWidth) || Infinity;
+      const pane = b.parentElement.getBoundingClientRect().width;
+      const f = document.querySelector('[data-testid="chat-chart"], [data-testid="chat-chart-placeholder"]');
+      return {w: f.getBoundingClientRect().width, cap: Math.min(cap, pane)};
+    }"""
+    ph_m = page.evaluate(measure)
+    assert ph_m["w"] >= 0.9 * ph_m["cap"] - 24, ph_m
+    expect(page.locator(CHART)).to_have_count(1, timeout=15000)
+    ch_m = page.evaluate(measure)
+    assert ch_m["w"] >= 0.9 * ch_m["cap"] - 24, ch_m
+    assert abs(ch_m["w"] - ph_m["w"]) <= 3, (ph_m, ch_m)
+    _done(page)
+
+
 # ── AC8.2-8.4 ─────────────────────────────────────────────────────────────────
 
 

@@ -2942,6 +2942,12 @@
     font-style: normal;
     color: var(--fg-secondary);
   }
+  /* In a reply the bubble is shrink-to-fit and the chart has no intrinsic width, so ask for the
+     bubble's own cap (46rem, see .ui-message--assistant above; keep the two equal) and let
+     max-width shrink it in a narrow pane. The placeholder gets the same width so the swap does
+     not jump. The sparkline stays compact; a chart outside a bubble still fills its container. */
+  .ui-message--assistant .ui-chart:not(.ui-chart--spark),
+  .ui-message--assistant .ui-chart-placeholder { width: 46rem; }
   .ui-chart--spark { display: flex; align-items: center; gap: 10px; width: auto; padding: 0; border: 0; background: none; }
   .ui-chart--spark .ui-chart-caption { margin: 0; }
   .ui-chart-caption { margin: 0 0 8px; }
