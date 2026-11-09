@@ -1,0 +1,1 @@
+{"type": "line", "title": "Visitors and signups", "x": {"values": ["Mon", "Tue", "Wed", "Thu"]}, "y": {"label": "Visitors"}, "y2": {"label": "Signups"}, "series": [{"name": "Visitors", "values": [1200, 1500, 1100, 1700]}, {"name": "Signups", "type": "bar", "axis": "right", "values": [30, 41, 25, 52]}]}

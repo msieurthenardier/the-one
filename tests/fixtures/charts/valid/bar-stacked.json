@@ -1,0 +1,1 @@
+{"type": "bar", "title": "Tickets by team", "stacked": true, "x": {"values": ["Mon", "Tue", "Wed"]}, "y": {"unit": "tickets"}, "series": [{"name": "Support", "values": [40, 35, 50]}, {"name": "Sales", "values": [12, 18, null]}, {"name": "Billing", "values": [5, 9, 11]}]}

@@ -135,6 +135,7 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
             rules=True,
             time_tool=tool_available,
             tools_preloaded=bool(exposure and exposure.decided),
+            visuals=getattr(agent, "rich_visuals", True),
         )
         try:
             prompts = await build_system_prompts(
@@ -145,6 +146,7 @@ async def apply_pending_revision(agent_name: str, agent: "Agent") -> bool:
                 time_tool=caps.time_tool,
                 exec_tools=caps.exec_tools,
                 tools_preloaded=caps.tools_preloaded,
+                visuals=caps.visuals,
             )
         except Exception:
             logger.warning(

@@ -577,7 +577,7 @@
         }
       }
       box.appendChild(group('tools', 'Built-in tools', toolItems, toolStatus));
-
+      box.appendChild(App.chat.drawerParts.richVisualsGroup(agent));
       var selfBox = el('div', { className: 'chat-drawer-group', dataset: { group: 'self-configuration' } }, [
         el('h4', { className: 'chat-drawer-group-label', text: 'Self-configuration' })
       ]);

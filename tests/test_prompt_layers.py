@@ -15,6 +15,10 @@ import pytest
 from conftest import FakeLLM, expected_date_layer
 
 from tests._platform_prompt_pins import PLATFORM_TOOL_FREE_PIN as PLATFORM_TOOL_FREE
+from tests._platform_prompt_pins import (
+    PLATFORM_TOOL_FREE_VISUALS_OFF_PIN,
+    PLATFORM_VISUALS_PIN,
+)
 from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
 from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig, compose_system_prompt
@@ -240,6 +244,77 @@ async def test_factory_passes_the_tool_free_prompt_to_the_agent(
         len(PLATFORM_BARE) :
     ].replace(expected_date_layer(True), expected_date_layer(False))
     assert agent._build_degraded_messages()[0].content == agent.degraded_system_prompt
+
+
+async def _save_alpha(conn, *, rich_visuals: bool) -> None:
+    await SQLiteAgentStore(conn).save(
+        AgentConfig(
+            name="alpha",
+            provider_config_id="prov-1",
+            system_prompt="I am alpha.",
+            rich_visuals=rich_visuals,
+        )
+    )
+
+
+@pytest.mark.parametrize("visuals", [True, False])
+async def test_factory_prompt_has_the_visuals_section_only_when_on(
+    factory, conn, frozen_clock, visuals
+) -> None:
+    """M35 F1 L4 (AC3): the switch reaches the rendered tool-capable and tool-free prompts."""
+    await _save_alpha(conn, rich_visuals=visuals)
+    agent = await factory.create("alpha")
+    assert agent.rich_visuals is visuals
+    assert (PLATFORM_VISUALS_PIN in agent.system_prompt) is visuals
+    assert (PLATFORM_VISUALS_PIN in agent.degraded_system_prompt) is visuals
+    assert (PLATFORM_VISUALS_PIN in agent.messages[0].content) is visuals
+    # Everything else is the same text: the section is the only difference.
+    assert agent.system_prompt.startswith(
+        render_platform(Capabilities(knowledge=False, visuals=visuals))
+    )
+    assert agent.degraded_system_prompt.startswith(
+        PLATFORM_TOOL_FREE if visuals else PLATFORM_TOOL_FREE_VISUALS_OFF_PIN
+    )
+
+
+@pytest.mark.parametrize("visuals", [True, False])
+async def test_build_system_prompts_takes_the_visuals_keyword(conn, frozen_clock, visuals) -> None:
+    from the_one.agent.prompt_layers import build_system_prompts
+
+    out = await build_system_prompts("alpha", "P", conn=conn, visuals=visuals)
+    assert (PLATFORM_VISUALS_PIN in out.tool_capable) is visuals
+    assert (PLATFORM_VISUALS_PIN in out.tool_free) is visuals
+    one = await build_system_prompt("alpha", "P", conn=conn, visuals=visuals)
+    assert one == out.tool_capable
+    # The default is on and nothing reads the database for it.
+    default = await build_system_prompt("alpha", "P", conn=conn)
+    assert PLATFORM_VISUALS_PIN in default
+
+
+async def test_a_visuals_change_takes_effect_when_the_agent_is_next_built(
+    factory, conn, frozen_clock
+) -> None:
+    """The timing pin (flight log, rich-visuals-switch): the system prompt is built inside
+    ``AgentFactory.create``, so a built agent keeps its prompt when the switch is saved, and
+    the change shows only in an agent built afterwards. The web server builds one at the next
+    join, the next new chat and the next routine run (``tests/test_session_lifecycle.py``
+    pins the join and its in-flight exception)."""
+    await _save_alpha(conn, rich_visuals=True)
+    running = await factory.create("alpha")
+    assert PLATFORM_VISUALS_PIN in running.system_prompt
+
+    await _save_alpha(conn, rich_visuals=False)  # the operator turns the switch off
+    # The running agent is untouched: not the next turn of an open chat.
+    assert PLATFORM_VISUALS_PIN in running.system_prompt
+    assert PLATFORM_VISUALS_PIN in running.messages[0].content
+    # The next build (a rejoin, a new chat, a routine run) has no section.
+    rebuilt = await factory.create("alpha")
+    assert PLATFORM_VISUALS_PIN not in rebuilt.system_prompt
+    assert PLATFORM_VISUALS_PIN not in rebuilt.degraded_system_prompt
+
+    await _save_alpha(conn, rich_visuals=True)
+    assert PLATFORM_VISUALS_PIN not in rebuilt.system_prompt
+    assert PLATFORM_VISUALS_PIN in (await factory.create("alpha")).system_prompt
 
 
 async def test_build_system_prompts_returns_both_variants(conn, frozen_clock) -> None:

@@ -6,7 +6,22 @@ edit these literals, and requires an eval run (CLAUDE.md "Prompt evals").
 ``test_platform_prompt.py`` pins the sectioned renderer against them.
 """
 
-PLATFORM_TOOLS_ALL_ON_PIN = """\
+# Mission 35 DD12: the Rich visuals section, written out by hand. It is the last section,
+# so every render with the switch on is the render with it off plus this text.
+PLATFORM_VISUALS_PIN = """
+To chart data, write a fenced block with the language `chart` holding one JSON object, \
+`type` first: {"type": "bar", "x": {"values": ["Q1", "Q2"]}, "series": [{"name": \
+"Sales", "values": [12, 19]}]}. Types: bar, line, area, scatter, pie, sparkline. A pie \
+takes slice names from `"x": {"values": [...]}` and has one series. Optional: `title`, \
+axis `label` and `unit`, `"stacked": true`. Two axes: add `"y2"` \
+shaped like `"y"` and set a series `"axis": "right"`; a series `"type": "line"` mixes \
+a line into bars; reference lines: `"annotations": [{"axis": "y", "value": 150, \
+"label": "Target"}]`; log scale: `"scale": "log"` on an axis. Chart only when it makes \
+numbers clearer.
+"""
+
+# The renders with the switch OFF (the pre-Mission-35 text).
+PLATFORM_TOOLS_VISUALS_OFF_PIN = """\
 You are an AI agent. Use your tools to do what you're asked, and reply directly and \
 concisely.
 
@@ -27,8 +42,12 @@ the turn.
 Write replies in Markdown, and write links as [text](url).
 """
 
-PLATFORM_TOOL_FREE_PIN = """\
+PLATFORM_TOOL_FREE_VISUALS_OFF_PIN = """\
 You are an AI assistant. Reply directly and concisely.
 
 Write replies in Markdown, and write links as [text](url).
 """
+
+# The default renders (Rich visuals on).
+PLATFORM_TOOLS_ALL_ON_PIN = PLATFORM_TOOLS_VISUALS_OFF_PIN + PLATFORM_VISUALS_PIN
+PLATFORM_TOOL_FREE_PIN = PLATFORM_TOOL_FREE_VISUALS_OFF_PIN + PLATFORM_VISUALS_PIN

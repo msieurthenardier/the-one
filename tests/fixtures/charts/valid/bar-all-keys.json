@@ -1,0 +1,17 @@
+{
+  "type": "bar",
+  "title": "Revenue and margin by quarter",
+  "x": {"label": "Quarter", "values": ["Q1", "Q2", "Q3", "Q4"]},
+  "y": {"label": "Revenue", "unit": "$", "scale": "linear", "min": 0, "max": 200000},
+  "y2": {"label": "Margin", "unit": "%", "scale": "linear", "min": 0, "max": 100},
+  "series": [
+    {"name": "Revenue", "values": [120000, 135000, 150000, 180000]},
+    {"name": "Margin", "values": [31, 34.5, null, 40], "axis": "right", "type": "line"}
+  ],
+  "stacked": false,
+  "annotations": [
+    {"axis": "y", "value": 150000, "label": "Target"},
+    {"axis": "y2", "value": 35, "label": "Margin goal"},
+    {"axis": "x", "value": "Q3", "label": "Launch"}
+  ]
+}

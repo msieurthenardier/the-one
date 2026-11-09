@@ -1,10 +1,10 @@
 """Declarative scenarios (DD2) read with ``tomllib``.
 
 A scenario file declares: ``id``, ``class`` and ``description``; the agent setup
-(``[agent]``: persona, ``notes_enabled``, ``routines_enabled``, rules, seeded notes, knowledge-base
-fixtures, ``tools_off``); the clock (``[clock]``); ``[variants]`` (phrasings x
-facts, DD9); one or more ``[[conversations]]`` (each a list of user ``turns``;
-a new conversation means a freshly built agent); and ``[[checks]]``.
+(``[agent]``: persona, ``notes_enabled``, ``routines_enabled``, ``rich_visuals``, rules,
+seeded notes, knowledge-base fixtures, ``tools_off``); the clock (``[clock]``);
+``[variants]`` (phrasings x facts, DD9); one or more ``[[conversations]]`` (each a list of
+user ``turns``; a new conversation means a freshly built agent); and ``[[checks]]``.
 
 Placeholders ``{phrasing}``, a fact's keys and ``{fixture_base}`` are substituted
 in turn text and in check parameters when a variant is instantiated. Unknown
@@ -43,6 +43,7 @@ _AGENT_KEYS = {
     "kb",
     "max_iterations",
     "routines_enabled",
+    "rich_visuals",
 }
 _CLOCK_KEYS = {"instant", "zone", "host_zone"}
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -92,6 +93,8 @@ class Scenario:
     notes_enabled: bool = False
     tools_off: bool = False
     routines_enabled: bool = False
+    # None: omitted, so the product default (on) applies (Mission 35 F1 L4).
+    rich_visuals: bool | None = None
     rules: list[str] = field(default_factory=list)
     seeded_notes: list[SeedNote] = field(default_factory=list)
     kbs: list[KBRef] = field(default_factory=list)
@@ -279,6 +282,8 @@ def parse_scenario(
     for flag in ("notes_enabled", "tools_off", "routines_enabled"):
         if flag in agent:
             setattr(sc, flag, _expect(path, agent, flag, bool, f"agent.{flag}"))
+    if "rich_visuals" in agent:
+        sc.rich_visuals = _expect(path, agent, "rich_visuals", bool, "agent.rich_visuals")
     if "max_iterations" in agent:
         mi = _expect(path, agent, "max_iterations", int, "agent.max_iterations")
         if mi < 1:

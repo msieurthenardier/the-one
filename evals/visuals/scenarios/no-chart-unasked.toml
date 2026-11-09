@@ -1,0 +1,25 @@
+id = "no-chart-unasked"
+class = "hold"
+description = "A factual question with no numbers; the reply must not contain a chart block."
+
+[variants]
+phrasings = [
+  "Can you explain {topic} in a few sentences?",
+  "Please give me a quick explanation of {topic}.",
+  "What should I know about {topic}? Keep it short.",
+  "Briefly, how does {topic} work?",
+]
+facts = [
+  {topic = "how tide tables are put together"},
+  {topic = "why sourdough starters need regular feeding"},
+  {topic = "how a pulley beam spreads a load"},
+  {topic = "what makes a good ledger entry"},
+  {topic = "how swifts find their way back each summer"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_not_matches"
+pattern = '(?m)^```\s*chart\b'

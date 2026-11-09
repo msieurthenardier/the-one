@@ -127,6 +127,16 @@ DARK: dict[str, str] = {
     "badge_ink_unknown": "#101114",
     "badge_ink_local": "#101114",
     "badge_ink_remote": "#ffffff",
+    # chart palette (M35 F1 L1) — gated >= 3.0:1 in test_design_tokens_a11y.py
+    "chart_1": "#a78bfa",
+    "chart_2": "#22d3ee",
+    "chart_3": "#fbbf24",
+    "chart_4": "#f472b6",
+    "chart_5": "#4ade80",
+    "chart_6": "#fb923c",
+    "chart_7": "#60a5fa",
+    "chart_8": "#94a3b8",
+    "chart_ref": "#fbbf24",
 }
 
 
@@ -208,4 +218,14 @@ LIGHT: dict[str, str] = {
     "badge_ink_unknown": "#101114",
     "badge_ink_local": "#101114",
     "badge_ink_remote": "#ffffff",
+    # chart palette (M35 F1 L1) — 700-weight family, >= 4.7:1 on bg/surface/bubble
+    "chart_1": "#6d28d9",
+    "chart_2": "#0e7490",
+    "chart_3": "#b45309",
+    "chart_4": "#be185d",
+    "chart_5": "#15803d",
+    "chart_6": "#c2410c",
+    "chart_7": "#1d4ed8",
+    "chart_8": "#475569",
+    "chart_ref": "#b45309",
 }

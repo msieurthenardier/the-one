@@ -281,8 +281,9 @@ class SQLiteAgentStore:
                     notes_enabled,
                     routines_require_approval,
                     secret_ids,
+                    rich_visuals,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     description=excluded.description,
                     provider_config_id=excluded.provider_config_id,
@@ -299,6 +300,7 @@ class SQLiteAgentStore:
                     self_revision_requires_approval=excluded.self_revision_requires_approval,
                     notes_enabled=excluded.notes_enabled,
                     secret_ids=excluded.secret_ids,
+                    rich_visuals=excluded.rich_visuals,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -319,6 +321,7 @@ class SQLiteAgentStore:
                     int(config.notes_enabled),
                     int(config.routines_require_approval),
                     json.dumps(config.secret_ids),
+                    int(config.rich_visuals),
                     now,
                     now,
                 ),
@@ -540,6 +543,7 @@ class SQLiteAgentStore:
             # M27 F2: the notes switch (v43 `NOT NULL DEFAULT 0`). The counter
             # `notes_next_number` is deliberately never read here.
             notes_enabled=bool(row["notes_enabled"]),
+            rich_visuals=bool(row["rich_visuals"]),
             routines_self_config_enabled=bool(row["routines_self_config_enabled"]),
             routines_require_approval=bool(row["routines_require_approval"]),
         )

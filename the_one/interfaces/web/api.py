@@ -1544,6 +1544,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # an agent save that omits it must not reset it.
     if "notes_enabled" not in data:
         data["notes_enabled"] = existing.notes_enabled
+    # M35 F1 DD11: the rich-visuals switch is a General-form field; a PUT that
+    # omits it keeps the stored value.
+    if "rich_visuals" not in data:
+        data["rich_visuals"] = existing.rich_visuals
     # M33 F2 DD5: the Routines switches are set only by their own routes; an agent
     # PUT ignores any incoming value, so the response echoes the stored truth.
     data["routines_self_config_enabled"] = existing.routines_self_config_enabled

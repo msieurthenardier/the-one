@@ -1,0 +1,1 @@
+{"type": "area", "title": "Traffic by source", "stacked": true, "x": {"label": "Month", "values": ["Jan", "Feb", "Mar", "Apr", "May"]}, "y": {"label": "Visits", "unit": "k"}, "series": [{"name": "Search", "values": [10, 12, 14, 13, 16]}, {"name": "Social", "values": [4, 6, 5, null, 8]}, {"name": "Direct", "values": [6, 6, 7, 8, 9]}]}

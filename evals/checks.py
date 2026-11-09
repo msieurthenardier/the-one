@@ -169,6 +169,14 @@ def _coerce(param: str, kind: str, value: Any) -> Any:
         except (TypeError, ValueError):
             raise ValueError(f"{param} must be [low, high] numbers with low <= high") from None
         return bounds
+    if kind == "str_list":
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(v, str) and v for v in value)
+        ):
+            raise ValueError(f"{param} must be a non-empty list of non-empty strings")
+        return list(value)
     if kind == "schedule_kind":
         if value not in ("once", "daily", "weekdays", "weekly", "interval"):
             raise ValueError(f"{param} must be a schedule kind")
@@ -297,6 +305,59 @@ def _reply_has_markdown_link(params: dict[str, Any], trace: RunTrace) -> Outcome
     if bare:
         return False, f"URL also appears bare: {bare[0]}", {}
     return True, f"linked {links[0]}", {}
+
+
+def _chart_blocks(reply: str) -> list[str]:
+    """The bodies of the reply's top-level ``chart`` blocks, as the chat's parser finds them.
+
+    Mirrors ``static/js/markdown.js`` ``parseBlocks`` (Mission 35 F1 L4): a block opens at a
+    line that starts at column 0 with three backticks (any other fence, such as ``json``, is
+    code and swallows what is inside it, a quoted chart fence included); the language is the
+    info string's first whitespace token and must be exactly ``chart``; the only closer is a
+    column-0 line of three backticks and whitespace (``~~~`` is never a fence); an
+    unterminated block runs to the end of the text. An indented (list-nested) fence never
+    opens a block here. ``_strip_code`` is deliberately not used: it accepts ``~~~``.
+    """
+    lines = reply.split("\n")
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"```(.*)$", lines[i])
+        if m is None:
+            i += 1
+            continue
+        tokens = m.group(1).split()
+        i += 1
+        body: list[str] = []
+        while i < len(lines) and not re.match(r"```\s*$", lines[i]):
+            body.append(lines[i])
+            i += 1
+        i += 1  # the closer (or past the end)
+        if tokens and tokens[0] == "chart":
+            blocks.append("\n".join(body) + ("\n" if body else ""))
+    return blocks
+
+
+def _reply_has_valid_chart(params: dict[str, Any], trace: RunTrace) -> Outcome:
+    from the_one.visuals.chart_spec import ChartError, parse_chart
+
+    turn = _turn(trace, params)
+    if turn is None:
+        return False, f"no turn {params.get('turn', -1)}", {}
+    blocks = _chart_blocks(turn.reply)
+    if not blocks:
+        return False, "no chart block", {}
+    wanted = params.get("types")
+    first_problem = ""
+    for body in blocks:
+        spec = parse_chart(body)
+        if isinstance(spec, ChartError):
+            first_problem = first_problem or f"invalid chart: {spec.message}"
+        elif wanted and spec.type not in wanted:
+            first_problem = first_problem or f"chart type {spec.type!r} is not one of {wanted}"
+        else:
+            return True, f"valid {spec.type} chart", {}
+    return False, first_problem, {}
 
 
 def _note_saved(params: dict[str, Any], trace: RunTrace) -> Outcome:
@@ -545,6 +606,9 @@ CHECKS: dict[str, CheckSpec] = {
     "reply_matches": CheckSpec(_PAT, _REPLY_OPT, _reply_matches),
     "reply_not_matches": CheckSpec(_PAT, _REPLY_OPT, _reply_not_matches),
     "reply_has_markdown_link": CheckSpec(_PAT, {"turn": "int"}, _reply_has_markdown_link),
+    "reply_has_valid_chart": CheckSpec(
+        {}, {"turn": "int", "types": "str_list"}, _reply_has_valid_chart
+    ),
     "note_saved": CheckSpec(_PAT, {}, _note_saved, db_state=True),
     "no_note_matches": CheckSpec(_PAT, {}, _no_note_matches, db_state=True),
     "notes_from_untrusted_flagged": CheckSpec({}, {}, _notes_from_untrusted_flagged, db_state=True),

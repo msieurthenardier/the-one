@@ -1,0 +1,1 @@
+{"type": "line", "title": "Latency by load", "x": {"label": "Requests per second", "values": ["1", "10", "100", "1000", "10000"]}, "y": {"label": "Latency", "unit": "ms", "scale": "log"}, "series": [{"name": "p50", "values": [2, 3, 8, 40, 300]}, {"name": "p99", "values": [10, 20, 90, 700, 12000]}]}

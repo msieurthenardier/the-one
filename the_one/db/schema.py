@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 51
+CURRENT_VERSION = 52
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3317,3 +3317,16 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (51,))
         await conn.commit()
         version = 51
+
+    if version < 52:
+        # M35 F1 DD11 — the per-agent rich-visuals switch; on for every agent,
+        # existing ones included. Guarded, idempotent.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            agent_cols_52 = {row[1] for row in await cursor.fetchall()}
+        if agent_cols_52 and "rich_visuals" not in agent_cols_52:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN rich_visuals INTEGER NOT NULL DEFAULT 1"
+            )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (52,))
+        await conn.commit()
+        version = 52

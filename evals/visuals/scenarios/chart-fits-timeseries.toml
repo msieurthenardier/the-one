@@ -1,0 +1,25 @@
+id = "chart-fits-timeseries"
+class = "improve"
+description = "A series over time; the chart asked for must be a line or an area chart."
+
+[variants]
+phrasings = [
+  "Chart how {what} changed over time: {data}.",
+  "Please plot {what} across the period. {data}.",
+  "Can you draw a chart of {what}? {data}.",
+  "Show me a chart of {what} through the year. {data}.",
+]
+facts = [
+  {what = "the reservoir level in metres", data = "Jan 41, Feb 43, Mar 47, Apr 52, May 56, Jun 54, Jul 49, Aug 44"},
+  {what = "weekly visitors to the Orrin museum", data = "week 1: 310, week 2: 340, week 3: 295, week 4: 380, week 5: 420, week 6: 455"},
+  {what = "the bakery's daily loaves sold", data = "Mon 120, Tue 135, Wed 128, Thu 150, Fri 190, Sat 240, Sun 160"},
+  {what = "the average monthly temperature in degrees", data = "Oct 11, Nov 7, Dec 4, Jan 2, Feb 3, Mar 6"},
+  {what = "the allotment waiting list length", data = "2019: 12, 2020: 18, 2021: 25, 2022: 31, 2023: 29, 2024: 37"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_has_valid_chart"
+types = ["line", "area"]

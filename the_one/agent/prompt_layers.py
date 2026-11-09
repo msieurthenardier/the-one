@@ -111,6 +111,7 @@ async def build_system_prompts(
     time_tool: bool | None = None,
     exec_tools: bool = True,
     tools_preloaded: bool = False,
+    visuals: bool = True,
 ) -> SystemPrompts:
     """Return both system prompts: platform + persona + rules + notes + date line.
 
@@ -154,6 +155,7 @@ async def build_system_prompts(
         time_tool=tool_available if time_tool is None else time_tool,
         exec_tools=exec_tools,
         tools_preloaded=tools_preloaded,
+        visuals=visuals,
     )
     layers = {"rules": [r.text for r in rules], "notes": notes}
     # Sortie 10 DD8: the secrets layer is part of the tool-capable prompt only.
@@ -183,6 +185,7 @@ async def build_system_prompt(
     time_tool: bool | None = None,
     exec_tools: bool = True,
     tools_preloaded: bool = False,
+    visuals: bool = True,
 ) -> str:
     """The tool-capable system prompt (see :func:`build_system_prompts`)."""
     return (
@@ -196,5 +199,6 @@ async def build_system_prompt(
             time_tool=time_tool,
             exec_tools=exec_tools,
             tools_preloaded=tools_preloaded,
+            visuals=visuals,
         )
     ).tool_capable

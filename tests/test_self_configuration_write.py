@@ -665,6 +665,41 @@ class TestRulesAtSettle:
         assert agent.system_prompt.startswith(PLATFORM_STUB)
         assert "Hidden." not in agent.system_prompt
 
+    @pytest.mark.parametrize("visuals", [True, False])
+    async def test_settle_follows_the_agents_rich_visuals_switch(
+        self, isolated_db, visuals: bool
+    ) -> None:
+        """M35 F1 L4 (AC2/AC3): the pending preview renders the section exactly when the
+        built agent did, on the main path and on the failed-rules fallback."""
+        from unittest.mock import patch
+
+        from the_one.db.connection import get_connection
+
+        conn = await get_connection()
+        enc = Encryptor(Fernet.generate_key(), key_path=isolated_db.parent / "kv.key")
+        await SQLiteAgentStore(conn, enc).save(AgentConfig(name="default", rich_visuals=visuals))
+        platform = render_platform(Capabilities(knowledge=False, exec_tools=False, visuals=visuals))
+        assert (("`chart`" in platform) is visuals) and platform.endswith("\n")
+
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        agent.rich_visuals = visuals
+        session = Session(id=f"cs-v{visuals}", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        await _process_and_broadcast(session, "hi")
+        assert agent.system_prompt == compose_system_prompt(
+            platform, "NEW", date_line=expected_date_layer(False)
+        )
+
+        # The fallback path (the prompt build fails): platform + persona, same switch.
+        agent2 = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        agent2.rich_visuals = visuals
+        session2 = Session(id=f"cs-w{visuals}", agent=agent2, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+        with patch.object(pending, "build_system_prompts", AsyncMock(side_effect=RuntimeError)):
+            await _process_and_broadcast(session2, "hi")
+        assert agent2.system_prompt == compose_system_prompt(platform, "NEW")
+        assert ("`chart`" in agent2.degraded_system_prompt) is visuals
+
     async def test_settle_recompose_keeps_the_notes_block(self, isolated_db) -> None:
         """M27 F2 (AC11): the next_turn recompose goes through build_system_prompt,
         so the notes block (and the precedence sentence) survives it."""

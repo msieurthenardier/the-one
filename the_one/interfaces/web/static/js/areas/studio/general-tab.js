@@ -50,7 +50,8 @@
       llm_model: '',
       system_prompt: '',
       max_iterations: 20,
-      chat_history_retention_days: 30
+      chat_history_retention_days: 30,
+      rich_visuals: true
     };
   }
 
@@ -193,11 +194,23 @@
       cfg.chat_history_retention_days || 30, 1, 365);
     var iterationsInput = numberInput('studio-max-iterations', 'max_iterations',
       cfg.max_iterations || 20, 1, 100);
+    // M35 F1 DD11: a form field saved by Save (not an immediate post). setChecked is
+    // silent, so the dirty wire is on the native input, via own().
+    var richVisuals = ui.toggle({
+      label: 'Rich visuals',
+      hint: "Tell this agent it can answer with charts. When it's off, the agent isn't " +
+        "told, but any chart in its replies is still shown.",
+      checked: cfg.rich_visuals !== false,
+      dataset: { field: 'rich_visuals' },
+      testid: 'agent-rich-visuals-toggle'
+    });
+    own(richVisuals.control);
     var behavior = ui.section({
       title: 'Behavior',
       children: [
         ui.field({ label: 'Chat history retention (days)', control: retentionInput }).el,
-        ui.field({ label: 'Max iterations', control: iterationsInput }).el
+        ui.field({ label: 'Max iterations', control: iterationsInput }).el,
+        richVisuals.el
       ]
     });
 
@@ -351,6 +364,7 @@
       promptInput.value = c.system_prompt || '';
       retentionInput.value = String(c.chat_history_retention_days || 30);
       iterationsInput.value = String(c.max_iterations || 20);
+      richVisuals.setChecked(c.rich_visuals !== false);
       testButton.disabled = !providerSelect.value;
       clearTestResult();
     }
