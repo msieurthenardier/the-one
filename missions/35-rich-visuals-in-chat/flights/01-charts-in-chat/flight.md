@@ -1,6 +1,6 @@
 # Flight: Charts in Chat
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
