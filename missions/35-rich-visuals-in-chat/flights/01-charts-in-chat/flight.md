@@ -1,14 +1,14 @@
 # Flight: Charts in Chat
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **Charts appear in the app** (all of it: the six types, theme, theme change without reload, the text alternative)
-- [ ] **A visual appears when it is ready** (for charts: the streaming placeholder, the error notice, Copy reply unchanged; Flight 2 extends it to live visuals)
-- [ ] **Operators choose per agent** (all of it)
-- [ ] **The prompt cost is measured and accepted** (for the chart format; Flight 2 measures the live-visual addition)
-- [ ] **Visuals work in the desktop app** (for charts: WebKit contract lanes plus a WebKitGTK probe; WebView2 and WKWebView are checked in Flight 2's engine leg with live visuals)
+- [x] **Charts appear in the app** (all of it: the six types, theme, theme change without reload, the text alternative)
+- [x] **A visual appears when it is ready** (for charts: the streaming placeholder, the error notice, Copy reply unchanged; Flight 2 extends it to live visuals)
+- [x] **Operators choose per agent** (all of it)
+- [x] **The prompt cost is measured and accepted** (for the chart format; Flight 2 measures the live-visual addition). Accepted by the operator, with m35 baselines recorded; the HAT's two later prompt additions (+96 tokens in all over m35) were sentinel-checked only, and their full re-baseline is deferred.
+- [x] **Visuals work in the desktop app** (for charts: WebKit contract lanes plus a WebKitGTK probe, both themes; WebView2 and WKWebView are checked in Flight 2's engine leg with live visuals)
 
 ---
 
@@ -292,17 +292,17 @@ Verified against the working tree at `293a81d2` by the planning crew (three read
 | `tests/browser/test_flow_admin_settings_nav.py:244-275` — Prompts section count and label pins | verified (Architect) |
 
 ### Prerequisites
-- [ ] WebKit userland provisioned (`bash scripts/setup-webkit-userland.sh`); contract lanes run with `THE_ONE_REQUIRE_WEBKIT=1`
-- [ ] Browser runs use `THE_ONE_TEST_NETNS=1` on this WSL host
-- [ ] Leg 4, re-verified at the start of the leg (external sessions): the plan token at `~/.config/the-one-evals/plan-token` works, Ollama serves `qwen3-4b` and `lfm3`, and `pip install -e ".[evals]"` is in the venv
-- [ ] Leg 4: sortie 12's status re-checked to pick the comparison baseline (DD13)
-- [ ] HAT: a scratch dev instance on a port ≥ 8490 with a scratch data dir under `$HOME` (never 8484, never the default data dir), and a real provider for the "ask for a chart" steps (the plan token or Ollama), re-verified at the start of the HAT leg
+- [x] WebKit userland provisioned (`bash scripts/setup-webkit-userland.sh`); contract lanes run with `THE_ONE_REQUIRE_WEBKIT=1`
+- [x] Browser runs use `THE_ONE_TEST_NETNS=1` on this WSL host
+- [x] Leg 4, re-verified at the start of the leg (external sessions): the plan token at `~/.config/the-one-evals/plan-token` works, Ollama serves `qwen3-4b` and `lfm3`, and `pip install -e ".[evals]"` is in the venv
+- [x] Leg 4: sortie 12's status re-checked to pick the comparison baseline (DD13)
+- [x] HAT: a scratch dev instance on a port ≥ 8490 with a scratch data dir under `$HOME` (never 8484, never the default data dir), and a real provider for the "ask for a chart" steps (the plan token or Ollama), re-verified at the start of the HAT leg
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete — every code-asserting design decision verified
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -323,12 +323,12 @@ Verified against the working tree at `293a81d2` by the planning crew (three read
 5. **Leg 5** is the HAT.
 
 ### Checkpoints
-- [ ] The corpus passes in both validators with identical sentences
-- [ ] Every chart type renders in Chromium and WebKit, in both themes, with the table and the tooltip
-- [ ] A mock-streamed chart shows the placeholder, takes its type's shape, and swaps to the chart (or the error) with no flicker of raw JSON
-- [ ] The switch round-trips through save, reload and an omitted-field PUT, and the drawer shows it
-- [ ] The prompt section appears only when on; the platform pins are updated; the eval compare is run; the operator has decided on size
-- [ ] The full gate is green (`make gate`, `THE_ONE_TEST_NETNS=1`)
+- [x] The corpus passes in both validators with identical sentences
+- [x] Every chart type renders in Chromium and WebKit, in both themes, with the table and the tooltip
+- [x] A mock-streamed chart shows the placeholder, takes its type's shape, and swaps to the chart (or the error) with no flicker of raw JSON
+- [x] The switch round-trips through save, reload and an omitted-field PUT, and the drawer shows it
+- [x] The prompt section appears only when on; the platform pins are updated; the eval compare is run; the operator has decided on size
+- [x] The full gate is green (`make gate`, `THE_ONE_TEST_NETNS=1`)
 
 ### Adaptation Criteria
 
@@ -358,10 +358,10 @@ Verified against the working tree at `293a81d2` by the planning crew (three read
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (`make gate` under `THE_ONE_TEST_NETNS=1`; contract lanes with `THE_ONE_REQUIRE_WEBKIT=1`)
-- [ ] Documentation updated (`docs/chart-format.md`, `docs/ui-control-inventory.md`, `the_one/agents.md`, CLAUDE.md where operator-facing, `evals/README.md` for the check and set)
+- [x] Tests passing (`make gate` under `THE_ONE_TEST_NETNS=1`; contract lanes with `THE_ONE_REQUIRE_WEBKIT=1`)
+- [x] Documentation updated (`docs/chart-format.md`, `docs/ui-control-inventory.md`, `the_one/agents.md`, CLAUDE.md where operator-facing, `evals/README.md` for the check and set)
 
 ### Verification
 - Unit tier: the Python validator against the corpus; the schema v52 migration; the API preserve; the prompt section's presence and absence and its pins; the eval check offline against hand-built replies.

@@ -66,7 +66,7 @@ CANON_LANES=(chats chats-transcript agents agent-tabs agent-routines library kno
 # `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
   [chats]=420
-  [chats-transcript]=390   # M34 F1 L02 quiet-host gate: measured 291 s
+  [chats-transcript]=540   # M35 F1 closing gate quiet-host: measured 430 s
   [agents]=630   # M33 F3 leg 8 quiet-host gate: measured 499 s
   [agent-tabs]=600   # sortie 10 debrief quiet-host gate (ba5ff7ee): measured 466 s
   [agent-routines]=300   # M33 F4 closing gate: measured 236 s
@@ -78,9 +78,9 @@ declare -A BUDGET=(
   [settings]=360
   [settings-tools]=330
   [providers]=420
-  [contracts-overlay]=330
-  [contracts-chat]=120
-  [contracts-controls]=600
+  [contracts-overlay]=240   # M35 F1 closing gate quiet-host: measured 192 s
+  [contracts-chat]=150   # M35 F1 closing gate quiet-host: measured 100 s
+  [contracts-controls]=540   # M35 F1 closing gate quiet-host: measured 425 s
   [shared]=420
 )
 

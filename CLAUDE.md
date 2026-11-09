@@ -414,23 +414,25 @@ THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python TEST_TIMEOUT=3600 bash scripts/
 **Lane time budgets** (wall seconds in a `--parallel 3` run, re-measured in M31 Flight 6 leg 09b on a quiet host (start load 0.74, no other test process): `PARALLEL_RESULT rc=0 total=1662s lanes=16` (the deciding run; an earlier run at start load 0.94 failed one WebKit focus-after contract test to a timing flake, fixed by squawk 0276, and set the budgets below; every lane in the deciding run is within 15% of that reading except `contracts-chat` at 59 s against 71 s, which keeps its 90 s budget; squawk 0217's rule). The previous reading (M31 F6 L01 run 2, start load 0.74, `rc=0 total=1600s lanes=15`) was before `contracts-chat` existed. Budgets are measured plus 25% headroom, rounded up to 30 s; the five lanes that moved more than 15% were re-budgeted (`chats` 360 to 420 s, `contracts-controls` 480 to 600 s, `contracts-overlay` 270 to 330 s, `chats-transcript` 180 to 240 s, and `contracts-chat` from its provisional 300 s to 90 s, budgeted purely from this run); every other lane moved less than 15% and kept its budget, and no lane is over 1.3x its new budget. The table in `scripts/run-tests.sh` is the source of truth and the `--parallel` summary flags `OVER BUDGET`, a warning rather than a failure). `chats-transcript` was re-budgeted to 330 s after the HAT batch run (`PARALLEL_RESULT rc=1 total=1679s lanes=16`, start load 0.94, measured 250 s) when the drafts tests landed; the other lanes stayed within 15% and keep their budgets:
 | lane | budget (s) | measured (s) |
 |---|---|---|
-| `routing` | 720 | 564 |
-| `agents` | 630 | 512 |
-| `chats` | 420 | 370 |
-| `mcp-connection` | 390 | 291 |
-| `mcp` | 330 | 268 |
-| `providers` | 420 | 363 |
-| `shared` | 420 | 362 |
-| `contracts-controls` | 600 | 509 |
-| `contracts-chat` | 120 | 83 (solo, M35 F1 L1) |
-| `knowledge` | 420 | 308 |
-| `agent-tabs` | 600 | 466 |
-| `agent-routines` | 300 | 245 |
-| `settings` | 360 | 286 |
-| `settings-tools` | 330 | 271 |
-| `contracts-overlay` | 330 | 246 |
-| `library` | 480 | 379 |
-| `chats-transcript` | 390 | 291 |
+| `routing` | 720 | 600 |
+| `agents` | 630 | 576 |
+| `chats` | 420 | 417 |
+| `mcp-connection` | 390 | 306 |
+| `mcp` | 330 | 292 |
+| `providers` | 420 | 360 |
+| `shared` | 420 | 372 |
+| `contracts-controls` | 540 | 425 |
+| `contracts-chat` | 150 | 100 |
+| `knowledge` | 420 | 334 |
+| `agent-tabs` | 600 | 513 |
+| `agent-routines` | 300 | 269 |
+| `settings` | 360 | 300 |
+| `settings-tools` | 330 | 280 |
+| `contracts-overlay` | 240 | 192 |
+| `library` | 480 | 420 |
+| `chats-transcript` | 540 | 430 |
+
+**M35 F1 closing gate re-budget** (`PARALLEL_RESULT rc=0 total=2163s lanes=17`, start load 0.43, quiet; the table's measured column is this run): `contracts-controls` 600 to 540 s, `contracts-chat` 120 to 150 s, `contracts-overlay` 330 to 240 s and `chats-transcript` 390 to 540 s (it was over budget at 430 s); the other lanes moved within 15%.
 
 **Full-gate target (M34 F1 L02).** The full local gate (`make gate`: unit, then browser, never concurrent) measures **2256 s (about 38 minutes)**: the unit tier 229.33 s (Leg 1's final solo reading, start load 0.22, 8577 passed, 12 skipped) plus the browser `--parallel 3` run 2027 s (start load 0.23, 17 lanes, M34 F1 L02). The target is measured plus about 15% headroom, **43 minutes**; the unit tier alone keeps its 300 s standing target. A gate that runs past the target on a quiet host has regressed.
 

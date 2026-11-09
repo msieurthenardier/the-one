@@ -285,7 +285,7 @@ from the beginning rather than pause, because pausing cannot be enforced.
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: **Charts in chat.** The language-neutral chart format and its
+- [x] Flight 1: **Charts in chat.** (landed 2026-11-09, `flights/01-charts-in-chat/`) The language-neutral chart format and its
       sample specs, the SVG chart control and its palette tokens, the markdown
       hook that turns a visual block into a control, the streaming "Rendering"
       state and the error notice, the per-agent "Rich visuals" switch (schema,
