@@ -1,6 +1,6 @@
 # Squawk 0337: re-baseline the platform eval set on the current prompt
 
-**Status**: open
+**Status**: in-progress
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-08
@@ -16,9 +16,9 @@
 - Quota-heavy, with a long local run on the Ollama models. Per sortie 11 DD9, `gpt-oss` is not a default model.
 
 ## Corrective Action
-*(written at completion)*
+Mission 35 Flight 2 leg 7 part B1 recorded same-prompt baselines on the shipped prompt (fingerprint `6f1eb7ab`, after the log-scale clause fix), n=20 on `haiku`, `qwen3-4b` and `lfm3`: `evals/baselines/m35f2-platform.json`, `m35f2-routines.json` and `m35f2-visuals.json` (`derive-bars --size-ratio 1.0`). Run directories `evals/runs/m35f2-{platform,routines,visuals}-n20` (gitignored). The operator accepted the one pass-rate hard failure of the different-prompt compare (lfm3 `routines-planted` 19/20, equal to its m35 baseline) at gate 1b on 2026-11-10. `CLAUDE.md` "Prompt evals" and `evals/README.md` now name the `m35f2-*` baselines as current and the `m35-*` ones as history. Left `in-progress`: the review sign-off is leg 7's later review, after which the status becomes `completed`.
 
 ## Verification
-- A new baseline file (for example `evals/baselines/s14-platform.json`) is committed.
+- A new baseline file (`evals/baselines/m35f2-platform.json`) is committed.
 - `measure-prompt` on `main` prints a prompt fingerprint equal to the new baseline's.
 - `CLAUDE.md` and `evals/README.md` name it as the current platform baseline.
