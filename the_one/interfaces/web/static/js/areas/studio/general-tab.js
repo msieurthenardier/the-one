@@ -198,8 +198,8 @@
     // silent, so the dirty wire is on the native input, via own().
     var richVisuals = ui.toggle({
       label: 'Rich visuals',
-      hint: "Tell this agent it can answer with charts. When it's off, the agent isn't " +
-        "told, but any chart in its replies is still shown.",
+      hint: "Tell this agent it can answer with charts and widgets. When it's off, the " +
+        "agent isn't told, but any chart or widget in its replies is still shown.",
       checked: cfg.rich_visuals !== false,
       dataset: { field: 'rich_visuals' },
       testid: 'agent-rich-visuals-toggle'

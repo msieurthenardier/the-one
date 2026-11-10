@@ -40,6 +40,17 @@ def test_new_agent_switch_is_on(app_with_provider: SeededApp, page: Page) -> Non
     expect(page.locator(SWITCH)).to_have_attribute("role", "switch")
 
 
+def test_the_hint_names_charts_and_widgets(app_with_provider: SeededApp, page: Page) -> None:
+    # M35 F2 L7: the hint widens with the prompt; scoped to the Rich visuals toggle's own row.
+    _nav.goto(page, app_with_provider.base_url, "agents/~new")
+    expect(page.locator(SWITCH)).to_be_attached(timeout=8000)
+    row = page.locator(f"div.ui-toggle:has({SWITCH})")
+    expect(row).to_contain_text(
+        "Tell this agent it can answer with charts and widgets. When it's off, the agent "
+        "isn't told, but any chart or widget in its replies is still shown."
+    )
+
+
 def test_off_saves_persists_and_the_drawer_shows_off(app_with_agent: SeededApp, page: Page) -> None:
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     _open(page, base, agent)

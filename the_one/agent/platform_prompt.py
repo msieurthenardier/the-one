@@ -150,6 +150,12 @@ _VISUALS = (
     '`"axis": "right"`; a series `"type": "line"` mixes a line into bars; reference lines: '
     '`"annotations": [{"axis": "y", "value": 150, "label": "Target"}]`; log scale: '
     '`"scale": "log"` on `y` (`x` for scatter). Chart only when it makes numbers clearer.\n'
+    "To show something moving or interactive, write a fenced block with the language "
+    "`widget`: one self-contained HTML document or fragment with inline `<style>` and "
+    "`<script>`. It runs sandboxed with no network, so use no URLs, CDNs, web fonts or "
+    "remote images. Colours: `var(--bg)`, `var(--fg)`, `var(--accent)`, `var(--chart-1)` "
+    "to `var(--chart-8)`. Animate with `requestAnimationFrame`; never loop forever. Keep "
+    "it under 64 KB. Use a widget for animation or interaction, a chart for plain data.\n"
 )
 
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"

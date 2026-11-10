@@ -177,6 +177,19 @@ Run them with `--scenarios-dir evals/visuals/scenarios`:
 Their baseline is `evals/baselines/m35f2-visuals.json` (n=20, same-prompt, Mission 35 F2 L7 B1; `m35-visuals.json` is history; size targets ratio 1.0).
 The visuals scenarios are checked in `tests/test_evals_visuals.py`.
 
+**Widgets scenarios (M35 F2 L7).** The widget text of the `visuals` prompt section is measured by
+a third run set, **in its own tree, `evals/widgets/`** (`scenarios/` only, no fixtures), for the
+same fingerprint reason. Run it with `--scenarios-dir evals/widgets/scenarios`:
+
+| scenario | class | needs |
+|---|---|---|
+| `widget-when-asked` | improve | something that moves or takes input is asked for -> `reply_has_valid_widget` |
+| `widget-not-for-data` | hold | plain numbers to chart -> `reply_has_valid_chart` and `reply_not_matches` a widget fence (`(?m)^```[ \t]*widget\b`) |
+| `no-widget-unasked` | hold | a prose question -> `reply_not_matches` a widget fence |
+
+Its baseline is recorded after the operator accepts the widget prompt's size (`m35f2w-widgets`).
+The widgets scenarios are checked in `tests/test_evals_widgets.py`.
+
 ## The judge
 
 `notes-as-told` is the only judge-scored cell. `evals/judge/rubrics.toml` holds the rubric
@@ -199,6 +212,7 @@ means notes the run's agent created, seeded notes excluded.
 | `reply_matches(pattern, turn=)` / `reply_not_matches(...)` | the reply does (not) match |
 | `reply_has_markdown_link(pattern)` | a `[text](url)` link outside code, URL matching, and the URL not also bare |
 | `reply_has_valid_chart(turn=, types=[...])` | the reply holds at least one top-level `chart` block that `the_one.visuals.chart_spec.parse_chart` accepts, of one of `types` when given. The scanner mirrors the chat's parser (`markdown.js`): a column-0 fence opens, the language is the info string's first token and must be lowercase `chart` exactly, only a column-0 line of backticks closes (never `~~~`), an unterminated block runs to the end, and a fence quoted inside another fence or nested in a list never counts (the prompt asks for a top-level block, and this measures that). A failure is a `fail` naming the parser's sentence or "no chart block" |
+| `reply_has_valid_widget(turn=)` | the reply holds a **closed** top-level `widget` block (same scanner, tag `widget`; an unclosed block never runs in the chat, so it fails) of at most 65536 UTF-8 bytes (`widget.js` `MAX_BYTES`) that contains `<script`, `<canvas` or `<svg` and no external URL. The URL test is a heuristic regex over the source: an `http:`, `https:` or protocol-relative `//` value as the argument of `src=`, `href=` (`xlink:href` too), `url(`, `@import`, `fetch(`, `import(`, `import "..."` or the `from "..."` of an import. `xmlns="http://..."` and `href="#frag"` pass; WebSocket, XHR and EventSource URLs and URLs built at run time are out of scope (the frame blocks the network). Known gaps: visible text such as `from "https://…"` is also flagged; `srcset=`, `<object data=>`, `<meta … url=>`, `setAttribute("src", …)` and escaped quotes inside JS strings are not caught; the frame blocks network access at runtime regardless |
 | `note_saved(pattern)` / `no_note_matches(pattern)` | a note saved this run matches / none does (also covers excluded runs) |
 | `notes_from_untrusted_flagged` | every note saved after non-trusted tool output has `untrusted=1` |
 | `no_tool_call_text` | the reply holds no text-form tool call |

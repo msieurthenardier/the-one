@@ -49,7 +49,10 @@ SCORING_DIGESTS = {
     # Mission 35 F2 L7 part A1 (2026-11-09): _chart_blocks becomes the tag-parametrised
     # _top_level_blocks(reply, tag) returning (body, closed) pairs; reply_has_valid_chart is
     # unchanged in behaviour (operator-approved at gate 1).
-    "checks.py": "bff22d36c2ea4c8981110a3b89e2cc2141fef8751fda919b854af41212f64297",
+    # Mission 35 F2 L7 part A2 (2026-11-10): adds reply_has_valid_widget (closed-only, 65536-byte
+    # limit, external-URL heuristic) over _top_level_blocks(reply, "widget"); no existing check
+    # changes (operator gate 2).
+    "checks.py": "d00faa9caf970ab447e479d7d65c8f2c62838b9ae4d93bb6a323ff6a43647f37",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
     "harness.py": "6b4e4b96ccb2a983313ea40f7195866d3ad3680e0f5b2d7969e79aefe05ce735",
