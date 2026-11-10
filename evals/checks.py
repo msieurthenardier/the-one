@@ -307,19 +307,21 @@ def _reply_has_markdown_link(params: dict[str, Any], trace: RunTrace) -> Outcome
     return True, f"linked {links[0]}", {}
 
 
-def _chart_blocks(reply: str) -> list[str]:
-    """The bodies of the reply's top-level ``chart`` blocks, as the chat's parser finds them.
+def _top_level_blocks(reply: str, tag: str = "chart") -> list[tuple[str, bool]]:
+    """The top-level ``tag`` blocks of a reply as ``(body, closed)`` pairs, as the chat finds them.
+
+    ``closed`` is whether a closing fence was found (an unterminated block is ``False``).
 
     Mirrors ``static/js/markdown.js`` ``parseBlocks`` (Mission 35 F1 L4): a block opens at a
     line that starts at column 0 with three backticks (any other fence, such as ``json``, is
     code and swallows what is inside it, a quoted chart fence included); the language is the
-    info string's first whitespace token and must be exactly ``chart``; the only closer is a
+    info string's first whitespace token and must be exactly ``tag``; the only closer is a
     column-0 line of three backticks and whitespace (``~~~`` is never a fence); an
     unterminated block runs to the end of the text. An indented (list-nested) fence never
     opens a block here. ``_strip_code`` is deliberately not used: it accepts ``~~~``.
     """
     lines = reply.split("\n")
-    blocks: list[str] = []
+    blocks: list[tuple[str, bool]] = []
     i = 0
     while i < len(lines):
         m = re.match(r"```(.*)$", lines[i])
@@ -332,9 +334,10 @@ def _chart_blocks(reply: str) -> list[str]:
         while i < len(lines) and not re.match(r"```\s*$", lines[i]):
             body.append(lines[i])
             i += 1
+        closed = i < len(lines)
         i += 1  # the closer (or past the end)
-        if tokens and tokens[0] == "chart":
-            blocks.append("\n".join(body) + ("\n" if body else ""))
+        if tokens and tokens[0] == tag:
+            blocks.append(("\n".join(body) + ("\n" if body else ""), closed))
     return blocks
 
 
@@ -344,12 +347,12 @@ def _reply_has_valid_chart(params: dict[str, Any], trace: RunTrace) -> Outcome:
     turn = _turn(trace, params)
     if turn is None:
         return False, f"no turn {params.get('turn', -1)}", {}
-    blocks = _chart_blocks(turn.reply)
+    blocks = _top_level_blocks(turn.reply, "chart")
     if not blocks:
         return False, "no chart block", {}
     wanted = params.get("types")
     first_problem = ""
-    for body in blocks:
+    for body, _closed in blocks:
         spec = parse_chart(body)
         if isinstance(spec, ChartError):
             first_problem = first_problem or f"invalid chart: {spec.message}"

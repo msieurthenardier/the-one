@@ -202,6 +202,13 @@ class _SessionsPushListener:
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# M35 F2 L1 (DD3): the page-level policy on ``GET /`` only. A sandboxed ``srcdoc`` widget
+# frame could otherwise navigate itself to an arbitrary URL (an exfiltration path); with
+# ``frame-src 'none'`` the navigation is blocked and the frame's second ``load`` is the
+# control's escape signal. It names only these two directives, so scripts and styles are
+# unaffected. Not middleware: the OAuth callback page has inline scripts and gets no header.
+FRAME_POLICY = "frame-src 'none'; child-src 'none'"
+
 # Matches ``src="/static/….js"`` / ``href="/static/….css"`` references so the
 # index HTML can be version-scoped for cache-busting. Group ``pre`` is the
 # attribute up to (and including) the asset path; group ``q`` captures any
@@ -3082,7 +3089,7 @@ async def index() -> HTMLResponse:
     # newly versioned URLs are always picked up. See F09-07.
     return HTMLResponse(
         content=_cache_busted_index_html(),
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "Content-Security-Policy": FRAME_POLICY},
     )
 
 

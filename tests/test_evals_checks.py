@@ -221,6 +221,34 @@ def test_reply_has_valid_chart(reply, expected):
     assert res.passed is expected, res.detail
 
 
+W = "<script>1</script>"
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (f"```widget\n{W}\n```", [(f"{W}\n", True)]),
+        (f"text\n```widget extra words\n{W}\n```   \nmore", [(f"{W}\n", True)]),
+        (f"~~~widget\n{W}\n~~~", []),  # tildes are never a fence
+        (f"- item\n\n  ```widget\n  {W}\n  ```", []),  # list-nested: not top-level
+        (f" ```widget\n{W}\n```", []),  # indented: not a fence
+        (f"```json\n```widget\n{W}\n```\n```", []),  # quoted inside another fence
+        (f"```widget\n{W}", [(f"{W}\n", False)]),  # unclosed
+        ("```widget\n```", [("", True)]),  # empty but closed
+        (f"```Widget\n{W}\n```", []),  # the tag is case-sensitive
+        (f"```chart\n{W}\n```\n```widget\n{W}\n```", [(f"{W}\n", True)]),  # tag selects
+    ],
+)
+def test_top_level_blocks_widget_tag(reply, expected):
+    assert checks._top_level_blocks(reply, tag="widget") == expected
+
+
+def test_top_level_blocks_defaults_to_chart_and_reports_closed():
+    reply = f"```widget\n{W}\n```\n```chart\n{BAR}\n```\n```chart\n{LINE}"
+    assert checks._top_level_blocks(reply) == checks._top_level_blocks(reply, "chart")
+    assert checks._top_level_blocks(reply) == [(f"{BAR}\n", True), (f"{LINE}\n", False)]
+
+
 def test_reply_has_valid_chart_types_and_reasons():
     tr = trace_with_reply(chart(PIE))
     assert run("reply_has_valid_chart", tr, types=["pie", "bar"]).passed

@@ -16,8 +16,8 @@ takes slice names from `"x": {"values": [...]}` and has one series. Optional: `t
 axis `label` and `unit`, `"stacked": true`. Two axes: add `"y2"` \
 shaped like `"y"` and set a series `"axis": "right"`; a series `"type": "line"` mixes \
 a line into bars; reference lines: `"annotations": [{"axis": "y", "value": 150, \
-"label": "Target"}]`; log scale: `"scale": "log"` on an axis. Chart only when it makes \
-numbers clearer.
+"label": "Target"}]`; log scale: `"scale": "log"` on `y` (`x` for scatter). Chart only \
+when it makes numbers clearer.
 """
 
 # The renders with the switch OFF (the pre-Mission-35 text).

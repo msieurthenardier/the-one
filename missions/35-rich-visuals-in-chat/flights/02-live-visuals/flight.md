@@ -1,6 +1,6 @@
 # Flight: Live Visuals
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
@@ -135,6 +135,15 @@ The flight first proves the frame in the desktop engines and stops for a go/no-g
     - the WebKit setting or feature flag in the desktop shell;
     - and/or best-effort source and DOM neutering in the prelude (link `rel` setters, `setAttribute`, `innerHTML` on link elements), stated as best-effort;
     - or accepting it as a residual (a connection and DNS lookup with no request body).
+  - **Gate result (leg 1, 2026-11-09):** open on WebView2 157, WebKitGTK 2.52.6 and Playwright WebKit (Playwright Chromium reads 0).
+    - **Operator decision: layered blocking, in leg 3.**
+      1. `buildDocument` rewrites every `<link` tag in the source (case-insensitive) to an inert tag.
+      2. The prelude applies the same rewrite to every in-frame HTML entry point: `innerHTML`/`outerHTML` setters, `insertAdjacentHTML`, `document.write`/`writeln`, `DOMParser.parseFromString`, `Range.createContextualFragment`, `setHTMLUnsafe`/`Document.parseHTMLUnsafe`. It also maps `createElement`/`createElementNS` of `link` to an inert element.
+      3. A `MutationObserver` backstop removes any `HTMLLinkElement`.
+      4. An engine switch is added in the desktop shell where one exists.
+    - Each path is a battery case.
+    - The prelude's sink words are in the frame's own document, so they never trip the page guards, but the zero-token scan of `js/ui` files does apply: leg 3 builds those names without the literal tokens, or records an exact guard allowance.
+    - Any unknown path stays a documented residual.
 - **Leftover risk (security model):** an engine API not on this list that opens a network path without a fetch, whether a future API or one the probes did not try. The escape battery (DD17) is the regression net; its sink records HTTP requests, UDP datagrams, bare TCP accepts and DNS lookups.
 
 **DD7 — Lifecycle: run in view, pause off screen, three running, eight loaded** (operator choices, 2026-11-09; amends the mission's earlier "stop and restart")
@@ -145,7 +154,7 @@ The flight first proves the frame in the desktop engines and stops for a go/no-g
   - `paused-user`;
   - `stopped-hung` (DD9);
   - `stopped-escape` (DD3);
-  - `stopped-focus` (DD10).
+  - ~~`stopped-focus` (DD10)~~: dropped at leg 3's design review (DD10).
 - **Transitions,** driven by one module-level `IntersectionObserver` (threshold about 0.25):
   - **Entering view:**
     - `waiting` mounts if fewer than three are `running`; otherwise it shows "Paused: three widgets are already running." with Start;
@@ -189,7 +198,7 @@ The flight first proves the frame in the desktop engines and stops for a go/no-g
   - **WebKit:** a 3-4 s busy loop in the frame froze the page's timers for the whole loop, for `srcdoc`, same-site and cross-site frames alike. WebKit runs these frames on the page's thread.
   - **Full Chromium:** the page was unaffected (51 ms maximum gap). That depends on the `IsolateSandboxedIframes` feature and the process-limit policy, not on Chromium as such.
   - **Headless shell:** froze.
-  - **WebView2:** evergreen and unmeasured. Leg 1 records its runtime version and the measured behaviour; DD9's text is then "measured on WebView2 {version}".
+  - **WebView2:** measured on WebView2 157.0.4341.42 (leg 1): the page was not frozen (22 ms maximum gap); the frame runs out of process. WebKitGTK 2.52.6 froze (3020 ms), like Playwright WebKit.
 - **The guard covers every *loaded* widget** (`running` and `paused-*`), because a paused hostile widget can still loop.
   1. **Crash record.**
      - Each page load takes a random page id and keeps `localStorage["widget-running:{pageId}"]` = `{keys, ts}` while any widget is loaded, rewritten on each heartbeat tick (1 s) and cleared on `pagehide`.
@@ -221,12 +230,21 @@ The flight first proves the frame in the desktop engines and stops for a go/no-g
     - On a steal, the parent gets no `focusin`, only `focusout` on the element losing focus and `blur` on `window`.
     - A real click inside the frame sends no `pointerdown` to the parent in any engine.
     - `navigator.userActivation.isActive` is true after a click in the frame, but also after the operator types in the composer.
-  - **The mechanism:**
+  - **Gate result (leg 1, 2026-11-09): the primary control is frame-side.**
+    - Leg 1 found that no page-side signal tells a click or Tab into the frame from a steal.
+    - The prelude wraps `HTMLElement.prototype.focus` and `window.focus`, and strips `autofocus`, so a programmatic focus runs only while the frame's own `navigator.userActivation.isActive` is true. Measured: false for every steal attempt until a real gesture, in Chromium and WebView2 157.
+    - The operator adopted this as the primary control, with the page-side mechanism below as the backstop.
+  - **Superseded at leg 3's design review (operator decision, 2026-11-09):**
+    - **The frame-side gate is the only control.** A programmatic focus runs only while `isActive` **and** a trusted gesture inside the frame happened within about 1 s.
+    - **Why tighten it:** with `isActive` alone, a widget could steal focus for about 5 s after the operator's last click inside it (transient activation). The probe saw 8 of 40 characters leak.
+    - **The page-side backstop below, the `stopped-focus` state and board 6's "kept taking focus" card are dropped.** The backstop's activation report was forgeable, and it would have undone real clicks into the frame.
+    - The text below is kept as the record of the earlier design.
+  - **(Superseded) The mechanism (backstop):**
     - A module-level `focusout` listener (paired) and a `window` `blur` listener check `document.activeElement`. When it is a widget's iframe and the move is not the operator's, focus goes back to the element that lost it.
     - **The discriminator** tells the operator's own move into a widget (a click, or Tab) from a steal. Leg 1 probes it and decides it before leg 3 builds. The candidates combine a user activation with no parent `keydown` in the last ~300 ms (a click into the frame), and a last parent key of Tab.
-  - **The enforcement is removal:** a widget that triggers more than 3 restores in 1 s is stopped (`stopped-focus`) with "This widget kept taking focus and was stopped." and Start anyway (board 6).
-  - **Leftover risk (security model):** a restore cannot win a race. Against a fast refocus loop, cycle 2 measured 2-7 of 40 typed characters still reaching the widget in Chromium before any restore. The stop rule bounds that to the first second. WebKit is not affected.
-  - **Tests:** contract tests in both engines, including a click into the widget, Tab into it, and a steal loop that ends in the stop.
+  - **(Superseded) The enforcement is removal:** a widget that triggers more than 3 restores in 1 s is stopped (`stopped-focus`) with "This widget kept taking focus and was stopped." and Start anyway (board 6).
+  - **Leftover risk (security model):** a widget can take focus only within about 1 s of the operator's own gesture inside it. That is the operator's interaction with that widget, not a steal. The probes found no other route that moves focus. WebKit never showed the steal.
+  - **Tests:** contract tests (leg 3) cover a steal loop while typing, a steal loop after a click in the widget then a click away, a real click into the widget, Tab into it, and a button that focuses an input.
 - A widget takes clicks and typing at once, with no click-to-activate (mission constraint).
 - **Residuals (security model):** the `<title>` text appears in app chrome and could carry misleading words (it is bounded and plain); a widget can trap Tab inside itself with `preventDefault`, and the operator escapes with a pointer click outside it.
 
@@ -262,6 +280,9 @@ The flight first proves the frame in the desktop engines and stops for a go/no-g
 - **Its handlers check no frame:** GTK `on_js_bridge_call` (`webview/platforms/gtk.py:290`), Cocoa `JSBridge` (`cocoa.py:144-148`), WebView2 `on_script_notify` (`edgechromium.py:195`).
 - **Where a frame might reach it:** on WebKit it is `webkit.messageHandlers.jsBridge`, which may be visible in subframes; WebView2's `chrome.webview` may be top-level only.
 - **Leg 1 probes it** in the real shells: `the-one app` on Linux, and `windows_test_copy.py --cdp-port` on Windows. From a sandboxed widget it looks for the handlers and tries a move. It observes `GET /api/window/state` and a capture, and whether a native dialog appears.
+- **Gate result (leg 1, 2026-11-09):**
+  - **Measured:** reachable on WebKitGTK (a replica registration: the frame's `postMessage` reached the handler). Not reachable on WebView2 157 (`chrome.webview` exists in the frame, but a move call from it did nothing, while the same call from the page moved the window).
+  - **Operator decision:** switch the bridge off. The desktop shell unregisters `jsBridge` on GTK and Cocoa (the page never calls it; `theme.js` only tests for `window.pywebview`). Leg 4 verifies this in the real Linux shell; leg 6's hosted run verifies it on macOS. A regression probe keeps Windows unreachable.
 - **If WebKitGTK reaches it,** WKWebView is assumed to as well (the same `messageHandlers` mechanism). The mitigation then applies to both from leg 4, and leg 6's hosted macOS run confirms by window position (`lifecycle.sh` reads `/api/window/state`).
 - **Mitigation candidates,** chosen with the operator at the gate:
   - a shell-side wrapper that drops non-main-frame bridge messages (`WKScriptMessage.frameInfo.isMainFrame`; the GTK equivalent is to be verified);
@@ -437,7 +458,7 @@ Canvas: https://claude.ai/artifact/RarECj12aPxfKNH81o4UAX (private to the operat
    - focus rings on Pause and Restart;
    - the card at the narrow (overlay-drawer) width.
    
-   Approved by the operator ("all good", 2026-11-09). After design review cycle 2, one more card was added to this board: "This widget kept taking focus and was stopped." (DD10). Approved by the operator ("approve", 2026-11-09).
+   Approved by the operator ("all good", 2026-11-09). After design review cycle 2, one more card was added to this board: "This widget kept taking focus and was stopped." (DD10). Approved by the operator ("approve", 2026-11-09). **That card was later dropped** with the `stopped-focus` state, at leg 3's design review (operator decision, 2026-11-09).
 - **Explicit OKs needed after design review cycle 2, with no board:**
   - the reduced-motion start uses board 2's paused state (Paused chip, Resume);
   - the brief `waiting` card is the header over an empty body (DD7).
@@ -546,10 +567,10 @@ Seven legs against the usual one to four. Each boundary is a decision or risk se
 - the HAT.
 
 ### Checkpoints
-- [ ] Leg 1 go/no-go: the escape battery passes (HTTP + UDP sink silent, route and focus unchanged) in Chromium, WebKit, WebKitGTK and WebView2; runaway behaviour and `pagehide` measured; the bridge question answered
-- [ ] The chart contract and flow tests pass unchanged after the split (text-width pins aside)
-- [ ] `App.ui.widget` passes its contract tests in both engines: the lifecycle, pause, guard and focus guard
-- [ ] A mock-streamed widget shows the placeholder, swaps to the card and runs in view; `widget-escape` passes
+- [x] Leg 1 go/no-go (go with mitigations, operator 2026-11-09): the escape battery passes (HTTP + UDP sink silent, route and focus unchanged) in Chromium, WebKit, WebKitGTK and WebView2; runaway behaviour and `pagehide` measured; the bridge question answered
+- [x] The chart contract and flow tests pass unchanged after the split (text-width pins aside)
+- [x] `App.ui.widget` passes its contract tests in both engines: the lifecycle, pause, guard and focus guard
+- [x] A mock-streamed widget shows the placeholder, swaps to the card and runs in view; `widget-escape` passes
 - [ ] The re-baseline is recorded; the widget prompt's compares are run; the operator has decided on size
 - [ ] Charts and widgets pass in the three desktop engines
 - [ ] The full gate is green (`make gate`, `THE_ONE_TEST_NETNS=1`)
@@ -574,12 +595,15 @@ Seven legs against the usual one to four. Each boundary is a decision or risk se
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `widget-frame-gate` - Frame core (document builder, prelude capture and neutering with an empty pause slot, `srcdoc`-before-insert, size and theme channel), the `/` header `frame-src 'none'`, the srcdoc sink guard, the escape fixture with an HTTP + UDP + TCP + DNS sink and Chromium + WebKit contract tests, then the WebKitGTK, WebView2 and pywebview-bridge probes, the WebKit `preconnect` path, runaway, next-launch key, suspend and recovery measurements, and the focus discriminator; ends in the operator go/no-go
-- [ ] `visual-seams` - `chart.js` split with measured text width, `stream-commit.js`, the tag-driven `visual-stream.js`, the shared placeholder and `App.ui.visualNotice`; no other behaviour change
-- [ ] `widget-control` - `App.ui.widget`: the card and marking, the DD7 lifecycle (cap 3, ceiling 8, `visibilitychange`, reduced motion), the pause gate, the hang guard, the focus guard, limits and notices, `sweep()`, catalogue and testid rows, contract tests
-- [ ] `widgets-in-chat` - Chat and streaming wiring, `sweep()` in `clearLog`, flow tests, `docs/widget-format.md`, the DD13 mitigation and the `pagehide` fallback if needed, `SECURITY-MODEL.md` "Live visuals", and the `widget-escape` behavior test authored and run
+- [x] `widget-frame-gate` - Frame core (document builder, prelude capture and neutering with an empty pause slot, `srcdoc`-before-insert, size and theme channel), the `/` header `frame-src 'none'`, the srcdoc sink guard, the escape fixture with an HTTP + UDP + TCP + DNS sink and Chromium + WebKit contract tests, then the WebKitGTK, WebView2 and pywebview-bridge probes, the WebKit `preconnect` path, runaway, next-launch key, suspend and recovery measurements, and the focus discriminator; ends in the operator go/no-go
+- [x] `visual-seams` - `chart.js` split with measured text width, `stream-commit.js`, the tag-driven `visual-stream.js`, the shared placeholder and `App.ui.visualNotice`; no other behaviour change
+- [-] ~~`widget-control`~~ - aborted before implementation (too large); split at its design review into the next three legs
+- [x] `widget-frame-hardening` - Frame-side controls: the gesture-recency focus gate, layered link blocking (every known bypass), the pause gate with an initial state, `postPause`/`postResume`, the prelude re-pin, the exact guard allowance, and the `contracts-widget` lane
+- [x] `widget-card` (leg 4) - `App.ui.widget`: the card and marking, limits and notices, theme, `sweep()`, CSS (including the narrow layout), icons, catalogue and testid rows, contract tests
+- [x] `widget-lifecycle` (leg 5) - The DD7 manager as a pure `reconcile(facts)`, the cap (3) and ceiling (8), `visibilitychange`, reduced motion, the DD9 hang guard (crash record with `hidden`-aware staleness, stall, heartbeat via `_clock`/`_tick` seams), contract tests
+- [x] `widgets-in-chat` (leg 6) - Chat and streaming wiring, keys, `sweep()` in `clearLog`, flow tests, `docs/widget-format.md`, `SECURITY-MODEL.md` "Live visuals", `agents.md`, and the `widget-escape` behavior test authored and run. The DD13 bridge switch-off and the DD9 next-launch key check moved to `desktop-engine-pass`, which runs the real shells (Flight Director, 2026-11-09).
 - [ ] `widget-prompt-and-evals` - A1 (log fix, scanner refactor, digests) → review and commit → B1 (compare against m35, then the same-prompt re-baseline; closes squawk 0337) → A2 (widened section, hint, `reply_has_valid_widget`, the new `evals/widgets/` set, pins, digests) → review and commit → B2 (sentinel, n=20, compares including the unchanged visuals set) → the operator's size decision → the widget-prompt baselines
-- [ ] `desktop-engine-pass` - Charts and widgets in WebKitGTK, WebView2 and WKWebView (a hosted dispatch with a capture and sink), the macOS bridge and Dock Quit checks
+- [ ] `desktop-engine-pass` - The DD13 bridge switch-off in the desktop shell (GTK, Cocoa) under the desktop test-patch rule; the DD9 next-launch key check on real quit paths (and the bounded shell fallback if needed); charts and widgets in WebKitGTK (the real `the-one app` shell), WebView2 and WKWebView (a hosted dispatch with a capture and sink), with the bridge confirmed unreachable on all three
 - [ ] `hat` *(optional, opted in)* - The guided HAT with the usage walk and a pre-walk apparatus self-check
 
 ---

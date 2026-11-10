@@ -1,23 +1,25 @@
-// App.chat.chartStream -- where a streaming reply may be committed as markdown, and whether the
-// tail is inside an open chart block (M35 F1 L2, flight DD8 and DD10). Pure logic: no DOM, no
-// transcript state; transcript.js owns the bubble, the placeholder and the pacing.
+// App.chat.visualStream -- where a streaming reply may be committed as markdown, and whether the
+// tail is inside an open visual block (a chart, later a widget) (M35 F1 L2, flight DD8 and DD10;
+// tag-driven since M35 F2 L2, DD14). Pure logic: no DOM, no transcript state; the transcript
+// and stream-commit.js own the bubble, the placeholder and the pacing.
 //
-// scanTail(text) proposes candidate commit offsets of three kinds, in one pass over the COMPLETE
-// (newline-terminated) lines:
+// scanTail(text, tags) proposes candidate commit offsets of three kinds, in one pass over the
+// COMPLETE (newline-terminated) lines:
 //   1. blank   the end of a blank line outside a fence;
 //   2. close   the end of a newline-terminated top-level (column 0) closing-fence line;
-//   3. chart   the start of a complete top-level (column 0) ```chart opener line.
-// and reports `open`, the offset of a top-level chart opener the tail is still inside.
+//   3. opener  the start of a complete top-level (column 0) opener line whose first word is one
+//              of `tags` (for example ```chart);
+// and reports `open`, {offset, lang} of a top-level tagged opener the tail is still inside.
 // The scanner's nested opener is permissive (indent then ```); its closer is exactly
 // ^\s{0,n}```\s*$ for an opener indented n, so ```python inside an open fence is content, as
 // for the parser. The scanner and the parser can disagree about nested fences (a fence in a
 // list item ended by a column-0 line); parse confirmation is the authority.
 //
-// create() returns the confirming planner: plan(tail) tries the furthest candidate, then at
-// most two earlier ones, and accepts the first whose prefix parses with no unclosed code block
-// at any depth. A per-generation cache keeps the cost linear (verdict per offset, a poisoned
-// prefix, an empty-fragment mark). The caller resets it after a non-empty commit, a stream
-// reset and a finalize.
+// create({tags}) returns the confirming planner: plan(tail) tries the furthest candidate, then
+// at most two earlier ones, and accepts the first whose prefix parses with no unclosed code
+// block at any depth. A per-generation cache keeps the cost linear (verdict per offset, a
+// poisoned prefix, an empty-fragment mark). The caller resets it after a non-empty commit, a
+// stream reset and a finalize.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -25,13 +27,14 @@
 
   var KIND_BLANK = 'blank';
   var KIND_CLOSE = 'close';
-  var KIND_CHART = 'chart';
+  var KIND_OPENER = 'opener';
   var MAX_TRIES = 3;
 
-  function scanTail(text) {
+  function scanTail(text, tags) {
+    tags = tags || [];
     var lines = String(text).split('\n');
     var candidates = [];
-    var fence = null; // {indent, top, chart, start}
+    var fence = null; // {indent, top, lang, start}
     var pos = 0;
     // The last piece has no newline yet (or is the empty remainder): it is not a line.
     for (var i = 0; i < lines.length - 1; i++) {
@@ -50,19 +53,19 @@
       if (om) {
         var top = om[1].length === 0;
         var lang = om[2].trim().split(/\s+/)[0];
-        var chart = top && lang === 'chart';
-        if (chart) {
+        var tagged = top && tags.indexOf(lang) >= 0;
+        if (tagged) {
           // A blank line right before the opener ends at this same offset: one candidate.
           var lastC = candidates[candidates.length - 1];
-          if (lastC && lastC.offset === start) lastC.kind = KIND_CHART;
-          else candidates.push({ offset: start, kind: KIND_CHART });
+          if (lastC && lastC.offset === start) lastC.kind = KIND_OPENER;
+          else candidates.push({ offset: start, kind: KIND_OPENER });
         }
-        fence = { indent: om[1].length, top: top, chart: chart, start: start };
+        fence = { indent: om[1].length, top: top, lang: tagged ? lang : null, start: start };
         continue;
       }
       if (line === '') candidates.push({ offset: pos, kind: KIND_BLANK });
     }
-    var open = fence && fence.top && fence.chart ? { offset: fence.start } : null;
+    var open = fence && fence.top && fence.lang ? { offset: fence.start, lang: fence.lang } : null;
     return { candidates: candidates, open: open };
   }
 
@@ -79,7 +82,8 @@
     return false;
   }
 
-  function create() {
+  function create(opts) {
+    var tags = opts && opts.tags ? opts.tags.slice() : [];
     var verdict = Object.create(null); // offset -> true | false | 'empty'
     var poisonAt = Infinity; // a prefix ending here held an unclosed block: every later one does
     var parses = 0;
@@ -88,7 +92,7 @@
       var known = verdict[offset];
       if (known !== undefined) return known;
       var ok;
-      if (offset === 0 && kind === KIND_CHART) {
+      if (offset === 0 && kind === KIND_OPENER) {
         ok = true; // an empty prefix needs no parse
       } else if (offset >= poisonAt) {
         ok = false;
@@ -102,11 +106,11 @@
     }
 
     return {
-      // plan(tail) -> {boundary, open}. boundary: the offset to commit (0: nothing). open: the
-      // offset of an open top-level chart opener whose prefix was accepted, else null; both in
-      // the coordinates of the tail passed in.
+      // plan(tail) -> {boundary, open, accepted}. boundary: the offset to commit (0: nothing).
+      // open: {offset, lang} of an open top-level tagged opener whose prefix was accepted, else
+      // null; offsets in the coordinates of the tail passed in.
       plan: function (tail) {
-        var scan = scanTail(tail);
+        var scan = scanTail(tail, tags);
         var cands = scan.candidates;
         var boundary = 0;
         var accepted = null;
@@ -121,7 +125,7 @@
         }
         var open = null;
         if (scan.open && verdict[scan.open.offset] !== undefined && verdict[scan.open.offset] !== false) {
-          open = scan.open.offset;
+          open = { offset: scan.open.offset, lang: scan.open.lang };
         }
         return { boundary: boundary, open: open, accepted: accepted !== null };
       },
@@ -132,8 +136,8 @@
     };
   }
 
-  // The chart type named at the start of an open block's body (after the opener line), once the
-  // first key and its value are fully streamed; null before that.
+  // The chart type named at the start of an open chart block's body (after the opener line), once
+  // the first key and its value are fully streamed; null before that. Chart-only.
   function typeOf(blockText) {
     var nl = blockText.indexOf('\n');
     if (nl < 0) return null;
@@ -141,7 +145,7 @@
     return m ? m[1] : null;
   }
 
-  window.App.chat.chartStream = {
+  window.App.chat.visualStream = {
     scanTail: scanTail,
     create: create,
     typeOf: typeOf

@@ -24,6 +24,7 @@ SCRIPT = REPO / "scripts" / "run-tests.sh"
 LANES = (
     "chats",
     "chats-transcript",
+    "chats-widgets",
     "agents",
     "agent-tabs",
     "agent-routines",
@@ -37,6 +38,8 @@ LANES = (
     "providers",
     "contracts-overlay",
     "contracts-chat",
+    "contracts-widget",
+    "contracts-widget-lifecycle",
     "contracts-controls",
     "shared",
 )
@@ -87,7 +90,14 @@ def test_lanes_union_is_the_browser_suite(lanes: dict[str, set[str]]) -> None:
 
 def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[str]]) -> None:
     ui = {f"tests/browser/{p.name}" for p in (REPO / "tests" / "browser").glob("test_ui_*.py")}
-    assert lanes["contracts-overlay"] | lanes["contracts-chat"] | lanes["contracts-controls"] == ui
+    assert (
+        lanes["contracts-overlay"]
+        | lanes["contracts-chat"]
+        | lanes["contracts-widget"]
+        | lanes["contracts-widget-lifecycle"]
+        | lanes["contracts-controls"]
+        == ui
+    )
     # `contracts` stays an alias for the union (not a canonical lane).
     assert _lane_files("contracts") == ui
     assert "tests/browser/test_ui_listener_cleanup.py" in lanes["contracts-controls"]
@@ -97,7 +107,9 @@ def test_contracts_lanes_are_exactly_the_ui_contract_files(lanes: dict[str, set[
 def test_contracts_chat_lane_is_the_chat_control_files(lanes: dict[str, set[str]]) -> None:
     """M31 F6 L04 (DD15): the six chat-control contract files are their own lane, so
     `contracts-controls` no longer lists them and the `contracts` alias still does. M35 F1 L1
-    adds the two chart files (`test_ui_chart*`)."""
+    adds the two chart files (`test_ui_chart*`); M35 F2 L2 adds the visual notice contract
+    (`test_ui_visual_notice*`). The widget frame contract files moved out to `contracts-widget`
+    in M35 F2 L3."""
     chat = {
         f"tests/browser/test_ui_{n}_contract.py"
         for n in (
@@ -109,12 +121,38 @@ def test_contracts_chat_lane_is_the_chat_control_files(lanes: dict[str, set[str]
             "notice",
             "chart",
             "chart_placeholder",
+            "visual_notice",
         )
     }
     assert lanes["contracts-chat"] == chat
     assert not (lanes["contracts-controls"] & chat)
     assert not (lanes["contracts-overlay"] & chat)
     assert chat <= _lane_files("contracts")
+
+
+def test_contracts_widget_lanes_are_every_widget_contract_file(lanes: dict[str, set[str]]) -> None:
+    """M35 F2 L3 and L5 (AC6): every `test_ui_widget*` file is in `contracts-widget` (the frame
+    and card files) or `contracts-widget-lifecycle` (the lifecycle and hang files) and nowhere
+    else, and the `contracts` alias still covers them."""
+    browser = REPO / "tests" / "browser"
+    widget = {f"tests/browser/{p.name}" for p in browser.glob("test_ui_widget_frame*.py")} | {
+        f"tests/browser/{p.name}" for p in browser.glob("test_ui_widget_card*.py")
+    }
+    life = {f"tests/browser/{p.name}" for p in browser.glob("test_ui_widget_lifecycle*.py")} | {
+        f"tests/browser/{p.name}" for p in browser.glob("test_ui_widget_hang*.py")
+    }
+    assert widget and life, "no widget contract file"
+    assert "tests/browser/test_ui_widget_frame_contract.py" in widget
+    assert "tests/browser/test_ui_widget_lifecycle_contract.py" in life
+    assert "tests/browser/test_ui_widget_hang_contract.py" in life
+    assert lanes["contracts-widget"] == widget
+    assert lanes["contracts-widget-lifecycle"] == life
+    every = {f"tests/browser/{p.name}" for p in browser.glob("test_ui_widget*.py")}
+    assert widget | life == every
+    for other in ("contracts-chat", "contracts-controls", "contracts-overlay", "shared"):
+        assert not (lanes[other] & (widget | life)), other
+    assert not (lanes["contracts-widget"] & lanes["contracts-widget-lifecycle"])
+    assert (widget | life) <= _lane_files("contracts")
 
 
 def test_settings_tools_lane_is_the_built_in_tools_files(lanes: dict[str, set[str]]) -> None:
@@ -138,7 +176,11 @@ def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[
     assert "tests/browser/test_flow_chat_pane.py" in lanes["chats"]
     assert "tests/browser/test_chats_helper.py" in lanes["chats"]
     assert not (transcript & lanes["chats"])
-    assert _lane_files("chat") == lanes["chats"] | transcript
+    # M35 F2 L6: the widgets-in-chat flow tests are their own lane, kept out of both others.
+    widgets = lanes["chats-widgets"]
+    assert widgets == {"tests/browser/test_flow_chat_widgets.py"}
+    assert not (widgets & lanes["chats"]) and not (widgets & transcript)
+    assert _lane_files("chat") == lanes["chats"] | transcript | widgets
 
 
 def test_mcp_lanes_are_the_split_editor_files(lanes: dict[str, set[str]]) -> None:
@@ -171,8 +213,8 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|chats-transcript|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
-        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-controls|shared"
+        "chats|chats-transcript|chats-widgets|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
+        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
     )
     assert lanes in proc.stderr
     assert proc.stdout == ""

@@ -468,6 +468,93 @@ provenance.
   count at cascade points) is the convention future credential-lifecycle
   logging follows.**
 
+## Live visuals (Mission 35 Flight 2)
+
+An assistant reply can carry a `widget` block: a small HTML page the model wrote, which the chat
+runs. That is model-authored code executing in the operator's browser, so the boundary matters more
+than any other Mission 35 surface. The format is `docs/widget-format.md`; the wiring is
+`the_one/agents.md` "Widgets in chat". Charts (`chart` blocks) run no code and are outside this
+section.
+
+### The boundary
+
+A widget runs in an `<iframe srcdoc>` built by `App.ui.widgetFrame` with four layers, each assumed
+fallible on its own:
+
+1. **Sandbox.** `sandbox="allow-scripts"` and nothing else: an opaque origin (`"null"`), so no
+   cookies, storage, parent DOM, `top` access, popups, modal dialogs, downloads or form submission.
+   `referrerpolicy="no-referrer"` and an empty Permissions Policy.
+2. **Policy.** A `Content-Security-Policy` `<meta>` is the first thing in the frame's document, before
+   any model byte, closing every fetch directive (`default-src 'none'`; only inline script and style,
+   `img-src data: blob:`). A later `<meta>` from the model can only tighten (policies intersect).
+3. **The page header.** `GET /` carries `frame-src 'none'; child-src 'none'` (`FRAME_POLICY` in
+   `app.py`), so the page refuses to navigate any frame, including a widget navigating itself. A
+   second `load` of a widget's frame is treated as an escape: the frame is removed and the card shows
+   a stopped state.
+4. **The prelude.** A reviewed, pinned script that runs first in the frame
+   (`tests/test_widget_frame_prelude.py`): it neuters WebRTC, `history`, `execCommand`; gates
+   programmatic focus on a trusted gesture inside the frame within about 1 s; gates the widget's clock
+   when paused; and rewrites every `<link>` entry point to an inert `<x-link>` (the DD6 layered link
+   blocking: the source is rewritten before it runs, and the prelude rewrites each in-frame HTML
+   entry point and `createElement`/`createElementNS`).
+
+The only message the page accepts from a frame is its height, matched by `event.source` against the
+live frames' windows (never by origin, since every widget's origin is `"null"`), clamped to 48-720 px
+and coalesced to one write per animation frame. A forged `mcp-oauth-result` or any other message
+from a widget arrives with origin `"null"`, which the OAuth listener
+(`areas/studio/mcp-oauth-consent.js`, `evt.origin !== window.location.origin`) drops
+(`tests/browser/test_flow_chat_widgets.py`).
+
+### What a widget cannot do
+
+Reach the network (HTTP, WebSocket, beacon, images, CSS `url()`, workers, `import()`, WebRTC STUN,
+DNS prefetch, preconnect), read or write the app's DOM, cookies or storage, navigate or reload the
+page, push history entries, open a window or dialog, take focus from the composer, or hold the
+lifecycle (it is paused out of view, capped at 3 running and 8 loaded, and stopped by the hang
+guard). The escape battery `tests/fixtures/widgets/escape.html` exercises each path; the contract
+files `test_ui_widget_*.py` (Chromium and WebKit) and the behavior test
+`tests/behavior/widget-escape.md` (a real chat, real input, an external sink) hold the claim. A
+widget runs with the operator's privileges only inside its own frame; it never receives a credential,
+a cookie or an agent tool.
+
+### Measured engine matrix
+
+The per-engine measurements (Chromium, Playwright WebKit, WebKitGTK 2.52.6, Windows WebView2 157),
+the go/no-go table and the mitigations the operator chose are in the Flight 2 flight log, "Leg 1
+`widget-frame-gate`" and its "Go/no-go recommendation"
+(`missions/35-rich-visuals-in-chat/flights/02-live-visuals/flight-log.md`). They are not repeated
+here.
+
+### Residual risks
+
+- **A WebKit freeze, once per bad widget.** On WebKit-family engines (Linux WebKitGTK, macOS,
+  Playwright WebKit) a widget that busy-loops freezes the page's main thread for the loop's duration.
+  The hang guard (crash record, stall detection, heartbeat) bounds it to once per widget: after a
+  reload the widget comes back stopped, with Start anyway. On Chromium and WebView2 the frame is
+  isolated and the page keeps running. In the desktop app, recovery from a long freeze is the tray
+  Quit (Linux) or the Dock Quit (macOS) and a relaunch.
+- **Preconnect and DNS blocking are best-effort.** The layered rewrite closes the entry points that
+  were measured, but a speculative connection (a bare TCP connect or a DNS lookup, with no data sent
+  and no response readable) from a path nobody has found remains a possible leak of a destination
+  host name. The sink in the behavior test reads zero on every measured path.
+- **The 1 s focus window.** After a trusted click or key inside the frame, the widget may call
+  `focus()` for about 1 s. It cannot steal focus without a gesture inside the frame.
+- **`<title>` text in chrome.** The widget's `<title>` is shown in the card header (60 characters, as
+  text). It is attacker-influenced text next to the "Widget by {agent}" label.
+- **Tab trapping.** A widget that handles Tab itself can keep keyboard focus inside its frame after the
+  operator clicked into it; the mouse (or the browser's own focus shortcuts) leaves it.
+- **The crash record's false positives.** The record lives in `localStorage` and flags a widget as
+  "stopped responding last time" after a page that ended without a normal unload (a browser closed
+  with the whole window, a suspend). A false positive costs one click on Start anyway.
+- **Pause is cooperative.** A widget that busy-loops, or schedules work through a path the gate does
+  not wrap, keeps running when paused; removal and the hang guard are the real stops
+  (`docs/widget-format.md` "Pausing").
+- **The pywebview bridge.** pywebview 5.4's native bridge (`jsBridge`) is reachable from a frame on
+  WebKitGTK and, by assumption, WKWebView; it can move the window and open a native message box.
+  The operator's decision is to switch it off on Linux and macOS; that desktop-shell change lands in
+  the desktop leg (`desktop-engine-pass`) under the desktop test-patch rule. Until then it is an
+  open item on those platforms; it is not reachable on WebView2 (Windows).
+
 ## Connector Channel Contract (Mission 23 Flight 2)
 
 The connector subsystem (`the_one/connectors/`) bridges external chat

@@ -70,6 +70,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
     assert shape["util"] == [
         "addDescribedBy",
         "applyDataset",
+        "chartParts",
         "el",
         "icon",
         "latest",
@@ -79,6 +80,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
         "rovingFocus",
         "syncChildren",
         "uid",
+        "widgetReconcile",
     ]
     assert shape["fact"] == ["function"] * 4
 

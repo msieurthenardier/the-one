@@ -11,6 +11,7 @@ pixel positions (text measurement differs by engine and font). Chromium and WebK
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -533,9 +534,9 @@ def test_block_error_notice_with_the_source_under_technical_details(engine_page:
     )
     err = page.get_by_test_id("b-error")
     assert err.get_attribute("class") == "ui-notice ui-notice--danger"
-    assert err.locator(".ui-chart-error-head").text_content() == "Couldn't draw this chart."
+    assert err.locator(".ui-visual-notice-head").text_content() == "Couldn't draw this chart."
     assert (
-        err.locator(".ui-chart-error-reason").text_content()
+        err.locator(".ui-visual-notice-reason").text_content()
         == 'Series "2024" has 11 values, but the x axis has 12.'
     )
     details = err.locator("details")
@@ -555,10 +556,10 @@ def test_block_cut_off_notice_is_muted(engine_page: Page) -> None:
     err = page.get_by_test_id("b-error")
     assert err.get_attribute("class") == "ui-notice ui-notice--muted"
     assert (
-        err.locator(".ui-chart-error-head").text_content()
+        err.locator(".ui-visual-notice-head").text_content()
         == "This chart was cut off before it finished."
     )
-    assert err.locator(".ui-chart-error-reason").count() == 0
+    assert err.locator(".ui-visual-notice-reason").count() == 0
     assert err.locator("details pre").text_content() == '{"type": "bar", "x": {"val'
 
 
@@ -637,3 +638,94 @@ def test_chart_text_is_never_html(engine_page: Page) -> None:
     fig = page.get_by_test_id("c")
     assert fig.locator("img, b, i").count() == 0
     assert "<img" in fig.locator(".ui-chart-title").text_content()
+
+
+# M35 F2 L2 (flight DD14): axis text is measured in the browser, not estimated.
+TWO_CHARTS_JS = """(args) => {
+  const out = [];
+  args.units.forEach((unit, i) => {
+    const r = App.ui.chart.parse(JSON.stringify({
+      type: 'bar', x: {values: ['a', 'b', 'c']}, y: {unit: unit}, series: [{values: [10, 20, 30]}]
+    }));
+    const frame = document.createElement('div');
+    frame.style.width = '500px';
+    frame.id = 'frame' + i;
+    frame.appendChild(App.ui.chart({spec: r.spec, testid: 'm' + i}).el);
+    document.getElementById('harness-root').appendChild(frame);
+  });
+}"""
+
+
+def test_the_y_margin_follows_the_measured_width_of_the_labels(engine_page: Page) -> None:
+    """Under the old estimate the two charts would have equal left edges (8 code points
+    each); measured, ``WWWWWWWW`` is far wider than ``iiiiiiii``."""
+    page = engine_page
+    load_harness(page)
+    page.evaluate(TWO_CHARTS_JS, {"units": ["WWWWWWWW", "iiiiiiii"]})
+    for i in (0, 1):
+        expect(page.locator(f'[data-testid="m{i}"] svg')).to_have_attribute(
+            "data-width", re.compile(r"^\d+$")
+        )
+    edges = page.evaluate(
+        """() => [0, 1].map((i) => {
+          const svg = document.querySelector('[data-testid="m' + i + '"] svg');
+          const left = parseFloat(svg.querySelector('.ui-chart-axis-line').getAttribute('x1'));
+          // independent measurement: the widest rendered y tick, plus the 12 px margin
+          let widest = 0;
+          svg.querySelectorAll('.ui-chart-tick[text-anchor="end"]').forEach((t) => {
+            widest = Math.max(widest, t.getComputedTextLength());
+          });
+          return {left: left, expected: Math.max(34, Math.ceil(widest) + 12)};
+        })"""
+    )
+    wide, narrow = edges
+    assert wide["left"] - narrow["left"] > 25, edges
+    for e in edges:
+        assert abs(e["left"] - e["expected"]) <= 3, edges
+
+
+def test_x_labels_are_truncated_by_measured_width(engine_page: Page) -> None:
+    """A wide-glyph label (19 W and a digit, 20 code points) is about 9 px a glyph measured, but
+    the 6.4 px estimate counts it as 128 px and would keep it whole. The harness's fonts are
+    system fallbacks (CJK glyph widths vary by host), so the label uses Latin capitals."""
+    page = engine_page
+    load_harness(page)
+    label = "W" * 19
+    page.evaluate(
+        """(label) => {
+          const names = [1, 2, 3, 4].map((n) => label + n);
+          const r = App.ui.chart.parse(JSON.stringify({
+            type: 'bar', x: {values: names}, series: [{values: [1, 2, 3, 4]}]
+          }));
+          const frame = document.createElement('div');
+          frame.style.width = '300px';
+          frame.appendChild(App.ui.chart({spec: r.spec, testid: 'm'}).el);
+          document.getElementById('harness-root').appendChild(frame);
+        }""",
+        label,
+    )
+    expect(page.locator('[data-testid="m"] svg')).to_have_attribute(
+        "data-width", re.compile(r"^\d+$")
+    )
+    info = page.evaluate(
+        """() => {
+          const svg = document.querySelector('[data-testid="m"] svg');
+          const axis = svg.querySelector('.ui-chart-axis-line');
+          const band = (parseFloat(axis.getAttribute('x2')) - parseFloat(axis.getAttribute('x1'))) / 4;
+          const stride = Math.max(1, Math.ceil((120 + 8) / band));
+          const maxWidth = Math.max(19, band * stride - 6);
+          const tick = svg.querySelector('.ui-chart-tick[text-anchor="middle"]');
+          return {
+            text: tick.textContent,
+            cps: Array.from(tick.textContent).length,
+            width: tick.getComputedTextLength(),
+            maxWidth: maxWidth,
+            estimateCps: Math.min(24, Math.floor(maxWidth / 6.4))
+          };
+        }"""
+    )
+    # the estimate keeps all 20 code points (128 px is under the room); the measured text does not
+    assert info["estimateCps"] >= 20, info
+    assert info["text"].endswith("…"), info
+    assert info["cps"] < 20, info
+    assert info["width"] <= info["maxWidth"] + 1, info

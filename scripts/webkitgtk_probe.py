@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -190,8 +191,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--assert-timeout", type=float, default=5.0, help="--assert-selector poll limit, seconds"
     )
+    ap.add_argument(
+        "--register-message-handler",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "register a script message handler NAME on the WebView's UserContentManager\n"
+            "exactly as pywebview does for its bridge (register_script_message_handler\n"
+            "plus script-message-received), before the page loads; every message a\n"
+            "script posts through window.webkit.messageHandlers.NAME.postMessage is\n"
+            "reported under message_handlers.NAME.received in the JSON (M35 F2 L1:\n"
+            "can a sandboxed widget frame reach the shell's bridge?); repeatable"
+        ),
+    )
     ap.add_argument("--timeout", type=int, default=60, help="hard timeout, seconds (default 60)")
     return ap.parse_args(argv)
+
+
+_HANDLER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def validate_handler_names(names: list[str]) -> list[str]:
+    """``--register-message-handler`` names: a JS identifier, no duplicates."""
+    for name in names:
+        if not _HANDLER_NAME.match(name):
+            raise ProbeError(f"--register-message-handler {name!r}: expected a JS identifier")
+    if len(set(names)) != len(names):
+        raise ProbeError("--register-message-handler: a name is given twice")
+    return list(names)
 
 
 _MODIFIER_NAMES = {
@@ -241,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         check_safety(args.url, args.data_dir)
         setup_scripts = load_setup_scripts(args.setup_script)
         combos = [parse_key_combo(c) for c in args.press_keys]
+        handler_names = validate_handler_names(args.register_message_handler)
         parts = urlsplit(args.url)
         origin = f"{parts.scheme}://{parts.netloc}"
         handoff_url = mint_handoff_url(origin, args.data_dir)
@@ -289,6 +318,26 @@ def main(argv: list[str] | None = None) -> int:
             None,
         )
     )
+    # pywebview (webview/platforms/gtk.py) registers its bridge exactly like this.
+    handlers: dict[str, list] = {name: [] for name in handler_names}
+
+    def make_receiver(name: str):
+        def received(_manager, message) -> None:
+            try:
+                # WebKit2 4.1 hands the callback a JavascriptResult wrapping the posted value.
+                value = message.get_js_value() if hasattr(message, "get_js_value") else message
+                text = value.to_json(0)
+            except Exception:  # noqa: BLE001 - a non-serialisable value is still a delivery
+                text = str(message)
+            handlers[name].append(text)
+
+        return received
+
+    for name in handler_names:
+        content.register_script_message_handler(name)
+        content.connect(f"script-message-received::{name}", make_receiver(name))
+    if handlers:
+        out["message_handlers"] = {n: {"received": r} for n, r in handlers.items()}
     view = WebKit2.WebView(web_context=context, user_content_manager=content)
     view.get_settings().set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.NEVER)
     window = Gtk.Window(title="webkitgtk-probe")

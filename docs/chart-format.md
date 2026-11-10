@@ -95,6 +95,10 @@ Display is locale-neutral and defined here, never by the system locale (the desk
 
 `number-format.json` holds the examples both formatters must reproduce.
 
+## Text width
+
+Axis text (tick labels, the margin they need, how far a category label is cut before its ellipsis) is sized by the width the text really has. The browser control **measures** it: it appends a probe `<text>` with the label's own class to the chart's live `<svg>`, reads `getComputedTextLength()` and removes it, caching the result by class and string and clearing that cache when the web fonts finish loading. A fixed 6.4 px per code point is only the fallback when measuring is impossible (a detached chart, an error, or a length of 0 for a non-empty string). A server-side renderer (Flight 3) has no browser to ask, so it must size text from the font's own metrics (advance widths for the font it draws with), not from a per-character estimate.
+
 ## Error sentences
 
 A text that breaks a rule is refused with one plain sentence, naming the series or key when there is one. The first error found wins, checking in this order: JSON syntax; object shape; `type`; `title`; `stacked`; the axes `x`, `y`, `y2` (inside an axis: `label`, `unit`, `scale`, `min`, `max`, then `x.values`); each series in turn; the cross-series checks (pie series count, duplicate names, length against `x`, nothing to draw, pie values, log-scale values, stacking on a log scale); `annotations`; and last the limits (values, categories, series, slices, annotations). The examples below are the exact sentences the corpus pins; `{n}`-style numbers, series names and axis names vary with the input, and a series without a name is called `Series 1`, `Series 2` and so on.

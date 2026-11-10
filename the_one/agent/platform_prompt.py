@@ -149,7 +149,7 @@ _VISUALS = (
     '`unit`, `"stacked": true`. Two axes: add `"y2"` shaped like `"y"` and set a series '
     '`"axis": "right"`; a series `"type": "line"` mixes a line into bars; reference lines: '
     '`"annotations": [{"axis": "y", "value": 150, "label": "Target"}]`; log scale: '
-    '`"scale": "log"` on an axis. Chart only when it makes numbers clearer.\n'
+    '`"scale": "log"` on `y` (`x` for scatter). Chart only when it makes numbers clearer.\n'
 )
 
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"

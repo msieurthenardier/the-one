@@ -1,0 +1,278 @@
+<!-- The widget escape battery (M35 F2 L1, DD17). A widget BODY (the frame core prepends its fixed
+     prelude and policy). The test fills {{HTTP}}, {{UDP}}, {{TCP}} (the sink's ports on 127.0.0.1)
+     and {{MODE}} before calling buildDocument:
+       main        every network and DOM path, then a forged-message flood
+       nav-href, nav-assign, nav-replace, nav-meta, nav-link, nav-reload   one navigation attempt
+       focus       a focus-stealing loop (DD10 measurements)
+       link-<route>  one link-route attempt (DD6, M35 F2 L3); routes are listed in the script
+     It draws a pass/fail grid inside itself and keeps it in window.__grid:
+       refused   the in-frame attempt failed (the expected result)
+       attempted the attempt was made; only the sink can say whether it left (network paths)
+       open      the in-frame attempt succeeded (a breach)
+     window.__done turns true when the battery has finished. -->
+<style>
+  body { font: 11px monospace; padding: 6px; }
+  td { padding: 0 8px; }
+  .refused { color: #0a7a2f; }
+  .attempted { color: #8a6d00; }
+  .open { color: #b00020; }
+</style>
+<table id="grid"></table>
+<div id="mp"></div>
+<script>
+(function () {
+  var HTTP = '{{HTTP}}', UDP = '{{UDP}}', TCP = '{{TCP}}', MODE = '{{MODE}}';
+  var BASE = 'http://127.0.0.1:' + HTTP;
+  var NAV = BASE + '/leak?p=nav';
+  var grid = {};
+  window.__grid = grid;
+  window.__done = false;
+  function rec(id, status, note) {
+    grid[id] = { status: status, note: note || '' };
+    var tr = document.getElementById('row-' + id) || document.createElement('tr');
+    tr.id = 'row-' + id;
+    tr.className = status;
+    tr.textContent = '';
+    [id, status, note || ''].forEach(function (t) {
+      var td = document.createElement('td');
+      td.textContent = t;
+      tr.appendChild(td);
+    });
+    document.getElementById('grid').appendChild(tr);
+  }
+  function attempt(id, fn) {
+    try { fn(); rec(id, 'attempted'); } catch (e) { rec(id, 'refused', String(e && e.name)); }
+  }
+  function breach(id, fn) {
+    // fn returns true when the in-frame attempt SUCCEEDED (a breach).
+    try { rec(id, fn() ? 'open' : 'refused'); } catch (e) { rec(id, 'refused', String(e && e.name)); }
+  }
+  function leak(p) { return BASE + '/leak?p=' + p; }
+
+  if (MODE.indexOf('nav-') === 0) {
+    setTimeout(function () {
+      if (MODE === 'nav-href') { location.href = NAV; }
+      else if (MODE === 'nav-assign') { location.assign(NAV); }
+      else if (MODE === 'nav-replace') { location.replace(NAV); }
+      else if (MODE === 'nav-meta') {
+        var m = document.createElement('meta');
+        m.httpEquiv = 'refresh';
+        m.content = '0;url=' + NAV;
+        document.head.appendChild(m);
+      } else if (MODE === 'nav-link') {
+        var a = document.createElement('a');
+        a.href = NAV;
+        a.target = '_self';
+        document.body.appendChild(a);
+        a.click();
+      } else if (MODE === 'nav-reload') { location.reload(); }
+      rec(MODE, 'attempted');
+    }, 150);
+    return;
+  }
+
+  if (MODE === 'focus') {
+    var inp = document.createElement('input');
+    inp.id = 'steal';
+    inp.style.cssText = 'width:200px;height:40px';
+    document.body.appendChild(inp);
+    setInterval(function () { inp.focus(); }, 10);
+    rec('focus', 'attempted');
+    window.__done = true;
+    return;
+  }
+
+  // ── Link routes (DD6, M35 F2 L3): one route per load, each puts a preconnect link in the head,
+  //    which is where WebKit opens a TCP connection. The markup is built at run time, because the
+  //    page rewrites a literal link tag in this source. Every route must read 0 in the sink and
+  //    leave no HTMLLinkElement behind. ──
+  if (MODE.indexOf('link-') === 0) {
+    var LU = 'http://127.0.0.1:' + TCP + '/';
+    var LT = '<' + 'link rel="preconnect" href="' + LU + '">';
+    var XH = 'http://www.w3.org/1999/xhtml';
+    var inHead = function (n) { document.head.appendChild(n); };
+    var routes = {
+      'createElement': function () {
+        var l = document.createElement('LiNk');
+        l.rel = 'preconnect'; l.href = LU; inHead(l);
+      },
+      'createElementNS': function () {
+        var l = document.createElementNS(XH, 'link');
+        l.setAttribute('rel', 'preconnect'); l.setAttribute('href', LU); inHead(l);
+      },
+      'createElementNS-prefixed': function () {
+        var l = document.createElementNS(XH, 'h:link');
+        l.setAttribute('rel', 'preconnect'); l.setAttribute('href', LU); inHead(l);
+      },
+      'innerHTML': function () { document.head.innerHTML += LT; },
+      'outerHTML': function () {
+        var m = document.createElement('meta');
+        inHead(m);
+        m.outerHTML = LT;
+      },
+      'shadow-innerHTML': function () {
+        var host = document.createElement('div');
+        document.body.appendChild(host);
+        var sr = host.attachShadow({ mode: 'open' });
+        sr.innerHTML = LT;
+        inHead(sr.firstChild);
+      },
+      'insertAdjacentHTML': function () { document.head.insertAdjacentHTML('beforeend', LT); },
+      'domparser-html-adopt': function () {
+        var d = new DOMParser().parseFromString(LT, 'text/html');
+        inHead(document.adoptNode(d.querySelector('link, x-link')));
+      },
+      'domparser-xml-import': function () {
+        var d = new DOMParser().parseFromString(
+          '<' + 'h:link xmlns:h="' + XH + '" rel="preconnect" href="' + LU + '"/>', 'application/xml');
+        inHead(document.importNode(d.documentElement, true));
+      },
+      'createHTMLDocument-adopt': function () {
+        var d = document.implementation.createHTMLDocument('');
+        var l = d.createElement('link');
+        l.rel = 'preconnect'; l.href = LU;
+        inHead(document.adoptNode(l));
+      },
+      'createContextualFragment': function () {
+        inHead(document.createRange().createContextualFragment(LT));
+      },
+      'template-content': function () {
+        var t = document.createElement('template');
+        t.innerHTML = LT;
+        inHead(document.importNode(t.content, true));
+      },
+      'setHTMLUnsafe': function () {
+        if (!document.head.setHTMLUnsafe) { throw new Error('unsupported'); }
+        document.head.setHTMLUnsafe(LT);
+      }
+    };
+    var route = MODE.slice(5);
+    try {
+      routes[route]();
+      rec('link', 'attempted', route);
+    } catch (e) {
+      rec('link', 'refused', route + ': ' + String(e && e.message));
+    }
+    setTimeout(function () {
+      window.__links = document.querySelectorAll('link').length;
+      window.__done = true;
+    }, 1200);
+    return;
+  }
+
+  // ── Network paths: the sink is the verdict ──
+  attempt('fetch', function () { fetch(leak('fetch')).catch(function () {}); });
+  attempt('xhr', function () { var x = new XMLHttpRequest(); x.open('GET', leak('xhr')); x.send(); });
+  attempt('image', function () { new Image().src = leak('img'); });
+  attempt('beacon', function () { navigator.sendBeacon(leak('beacon'), 'x'); });
+  attempt('websocket', function () { var w = new WebSocket('ws://127.0.0.1:' + HTTP + '/leak?p=ws'); w.onerror = function () {}; });
+  attempt('form-post', function () {
+    var f = document.createElement('form');
+    f.method = 'POST';
+    f.action = leak('form');
+    document.body.appendChild(f);
+    f.submit();
+  });
+  attempt('link-prefetch', function () {
+    var l = document.createElement('link');
+    l.rel = 'prefetch';
+    l.href = leak('prefetch');
+    document.head.appendChild(l);
+  });
+  attempt('css-url', function () {
+    var d = document.createElement('div');
+    d.style.cssText = 'width:10px;height:10px;background:url(' + leak('cssurl') + ')';
+    document.body.appendChild(d);
+  });
+  attempt('css-import', function () {
+    var s = document.createElement('style');
+    s.textContent = '@import url("' + leak('cssimport') + '");';
+    document.head.appendChild(s);
+  });
+  attempt('data-worker', function () {
+    new Worker('data:text/javascript,fetch("' + leak('dataworker') + '")');
+  });
+  attempt('blob-worker', function () {
+    var b = new Blob(['fetch("' + leak('blobworker') + '")'], { type: 'text/javascript' });
+    new Worker(URL.createObjectURL(b));
+  });
+  attempt('eventsource', function () { var e = new EventSource(leak('es')); e.onerror = function () { e.close(); }; });
+  attempt('dynamic-import', function () { import(leak('import')).catch(function () {}); });
+  attempt('preconnect-script', function () {
+    setTimeout(function () {
+      var l = document.createElement('link');
+      l.rel = 'preconnect';
+      l.href = 'http://127.0.0.1:' + TCP + '/';
+      document.head.appendChild(l);
+    }, 300);
+  });
+  attempt('dns-prefetch', function () {
+    var l = document.createElement('link');
+    l.rel = 'dns-prefetch';
+    l.href = 'http://widget-battery-dns.invalid/';
+    document.head.appendChild(l);
+  });
+
+  // ── In-frame refusals ──
+  breach('parent-dom', function () { return !!parent.document.body; });
+  breach('top-dom', function () { return !!top.document.body; });
+  breach('top-location-read', function () { return typeof top.location.href === 'string'; });
+  breach('top-navigation', function () { top.location.href = leak('topnav'); return true; });
+  breach('cookie', function () { document.cookie = 'a=1'; return document.cookie.indexOf('a=1') >= 0; });
+  breach('local-storage', function () { localStorage.setItem('a', '1'); return localStorage.getItem('a') === '1'; });
+  breach('session-storage', function () { sessionStorage.setItem('a', '1'); return true; });
+  breach('window-open', function () { return window.open(leak('open')) !== null; });
+  breach('alert', function () { alert('widget alert'); return false; });
+  breach('nested-realm', function () {
+    var f = document.createElement('iframe');
+    document.body.appendChild(f);
+    var d = f.contentWindow && f.contentWindow.document;
+    return !!d && !!d.body;
+  });
+  breach('webrtc-undefined', function () {
+    var ok = typeof RTCPeerConnection === 'undefined' && typeof webkitRTCPeerConnection === 'undefined' &&
+      typeof RTCDataChannel === 'undefined' && window.RTCPeerConnection === undefined;
+    return !ok;
+  });
+  attempt('webrtc-stun', function () {
+    var C = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    var pc = new C({ iceServers: [{ urls: 'stun:127.0.0.1:' + UDP }] });
+    pc.createDataChannel('x');
+    pc.createOffer().then(function (o) { return pc.setLocalDescription(o); });
+  });
+  attempt('history', function () { history.back(); history.go(-1); history.forward(); history.pushState({}, '', '#widget-push'); history.replaceState({}, '', '#widget-replace'); });
+  breach('exec-command', function () { return document.execCommand('copy') !== false; });
+  breach('neutered-hold', function () {
+    var before = [window.RTCPeerConnection, window.RTCDataChannel];
+    try { delete window.RTCPeerConnection; } catch (e) {}
+    try { delete History.prototype.back; } catch (e) {}
+    try { delete Document.prototype.execCommand; } catch (e) {}
+    ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel'].forEach(function (n) {
+      try { Object.defineProperty(window, n, { value: function () {}, configurable: true, writable: true }); } catch (e) {}
+    });
+    ['back', 'forward', 'go', 'pushState', 'replaceState'].forEach(function (n) {
+      try { Object.defineProperty(History.prototype, n, { value: function () {}, configurable: true }); } catch (e) {}
+    });
+    try { Object.defineProperty(Document.prototype, 'execCommand', { value: function () { return true; }, configurable: true }); } catch (e) {}
+    var held = window.RTCPeerConnection === undefined && window.webkitRTCPeerConnection === undefined &&
+      window.RTCDataChannel === undefined && window.constructor.RTCPeerConnection === undefined &&
+      document.execCommand('copy') === false;
+    ['back', 'forward', 'go', 'pushState', 'replaceState'].forEach(function (n) {
+      var d = Object.getOwnPropertyDescriptor(History.prototype, n);
+      if (!d || d.writable || d.configurable) held = false;
+    });
+    return !held && before.length === 2;
+  });
+
+  // ── The forged-message flood (the page must coalesce it) ──
+  attempt('flood', function () {
+    var i;
+    for (i = 0; i < 1000; i++) { parent.postMessage({ t: 'size', h: 50 + (i % 600) }, '*'); }
+    parent.postMessage({ t: 'size', h: 999999 }, '*');
+    parent.postMessage({ t: 'size', h: Infinity }, '*');
+  });
+
+  setTimeout(function () { window.__done = true; }, 1200);
+})();
+</script>
+<link rel="preconnect" href="http://127.0.0.1:{{TCP}}/">

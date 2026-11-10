@@ -189,12 +189,18 @@ def index_ui_script_paths() -> list[Path]:
     return [STATIC_DIR / s for s in srcs]
 
 
-def load_harness(page: Page, theme: str = "dark") -> None:
+def load_harness(page: Page, theme: str = "dark", url: str | None = None) -> None:
     """Blank page + index-derived assets + a themed root ``#harness-root``.
+
+    ``url`` (M35 F2 L1): load a real http URL (a blank page served with the page's own frame
+    policy header) instead of ``set_content``; every other step is unchanged.
 
     ``@font-face`` URLs 404 from a blank page; that is acceptable."""
     assert theme in ("dark", "light"), theme
-    page.set_content("<!doctype html><html><head></head><body></body></html>")
+    if url is None:
+        page.set_content("<!doctype html><html><head></head><body></body></html>")
+    else:
+        page.goto(url)
     page.add_style_tag(content=index_layer_statement())  # must be the FIRST style tag
     for css in index_css_paths():
         page.add_style_tag(path=str(css))
