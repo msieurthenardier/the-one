@@ -9,21 +9,37 @@ edit these literals, and requires an eval run (CLAUDE.md "Prompt evals").
 # Mission 35 DD12: the Rich visuals section, written out by hand. It is the last section,
 # so every render with the switch on is the render with it off plus this text.
 PLATFORM_VISUALS_PIN = """
-To chart data, write a fenced block with the language `chart` holding one JSON object, \
-`type` first: {"type": "bar", "x": {"values": ["Q1", "Q2"]}, "series": [{"name": \
-"Sales", "values": [12, 19]}]}. Types: bar, line, area, scatter, pie, sparkline. A pie \
+To show a chart, reply with a code block whose language is `chart` and whose body is one \
+JSON object, `type` first:
+```chart
+{"type": "bar", "x": {"values": ["Q1", "Q2"]}, "series": [{"name": "Sales", "values": [12, 19]}]}
+```
+Data always goes in `series`; `x` and `y` only describe the axes. Types: bar, line, \
+area, scatter, pie, sparkline. A pie \
 takes slice names from `"x": {"values": [...]}` and has one series. Optional: `title`, \
 axis `label` and `unit`, `"stacked": true`. Two axes: add `"y2"` \
 shaped like `"y"` and set a series `"axis": "right"`; a series `"type": "line"` mixes \
 a line into bars; reference lines: `"annotations": [{"axis": "y", "value": 150, \
 "label": "Target"}]`; log scale: `"scale": "log"` on `y` (`x` for scatter). Chart only \
 when it makes numbers clearer.
-To show something moving or interactive, write a fenced block with the language \
-`widget`: one self-contained HTML document or fragment with inline `<style>` and \
-`<script>`. It runs sandboxed with no network, so use no URLs, CDNs, web fonts or \
-remote images. Colours: `var(--bg)`, `var(--fg)`, `var(--accent)`, `var(--chart-1)` \
-to `var(--chart-8)`. Animate with `requestAnimationFrame`; never loop forever. Keep \
-it under 64 KB. Use a widget for animation or interaction, a chart for plain data.
+To show something moving or interactive, reply with a code block whose language is \
+`widget` and whose body is one self-contained HTML snippet with inline `<style>` and \
+`<script>`:
+```widget
+<canvas id="c"></canvas>
+<script>
+const g = c.getContext("2d"), css = getComputedStyle(document.documentElement);
+function frame(t) {
+  g.fillStyle = css.getPropertyValue("--accent"); /* draw */
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+```
+Colours: `var(--surface)`, `var(--fg)`, `var(--accent)`, `var(--chart-1)` to \
+`var(--chart-8)` in CSS; on a canvas, read them with `getPropertyValue` as above. \
+It runs with no network: no URLs, CDNs or remote images. Use a widget for animation \
+or interaction, a chart for plain data.
 """
 
 # The renders with the switch OFF (the pre-Mission-35 text).
