@@ -18,10 +18,10 @@ Shape: one file, two halves.
 * The WSL-side CLI (``main``) parses arguments, validates, copies files through
   ``/mnt/c`` and calls the Windows half.
 * The Windows half is this file's own source, piped on stdin to
-  ``C:\\Python311\\python.exe -`` with a one-line prefix that carries the JSON
+  ``C:\\Python312\\python.exe -`` with a one-line prefix that carries the JSON
   request (``_WIN_REQUEST``). It uses the standard library only (``ctypes``,
   ``winreg``, ``subprocess``), so it works before any venv exists, and nothing is
-  ever installed into ``C:\\Python311``.
+  ever installed into ``C:\\Python312``.
 
 Everything above ``# --- Windows half`` is pure (no Windows calls) and is covered
 by ``tests/test_windows_test_copy.py`` on Linux. Every ``ctypes.windll`` / ``winreg``
@@ -56,8 +56,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent if "__file__" in globals() el
 # Constants
 # ---------------------------------------------------------------------------
 
-PYTHON_WIN = "/mnt/c/Python311/python.exe"
-BASE_PYTHON_DIR = "C:\\Python311"
+PYTHON_WIN = "/mnt/c/Python312/python.exe"
+BASE_PYTHON_DIR = "C:\\Python312"
 SENTINEL = ".the-one-f5-root"
 ROOT_LEAF_PREFIX = "the-one-f5"
 RESULT_MARK = "@@RESULT@@"
@@ -2229,6 +2229,16 @@ def op_build_venv(a: dict) -> dict:
             root,
             env,
             "venv",
+        )
+        # operator_forms() imports platformdirs from this venv before the closure
+        # installs (squawk 0343), so a fresh venv needs it first.
+        times["pip_platformdirs"] = _run_logged(
+            root,
+            log,
+            [vpy, "-m", "pip", "install", "platformdirs", "--quiet"],
+            root,
+            env,
+            "pip install platformdirs",
         )
     h = hashlib.sha256()
     for name in ("uv.lock", "pyproject.toml"):
