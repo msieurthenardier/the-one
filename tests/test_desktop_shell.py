@@ -578,12 +578,68 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
     assert len(token) == 64 and all(c in "0123456789abcdef" for c in token)
 
     # loaded handler registered on main window to destroy the splash.
-    assert len(loaded_event._handlers) == 1, (
+    # (plus the native-bridge removal handler where the policy removes it, M35 F2 L8).
+    expected = 1 + int(state.policy.removes_native_bridge)
+    assert len(loaded_event._handlers) == expected, (
         "main_win.events.loaded += handler must be registered to destroy splash"
     )
     # Firing the loaded event must call splash.destroy() (the idempotent teardown).
     loaded_event.fire()
     mock_splash.destroy.assert_called_once()
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_boot_registers_native_bridge_removal_only_when_policy_says(
+    flag: bool,
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The removal is its OWN ``loaded`` handler (not folded into the splash lambda),
+    registered on the main window only when ``removes_native_bridge`` is true."""
+    import dataclasses
+
+    import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.interfaces.desktop import native_bridge
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    from the_one.interfaces.desktop import boot_policy
+
+    chosen = dataclasses.replace(boot_policy.LINUX, removes_native_bridge=flag)
+    monkeypatch.setattr(boot_policy, "current", lambda: chosen)  # run() resets state
+    removed: list = []
+    monkeypatch.setattr(
+        native_bridge, "remove_native_handlers", lambda win: removed.append(win) or "removed"
+    )
+
+    mock_splash = _make_splash_mock()
+    mock_main_window = MagicMock()
+    loaded_event = _EventCapture()
+    mock_main_window.events.loaded = loaded_event
+    webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
+
+    with patch.object(takeover, "_select_port", return_value=(8484, False)):
+        with patch.object(launcher_module, "_webview_available", return_value=True):
+            with patch.object(launcher_module, "_graceful_shutdown"):
+                with patch.object(launcher_module, "_wait_until_serving"):
+                    with patch("the_one.interfaces.web.app.app", MagicMock()):
+                        with patch("uvicorn.Server", return_value=MagicMock()):
+                            with patch("threading.Thread", return_value=MagicMock()):
+                                launcher_module.run_desktop()
+                                _boot = webview_mock.start.call_args.args[0]
+                                webview_mock.create_window.side_effect = None
+                                webview_mock.create_window.return_value = mock_main_window
+                                with patch(
+                                    "the_one.interfaces.desktop.tray.build_tray",
+                                    return_value=MagicMock(),
+                                ):
+                                    _boot()
+
+    assert len(loaded_event._handlers) == (2 if flag else 1)
+    loaded_event.fire()
+    assert removed == ([mock_main_window] if flag else [])
+    # A platform that removes nothing records "not-applicable" (not "pending").
+    assert state.native_bridge == ("pending" if flag else "not-applicable")
 
 
 def test_boot_error_path_destroys_both_windows(
@@ -1140,7 +1196,8 @@ def test_register_runs_after_create_window_before_show(
     assert ns.order == ["register:dark", "show"]
     ns.main.show.assert_called_once()
     # The loaded handler was subscribed before register and show.
-    assert seen_handlers == [1]
+    # (the splash handler, plus the native-bridge removal where the policy has it)
+    assert seen_handlers == [1 + int(state.policy.removes_native_bridge)]
 
 
 def test_splash_gets_themed_html_and_background(

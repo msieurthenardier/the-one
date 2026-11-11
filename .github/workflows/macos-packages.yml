@@ -334,6 +334,24 @@ jobs:
           cat "$M32_LOGS/probe/SUMMARY.txt" 2>&1 || true
           exit 0
 
+      # M35 F2 L8: charts and widgets in WKWebView, and the native bridge (jsBridge and
+      # browserDelegate removed). Observation only; the rows and screenshots land in the logs.
+      - name: Visuals probe
+        if: ${{ !cancelled() && inputs.mode == 'probe' }}
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          mkdir -p "$M32_LOGS/visuals"
+          # shellcheck disable=SC1090
+          . "$M32_BUILD_ENV"
+          rc=0
+          perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' -- 1080 \
+            bash packaging/macos/probe/visuals.sh "$APP" "$APP_ID" "$M32_LOGS/visuals" \
+            > "$M32_LOGS/visuals-step.log" 2>&1 || rc=$?
+          echo "visuals.sh rc=$rc"
+          cat "$M32_LOGS/visuals/SUMMARY.txt" 2>&1 || true
+          exit 0
+
       - name: Summary
         if: ${{ always() }}
         timeout-minutes: 1

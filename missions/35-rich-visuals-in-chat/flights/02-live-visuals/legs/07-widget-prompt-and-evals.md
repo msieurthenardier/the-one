@@ -1,6 +1,6 @@
 # Leg: widget-prompt-and-evals
 
-**Status**: in-flight
+**Status**: completed (commits C1 `35842128`, B1 `126e5f64`, C2 `2a7150c5`, C3 `48ab1bb7`; baselines `m35f2b-*`, 2026-11-11)
 **Flight**: [Live Visuals](../flight.md)
 
 ## Objective

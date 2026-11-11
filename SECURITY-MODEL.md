@@ -546,14 +546,39 @@ here.
 - **The crash record's false positives.** The record lives in `localStorage` and flags a widget as
   "stopped responding last time" after a page that ended without a normal unload (a browser closed
   with the whole window, a suspend). A false positive costs one click on Start anyway.
+  **Desktop quit paths (leg 8, measured on WebKitGTK):** `pagehide` does not reach the page when the
+  shell destroys the window, so before this leg a clean tray Quit, `the-one quit` or
+  `POST /api/window/quit` left the record on disk and the next launch could read it as a hang
+  (`the-one app`, WSLg; the page's tick also rewrites the record every second, so a bare removal
+  raced the quit). The shell now clears it first (`desktop/widget_records.py`: a script through
+  `window.run_js`, never the bridge, on a daemon thread joined for 1 s; it removes every
+  `widget-running:` key and stops the page writing a new one; skipped on the main thread; on macOS
+  the terminate worker does the same before the drain). A page frozen by a widget makes the clear
+  time out and the quit continue, and the next launch then correctly shows "stopped responding last
+  time". Logout and a killed process run no shell code (accepted, as for a closed browser).
 - **Pause is cooperative.** A widget that busy-loops, or schedules work through a path the gate does
   not wrap, keeps running when paused; removal and the hang guard are the real stops
   (`docs/widget-format.md` "Pausing").
-- **The pywebview bridge.** pywebview 5.4's native bridge (`jsBridge`) is reachable from a frame on
-  WebKitGTK and, by assumption, WKWebView; it can move the window and open a native message box.
-  The operator's decision is to switch it off on Linux and macOS; that desktop-shell change lands in
-  the desktop leg (`desktop-engine-pass`) under the desktop test-patch rule. Until then it is an
-  open item on those platforms; it is not reachable on WebView2 (Windows).
+- **The pywebview bridge (removed on Linux and macOS, leg 8).** pywebview 5.4 registers a native
+  script message handler on the main web view (`jsBridge` on GTK and Cocoa, plus `browserDelegate`
+  on Cocoa), which a sandboxed frame can reach through `window.webkit.messageHandlers` (measured on
+  WebKitGTK in leg 1: it can move the window and open a native message box). The shell now removes
+  them once the main window has loaded (`desktop/native_bridge.py::remove_native_handlers`, from its
+  own `loaded` handler, on the UI thread, behind the `removes_native_bridge` boot-policy flag: Linux
+  and macOS true, Windows false) and reports the outcome as `native_bridge` in
+  `GET /api/window/state` (`removed`, `not-applicable`, `failed` or `pending`). Measured on
+  WebKitGTK with a pywebview window and a `js_api` object: without the removal a sandboxed frame's
+  `jsBridge.postMessage` reached the Python method; with it a frame created after the removal sees
+  `typeof ...jsBridge` as `"undefined"` and a frame created before it can no longer post
+  (`TypeError`). In the real `the-one app` a widget that tries a window move shows
+  `BRIDGE: undefined`. WebView2 has no native message handler of its own to remove: a frame sees
+  `chrome.webview` but its messages do nothing (leg 1; a regression probe runs in Part B). **What it
+  costs:** everything that travels over those handlers stops working in the desktop app: `js_api` and
+  `expose` calls, `evaluate_js` with a callback, `window.dom` events and easy-drag through the page,
+  `window.alert` on GTK and `window.print()` on macOS (they throw in the main document). The app uses
+  none of them (a guard test, `tests/test_native_bridge_guard.py`, fails on a new use); this is the
+  operator's decision of 2026-11-11. The removal is pinned by AST canaries on pywebview's GTK and
+  Cocoa `BrowserView.__init__` so a pywebview upgrade fails in CI first.
 
 ## Connector Channel Contract (Mission 23 Flight 2)
 

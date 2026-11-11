@@ -65,6 +65,10 @@ class SessionState:
         # and starts nothing), and ``webview.start`` has returned (path S).
         self.terminate_pending: bool = False
         self.loop_stopped: bool = False
+        # The outcome of removing pywebview's native message handlers from the main
+        # window (``native_bridge.remove_native_handlers``): "pending" until the
+        # first ``loaded``, then "removed" | "not-applicable" | "failed".
+        self.native_bridge: str = "pending"
         self.boot_stopped.clear()
         # The platform's boot policy: filled lazily by the ``policy`` property (the
         # first read takes ``boot_policy.current()``), cleared here.
