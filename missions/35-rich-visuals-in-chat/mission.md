@@ -178,6 +178,10 @@ designs re-verify line numbers):
       before. A live visual arrives as a short note pointing to the app. The
       stored chat is unchanged, so the app shows the real visual.
       *(Behavior-test-backed: a live connector round trip.)*
+      *(Amended 2026-11-11 at Flight 3 planning, operator decision: the round
+      trip runs against local fake Discord and Telegram servers, not live bots
+      ("we can't really control what they see, we can only control what we
+      send"). What the platforms show is a recorded residual.)*
 - [ ] **Chart images work on every install.** Any install of the app, packaged
       or not, can draw chart images, with the same text rendering on Windows,
       Linux and macOS.
@@ -253,8 +257,9 @@ enforcement.)*
 - The prompt evals: `pip install -e ".[evals]"`, the plan token in
   `~/.config/the-one-evals/plan-token`, and a local Ollama with the default
   eval models.
-- For the connector flight's live check, the Discord HAT driver bot
-  (`tests/behavior/.env.hat`) and a Telegram test bot.
+- For the connector flight's check, the local fake Discord and Telegram
+  servers (`scripts/fake_platforms.py`, Flight 3). *(Amended 2026-11-11: no
+  Discord HAT driver bot or Telegram test bot is needed.)*
 
 ## Open Questions
 
