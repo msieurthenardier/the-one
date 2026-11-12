@@ -1,6 +1,6 @@
 # Flight: Live Visuals
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
@@ -604,7 +604,7 @@ Seven legs against the usual one to four. Each boundary is a decision or risk se
 - [x] `widgets-in-chat` (leg 6) - Chat and streaming wiring, keys, `sweep()` in `clearLog`, flow tests, `docs/widget-format.md`, `SECURITY-MODEL.md` "Live visuals", `agents.md`, and the `widget-escape` behavior test authored and run. The DD13 bridge switch-off and the DD9 next-launch key check moved to `desktop-engine-pass`, which runs the real shells (Flight Director, 2026-11-09).
 - [x] `widget-prompt-and-evals` - A1 (log fix, scanner refactor, digests) → review and commit → B1 (compare against m35, then the same-prompt re-baseline; closes squawk 0337) → A2 (widened section, hint, `reply_has_valid_widget`, the new `evals/widgets/` set, pins, digests) → review and commit → B2 (sentinel, n=20, compares including the unchanged visuals set) → the operator's size decision → the widget-prompt baselines
 - [x] `desktop-engine-pass` - The DD13 bridge switch-off in the desktop shell (GTK, Cocoa) under the desktop test-patch rule; the DD9 next-launch key check on real quit paths (and the bounded shell fallback if needed); charts and widgets in WebKitGTK (the real `the-one app` shell), WebView2 and WKWebView (a hosted dispatch with a capture and sink), with the bridge confirmed unreachable on all three
-- [ ] `hat` *(optional, opted in)* - The guided HAT with the usage walk and a pre-walk apparatus self-check
+- [x] `hat` *(optional, opted in)* - The guided HAT with the usage walk and a pre-walk apparatus self-check
 
 ---
 

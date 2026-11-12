@@ -53,7 +53,11 @@ The frame carries the page's colours as CSS custom properties on its root, and k
 | `--chart-1` ... `--chart-8` | the chart palette (the same colours charts use) |
 
 - The root also carries `data-theme="light"` or `"dark"` and the matching `color-scheme`.
-- The frame's own base style sets the background to `--surface` and the text to `--fg`.
+- The frame's own base style sets the background to `--surface` and the text to `--fg`, removes the default `html` and `body` margin, and makes every
+  element `box-sizing: border-box` (so a `width: 100%` element with a border or padding fits the
+  frame without a scrollbar).
+- Scripts run with the frame already laid out: `document.documentElement.clientWidth` and an
+  element's `offsetWidth` are the frame's real width at start, so sizing a canvas once from them is safe.
 - When the operator switches theme, the variables and `data-theme` are updated in place and the
   frame's `window` receives a **`themechange`** event (`window.addEventListener('themechange', fn)`).
   Read the variables again in the handler; do not cache computed colours.
@@ -123,7 +127,16 @@ is paused; a paused card stays loaded until the loaded ceiling needs the slot, t
 (its slot keeps its height). The **hang guard** stops a loaded widget whose frame stops answering
 (no heartbeat for 5 s while the page is responsive), stops every loaded widget when the page itself
 stalls for 5 s or more, and, after a page that ended without a normal unload, shows the widgets that
-were loaded then as "This widget stopped responding last time." A stopped card offers Start anyway.
+were loaded then as "This widget stopped responding last time." A stopped card offers Start anyway. In some Chromium-based hosts, Start anyway right after a
+busy-looping widget was stopped can land in the renderer that is still spinning, leaving the card
+blank and the host's own "page not responding" prompt on screen; answer that prompt, or quit and
+relaunch the desktop app.
+
+A card's slot is 240 px until its widget first reports a size, so the first scroll through a long
+chat may shift the layout once per card that was never loaded. A report of height 0 (sent before the
+widget has laid out) is ignored, a stopped or capped card keeps its slot height, and the page
+remembers each card's last height (in memory, per card key and slot width) so the same chat shown
+again in the same page starts at the real heights.
 
 ## Keys
 

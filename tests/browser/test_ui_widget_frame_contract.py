@@ -79,9 +79,13 @@ def test_frame_attributes_and_single_load(engine_page: Page, sink: WidgetSink) -
     assert _frame(engine_page).evaluate("() => document.getElementById('x').textContent") == "hello"
 
 
-def test_srcdoc_is_set_before_the_frame_is_inserted(engine_page: Page, sink: WidgetSink) -> None:
-    """Order is the DD3 escape signal's precondition: set first, then insert, so the baseline load
-    count is exactly 1. The document carries the prelude and policy before any model byte."""
+def test_the_frame_is_inserted_sandboxed_then_srcdoc_is_assigned(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    """Amended DD2 (HAT step 9): the frame is inserted first (already sandboxed, no srcdoc yet) so
+    the parent lays it out, and only then is the document assigned; the initial about:blank load
+    at insertion is not counted, so the srcdoc load is the one counted load and no escape fires.
+    The document carries the prelude and policy before any model byte."""
     _load(engine_page, sink)
     res = engine_page.evaluate(
         """() => {
@@ -89,15 +93,20 @@ def test_srcdoc_is_set_before_the_frame_is_inserted(engine_page: Page, sink: Wid
           const slot = document.createElement('div');
           document.getElementById('harness-root').appendChild(slot);
           const orig = slot.appendChild.bind(slot);
-          slot.appendChild = (n) => { log.push('append:' + (n.hasAttribute('srcdoc') ? 'has-srcdoc' : 'no-srcdoc')); return orig(n); };
-          const h = App.ui.widgetFrame({slot, source: '<i>m</i>', title: 't'});
+          slot.appendChild = (n) => { log.push('append:' + n.getAttribute('sandbox') + ':' + (n.hasAttribute('srcdoc') ? 'has-srcdoc' : 'no-srcdoc')); return orig(n); };
+          window.__esc2 = 0;
+          const h = App.ui.widgetFrame({slot, source: '<i>m</i>', title: 't', onEscape: () => window.__esc2++});
+          window.__h2 = h;
           const doc = h.iframe.getAttribute('srcdoc');
           return {log, startsDoctype: doc.indexOf('<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"') === 0,
                   modelAfterPrelude: doc.lastIndexOf('</script>') < doc.indexOf('<i>m</i>')};
         }"""
     )
-    assert res["log"] == ["append:has-srcdoc"]
+    assert res["log"] == ["append:allow-scripts:no-srcdoc"]
     assert res["startsDoctype"] and res["modelAfterPrelude"]
+    engine_page.wait_for_function("() => __h2.loads() >= 1")
+    engine_page.wait_for_timeout(1000)
+    assert engine_page.evaluate("() => [__h2.loads(), __esc2, document.querySelectorAll('iframe').length]") == [1, 0, 1]
 
 
 def test_a_detached_slot_loads_only_once_attached(engine_page: Page, sink: WidgetSink) -> None:

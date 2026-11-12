@@ -314,7 +314,7 @@ mission's flights unless a later flight takes them:
       API, General tab, on by default), and the platform prompt section with its
       eval comparison as the flight's last implementation leg (its size gate
       fails by construction, so it needs the operator's decision at the end).
-- [ ] Flight 2: **Live visuals.** (ready, `flights/02-live-visuals/`; block
+- [x] Flight 2: **Live visuals.** (landed 2026-11-11, `flights/02-live-visuals/`; block
       tag `widget`) The walled-off frame control: opaque origin,
       no network, size-only messages, the theme passed in, run in view and pause
       out of view, a cap on running visuals, the agent-made frame marking, the

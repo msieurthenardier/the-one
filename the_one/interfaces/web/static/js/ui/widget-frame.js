@@ -417,6 +417,10 @@
     return (
       ':root{' + decls.join(';') + '}' +
       'html,body{margin:0}' +
+      // border-box: a `width:100%` element with a border or padding (the usual model-written
+      // canvas) must not be wider than the frame, which would scroll it sideways and add a
+      // vertical bar too.
+      '*,*::before,*::after{box-sizing:border-box}' +
       'html{background:' + ref('surface') + ';color:' + ref('fg') +
       ';font-family:system-ui,-apple-system,sans-serif}'
     );
@@ -506,12 +510,20 @@
     var mountTheme = opts.theme || readTheme(slot);
     var iframe = document.createElement('iframe');
     var loadCount = 0;
+    // true once the document is being assigned; earlier loads are not counted. The uncounted initial
+    // load relies on engines firing the about:blank load synchronously at insertion; the guard is
+    // test_the_frame_is_inserted_sandboxed_then_srcdoc_is_assigned (test_ui_widget_frame_contract.py).
+    var armed = false;
     var registered = null;
     var destroyed = false;
     var escaped = false;
     var rafId = 0;
-    var wantHeight = INITIAL_HEIGHT;
-    var appliedHeight = INITIAL_HEIGHT;
+    // A remount passes the last reported height so the slot does not jump while the new document
+    // loads (the first size message then replaces it). Clamped by the same limits.
+    var startHeight = typeof opts.initialHeight === 'number' && isFinite(opts.initialHeight)
+      ? clampHeight(opts.initialHeight) : INITIAL_HEIGHT;
+    var wantHeight = startHeight;
+    var appliedHeight = startHeight;
     var pendingTheme = null;
     var pendingPause = null;
     var handle;
@@ -521,7 +533,7 @@
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     iframe.setAttribute('allow', '');
     iframe.setAttribute('title', typeof opts.title === 'string' ? opts.title : 'Widget');
-    iframe.style.height = INITIAL_HEIGHT + 'px';
+    iframe.style.height = startHeight + 'px';
 
     function register() {
       var w = iframe.contentWindow;
@@ -577,7 +589,9 @@
     }
 
     function onLoad() {
-      if (destroyed) return;
+      // A load before the document is assigned is the synchronous initial about:blank one that
+      // insertion fires; it is not counted (the srcdoc load is the first counted load).
+      if (destroyed || !armed) return;
       loadCount += 1;
       if (loadCount === 1) {
         register();
@@ -616,6 +630,8 @@
       _size: function (h) {
         if (destroyed) return;
         if (typeof opts.onHeartbeat === 'function') opts.onHeartbeat();
+        // onReport(raw, clamped) sees every validated report first; returning false ignores it.
+        if (typeof opts.onReport === 'function' && opts.onReport(h, clampHeight(h)) === false) return;
         wantHeight = clampHeight(h);
         if (!rafId && wantHeight !== appliedHeight) rafId = requestAnimationFrame(writeHeight);
       }
@@ -623,14 +639,20 @@
 
     iframe.addEventListener('load', onLoad);
     installShared();
+    // Insert first (the sandbox attributes above are already on the element, so there is no
+    // unsandboxed moment), read the width once so the parent lays the frame out, and only then
+    // assign the document: a cross-process sandboxed frame learns its viewport size from that
+    // layout, and a script that sizes a canvas from offsetWidth at start would otherwise see 0.
+    slot.appendChild(iframe);
+    void iframe.offsetWidth;
+    armed = true;
     // The one allowed srcdoc sink in static/js: the document is the fixed prelude plus the
-    // model's body. It is set before the iframe is inserted (baseline load count is then 1).
+    // model's body.
     iframe.srcdoc = buildDocument(opts.source === undefined ? '' : opts.source, {
       vars: mountTheme.vars,
       mode: mountTheme.mode,
       paused: opts.paused === true
     });
-    slot.appendChild(iframe);
     register();
     return handle;
   };

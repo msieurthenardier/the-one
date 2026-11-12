@@ -200,7 +200,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.
-chats_widgets_pat=('test_flow_chat_widgets.py')
+chats_widgets_pat=('test_flow_chat_widgets.py' 'test_flow_chat_widgets_scroll.py' 'test_flow_chat_widgets_canvas.py' 'test_flow_chat_widgets_isolated.py')
 # Library-owned files (explicit): connectors, library focus, and the
 # smaller MCP files. Each name also matches a studio glob, so it runs in this
 # lane only (agents = studio minus library and mcp).

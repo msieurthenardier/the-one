@@ -73,6 +73,7 @@ BASE_STYLE = (
     "--chart-4:#000004;--chart-5:#000005;--chart-6:#000006;--chart-7:#000007;--chart-8:#000008;"
     "--frame-mode:dark;--frame-paused:0;color-scheme:dark}"
     "html,body{margin:0}"
+    "*,*::before,*::after{box-sizing:border-box}"
     "html{background:var(--surface);color:var(--fg);font-family:system-ui,-apple-system,sans-serif}"
 )
 

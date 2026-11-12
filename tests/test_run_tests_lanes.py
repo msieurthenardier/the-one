@@ -178,7 +178,12 @@ def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[
     assert not (transcript & lanes["chats"])
     # M35 F2 L6: the widgets-in-chat flow tests are their own lane, kept out of both others.
     widgets = lanes["chats-widgets"]
-    assert widgets == {"tests/browser/test_flow_chat_widgets.py"}
+    assert widgets == {
+        "tests/browser/test_flow_chat_widgets.py",
+        "tests/browser/test_flow_chat_widgets_scroll.py",
+        "tests/browser/test_flow_chat_widgets_canvas.py",
+        "tests/browser/test_flow_chat_widgets_isolated.py",
+    }
     assert not (widgets & lanes["chats"]) and not (widgets & transcript)
     assert _lane_files("chat") == lanes["chats"] | transcript | widgets
 

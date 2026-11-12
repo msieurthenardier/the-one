@@ -533,6 +533,13 @@ here.
   reload the widget comes back stopped, with Start anyway. On Chromium and WebView2 the frame is
   isolated and the page keeps running. In the desktop app, recovery from a long freeze is the tray
   Quit (Linux) or the Dock Quit (macOS) and a relaunch.
+- **Start anyway can land in a spinning renderer (some Chromium-based hosts).** In some
+  Chromium-based hosts (seen in one such browser on Windows, 2 of 3 tries; not reproduced in
+  Chromium 156 or Chrome 145 in 19 trials), pressing Start anyway right after the hang guard stopped
+  a busy-looping widget can put the new frame in the renderer process that is still spinning. The
+  card stays blank and the host shows its own "page not responding" prompt (Wait / Exit). Recovery is
+  that prompt or, in the desktop app, quitting and relaunching. Start anyway stays by the operator's
+  decision: the desktop app has no page reload, so a reload alternative does not fit.
 - **Preconnect and DNS blocking are best-effort.** The layered rewrite closes the entry points that
   were measured, but a speculative connection (a bare TCP connect or a DNS lookup, with no data sent
   and no response readable) from a path nobody has found remains a possible leak of a destination

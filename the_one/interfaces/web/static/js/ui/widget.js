@@ -34,6 +34,26 @@
   var TITLE_SCAN = 8192;
   var TITLE_RE = /<title[^>]*>([\s\S]*?)<\/title\s*>/i;
   var instances = [];
+
+  // Remembered slot heights (in memory only): widget key -> {h, w}, the last height a frame
+  // reported and the slot width it was reported at. A card created again for the same key at the
+  // same width (a re-rendered chat in this page) starts at that height, so loading it changes
+  // nothing. Bounded: the least recently used entry goes first.
+  var HEIGHT_MEMORY_MAX = 500;
+  var heightMemory = new Map();
+  function rememberHeight(key, h, w) {
+    if (!key) return;
+    heightMemory.delete(key);
+    heightMemory.set(key, { h: h, w: w });
+    if (heightMemory.size > HEIGHT_MEMORY_MAX) heightMemory.delete(heightMemory.keys().next().value);
+  }
+  function recallHeight(key, w) {
+    var r = key ? heightMemory.get(key) : null;
+    if (!r || Math.abs(r.w - w) > 1) return null;
+    heightMemory.delete(key);
+    heightMemory.set(key, r);
+    return r.h;
+  }
   var uidCount = 0;
   var CAP_TEXT = 'Paused: three widgets are already running.';
 
@@ -108,6 +128,7 @@
     var mode = 'waiting'; // waiting | live | hung | hung-last | escape
     var frame = null;
     var lastHeight = App.ui.widgetFrame.limits.initialHeight;
+    var heightKnown = false; // true once a frame has reported a height
     var stoppedEl = null;
     var cappedEl = null;
     var capped = false;
@@ -163,8 +184,24 @@
     // The lifecycle key (leg 6): readable by the flow tests, which compare live and reloaded keys.
     if (typeof opts.key === 'string') el.setAttribute('data-widget-key', opts.key);
 
+    // The first time the card is seen connected, a remembered height for its key at this slot
+    // width becomes its slot height (a layout read once per card, never while a frame is loading).
+    var adopted = false;
+    function adopt() {
+      if (adopted) return;
+      adopted = true;
+      if (heightKnown || mode === 'live' || typeof opts.key !== 'string') return;
+      var h = recallHeight(opts.key, body.getBoundingClientRect().width);
+      if (h === null) return;
+      lastHeight = h;
+      heightKnown = true;
+      body.style.height = h + 'px';
+    }
+
     function markSeen() {
-      if (el.isConnected) seen = true;
+      if (!el.isConnected) return;
+      seen = true;
+      adopt();
     }
 
     function gated() {
@@ -188,7 +225,13 @@
     function mountFrame(paused) {
       dropFrame();
       clearStopped();
-      body.style.height = '';
+      // A card that has reported a height keeps its slot at that height through the remount (the
+      // slot never collapses, so the reader's scroll position is not moved); the new frame also
+      // starts at it and the first size message replaces it.
+      // A card never-seen keeps whatever its waiting slot holds (the initial height) instead of
+      // clearing it: clearing and re-inserting the frame moves WebKit's scroll position.
+      body.style.minHeight = '';
+      if (heightKnown) body.style.height = lastHeight + 'px';
       mode = 'live';
       notify('mount');
       var mine = null;
@@ -197,8 +240,20 @@
         source: source,
         title: who,
         paused: paused,
+        initialHeight: heightKnown ? lastHeight : undefined,
+        // The pre-layout report (raw height 0, which the frame core would clamp to its 48 px
+        // minimum) is ignored: the slot keeps its waiting or known height until a real size
+        // arrives, so a first load changes the slot once (240 -> real), not twice.
+        onReport: function (raw) {
+          return raw > 0;
+        },
         onSize: function (h) {
           lastHeight = h;
+          heightKnown = true;
+          if (frame === mine && mode === 'live') {
+            body.style.height = h + 'px';
+            if (el.isConnected) rememberHeight(opts.key, h, body.getBoundingClientRect().width);
+          }
         },
         onHeartbeat: function () {
           if (frame === mine) notify('beat');
@@ -286,8 +341,12 @@
         setStatus(capped && !userPaused ? CAP_TEXT : '');
         if (capped && !userPaused) {
           // The cap card (DD7): in view, held back because three widgets already run.
+          // The cap card keeps the slot height (known, or the waiting height).
+          // The known height is a minimum, not a fixed height: the notice must be able to grow
+          // (400% zoom, 320 px wide) without spilling over the View source row.
           body.style.height = '';
-          cappedEl = util.el('div', { className: 'ui-widget-capped' }, [
+          body.style.minHeight = lastHeight + 'px';
+          cappedEl =util.el('div', { className: 'ui-widget-capped' }, [
             util.el('span', { className: 'ui-widget-capped-text', text: CAP_TEXT }),
             App.ui.button({
               variant: 'secondary', size: 'sm', label: 'Start', testid: opts.testid ? opts.testid + '-start' : null,
@@ -297,10 +356,14 @@
           body.appendChild(cappedEl);
           return;
         }
+        body.style.minHeight = '';
         body.style.height = lastHeight + 'px';
         return;
       }
+      // A stopped or escaped card keeps its slot height as a minimum (known, or the waiting
+      // height); the notice may grow past it.
       body.style.height = '';
+      body.style.minHeight = lastHeight + 'px';
       setStatus(stoppedMessage());
       stoppedEl = util.el('div', { className: 'ui-widget-stopped', 'data-testid': t ? t + '-stopped' : null }, [
         util.el('span', { className: 'ui-widget-stopped-text', text: stoppedMessage() }),

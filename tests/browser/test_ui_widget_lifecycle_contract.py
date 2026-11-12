@@ -602,3 +602,251 @@ def test_restart_and_start_anyway_go_through_the_manager(
     p.get_by_test_id("w2-start").click()
     wait_states(p, ["paused-auto", "running", "running", "running"])
     assert _ticking(p, 2)
+
+
+# ---- Remounts keep the slot height (HAT step 4: scrolling up fought the reader) ---------------
+
+BODY_H = "(i) => Math.round(__cards[i].el.querySelector('.ui-widget-body').getBoundingClientRect().height)"
+TALL = '<div style="height:300px">w</div><script>setInterval(function(){},50);</script>'
+
+
+def test_a_remount_keeps_the_slot_and_frame_height(engine_page: Page, sink: WidgetSink) -> None:
+    p = engine_page
+    setup_cards(p, sink)
+    p.evaluate("(s) => __make(s, {managed: false})", TALL)
+    p.wait_for_function("() => __cards[0]._frame().iframe.style.height === '300px'")
+    # Remount: before the new document's first size message the slot and the new frame are
+    # already at the reported height (not the 240px initial height).
+    got = p.evaluate(
+        """() => {
+          const c = __cards[0];
+          c.restart();
+          const body = c.el.querySelector('.ui-widget-body');
+          return [body.style.height, c._frame().iframe.style.height, Math.round(body.getBoundingClientRect().height)];
+        }"""
+    )
+    assert got == ["300px", "300px", 300]
+
+
+def test_a_first_mount_still_starts_at_the_initial_height(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    setup_cards(p, sink)
+    got = p.evaluate(
+        """(s) => {
+          const c = __make(s, {managed: false});
+          const body = c.el.querySelector('.ui-widget-body');
+          return [body.style.height, c._frame().iframe.style.height];
+        }""",
+        TALL,
+    )
+    assert got == ["", "240px"]
+
+
+def test_the_cap_card_does_not_shrink_a_seen_slot(engine_page: Page, sink: WidgetSink) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 560})
+    setup_cards(p, sink)
+    make_cards(p, 9, TALL)
+    for i in range(9):
+        scroll_to_card(p, i)
+        p.wait_for_function("(i) => __cards[i].state() === 'running'", arg=i, timeout=8000)
+    p.wait_for_timeout(300)
+    # card 0 was unloaded (the ninth loaded card) after being seen at 300px
+    assert states(p)[0] == "waiting"
+    assert p.evaluate(BODY_H, 0) == 300
+    # every card in view at once: three run, the others are held by the cap
+    p.set_viewport_size({"width": 900, "height": 4200})
+    p.wait_for_timeout(800)
+    st = states(p)
+    capped = [i for i, s in enumerate(st) if s == "waiting"]
+    assert capped, st
+    for i in capped:
+        assert p.get_by_test_id(f"w{i}-start").count() == 1
+        # every card here was seen at 300px: the cap card keeps that slot height
+        assert p.evaluate(BODY_H, i) == 300, (i, st)
+
+
+# A reader scrolling up a long chat of animated cards must not be pushed back (the card above
+# reloading as it enters must not change the slot height).
+CANVAS = (
+    '<title>Orbit</title><canvas id="c" width="400" height="200" style="width:100%;max-width:400px"></canvas>'
+    '<script>const g=document.getElementById("c").getContext("2d");let t=0;'
+    "function f(){t+=.03;g.clearRect(0,0,400,200);g.beginPath();g.arc(200+70*Math.cos(t),100+70*Math.sin(t),12,0,7);g.fill();requestAnimationFrame(f)}f();</script>"
+)
+
+
+def test_scrolling_up_across_reloading_cards_never_snaps_back(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 700})
+    setup_cards(p, sink)
+    make_cards(p, 12, CANVAS)
+    p.evaluate(
+        """() => {
+          const s = document.getElementById('stack');
+          s.style.cssText = 'height:600px;overflow-y:auto;width:800px';
+          window.__log = [];
+          (function tick() { window.__log.push(s.scrollTop); requestAnimationFrame(tick); })();
+        }"""
+    )
+    p.wait_for_timeout(1000)
+    to_bottom = "() => { const s = document.getElementById('stack'); s.scrollTop = s.scrollHeight; }"
+    p.mouse.move(400, 300)
+    for rnd in range(2):
+        p.evaluate(to_bottom)
+        p.wait_for_timeout(1200)
+        p.evaluate("() => { window.__log.length = 0; }")
+        for _ in range(48):
+            if p.evaluate("() => document.getElementById('stack').scrollTop") < 5:
+                break
+            p.mouse.wheel(0, -60)
+            p.wait_for_timeout(100)
+        log = p.evaluate("() => window.__log")
+        if rnd == 1:
+            # second pass = every card above reloads as it enters: scrollTop never increases
+            ups = [(a, b) for a, b in zip(log, log[1:]) if b > a + 1]
+            assert ups == [], ups
+
+
+# ---- One slot change per first load, kept heights, remembered heights --------------------------
+
+# Make a managed card with a testable record: ``__seq`` (every distinct slot height, in order)
+# and ``__ins`` (the slot height and the frame height at the moment the iframe is inserted).
+MAKE_RECORDED = """([src, key]) => {
+  const c = __make(src, {key});
+  const body = c.el.querySelector('.ui-widget-body');
+  window.__seq = [body.style.height]; window.__ins = null;
+  new MutationObserver(() => {
+    const v = body.style.height;
+    if (window.__seq[window.__seq.length - 1] !== v) window.__seq.push(v);
+    const f = body.querySelector('iframe');
+    if (f && !window.__ins) window.__ins = [body.style.height, f.style.height];
+  }).observe(body, {attributes: true, attributeFilter: ['style'], childList: true});
+  return __cards.length - 1;
+}"""
+
+
+def test_a_first_load_changes_the_slot_once_not_twice(engine_page: Page, sink: WidgetSink) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    # A widget whose first report comes before layout (raw height 0; headed Chrome showed this
+    # for a canvas widget). The widget posts it itself, so the test is deterministic.
+    pre_layout = (
+        '<div id="d"></div><script>setTimeout(function () { '
+        'document.getElementById("d").style.height = "300px"; }, 400);'
+        "setInterval(function () {}, 50);</script>"
+    )
+    i = p.evaluate(MAKE_RECORDED, [pre_layout, "first-key"])
+    p.wait_for_function(f"() => __cards[{i}].state() === 'running'", timeout=8000)
+    p.wait_for_function(f"() => __cards[{i}]._frame().iframe.style.height === '300px'", timeout=8000)
+    p.wait_for_timeout(800)
+    # waiting height, then the real height: never the 48 px minimum in between
+    assert p.evaluate("() => __seq") == ["240px", "300px"]
+
+
+def test_a_content_under_the_minimum_still_ends_at_the_minimum(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    setup_cards(p, sink)
+    i = p.evaluate(MAKE_RECORDED, ['<div style="height:10px">w</div>', "tiny-key"])
+    p.wait_for_function(f"() => __cards[{i}]._frame() && __cards[{i}]._frame().iframe.style.height === '48px'", timeout=8000)
+    assert p.evaluate("() => __seq")[-1] == "48px"
+
+
+def test_a_stopped_card_keeps_its_slot_height(engine_page: Page, sink: WidgetSink) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    make_cards(p, 1, TALL)
+    p.wait_for_function("() => __cards[0]._frame() && __cards[0]._frame().iframe.style.height === '300px'", timeout=8000)
+    p.evaluate("() => __cards[0].stop('hung')")
+    assert p.evaluate(BODY_H, 0) == 300
+    # a never-seen card that is stopped keeps the waiting height, and so does an escaped one
+    p.evaluate("(s) => { __make(s, {managed: false}); }", "<div>x</div>")
+    p.evaluate("() => __cards[1].stop('hung')")
+    # (the known height is a minimum in these states, so the notice can grow past it)
+    assert p.evaluate("() => __cards[1].el.querySelector('.ui-widget-body').style.minHeight") == "240px"
+
+
+FIT = """(i) => {
+  const c = __cards[i];
+  const body = c.el.querySelector('.ui-widget-body').getBoundingClientRect();
+  const btn = c.el.querySelector('.ui-widget-body button').getBoundingClientRect();
+  const txt = c.el.querySelector('.ui-widget-body span').getBoundingClientRect();
+  const src = c.el.querySelector('.ui-widget-source').getBoundingClientRect();
+  return {body: [body.top, body.bottom], btn: [btn.top, btn.bottom], txt: [txt.top, txt.bottom], src: src.top, h: body.height};
+}"""
+
+
+def _assert_notice_fits(p: Page) -> None:
+    r = p.evaluate(FIT, 0)
+    assert r["btn"][0] >= r["body"][0] - 0.5 and r["btn"][1] <= r["body"][1] + 0.5, r
+    assert r["txt"][0] >= r["body"][0] - 0.5 and r["txt"][1] <= r["body"][1] + 0.5, r
+    assert r["body"][1] <= r["src"] + 0.5, r
+    # the slot never shrinks below the known height (48 px), and grew to fit the notice
+    assert r["h"] > 48, r
+
+
+def test_a_stopped_small_widget_notice_fits_at_a_narrow_width(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    p.evaluate("() => { document.getElementById('stack').style.width = '320px'; }")
+    make_cards(p, 1, '<div style="height:10px">w</div><script>setInterval(function(){},50);</script>')
+    p.wait_for_function("() => __cards[0]._frame() && __cards[0]._frame().iframe.style.height === '48px'", timeout=8000)
+    p.evaluate("() => __cards[0].stop('hung')")
+    _assert_notice_fits(p)
+
+
+def test_a_capped_small_widget_notice_fits_at_a_narrow_width(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    p.evaluate("() => { document.getElementById('stack').style.width = '320px'; }")
+    p.evaluate("(s) => { __make(s, {managed: false}); }", '<div style="height:10px">w</div><script>setInterval(function(){},50);</script>')
+    p.wait_for_function("() => __cards[0]._frame() && __cards[0]._frame().iframe.style.height === '48px'", timeout=8000)
+    p.evaluate("() => { __cards[0].unload(); __cards[0]._setCapped(true); }")
+    assert p.get_by_test_id("w0-start").count() == 1
+    _assert_notice_fits(p)
+
+
+def test_a_re_rendered_card_starts_at_its_remembered_height(
+    engine_page: Page, sink: WidgetSink
+) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    i = p.evaluate(MAKE_RECORDED, [TALL, "memo-key"])
+    p.wait_for_function(f"() => __cards[{i}]._frame() && __cards[{i}]._frame().iframe.style.height === '300px'", timeout=8000)
+    p.wait_for_timeout(300)
+    p.evaluate("() => { __cards[0].destroy(); __cards[0].el.remove(); }")
+    # the same history rendered again at the same width: same key, so the slot starts at 300 and
+    # the frame is inserted at 300; loading changes nothing
+    j = p.evaluate(MAKE_RECORDED, [TALL, "memo-key"])
+    p.wait_for_function(f"() => __cards[{j}]._frame() && __cards[{j}]._frame().iframe.style.height === '300px'", timeout=8000)
+    p.wait_for_timeout(600)
+    assert p.evaluate("() => __ins") == ["300px", "300px"]
+    assert p.evaluate("() => __seq") == ["240px", "300px"]
+
+
+def test_a_width_change_ignores_the_remembered_height(engine_page: Page, sink: WidgetSink) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 900, "height": 900})
+    setup_cards(p, sink)
+    p.evaluate("() => { document.getElementById('stack').style.width = '800px'; }")
+    i = p.evaluate(MAKE_RECORDED, [TALL, "width-key"])
+    p.wait_for_function(f"() => __cards[{i}]._frame() && __cards[{i}]._frame().iframe.style.height === '300px'", timeout=8000)
+    p.wait_for_timeout(300)
+    p.evaluate("() => { __cards[0].destroy(); __cards[0].el.remove(); document.getElementById('stack').style.width = '500px'; }")
+    j = p.evaluate(MAKE_RECORDED, [TALL, "width-key"])
+    p.wait_for_function(f"() => __cards[{j}]._frame() && __cards[{j}]._frame().iframe.style.height === '300px'", timeout=8000)
+    assert p.evaluate("() => __ins") == ["240px", "240px"]
