@@ -106,7 +106,9 @@ def test_the_frame_is_inserted_sandboxed_then_srcdoc_is_assigned(
     assert res["startsDoctype"] and res["modelAfterPrelude"]
     engine_page.wait_for_function("() => __h2.loads() >= 1")
     engine_page.wait_for_timeout(1000)
-    assert engine_page.evaluate("() => [__h2.loads(), __esc2, document.querySelectorAll('iframe').length]") == [1, 0, 1]
+    assert engine_page.evaluate(
+        "() => [__h2.loads(), __esc2, document.querySelectorAll('iframe').length]"
+    ) == [1, 0, 1]
 
 
 def test_a_detached_slot_loads_only_once_attached(engine_page: Page, sink: WidgetSink) -> None:

@@ -69,7 +69,8 @@ def test_scrolling_up_a_long_widget_chat_never_jumps(
     _nav.goto(page, app_clean, "chats")
     _chats.open_chat(page, sid)
     page.wait_for_function(
-        "() => document.querySelectorAll('[data-testid=\"chat-widget\"]').length === 12", timeout=15000
+        "() => document.querySelectorAll('[data-testid=\"chat-widget\"]').length === 12",
+        timeout=15000,
     )
     page.wait_for_timeout(1500)
     page.evaluate(

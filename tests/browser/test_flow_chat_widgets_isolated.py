@@ -76,7 +76,9 @@ def _history(base: str) -> str:
         Message.tool(ToolResult(tool_call_id="t1", content="2026-11-11T20:06:31-06:00")),
         Message.assistant("Here you go:\n\n```widget\n" + CANVAS + "\n```\nEnjoy."),
     ]
-    return seed_session(base, agent, "iso", "2026-10-27T09:00:00+00:00", messages=encode_messages(msgs))
+    return seed_session(
+        base, agent, "iso", "2026-10-27T09:00:00+00:00", messages=encode_messages(msgs)
+    )
 
 
 def _state(page: Page) -> dict:
@@ -90,7 +92,9 @@ def _state(page: Page) -> dict:
     )
 
 
-def test_canvas_sized_from_offsetwidth_paints_and_survives_restart(app_clean: str, page: Page) -> None:
+def test_canvas_sized_from_offsetwidth_paints_and_survives_restart(
+    app_clean: str, page: Page
+) -> None:
     sid = _history(app_clean)
     page.set_viewport_size({"width": 1440, "height": 900})
     _nav.goto(page, app_clean, "chats")
