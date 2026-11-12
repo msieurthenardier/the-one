@@ -140,16 +140,38 @@ _TOOL_USE_TAIL = (
 _FORMATTING = "\nWrite replies in Markdown, and write links as [text](url).\n"
 
 _VISUALS = (
-    "\nTo chart data, write a fenced block with the language `chart` holding one JSON "
-    'object, `type` first: {"type": "bar", "x": {"values": ["Q1", "Q2"]}, '
-    '"series": [{"name": "Sales", "values": [12, 19]}]}. '
+    "\nTo show a chart, reply with a code block whose language is `chart` and whose body "
+    "is one JSON object, `type` first:\n"
+    "```chart\n"
+    '{"type": "bar", "x": {"values": ["Q1", "Q2"]}, '
+    '"series": [{"name": "Sales", "values": [12, 19]}]}\n'
+    "```\n"
+    "Data always goes in `series`; `x` and `y` only describe the axes. "
     "Types: bar, line, area, scatter, pie, sparkline. "
     'A pie takes slice names from `"x": {"values": [...]}` and has one series. '
     "Optional: `title`, axis `label` and "
     '`unit`, `"stacked": true`. Two axes: add `"y2"` shaped like `"y"` and set a series '
     '`"axis": "right"`; a series `"type": "line"` mixes a line into bars; reference lines: '
     '`"annotations": [{"axis": "y", "value": 150, "label": "Target"}]`; log scale: '
-    '`"scale": "log"` on an axis. Chart only when it makes numbers clearer.\n'
+    '`"scale": "log"` on `y` (`x` for scatter). Chart only when it makes numbers clearer.\n'
+    "To show something moving or interactive, reply with a code block whose language is "
+    "`widget` and whose body is one self-contained HTML snippet with inline `<style>` and "
+    "`<script>`:\n"
+    "```widget\n"
+    '<canvas id="c"></canvas>\n'
+    "<script>\n"
+    'const g = c.getContext("2d"), css = getComputedStyle(document.documentElement);\n'
+    "function frame(t) {\n"
+    '  g.fillStyle = css.getPropertyValue("--accent"); /* draw */\n'
+    "  requestAnimationFrame(frame);\n"
+    "}\n"
+    "requestAnimationFrame(frame);\n"
+    "</script>\n"
+    "```\n"
+    "Colours: `var(--surface)`, `var(--fg)`, `var(--accent)`, `var(--chart-1)` to "
+    "`var(--chart-8)` in CSS; on a canvas, read them with `getPropertyValue` as above. "
+    "It runs with no network: no URLs, CDNs or remote images. Use a widget for animation "
+    "or interaction, a chart for plain data.\n"
 )
 
 _IDENTITY_FREE = "You are an AI assistant. Reply directly and concisely.\n"

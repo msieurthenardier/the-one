@@ -45,6 +45,7 @@ TABLE = {
     "quit_after_loop_stopped_answers_window": (False, False, True, False),
     "quit_via_dock_terminate": (False, False, True, False),
     "focus_via_dock": (False, False, True, False),
+    "removes_native_bridge": (False, True, True, False),
 }
 POLICIES = (WINDOWS, LINUX, MACOS, OTHER)
 TRAYS = (

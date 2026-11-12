@@ -76,6 +76,10 @@ class BootPolicy:
     quit_after_loop_stopped_answers_window: bool  # macOS path S
     quit_via_dock_terminate: bool  # macOS path T
     focus_via_dock: bool  # macOS activates through the dock
+    # Linux and macOS: remove pywebview's native message handlers (jsBridge, and
+    # browserDelegate on Cocoa) once the main window has loaded, so no widget frame
+    # can reach them (Mission 35 F2 L8, DD13). Windows keeps a regression probe.
+    removes_native_bridge: bool
 
 
 _NO_TRAY = TrayPlan(skip=True, detect=False, records_tray_mode=False)
@@ -103,6 +107,7 @@ WINDOWS = BootPolicy(
     quit_after_loop_stopped_answers_window=False,
     quit_via_dock_terminate=False,
     focus_via_dock=False,
+    removes_native_bridge=False,
 )
 
 LINUX = BootPolicy(
@@ -126,6 +131,7 @@ LINUX = BootPolicy(
     quit_after_loop_stopped_answers_window=False,
     quit_via_dock_terminate=False,
     focus_via_dock=False,
+    removes_native_bridge=True,
 )
 
 MACOS = BootPolicy(
@@ -149,6 +155,7 @@ MACOS = BootPolicy(
     quit_after_loop_stopped_answers_window=True,
     quit_via_dock_terminate=True,
     focus_via_dock=True,
+    removes_native_bridge=True,
 )
 
 # Any other platform reproduces the old fall-through exactly: the gi probe, a
@@ -176,6 +183,7 @@ OTHER = BootPolicy(
     quit_after_loop_stopped_answers_window=False,
     quit_via_dock_terminate=False,
     focus_via_dock=False,
+    removes_native_bridge=False,
 )
 
 

@@ -154,10 +154,15 @@ designs re-verify line numbers):
       original text.
 - [ ] **Long chats stay responsive.** Reopening a chat with many live visuals
       does not start them all: a live visual starts when it comes into view
-      and stops when it leaves (starting again from the beginning when it
-      returns), and the number running at once is capped. A visual that hangs
-      or runs away is a documented residual risk with a stated limit, not a
-      silent one.
+      and pauses when it leaves (resuming where it was when it returns), the
+      number running at once is capped, and so is the number kept loaded (the
+      one off screen longest is unloaded and starts again from the beginning).
+      The operator can pause and resume a visual. A visual that hangs, runs
+      away or ignores a pause is a documented residual risk with a stated
+      limit, not a silent one.
+      *(Amended 2026-11-09 at Flight 2 planning, operator decision: pause off
+      screen instead of stop and restart. Pause is cooperative; unloading is
+      the enforcement.)*
 - [ ] **Operators choose per agent.** The agent's General tab has a "Rich
       visuals" switch, on for new agents and for agents that already exist.
       When it is on, the agent is told how to write visuals. When it is off,
@@ -212,6 +217,10 @@ Operator decisions taken while planning: Pillow becomes a base dependency; the
 it off only stops the agent being told about visuals (visual blocks still
 render); live visuals start on their own when in view, and stop and restart
 from the beginning rather than pause, because pausing cannot be enforced.
+*(Superseded 2026-11-09 at Flight 2 planning: a visual pauses off screen and has
+a Pause/Resume control. The pause is cooperative, done by the frame's own fixed
+prelude; the caps and the hang guard, which remove frames, are the
+enforcement.)*
 - **Ordinary code samples stay code.** A reply that shows HTML source, or JSON,
   must still render as a code block. Visuals use their own block tags that do
   not collide with any language a model would use for a code sample.
@@ -281,6 +290,19 @@ from the beginning rather than pause, because pausing cannot be enforced.
 
 *(none yet)*
 
+## Follow-ups (not scheduled)
+
+Recorded at Flight 2 planning (2026-11-09, operator decision), outside this
+mission's flights unless a later flight takes them:
+- **Expand**: open a live visual large inside the app (an in-app overlay with
+  the same sandboxed frame).
+- **Copy source**: a button that copies a visual's source.
+- **Download/save and a separate pop-out window.** The desktop app has no
+  download support today (pywebview `ALLOW_DOWNLOADS` is off, with no save
+  dialog wiring), and a saved file must keep the sandbox when opened outside
+  the app. A separate window needs a served frame document; a `blob:` URL
+  would inherit the app's origin and is ruled out.
+
 ## Flights
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
@@ -292,13 +314,16 @@ from the beginning rather than pause, because pausing cannot be enforced.
       API, General tab, on by default), and the platform prompt section with its
       eval comparison as the flight's last implementation leg (its size gate
       fails by construction, so it needs the operator's decision at the end).
-- [ ] Flight 2: **Live visuals.** The walled-off frame control: opaque origin,
+- [x] Flight 2: **Live visuals.** (completed 2026-11-11, `flights/02-live-visuals/`; block
+      tag `widget`) The walled-off frame control: opaque origin,
       no network, size-only messages, the theme passed in, run in view and pause
       out of view, a cap on running visuals, the agent-made frame marking, the
       security model section and the escape behavior test, and checks in the
       three desktop engines. This is the mission's risk seam: its first leg
       proves the frame in all three engines (escape attempts and a runaway
       script) and ends in an explicit go/no-go before the rest is built.
+      It also carries Flight 1's debt (the `chart.js` split, the transcript
+      streaming split, the eval re-baseline).
 - [ ] Flight 3: **Visuals on chat platforms.** Pillow as a base dependency, the
       server-side chart image renderer tested against the shared sample specs,
       an optional attachment-capable send on the connector contract, Discord

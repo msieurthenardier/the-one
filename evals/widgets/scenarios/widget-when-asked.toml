@@ -1,0 +1,24 @@
+id = "widget-when-asked"
+class = "improve"
+description = "Asked for something that moves or responds to input; the reply must hold a closed, valid widget block."
+
+[variants]
+phrasings = [
+  "Can you make {thing}?",
+  "I'd love to see {thing}. Can you build it for me?",
+  "Please create {thing} that I can watch or play with right here.",
+  "Show me {thing}.",
+]
+facts = [
+  {thing = "an animation of a pendulum swinging back and forth"},
+  {thing = "a little interactive tip calculator with a bill amount and a slider for the tip percentage"},
+  {thing = "a bouncing ball that I can speed up and slow down with a button"},
+  {thing = "a live clock with a sweeping second hand"},
+  {thing = "a colour mixer with three sliders that shows the resulting colour"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "reply_has_valid_widget"

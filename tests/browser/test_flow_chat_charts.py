@@ -178,8 +178,8 @@ def test_a_broken_chart_shows_the_error_notice_and_the_rest_of_the_reply(
     expect(page.locator(CHART)).to_have_count(0)
     err = page.locator(CHART_ERROR)
     expect(err).to_have_count(1)
-    expect(err.locator(".ui-chart-error-head")).to_have_text("Couldn't draw this chart.")
-    assert err.locator(".ui-chart-error-reason").inner_text().strip() != ""
+    expect(err.locator(".ui-visual-notice-head")).to_have_text("Couldn't draw this chart.")
+    assert err.locator(".ui-visual-notice-reason").inner_text().strip() != ""
     assert 'type": "bar"' in err.locator("details pre").text_content()
     bubble = _bubble(page)
     expect(bubble.locator("p").first).to_have_text("Before.")
@@ -197,7 +197,7 @@ def test_a_stream_that_ends_inside_the_block_shows_the_cut_off_notice(
     err = page.locator(CHART_ERROR)
     expect(err).to_have_count(1)
     assert "ui-notice--muted" in err.get_attribute("class")
-    expect(err.locator(".ui-chart-error-head")).to_have_text(
+    expect(err.locator(".ui-visual-notice-head")).to_have_text(
         "This chart was cut off before it finished."
     )
     expect(page.locator(PLACEHOLDER)).to_have_count(0)

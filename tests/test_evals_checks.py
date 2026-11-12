@@ -221,6 +221,108 @@ def test_reply_has_valid_chart(reply, expected):
     assert res.passed is expected, res.detail
 
 
+W = "<script>1</script>"
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (f"```widget\n{W}\n```", [(f"{W}\n", True)]),
+        (f"text\n```widget extra words\n{W}\n```   \nmore", [(f"{W}\n", True)]),
+        (f"~~~widget\n{W}\n~~~", []),  # tildes are never a fence
+        (f"- item\n\n  ```widget\n  {W}\n  ```", []),  # list-nested: not top-level
+        (f" ```widget\n{W}\n```", []),  # indented: not a fence
+        (f"```json\n```widget\n{W}\n```\n```", []),  # quoted inside another fence
+        (f"```widget\n{W}", [(f"{W}\n", False)]),  # unclosed
+        ("```widget\n```", [("", True)]),  # empty but closed
+        (f"```Widget\n{W}\n```", []),  # the tag is case-sensitive
+        (f"```chart\n{W}\n```\n```widget\n{W}\n```", [(f"{W}\n", True)]),  # tag selects
+    ],
+)
+def test_top_level_blocks_widget_tag(reply, expected):
+    assert checks._top_level_blocks(reply, tag="widget") == expected
+
+
+def test_top_level_blocks_defaults_to_chart_and_reports_closed():
+    reply = f"```widget\n{W}\n```\n```chart\n{BAR}\n```\n```chart\n{LINE}"
+    assert checks._top_level_blocks(reply) == checks._top_level_blocks(reply, "chart")
+    assert checks._top_level_blocks(reply) == [(f"{BAR}\n", True), (f"{LINE}\n", False)]
+
+
+# ── reply_has_valid_widget (Mission 35 F2 L7) ─────────────────────────────
+
+
+def widget(body: str, info: str = "widget") -> str:
+    return f"Here.\n```{info}\n{body}\n```\n"
+
+
+def _sized(n_bytes: int, filler: str = "a") -> str:
+    """A widget body of exactly ``n_bytes`` UTF-8 bytes that holds a <script> tag."""
+    head, tail = "<script>/*", "*/</script>"
+    pad = n_bytes - len((head + tail).encode())
+    assert pad % len(filler.encode()) == 0
+    return head + filler * (pad // len(filler.encode())) + tail
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (widget("<div id=o></div><script>o.textContent='x'</script>"), True),
+        (widget("<canvas id=c></canvas>"), True),
+        (widget('<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>'), True),  # xmlns
+        (widget('<svg><use href="#frag"/></svg>'), True),  # local reference
+        (widget("<script>1</script>", "widget extra words"), True),  # first token only
+        (widget(_sized(65536)), True),  # exactly the limit
+        (widget(_sized(65537)), False),  # one byte over
+        # About 32 Ki two-byte characters: under 64 Ki characters, over the byte limit.
+        (widget(_sized(65537, "é")), False),
+        (widget("<p>just text</p>"), False),  # no script, canvas or svg
+        ("```widget\n<script>1</script>", False),  # unclosed: the chat never runs it
+        ("- item\n\n  ```widget\n  <script>1</script>\n  ```", False),  # list-nested
+        ("~~~widget\n<script>1</script>\n~~~", False),
+        ("prose only", False),
+        (widget('<script src="//cdn.example/x.js"></script>'), False),
+        (widget("<script src=https://cdn.example/x.js></script>"), False),  # unquoted
+        (widget('<svg><image xlink:href="https://e.example/a.png"/></svg>'), False),
+        (widget('<link href="http://e.example/s.css"><script>1</script>'), False),
+        (
+            widget("<style>a{background:url(https://e.example/a.png)}</style><script>1</script>"),
+            False,
+        ),
+        (widget('<script>fetch("https://e.example/d.json")</script>'), False),
+        (widget('<script>import x from "https://e.example/m.js"</script>'), False),
+        (widget('<script>import("https://e.example/m.js")</script>'), False),
+        (widget("<style>@import url(https://e.example/f.css);</style><script>1</script>"), False),
+        (widget('<style>@import "//e.example/f.css";</style><script>1</script>'), False),
+        # A relative or data URL is not external.
+        (widget('<script>var i=new Image();i.src="data:image/png;base64,AA"</script>'), True),
+        # One bad block and one good block: any valid closed block passes.
+        (widget("<p>x</p>") + widget("<script>1</script>"), True),
+    ],
+)
+def test_reply_has_valid_widget(reply, expected):
+    assert run("reply_has_valid_widget", trace_with_reply(reply)).passed is expected
+
+
+def test_reply_has_valid_widget_reasons_and_turn_param():
+    d = run("reply_has_valid_widget", trace_with_reply("```widget\n<script>1</script>")).detail
+    assert d == "unclosed widget block"
+    assert run("reply_has_valid_widget", trace_with_reply("prose")).detail == "no widget block"
+    assert (
+        "65537 bytes"
+        in run("reply_has_valid_widget", trace_with_reply(widget(_sized(65537)))).detail
+    )
+    ext = run("reply_has_valid_widget", trace_with_reply(widget("<script src='//c/x.js'>")))
+    assert "external URL" in ext.detail
+    two = RunTrace(turns=[turn([asst(widget("<p/>"))]), turn([asst(widget(W))], index=1)])
+    assert not run("reply_has_valid_widget", two, turn=0).passed
+    assert run("reply_has_valid_widget", two, turn=1).passed
+    assert not run("reply_has_valid_widget", two, turn=5).passed
+    assert checks.validate_params("reply_has_valid_widget", {"turn": 0}) == {"turn": 0}
+    with pytest.raises(Exception):
+        checks.validate_params("reply_has_valid_widget", {"types": ["x"]})
+
+
 def test_reply_has_valid_chart_types_and_reasons():
     tr = trace_with_reply(chart(PIE))
     assert run("reply_has_valid_chart", tr, types=["pie", "bar"]).passed

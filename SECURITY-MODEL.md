@@ -468,6 +468,125 @@ provenance.
   count at cascade points) is the convention future credential-lifecycle
   logging follows.**
 
+## Live visuals (Mission 35 Flight 2)
+
+An assistant reply can carry a `widget` block: a small HTML page the model wrote, which the chat
+runs. That is model-authored code executing in the operator's browser, so the boundary matters more
+than any other Mission 35 surface. The format is `docs/widget-format.md`; the wiring is
+`the_one/agents.md` "Widgets in chat". Charts (`chart` blocks) run no code and are outside this
+section.
+
+### The boundary
+
+A widget runs in an `<iframe srcdoc>` built by `App.ui.widgetFrame` with four layers, each assumed
+fallible on its own:
+
+1. **Sandbox.** `sandbox="allow-scripts"` and nothing else: an opaque origin (`"null"`), so no
+   cookies, storage, parent DOM, `top` access, popups, modal dialogs, downloads or form submission.
+   `referrerpolicy="no-referrer"` and an empty Permissions Policy.
+2. **Policy.** A `Content-Security-Policy` `<meta>` is the first thing in the frame's document, before
+   any model byte, closing every fetch directive (`default-src 'none'`; only inline script and style,
+   `img-src data: blob:`). A later `<meta>` from the model can only tighten (policies intersect).
+3. **The page header.** `GET /` carries `frame-src 'none'; child-src 'none'` (`FRAME_POLICY` in
+   `app.py`), so the page refuses to navigate any frame, including a widget navigating itself. A
+   second `load` of a widget's frame is treated as an escape: the frame is removed and the card shows
+   a stopped state.
+4. **The prelude.** A reviewed, pinned script that runs first in the frame
+   (`tests/test_widget_frame_prelude.py`): it neuters WebRTC, `history`, `execCommand`; gates
+   programmatic focus on a trusted gesture inside the frame within about 1 s; gates the widget's clock
+   when paused; and rewrites every `<link>` entry point to an inert `<x-link>` (the DD6 layered link
+   blocking: the source is rewritten before it runs, and the prelude rewrites each in-frame HTML
+   entry point and `createElement`/`createElementNS`).
+
+The only message the page accepts from a frame is its height, matched by `event.source` against the
+live frames' windows (never by origin, since every widget's origin is `"null"`), clamped to 48-720 px
+and coalesced to one write per animation frame. A forged `mcp-oauth-result` or any other message
+from a widget arrives with origin `"null"`, which the OAuth listener
+(`areas/studio/mcp-oauth-consent.js`, `evt.origin !== window.location.origin`) drops
+(`tests/browser/test_flow_chat_widgets.py`).
+
+### What a widget cannot do
+
+Reach the network (HTTP, WebSocket, beacon, images, CSS `url()`, workers, `import()`, WebRTC STUN,
+DNS prefetch, preconnect), read or write the app's DOM, cookies or storage, navigate or reload the
+page, push history entries, open a window or dialog, take focus from the composer, or hold the
+lifecycle (it is paused out of view, capped at 3 running and 8 loaded, and stopped by the hang
+guard). The escape battery `tests/fixtures/widgets/escape.html` exercises each path; the contract
+files `test_ui_widget_*.py` (Chromium and WebKit) and the behavior test
+`tests/behavior/widget-escape.md` (a real chat, real input, an external sink) hold the claim. A
+widget runs with the operator's privileges only inside its own frame; it never receives a credential,
+a cookie or an agent tool.
+
+### Measured engine matrix
+
+The per-engine measurements (Chromium, Playwright WebKit, WebKitGTK 2.52.6, Windows WebView2 157),
+the go/no-go table and the mitigations the operator chose are in the Flight 2 flight log, "Leg 1
+`widget-frame-gate`" and its "Go/no-go recommendation"
+(`missions/35-rich-visuals-in-chat/flights/02-live-visuals/flight-log.md`). They are not repeated
+here.
+
+### Residual risks
+
+- **A WebKit freeze, once per bad widget.** On WebKit-family engines (Linux WebKitGTK, macOS,
+  Playwright WebKit) a widget that busy-loops freezes the page's main thread for the loop's duration.
+  The hang guard (crash record, stall detection, heartbeat) bounds it to once per widget: after a
+  reload the widget comes back stopped, with Start anyway. On Chromium and WebView2 the frame is
+  isolated and the page keeps running. In the desktop app, recovery from a long freeze is the tray
+  Quit (Linux) or the Dock Quit (macOS) and a relaunch.
+- **Start anyway can land in a spinning renderer (some Chromium-based hosts).** In some
+  Chromium-based hosts (seen in one such browser on Windows, 2 of 3 tries; not reproduced in
+  Chromium 156 or Chrome 145 in 19 trials), pressing Start anyway right after the hang guard stopped
+  a busy-looping widget can put the new frame in the renderer process that is still spinning. The
+  card stays blank and the host shows its own "page not responding" prompt (Wait / Exit). Recovery is
+  that prompt or, in the desktop app, quitting and relaunching. Start anyway stays by the operator's
+  decision: the desktop app has no page reload, so a reload alternative does not fit.
+- **Preconnect and DNS blocking are best-effort.** The layered rewrite closes the entry points that
+  were measured, but a speculative connection (a bare TCP connect or a DNS lookup, with no data sent
+  and no response readable) from a path nobody has found remains a possible leak of a destination
+  host name. The sink in the behavior test reads zero on every measured path.
+- **The 1 s focus window.** After a trusted click or key inside the frame, the widget may call
+  `focus()` for about 1 s. It cannot steal focus without a gesture inside the frame.
+- **`<title>` text in chrome.** The widget's `<title>` is shown in the card header (60 characters, as
+  text). It is attacker-influenced text next to the "Widget by {agent}" label.
+- **Tab trapping.** A widget that handles Tab itself can keep keyboard focus inside its frame after the
+  operator clicked into it; the mouse (or the browser's own focus shortcuts) leaves it.
+- **The crash record's false positives.** The record lives in `localStorage` and flags a widget as
+  "stopped responding last time" after a page that ended without a normal unload (a browser closed
+  with the whole window, a suspend). A false positive costs one click on Start anyway.
+  **Desktop quit paths (leg 8, measured on WebKitGTK):** `pagehide` does not reach the page when the
+  shell destroys the window, so before this leg a clean tray Quit, `the-one quit` or
+  `POST /api/window/quit` left the record on disk and the next launch could read it as a hang
+  (`the-one app`, WSLg; the page's tick also rewrites the record every second, so a bare removal
+  raced the quit). The shell now clears it first (`desktop/widget_records.py`: a script through
+  `window.run_js`, never the bridge, on a daemon thread joined for 1 s; it removes every
+  `widget-running:` key and stops the page writing a new one; skipped on the main thread; on macOS
+  the terminate worker does the same before the drain). A page frozen by a widget makes the clear
+  time out and the quit continue, and the next launch then correctly shows "stopped responding last
+  time". Logout and a killed process run no shell code (accepted, as for a closed browser).
+- **Pause is cooperative.** A widget that busy-loops, or schedules work through a path the gate does
+  not wrap, keeps running when paused; removal and the hang guard are the real stops
+  (`docs/widget-format.md` "Pausing").
+- **The pywebview bridge (removed on Linux and macOS, leg 8).** pywebview 5.4 registers a native
+  script message handler on the main web view (`jsBridge` on GTK and Cocoa, plus `browserDelegate`
+  on Cocoa), which a sandboxed frame can reach through `window.webkit.messageHandlers` (measured on
+  WebKitGTK in leg 1: it can move the window and open a native message box). The shell now removes
+  them once the main window has loaded (`desktop/native_bridge.py::remove_native_handlers`, from its
+  own `loaded` handler, on the UI thread, behind the `removes_native_bridge` boot-policy flag: Linux
+  and macOS true, Windows false) and reports the outcome as `native_bridge` in
+  `GET /api/window/state` (`removed`, `not-applicable`, `failed` or `pending`). Measured on
+  WebKitGTK with a pywebview window and a `js_api` object: without the removal a sandboxed frame's
+  `jsBridge.postMessage` reached the Python method; with it a frame created after the removal sees
+  `typeof ...jsBridge` as `"undefined"` and a frame created before it can no longer post
+  (`TypeError`). In the real `the-one app` a widget that tries a window move shows
+  `BRIDGE: undefined`. WebView2 has no native message handler of its own to remove: a frame sees
+  `chrome.webview` but its messages do nothing (leg 1; a regression probe runs in Part B). **What it
+  costs:** everything that travels over those handlers stops working in the desktop app: `js_api` and
+  `expose` calls, `evaluate_js` with a callback, `window.dom` events and easy-drag through the page,
+  `window.alert` on GTK and `window.print()` on macOS (they throw in the main document). The app uses
+  none of them (a guard test, `tests/test_native_bridge_guard.py`, fails on a new use); this is the
+  operator's decision of 2026-11-11. The removal is pinned by AST canaries on pywebview's GTK and
+  Cocoa `BrowserView.__init__` so a pywebview upgrade fails in CI first.
+
 ## Connector Channel Contract (Mission 23 Flight 2)
 
 The connector subsystem (`the_one/connectors/`) bridges external chat

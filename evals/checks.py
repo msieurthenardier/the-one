@@ -307,19 +307,21 @@ def _reply_has_markdown_link(params: dict[str, Any], trace: RunTrace) -> Outcome
     return True, f"linked {links[0]}", {}
 
 
-def _chart_blocks(reply: str) -> list[str]:
-    """The bodies of the reply's top-level ``chart`` blocks, as the chat's parser finds them.
+def _top_level_blocks(reply: str, tag: str = "chart") -> list[tuple[str, bool]]:
+    """The top-level ``tag`` blocks of a reply as ``(body, closed)`` pairs, as the chat finds them.
+
+    ``closed`` is whether a closing fence was found (an unterminated block is ``False``).
 
     Mirrors ``static/js/markdown.js`` ``parseBlocks`` (Mission 35 F1 L4): a block opens at a
     line that starts at column 0 with three backticks (any other fence, such as ``json``, is
     code and swallows what is inside it, a quoted chart fence included); the language is the
-    info string's first whitespace token and must be exactly ``chart``; the only closer is a
+    info string's first whitespace token and must be exactly ``tag``; the only closer is a
     column-0 line of three backticks and whitespace (``~~~`` is never a fence); an
     unterminated block runs to the end of the text. An indented (list-nested) fence never
     opens a block here. ``_strip_code`` is deliberately not used: it accepts ``~~~``.
     """
     lines = reply.split("\n")
-    blocks: list[str] = []
+    blocks: list[tuple[str, bool]] = []
     i = 0
     while i < len(lines):
         m = re.match(r"```(.*)$", lines[i])
@@ -332,10 +334,65 @@ def _chart_blocks(reply: str) -> list[str]:
         while i < len(lines) and not re.match(r"```\s*$", lines[i]):
             body.append(lines[i])
             i += 1
+        closed = i < len(lines)
         i += 1  # the closer (or past the end)
-        if tokens and tokens[0] == "chart":
-            blocks.append("\n".join(body) + ("\n" if body else ""))
+        if tokens and tokens[0] == tag:
+            blocks.append(("\n".join(body) + ("\n" if body else ""), closed))
     return blocks
+
+
+WIDGET_MAX_BYTES = 65536  # ui/widget.js MAX_BYTES (UTF-8 bytes of the block body)
+
+# The external-URL heuristic (Mission 35 F2 L7). A widget body is rejected when an http:, https:
+# or protocol-relative (//) value is the argument of one of: ``src=`` or ``href=`` (``xlink:href``
+# included), ``url(``, ``@import``, ``fetch(``, ``import(``, a side-effect ``import "..."``, or
+# the ``from "..."`` of an ``import ... from``. An optional quote and whitespace sit between the
+# opener and the scheme. ``xmlns="http://www.w3.org/..."`` is a namespace, not a reference, and
+# ``href="#frag"`` is local: neither is matched. It is a heuristic over source text: WebSocket,
+# XHR and EventSource URLs are out of scope (the frame's ``connect-src 'none'`` blocks them), and
+# a URL built at run time is not seen.
+_EXTERNAL_URL = re.compile(
+    r"""(?:\b(?:src|href)\s*=\s*["']?"""
+    r"""|\burl\(\s*["']?"""
+    r"""|\bfetch\(\s*["']?"""
+    r"""|@import\s+["']?"""
+    r"""|\bimport\s*\(\s*["']?"""
+    r"""|\bimport\s+["']"""
+    r"""|\bfrom\s*["'])\s*(?:https?:|//)""",
+    re.IGNORECASE,
+)
+
+
+def _reply_has_valid_widget(params: dict[str, Any], trace: RunTrace) -> Outcome:
+    """Pass when the reply holds a closed top-level ``widget`` block that would run.
+
+    Closed-only: the chat never runs an unclosed block (unlike the chart check). The body is at
+    most ``WIDGET_MAX_BYTES`` UTF-8 bytes (the scanner's one trailing newline is not counted),
+    contains ``<script``, ``<canvas`` or ``<svg``, and matches ``_EXTERNAL_URL`` nowhere.
+    """
+    turn = _turn(trace, params)
+    if turn is None:
+        return False, f"no turn {params.get('turn', -1)}", {}
+    blocks = _top_level_blocks(turn.reply, "widget")
+    if not blocks:
+        return False, "no widget block", {}
+    problem = ""
+    for body, closed in blocks:
+        if not closed:
+            problem = problem or "unclosed widget block"
+            continue
+        source = body[:-1] if body.endswith("\n") else body
+        size = len(source.encode("utf-8"))
+        lowered = source.lower()
+        if size > WIDGET_MAX_BYTES:
+            problem = problem or f"widget is {size} bytes (limit {WIDGET_MAX_BYTES})"
+        elif not any(tag in lowered for tag in ("<script", "<canvas", "<svg")):
+            problem = problem or "widget has no <script>, <canvas> or <svg>"
+        elif (m := _EXTERNAL_URL.search(source)) is not None:
+            problem = problem or f"widget reaches an external URL: {m.group(0)}"
+        else:
+            return True, f"valid widget ({size} bytes)", {}
+    return False, problem, {}
 
 
 def _reply_has_valid_chart(params: dict[str, Any], trace: RunTrace) -> Outcome:
@@ -344,12 +401,12 @@ def _reply_has_valid_chart(params: dict[str, Any], trace: RunTrace) -> Outcome:
     turn = _turn(trace, params)
     if turn is None:
         return False, f"no turn {params.get('turn', -1)}", {}
-    blocks = _chart_blocks(turn.reply)
+    blocks = _top_level_blocks(turn.reply, "chart")
     if not blocks:
         return False, "no chart block", {}
     wanted = params.get("types")
     first_problem = ""
-    for body in blocks:
+    for body, _closed in blocks:
         spec = parse_chart(body)
         if isinstance(spec, ChartError):
             first_problem = first_problem or f"invalid chart: {spec.message}"
@@ -609,6 +666,7 @@ CHECKS: dict[str, CheckSpec] = {
     "reply_has_valid_chart": CheckSpec(
         {}, {"turn": "int", "types": "str_list"}, _reply_has_valid_chart
     ),
+    "reply_has_valid_widget": CheckSpec({}, {"turn": "int"}, _reply_has_valid_widget),
     "note_saved": CheckSpec(_PAT, {}, _note_saved, db_state=True),
     "no_note_matches": CheckSpec(_PAT, {}, _no_note_matches, db_state=True),
     "notes_from_untrusted_flagged": CheckSpec({}, {}, _notes_from_untrusted_flagged, db_state=True),

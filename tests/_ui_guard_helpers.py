@@ -178,6 +178,13 @@ def find_testid_value_violations(js_dir: Path = JS_DIR) -> list[tuple[str, int, 
 UI_DIR = JS_DIR / "ui"
 
 
+# M35 F2 L3 (DD6): the widget frame's prelude is a string that runs INSIDE the sandboxed frame,
+# never in the page. It names the HTML setters it wraps to rewrite link tags (innerHTML,
+# outerHTML, shadow innerHTML, insertAdjacentHTML), so the zero-token scan allows exactly this
+# many hits in this one file and none anywhere else. An exact count: one more or one fewer fails.
+UI_DIR_SINK_ALLOWANCE: dict[str, int] = {"widget-frame.js": 4}
+
+
 def find_ui_dir_sink_tokens(
     ui_dir: Path = UI_DIR,
 ) -> tuple[int, list[tuple[str, int, str, str]]]:
@@ -193,6 +200,48 @@ def find_ui_dir_sink_tokens(
         for lineno, token, line in find_markdown_html_sink_tokens(f):
             hits.append((f.name, lineno, token, line))
     return len(files), hits
+
+
+def ui_dir_sink_mismatches(
+    ui_dir: Path = UI_DIR, allowance: dict[str, int] | None = None
+) -> dict[str, tuple[int, int]]:
+    """Per file, ``(found, allowed)`` wherever the token count differs from the exact allowance
+    (``UI_DIR_SINK_ALLOWANCE`` by default; a file not listed is allowed none). Empty = passing."""
+    allowed = UI_DIR_SINK_ALLOWANCE if allowance is None else allowance
+    found: dict[str, int] = {}
+    for name, _line, _token, _text in find_ui_dir_sink_tokens(ui_dir)[1]:
+        found[name] = found.get(name, 0) + 1
+    return {
+        name: (found.get(name, 0), allowed.get(name, 0))
+        for name in sorted(set(found) | set(allowed))
+        if found.get(name, 0) != allowed.get(name, 0)
+    }
+
+
+# ── srcdoc sink (M35 F2 L1, DD2, AC8) ───────────────────────────────────────
+
+# ``.srcdoc`` is an HTML sink: the string becomes a document that runs script. The widget frame
+# core builds it from a fixed prelude plus the model's body, and is the ONE place allowed to set
+# it. Assignment anchor (excludes ``==`` / ``===`` reads) and the attribute form.
+_SRCDOC_ASSIGN = re.compile(r"\.srcdoc\s*=(?!=)")
+_SRCDOC_ATTR = re.compile(r"""setAttribute\(\s*['"]srcdoc['"]""")
+
+# The one allowed site: file (relative to static/js) -> number of sites.
+SRCDOC_SINK_ALLOWANCE: dict[str, int] = {"ui/widget-frame.js": 1}
+
+
+def find_srcdoc_sinks(js_dir: Path = JS_DIR) -> dict[str, list[tuple[int, str]]]:
+    """Every ``.srcdoc =`` assignment and ``setAttribute('srcdoc'`` call under ``js_dir``,
+    per file, as ``(line, stripped line)``. Whole-line ``//`` comments are skipped."""
+    found: dict[str, list[tuple[int, str]]] = {}
+    for f in iter_js_files(js_dir):
+        for lineno, line in enumerate(f.read_text().splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            if _SRCDOC_ASSIGN.search(line) or _SRCDOC_ATTR.search(line):
+                found.setdefault(relpath(f, js_dir), []).append((lineno, stripped))
+    return found
 
 
 _DOC_ADD = re.compile(r"document\.addEventListener\(\s*'([^']+)'\s*,\s*([A-Za-z_$][\w$]*)")

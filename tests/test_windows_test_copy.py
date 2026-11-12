@@ -22,6 +22,17 @@ OPERATOR = LOCAL + "\\the-one"
 ROOT = LOCAL + "\\Temp\\the-one-f5"
 
 
+def test_base_python_matches_requires_python() -> None:
+    """The setup venv's base interpreter must satisfy pyproject's requires-python
+    (squawk 0343: it was hard-coded to 3.11 while the project needs 3.12)."""
+    pyproject = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    m = re.search(r'requires-python\s*=\s*">=(\d+)\.(\d+)"', pyproject)
+    assert m, "requires-python not found"
+    floor = f"{m.group(1)}{m.group(2)}"
+    assert h.BASE_PYTHON_DIR.endswith(f"Python{floor}")
+    assert h.PYTHON_WIN.endswith(f"Python{floor}/python.exe")
+
+
 # ---------------------------------------------------------------- ports
 
 
@@ -160,11 +171,11 @@ def proc(pid, ppid, create, path, cmd=""):
     return {"pid": pid, "ppid": ppid, "create": create, "path": path, "cmd": cmd}
 
 
-PY = "C:\\Python311\\pythonw.exe"
+PY = "C:\\Python312\\pythonw.exe"
 VENV_PY = ROOT + "\\venv\\Scripts\\pythonw.exe"
 WV = "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154\\msedgewebview2.exe"
 DATA = ROOT + "\\data-l1a"
-ALLOWED = [ROOT, "C:\\Python311", "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application"]
+ALLOWED = [ROOT, "C:\\Python312", "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application"]
 
 
 def fixture_table():

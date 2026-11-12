@@ -24,9 +24,11 @@ from the_one.config import settings
 from the_one.interfaces.desktop import (
     chrome,
     macos_dock,
+    native_bridge,
     notice,
     takeover,
     tray,
+    widget_records,
     window_control,
 )
 from the_one.interfaces.desktop import host as desktop_host
@@ -559,6 +561,9 @@ class DesktopSession:
             # idempotent forward-safety for any future backend that skips it).
             if not window_control._is_gtk_backend():  # on GTK, closing saves it (main thread)
                 self._save_current_geometry(state.desktop_window)
+            # pagehide does not reach the page on destroy, so a widget's crash record would
+            # outlive a clean quit: clear it first (bounded, never raises; M35 F2 L8).
+            widget_records.clear_widget_records(state.desktop_window)
             state.desktop_window.destroy()
         # ``loaded`` never fires for a destroyed window, so its handler will not close
         # the splash: do it here (idempotent; a no-op on macOS once a quit is under way).
@@ -928,6 +933,19 @@ class DesktopSession:
                             _main_shown.wait(25),
                             _destroy_splash(),
                         )
+
+                        # Step 4a — remove pywebview's native message handlers so a widget
+                        # frame cannot reach them (M35 F2 L8, DD13). Its OWN handler (each
+                        # one runs on its own thread), so it neither waits on nor delays
+                        # the splash handler above; idempotent across reloads.
+                        if policy.removes_native_bridge:
+                            main_win.events.loaded += lambda: native_bridge.remove_native_handlers(
+                                main_win
+                            )
+                        else:
+                            # Nothing to remove on this platform (Windows): record it, so
+                            # "pending" keeps meaning "removal expected, not yet run".
+                            state.native_bridge = "not-applicable"
 
                         # Step 4b — tint the (still hidden) window, then show it.
                         if _abort_if_quit():

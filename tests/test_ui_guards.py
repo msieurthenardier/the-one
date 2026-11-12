@@ -60,7 +60,9 @@ from tests._ui_guard_helpers import (
     MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED,
     MARKDOWN_JS,
     REGISTRY_DOC,
+    SRCDOC_SINK_ALLOWANCE,
     TOKENS_CSS,
+    UI_DIR_SINK_ALLOWANCE,
     classify_sinks,
     extract_testids,
     find_backtick_tripwire_hits,
@@ -70,6 +72,7 @@ from tests._ui_guard_helpers import (
     find_label_for_without_control,
     find_markdown_bad_create_element_args,
     find_markdown_html_sink_tokens,
+    find_srcdoc_sinks,
     find_testid_value_violations,
     find_ui_dir_sink_tokens,
     find_unpaired_document_listeners,
@@ -77,6 +80,7 @@ from tests._ui_guard_helpers import (
     normalize_css_color,
     parse_registry,
     parse_tokens_css_theme_blocks,
+    ui_dir_sink_mismatches,
 )
 
 # Selector references (``[data-testid="..."]`` in querySelector calls) that
@@ -786,7 +790,13 @@ def test_ui_dir_has_no_html_sink_tokens(tmp_path) -> None:
         assert count >= 1, "static/js/ui/ exists but holds no .js file (vacuous guard)"
     else:
         assert (count, hits) == (0, [])
-    assert hits == [], "HTML-string sink tokens in static/js/ui: " + repr(hits)
+    # M35 F2 L3 (DD6): the widget frame's prelude names the HTML setters it wraps; its exact
+    # count is the one allowance, and every other file must hold none.
+    assert ui_dir_sink_mismatches() == {}, (
+        "HTML-string sink tokens in static/js/ui differ from UI_DIR_SINK_ALLOWANCE: "
+        + repr(ui_dir_sink_mismatches())
+    )
+    assert {h[0] for h in hits} == set(UI_DIR_SINK_ALLOWANCE)
 
     # Probe: a token in a comment is flagged; a clean file is not.
     ui = tmp_path / "ui"
@@ -794,6 +804,42 @@ def test_ui_dir_has_no_html_sink_tokens(tmp_path) -> None:
     _write(ui, "b.js", "el.textContent = '';\n")
     count, hits = find_ui_dir_sink_tokens(ui)
     assert count == 2 and [(h[0], h[2]) for h in hits] == [("a.js", "innerHTML")]
+
+    # Probe (AC5): the allowance is exact. One token too many, one too few, and an allowed
+    # name in another file all fail.
+    probe = tmp_path / "probe"
+    allow = {"widget-frame.js": 2}
+    _write(probe, "widget-frame.js", "a.innerHTML;\nb.outerHTML;\n")
+    assert ui_dir_sink_mismatches(probe, allow) == {}
+    _write(probe, "widget-frame.js", "a.innerHTML;\nb.outerHTML;\nc.insertAdjacentHTML;\n")
+    assert ui_dir_sink_mismatches(probe, allow) == {"widget-frame.js": (3, 2)}
+    _write(probe, "widget-frame.js", "a.innerHTML;\n")
+    assert ui_dir_sink_mismatches(probe, allow) == {"widget-frame.js": (1, 2)}
+    _write(probe, "widget-frame.js", "a.innerHTML;\nb.outerHTML;\n")
+    _write(probe, "other.js", "x.innerHTML;\n")
+    assert ui_dir_sink_mismatches(probe, allow) == {"other.js": (1, 0)}
+
+
+def test_srcdoc_is_set_only_by_the_widget_frame_control(tmp_path) -> None:
+    """M35 F2 L1 (DD2, AC8): ``.srcdoc`` is an HTML sink (a document that runs script). The one
+    allowed site is the widget frame core's document setter; any other ``.srcdoc =`` or
+    ``setAttribute('srcdoc'`` under static/js fails, wherever it is."""
+    live = {rel: len(sites) for rel, sites in find_srcdoc_sinks().items()}
+    assert live == SRCDOC_SINK_ALLOWANCE, {
+        rel: sites for rel, sites in find_srcdoc_sinks().items() if rel not in SRCDOC_SINK_ALLOWANCE
+    } or live
+
+    # Probe: both forms are detected; reads and comments are not.
+    ui = tmp_path / "ui"
+    _write(ui, "a.js", "f.srcdoc = doc;\n")
+    _write(ui, "b.js", "f.setAttribute('srcdoc', doc);\ng.setAttribute(\"srcdoc\", d);\n")
+    _write(
+        ui,
+        "c.js",
+        "if (f.srcdoc == 'x') {}\nif (f.srcdoc === 'x') {}\nvar s = f.srcdoc;\n// f.srcdoc = x;\n",
+    )
+    found = find_srcdoc_sinks(ui)
+    assert {rel: len(v) for rel, v in found.items()} == {"a.js": 1, "b.js": 2}
 
 
 def test_ui_dir_document_listeners_are_paired(tmp_path) -> None:

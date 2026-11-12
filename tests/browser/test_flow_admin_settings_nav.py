@@ -293,7 +293,7 @@ def test_general_pages_each_render_their_own_block(app_clean: str, page: Page) -
         page.locator('[data-testid="platform-section-tools-visuals-applies-when"]')
     ).to_contain_text("Rich visuals on")
     expect(page.locator('[data-testid="platform-section-tools-visuals-text"]')).to_contain_text(
-        "fenced block with the language `chart`"
+        "a code block whose language is `chart`"
     )
     # The tool-free blocks never name a tool.
     free_text = page.locator('[data-testid^="platform-section-tool_free-"][data-testid$="-text"]')

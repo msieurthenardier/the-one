@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from the_one.interfaces.desktop import widget_records
 from the_one.interfaces.desktop.session_state import state
 
 log = logging.getLogger("the_one.interfaces.desktop.shell")
@@ -147,7 +148,11 @@ class TerminateWorker:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         boot_bound: float = BOOT_WAIT_BOUND,
+        clear_records: Callable[[], object] | None = None,
     ) -> None:
+        # M35 F2 L8: clears the widget crash records (bounded, never raises) between the
+        # boot wait and the drain, while the page can still run a script.
+        self._clear_records = clear_records
         self._reply = reply
         self._drain = drain
         self._boot_wait = boot_wait
@@ -170,6 +175,11 @@ class TerminateWorker:
                 log.warning("terminate: boot did not stop within %.1fs", self._boot_bound)
         except Exception:
             log.warning("terminate: boot wait raised", exc_info=True)
+        if self._clear_records is not None:
+            try:
+                self._clear_records()
+            except Exception:
+                log.warning("terminate: clearing widget records raised", exc_info=True)
         try:
             log.info("terminate: drain started")
             self._drain()
@@ -338,6 +348,7 @@ def _start_terminate(session) -> None:
         drain=lambda: session._drain(server, thread),
         boot_wait=state.boot_stopped.wait,
         log_flush=flush_log_handlers,
+        clear_records=lambda: widget_records.clear_widget_records(window or state.desktop_window),
     ).start()
 
 

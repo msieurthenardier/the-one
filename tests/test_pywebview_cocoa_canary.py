@@ -112,3 +112,26 @@ def test_restore_calls_deminiaturize_directly(cocoa_tree):
     calls = _calls(restore)
     assert "self.window.deminiaturize_" in calls
     assert not any("callAfter" in c for c in calls)
+
+
+def _handler_names(init: ast.FunctionDef, method: str) -> set[str]:
+    """String names passed as the last argument to ``<...>.<method>(obj, name)``."""
+    names: set[str] = set()
+    for node in ast.walk(init):
+        if isinstance(node, ast.Call) and _dotted(node.func).endswith(method):
+            last = node.args[-1] if node.args else None
+            if isinstance(last, ast.Constant) and isinstance(last.value, str):
+                names.add(last.value)
+    return names
+
+
+def test_browser_view_init_registers_the_two_native_message_handlers(cocoa_tree):
+    """The shell removes exactly these (native_bridge.COCOA_HANDLERS, M35 F2 L8 DD13)."""
+    init = _methods(_browser_view(cocoa_tree))["__init__"]
+    assert _handler_names(init, "addScriptMessageHandler_name_") == {"jsBridge", "browserDelegate"}
+
+
+def test_browser_view_init_keeps_the_webview_attribute_the_removal_reads(cocoa_tree):
+    init = _methods(_browser_view(cocoa_tree))["__init__"]
+    targets = {_dotted(t) for n in ast.walk(init) if isinstance(n, ast.Assign) for t in n.targets}
+    assert "self.webview" in targets

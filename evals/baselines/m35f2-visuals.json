@@ -1,0 +1,1923 @@
+{
+  "cells": {
+    "haiku": {
+      "chart-fits-shares": {
+        "bar": {
+          "bar_rate": 0.9,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            4,
+            4
+          ],
+          "2": [
+            4,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 20,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            5,
+            5
+          ],
+          "2": [
+            5,
+            5
+          ],
+          "3": [
+            5,
+            5
+          ]
+        },
+        "rate": 1.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.8388748398148705,
+          1.0
+        ]
+      },
+      "chart-fits-timeseries": {
+        "bar": {
+          "bar_rate": 0.9,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            3,
+            4
+          ],
+          "2": [
+            1,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 16,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            4,
+            5
+          ],
+          "2": [
+            3,
+            5
+          ],
+          "3": [
+            4,
+            5
+          ]
+        },
+        "rate": 0.8,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.583982565906683,
+          0.9193423379822393
+        ]
+      },
+      "chart-when-asked": {
+        "bar": {
+          "bar_rate": 0.9,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            4,
+            4
+          ],
+          "2": [
+            4,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 20,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            5,
+            5
+          ],
+          "2": [
+            5,
+            5
+          ],
+          "3": [
+            5,
+            5
+          ]
+        },
+        "rate": 1.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.8388748398148705,
+          1.0
+        ]
+      },
+      "no-chart-unasked": {
+        "bar": {
+          "bar_rate": null,
+          "kind": "hold",
+          "rule": "not worse than baseline"
+        },
+        "class": "hold",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            4,
+            4
+          ],
+          "2": [
+            4,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 20,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            5,
+            5
+          ],
+          "2": [
+            5,
+            5
+          ],
+          "3": [
+            5,
+            5
+          ]
+        },
+        "rate": 1.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.8388748398148705,
+          1.0
+        ]
+      }
+    },
+    "lfm3": {
+      "chart-fits-shares": {
+        "bar": {
+          "bar_rate": 0.35,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            1,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 1,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            1,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.05,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.008881448702335523,
+          0.23613119546428119
+        ]
+      },
+      "chart-fits-timeseries": {
+        "bar": {
+          "bar_rate": 0.3,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            0,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 0,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            0,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.0,
+          0.16112516018512965
+        ]
+      },
+      "chart-when-asked": {
+        "bar": {
+          "bar_rate": 0.3,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            0,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 0,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            0,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.0,
+          0.16112516018512965
+        ]
+      },
+      "no-chart-unasked": {
+        "bar": {
+          "bar_rate": null,
+          "kind": "hold",
+          "rule": "not worse than baseline"
+        },
+        "class": "hold",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            4,
+            4
+          ],
+          "2": [
+            4,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 20,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            5,
+            5
+          ],
+          "2": [
+            5,
+            5
+          ],
+          "3": [
+            5,
+            5
+          ]
+        },
+        "rate": 1.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.8388748398148705,
+          1.0
+        ]
+      }
+    },
+    "qwen3-4b": {
+      "chart-fits-shares": {
+        "bar": {
+          "bar_rate": 0.3,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            0,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 0,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            0,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.0,
+          0.16112516018512965
+        ]
+      },
+      "chart-fits-timeseries": {
+        "bar": {
+          "bar_rate": 0.3,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            0,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 0,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            0,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.0,
+          0.16112516018512965
+        ]
+      },
+      "chart-when-asked": {
+        "bar": {
+          "bar_rate": 0.3,
+          "kind": "improve",
+          "rule": "min(0.9, baseline rate + 0.3); and not worse"
+        },
+        "class": "improve",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            0,
+            4
+          ],
+          "1": [
+            0,
+            4
+          ],
+          "2": [
+            0,
+            4
+          ],
+          "3": [
+            0,
+            4
+          ],
+          "4": [
+            0,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 0,
+        "phrasing": {
+          "0": [
+            0,
+            5
+          ],
+          "1": [
+            0,
+            5
+          ],
+          "2": [
+            0,
+            5
+          ],
+          "3": [
+            0,
+            5
+          ]
+        },
+        "rate": 0.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.0,
+          0.16112516018512965
+        ]
+      },
+      "no-chart-unasked": {
+        "bar": {
+          "bar_rate": null,
+          "kind": "hold",
+          "rule": "not worse than baseline"
+        },
+        "class": "hold",
+        "counted": 20,
+        "excluded": 0,
+        "excluded_rate": 0.0,
+        "facts": {
+          "0": [
+            4,
+            4
+          ],
+          "1": [
+            4,
+            4
+          ],
+          "2": [
+            4,
+            4
+          ],
+          "3": [
+            4,
+            4
+          ],
+          "4": [
+            4,
+            4
+          ]
+        },
+        "incomplete": false,
+        "not_exposed": 0,
+        "passes": 20,
+        "phrasing": {
+          "0": [
+            5,
+            5
+          ],
+          "1": [
+            5,
+            5
+          ],
+          "2": [
+            5,
+            5
+          ],
+          "3": [
+            5,
+            5
+          ]
+        },
+        "rate": 1.0,
+        "saved_runs": null,
+        "total": 20,
+        "wilson": [
+          0.8388748398148705,
+          1.0
+        ]
+      }
+    }
+  },
+  "created": "2026-11-10T13:13:09.206627+00:00",
+  "fingerprints": {
+    "models": "2b96d7bd57ea37b15dfae591c2e67e43223fe79e201909be2c45906dc8f8b58a",
+    "prompt": "6f1eb7abb6a8953cba52318a835d906aab92169c540af58050a9dd3a4890ea6c",
+    "scenarios": "56204ab0016d40d8eda52f499cddabba704009c8bcc6543d9644212a8f8b0220"
+  },
+  "models": {
+    "haiku": {
+      "effective": {
+        "num_ctx": null,
+        "reasoning_effort": null,
+        "temperature": 0.0,
+        "thinking": false
+      },
+      "model_info": {},
+      "preset": {
+        "base_url": "https://api.anthropic.com",
+        "config": {},
+        "model": "claude-haiku-4-5-20251001",
+        "type": "anthropic-plan-token"
+      }
+    },
+    "lfm3": {
+      "effective": {
+        "num_ctx": 16384,
+        "reasoning_effort": null,
+        "temperature": 0.0,
+        "thinking": null
+      },
+      "model_info": {
+        "model_digest": "b36a103fe2f8fbe9df2ceec88b9cfdf842dc04aaabe2b4677d1acf8e16570b5d",
+        "server_version": "0.40.14"
+      },
+      "preset": {
+        "base_url": "http://localhost:11434",
+        "config": {
+          "num_ctx": 16384
+        },
+        "model": "lfm3:1.7b-q4_K_M",
+        "type": "ollama"
+      }
+    },
+    "qwen3-4b": {
+      "effective": {
+        "num_ctx": 16384,
+        "reasoning_effort": null,
+        "temperature": 0.0,
+        "thinking": null
+      },
+      "model_info": {
+        "model_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+        "server_version": "0.40.14"
+      },
+      "preset": {
+        "base_url": "http://localhost:11434",
+        "config": {
+          "num_ctx": 16384
+        },
+        "model": "qwen3:4b-instruct-2507-q4_K_M",
+        "type": "ollama"
+      }
+    }
+  },
+  "name": "m35f2-visuals",
+  "schema": 2,
+  "size_targets": {
+    "all-on-connector:prompt-text": {
+      "config": "all-on-connector",
+      "max": 525,
+      "metric": "prompt_text",
+      "ratio": 1.0,
+      "today": 525
+    },
+    "all-on-connector:tools": {
+      "config": "all-on-connector",
+      "max": 2103,
+      "metric": "tools",
+      "ratio": 1.0,
+      "today": 2103
+    },
+    "all-on:prompt-text": {
+      "config": "all-on",
+      "max": 525,
+      "metric": "prompt_text",
+      "ratio": 1.0,
+      "today": 525
+    },
+    "all-on:tools": {
+      "config": "all-on",
+      "max": 1540,
+      "metric": "tools",
+      "ratio": 1.0,
+      "today": 1540
+    },
+    "bare-connector:prompt-text": {
+      "config": "bare-connector",
+      "max": 351,
+      "metric": "prompt_text",
+      "ratio": 1.0,
+      "today": 351
+    },
+    "bare-connector:tools": {
+      "config": "bare-connector",
+      "max": 1846,
+      "metric": "tools",
+      "ratio": 1.0,
+      "today": 1846
+    },
+    "bare:prompt-text": {
+      "config": "bare",
+      "max": 351,
+      "metric": "prompt_text",
+      "ratio": 1.0,
+      "today": 351
+    },
+    "bare:tools": {
+      "config": "bare",
+      "max": 1283,
+      "metric": "tools",
+      "ratio": 1.0,
+      "today": 1283
+    },
+    "tool-free:prompt-text": {
+      "config": "tool-free",
+      "max": 263,
+      "metric": "prompt_text",
+      "ratio": 1.0,
+      "today": 263
+    },
+    "tool-free:tools": {
+      "config": "tool-free",
+      "max": 0,
+      "metric": "tools",
+      "ratio": 1.0,
+      "today": 0
+    }
+  },
+  "sizes": {
+    "configs": {
+      "all-on": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 2328,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 95,
+            "group": "prompt",
+            "name": "identity",
+            "tokens": 23
+          },
+          {
+            "chars": 198,
+            "group": "prompt",
+            "name": "tool_discovery",
+            "tokens": 39
+          },
+          {
+            "chars": 102,
+            "group": "prompt",
+            "name": "tool_use",
+            "tokens": 22
+          },
+          {
+            "chars": 94,
+            "group": "prompt",
+            "name": "tool_use_tail",
+            "tokens": 20
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 111,
+            "group": "prompt",
+            "name": "rules_layer",
+            "tokens": 28
+          },
+          {
+            "chars": 591,
+            "group": "prompt",
+            "name": "notes_layer",
+            "tokens": 129
+          },
+          {
+            "chars": 162,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 41
+          },
+          {
+            "chars": 521,
+            "group": "tools",
+            "name": "tool:search_tools",
+            "tokens": 106
+          },
+          {
+            "chars": 345,
+            "group": "tools",
+            "name": "tool:continue",
+            "tokens": 74
+          },
+          {
+            "chars": 297,
+            "group": "tools",
+            "name": "tool:current_time",
+            "tokens": 72
+          },
+          {
+            "chars": 320,
+            "group": "tools",
+            "name": "tool:save_note",
+            "tokens": 70
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:update_note",
+            "tokens": 59
+          },
+          {
+            "chars": 165,
+            "group": "tools",
+            "name": "tool:forget_note",
+            "tokens": 38
+          },
+          {
+            "chars": 303,
+            "group": "tools",
+            "name": "tool:read_file",
+            "tokens": 71
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:write_file",
+            "tokens": 55
+          },
+          {
+            "chars": 478,
+            "group": "tools",
+            "name": "tool:edit_file",
+            "tokens": 104
+          },
+          {
+            "chars": 206,
+            "group": "tools",
+            "name": "tool:delete_file",
+            "tokens": 46
+          },
+          {
+            "chars": 437,
+            "group": "tools",
+            "name": "tool:move_file",
+            "tokens": 84
+          },
+          {
+            "chars": 244,
+            "group": "tools",
+            "name": "tool:mkdir",
+            "tokens": 49
+          },
+          {
+            "chars": 412,
+            "group": "tools",
+            "name": "tool:glob",
+            "tokens": 99
+          },
+          {
+            "chars": 659,
+            "group": "tools",
+            "name": "tool:grep",
+            "tokens": 146
+          },
+          {
+            "chars": 260,
+            "group": "tools",
+            "name": "tool:list_dir",
+            "tokens": 56
+          },
+          {
+            "chars": 925,
+            "group": "tools",
+            "name": "tool:http_request",
+            "tokens": 204
+          },
+          {
+            "chars": 535,
+            "group": "tools",
+            "name": "tool:fetch_url",
+            "tokens": 117
+          },
+          {
+            "chars": 375,
+            "group": "tools",
+            "name": "tool:kb__Measurement_KB_18128910__search",
+            "tokens": 90
+          }
+        ],
+        "tools_full_names": [
+          "search_tools",
+          "continue",
+          "current_time",
+          "save_note",
+          "update_note",
+          "forget_note",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "delete_file",
+          "move_file",
+          "mkdir",
+          "glob",
+          "grep",
+          "list_dir",
+          "http_request",
+          "fetch_url",
+          "kb__Measurement_KB_18128910__search"
+        ],
+        "totals": {
+          "platform": 2065,
+          "prompt_sections": 525,
+          "prompt_text": 525,
+          "tools": 1540,
+          "tools_full": 1540
+        }
+      },
+      "all-on-connector": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 3153,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 95,
+            "group": "prompt",
+            "name": "identity",
+            "tokens": 23
+          },
+          {
+            "chars": 198,
+            "group": "prompt",
+            "name": "tool_discovery",
+            "tokens": 39
+          },
+          {
+            "chars": 102,
+            "group": "prompt",
+            "name": "tool_use",
+            "tokens": 22
+          },
+          {
+            "chars": 94,
+            "group": "prompt",
+            "name": "tool_use_tail",
+            "tokens": 20
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 111,
+            "group": "prompt",
+            "name": "rules_layer",
+            "tokens": 28
+          },
+          {
+            "chars": 591,
+            "group": "prompt",
+            "name": "notes_layer",
+            "tokens": 129
+          },
+          {
+            "chars": 162,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 41
+          },
+          {
+            "chars": 521,
+            "group": "tools",
+            "name": "tool:search_tools",
+            "tokens": 106
+          },
+          {
+            "chars": 345,
+            "group": "tools",
+            "name": "tool:continue",
+            "tokens": 74
+          },
+          {
+            "chars": 1136,
+            "group": "tools",
+            "name": "tool:send_to_platform_channel",
+            "tokens": 242
+          },
+          {
+            "chars": 998,
+            "group": "tools",
+            "name": "tool:find_platform_destination",
+            "tokens": 210
+          },
+          {
+            "chars": 297,
+            "group": "tools",
+            "name": "tool:current_time",
+            "tokens": 72
+          },
+          {
+            "chars": 320,
+            "group": "tools",
+            "name": "tool:save_note",
+            "tokens": 70
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:update_note",
+            "tokens": 59
+          },
+          {
+            "chars": 165,
+            "group": "tools",
+            "name": "tool:forget_note",
+            "tokens": 38
+          },
+          {
+            "chars": 303,
+            "group": "tools",
+            "name": "tool:read_file",
+            "tokens": 71
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:write_file",
+            "tokens": 55
+          },
+          {
+            "chars": 478,
+            "group": "tools",
+            "name": "tool:edit_file",
+            "tokens": 104
+          },
+          {
+            "chars": 206,
+            "group": "tools",
+            "name": "tool:delete_file",
+            "tokens": 46
+          },
+          {
+            "chars": 437,
+            "group": "tools",
+            "name": "tool:move_file",
+            "tokens": 84
+          },
+          {
+            "chars": 244,
+            "group": "tools",
+            "name": "tool:mkdir",
+            "tokens": 49
+          },
+          {
+            "chars": 412,
+            "group": "tools",
+            "name": "tool:glob",
+            "tokens": 99
+          },
+          {
+            "chars": 659,
+            "group": "tools",
+            "name": "tool:grep",
+            "tokens": 146
+          },
+          {
+            "chars": 260,
+            "group": "tools",
+            "name": "tool:list_dir",
+            "tokens": 56
+          },
+          {
+            "chars": 925,
+            "group": "tools",
+            "name": "tool:http_request",
+            "tokens": 204
+          },
+          {
+            "chars": 535,
+            "group": "tools",
+            "name": "tool:fetch_url",
+            "tokens": 117
+          },
+          {
+            "chars": 515,
+            "group": "tools",
+            "name": "tool:fetch_channel_history",
+            "tokens": 111
+          },
+          {
+            "chars": 375,
+            "group": "tools",
+            "name": "tool:kb__Measurement_KB_18128910__search",
+            "tokens": 90
+          }
+        ],
+        "tools_full_names": [
+          "search_tools",
+          "continue",
+          "send_to_platform_channel",
+          "find_platform_destination",
+          "current_time",
+          "save_note",
+          "update_note",
+          "forget_note",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "delete_file",
+          "move_file",
+          "mkdir",
+          "glob",
+          "grep",
+          "list_dir",
+          "http_request",
+          "fetch_url",
+          "fetch_channel_history",
+          "kb__Measurement_KB_18128910__search"
+        ],
+        "totals": {
+          "platform": 2628,
+          "prompt_sections": 525,
+          "prompt_text": 525,
+          "tools": 2103,
+          "tools_full": 2103
+        }
+      },
+      "bare": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 1944,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 95,
+            "group": "prompt",
+            "name": "identity",
+            "tokens": 23
+          },
+          {
+            "chars": 103,
+            "group": "prompt",
+            "name": "tool_discovery",
+            "tokens": 22
+          },
+          {
+            "chars": 102,
+            "group": "prompt",
+            "name": "tool_use",
+            "tokens": 22
+          },
+          {
+            "chars": 94,
+            "group": "prompt",
+            "name": "tool_use_tail",
+            "tokens": 20
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 162,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 41
+          },
+          {
+            "chars": 521,
+            "group": "tools",
+            "name": "tool:search_tools",
+            "tokens": 106
+          },
+          {
+            "chars": 345,
+            "group": "tools",
+            "name": "tool:continue",
+            "tokens": 74
+          },
+          {
+            "chars": 297,
+            "group": "tools",
+            "name": "tool:current_time",
+            "tokens": 72
+          },
+          {
+            "chars": 303,
+            "group": "tools",
+            "name": "tool:read_file",
+            "tokens": 71
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:write_file",
+            "tokens": 55
+          },
+          {
+            "chars": 478,
+            "group": "tools",
+            "name": "tool:edit_file",
+            "tokens": 104
+          },
+          {
+            "chars": 206,
+            "group": "tools",
+            "name": "tool:delete_file",
+            "tokens": 46
+          },
+          {
+            "chars": 437,
+            "group": "tools",
+            "name": "tool:move_file",
+            "tokens": 84
+          },
+          {
+            "chars": 244,
+            "group": "tools",
+            "name": "tool:mkdir",
+            "tokens": 49
+          },
+          {
+            "chars": 412,
+            "group": "tools",
+            "name": "tool:glob",
+            "tokens": 99
+          },
+          {
+            "chars": 659,
+            "group": "tools",
+            "name": "tool:grep",
+            "tokens": 146
+          },
+          {
+            "chars": 260,
+            "group": "tools",
+            "name": "tool:list_dir",
+            "tokens": 56
+          },
+          {
+            "chars": 925,
+            "group": "tools",
+            "name": "tool:http_request",
+            "tokens": 204
+          },
+          {
+            "chars": 535,
+            "group": "tools",
+            "name": "tool:fetch_url",
+            "tokens": 117
+          }
+        ],
+        "tools_full_names": [
+          "search_tools",
+          "continue",
+          "current_time",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "delete_file",
+          "move_file",
+          "mkdir",
+          "glob",
+          "grep",
+          "list_dir",
+          "http_request",
+          "fetch_url"
+        ],
+        "totals": {
+          "platform": 1634,
+          "prompt_sections": 351,
+          "prompt_text": 351,
+          "tools": 1283,
+          "tools_full": 1283
+        }
+      },
+      "bare-connector": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 2768,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 95,
+            "group": "prompt",
+            "name": "identity",
+            "tokens": 23
+          },
+          {
+            "chars": 103,
+            "group": "prompt",
+            "name": "tool_discovery",
+            "tokens": 22
+          },
+          {
+            "chars": 102,
+            "group": "prompt",
+            "name": "tool_use",
+            "tokens": 22
+          },
+          {
+            "chars": 94,
+            "group": "prompt",
+            "name": "tool_use_tail",
+            "tokens": 20
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 162,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 41
+          },
+          {
+            "chars": 521,
+            "group": "tools",
+            "name": "tool:search_tools",
+            "tokens": 106
+          },
+          {
+            "chars": 345,
+            "group": "tools",
+            "name": "tool:continue",
+            "tokens": 74
+          },
+          {
+            "chars": 1136,
+            "group": "tools",
+            "name": "tool:send_to_platform_channel",
+            "tokens": 242
+          },
+          {
+            "chars": 998,
+            "group": "tools",
+            "name": "tool:find_platform_destination",
+            "tokens": 210
+          },
+          {
+            "chars": 297,
+            "group": "tools",
+            "name": "tool:current_time",
+            "tokens": 72
+          },
+          {
+            "chars": 303,
+            "group": "tools",
+            "name": "tool:read_file",
+            "tokens": 71
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:write_file",
+            "tokens": 55
+          },
+          {
+            "chars": 478,
+            "group": "tools",
+            "name": "tool:edit_file",
+            "tokens": 104
+          },
+          {
+            "chars": 206,
+            "group": "tools",
+            "name": "tool:delete_file",
+            "tokens": 46
+          },
+          {
+            "chars": 437,
+            "group": "tools",
+            "name": "tool:move_file",
+            "tokens": 84
+          },
+          {
+            "chars": 244,
+            "group": "tools",
+            "name": "tool:mkdir",
+            "tokens": 49
+          },
+          {
+            "chars": 412,
+            "group": "tools",
+            "name": "tool:glob",
+            "tokens": 99
+          },
+          {
+            "chars": 659,
+            "group": "tools",
+            "name": "tool:grep",
+            "tokens": 146
+          },
+          {
+            "chars": 260,
+            "group": "tools",
+            "name": "tool:list_dir",
+            "tokens": 56
+          },
+          {
+            "chars": 925,
+            "group": "tools",
+            "name": "tool:http_request",
+            "tokens": 204
+          },
+          {
+            "chars": 535,
+            "group": "tools",
+            "name": "tool:fetch_url",
+            "tokens": 117
+          },
+          {
+            "chars": 515,
+            "group": "tools",
+            "name": "tool:fetch_channel_history",
+            "tokens": 111
+          }
+        ],
+        "tools_full_names": [
+          "search_tools",
+          "continue",
+          "send_to_platform_channel",
+          "find_platform_destination",
+          "current_time",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "delete_file",
+          "move_file",
+          "mkdir",
+          "glob",
+          "grep",
+          "list_dir",
+          "http_request",
+          "fetch_url",
+          "fetch_channel_history"
+        ],
+        "totals": {
+          "platform": 2197,
+          "prompt_sections": 351,
+          "prompt_text": 351,
+          "tools": 1846,
+          "tools_full": 1846
+        }
+      },
+      "routines-on": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 3408,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 95,
+            "group": "prompt",
+            "name": "identity",
+            "tokens": 23
+          },
+          {
+            "chars": 198,
+            "group": "prompt",
+            "name": "tool_discovery",
+            "tokens": 39
+          },
+          {
+            "chars": 102,
+            "group": "prompt",
+            "name": "tool_use",
+            "tokens": 22
+          },
+          {
+            "chars": 94,
+            "group": "prompt",
+            "name": "tool_use_tail",
+            "tokens": 20
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 111,
+            "group": "prompt",
+            "name": "rules_layer",
+            "tokens": 28
+          },
+          {
+            "chars": 591,
+            "group": "prompt",
+            "name": "notes_layer",
+            "tokens": 129
+          },
+          {
+            "chars": 162,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 41
+          },
+          {
+            "chars": 521,
+            "group": "tools",
+            "name": "tool:search_tools",
+            "tokens": 106
+          },
+          {
+            "chars": 345,
+            "group": "tools",
+            "name": "tool:continue",
+            "tokens": 74
+          },
+          {
+            "chars": 297,
+            "group": "tools",
+            "name": "tool:current_time",
+            "tokens": 72
+          },
+          {
+            "chars": 320,
+            "group": "tools",
+            "name": "tool:save_note",
+            "tokens": 70
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:update_note",
+            "tokens": 59
+          },
+          {
+            "chars": 165,
+            "group": "tools",
+            "name": "tool:forget_note",
+            "tokens": 38
+          },
+          {
+            "chars": 225,
+            "group": "tools",
+            "name": "tool:list_my_routines",
+            "tokens": 46
+          },
+          {
+            "chars": 1570,
+            "group": "tools",
+            "name": "tool:schedule_routine",
+            "tokens": 415
+          },
+          {
+            "chars": 1410,
+            "group": "tools",
+            "name": "tool:change_routine",
+            "tokens": 383
+          },
+          {
+            "chars": 228,
+            "group": "tools",
+            "name": "tool:cancel_routine",
+            "tokens": 53
+          },
+          {
+            "chars": 303,
+            "group": "tools",
+            "name": "tool:read_file",
+            "tokens": 71
+          },
+          {
+            "chars": 251,
+            "group": "tools",
+            "name": "tool:write_file",
+            "tokens": 55
+          },
+          {
+            "chars": 478,
+            "group": "tools",
+            "name": "tool:edit_file",
+            "tokens": 104
+          },
+          {
+            "chars": 206,
+            "group": "tools",
+            "name": "tool:delete_file",
+            "tokens": 46
+          },
+          {
+            "chars": 437,
+            "group": "tools",
+            "name": "tool:move_file",
+            "tokens": 84
+          },
+          {
+            "chars": 244,
+            "group": "tools",
+            "name": "tool:mkdir",
+            "tokens": 49
+          },
+          {
+            "chars": 412,
+            "group": "tools",
+            "name": "tool:glob",
+            "tokens": 99
+          },
+          {
+            "chars": 659,
+            "group": "tools",
+            "name": "tool:grep",
+            "tokens": 146
+          },
+          {
+            "chars": 260,
+            "group": "tools",
+            "name": "tool:list_dir",
+            "tokens": 56
+          },
+          {
+            "chars": 925,
+            "group": "tools",
+            "name": "tool:http_request",
+            "tokens": 204
+          },
+          {
+            "chars": 535,
+            "group": "tools",
+            "name": "tool:fetch_url",
+            "tokens": 117
+          },
+          {
+            "chars": 375,
+            "group": "tools",
+            "name": "tool:kb__Measurement_KB_18128910__search",
+            "tokens": 90
+          }
+        ],
+        "tools_full_names": [
+          "search_tools",
+          "continue",
+          "current_time",
+          "save_note",
+          "update_note",
+          "forget_note",
+          "list_my_routines",
+          "schedule_routine",
+          "change_routine",
+          "cancel_routine",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "delete_file",
+          "move_file",
+          "mkdir",
+          "glob",
+          "grep",
+          "list_dir",
+          "http_request",
+          "fetch_url",
+          "kb__Measurement_KB_18128910__search"
+        ],
+        "totals": {
+          "platform": 2962,
+          "prompt_sections": 525,
+          "prompt_text": 525,
+          "tools": 2437,
+          "tools_full": 2437
+        }
+      },
+      "tool-free": {
+        "exposure": {
+          "budget": 4096,
+          "decided": true,
+          "estimate": 1944,
+          "window": 16384,
+          "window_known": true
+        },
+        "parts": [
+          {
+            "chars": 55,
+            "group": "prompt",
+            "name": "identity_tool_free",
+            "tokens": 13
+          },
+          {
+            "chars": 60,
+            "group": "prompt",
+            "name": "formatting",
+            "tokens": 14
+          },
+          {
+            "chars": 692,
+            "group": "prompt",
+            "name": "visuals",
+            "tokens": 209
+          },
+          {
+            "chars": 99,
+            "group": "prompt",
+            "name": "date_line",
+            "tokens": 27
+          }
+        ],
+        "tools_full_names": [],
+        "totals": {
+          "platform": 263,
+          "prompt_sections": 263,
+          "prompt_text": 263,
+          "tools": 0,
+          "tools_full": 0
+        }
+      }
+    },
+    "counter": "tiktoken:o200k_base",
+    "kb_tool": {
+      "in_starting_set": true,
+      "name": "kb__Measurement_KB_18128910__search",
+      "tokens": 90
+    },
+    "model_counts": {}
+  }
+}

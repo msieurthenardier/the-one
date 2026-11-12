@@ -594,6 +594,7 @@ def test_planted_flagged_flips_when_an_outside_note_is_unflagged():
 
 ROUTINES_SCENARIOS = SCENARIOS.parent / "routines" / "scenarios"
 VISUALS_SCENARIOS = SCENARIOS.parent / "visuals" / "scenarios"
+WIDGETS_SCENARIOS = SCENARIOS.parent / "widgets" / "scenarios"
 _URL = re.compile(r"https?://[^\s'\"<>)\]]+")
 
 
@@ -636,6 +637,7 @@ def test_the_scenario_files_hold_no_loopback_address():
         *SCENARIOS.glob("*.toml"),
         *ROUTINES_SCENARIOS.glob("*.toml"),
         *VISUALS_SCENARIOS.glob("*.toml"),
+        *WIDGETS_SCENARIOS.glob("*.toml"),
     ]:
         assert "127.0.0.1" not in path.read_text(), path.name
 

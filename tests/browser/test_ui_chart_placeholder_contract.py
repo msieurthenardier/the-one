@@ -237,6 +237,41 @@ def test_dots_never_attached_keep_ticking_and_reduced_motion_is_static(engine_pa
     assert page.evaluate("() => __d.el.textContent") == " …"
 
 
+def test_custom_label_and_source_label(engine_page: Page) -> None:
+    """M35 F2 L2: `label` and `sourceLabel` replace the chart defaults; a type still sniffs."""
+    page = engine_page
+    _load(page)
+    _mount(page, '{"label": "Building widget", "sourceLabel": "Widget source"}')
+    root = page.get_by_test_id("ph")
+    expect(root.locator(".ui-chart-ph-label")).to_have_text("Building widget")
+    # the code well names itself only once it overflows: fill it past its short height
+    page.evaluate("() => __p.setSource(Array(200).fill('line').join('\\n'))")
+    expect(root.locator("pre")).to_have_attribute("aria-label", "Widget source")
+    # an explicit label wins over the type-derived one
+    page.evaluate("() => __p.setType('bar')")
+    expect(root.locator(".ui-chart-ph-label")).to_have_text("Building widget")
+    assert _shape(page) == "bars"
+
+
+def test_generic_shape_ignores_the_type(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    _mount(page, '{"shape": "generic", "label": "Building widget"}')
+    assert _shape(page) == "generic"
+    page.evaluate("() => { window.__slot = __p.el.querySelector('.ui-chart-ph-shape'); }")
+    for kind in ("'bar'", "'pie'", "'line'", "null"):
+        page.evaluate(f"() => __p.setType({kind})")
+        assert _shape(page) == "generic"
+        assert page.evaluate("() => __p.el.querySelector('.ui-chart-ph-shape') === __slot")
+        expect(page.get_by_test_id("ph").locator(".ui-chart-ph-label")).to_have_text(
+            "Building widget"
+        )
+    assert page.get_by_test_id("ph").get_attribute("data-type") is None
+    # even a typed generic placeholder never sniffs a chart type
+    _mount(page, '{"shape": "generic", "type": "pie"}')
+    assert _shape(page) == "generic"
+
+
 def test_dots_style_does_not_depend_on_the_thinking_root(engine_page: Page) -> None:
     page = engine_page
     _load(page)

@@ -139,6 +139,38 @@ def test_parse_key_combo_rejects_a_bad_combo(combo: str) -> None:
         probe.parse_key_combo(combo)
 
 
+def test_register_message_handler_flag_parses_and_defaults_empty() -> None:
+    """M35 F2 L1: ``--register-message-handler NAME`` (repeatable) replicates pywebview's bridge
+    registration so a probe can ask whether a sandboxed frame reaches it."""
+    base = ["--url", "http://127.0.0.1:8486/", "--data-dir", "/x"]
+    assert probe.parse_args(base).register_message_handler == []
+    args = probe.parse_args(
+        [*base, "--register-message-handler", "jsBridge", "--register-message-handler", "other_1"]
+    )
+    assert probe.validate_handler_names(args.register_message_handler) == ["jsBridge", "other_1"]
+
+
+@pytest.mark.parametrize("names", [["1bad"], ["has space"], [""], ["a-b"], ["x", "x"]])
+def test_register_message_handler_rejects_bad_names(names: list[str]) -> None:
+    with pytest.raises(probe.ProbeError, match="--register-message-handler"):
+        probe.validate_handler_names(names)
+
+
+def test_main_refuses_a_bad_handler_name_before_any_gtk(tmp_path: Path, capsys) -> None:
+    code = probe.main(
+        [
+            "--url",
+            "http://127.0.0.1:8486/",
+            "--data-dir",
+            str(tmp_path / "scratch"),
+            "--register-message-handler",
+            "not valid",
+        ]
+    )
+    assert code == 2
+    assert "--register-message-handler" in capsys.readouterr().err
+
+
 def test_main_refuses_a_bad_combo_before_any_gtk(tmp_path: Path, capsys) -> None:
     code = probe.main(
         [

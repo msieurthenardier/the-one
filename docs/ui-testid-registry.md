@@ -147,6 +147,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-consent-link-url` | chat | The sign-in link block's read-only URL field in a chat's login-required group, shown once the consent URL is known (`App.ui.consentLink.build(url, {surface: 'chat'})`, `consent-link.js`; sortie 04 DD1) |
 | `chat-consent-link-open` | chat | The block's "Open sign-in page" `<a target="_blank" rel="noopener noreferrer">` styled as a button (sortie 04 DD1) |
 | `chat-consent-link-copy` | chat | The block's Copy button (clipboard, `execCommand` fallback; sortie 04 DD1) |
+| `chat-widget` | chat | A widget card drawn from a `widget` fenced block in an assistant reply (`App.ui.widget`, `testid: 'chat-widget'`; M35 F2 L6, DD1). The `figure` carries `data-widget-key` (`{session id}:{source hash}:{n}`). Derived from it (see "Widget card family"): `chat-widget-frame` (the iframe), `chat-widget-pause`, `chat-widget-restart`, `chat-widget-paused` (the header chip), `chat-widget-start`, `chat-widget-stopped`, `chat-widget-status`, `chat-widget-source-details` (View source) + `chat-widget-source`, and, for a too-large or cut-off block, `chat-widget-notice` (+ `chat-widget-notice-details`) |
+| `chat-widget-placeholder` | chat | The glimmering "Rendering widget" card that holds a widget's place while its top-level block streams (`App.ui.chart.placeholder` with `shape: 'generic'`, held after the bubble's tail by `setTailHold`; M35 F2 L6, DD12); its "Show source" disclosure is `chat-widget-placeholder-source` |
 | `chat-copy-status` | chat | The one visually hidden `role=status` node (in the chat chrome, outside the `role=log` message list) every "Copy reply" confirmation announces in (M31 F6 L05c) |
 | `chat-chart` | chat | A chart drawn from a `chart` fenced block in an assistant reply (`App.ui.chart.block`, `testid: 'chat-chart'`; M35 F1 L2, DD15). Derived from it: `chat-chart-plot`, `chat-chart-tooltip`, `chat-chart-live` (the keyboard-reading live node), `chat-chart-data` (the "Show data" disclosure) and, for a broken or cut-off block, `chat-chart-error` (+ `chat-chart-error-details`); the root carries the stable `data-chart-type` |
 | `chat-chart-placeholder` | chat | The glimmering "Rendering chart" card that holds a chart's place while its top-level block streams (`App.ui.chart.placeholder`, held after the bubble's tail text by `setTailHold`; M35 F1 L2, DD8); its "Show source" disclosure is `chat-chart-placeholder-source` |
@@ -615,6 +617,14 @@ caught — but it cannot see where the attribute is emitted.
 | `tools-loading` | admin | M31 F4 L06 — the "Loading tools…" status shown until the first list response |
 | `trace-shell` | chat | |
 | `ui-confirm-live` | shared | M31 F2 L5 (squawk 0220) — the one shared polite live region `App.ui.confirm` appends to `document.body` on the first arm; announces arm, lapse and commit |
+
+### Widget card family (`App.ui.widget`, M35 F2 L4)
+
+The prefix is the caller's `testid` option; chat uses `chat-widget` (leg 6, the rows above). The card emits, under its prefix `{t}`: `{t}` (the
+`figure`), `{t}-frame` (the iframe), `{t}-pause`, `{t}-restart`, `{t}-paused` (the header chip),
+`{t}-start` (Start anyway), `{t}-stopped` (the stopped message), `{t}-source-details` (the View
+source disclosure), `{t}-source` (its code block) and `{t}-notice` (+ `{t}-notice-details`) for a
+too-large or cut-off source.
 
 ## Parametric prefix families
 

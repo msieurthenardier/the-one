@@ -16,6 +16,9 @@
   //   type         the chart type, if already known (anything else is the generic shape)
   //   testid       placed on the root; the source disclosure is <testid>-source unless
   //                sourceTestid says otherwise
+  //   label        the label text (default "Rendering chart", or "Rendering {type} chart")
+  //   sourceLabel  the name of the source code well (default "Chart source")
+  //   shape        'generic': the type-free card; setType() is then ignored
   // setType(t) swaps the label and the shape in place, once per real change; an unknown
   // type or null is the generic shape. destroy() stops the dots and removes nothing the
   // caller owns (the caller removes el).
@@ -68,8 +71,13 @@
     var shape = null;
     var destroyed = false;
 
+    // M35 F2 L2: `label` replaces the label text, `sourceLabel` names the source code well, and
+    // `shape: 'generic'` is the type-free card (a short title bar and one tall block, used for
+    // a widget): it never sniffs a type, and setType() is ignored.
+    var fixedGeneric = opts.shape === 'generic';
+    var customLabel = typeof opts.label === 'string' && opts.label !== '' ? opts.label : null;
     var dots = App.ui.thinking.dots();
-    var label = util.el('span', { className: 'ui-chart-ph-label', text: 'Rendering chart' });
+    var label = util.el('span', { className: 'ui-chart-ph-label', text: customLabel || 'Rendering chart' });
     var head = util.el('div', { className: 'ui-chart-ph-head' }, [label, dots.el]);
     var title = util.el('div', { className: 'ui-chart-ph-title ui-chart-ph-glimmer', 'aria-hidden': 'true' });
     var plotSlot = util.el('div', { className: 'ui-chart-ph-plot' });
@@ -79,7 +87,11 @@
       summary: 'Show source',
       testid: opts.sourceTestid || (opts.testid ? opts.testid + '-source' : null)
     });
-    var code = App.ui.codeBlock({ text: '', maxHeight: 'short', label: 'Chart source' });
+    var code = App.ui.codeBlock({
+      text: '',
+      maxHeight: 'short',
+      label: typeof opts.sourceLabel === 'string' && opts.sourceLabel ? opts.sourceLabel : 'Chart source'
+    });
     disclosure.body.appendChild(code.el);
 
     var root = util.el('div', { className: 'ui-chart-placeholder' }, [head, title, plotSlot, disclosure.el]);
@@ -87,6 +99,7 @@
 
     function setType(next) {
       if (destroyed) return;
+      if (fixedGeneric) next = null;
       var known = typeof next === 'string' && Object.prototype.hasOwnProperty.call(SHAPE_OF, next);
       var nextType = known ? next : null;
       var nextShape = shapeFor(nextType);
@@ -97,7 +110,7 @@
       }
       if (nextType !== type || label.textContent === '') {
         type = nextType;
-        label.textContent = type ? 'Rendering ' + type + ' chart' : 'Rendering chart';
+        label.textContent = customLabel || (type ? 'Rendering ' + type + ' chart' : 'Rendering chart');
         root.setAttribute('data-type', type || '');
       }
     }

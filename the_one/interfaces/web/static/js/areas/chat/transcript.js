@@ -55,6 +55,11 @@
     function onChartLayout() {
       if (pinnedFlag) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+    // Scroll to the bottom and remember the log as pinned (the stream module's one idiom).
+    function pinToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      pinnedFlag = true;
+    }
 
     // The one shared role=status node the "Copy reply" confirmations announce in (it lives
     // outside the role=log message list, so the confirmation is not read as a new message).
@@ -64,7 +69,52 @@
     function drawChart(source, meta) {
       return App.ui.chart.block(source, { closed: meta.closed, testid: 'chat-chart', onLayout: onChartLayout });
     }
-    function mdOpts() { return { copyLiveEl: ctx.copyLiveEl, codeBlockRenderers: { chart: drawChart } }; }
+
+    // Widgets draw from ```widget blocks in assistant replies only (M35 F2 L6, DD1, DD7, DD9).
+    // The attribution name of the reply being rendered: a history replay sets it (null for no
+    // agent); live replies use the chat's agent.
+    var historyAgent;
+    function widgetAgentName() {
+      if (historyAgent !== undefined) return historyAgent;
+      return state.currentAgentName || null;
+    }
+    // FNV-1a over UTF-16 code units, 8 hex digits: a short, stable, non-cryptographic key part.
+    function fnv1a(s) {
+      var h = 0x811c9dc5;
+      for (var i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+      }
+      return ('00000000' + h.toString(16)).slice(-8);
+    }
+    // Every handle drawWidget returned, so clearLog can destroy a card that was built in a
+    // fragment and cleared before it was ever connected (sweep() alone would miss it).
+    var widgetHandles = [];
+    // hash -> how many CLOSED widgets with that source this log has drawn (resets in clearLog).
+    var widgetSeen = Object.create(null);
+    // INVARIANT: drawWidget is never called from a render whose fragment is thrown away. History
+    // renders once, streaming commits render only new prefixes and finalize renders only the tail,
+    // so the counter below stays equal between a live reply and its reload.
+    function drawWidget(source, meta) {
+      var hash = fnv1a(source);
+      var n = widgetSeen[hash] || 0;
+      var closed = meta.closed !== false;
+      var sid = ctx.chatState.boundId() || ctx.chatState.activeId() || '';
+      var handle = App.ui.widget({
+        source: source,
+        closed: closed,
+        agentName: widgetAgentName(),
+        testid: 'chat-widget',
+        key: sid + ':' + hash + ':' + n
+      });
+      if (closed) widgetSeen[hash] = n + 1;
+      if (!handle) return null;
+      widgetHandles.push(handle);
+      return handle.el;
+    }
+    function mdOpts() {
+      return { copyLiveEl: ctx.copyLiveEl, codeBlockRenderers: { chart: drawChart, widget: drawWidget } };
+    }
 
     // The side of a bubble's attribution: a peer-attributed user bubble aligns left (M11 F06
     // L04), an operator-typed one right, every other bubble left.
@@ -149,16 +199,21 @@
       traceShells = Object.create(null);
       iterationAnchor = null;
       pinnedFlag = true;
+      // Widgets (M35 F2 L6, DD7): destroy every card this log drew, then wipe, then sweep as a
+      // backstop for a card that was connected once and detached by something else.
+      var cards = widgetHandles;
+      widgetHandles = [];
+      widgetSeen = Object.create(null);
+      for (var w = 0; w < cards.length; w++) {
+        try { cards[w].destroy(); } catch (e) { /* defensive: one card never blocks the wipe */ }
+      }
       messagesEl.replaceChildren();
+      App.ui.widget.sweep();
     }
 
     // Drop a streaming bubble that belongs to the conversation being left.
     function resetStream() {
-      stopPacing();
-      dropChartHold();
-      boundaries.reset();
-      pendingChars = '';
-      streamMsg = null;
+      stream.reset();
       streamAttr = null;
       streamSource = '';
       currentStreamingVisibility = null;
@@ -179,6 +234,12 @@
       // showed before are dropped with the wipe.
       clearLog();
       var agentLabel = agentName || 'agent';
+      historyAgent = agentName || null;
+      try { renderHistoryEvents(history, agentLabel); } finally { historyAgent = undefined; }
+      messagesEl.removeAttribute('aria-busy');
+    }
+
+    function renderHistoryEvents(history, agentLabel) {
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
         // Pass ts explicitly (server-side broadcast events carry it; DB-restored
@@ -228,15 +289,13 @@
         }
       }
       iterationAnchor = null;
-      messagesEl.removeAttribute('aria-busy');
     }
 
-    // The streaming bubble: the App.ui.message handle (streaming: true) accumulating chunks for
-    // the in-flight assistant iteration, its attribution handle, and the FULL received text of
-    // this bubble (commitSafeBoundary throws committed text away, so Copy needs its own copy).
-    // Reset to null at iteration boundaries (`tool_call` / `tool_result`) and at the end of the
-    // agent step (`done`), so iteration N+1 lands chunks in a fresh bubble.
-    var streamMsg = null;
+    // The streaming bubble (the App.ui.message handle, streaming: true, held by `stream`)
+    // accumulates chunks for the in-flight assistant iteration; here are its attribution handle
+    // and the FULL received text of this bubble (the safe commit throws committed text away, so
+    // Copy needs its own copy). Reset at iteration boundaries (`tool_call` / `tool_result`) and
+    // at the end of the agent step (`done`), so iteration N+1 lands chunks in a fresh bubble.
     var streamAttr = null;
     var streamSource = '';
     // M10 F05 L05: visibility for the streaming bubble. Captured from the FIRST
@@ -247,129 +306,29 @@
     // unmarked until a re-join replays the codec's tag.
     var currentStreamingVisibility = null;
 
-    // Render-pacing queue: API chunks enqueue here; a setInterval loop
-    // drains characters into the bubble's pending tail at ~60 chars/sec.
-    // Adaptive: long queue drains faster so we don't lag behind a fast API.
-    // On finalize, the queue drains synchronously before the markdown swap.
-    var pendingChars = '';
-    var pacingTimer = null;
-
-    // Safe incremental rendering (M35 F1 L2, DD8/DD10). The candidate boundaries (a blank line,
-    // a top-level closing fence's line end, a top-level ```chart opener) come from
-    // App.chat.chartStream; a candidate is committed only when the parser agrees its prefix holds
-    // no unclosed code block, so a fence is never split.
-    var boundaries = App.chat.chartStream.create();
-
-    // The streaming chart placeholder, if one is up: {placeholder, offset} where offset is where
-    // its ```chart opener lies in the bubble's tail. A placeholder is raised only after the
-    // opener's prefix was parser-confirmed (so it never sits on text the parser treats as code).
-    var chartHold = null;
-
-    function dropChartHold() {
-      var hold = chartHold;
-      chartHold = null;
-      if (!hold) return;
-      try { if (streamMsg) streamMsg.setTailHold(0, null); } catch (e) { /* defensive */ }
-      try { hold.placeholder.destroy(); } catch (e2) { /* defensive */ }
-      if (hold.placeholder.el.parentNode) hold.placeholder.el.parentNode.removeChild(hold.placeholder.el);
-    }
-
-    // After paced text is appended to the pending tail, plan the commit. If a boundary was
-    // confirmed, render the prefix as markdown and shrink the tail; then keep the placeholder
-    // for an open top-level chart block in step with the tail.
-    function commitSafeBoundary() {
-      if (!streamMsg) return;
-      var tail = streamMsg.tail();
-      var plan = boundaries.plan(tail);
-      var consumed = 0;
-      if (plan.boundary > 0) {
-        var frag = App.markdown.render(tail.slice(0, plan.boundary), mdOpts());
-        if (frag.firstChild) {
-          streamMsg.commit(frag, plan.boundary);
-          consumed = plan.boundary;
-          boundaries.reset();
-        } else {
-          boundaries.markEmpty(plan.boundary);
-        }
-      }
-      // A commit that cut text removed the bubble's hold with it (or the block it held is now
-      // drawn): the placeholder is spent, and a new open block gets a new one below.
-      if (consumed > 0) dropChartHold();
-      var openAt = plan.open === null ? null : plan.open - consumed;
-      if (openAt === null || openAt < 0) {
-        dropChartHold();
-        return;
-      }
-      if (!chartHold) {
-        chartHold = {
-          placeholder: App.ui.chart.placeholder({ type: null, testid: 'chat-chart-placeholder' }),
-          offset: openAt,
-          source: null
-        };
-        streamMsg.setTailHold(openAt, chartHold.placeholder.el);
-      }
-      var blockText = streamMsg.tail().slice(openAt);
-      var nl = blockText.indexOf('\n');
-      var body = nl < 0 ? '' : blockText.slice(nl + 1);
-      if (body !== chartHold.source) {
-        chartHold.source = body;
-        chartHold.placeholder.setSource(body);
-      }
-      var type = App.chat.chartStream.typeOf(blockText);
-      if (type) chartHold.placeholder.setType(type);
-    }
-
-    function pacingTick() {
-      if (!pendingChars.length || !streamMsg) return;
-      // Sampled before the text and any commit (a chart swap can grow the log by more than the
-      // pin threshold at once).
-      var wasPinned = isPinned();
-      var n = Math.max(1, Math.ceil(pendingChars.length / 30));
-      var slice = pendingChars.slice(0, n);
-      pendingChars = pendingChars.slice(n);
-      streamMsg.appendText(slice);
-      commitSafeBoundary();
-      if (wasPinned) { messagesEl.scrollTop = messagesEl.scrollHeight; pinnedFlag = true; }
-      else scrollToBottomIfPinned();
-    }
-
-    function startPacing() {
-      if (pacingTimer) return;
-      pacingTimer = setInterval(pacingTick, 16);
-    }
-
-    function stopPacing() {
-      if (pacingTimer) { clearInterval(pacingTimer); pacingTimer = null; }
-    }
-
-    function drainPacing() {
-      if (pendingChars.length && streamMsg) streamMsg.appendText(pendingChars);
-      pendingChars = '';
-      stopPacing();
-    }
+    // The pacing queue, the safe markdown commit, the placeholder hold and the finalize drain
+    // live in App.chat.streamCommit (M35 F2 L2); this module hands it each new bubble.
+    var stream = App.chat.streamCommit.create({
+      tags: ['chart', 'widget'],
+      isPinned: isPinned,
+      setPinned: function (b) { pinnedFlag = b; },
+      pinToBottom: pinToBottom,
+      scrollToBottomIfPinned: scrollToBottomIfPinned,
+      mdOpts: mdOpts
+    });
 
     // Leg 05: swap the streaming bubble's pending tail for its markdown-rendered fragment.
-    // Already-committed blocks (from commitSafeBoundary) stay in place. Idempotent: a no-op
-    // when no bubble is active. F1: the reply's Copy button is added here, with the full
-    // received text (also for a Stopped reply, which copies what was received).
+    // Idempotent: a no-op when no bubble is active. F1: the reply's Copy button is added here,
+    // with the full received text (also for a Stopped reply, which copies what was received).
     function finalizeStreamingBubble() {
-      drainPacing();
-      var bubble = streamMsg;
-      if (!bubble) return;
-      var wasPinned = isPinned();
-      // The placeholder is destroyed before the tail renders: the tail may hold the block it
-      // stood for, which now draws as a chart or as the error / cut-off notice.
-      dropChartHold();
-      boundaries.reset();
       var attr = streamAttr;
       var source = streamSource;
-      streamMsg = null;
+      var done = stream.finalize(function () {
+        if (attr && source) attr.setCopy(source);
+      });
+      if (!done) return;
       streamAttr = null;
       streamSource = '';
-      var tail = bubble.tail();
-      bubble.finalize(tail ? App.markdown.render(tail, mdOpts()) : null);
-      if (attr && source) attr.setCopy(source);
-      if (wasPinned) { messagesEl.scrollTop = messagesEl.scrollHeight; pinnedFlag = true; }
     }
 
     // The thinking line (A8): "Thinking" and the control's dots, which read as "Thinking…"
@@ -639,14 +598,11 @@
     // The live assistant_chunk frame (moved from the gated frame chain, turn-frames.js).
     function onAssistantChunk(data) {
       hideThinking();
-      if (!streamMsg) {
-        // A stale placeholder from an earlier bubble never carries over (never throws).
-        dropChartHold();
-        boundaries.reset();
+      if (!stream.active()) {
         // M10 F05 L05: capture visibility from the FIRST chunk so the marker lands at
         // construction (not at finalize — that would cause a visual flip).
         currentStreamingVisibility = data.visibility || null;
-        streamMsg = App.ui.message({
+        var streamMsg = App.ui.message({
           role: 'assistant',
           streaming: true,
           visibility: currentStreamingVisibility,
@@ -666,10 +622,11 @@
         messagesEl.appendChild(streamAttr.el);
         streamSource = '';
         iterationAnchor = streamMsg.el;
-        startPacing();
+        // begin() drops a stale placeholder from an earlier bubble and starts the pacing.
+        stream.begin(streamMsg);
       }
       streamSource += data.content;
-      pendingChars += data.content;
+      stream.enqueue(data.content);
     }
 
     return {

@@ -151,6 +151,7 @@ def window_state() -> dict:
         "visible": visible,
         "mapped": mapped,
         "tray": state.tray_mode,
+        "native_bridge": state.native_bridge,
         "version": __version__,
         "pid": os.getpid(),
     }

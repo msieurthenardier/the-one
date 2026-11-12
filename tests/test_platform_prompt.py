@@ -61,6 +61,37 @@ def test_visuals_switch_changes_the_text_and_only_the_visuals_section():
     assert (sec.title, sec.applies_when) == ("Rich visuals", "agents with Rich visuals on")
 
 
+# Mission 35 F2 L7 AC4: the DD15 must-mention list, asserted by exact substring. "no network" is
+# the phrase chosen for the "no network or external resources" item.
+WIDGET_MUST_MENTION = (
+    "`widget`",
+    "<style>",
+    "<script>",
+    "--surface",
+    "getPropertyValue",
+    "--fg",
+    "--accent",
+    "--chart-1",
+    "requestAnimationFrame",
+    "animation or interaction",
+    "chart for plain data",
+    "no network",
+)
+
+
+def test_visuals_section_keeps_every_widget_must_mention_item():
+    on = render_platform(Capabilities.all_on())
+    free_on = render_tool_free(Capabilities.all_on())
+    for phrase in WIDGET_MUST_MENTION:
+        assert phrase in PLATFORM_VISUALS_PIN, phrase
+        assert phrase in on, phrase
+        assert phrase in free_on, phrase
+    off = render_platform(Capabilities(visuals=False))
+    assert "`widget`" not in off
+    # The widget text follows the chart text, in the same section.
+    assert on.index("`chart`") < on.index("`widget`")
+
+
 def test_capabilities_from_registry_carries_visuals():
     assert capabilities_from_registry(_Reg([]), notes=False, rules=True, time_tool=True).visuals
     assert not capabilities_from_registry(
