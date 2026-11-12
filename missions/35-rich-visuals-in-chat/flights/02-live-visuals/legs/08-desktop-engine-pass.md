@@ -1,6 +1,6 @@
 # Leg: desktop-engine-pass
 
-**Status**: in-flight
+**Status**: completed (`C4` `34270cf4`; macOS lifecycle run `43126426574` 13 PASS, probe run `43126443718`; AC6 partial and the probe's chart/animation gaps accepted by the operator, 2026-11-11)
 **Flight**: [Live Visuals](../flight.md)
 
 ## Objective
