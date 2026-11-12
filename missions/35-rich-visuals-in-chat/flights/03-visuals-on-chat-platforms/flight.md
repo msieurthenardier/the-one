@@ -1,6 +1,6 @@
 # Flight: Visuals on Chat Platforms
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
@@ -365,7 +365,7 @@ Verified against the working tree at `6d22eabc` (re-checked by the Architect, de
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `chart-image-renderer` - Pillow to base dependencies (re-lock; move the CVE-floor comment; keep or drop the `[gui]`/`[dev]` entries deliberately; update the `.github/workflows/pr-lint.yml` comment), the vendored Geist TTFs in `the_one/visuals/fonts/` with package-data and the three spec entries, `chart_image.py` (BASIC, lock, lazy import, pinned palette), design-unit text measurement, the shared y-tick corpus asserted in Python and in `test_ui_chart_contract.py`, the at-limit timing test, the `chart images` doctor gate and every gate list, `docs/chart-format.md` "Images" section, ends with the operator-approved sample sheet (DD4, DD5, DD10, DD12)
+- [x] `chart-image-renderer` - Pillow to base dependencies (re-lock; move the CVE-floor comment; keep or drop the `[gui]`/`[dev]` entries deliberately; update the `.github/workflows/pr-lint.yml` comment), the vendored Geist TTFs in `the_one/visuals/fonts/` with package-data and the three spec entries, `chart_image.py` (BASIC, lock, lazy import, pinned palette), design-unit text measurement, the shared y-tick corpus asserted in Python and in `test_ui_chart_contract.py`, the at-limit timing test, the `chart images` doctor gate and every gate list, `docs/chart-format.md` "Images" section, ends with the operator-approved sample sheet (DD4, DD5, DD10, DD12)
 - [ ] `three-platform-font-check` - the doctor gate in packaged builds: Linux container gates locally, the Windows freeze, a hosted macOS dispatch (operator-confirmed); reference widths compared and recorded (DD12). Depends only on Leg 1.
 - [ ] `outbound-visuals` - `blocks.py` with its parity test against the frozen `evals/checks.py:_top_level_blocks` (`checks.py` untouched), `outbound.py` (`OutboundPlan`, `OutboundImage`, markers, the widget note, fallback text), `VisualUploadError` and the re-export in `connectors/base.py`, the delivery helper used by `deliver_final_reply` and `send_to_platform_channel` (plain replies unchanged), the stub's `send_visual` with `StubVisualRecord` and the route's `images` key, the nested-block residual in the docs (DD1, DD3, DD6, DD7, DD8, DD9). High risk: shared interface.
 - [ ] `platform-uploads` - Discord multipart in `RestClient` (transport errors mapped, no re-send) and `DiscordClient.send_visual`; Telegram multipart `sendPhoto` with the factored 429 retry and `TelegramClient.send_visual` with per-photo fallback; mock-transport shape tests for every DD7 path (DD6, DD7, DD10, DD11)

@@ -200,6 +200,8 @@ seed_datas = collect_data_files("the_one", includes=["llm/data/*.json"])
 # pyinstaller-hooks-contrib ships no hook for tokenizers, safetensors,
 # huggingface_hub or model2vec — do not go looking for one.
 embedding_datas = collect_data_files("the_one", includes=["embeddings/data/**/*"])
+# Chart-image fonts (M35 F3 L1): the bundled Geist TTFs and their licence.
+font_datas = collect_data_files("the_one", includes=["visuals/fonts/*"])
 
 # A native loadable-extension collection lesson from Flight 1 (a vector-store
 # candidate removed from the closure in Flight 2 Leg 6): `collect_data_files`
@@ -330,6 +332,7 @@ datas = [
     *static_datas,
     *seed_datas,
     *embedding_datas,
+    *font_datas,
     *tzdata_datas,
     *mcp_metadata,
     *uvicorn_datas,

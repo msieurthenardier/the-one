@@ -2523,6 +2523,7 @@ dependencies = [
     { name = "markdownify" },
     { name = "mcp" },
     { name = "model2vec" },
+    { name = "pillow" },
     { name = "platformdirs" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
@@ -2551,7 +2552,6 @@ anthropic = [
 ]
 dev = [
     { name = "asgi-lifespan" },
-    { name = "pillow" },
     { name = "pip-audit" },
     { name = "pixelmatch" },
     { name = "playwright" },
@@ -2567,7 +2567,6 @@ evals = [
     { name = "tiktoken" },
 ]
 gui = [
-    { name = "pillow" },
     { name = "pystray" },
     { name = "pywebview" },
     { name = "pywebview", extra = ["gtk"], marker = "sys_platform == 'linux'" },
@@ -2598,8 +2597,7 @@ requires-dist = [
     { name = "model2vec", specifier = ">=0.9" },
     { name = "openai", marker = "extra == 'all-llms'", specifier = ">=2.16,<3" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=2.16,<3" },
-    { name = "pillow", marker = "extra == 'dev'", specifier = ">=13.0" },
-    { name = "pillow", marker = "extra == 'gui'", specifier = ">=13.0" },
+    { name = "pillow", specifier = ">=13.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7" },
     { name = "pixelmatch", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "platformdirs", specifier = ">=4.0" },

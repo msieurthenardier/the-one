@@ -163,3 +163,38 @@ def test_module_imports_nothing_from_the_app_or_pillow() -> None:
         elif isinstance(node, ast.ImportFrom):
             imported.add((node.module or "").split(".")[0])
     assert imported <= {"__future__", "json", "math", "dataclasses", "decimal"}
+
+
+def _imports_of(path: Path) -> list:
+    """Every imported module name, with its relative level, from a source file (any depth)."""
+    out = []
+    for node in ast.walk(ast.parse(path.read_text("utf-8"))):
+        if isinstance(node, ast.Import):
+            out.extend(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            out.append(("." * node.level) + (node.module or ""))
+    return out
+
+
+def test_every_visuals_module_keeps_to_the_import_rules() -> None:
+    """Only ``chart_image.py`` may import PIL, and no module in the package imports anything
+    from ``the_one.`` outside ``the_one.visuals`` (M35 F3 L1, AC5)."""
+    modules = sorted((ROOT / "the_one" / "visuals").glob("*.py"))
+    assert {m.name for m in modules} >= {"__init__.py", "chart_spec.py", "chart_image.py"}
+    for module in modules:
+        for name in _imports_of(module):
+            top = name.split(".")[0]
+            if top == "PIL":
+                assert module.name == "chart_image.py", f"{module.name} imports {name}"
+            assert not name.startswith("."), f"{module.name}: relative import {name}"
+            if top == "the_one":
+                assert name == "the_one.visuals" or name.startswith("the_one.visuals."), (
+                    f"{module.name} imports {name}"
+                )
+
+
+def test_the_visuals_guard_sees_a_forbidden_import(tmp_path) -> None:
+    bad = tmp_path / "bad.py"
+    bad.write_text("from the_one.agent import core\nimport PIL\n", encoding="utf-8")
+    names = _imports_of(bad)
+    assert "the_one.agent" in names and "PIL" in names

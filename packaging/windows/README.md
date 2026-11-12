@@ -50,7 +50,7 @@ It does, in order, and throws on the first failure (`$LASTEXITCODE` is checked a
 6. freezes with `M32_STAGE` set, into `<Out>\work-<V>` and `<Out>\dist-<V>`, so an N+1 build never
    clobbers N;
 7. runs the frozen `the-one.exe doctor` and requires, by name, `usearch`, `fts5`, `embedding model`,
-   `file watcher`, `window chrome`, `time zones`, `mcp sdk`, `desktop shell` and `child spawn` to read `OK`;
+   `file watcher`, `window chrome`, `time zones`, `mcp sdk`, `chart images`, `desktop shell` and `child spawn` to read `OK`;
 8. runs ISCC (`/DDistDir=<Out>\dist-<V> /O<Out>\installer-<V>`; Inno Setup 6.1 or newer when the
    version can be read) and writes `<Out>\build-<V>.env` (`VERSION`, `SETUP_EXE`, `DIST`).
 

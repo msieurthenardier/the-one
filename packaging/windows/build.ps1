@@ -49,7 +49,7 @@ $script:MinInnoMinor = 1
 function Get-DoctorNeedles {
     return @(
         'usearch: OK', 'fts5: OK', 'embedding model: OK', 'file watcher: OK', 'window chrome: OK',
-        'time zones: OK', 'mcp sdk: OK', 'desktop shell: OK', 'child spawn: OK'
+        'time zones: OK', 'mcp sdk: OK', 'chart images: OK', 'desktop shell: OK', 'child spawn: OK'
     )
 }
 
@@ -361,8 +361,8 @@ function Invoke-SelfTest {
 
     # 4. the doctor needle list
     $needles = Get-DoctorNeedles
-    Assert-That ($needles.Count -eq 9) 'nine doctor needles'
-    foreach ($n in @('usearch: OK', 'fts5: OK', 'embedding model: OK', 'file watcher: OK', 'window chrome: OK', 'time zones: OK', 'mcp sdk: OK', 'desktop shell: OK', 'child spawn: OK')) {
+    Assert-That ($needles.Count -eq 10) 'ten doctor needles'
+    foreach ($n in @('usearch: OK', 'fts5: OK', 'embedding model: OK', 'file watcher: OK', 'window chrome: OK', 'time zones: OK', 'mcp sdk: OK', 'chart images: OK', 'desktop shell: OK', 'child spawn: OK')) {
         Assert-That ($needles -contains $n) "needle '$n' present"
     }
     $allOk = ($needles -join "`n")

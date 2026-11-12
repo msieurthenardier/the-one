@@ -864,7 +864,7 @@ class TestProbeFileWatcher:
         assert result.ok is False
         assert "import OK; round-trip:" in result.detail
 
-    def test_gates_list_has_twelve_names_ending_with_mcp_sdk(self) -> None:
+    def test_gates_list_has_thirteen_names_ending_with_chart_images(self) -> None:
         """The full gate line-up, in order, both CI lanes' needle depends on
         being present and last."""
         buf = io.StringIO()
@@ -884,7 +884,51 @@ class TestProbeFileWatcher:
             "window chrome",
             "time zones",
             "mcp sdk",
+            "chart images",
         ]
+
+    def test_chart_images_probe_passes_with_an_ascii_detail(self) -> None:
+        import PIL
+        from PIL import features
+
+        from the_one.diagnostics import _probe_chart_images
+
+        result = _probe_chart_images()
+        assert result.name == "chart images"
+        assert result.ok is True, result.detail
+        assert result.detail == (
+            f"width {diagnostics._CHART_IMAGE_REFERENCE_WIDTH_DU} du, layout basic, "
+            f"pillow {PIL.__version__}, freetype {features.version('freetype2')}"
+        )
+        result.detail.encode("ascii")
+
+    def test_chart_images_probe_missing_font_fails_plainly(self, monkeypatch, tmp_path) -> None:
+        from the_one.diagnostics import _probe_chart_images
+        from the_one.visuals import chart_image
+
+        monkeypatch.setattr(chart_image, "FONT_DIR", tmp_path)
+        result = _probe_chart_images()
+        assert result.name == "chart images"
+        assert result.ok is False
+        assert "Geist-Regular.ttf" in result.detail
+        result.detail.encode("ascii")
+
+    def test_chart_images_probe_wrong_width_fails(self, monkeypatch) -> None:
+        from the_one.diagnostics import _probe_chart_images
+
+        monkeypatch.setattr(diagnostics, "_CHART_IMAGE_REFERENCE_WIDTH_DU", 20464)
+        result = _probe_chart_images()
+        assert result.ok is False
+        assert "20463" in result.detail and "20464" in result.detail
+        result.detail.encode("ascii")
+
+    def test_chart_images_probe_wrong_size_fails(self, monkeypatch) -> None:
+        from the_one.diagnostics import _probe_chart_images
+
+        monkeypatch.setattr(diagnostics, "_CHART_IMAGE_REFERENCE_SIZE", (1280, 500))
+        result = _probe_chart_images()
+        assert result.ok is False
+        assert "1280x520" in result.detail
 
     def test_mcp_sdk_probe_passes_with_version_detail(self) -> None:
         from the_one.diagnostics import _probe_mcp_sdk
@@ -1229,7 +1273,7 @@ class TestAdvisoryLines:
         line = next(ln for ln in out.splitlines() if ln.strip().startswith("sandbox:"))
         assert needle in line
         assert code == 0
-        assert out.index("mcp sdk:") < out.index("sandbox:") < out.index("RESULT:")
+        assert out.index("chart images:") < out.index("sandbox:") < out.index("RESULT:")
         line.encode("cp1252")
         next(ln for ln in out.splitlines() if ln.strip().startswith("tray:")).encode("cp1252")
 
