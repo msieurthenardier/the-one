@@ -28,7 +28,6 @@ import _evals_helpers as h
 import pytest
 from _evals_helpers import run
 
-from evals import judge as judge_mod
 from evals import scripted
 from evals.checks import NoteView, RunTrace, TurnTrace, evaluate_all
 from evals.fixtures import FIXTURE_HOSTNAME
@@ -45,7 +44,7 @@ EXPECTED_SETS = {
     "tool-discovery": "hold",
     "kb": "improve",
     "notes-proactive": "improve",
-    "notes-as-told": "hold",
+    "notes-stale": "improve",
     "planted": "improve",
     "rule-beats-note": "hold",
     "no-secrets": "safety",
@@ -59,7 +58,7 @@ EXPECTED_CELLS = {
     "tool-discovery": {"tool-discovery": "hold"},
     "kb": {"kb-find": "improve", "kb-answer": "hold"},
     "notes-proactive": {"notes-proactive": "improve", "notes-proactive-claims": "report"},
-    "notes-as-told": {"notes-as-told": "hold", "notes-as-told-claims": "report"},
+    "notes-stale": {"notes-stale": "improve"},
     "planted": {
         "planted-instruction": "improve",
         "planted-flagged": "safety",
@@ -83,13 +82,15 @@ def loaded():
     return {s.id: s for s in load_scenarios(SCENARIOS, fixtures_root=SCENARIOS.parent / "fixtures")}
 
 
-def test_twelve_run_sets_seventeen_cells_with_dd17_classes(loaded):
+def test_twelve_run_sets_sixteen_cells(loaded):
     assert {k: v.klass for k, v in loaded.items()} == EXPECTED_SETS
     cells = {}
     for sc in loaded.values():
         assert sc.cell_classes() == EXPECTED_CELLS[sc.id], sc.id
         cells.update(sc.cell_classes())
-    assert len(cells) == 17  # the fourteen DD17 cells plus three report-only claims cells
+    # The fourteen DD17 cells with notes-as-told retired and notes-stale added (fourteen),
+    # plus two report-only claims cells.
+    assert len(cells) == 16
 
 
 def test_twenty_distinct_variants_each(loaded):
@@ -197,22 +198,6 @@ class Case:
         self.violations = list(violations)  # [(label, builder, {failed check names})]
 
 
-def fake_judge():
-    """Right on the labelled set; on a run's note: pass unless it starts with 'FLAT:'."""
-    truth = {i["text"]: i["label"] == "as-told" for i in judge_mod.load_labelled()}
-
-    class FakeJudge:
-        def __init__(self):
-            self.calls = []
-
-        def ask(self, rubric, note_text):
-            self.calls.append(note_text)
-            ok = truth.get(note_text, not note_text.startswith("FLAT:"))
-            return json.dumps({"pass": ok, "reason": "fake"})
-
-    return FakeJudge()
-
-
 def kb_tool_name(spec):
     from evals.fixtures import kb_id_for
     from the_one.db.models import KnowledgeBase
@@ -295,19 +280,22 @@ def build_cases(facts):
                 ),
             ],
         ),
-        "notes-as-told": Case(
-            "notes-as-told",
-            lambda m, b, s, fi: [save(f"The user says: {m['plan']}."), text("Noted.")],
+        "notes-stale": Case(
+            "notes-stale",
+            lambda m, b, s, fi: [
+                call("forget_note", {"number": 1}, call_id="n1"),
+                text("Sorry to hear that."),
+            ],
             [
                 (
-                    "no note",
-                    lambda m, b, s, fi: [text("Sure.")],
-                    {"note_saved", "judge"},
+                    "leaves the note",
+                    lambda m, b, s, fi: [text("Sorry to hear that.")],
+                    {"tool_called"},
                 ),
                 (
-                    "worded as fact",
-                    lambda m, b, s, fi: [save(f"FLAT: {m['plan']}."), text("Noted.")],
-                    {"judge"},
+                    "saves a new note instead",
+                    lambda m, b, s, fi: [save(f"{m['place']} trip cancelled."), text("Noted.")],
+                    {"tool_called"},
                 ),
             ],
         ),
@@ -458,10 +446,7 @@ def _hooks(tmp, sc, builders):
     return hook
 
 
-async def _drive(tmp, sid, builders, n, judge=None):
-    kw = {"hook_kw": {"index_timeout": 300.0}}
-    if judge is not None:
-        kw["hook_kw"]["judge_client"] = judge
+async def _drive(tmp, sid, builders, n):
     sc = {s.id: s for s in load_scenarios(SCENARIOS)}[sid]
     return await run(
         tmp,
@@ -470,8 +455,7 @@ async def _drive(tmp, sid, builders, n, judge=None):
         scenarios=[sid],
         scenarios_dir=SCENARIOS,
         n=n,
-        token_file=h.token_file(tmp) if judge is not None else None,
-        **kw,
+        hook_kw={"index_timeout": 300.0},
     )
 
 
@@ -495,8 +479,7 @@ async def test_passing_script_passes_for_every_variant(evals_isolation, sid, mon
             lambda self: [v for v in full(self) if v.phrasing_index == v.fact_index % 4],
         )
     case = build_cases(None)[sid]
-    judge = fake_judge() if sid == "notes-as-told" else None
-    code, run_dir = await _drive(tmp, sid, lambda pi: case.ok, WIDTH, judge)
+    code, run_dir = await _drive(tmp, sid, lambda pi: case.ok, WIDTH)
     recs = records(run_dir)
     assert len(recs) == WIDTH
     bad = [(r["variant"], r["reason"]) for r in recs if r["outcome"] != "pass"]
@@ -527,12 +510,11 @@ async def test_each_violation_fails_exactly_its_checks(evals_isolation, sid):
     tmp = evals_isolation
     case = build_cases(None)[sid]
     assert 1 <= len(case.violations) <= 3
-    judge = fake_judge() if sid == "notes-as-told" else None
 
     def builders(pi):
         return case.ok if pi == 0 else case.violations[pi - 1][1]
 
-    code, run_dir = await _drive(tmp, sid, builders, 1 + len(case.violations), judge)
+    code, run_dir = await _drive(tmp, sid, builders, 1 + len(case.violations))
     recs = {r["variant"]: r for r in records(run_dir)}
     assert recs["f0p0"]["outcome"] == "pass", recs["f0p0"]["checks"]
     for pi, (label, _b, expected) in enumerate(case.violations, start=1):
