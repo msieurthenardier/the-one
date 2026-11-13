@@ -487,6 +487,80 @@ async def test_evict_stale_no_ops_when_entry_was_already_replaced(patch_client):
     assert pool_mod._pool[key] is replacement, "the replacement was wrongly evicted"
 
 
+async def test_acquire_rebuilds_when_dead_entry_worker_already_ended_cancelled(patch_client):
+    """Squawk 0354: a worker that ended cancelled counts as torn down.
+
+    Awaiting a cancelled task raises CancelledError into the caller (the chat
+    turn); acquire must absorb it and go on to its second attempt.
+    """
+    first = await acquire("agent-a", "src-1")
+    entry = pool_mod._pool[("agent-a", "src-1")]
+    entry.worker.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await entry.worker
+    assert entry.worker.cancelled()
+    first.is_alive = False
+
+    second = await acquire("agent-a", "src-1")
+
+    assert second is not first
+    assert second.is_alive is True
+    assert asyncio.current_task().cancelling() == 0
+
+
+async def test_acquire_rebuilds_when_dead_entry_worker_ends_cancelled_during_teardown(
+    patch_client,
+):
+    """Variant: the worker is still running and ends cancelled while awaited."""
+    first = await acquire("agent-a", "src-1")
+    entry = pool_mod._pool[("agent-a", "src-1")]
+    assert entry.worker is not None
+
+    async def _ends_cancelled():
+        await entry.evict_event.wait()
+        raise asyncio.CancelledError
+
+    # Swap in a worker that ends cancelled once told to evict.
+    real_worker = entry.worker
+    entry.worker = asyncio.ensure_future(_ends_cancelled())
+    first.is_alive = False
+
+    second = await acquire("agent-a", "src-1")
+
+    assert second is not first
+    assert second.is_alive is True
+    real_worker.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await real_worker
+
+
+async def test_real_cancel_of_caller_during_teardown_still_propagates(patch_client):
+    """The caller's own cancellation must not be swallowed by the fix."""
+    first = await acquire("agent-a", "src-1")
+    key = ("agent-a", "src-1")
+    entry = pool_mod._pool[key]
+    real_worker = entry.worker
+
+    async def _slow():
+        await entry.evict_event.wait()
+        await asyncio.sleep(30)
+
+    entry.worker = asyncio.ensure_future(_slow())
+    first.is_alive = False
+
+    task = asyncio.ensure_future(acquire("agent-a", "src-1"))
+    await asyncio.sleep(0.05)  # acquire is now parked in teardown
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    entry.worker.cancel()
+    real_worker.cancel()
+    for t in (entry.worker, real_worker):
+        with contextlib.suppress(asyncio.CancelledError):
+            await t
+
+
 # ─────────────────────────────────────────────────────────────────
 # L4 — Reaper, drain, lifespan
 # ─────────────────────────────────────────────────────────────────

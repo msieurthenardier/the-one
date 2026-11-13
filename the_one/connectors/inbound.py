@@ -33,6 +33,7 @@ from the_one.agent.factory import (
     ProviderNotFoundError,
     get_factory,
 )
+from the_one.agent.history_repair import repair_unanswered_tool_calls
 from the_one.connectors.base import (
     ChannelTarget,
     InboundEnvelope,
@@ -430,6 +431,8 @@ async def dispatch_inbound(
             if stored:
                 non_system = [m for m in stored if m.role != Role.SYSTEM]
                 agent.messages = agent.messages[:1] + non_system
+                # Squawk 0353: a chat stored with an unanswered tool call heals.
+                repair_unanswered_tool_calls(agent.messages)
 
             turn.ran = True
             pre_step_len = len(agent.messages)
