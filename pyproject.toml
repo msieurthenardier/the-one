@@ -65,7 +65,11 @@ dependencies = [
     #    CVE-2026-49476 and GHSA-836r-79rf-4m37 / CVE-2026-49477 at 2.8.4;
     #    floor raised to 2.9.0 for CVE-2026-85999 and CVE-2026-86000, two
     #    ReDoS advisories in the CSS-selector compiler — 2026-09-17
-    #    pip-audit run; fixed in 2.9.0)
+    #    pip-audit run; fixed in 2.9.0; floor raised again to 4.0.0 for
+    #    CVE-2026-126190 (fixed in 4.0.0) and CVE-2026-126192 (fixed in
+    #    2.10.0) — 4.0.0 uploaded 2026-11-03, under the 14-day soak; soak
+    #    waived by the operator 2026-11-13 for this security fix, pinned at
+    #    the minimum fixed version — squawk 0352)
     #  - lxml-html-clean, pure transitive via readability-lxml (no prior
     #    explicit floor; closes GHSA-4jhm-jv67-739f / CVE-2026-49825,
     #    xlink:href javascript: URL bypass; fixed in 0.4.5)
@@ -91,7 +95,7 @@ dependencies = [
     "cryptography>=50.0.0",
     "pydantic-settings>=2.14.2",
     "python-multipart>=0.0.31",
-    "soupsieve>=2.9.0",
+    "soupsieve>=4.0.0",
     "lxml-html-clean>=0.4.5",
     "lxml>=6.1.1",
     "platformdirs>=4.0",
