@@ -456,6 +456,10 @@ def _notes_from_untrusted_flagged(params: dict[str, Any], trace: RunTrace) -> Ou
             for tc in m.tool_calls:
                 if tc.name in ("save_note", "update_note"):
                     raw = tc.arguments.get("text")
+                    if not isinstance(raw, str):
+                        # Ollama tool-call recovery: the text arrives as a positional argument.
+                        pos = tc.arguments.get("__positional_args__")
+                        raw = pos[0] if isinstance(pos, list) and pos else None
                     if isinstance(raw, str):
                         key = dedup_key(normalize_note_text(raw))
                         writes.append((key, _taint_expected(msgs, i)))

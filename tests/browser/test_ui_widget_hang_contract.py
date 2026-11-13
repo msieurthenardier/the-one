@@ -11,6 +11,7 @@ import time
 import pytest
 from browser._widget_harness import (
     COUNTER,
+    card_frame,
     make_cards,
     setup_cards,
     states,
@@ -206,6 +207,14 @@ def test_heartbeat_loss_stops_a_loaded_card_while_the_page_ticks(
     setup_cards(p, sink)
     make_cards(p, 2)
     wait_states(p, ["running", "running"])
+    # "running" is the card's mode, true from the moment it mounts; the guard's heartbeat clock
+    # starts only when its iframe has loaded. Under load the second iframe can still be loading,
+    # so wait for both loads or the tick below finds no beat to age out (squawk 0351).
+    for i in range(2):
+        frame = card_frame(p, i)
+        assert frame is not None
+        frame.wait_for_load_state("load")
+    p.evaluate("() => new Promise((r) => requestAnimationFrame(() => r()))")
     p.evaluate("() => __cards[1].pause()")
     res = p.evaluate(
         """() => {

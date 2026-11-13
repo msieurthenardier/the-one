@@ -78,6 +78,28 @@ def webkit_policy(env: Mapping[str, str], launch_error: str | None) -> PolicyRes
     return PolicyResult("skip", f"WebKit unavailable: {launch_error}")
 
 
+REQUIRE_ISOLATED_ENV = "THE_ONE_REQUIRE_ISOLATED_CHROMIUM"
+FORCE_NOT_ISOLATED_ENV = "THE_ONE_ISOLATED_CHROMIUM_FORCE_UNAVAILABLE"
+
+
+def isolated_chromium_policy(env: Mapping[str, str], problem: str | None) -> PolicyResult:
+    """Pure skip/require decision for the isolating-Chromium widget test (squawk 0348).
+
+    ``problem`` is None when an isolating Chromium launched and showed the early 0 width, else
+    why not. ``THE_ONE_REQUIRE_ISOLATED_CHROMIUM=1`` turns the skip into a failure;
+    ``THE_ONE_ISOLATED_CHROMIUM_FORCE_UNAVAILABLE=1`` is a TEST-ONLY seam that counts as a problem.
+    """
+    if problem is None and env.get(FORCE_NOT_ISOLATED_ENV) == "1":
+        problem = f"forced unavailable ({FORCE_NOT_ISOLATED_ENV}=1)"
+    if problem is None:
+        return PolicyResult("ok", "")
+    if env.get(REQUIRE_ISOLATED_ENV) == "1":
+        return PolicyResult(
+            "fail", f"isolating Chromium required ({REQUIRE_ISOLATED_ENV}=1) but: {problem}"
+        )
+    return PolicyResult("skip", problem)
+
+
 def _deps_dir() -> Path:
     return Path(os.environ.get(DEPS_ENV) or Path.home() / ".cache" / "the-one-webkit-deps")
 

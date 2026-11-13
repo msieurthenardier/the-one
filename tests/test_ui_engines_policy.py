@@ -4,11 +4,27 @@ policy function in ``tests/browser/_ui_engines.py`` (M25 F1 L1, AC8)."""
 from __future__ import annotations
 
 from browser._ui_engines import (
+    FORCE_NOT_ISOLATED_ENV,
     FORCE_UNAVAILABLE_ENV,
     REQUIRE_ENV,
+    REQUIRE_ISOLATED_ENV,
     PolicyResult,
+    isolated_chromium_policy,
     webkit_policy,
 )
+
+
+def test_isolated_chromium_policy() -> None:
+    # Squawk 0348: the isolating-Chromium widget test must not skip silently where required.
+    assert isolated_chromium_policy({}, None) == PolicyResult("ok", "")
+    assert isolated_chromium_policy({REQUIRE_ISOLATED_ENV: "1"}, None).kind == "ok"
+    assert isolated_chromium_policy({}, "no isolation").kind == "skip"
+    assert isolated_chromium_policy({REQUIRE_ISOLATED_ENV: "0"}, "x").kind == "skip"
+    r = isolated_chromium_policy({REQUIRE_ISOLATED_ENV: "1"}, "no isolation")
+    assert r.kind == "fail" and "no isolation" in r.reason and REQUIRE_ISOLATED_ENV in r.reason
+    assert isolated_chromium_policy({FORCE_NOT_ISOLATED_ENV: "1"}, None).kind == "skip"
+    both = {FORCE_NOT_ISOLATED_ENV: "1", REQUIRE_ISOLATED_ENV: "1"}
+    assert isolated_chromium_policy(both, None).kind == "fail"
 
 
 def test_launch_ok_is_ok() -> None:

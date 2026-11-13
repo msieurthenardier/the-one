@@ -195,6 +195,12 @@ async def factory(conn, tmp_path):
         AgentConfig(name="alpha", provider_config_id="prov-1", system_prompt="I am alpha.")
     )
     llm = FakeLLM(responses=[])
+    # Import these before patching: they do `from the_one.db.connection import get_connection`
+    # lazily, so a first import inside the patch would bind the mock (and this test's closed
+    # connection) permanently, breaking later tests in the same process (squawk 0346).
+    import the_one.knowledge.manager  # noqa: F401
+    import the_one.vectors  # noqa: F401
+
     with (
         patch("the_one.agent.factory.get_provider", lambda name, **kw: llm),
         patch("the_one.db.connection.get_connection", AsyncMock(return_value=conn)),

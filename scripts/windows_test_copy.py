@@ -532,14 +532,21 @@ def plan_sync(
 
 
 def scrub_env(
-    environ: dict[str, str], port: int, data_dir: str, cdp_port: int | None
+    environ: dict[str, str],
+    port: int,
+    data_dir: str,
+    cdp_port: int | None,
+    dev_mode: bool = False,
 ) -> dict[str, str]:
     """The child environment: every inherited THE_ONE_* and WEBVIEW2_* variable is
-    removed, then THE_ONE_PORT, THE_ONE_DATA_DIR and (only with a CDP port) the
+    removed, then THE_ONE_PORT, THE_ONE_DATA_DIR, (only with `dev_mode`, the explicit
+    `launch --dev-mode` opt-in) THE_ONE_DEV_MODE=true and (only with a CDP port) the
     WebView2 debugging argument are set."""
     env = {k: v for k, v in environ.items() if not k.upper().startswith(ENV_PREFIXES)}
     env["THE_ONE_PORT"] = str(port)
     env["THE_ONE_DATA_DIR"] = data_dir
+    if dev_mode:
+        env["THE_ONE_DEV_MODE"] = "true"
     if cdp_port is not None:
         env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"--remote-debugging-port={cdp_port}"
     return env
@@ -1851,6 +1858,12 @@ def _http_get(url: str, headers: dict | None = None, timeout: float = 3.0) -> tu
         return 0, ""
 
 
+def _only_watchdog_live(live: list[dict]) -> bool:
+    """True when every identity-confirmed live member of a recorded tree is its watchdog
+    (the app and its WebView2 children have all exited)."""
+    return bool(live) and all(m.get("role") == "watchdog" for m in live)
+
+
 def op_launch(a: dict) -> dict:
     root, tree_id = a["root"], a["tree_id"]
     _require_ok_root(root)
@@ -1866,6 +1879,16 @@ def op_launch(a: dict) -> dict:
         if tid in RESERVED_TREE_IDS or (a.get("tree_id_given") and tid != tree_id):
             continue
         rec, live = _refresh(root, tid, table)
+        if live and _only_watchdog_live(live):
+            # The app exited by itself (tray Quit, `quit`, POST /api/window/quit) and only
+            # its watchdog remains: stop the tree through the identity-checked stop path.
+            res = op_stop({"root": root, "tree_id": tid, "actor": "helper"})
+            if not all(t.get("complete") for t in res["stopped"]):
+                raise HelperError(
+                    f"tree {tid!r}: the app has exited but its watchdog could not be "
+                    "stopped; run `stop` and read its report"
+                )
+            _, live = _refresh(root, tid)
         if live:
             raise HelperError(f"a recorded tree {tid!r} is still live: run `stop` first")
     op_hands_off({"root": root})
@@ -1890,7 +1913,9 @@ def op_launch(a: dict) -> dict:
             cmd = [vpyw, "-m", "the_one", "app"]
     data_dir = to_win_path(a["data_dir"])
     g_mkdirs(root, data_dir)
-    env = scrub_env(dict(os.environ), a["port"], data_dir, a.get("cdp_port"))
+    env = scrub_env(
+        dict(os.environ), a["port"], data_dir, a.get("cdp_port"), dev_mode=bool(a.get("dev_mode"))
+    )
     log = open(guard(root, data_dir + "\\launch.log"), "ab")  # noqa: SIM115
     proc = subprocess.Popen(  # noqa: S603
         cmd,
@@ -4655,6 +4680,7 @@ def cmd_launch(args) -> int:
         tree_id_given=bool(args.tree_id),
         script=args.script,
         max_minutes=args.max_minutes,
+        dev_mode=bool(args.dev_mode),
         helper_source=Path(__file__).read_text(encoding="utf-8"),
         **common,
     )
@@ -4954,6 +4980,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--script")
     sp.add_argument("--max-minutes", type=int, default=30)
     sp.add_argument("--tree-id")
+    sp.add_argument(
+        "--dev-mode",
+        action="store_true",
+        help="set THE_ONE_DEV_MODE=true for the test copy (enables the mock provider)",
+    )
     for name, fn in (
         ("tree", cmd_tree),
         ("windows", cmd_windows),
