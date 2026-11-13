@@ -1,6 +1,6 @@
 # Leg: three-platform-font-check
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Visuals on Chat Platforms](../flight.md)
 
 ## Objective

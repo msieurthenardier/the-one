@@ -465,10 +465,50 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # connector row finds its plugin at startup, not just on the next
         # save. Symmetric unregistration at shutdown, mirroring the stub
         # hook's hygiene (see below).
+        # Mission 35 Flight 3 Leg 6: the dev-only fake-platforms seam. Reads
+        # the PROCESS environment only (never settings/.env), needs dev_mode,
+        # and accepts a loopback IP literal only, so a bot token never leaves
+        # the machine through it. A refusal logs scheme and host only.
+        _fake_urls = None
+        try:
+            from the_one.connectors.fake_platforms_seam import (
+                FakeUrls as _FakeUrls,
+            )
+            from the_one.connectors.fake_platforms_seam import (
+                Refused as _FakeRefused,
+            )
+            from the_one.connectors.fake_platforms_seam import fake_platform_urls
+
+            _seam = fake_platform_urls(
+                os.environ.get("THE_ONE_FAKE_PLATFORMS_URL"), dev_mode=settings.dev_mode
+            )
+            if isinstance(_seam, _FakeUrls):
+                _fake_urls = _seam
+                logger.warning(
+                    "connectors use the fake platforms at %s",
+                    _seam.telegram_base.rsplit("/telegram", 1)[0],
+                )
+            elif isinstance(_seam, _FakeRefused):
+                logger.error(
+                    "THE_ONE_FAKE_PLATFORMS_URL refused (%s; scheme=%r host=%r);"
+                    " using the real platform URLs",
+                    _seam.reason,
+                    _seam.scheme,
+                    _seam.host,
+                )
+        except Exception:
+            logger.exception("fake-platforms seam check failed")
+
         try:
             from the_one.connectors.discord import register as _register_discord
 
-            _register_discord()
+            if _fake_urls is not None:
+                _register_discord(
+                    rest_base_url=_fake_urls.discord_rest,
+                    gateway_url=_fake_urls.discord_gateway,
+                )
+            else:
+                _register_discord()
         except Exception:
             logger.exception("discord connector registration failed")
 
@@ -479,7 +519,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             from the_one.connectors.telegram import register as _register_telegram
 
-            _register_telegram()
+            if _fake_urls is not None:
+                _register_telegram(base_url=_fake_urls.telegram_base)
+            else:
+                _register_telegram()
         except Exception:
             logger.exception("telegram connector registration failed")
 

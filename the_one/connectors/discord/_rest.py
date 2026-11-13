@@ -7,6 +7,7 @@ per-bucket serialization — a personal bot's volume doesn't need it.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import Any
 
@@ -18,8 +19,24 @@ DEFAULT_BASE_URL = "https://discord.com/api/v10"
 _MAX_RETRIES = 3
 
 
+_CLAMPED_MAX_RETRIES = 1  # per-call policy (M35 F3 DD10): one retry ...
+_CLAMPED_MAX_RETRY_AFTER = 10.0  # ... and never a wait over 10 s
+
+
 class DiscordRestError(ConnectorClientError):
-    """Raised on a non-2xx REST response after retries are exhausted."""
+    """Raised on a non-2xx REST response after retries are exhausted.
+
+    ``status`` is the HTTP status of the response it was built from.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class DiscordTransportError(ConnectorClientError):
+    """A request failed below HTTP (connect error, timeout, ...). The request may have
+    reached Discord, so a send is never repeated. Deliberately NOT a ``DiscordRestError``."""
 
 
 class _RateLimiter:
@@ -85,28 +102,50 @@ class RestClient:
         await self._client.aclose()
 
     async def _request(
-        self, method: str, path: str, *, json: Any = None, params: Any = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: Any = None,
+        files: Any = None,
+        max_retries: int = _MAX_RETRIES,
+        max_retry_after: float | None = None,
     ) -> Any:
+        """``files`` sends a multipart body (a list of httpx ``files`` tuples, no ``json``).
+        ``max_retries`` / ``max_retry_after`` are the per-call 429 policy: the defaults are
+        today's (three retries, unclamped); a visual send passes one and 10 s."""
         route_key = f"{method}:{path.split('?')[0]}"
         async with self._limiter.lock_for(route_key):
-            for attempt in range(_MAX_RETRIES + 1):
+            for attempt in range(max_retries + 1):
                 await self._limiter.wait_turn(route_key)
-                resp = await self._client.request(method, path, json=json, params=params)
+                try:
+                    resp = await self._client.request(
+                        method, path, json=json, params=params, files=files
+                    )
+                except httpx.HTTPError as exc:
+                    raise DiscordTransportError(
+                        f"{method} {path} failed: {type(exc).__name__}"
+                    ) from exc
                 self._limiter.record(route_key, resp.headers)
                 if resp.status_code == 429:
                     body = resp.json() if resp.content else {}
                     retry_after = float(body.get("retry_after", 1.0))
                     if body.get("global"):
                         self._limiter.record_global(retry_after)
-                    if attempt >= _MAX_RETRIES:
+                    if attempt >= max_retries:
                         raise DiscordRestError(
-                            f"rate limited on {method} {path} after {attempt} retries"
+                            f"rate limited on {method} {path} after {attempt} retries",
+                            status=429,
                         )
+                    if max_retry_after is not None:
+                        retry_after = min(retry_after, max_retry_after)
                     await asyncio.sleep(retry_after)
                     continue
                 if resp.status_code >= 400:
                     raise DiscordRestError(
-                        f"{method} {path} -> {resp.status_code}: {resp.text[:200]}"
+                        f"{method} {path} -> {resp.status_code}: {resp.text[:200]}",
+                        status=resp.status_code,
                     )
                 if resp.status_code == 204 or not resp.content:
                     return None
@@ -121,9 +160,35 @@ class RestClient:
     async def get_current_user(self) -> dict[str, Any]:
         return await self._request("GET", "/users/@me")
 
-    async def create_message(self, channel_id: str, content: str) -> dict[str, Any]:
+    async def create_message(
+        self, channel_id: str, content: str, *, clamped: bool = False
+    ) -> dict[str, Any]:
+        """``clamped=True`` is the visual fallback's policy: one 429 retry, at most 10 s."""
+        policy: dict[str, Any] = (
+            {"max_retries": _CLAMPED_MAX_RETRIES, "max_retry_after": _CLAMPED_MAX_RETRY_AFTER}
+            if clamped
+            else {}
+        )
         return await self._request(
-            "POST", f"/channels/{channel_id}/messages", json={"content": content}
+            "POST", f"/channels/{channel_id}/messages", json={"content": content}, **policy
+        )
+
+    async def create_message_with_files(
+        self, channel_id: str, content: str, attachments: list[dict[str, Any]], files: list[Any]
+    ) -> dict[str, Any]:
+        """One multipart message: a ``payload_json`` part (content and the attachment
+        descriptors) plus one ``files[i]`` part per ``(filename, bytes)`` in ``files``.
+        One 429 retry, at most 10 s (M35 F3 DD10/DD11)."""
+        payload = json.dumps({"content": content, "attachments": attachments})
+        parts: list[Any] = [("payload_json", (None, payload, "application/json"))]
+        for i, (filename, data) in enumerate(files):
+            parts.append((f"files[{i}]", (filename, data, "image/png")))
+        return await self._request(
+            "POST",
+            f"/channels/{channel_id}/messages",
+            files=parts,
+            max_retries=_CLAMPED_MAX_RETRIES,
+            max_retry_after=_CLAMPED_MAX_RETRY_AFTER,
         )
 
     async def create_dm(self, user_id: str) -> dict[str, Any]:

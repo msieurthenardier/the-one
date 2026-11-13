@@ -1,11 +1,11 @@
 # Flight: Visuals on Chat Platforms
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Rich Visuals in Chat](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] **Charts reach chat platforms as images** (all of it). The connector round trip runs against fake Discord and Telegram servers, not live bots (operator decision 2026-11-11, DD2; mission amended).
-- [ ] **Chart images work on every install** (all of it: Pillow as a base dependency, a bundled font, and a doctor gate run in the Windows, Linux and macOS packaged builds)
+- [x] **Charts reach chat platforms as images** (all of it). The connector round trip runs against fake Discord and Telegram servers, not live bots (operator decision 2026-11-11, DD2; mission amended).
+- [x] **Chart images work on every install** (all of it: Pillow as a base dependency, a bundled font, and a doctor gate run in the Windows, Linux and macOS packaged builds)
 
 ---
 
@@ -297,9 +297,9 @@ Verified against the working tree at `6d22eabc` (re-checked by the Architect, de
 
 ### Prerequisites
 - [x] PR #365 (Flight 2) merged to `main` (`f76efdd3`, 2026-11-12). Flight 3 branches from `origin/main` as `flight/03-visuals-on-chat-platforms`.
-- [ ] Geist 1.8.0 static TTFs available upstream under the OFL (Leg 1 verifies before vendoring).
-- [ ] `uv` available to re-lock after moving Pillow to the base dependencies (`uv lock`, then `uv sync --all-extras --frozen`).
-- [ ] Leg 2, re-verified at its start: the Linux container gate suite runs locally; the Concourse `platform: windows` worker (or `scripts/windows_test_copy.py freeze` with the operator at the desktop) is available; `gh auth status` is good for a hosted macOS dispatch; each outward dispatch is confirmed by the operator at the time.
+- [x] Geist 1.8.0 static TTFs available upstream under the OFL (Leg 1 verifies before vendoring).
+- [x] `uv` available to re-lock after moving Pillow to the base dependencies (`uv lock`, then `uv sync --all-extras --frozen`).
+- [x] Leg 2, re-verified at its start: the Linux container gate suite runs locally; the Concourse `platform: windows` worker (or `scripts/windows_test_copy.py freeze` with the operator at the desktop) is available; `gh auth status` is good for a hosted macOS dispatch; each outward dispatch is confirmed by the operator at the time.
 - [x] No model calls: no prompt text changes in this flight, and the mock provider scripts every reply.
 - [x] The other session's uncommitted `the_one/db/_notes.py`, `tests/test_prompt_layers.py`, `tests/behavior/agent-notes-round-trip.md` and `env.sh` are never staged by this flight.
 
@@ -307,7 +307,7 @@ Verified against the working tree at `6d22eabc` (re-checked by the Architect, de
 - [x] All open questions resolved
 - [x] Design decisions documented
 - [x] Citation Audit complete — every code-asserting design decision verified
-- [ ] Prerequisites verified (Legs 1 and 2 verify theirs at start)
+- [x] Prerequisites verified (Legs 1 and 2 verify theirs at start)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -341,12 +341,12 @@ Verified against the working tree at `6d22eabc` (re-checked by the Architect, de
    - Finalize and run `charts-reach-platforms`.
 
 ### Checkpoints
-- [ ] Every valid corpus spec and the at-limit spec draw. The tick corpus passes in Python and in both browser engines. The doctor gate passes locally. The operator approves the sample sheet (Leg 1).
-- [ ] The doctor gate passes, with the same reference width, in the Linux, Windows and macOS packaged builds (Leg 2).
-- [ ] Both send paths convert through one helper. Plain replies are byte-identical to today. The stub records carry images, and no existing stub reader changed (Leg 3).
-- [ ] The Discord and Telegram multipart shapes are pinned by mock-transport tests, and every DD7 fallback path is covered (Leg 4).
-- [ ] The fake passes its own unit tests and serves both real clients in-process (Leg 5).
-- [ ] `charts-reach-platforms` passes against the fakes for both platforms (Leg 6).
+- [x] Every valid corpus spec and the at-limit spec draw. The tick corpus passes in Python and in both browser engines. The doctor gate passes locally. The operator approves the sample sheet (Leg 1).
+- [x] The doctor gate passes, with the same reference width, in the Linux, Windows and macOS packaged builds (Leg 2).
+- [x] Both send paths convert through one helper. Plain replies are byte-identical to today. The stub records carry images, and no existing stub reader changed (Leg 3).
+- [x] The Discord and Telegram multipart shapes are pinned by mock-transport tests, and every DD7 fallback path is covered (Leg 4).
+- [x] The fake passes its own unit tests and serves both real clients in-process (Leg 5).
+- [x] `charts-reach-platforms` passes against the fakes for both platforms (Leg 6; run `2026-11-12-23-52-13`, 6/6).
 
 ### Adaptation Criteria
 
@@ -366,21 +366,21 @@ Verified against the working tree at `6d22eabc` (re-checked by the Architect, de
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `chart-image-renderer` - Pillow to base dependencies (re-lock; move the CVE-floor comment; keep or drop the `[gui]`/`[dev]` entries deliberately; update the `.github/workflows/pr-lint.yml` comment), the vendored Geist TTFs in `the_one/visuals/fonts/` with package-data and the three spec entries, `chart_image.py` (BASIC, lock, lazy import, pinned palette), design-unit text measurement, the shared y-tick corpus asserted in Python and in `test_ui_chart_contract.py`, the at-limit timing test, the `chart images` doctor gate and every gate list, `docs/chart-format.md` "Images" section, ends with the operator-approved sample sheet (DD4, DD5, DD10, DD12)
-- [ ] `three-platform-font-check` - the doctor gate in packaged builds: Linux container gates locally, the Windows freeze, a hosted macOS dispatch (operator-confirmed); reference widths compared and recorded (DD12). Depends only on Leg 1.
-- [ ] `outbound-visuals` - `blocks.py` with its parity test against the frozen `evals/checks.py:_top_level_blocks` (`checks.py` untouched), `outbound.py` (`OutboundPlan`, `OutboundImage`, markers, the widget note, fallback text), `VisualUploadError` and the re-export in `connectors/base.py`, the delivery helper used by `deliver_final_reply` and `send_to_platform_channel` (plain replies unchanged), the stub's `send_visual` with `StubVisualRecord` and the route's `images` key, the nested-block residual in the docs (DD1, DD3, DD6, DD7, DD8, DD9). High risk: shared interface.
-- [ ] `platform-uploads` - Discord multipart in `RestClient` (transport errors mapped, no re-send) and `DiscordClient.send_visual`; Telegram multipart `sendPhoto` with the factored 429 retry and `TelegramClient.send_visual` with per-photo fallback; mock-transport shape tests for every DD7 path (DD6, DD7, DD10, DD11)
-- [ ] `fake-platforms` - `scripts/fake_platforms.py` (Discord REST and gateway, Telegram long-poll with offset, `sendPhoto`, control routes), modelled on the two in-process fixtures, with unit tests (bound to port 0) that run the real Discord and Telegram clients against it in-process (DD2)
-- [ ] `seam-and-round-trip` - the dev-gated, loopback-only `THE_ONE_FAKE_PLATFORMS_URL` seam in the lifespan with keyword URLs on both `register()` functions and its gating tests, CLAUDE.md test-seams table, SECURITY-MODEL.md residual, connectors README; a start-of-leg check that a connector turn rebuilds the agent and provider per inbound message, so step 9's API changes apply without a restart; `charts-reach-platforms` finalized (step 9 with the agent's `max_iterations` set to 1, expecting the step-limit line) and run (DD2)
+- [x] `three-platform-font-check` - the doctor gate in packaged builds: Linux container gates locally, the Windows freeze, a hosted macOS dispatch (operator-confirmed); reference widths compared and recorded (DD12). Depends only on Leg 1.
+- [x] `outbound-visuals` - `blocks.py` with its parity test against the frozen `evals/checks.py:_top_level_blocks` (`checks.py` untouched), `outbound.py` (`OutboundPlan`, `OutboundImage`, markers, the widget note, fallback text), `VisualUploadError` and the re-export in `connectors/base.py`, the delivery helper used by `deliver_final_reply` and `send_to_platform_channel` (plain replies unchanged), the stub's `send_visual` with `StubVisualRecord` and the route's `images` key, the nested-block residual in the docs (DD1, DD3, DD6, DD7, DD8, DD9). High risk: shared interface.
+- [x] `platform-uploads` - Discord multipart in `RestClient` (transport errors mapped, no re-send) and `DiscordClient.send_visual`; Telegram multipart `sendPhoto` with the factored 429 retry and `TelegramClient.send_visual` with per-photo fallback; mock-transport shape tests for every DD7 path (DD6, DD7, DD10, DD11)
+- [x] `fake-platforms` - `scripts/fake_platforms.py` (Discord REST and gateway, Telegram long-poll with offset, `sendPhoto`, control routes), modelled on the two in-process fixtures, with unit tests (bound to port 0) that run the real Discord and Telegram clients against it in-process (DD2)
+- [x] `seam-and-round-trip` - the dev-gated, loopback-only `THE_ONE_FAKE_PLATFORMS_URL` seam in the lifespan with keyword URLs on both `register()` functions and its gating tests, CLAUDE.md test-seams table, SECURITY-MODEL.md residual, connectors README; a start-of-leg check that a connector turn rebuilds the agent and provider per inbound message, so step 9's API changes apply without a restart; `charts-reach-platforms` finalized (step 9 with the agent's `max_iterations` set to 1, expecting the step-limit line) and run (DD2)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` passes, including:

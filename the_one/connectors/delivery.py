@@ -8,12 +8,20 @@ import ``inbound.py``, ``app.py`` or ``tools/``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from the_one.connectors.base import ConnectorClientError, SendTarget
+from the_one.connectors.base import (
+    ConnectorClientError,
+    OutboundImage,
+    SendResult,
+    SendTarget,
+    VisualUploadError,
+)
 from the_one.db.models import Connector
 from the_one.llm.base import Message, Role
+from the_one.visuals.outbound import plan_outbound
 
 if TYPE_CHECKING:
     from the_one.connectors.manager import ConnectorManager
@@ -41,6 +49,86 @@ def authorized_agent_for(connector: Connector, *, channel_id: str | None) -> str
         return default
     channel_map = connector.config.get("channel_map") or {}
     return channel_map.get(channel_id) or default
+
+
+def _draw_all(candidates: tuple, connector_id: str) -> dict[int, Any]:
+    """Draw every candidate (runs in a worker thread); a failure leaves a chart undrawn."""
+    from the_one.visuals import chart_image
+
+    drawn: dict[int, Any] = {}
+    for cand in candidates:
+        try:
+            drawn[cand.index] = chart_image.render_png(cand.spec)
+        except Exception as exc:  # ChartImageError or anything unexpected: never the data
+            logger.warning(
+                "chart %d could not be drawn for connector %s (%s); falling back to text",
+                cand.index,
+                connector_id,
+                type(exc).__name__,
+            )
+    return drawn
+
+
+async def send_reply(
+    client: Any, target: SendTarget, content: str, *, connector_id: str = ""
+) -> tuple[SendResult | None, int]:
+    """Send ``content`` to ``target``, turning chart and widget blocks into platform output.
+
+    The one conversion step shared by the automatic reply and ``send_to_platform_channel``
+    (M35 F3 DD1). Returns ``(client's result, images_sent)``. With nothing to convert the
+    call is exactly ``client.send(target, content)``. Raises what the client raises, except
+    a ``VisualUploadError`` (nothing was posted), which is resent once as plain text.
+    """
+    plan = plan_outbound(content)
+    if plan is None:
+        return await client.send(target, content), 0
+    if not plan.candidates:
+        return await client.send(target, plan.fallback_text), 0
+
+    rendered = await asyncio.to_thread(_draw_all, plan.candidates, connector_id)
+    send_visual = getattr(client, "send_visual", None)
+    if not rendered or send_visual is None:
+        return await client.send(target, plan.fallback_text), 0
+
+    drawn = set(rendered)
+    images = [
+        OutboundImage(
+            filename=f"chart-{cand.number}.png",
+            data=rendered[cand.index].data,
+            title=cand.alt,
+            width=rendered[cand.index].width,
+            height=rendered[cand.index].height,
+            fallback=cand.source,
+        )
+        for cand in plan.candidates
+        if cand.index in drawn
+    ]
+    refused: VisualUploadError | None = None
+    try:
+        result = await send_visual(target, plan.render(drawn), images)
+    except VisualUploadError as exc:
+        refused = exc
+    if refused is not None:
+        exc = refused
+        # The one warning for this fallback: indices, connector, client class and status only.
+        # Never the exception text or response body (platform-controlled) or any chart data.
+        logger.warning(
+            "chart upload refused for charts %s on connector %s (%s), status %s; "
+            "falling back to text",
+            sorted(drawn),
+            connector_id,
+            type(client).__name__,
+            getattr(exc, "status", None),
+        )
+        resend = getattr(client, "send_visual_fallback", None) or client.send
+        return await resend(target, plan.fallback_text), 0
+    sent = len(images)
+    details = getattr(result, "details", None)
+    if isinstance(details, dict):
+        value = details.get("images_sent", sent)
+        if isinstance(value, int) and not isinstance(value, bool):
+            sent = max(0, min(value, len(images)))
+    return result, sent
 
 
 async def send_step_limit_line(
@@ -125,7 +213,7 @@ async def deliver_final_reply(
         return
 
     try:
-        await client.send(target, final.content)
+        await send_reply(client, target, final.content, connector_id=connector_id)
     except ConnectorClientError:
         logger.exception(
             "dispatch_inbound: auto-reply delivery failed for connector %s; "

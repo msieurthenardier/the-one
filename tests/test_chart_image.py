@@ -142,12 +142,12 @@ def test_every_font_is_loaded_with_the_basic_layout_engine() -> None:
 
 
 def test_drawing_runs_under_one_module_level_lock(monkeypatch) -> None:
-    assert type(chart_image._LOCK) is type(threading.Lock())
+    assert type(chart_image._LOCK) is type(threading.RLock())
     seen = []
     real = chart_image._paint
 
     def spy(scene):
-        seen.append(chart_image._LOCK.locked())
+        seen.append(chart_image._LOCK._is_owned())
         return real(scene)
 
     monkeypatch.setattr(chart_image, "_paint", spy)
@@ -226,6 +226,17 @@ def test_text_is_drawn_per_character_at_the_measured_positions(monkeypatch) -> N
 
 
 def test_a_thin_space_measures_and_draws_as_a_space() -> None:
+    plain = "5 %"
+    for odd in ("5 %", "5 %", "5 %"):
+        assert odd != plain
+        assert measure(odd, 11) == measure(plain, 11) > measure("5%", 11)
+
+    def pixels(text: str) -> bytes:
+        scene = chart_image.Scene(60, 30, [Text(5, 20, text, 11, "regular", "#000000", "start")])
+        return chart_image._paint(scene).tobytes()
+
+    for odd in ("5 %", "5 %", "5 %"):
+        assert pixels(odd) == pixels(plain)
     assert measure("5 %", 11) == measure("5 %", 11)
 
 
@@ -462,14 +473,34 @@ def test_null_gaps_break_a_line() -> None:
 
 
 def test_x_labels_thin_by_the_servers_own_widths() -> None:
+    def drawn(cats):
+        spec = _spec(x={"values": cats}, series=[{"values": list(range(len(cats)))}])
+        ops = build_scene(spec).ops
+        labels = [o for o in ops if isinstance(o, Text) and o.role == "x-tick"]
+        # the plot's own width: the x axis line is the widest horizontal border-strong line
+        axis = max(
+            (
+                o
+                for o in ops
+                if isinstance(o, Line)
+                and o.color == chart_image.BORDER_STRONG
+                and o.width == 1
+                and o.points[0][1] == o.points[-1][1]
+            ),
+            key=lambda o: o.points[-1][0] - o.points[0][0],
+        )
+        band = (axis.points[-1][0] - axis.points[0][0]) / len(cats)
+        widest = max(measure(c, 11) for c in cats)
+        expected = chart_image.x_label_stride(widest, band)
+        assert labels[1].x - labels[0].x == pytest.approx(band * expected)
+        assert len(labels) == len(range(0, len(cats), expected))
+        return labels, expected
+
     cats = [f"Category {i:02d}" for i in range(40)]
-    spec = _spec(x={"values": cats}, series=[{"values": list(range(40))}])
-    labels = [o for o in build_scene(spec).ops if isinstance(o, Text) and o.role == "x-tick"]
-    assert 0 < len(labels) < 40
-    stride = 40 // len(labels)
-    assert stride >= 2 or len(labels) == 40
-    widest = max(measure(c, 11) for c in cats)
-    assert chart_image.x_label_stride(widest, 1180 / 40) == stride or stride >= 2
+    labels, stride = drawn(cats)
+    assert 2 <= stride and len(labels) < 40
+    short_labels, short_stride = drawn([f"C{i}" for i in range(40)])
+    assert short_stride < stride
     for a, b in zip(labels, labels[1:], strict=False):
         assert b.x - a.x >= measure(a.text, 11) / 2 + measure(b.text, 11) / 2 - 1e-6
     # a roomy chart keeps every label

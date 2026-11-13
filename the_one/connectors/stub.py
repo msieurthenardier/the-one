@@ -10,6 +10,7 @@ cases (an autouse fixture typically does this).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import ClassVar
 
 from the_one.connectors.base import (
@@ -18,11 +19,28 @@ from the_one.connectors.base import (
     HistoryMessage,
     InboundCallback,
     InboundEnvelope,
+    OutboundImage,
     SendResult,
     SendTarget,
 )
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
+
+
+class StubVisualRecord(tuple):
+    """An outbound record of a ``send_visual``: ``(target, content)`` plus ``.images``.
+
+    A tuple subclass so every existing reader (unpacking, indexing, ``==`` against a plain
+    pair, slicing) keeps working; note ``==`` ignores ``.images``, so tests on a visual
+    record assert ``.images`` explicitly.
+    """
+
+    images: tuple[OutboundImage, ...]
+
+    def __new__(cls, target: SendTarget, content: str, images: Sequence[OutboundImage]):
+        rec = tuple.__new__(cls, (target, content))
+        rec.images = tuple(images)
+        return rec
 
 
 class StubClient:
@@ -41,6 +59,19 @@ class StubClient:
         StubPlugin.outbound_records.append((target, content))
         return SendResult(platform_message_id="stub-msg-id", details={})
 
+    async def send_visual(
+        self, target: SendTarget, content: str, images: Sequence[OutboundImage]
+    ) -> SendResult:
+        if StubPlugin.send_should_raise is not None:
+            raise StubPlugin.send_should_raise
+        if StubPlugin.send_visual_should_raise is not None:
+            raise StubPlugin.send_visual_should_raise
+        StubPlugin.outbound_records.append(StubVisualRecord(target, content, images))
+        return SendResult(
+            platform_message_id="stub-msg-id",
+            details={"images_sent": len(images), "images_failed": 0},
+        )
+
     async def history(self, target: SendTarget, limit: int) -> list[HistoryMessage]:
         return list(StubPlugin.history_response)[:limit]
 
@@ -50,11 +81,12 @@ class StubPlugin:
 
     connect_calls: ClassVar[list[str]] = []
     disconnect_calls: ClassVar[list[StubClient]] = []
-    outbound_records: ClassVar[list[tuple[SendTarget, str]]] = []
+    outbound_records: ClassVar[list[tuple[SendTarget, str] | StubVisualRecord]] = []
     history_response: ClassVar[list[HistoryMessage]] = []
 
     connect_should_fail: ClassVar[BaseException | None] = None
     send_should_raise: ClassVar[BaseException | None] = None
+    send_visual_should_raise: ClassVar[BaseException | None] = None
     doctor_response: ClassVar[DoctorReport | None] = None
 
     # account_id -> on_inbound callback, bound at connect() time.
@@ -68,6 +100,7 @@ class StubPlugin:
         cls.history_response = []
         cls.connect_should_fail = None
         cls.send_should_raise = None
+        cls.send_visual_should_raise = None
         cls.doctor_response = None
         cls._live = {}
 

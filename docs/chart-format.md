@@ -110,6 +110,15 @@ Axis text (tick labels, the margin they need, how far a category label is cut be
 - **Ticks and thinning.** The y (and y2) tick values come from the one shared corpus `tests/fixtures/charts/ticks.json`, which both the browser control and the server renderer are tested against. X-label thinning is per renderer: each thins with its own measured widths, so the two may keep different labels.
 - **Limits.** A chart at the format limits (2000 values over 8 series, a log y axis, 5 annotations) draws in well under half a second, and a PNG over 8 MB is refused with `ChartImageError`.
 
+## On chat platforms
+
+A reply sent to Discord or Telegram turns each closed top-level ```` ```chart ```` block that parses
+into a marker line and an image (see "Images"); the first 10 per reply are drawn, and a chart that
+is invalid, unterminated, beyond the 10th or fails to draw stays as its source. Only top-level
+blocks convert: a chart fence nested in a quote or a list is sent as its source text (a documented
+residual). The conversion is `the_one/visuals/outbound.py`; see `the_one/connectors/README.md`
+"Visuals on platforms".
+
 ## Error sentences
 
 A text that breaks a rule is refused with one plain sentence, naming the series or key when there is one. The first error found wins, checking in this order: JSON syntax; object shape; `type`; `title`; `stacked`; the axes `x`, `y`, `y2` (inside an axis: `label`, `unit`, `scale`, `min`, `max`, then `x.values`); each series in turn; the cross-series checks (pie series count, duplicate names, length against `x`, nothing to draw, pie values, log-scale values, stacking on a log scale); `annotations`; and last the limits (values, categories, series, slices, annotations). The examples below are the exact sentences the corpus pins; `{n}`-style numbers, series names and axis names vary with the input, and a series without a name is called `Series 1`, `Series 2` and so on.

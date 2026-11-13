@@ -8,11 +8,20 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from the_one.connectors import base
-from the_one.connectors.telegram._api import DEFAULT_BASE_URL, TelegramApiClient, TelegramApiError
+from the_one.connectors.base import OutboundImage
+from the_one.connectors.telegram import _api as _api_mod
+from the_one.connectors.telegram._api import (
+    _MAX_RETRY_AFTER_SECONDS,
+    _PHOTO_RETRY_AFTER_SECONDS,
+    DEFAULT_BASE_URL,
+    TelegramApiClient,
+    TelegramApiError,
+)
 from the_one.connectors.telegram._render import render_telegram_html
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
@@ -21,6 +30,17 @@ logger = logging.getLogger(__name__)
 
 _POLL_TIMEOUT = 50  # DD-2: getUpdates(timeout=50, allowed_updates=["message"])
 _LIVENESS_GRACE_SECONDS = 10.0  # is_alive() window: 2*POLL_TIMEOUT+GRACE
+# M35 F3 DD10: the photos of one reply (and their per-photo fallback texts) get 45 s, well
+# under the 110 s liveness window, because the send runs inside the poll task.
+_PHOTO_BUDGET_SECONDS = 45.0
+_CAPTION_MAX = 1024
+
+
+def _caption(title: str) -> str:
+    """A photo caption: the title cut to 1024 code points, an ellipsis when cut."""
+    if len(title) <= _CAPTION_MAX:
+        return title
+    return title[: _CAPTION_MAX - 1] + "…"
 
 
 @dataclass
@@ -137,6 +157,112 @@ class TelegramClient:
         return last is None or time.monotonic() - last <= window
 
     async def send(self, target: base.SendTarget, content: str) -> base.SendResult:
+        return await self._send_text(target, content, max_retry_after=_MAX_RETRY_AFTER_SECONDS)
+
+    async def send_visual_fallback(self, target: base.SendTarget, content: str) -> base.SendResult:
+        """The text resend after a failed image: the ``send`` path, 429 wait clamped to 10 s."""
+        return await self._send_text(target, content, max_retry_after=_PHOTO_RETRY_AFTER_SECONDS)
+
+    @staticmethod
+    def _chat_and_thread(target: base.SendTarget) -> tuple[str, str | None]:
+        if isinstance(target, base.PeerTarget):
+            return target.peer_id, None
+        return target.channel_id, target.thread_id
+
+    async def send_visual(
+        self, target: base.SendTarget, content: str, images: Sequence[OutboundImage]
+    ) -> base.SendResult:
+        """The text (exactly as ``send``), then one captioned ``sendPhoto`` per image.
+
+        The photos and their per-photo fallback texts share a 45 s budget (``_PHOTO_BUDGET_
+        SECONDS``) that sits under the 110 s liveness window, because the whole send runs
+        inside the poll task. A text failure propagates before any photo. After that nothing
+        raises: a photo refused with a 4xx sends that image's source as text straight after
+        it; a 5xx, a transport error or a budget timeout may have posted it, so it is skipped;
+        images the budget never reached go out as one text. (M35 F3 DD7/DD10.)
+        """
+        if not images:
+            raise ValueError("send_visual needs at least one image")
+        text_result = await self.send(target, content)
+        chat_id, thread_id = self._chat_and_thread(target)
+        deadline = _api_mod.monotonic() + _PHOTO_BUDGET_SECONDS
+        sent = 0
+        failed = 0
+        pending: list[int] = []
+        budget_hit = False
+        for idx, image in enumerate(images):
+            if budget_hit or deadline - _api_mod.monotonic() <= 0:
+                pending.append(idx)
+                continue
+            try:
+                await self._api.send_photo(
+                    chat_id=chat_id,
+                    photo=image.data,
+                    filename=image.filename,
+                    caption=_caption(image.title),
+                    message_thread_id=thread_id,
+                    deadline=deadline,
+                )
+                sent += 1
+            except TimeoutError:
+                failed += 1
+                budget_hit = True
+                self._log_skip([idx], "budget", chat_id)
+            except base.ConnectorClientError as exc:
+                failed += 1
+                status = getattr(exc, "status", None)
+                if status is None or not 400 <= status < 500:
+                    self._log_skip([idx], status if status is not None else "transport", chat_id)
+                    continue
+                self._log_skip([idx], status, chat_id, action="falling back to text")
+                remaining = deadline - _api_mod.monotonic()
+                if remaining <= 0:
+                    pending.append(idx)
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        self.send_visual_fallback(target, image.fallback), remaining
+                    )
+                except TimeoutError:
+                    budget_hit = True
+                    self._log_skip([idx], "budget", chat_id, action="text resend timed out")
+                except base.ConnectorClientError as fb_exc:
+                    self._log_skip(
+                        [idx],
+                        getattr(fb_exc, "status", None) or "transport",
+                        chat_id,
+                        action="text resend failed",
+                    )
+        if pending:
+            failed += len(pending)
+            self._log_skip(pending, "budget", chat_id, action="falling back to text")
+            joined = "\n\n".join(images[i].fallback for i in pending)
+            try:
+                await self.send_visual_fallback(target, joined)
+            except base.ConnectorClientError as exc:
+                self._log_skip(
+                    pending,
+                    getattr(exc, "status", None) or "transport",
+                    chat_id,
+                    action="text resend failed",
+                )
+        return base.SendResult(
+            platform_message_id=text_result.platform_message_id,
+            details={"images_sent": sent, "images_failed": failed},
+        )
+
+    @staticmethod
+    def _log_skip(
+        indices: list[int], why: object, chat_id: str, *, action: str = "skipped"
+    ) -> None:
+        # Never the image bytes, title, caption or fallback text.
+        logger.warning(
+            "telegram visual: images %s %s (%s) in chat %s", indices, action, why, chat_id
+        )
+
+    async def _send_text(
+        self, target: base.SendTarget, content: str, *, max_retry_after: float
+    ) -> base.SendResult:
         # DD-2: PeerTarget -> chat_id=peer_id (Telegram DM chat id IS the
         # user id, no Create-DM step); ChannelTarget -> chat_id+thread.
         # HAT step 8 (Mission 23 Flight 4): formatted rendering, with a
@@ -163,6 +289,7 @@ class TelegramClient:
                     text=rendered,
                     message_thread_id=thread_id,
                     parse_mode="HTML",
+                    max_retry_after=max_retry_after,
                 )
                 return base.SendResult(platform_message_id=str(result.get("message_id", "")))
             except TelegramApiError as exc:
@@ -184,7 +311,10 @@ class TelegramClient:
                 )
 
         result = await self._api.send_message(
-            chat_id=chat_id, text=content, message_thread_id=thread_id
+            chat_id=chat_id,
+            text=content,
+            message_thread_id=thread_id,
+            max_retry_after=max_retry_after,
         )
         return base.SendResult(platform_message_id=str(result.get("message_id", "")))
 

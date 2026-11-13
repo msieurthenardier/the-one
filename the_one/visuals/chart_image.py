@@ -75,7 +75,8 @@ REF_DASH = (4, 3)
 # no-break spaces), so those draw and measure as an ordinary space instead of a missing box.
 _SPACES = str.maketrans({" ": " ", " ": " ", " ": " "})
 
-_LOCK = threading.Lock()
+# Re-entrant: render_png holds it and calls measure, which takes it too.
+_LOCK = threading.RLock()
 
 
 class ChartImageError(Exception):
@@ -175,11 +176,12 @@ def measure(text: str, size_px: float, weight: str = "regular") -> float:
     The only width source for layout. Never uses a pair or whole-string measurement, so a
     kern table (or any other table) cannot make a width depend on the font file's tables.
     """
-    fonts = _fonts()
-    total = 0.0
-    for ch in str(text).translate(_SPACES):
-        total += fonts.advance(ch, weight)
-    return total * size_px / fonts.units[weight]
+    with _LOCK:
+        fonts = _fonts()
+        total = 0.0
+        for ch in str(text).translate(_SPACES):
+            total += fonts.advance(ch, weight)
+        return total * size_px / fonts.units[weight]
 
 
 def _cps(text: str) -> list:

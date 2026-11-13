@@ -145,6 +145,13 @@ widgets with the same source in the same transcript (the second copy of a widget
 chat exposes it as `data-widget-key`. The hang guard uses it to recognise the same widget after a
 reload. A reply that is streamed and the same reply opened later get the same keys.
 
+## On chat platforms
+
+A widget cannot run on Discord or Telegram. A top-level ```` ```widget ```` block, closed or not,
+is replaced in the sent text by one line, "Interactive widget: open this chat in the app to see
+it." Only top-level blocks convert: a widget fence nested in a quote or a list is sent as its
+source text (a documented residual). See `the_one/connectors/README.md` "Visuals on platforms".
+
 ## Conformance
 
 The frame, the card and the manager are `js/ui/widget-frame.js`, `js/ui/widget.js` and

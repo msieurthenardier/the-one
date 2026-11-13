@@ -353,6 +353,87 @@ real platform, not gated like the stub.
 - **Controlled-disconnect test seam**: see "Test seams" below — this is a
   test-only hook, never reachable in production traffic.
 
+## Visuals on platforms (Mission 35 Flight 3)
+
+A reply's top-level chart and widget blocks are converted on the way out by one shared helper,
+`delivery.send_reply(client, target, content, *, connector_id)`, used by both send paths
+(`deliver_final_reply` and `send_to_platform_channel`). It returns `(result, images_sent)`; the tool
+appends ` (1 image)` / ` (N images)` to its success line when `images_sent > 0`.
+
+- **What converts.** `the_one/visuals/blocks.py::find_blocks` finds top-level fenced blocks (the chat's
+  fence rule, held equal to the evals finder by `tests/fixtures/visual-blocks/replies.json`);
+  `visuals/outbound.py::plan_outbound` plans the reply. A closed chart `parse_chart` accepts becomes
+  a candidate (the first 10; later ones stay as code); every widget block, closed or not, becomes
+  the one-line note "Interactive widget: open this chat in the app to see it."; a drawn chart
+  becomes a marker line `Chart: {title} (below)` (or `Chart {n} (below)`). With nothing to convert
+  the call is exactly `client.send(target, content)`. The Rich visuals switch is never consulted.
+- **Drawing** runs in one `asyncio.to_thread` call (`chart_image.render_png`); a chart that fails to
+  draw stays as its source block and logs one "falling back to text" warning (index and connector id, never its data).
+- **Two OPTIONAL client methods**, found with `getattr` like `history`: `send_visual(target, content,
+  images: Sequence[OutboundImage]) -> SendResult` (`details` may carry `images_sent` and
+  `images_failed`) and `send_visual_fallback(target, content) -> SendResult` (the text resend under
+  the client's clamped 429 policy; `send` is used without it). A client with no `send_visual` gets the
+  fallback text: charts as code, widgets as the note.
+- **Error contract.** `send_visual` raises `VisualUploadError` (a `ConnectorClientError`, in `base.py`)
+  **only when nothing of the reply was posted** (a 4xx before anything went out); the helper then
+  resends the fallback text once. Any later failure of an image is the client's own per-image
+  fallback, and any other failure is a plain `ConnectorClientError` that propagates (never resent), so
+  the text is never duplicated. `OutboundImage` (`visuals/outbound.py`) is re-exported by `base.py`.
+- **Stub.** `StubClient.send_visual` records a `StubVisualRecord`, a tuple subclass of
+  `(target, content)` with `.images`, so every existing reader keeps working (`==` ignores `.images`;
+  assert it explicitly). `StubPlugin.send_visual_should_raise` fails only the visual path. The route
+  `GET /api/_test/stub/outbound` adds `images: [{filename, title, width, height, size, sha256}]`
+  (no bytes) to a record that carries images, and nothing to a text record.
+- **Residual: nested blocks.** A chart or widget fence inside a quote or a list is not a top-level
+  block (as in the chat), so it is sent as its source text.
+- **Cap and limits.** At most 10 images per reply (Discord's attachment limit); long text is not split.
+
+### Discord and Telegram uploads (M35 F3 Leg 4)
+
+- **Discord** `send_visual` posts ONE `multipart/form-data` message to `/channels/{id}/messages`: a
+  `payload_json` part (`Content-Type: application/json`: `content` plus `attachments[{id, filename,
+  description}]`, the description being the chart title cut to 1024) and one `files[i]` part per image
+  (`image/png`). A 4xx (400, a 413 over the size limit, or a 429 after its one retry) raises
+  `VisualUploadError` and the helper resends the text through `send_visual_fallback`
+  (`create_message(clamped=True)`); a 5xx raises `DiscordRestError` and a transport failure
+  `DiscordTransportError`, both propagate and nothing is resent (the message may have gone). Over-long
+  content is a 400 and so takes the fallback, which fails the same way: message splitting is out of scope.
+- **Telegram** `send_visual` sends the text exactly as `send` does (HTML, then the plain retry), then one
+  `sendPhoto` (multipart, caption = the title cut to 1024 characters with an ellipsis, no `parse_mode`) per
+  image in order, to the same chat and thread. A text failure propagates before any photo. After that
+  nothing raises: a photo refused with a 4xx (a 413, a dimension limit, a 429 after its retry, or a
+  401/404/409) sends that image's source as a follow-up text straight after it; a 5xx, a transport error
+  or a budget timeout may have posted it, so it is logged and skipped with no fallback; the rest are still
+  attempted. Images the budget never reached go out as ONE text (their sources joined by a blank line).
+  `SendResult.details` carries `images_sent` and `images_failed`.
+- **429 policy.** Both visual paths (the Discord multipart POST and fallback, Telegram `sendPhoto` and
+  the fallback text) retry a 429 at most once after `min(retry_after, 10)` seconds. Plain `send` /
+  `create_message` / `send_message` keep their policy (Discord 3 retries unclamped, Telegram one retry
+  clamped to 60 s). Telegram's retry lives in one function, `_post_with_429_retry`.
+- **The 45 s photo budget.** The Telegram photos and their per-photo fallback texts share
+  `_PHOTO_BUDGET_SECONDS = 45`, enforced by `asyncio.wait_for` on the time left (httpx's `timeout` limits
+  each phase, not the request) plus a per-request `timeout=min(15, remaining)`. A 429 whose clamped wait
+  is not under the time left is not slept on: it is a 4xx and takes the fallback. It sits under the 110 s
+  liveness window (`2 * 50 + 10`) because the whole send runs inside the poll task. **Residual:** the text
+  send's own worst case (an HTML attempt and a plain retry, each with up to a 60 s 429 wait) predates this
+  and can already exceed 110 s, and the final pending-images text adds at most one 10 s-clamped request.
+- **Upload limits.** Each platform's own limits (Discord's per-message size, Telegram's 10 MB and its
+  dimension limits) surface as a 4xx and so take the fallbacks above.
+- **Transport errors.** An `httpx.HTTPError` during any request is now `DiscordTransportError` /
+  `TelegramTransportError`, siblings (not subclasses) of `DiscordRestError` / `TelegramApiError`, so
+  `TelegramClient.send`'s plain-text retry (any `TelegramApiError`) does not run after a timeout and
+  post a reply twice. The Telegram mapping raises `from None` and names only the exception type, since
+  the bot token is in the URL path. Side effects: the connector `doctor` on both platforms now reports
+  "failed" on a transport failure instead of raising, and `send_to_platform_channel` returns
+  `[error] DiscordTransportError: ...` / `[error] TelegramTransportError: ...`. Errors built from a
+  response carry `.status`, which the fallback rules read (4xx: not posted; 5xx or none: maybe posted).
+- **Logging.** Each fallback event is exactly one WARNING containing "falling back to text" (the
+  Discord refusal is logged by `send_reply` alone, with the chart indices, connector id, client class
+  and HTTP status; the Discord plugin's own line is DEBUG), and a skip (a 5xx, transport error or budget
+  timeout that may have posted) is one warning that does not say "fallback". Each carries the image
+  indices, the status (or `transport` / `budget`) and the chat id; never the bytes, title, caption,
+  fallback text, the exception text or the platform's response body.
+
 ## Test seams (DD-10, DD-7)
 
 `POST /api/_test/stub/inbound` and `GET /api/_test/stub/outbound`
@@ -364,6 +445,19 @@ with real LLM calls and tool execution (purge-sweep's risk profile, not the
 inert-metadata OAuth-pending seam's) — never available outside a
 dev/test instance. See `tests/behavior/stub-connector-round-trip.md` for the
 end-to-end HAT that exercises them against a real agent loop.
+
+**Fake-platforms seam (M35 F3 L6).** `THE_ONE_FAKE_PLATFORMS_URL=http://<loopback IP>:<port>`,
+with `THE_ONE_DEV_MODE=true`, makes the lifespan register the Discord and Telegram plugins with
+URLs under that base (`/discord/api/v10`, the explicit `ws://…/discord/gateway`, `/telegram`), so
+the real clients talk to `scripts/fake_platforms.py`. It is read from the process environment only
+(not `.env`, not a `Settings` field), is ignored silently with `dev_mode` off, and accepts only an
+`http` URL with a loopback IP literal (`127.0.0.1`, `[::1]`), an explicit port, no userinfo, path,
+query or fragment (`fake_platforms_seam.py`; `localhost` and other names are refused because DNS
+is not trusted, and a bot token must never leave the machine through it). A refusal logs one error
+with the reason, the scheme and the host only, and the real URLs are used; a valid value logs one
+warning, "connectors use the fake platforms at http://127.0.0.1:P". Residual: the fakes prove what
+the app sends, not what Discord or Telegram show. The stub route's outbound records also carry an
+`images` list (see above). End-to-end use: `tests/behavior/charts-reach-platforms.md`.
 
 `POST /api/_test/discord/sever` (Mission 23 Flight 3 Leg 3, DD-7) requires
 **both** `settings.dev_mode` and `THE_ONE_DISCORD_TEST_ENDPOINT=1` — its own
@@ -377,6 +471,20 @@ free). Body: `{"connector_id": "..."}`. Error taxonomy: unknown connector
 client present but no hook (e.g. a stub-typed connector) → 501. Never a
 production kill switch. See `tests/behavior/discord-live-round-trip.md`'s
 step 6 for the end-to-end resume proof this seam drives.
+
+### Fake platforms (developer tool, M35 F3 Leg 5)
+
+`scripts/fake_platforms.py` is a standalone, loopback-only fake of the Discord REST API and gateway
+and the Telegram Bot API (`the_one/` never imports it). It records every send the app makes (JSON
+bodies, multipart fields, and per file the size, SHA-256 and PNG dimensions, never the bytes, and
+never the Telegram token), injects inbound messages (`/_control/discord/inject`,
+`/_control/telegram/inject`) and fails chosen sends (`/_control/fail-next`, kind `upload` or `any`).
+It proves what the app sends, not what a platform shows, and models no size limits. Differences
+from the real services: the first `getUpdates` after a `getMe` answers at once (so `connect()`
+resolves), later empty polls are held; READY carries no `resume_gateway_url`, so the Discord
+client always re-IDENTIFYs. Start it with `.venv/bin/python scripts/fake_platforms.py` (first
+stdout line `{"port": P, "pid": N}`; `--port` 0 or at least 8490, `--save-dir` outside the repo,
+`--heartbeat-ms`). Leg 6 adds the app seam that points the real clients at it.
 
 ## Telegram (Flight 4)
 

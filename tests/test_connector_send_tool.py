@@ -555,3 +555,116 @@ def test_keying_to_target_channel_takes_priority_over_peer() -> None:
     assert keying_to_target(session) == ChannelTarget(
         connector_id="c1", channel_id="ch-1", thread_id=None
     )
+
+
+# --- M35 F3 L3: visuals through the send tool and the stub ---------------------------------
+
+
+def _visual_chart(title: str) -> str:
+    import json
+
+    spec = {
+        "type": "bar",
+        "title": title,
+        "x": {"values": ["a", "b"]},
+        "series": [{"values": [1, 2]}],
+    }
+    return "```chart\n" + json.dumps(spec) + "\n```\n"
+
+
+async def _stub_connector(conn_repo) -> None:
+    connector = Connector(id="c1", name="t", type="stub", config={"default_agent": "agent-a"})
+    await conn_repo.create(connector)
+    await _connected_manager(connector)
+
+
+async def test_send_tool_with_charts_reports_images_and_records_them(conn_repo) -> None:
+    await _stub_connector(conn_repo)
+    content = "look\n" + _visual_chart("One") + _visual_chart("Two")
+    result = await _tool("agent-a").execute(
+        target={"connector_id": "c1", "channel_id": "ch-1"}, content=content
+    )
+    assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+    assert result.endswith("(msg_id=stub-msg-id) (2 images)")
+    (rec,) = StubPlugin.outbound_records
+    assert rec[1].startswith("look\n\U0001f4ca Chart: One (below)\n")
+    assert [i.title for i in rec.images] == ["One", "Two"]
+    assert all(i.data.startswith(b"\x89PNG") for i in rec.images)
+
+
+async def test_send_tool_one_image_is_singular(conn_repo) -> None:
+    await _stub_connector(conn_repo)
+    result = await _tool("agent-a").execute(
+        target={"connector_id": "c1", "channel_id": "ch-1"}, content=_visual_chart("One")
+    )
+    assert result.endswith("(msg_id=stub-msg-id) (1 image)")
+
+
+async def test_send_tool_plain_text_string_is_unchanged(conn_repo) -> None:
+    await _stub_connector(conn_repo)
+    result = await _tool("agent-a").execute(
+        target={"connector_id": "c1", "channel_id": "ch-1"}, content="hi"
+    )
+    assert result == f"{PLATFORM_SEND_OK_PREFIX} sent to c1:ch-1: 'hi' (msg_id=stub-msg-id)"
+    assert StubPlugin.outbound_records == [
+        (ChannelTarget(connector_id="c1", channel_id="ch-1"), "hi")
+    ]
+    assert not hasattr(StubPlugin.outbound_records[0], "images")
+
+
+async def test_send_tool_upload_error_then_failed_resend_is_an_error_string(conn_repo) -> None:
+    from the_one.connectors.base import ConnectorClientError, VisualUploadError
+
+    await _stub_connector(conn_repo)
+    StubPlugin.send_visual_should_raise = VisualUploadError("HTTP 400")
+    result = await _tool("agent-a").execute(
+        target={"connector_id": "c1", "channel_id": "ch-1"}, content=_visual_chart("One")
+    )
+    # the text resend through plain send succeeded: no image, today's success form
+    assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+    assert "image" not in result.split("(msg_id")[1]
+    StubPlugin.send_should_raise = ConnectorClientError("down")
+    result = await _tool("agent-a").execute(
+        target={"connector_id": "c1", "channel_id": "ch-1"}, content=_visual_chart("One")
+    )
+    assert result == "[error] ConnectorClientError: down"
+
+
+async def test_stub_visual_record_is_a_tuple_for_every_reader() -> None:
+    from the_one.connectors.stub import StubClient, StubVisualRecord
+    from the_one.visuals.outbound import OutboundImage
+
+    img = OutboundImage("chart-1.png", b"x", "T", 1, 1, "```chart\n```")
+    t = ChannelTarget(connector_id="c", channel_id="h")
+    rec = StubVisualRecord(t, "txt", [img])
+    assert isinstance(rec, tuple) and rec.images == (img,)
+    a, b = rec
+    assert (a, b) == (t, "txt")
+    assert rec == (t, "txt")
+    assert rec[0] is t and rec[1] == "txt" and rec[:1] == (t,) and len(rec) == 2
+
+    client = StubClient("acct")
+    StubPlugin.outbound_records.append((t, "plain"))
+    result = await client.send_visual(t, "with", [img])
+    assert result.details == {"images_sent": 1, "images_failed": 0}
+    assert [c for _, c in StubPlugin.outbound_records] == ["plain", "with"]
+    assert StubPlugin.outbound_records[1].images == (img,)
+    assert StubPlugin.outbound_records[:1] == [(t, "plain")]
+    StubPlugin.outbound_records.clear()
+    assert StubPlugin.outbound_records == []
+
+
+async def test_stub_send_visual_raise_order_and_reset() -> None:
+    from the_one.connectors.stub import StubClient
+
+    client = StubClient("acct")
+    t = ChannelTarget(connector_id="c", channel_id="h")
+    StubPlugin.send_visual_should_raise = RuntimeError("visual")
+    with pytest.raises(RuntimeError, match="visual"):
+        await client.send_visual(t, "x", [])
+    StubPlugin.send_should_raise = RuntimeError("send")
+    with pytest.raises(RuntimeError, match="send"):  # send_should_raise wins
+        await client.send_visual(t, "x", [])
+    assert StubPlugin.outbound_records == []
+    StubPlugin.reset_for_test()
+    assert StubPlugin.send_visual_should_raise is None

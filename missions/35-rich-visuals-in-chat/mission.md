@@ -329,7 +329,7 @@ mission's flights unless a later flight takes them:
       script) and ends in an explicit go/no-go before the rest is built.
       It also carries Flight 1's debt (the `chart.js` split, the transcript
       streaming split, the eval re-baseline).
-- [ ] Flight 3: **Visuals on chat platforms.** Pillow as a base dependency, the
+- [x] Flight 3: **Visuals on chat platforms.** Pillow as a base dependency, the
       server-side chart image renderer tested against the shared sample specs,
       an optional attachment-capable send on the connector contract, Discord
       and Telegram image uploads, the stub record that tests can observe, the

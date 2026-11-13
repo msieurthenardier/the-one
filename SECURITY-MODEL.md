@@ -587,6 +587,19 @@ here.
   operator's decision of 2026-11-11. The removal is pinned by AST canaries on pywebview's GTK and
   Cocoa `BrowserView.__init__` so a pywebview upgrade fails in CI first.
 
+### Fake-platforms seam (Mission 35 Flight 3)
+
+`THE_ONE_FAKE_PLATFORMS_URL` redirects the Discord and Telegram clients, and so the bot tokens
+they send, to a local fake (`scripts/fake_platforms.py`). Because a token follows the URL, the
+seam is narrow: it is read from the process environment only (never `.env` or settings), needs
+`THE_ONE_DEV_MODE=true` (with it off the variable is never read), and accepts only an `http` URL
+whose host is a loopback IP literal with an explicit port and no userinfo, path, query or
+fragment; host names, including `localhost`, and IPv4-mapped IPv6 are refused. The gateway URL is
+passed explicitly, so the client never follows one the fake returns. A refusal logs only the
+reason, scheme and host. Residual risks: a process that can set the environment of a dev instance
+can already do worse; a loopback port is reachable by any local process, so run the fake only on
+a disposable instance; and the fakes prove what the app sends, not what the platforms show.
+
 ## Connector Channel Contract (Mission 23 Flight 2)
 
 The connector subsystem (`the_one/connectors/`) bridges external chat
