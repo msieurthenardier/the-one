@@ -1,6 +1,6 @@
 # Mission: Rich Visuals in Chat
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -134,25 +134,25 @@ designs re-verify line numbers):
 
 ## Success Criteria
 
-- [ ] **Charts appear in the app.** An agent reply can carry a chart (bar,
+- [x] **Charts appear in the app.** An agent reply can carry a chart (bar,
       line, area, scatter, pie, sparkline) that the chat draws in place, in
       the current theme, following a theme change without a reload. Each chart
       has a text alternative a screen-reader user can read (its title and
       data).
-- [ ] **Live visuals run in the app, walled off.** An agent reply can carry a
+- [x] **Live visuals run in the app, walled off.** An agent reply can carry a
       live visual (animation or interactive widget) that runs inside the reply.
       It cannot reach the network, read or change anything in the app, use the
       app's credential, open windows or navigate the app. The boundary and its
       remaining risks are written up in the security model.
       *(Behavior-test-backed: the escape attempts are proved against the real
       app.)*
-- [ ] **A visual appears when it is ready.** While a visual's block is still
+- [x] **A visual appears when it is ready.** While a visual's block is still
       streaming, the reply shows the raw block under a "Rendering" label with
       the same animated dots as "Thinking…". When the block completes, the
       visual replaces it. A block the app cannot draw shows a plain error with
       the source under "Technical details". Copy reply still copies the
       original text.
-- [ ] **Long chats stay responsive.** Reopening a chat with many live visuals
+- [x] **Long chats stay responsive.** Reopening a chat with many live visuals
       does not start them all: a live visual starts when it comes into view
       and pauses when it leaves (resuming where it was when it returns), the
       number running at once is capped, and so is the number kept loaded (the
@@ -163,16 +163,16 @@ designs re-verify line numbers):
       *(Amended 2026-11-09 at Flight 2 planning, operator decision: pause off
       screen instead of stop and restart. Pause is cooperative; unloading is
       the enforcement.)*
-- [ ] **Operators choose per agent.** The agent's General tab has a "Rich
+- [x] **Operators choose per agent.** The agent's General tab has a "Rich
       visuals" switch, on for new agents and for agents that already exist.
       When it is on, the agent is told how to write visuals. When it is off,
       the agent is not told, but any visual block in its replies still renders.
-- [ ] **The prompt cost is measured and accepted.** The description of the
+- [x] **The prompt cost is measured and accepted.** The description of the
       formats goes only to agents with the switch on. Its token cost is
       measured, an eval comparison against the current platform baseline shows
       no pass-rate regression, and the size increase is recorded as an
       operator-accepted exception or a new baseline.
-- [ ] **Charts reach chat platforms as images.** When a reply with a chart goes
+- [x] **Charts reach chat platforms as images.** When a reply with a chart goes
       out through Discord or Telegram (an automatic reply or the agent's own
       send), the chart arrives as an image and the rest of the text arrives as
       before. A live visual arrives as a short note pointing to the app. The
@@ -182,11 +182,14 @@ designs re-verify line numbers):
       trip runs against local fake Discord and Telegram servers, not live bots
       ("we can't really control what they see, we can only control what we
       send"). What the platforms show is a recorded residual.)*
-- [ ] **Chart images work on every install.** Any install of the app, packaged
+- [x] **Chart images work on every install.** Any install of the app, packaged
       or not, can draw chart images, with the same text rendering on Windows,
       Linux and macOS.
 - [ ] **Visuals work in the desktop app.** Charts and live visuals render and
       behave the same in the desktop window on each platform as in a browser.
+      *(Partly met, operator-accepted at the 2026-11-13 debrief: WebKitGTK and
+      WebView2 were walked in both themes; macOS WKWebView was only probed by
+      the hosted run. The macOS and WebView2 checks are Follow-ups.)*
 
 ## Stakeholders
 
@@ -293,9 +296,24 @@ enforcement.)*
 
 ## Known Issues
 
-*(none yet)*
+Accepted residuals at the mission close (2026-11-13; see [mission-debrief.md](mission-debrief.md)):
+- **Platform rendering.** What Discord and Telegram show a reader is unproven. Delivery was proved against local fakes; a platform-side change surfaces as an upload error and falls back to text (SECURITY-MODEL.md, connectors README).
+- **macOS desktop.** WKWebView was only probed by the hosted run. No chart screenshot was taken, and no widget was seen animating.
+- **Live widgets** (SECURITY-MODEL.md "Live visuals"):
+  - a WebKit freeze once per busy-looping widget;
+  - "Start anyway" can hang on some Chromium hosts;
+  - a first-scroll shift per unseen card;
+  - Pause does not block input.
+- **Nested visual blocks** inside a quote or a list item go out to platforms as source.
+- **Server chart text** has no kerning; CJK and emoji draw as missing-glyph boxes in images (the title still goes out as text).
+- **Small local models** almost never write widgets, so live widgets serve Haiku-class models in practice.
+- **Telegram replies are delivered inside the poll task.** A slow send can exceed the 110 s liveness window. This predates the mission and is a design decision for the next one.
 
 ## Follow-ups (not scheduled)
+
+Added at the mission debrief (2026-11-13), from the dropped Flight 4 (Alignment):
+- **Visual tuning with the operator:** palette, sizing, spacing and animation feel.
+- **Server and browser chart text side by side.** Measure the cosmetic gap left by server text having no kerning.
 
 Recorded at Flight 2 planning (2026-11-09, operator decision), outside this
 mission's flights unless a later flight takes them:
@@ -335,5 +353,7 @@ mission's flights unless a later flight takes them:
       and Telegram image uploads, the stub record that tests can observe, the
       live-visual note, one shared conversion step for the automatic reply and
       the agent's send tool, and the font check on all three platforms.
-- [ ] Flight 4 *(optional)*: **Alignment.** A hands-on session tuning palette,
-      sizing, spacing and animation feel with the operator.
+- [ ] ~~Flight 4 *(optional)*: **Alignment.** A hands-on session tuning palette,
+      sizing, spacing and animation feel with the operator.~~ *Dropped
+      2026-11-13 at the mission debrief, operator decision. Its items moved
+      to Follow-ups.*
