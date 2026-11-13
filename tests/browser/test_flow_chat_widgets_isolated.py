@@ -12,10 +12,12 @@ only (it launches its own browser and skips cleanly when the isolation cannot be
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 
 import pytest
 from browser import _chats, _nav
+from browser._ui_engines import isolated_chromium_policy
 from browser.seeders import seed_mock_agent, seed_mock_provider, seed_session
 from playwright.sync_api import Browser, Page, expect
 
@@ -50,19 +52,34 @@ PROBE_PAGE = (
 
 @pytest.fixture(scope="module")
 def browser(playwright_instance) -> Iterator[Browser]:  # noqa: ANN001
+    def decide(problem: str | None) -> None:
+        r = isolated_chromium_policy(os.environ, problem)
+        if r.kind == "fail":
+            pytest.fail(r.reason)
+        if r.kind == "skip":
+            pytest.skip(r.reason)
+
     try:
         b = playwright_instance.chromium.launch(headless=True, args=ARGS)
     except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"cannot launch an isolating Chromium: {exc}")
+        decide(f"cannot launch an isolating Chromium: {exc}")
+        raise
     # The test is vacuous unless the isolation really gives an early child width of 0.
     probe = b.new_page()
     probe.set_content(PROBE_PAGE)
     probe.wait_for_timeout(800)
     early = probe.evaluate("() => window.res[0]")
     probe.close()
-    if early != 0:
+    problem = (
+        None
+        if early == 0
+        else f"this Chromium does not isolate sandboxed frames (early width {early})"
+    )
+    try:
+        decide(problem)
+    except BaseException:
         b.close()
-        pytest.skip(f"this Chromium does not isolate sandboxed frames (early width {early})")
+        raise
     yield b
     b.close()
 

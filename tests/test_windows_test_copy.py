@@ -445,6 +445,58 @@ def test_scrub_env_removes_inherited_and_sets_cdp_only_on_request() -> None:
     assert "WEBVIEW2_USER_DATA_FOLDER" not in env2
 
 
+def test_scrub_env_dev_mode_is_explicit_opt_in() -> None:
+    inherited = {"PATH": "x", "THE_ONE_DEV_MODE": "true"}
+    assert "THE_ONE_DEV_MODE" not in h.scrub_env(inherited, 8490, DATA, None)
+    assert h.scrub_env(inherited, 8490, DATA, None, dev_mode=True)["THE_ONE_DEV_MODE"] == "true"
+
+
+class _ReachedError(Exception):
+    pass
+
+
+def _patch_launch(monkeypatch, live, stops):
+    state = {"live": live}
+    monkeypatch.setattr(h, "_require_ok_root", lambda root: None)
+    monkeypatch.setattr(h, "_validate_dirs_and_ports", lambda a, need_ports: {})
+    monkeypatch.setattr(h, "_env_file_refusal", lambda a, op: None)
+    monkeypatch.setattr(h, "proc_table", lambda: {})
+    monkeypatch.setattr(h, "_tree_ids", lambda root: ["main"])
+    monkeypatch.setattr(h, "_refresh", lambda root, tid, table=None: ({}, state["live"]))
+
+    def fake_stop(a):
+        stops.append(a)
+        state["live"] = []
+        return {"stopped": [{"tree_id": a["tree_id"], "complete": True}]}
+
+    def reached(a):
+        raise _ReachedError
+
+    monkeypatch.setattr(h, "op_stop", fake_stop)
+    monkeypatch.setattr(h, "op_hands_off", reached)
+
+
+def _launch_args():
+    return {"root": "C:\\r", "tree_id": "main", "data_dir": DATA, "port": 8490}
+
+
+def test_launch_stops_a_watchdog_left_after_the_app_exited(monkeypatch) -> None:
+    stops: list[dict] = []
+    _patch_launch(monkeypatch, [{"pid": 9, "role": "watchdog"}], stops)
+    with pytest.raises(_ReachedError):
+        h.op_launch(_launch_args())
+    assert [s["tree_id"] for s in stops] == ["main"] and stops[0]["actor"] == "helper"
+
+
+def test_launch_still_refuses_a_tree_whose_app_is_live(monkeypatch) -> None:
+    stops: list[dict] = []
+    live = [{"pid": 9, "role": "watchdog"}, {"pid": 8, "role": "app"}]
+    _patch_launch(monkeypatch, live, stops)
+    with pytest.raises(h.HelperError, match="still live"):
+        h.op_launch(_launch_args())
+    assert stops == []
+
+
 def test_parse_doctor() -> None:
     out = (
         "the-one doctor\n  child spawn: OK — x\n  usearch: OK — y\n  fts5: OK — z\n"
