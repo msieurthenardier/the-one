@@ -592,3 +592,36 @@ async def test_stub_outbound_seam_renders_recorded_sends(client: AsyncClient, st
     assert records == [
         {"connector_id": "c1", "channel_id": "ch-1", "peer_id": None, "content": "hello there"}
     ]
+
+
+async def test_stub_outbound_seam_lists_images_only_for_visual_records(
+    client: AsyncClient, stub_gate
+) -> None:
+    import hashlib
+
+    from the_one.connectors.stub import StubVisualRecord
+    from the_one.visuals.outbound import OutboundImage
+
+    data = b"\x89PNG-bytes"
+    img = OutboundImage("chart-1.png", data, "Revenue", 640, 300, "```chart\n```")
+    target = ChannelTarget(connector_id="c1", channel_id="ch-1")
+    StubPlugin.outbound_records.append((target, "plain"))
+    StubPlugin.outbound_records.append(StubVisualRecord(target, "with chart", [img]))
+    records = (await client.get("/api/_test/stub/outbound")).json()["records"]
+    assert records[0] == {
+        "connector_id": "c1",
+        "channel_id": "ch-1",
+        "peer_id": None,
+        "content": "plain",
+    }
+    assert records[1]["images"] == [
+        {
+            "filename": "chart-1.png",
+            "title": "Revenue",
+            "width": 640,
+            "height": 300,
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    ]
+    assert set(records[1]) == {"connector_id", "channel_id", "peer_id", "content", "images"}

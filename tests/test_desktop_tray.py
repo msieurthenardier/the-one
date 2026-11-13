@@ -126,15 +126,17 @@ def shell_module(
 # ── tray.py: lazy-import / icon-path ─────────────────────────────────────────
 
 
-def test_tray_module_imports_without_pystray_installed() -> None:
+def test_tray_module_imports_without_pystray_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Importing desktop.tray without pystray in sys.modules must not raise.
 
     The module uses lazy imports (inside functions), so importing the module
     itself succeeds even when pystray and PIL are absent.
     """
-    # Ensure the modules are absent, then import.
+    # Ensure the modules are absent, then import. monkeypatch.delitem restores them afterwards:
+    # a Pillow dropped for good and imported afresh splits PIL.Image from the PIL.ImageFont and
+    # PIL.ImageDraw that stayed in sys.modules, and chart_image's drawing then fails (M35 F3 L1).
     for name in ("pystray", "PIL", "PIL.Image"):
-        sys.modules.pop(name, None)
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
     # This must not raise ImportError.
     import the_one.interfaces.desktop.tray  # noqa: F401 — side-effect import test

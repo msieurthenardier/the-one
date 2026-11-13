@@ -99,6 +99,7 @@ NEEDLES = (
     "window chrome: OK",
     "time zones: OK",
     "mcp sdk: OK",
+    "chart images: OK",
 )
 
 

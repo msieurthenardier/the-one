@@ -82,7 +82,7 @@ print(json.dumps(score.score_doctor(open(sys.argv[2], errors="replace").read()))
 ' "$HERE/../linux/checks" "$OUT/doctor.txt" > "$OUT/doctor-score.json" 2> "$OUT/doctor-score.err"
 note "doctor score: $(cat "$OUT/doctor-score.json")"
 grep -q '"pass": true' "$OUT/doctor-score.json"; hard "gate 1 doctor" $?
-grep -E "desktop shell|file watcher|window chrome|python interpreter|time zones|mcp sdk" "$OUT/doctor.txt" | while IFS= read -r l; do note "  $l"; done
+grep -E "desktop shell|file watcher|window chrome|python interpreter|time zones|mcp sdk|chart images" "$OUT/doctor.txt" | while IFS= read -r l; do note "  $l"; done
 # strict on top of the score: the three macOS facts leg 5 and leg 4 put in the doctor, by exact text
 grep -qF 'desktop shell: OK — Cocoa backend present' "$OUT/doctor.txt"; hard "doctor: desktop shell is the Cocoa backend" $?
 grep -qF 'tray: dock' "$OUT/doctor.txt"; hard "doctor: tray is dock" $?

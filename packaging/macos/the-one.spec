@@ -81,6 +81,8 @@ for _pkg in ("objc", "Foundation", "AppKit", "WebKit", "Quartz", "Security", "Py
 static_datas = collect_data_files("the_one", includes=["interfaces/web/static/**/*"])
 seed_datas = collect_data_files("the_one", includes=["llm/data/*.json"])
 embedding_datas = collect_data_files("the_one", includes=["embeddings/data/**/*"])
+# Chart-image fonts (M35 F3 L1): the bundled Geist TTFs and their licence.
+font_datas = collect_data_files("the_one", includes=["visuals/fonts/*"])
 tzdata_datas = collect_data_files("tzdata")
 tzdata_hidden = collect_submodules("tzdata")
 tzlocal_hidden = collect_submodules("tzlocal")
@@ -114,6 +116,7 @@ datas = [
     *static_datas,
     *seed_datas,
     *embedding_datas,
+    *font_datas,
     *tzdata_datas,
     *mcp_metadata,
     *uvicorn_datas,

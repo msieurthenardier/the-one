@@ -159,6 +159,7 @@ def test_build_ps1_doctor_needles_are_by_name():
         "window chrome: OK",
         "time zones: OK",
         "mcp sdk: OK",
+        "chart images: OK",
         "desktop shell: OK",
         "child spawn: OK",
     ]

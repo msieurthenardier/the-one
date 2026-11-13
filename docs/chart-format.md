@@ -97,7 +97,27 @@ Display is locale-neutral and defined here, never by the system locale (the desk
 
 ## Text width
 
-Axis text (tick labels, the margin they need, how far a category label is cut before its ellipsis) is sized by the width the text really has. The browser control **measures** it: it appends a probe `<text>` with the label's own class to the chart's live `<svg>`, reads `getComputedTextLength()` and removes it, caching the result by class and string and clearing that cache when the web fonts finish loading. A fixed 6.4 px per code point is only the fallback when measuring is impossible (a detached chart, an error, or a length of 0 for a non-empty string). A server-side renderer (Flight 3) has no browser to ask, so it must size text from the font's own metrics (advance widths for the font it draws with), not from a per-character estimate.
+Axis text (tick labels, the margin they need, how far a category label is cut before its ellipsis) is sized by the width the text really has. The browser control **measures** it: it appends a probe `<text>` with the label's own class to the chart's live `<svg>`, reads `getComputedTextLength()` and removes it, caching the result by class and string and clearing that cache when the web fonts finish loading. A fixed 6.4 px per code point is only the fallback when measuring is impossible (a detached chart, an error, or a length of 0 for a non-empty string). A server-side renderer has no browser to ask, so it sizes text from the font's own metrics (advance widths for the font it draws with), not from a per-character estimate; see "Images" below.
+
+## Images
+
+`the_one/visuals/chart_image.py` (M35 Flight 3) draws any valid chart as a PNG for a chat platform that cannot run the browser control.
+
+- **Look.** Always the light theme (the palette constants equal the `[data-theme="light"]` values in `css/tokens.css`, pinned by a test), on a `--surface` card with a 1-logical-px `--border` edge and rounded corners. Density is 2x: every logical pixel is two image pixels. Shapes are drawn at 4x and reduced, so edges are smooth.
+- **Sizes (logical pixels; the file is twice that).** A cartesian chart or a pie is 640 wide and `240 + 20 * title_rows + 20 * legend_rows` high, so 1280 pixels wide. `title_rows` is 1 when there is a title (one line, semibold 13 px, cut with an ellipsis to the width), else 0. `legend_rows` is 0 when the browser shows no legend (one unnamed series, not a pie), else the number of rows the legend (11 px text, a colour swatch) wraps into at 640; entries flow left to right like `flex-wrap`. A sparkline is 320 wide and `64 + 20 * title_rows` high (the browser's 140 x 32 geometry scaled up), so 640 pixels wide; a titled sparkline gets the title row above it because the image stands alone. The title and legend rows sit outside the 240 of the drawing area, as the browser's caption sits outside its SVG.
+- **Font and text width.** The bundled Geist Regular and SemiBold TTFs (`the_one/visuals/fonts/`, SIL OFL, Geist 1.8.0, SHA-256 pinned by a test) are loaded with Pillow's `BASIC` layout engine, never RAQM, so no host library can change a width. A string's width is the sum of each character's own advance read at `size = unitsPerEm` (the design units) and scaled to the size, and text is drawn one character at a time at the accumulated positions. Widths are therefore a property of the font file on every host, and server text sits slightly wider than the browser's kerned text. The doctor gate `chart images` requires the exact design-unit width of a fixed ASCII string. The thin space before a suffix unit is drawn as an ordinary space (Geist has no glyph for it).
+- **Missing glyphs.** A character Geist lacks (CJK, emoji) draws as the font's missing-glyph box. Because of that, a title also goes out as platform text beside the image.
+- **Ticks and thinning.** The y (and y2) tick values come from the one shared corpus `tests/fixtures/charts/ticks.json`, which both the browser control and the server renderer are tested against. X-label thinning is per renderer: each thins with its own measured widths, so the two may keep different labels.
+- **Limits.** A chart at the format limits (2000 values over 8 series, a log y axis, 5 annotations) draws in well under half a second, and a PNG over 8 MB is refused with `ChartImageError`.
+
+## On chat platforms
+
+A reply sent to Discord or Telegram turns each closed top-level ```` ```chart ```` block that parses
+into a marker line and an image (see "Images"); the first 10 per reply are drawn, and a chart that
+is invalid, unterminated, beyond the 10th or fails to draw stays as its source. Only top-level
+blocks convert: a chart fence nested in a quote or a list is sent as its source text (a documented
+residual). The conversion is `the_one/visuals/outbound.py`; see `the_one/connectors/README.md`
+"Visuals on platforms".
 
 ## Error sentences
 

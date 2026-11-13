@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from the_one.db.models import ChatSession, Connector
 from the_one.encryption import Encryptor
+from the_one.visuals.outbound import OutboundImage  # noqa: F401  (canonical import + re-export)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +132,16 @@ class ConnectorClientError(Exception):
     """Raised by a plugin's send/doctor/history on a platform-side failure."""
 
 
+class VisualUploadError(ConnectorClientError):
+    """Raised by an optional ``send_visual`` ONLY when nothing of the reply was posted.
+
+    The platform answered 4xx before anything went out, so the caller may resend the text
+    fallback once without duplicating anything (M35 F3 DD7/DD8). Once the text has been
+    posted, a failed image is the client's own per-image fallback, never this error; a 5xx
+    or a transport error is a plain ``ConnectorClientError`` and is never resent.
+    """
+
+
 class PermanentConnectorFailure(ConnectorClientError):  # noqa: N818  (leg-1 contract name; subclass of ConnectorClientError)
     """Raised by ``ConnectorPlugin.connect`` when the platform closes the
     connection with a non-reconnectable code (Discord: 4004 authentication
@@ -163,6 +174,17 @@ class ConnectorClient(Protocol):
     # (DD-8) — discovered via ``getattr(client, "history", None)``, NOT
     # declared on this Protocol, so plugins that don't implement it
     # aren't forced to carry a stub method.
+    #
+    # Two more OPTIONAL methods, found the same way (M35 F3 DD8):
+    #   ``send_visual(target, content, images: Sequence[OutboundImage]) -> SendResult``
+    #       sends the text with drawn chart images; ``SendResult.details`` may carry
+    #       ``{"images_sent": n, "images_failed": m}``. It raises ``VisualUploadError`` ONLY
+    #       when nothing of the reply was posted (a 4xx before anything went out); a failure
+    #       after the text was posted is the client's own per-image fallback, and any other
+    #       failure is a plain ``ConnectorClientError`` (never resent).
+    #   ``send_visual_fallback(target, content) -> SendResult``
+    #       the text resend after a ``VisualUploadError``, under the client's clamped
+    #       per-call 429 policy; without it the helper uses ``send``.
 
 
 InboundCallback = Callable[[InboundEnvelope], Awaitable[None]]

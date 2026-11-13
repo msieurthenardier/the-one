@@ -5246,15 +5246,28 @@ async def stub_test_outbound() -> dict[str, Any]:
     from the_one.connectors.stub import StubPlugin
 
     records = []
-    for target, content in StubPlugin.outbound_records:
-        records.append(
-            {
-                "connector_id": getattr(target, "connector_id", None),
-                "channel_id": getattr(target, "channel_id", None),
-                "peer_id": getattr(target, "peer_id", None),
-                "content": content,
-            }
-        )
+    for rec in StubPlugin.outbound_records:
+        target, content = rec
+        item: dict[str, Any] = {
+            "connector_id": getattr(target, "connector_id", None),
+            "channel_id": getattr(target, "channel_id", None),
+            "peer_id": getattr(target, "peer_id", None),
+            "content": content,
+        }
+        images = getattr(rec, "images", None)
+        if images:
+            item["images"] = [
+                {
+                    "filename": img.filename,
+                    "title": img.title,
+                    "width": img.width,
+                    "height": img.height,
+                    "size": len(img.data),
+                    "sha256": hashlib.sha256(img.data).hexdigest(),
+                }
+                for img in images
+            ]
+        records.append(item)
     return {"records": records}
 
 

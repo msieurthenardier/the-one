@@ -729,3 +729,33 @@ def test_x_labels_are_truncated_by_measured_width(engine_page: Page) -> None:
     assert info["text"].endswith("…"), info
     assert info["cps"] < 20, info
     assert info["width"] <= info["maxWidth"] + 1, info
+
+
+TICK_CORPUS = json.loads((CORPUS / "ticks.json").read_text(encoding="utf-8"))
+
+
+def test_drawn_y_ticks_equal_the_shared_tick_corpus(engine_page: Page) -> None:
+    """The y (and y2) tick values are one corpus shared with the server's chart images
+    (``tests/fixtures/charts/ticks.json``): the drawn labels, in order, are each corpus value
+    formatted with the axis unit. Left ticks anchor ``end``, right ticks ``start``; the x
+    labels (anchor ``middle``) are per renderer and not in the corpus."""
+    from the_one.visuals.chart_spec import format_tick, parse_chart
+
+    page = engine_page
+    for name, expected in TICK_CORPUS.items():
+        _mount(page, VALID[name])
+        _laid_out(page)
+        drawn = page.evaluate(
+            """() => {
+              const svg = document.querySelector('[data-testid="c"] svg');
+              const pick = (a) => Array.from(svg.querySelectorAll('.ui-chart-tick[text-anchor="' + a + '"]')).map((t) => t.textContent);
+              return {y: pick('end'), y2: pick('start')};
+            }"""
+        )
+        spec = parse_chart(VALID[name])
+        want_y = [format_tick(v, spec.y.unit) for v in expected["y"]]
+        assert drawn["y"] == want_y, name
+        if "y2" in expected:
+            assert drawn["y2"] == [format_tick(v, spec.y2.unit) for v in expected["y2"]], name
+        else:
+            assert drawn["y2"] == [], name

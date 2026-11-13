@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -24,8 +25,31 @@ _PERMANENT_STATUSES = frozenset({401, 404, 409})
 _MAX_RETRY_AFTER_SECONDS = 60.0
 
 
+_PHOTO_RETRY_AFTER_SECONDS = 10.0  # M35 F3 DD10: the visual path's 429 clamp
+_PHOTO_HTTP_TIMEOUT = 15.0
+
+
+def monotonic() -> float:
+    """The clock the photo budget runs on (a seam: tests patch this module attribute)."""
+    return time.monotonic()
+
+
 class TelegramApiError(base.ConnectorClientError):
-    """Non-permanent failure -- ordinary manager backoff applies."""
+    """Non-permanent failure -- ordinary manager backoff applies.
+
+    ``status`` is the HTTP status of the response it was built from.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class TelegramTransportError(base.ConnectorClientError):
+    """A request failed below HTTP (connect error, timeout, ...). The request may have
+    reached Telegram, so a send is never repeated. Deliberately NOT a ``TelegramApiError``:
+    ``TelegramClient.send`` retries any ``TelegramApiError`` as plain text, which would
+    post a reply that may already be posted twice."""
 
 
 class TelegramApiClient:
@@ -43,21 +67,90 @@ class TelegramApiClient:
         await self._client.aclose()
 
     async def _post(
-        self, method: str, payload: dict[str, Any], *, timeout: float
+        self,
+        method: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout: float,
+        data: dict[str, Any] | None = None,
+        files: Any = None,
     ) -> httpx.Response:
+        """JSON by default; ``data`` + ``files`` send multipart instead."""
         path = f"/bot{self._token}/{method}"
-        return await self._client.post(path, json=payload, timeout=timeout)
+        try:
+            if files is not None:
+                return await self._client.post(path, data=data, files=files, timeout=timeout)
+            return await self._client.post(path, json=payload, timeout=timeout)
+        except httpx.HTTPError as exc:
+            # The token is in the URL path: never chain the cause, whose traceback or
+            # message could print it, and say only the exception's type.
+            raise TelegramTransportError(
+                f"telegram {method} failed: {type(exc).__name__}"
+            ) from None
 
     def _handle_response(self, method: str, resp: httpx.Response) -> Any:
         if resp.status_code in _PERMANENT_STATUSES:
-            raise base.PermanentConnectorFailure(
+            perm = base.PermanentConnectorFailure(
                 f"telegram {method} -> {resp.status_code}: {resp.text[:200]}"
             )
+            perm.status = resp.status_code  # type: ignore[attr-defined]
+            raise perm
         data = resp.json() if resp.content else {}
         if resp.status_code >= 400 or not data.get("ok", True):
             desc = data.get("description", resp.text[:200])
-            raise TelegramApiError(f"telegram {method} -> {resp.status_code}: {desc}")
+            raise TelegramApiError(
+                f"telegram {method} -> {resp.status_code}: {desc}", status=resp.status_code
+            )
         return data.get("result")
+
+    async def _post_with_429_retry(
+        self,
+        method: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        files: Any = None,
+        timeout: float,
+        max_retry_after: float,
+        deadline: float | None = None,
+    ) -> Any:
+        """Post, retrying once on a 429 after ``min(retry_after, max_retry_after)``.
+
+        With ``deadline`` (a ``monotonic()`` value) every attempt runs under
+        ``asyncio.wait_for`` on the time left (``TimeoutError`` escapes: the request may have
+        been posted), each request's own timeout is capped to it, and a 429 whose wait is not
+        under the time left is not slept on: it is raised at once as a 429 ``TelegramApiError``.
+        """
+
+        async def attempt() -> httpx.Response:
+            if deadline is None:
+                return await self._post(method, payload, timeout=timeout, data=data, files=files)
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            return await asyncio.wait_for(
+                self._post(
+                    method, payload, timeout=min(timeout, remaining), data=data, files=files
+                ),
+                remaining,
+            )
+
+        resp = await attempt()
+        if resp.status_code == 429:
+            body = resp.json() if resp.content else {}
+            raw = (body.get("parameters") or {}).get("retry_after", 1.0)
+            try:
+                retry_after = float(raw)
+            except (TypeError, ValueError):
+                retry_after = -1.0
+            if not 0 <= retry_after <= max_retry_after:
+                logger.warning("telegram %s: retry_after %r clamped", method, raw)
+                retry_after = max_retry_after
+            if deadline is not None and retry_after >= deadline - monotonic():
+                return self._handle_response(method, resp)
+            await asyncio.sleep(retry_after)
+            resp = await attempt()
+        return self._handle_response(method, resp)
 
     async def get_me(self) -> dict[str, Any]:
         resp = await self._post("getMe", {}, timeout=_ORDINARY_HTTP_TIMEOUT)
@@ -79,6 +172,7 @@ class TelegramApiClient:
         text: str,
         message_thread_id: str | None = None,
         parse_mode: str | None = None,
+        max_retry_after: float = _MAX_RETRY_AFTER_SECONDS,
     ) -> dict[str, Any]:
         # One bounded retry on 429 (else raises). `parse_mode` is OPTIONAL
         # and omitted from the payload when None -- mirrors the
@@ -89,17 +183,35 @@ class TelegramApiClient:
             payload["message_thread_id"] = message_thread_id
         if parse_mode is not None:
             payload["parse_mode"] = parse_mode
-        resp = await self._post("sendMessage", payload, timeout=_ORDINARY_HTTP_TIMEOUT)
-        if resp.status_code == 429:
-            data = resp.json() if resp.content else {}
-            raw = (data.get("parameters") or {}).get("retry_after", 1.0)
-            try:
-                retry_after = float(raw)
-            except (TypeError, ValueError):
-                retry_after = -1.0
-            if not 0 <= retry_after <= _MAX_RETRY_AFTER_SECONDS:
-                logger.warning("telegram sendMessage: retry_after %r clamped", raw)
-                retry_after = _MAX_RETRY_AFTER_SECONDS
-            await asyncio.sleep(retry_after)
-            resp = await self._post("sendMessage", payload, timeout=_ORDINARY_HTTP_TIMEOUT)
-        return self._handle_response("sendMessage", resp)
+        return await self._post_with_429_retry(
+            "sendMessage",
+            payload=payload,
+            timeout=_ORDINARY_HTTP_TIMEOUT,
+            max_retry_after=max_retry_after,
+        )
+
+    async def send_photo(
+        self,
+        *,
+        chat_id: str,
+        photo: bytes,
+        filename: str,
+        caption: str,
+        message_thread_id: str | None = None,
+        timeout: float = _PHOTO_HTTP_TIMEOUT,
+        max_retry_after: float = _PHOTO_RETRY_AFTER_SECONDS,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """``sendPhoto`` as multipart: ``photo`` is the PNG, ``caption`` plain text (no
+        ``parse_mode``). One 429 retry, clamped to ``max_retry_after`` (10 s)."""
+        form: dict[str, Any] = {"chat_id": chat_id, "caption": caption}
+        if message_thread_id is not None:
+            form["message_thread_id"] = message_thread_id
+        return await self._post_with_429_retry(
+            "sendPhoto",
+            data=form,
+            files={"photo": (filename, photo, "image/png")},
+            timeout=timeout,
+            max_retry_after=max_retry_after,
+            deadline=deadline,
+        )

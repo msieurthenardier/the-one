@@ -39,7 +39,7 @@ from the_one.connectors.base import (
     PeerTarget,
     keying_to_target,
 )
-from the_one.connectors.delivery import authorized_agent_for
+from the_one.connectors.delivery import authorized_agent_for, send_reply
 from the_one.tools.base import Tool
 
 SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
@@ -192,7 +192,9 @@ class SendToPlatformChannelTool(Tool):
             return f"[error] [constraint] connector {connector_id!r} is not connected"
 
         try:
-            result = await client.send(send_target, content)
+            result, images_sent = await send_reply(
+                client, send_target, content, connector_id=connector_id
+            )
         except ConnectorClientError as exc:
             return f"[error] {type(exc).__name__}: {exc}"
 
@@ -202,4 +204,7 @@ class SendToPlatformChannelTool(Tool):
             else f"{connector_id} DM {peer_id}"
         )
         msg_id = result.platform_message_id
-        return f"{PLATFORM_SEND_OK_PREFIX} sent to {dest}: {content!r} (msg_id={msg_id})"
+        line = f"{PLATFORM_SEND_OK_PREFIX} sent to {dest}: {content!r} (msg_id={msg_id})"
+        if images_sent > 0:
+            line += f" ({images_sent} image)" if images_sent == 1 else f" ({images_sent} images)"
+        return line

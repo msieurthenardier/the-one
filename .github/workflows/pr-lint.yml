@@ -68,7 +68,8 @@ jobs:
         # installer actually ships (packaging/windows/build.ps1 installs
         # this locked closure), not just the base runtime deps — pillow's
         # 2026-07-28 advisories were invisible to the base-only export
-        # because pillow only enters via the gui extra.
+        # because pillow then entered only via the gui extra (it is a base
+        # dependency since M35 F3 L1, and this export still covers it).
         run: uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
       - name: pip-audit (release closure — fails on findings)
         # --disable-pip: audit the pinned+hashed export exactly as written,

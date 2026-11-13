@@ -65,7 +65,11 @@ dependencies = [
     #    CVE-2026-49476 and GHSA-836r-79rf-4m37 / CVE-2026-49477 at 2.8.4;
     #    floor raised to 2.9.0 for CVE-2026-85999 and CVE-2026-86000, two
     #    ReDoS advisories in the CSS-selector compiler — 2026-09-17
-    #    pip-audit run; fixed in 2.9.0)
+    #    pip-audit run; fixed in 2.9.0; floor raised again to 4.0.0 for
+    #    CVE-2026-126190 (fixed in 4.0.0) and CVE-2026-126192 (fixed in
+    #    2.10.0) — 4.0.0 uploaded 2026-11-03, under the 14-day soak; soak
+    #    waived by the operator 2026-11-13 for this security fix, pinned at
+    #    the minimum fixed version — squawk 0352)
     #  - lxml-html-clean, pure transitive via readability-lxml (no prior
     #    explicit floor; closes GHSA-4jhm-jv67-739f / CVE-2026-49825,
     #    xlink:href javascript: URL bypass; fixed in 0.4.5)
@@ -91,7 +95,7 @@ dependencies = [
     "cryptography>=50.0.0",
     "pydantic-settings>=2.14.2",
     "python-multipart>=0.0.31",
-    "soupsieve>=2.9.0",
+    "soupsieve>=4.0.0",
     "lxml-html-clean>=0.4.5",
     "lxml>=6.1.1",
     "platformdirs>=4.0",
@@ -126,6 +130,14 @@ dependencies = [
     # `embedding model` gate is unconditional (DD-7). Its numpy requirement is
     # already satisfied: numpy entered the closure transitively via usearch.
     "model2vec>=0.9",
+    # Chart images for chat platforms (M35 F3 L1): the server draws a chart as a PNG with
+    # Pillow and the bundled Geist TTFs, so Pillow is a base dependency (pystray still pulls
+    # it in for the gui extra). pillow>=13.0 floor (12.3 closed PYSEC-2026-2253..2257,
+    # PYSEC-2026-3451..3454, PYSEC-2026-3493..3496; 13.0 closes CVE-2026-112395, -112397,
+    # -112400, -112404, -112895, -112896, -112897 and -112899 — squawk 0224). It binds every
+    # install, the Windows installer's locked closure included — same dual-binding rule as
+    # the runtime CVE-floor block above.
+    "pillow>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -154,19 +166,13 @@ gui = [
     # chrome, M25 F5). Re-check that before lifting <6; see agents.md "Window chrome".
     "pywebview[gtk]>=5,<6; sys_platform == 'linux'",
     "pywebview>=5,<6; sys_platform != 'linux'",
+    # pystray pulls Pillow in; the pillow>=13.0 floor now sits in the base dependencies (M35 F3 L1).
     "pystray>=0.19",
-    # pillow>=13.0 floor (12.3 closed PYSEC-2026-2253..2257, PYSEC-2026-3451..3454,
-    # PYSEC-2026-3493..3496; 13.0 closes CVE-2026-112395, -112397, -112400,
-    # -112404, -112895, -112896, -112897 and -112899 — squawk 0224). The gui extra ships in the Windows installer
-    # (the installer build once re-resolved from these
-    # ranges), so this floor must bind there — same dual-binding rule as
-    # the runtime CVE-floor block above.
-    "pillow>=13.0",
 ]
 # urllib3 floor is a toolchain-only CVE fix (reaches the tree solely via
 # requests, pulled by dev/test tooling — pip-audit/cachecontrol/pytest-base-url;
 # NOT in the runtime closure). Closes PYSEC-2026-142, PYSEC-2026-141.
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff==0.15.15", "pre-commit>=3", "playwright==1.64.0", "pytest-playwright>=0.5", "pillow>=13.0", "pixelmatch>=0.3", "asgi-lifespan>=2.0", "pip-audit>=2.7", "urllib3>=2.8.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff==0.15.15", "pre-commit>=3", "playwright==1.64.0", "pytest-playwright>=0.5", "pixelmatch>=0.3", "asgi-lifespan>=2.0", "pip-audit>=2.7", "urllib3>=2.8.0"]
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"
@@ -193,7 +199,7 @@ include = ["the_one*"]
 # save_pretrained emits (README.md, config.json, model.safetensors,
 # modules.json, tokenizer.json) — model2vec's loader validates the layout, so a
 # partial glob fails at load rather than degrading silently.
-the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*"]
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*", "visuals/fonts/*"]
 
 [build-system]
 requires = ["setuptools>=75"]

@@ -760,6 +760,63 @@ def _probe_mcp_sdk() -> ProbeResult:
         return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
 
 
+# ── Chart-images probe (M35 F3 L1, DD4/DD12) ────────────────────────────────
+#
+# The server draws chart images with Pillow and the bundled Geist TTFs. A layout width is a
+# property of the font file (a per-character design-unit advance sum), so the gate measures a
+# fixed ASCII string through `chart_image.measure()` -- the code layout uses -- and requires the
+# exact width, then draws a fixed reference chart and requires its exact pixel size. Gates
+# unconditionally on every host: a font tree-shaken out of a bundle, a Pillow without its font
+# module, or a font file that is not the pinned one all fail here, not at the first send.
+_CHART_IMAGE_REFERENCE_TEXT = "Quarterly revenue 2026: AV To 0123456789"
+_CHART_IMAGE_REFERENCE_WIDTH_DU = 20463
+_CHART_IMAGE_REFERENCE_SPEC = (
+    '{"type": "bar", "title": "Doctor", "x": {"values": ["Q1", "Q2", "Q3"]},'
+    ' "series": [{"values": [1, 3, 2]}]}'
+)
+_CHART_IMAGE_REFERENCE_SIZE = (1280, 520)
+
+
+def _probe_chart_images() -> ProbeResult:
+    """Prove the bundled fonts, BASIC layout, exact design-unit widths and a PNG draw."""
+    name = "chart images"
+    try:
+        import PIL
+        from PIL import features
+
+        from the_one.visuals import chart_image
+        from the_one.visuals.chart_spec import ChartError, parse_chart
+
+        width = chart_image.measure(_CHART_IMAGE_REFERENCE_TEXT, 1000, "regular")
+        if width != _CHART_IMAGE_REFERENCE_WIDTH_DU:
+            return ProbeResult(
+                name,
+                False,
+                f"reference text measures {width:g} design units, expected "
+                f"{_CHART_IMAGE_REFERENCE_WIDTH_DU}",
+            )
+        chart_image.measure(_CHART_IMAGE_REFERENCE_TEXT, 1000, "semibold")
+        spec = parse_chart(_CHART_IMAGE_REFERENCE_SPEC)
+        if isinstance(spec, ChartError):
+            return ProbeResult(name, False, "the reference chart did not parse")
+        rendered = chart_image.render_png(spec)
+        if (rendered.width, rendered.height) != _CHART_IMAGE_REFERENCE_SIZE:
+            return ProbeResult(
+                name,
+                False,
+                f"reference chart is {rendered.width}x{rendered.height} pixels, expected "
+                f"{_CHART_IMAGE_REFERENCE_SIZE[0]}x{_CHART_IMAGE_REFERENCE_SIZE[1]}",
+            )
+        detail = (
+            f"width {width:g} du, layout basic, pillow {PIL.__version__}, "
+            f"freetype {features.version('freetype2')}"
+        )
+        return ProbeResult(name, True, detail.encode("ascii", "replace").decode("ascii"))
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        detail = f"{exc.__class__.__name__}: {exc}"
+        return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
+
+
 # ── Embedding-model probe (M24 F01 L02, DD-1/DD-2/DD-5/DD-6/DD-7) ───────────
 #
 # The bundled float16 `potion-retrieval-32M` weights (the_one/embeddings/data/)
@@ -1174,14 +1231,14 @@ def run_doctor(out=None) -> int:
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
     shell, llm providers, model catalog, usearch, fts5, embedding model, file
-    watcher, window chrome, time zones and mcp sdk — and non-zero otherwise. Of those
-    **twelve**, four are frozen-only (desktop shell, llm providers, model
+    watcher, window chrome, time zones, mcp sdk and chart images — and non-zero otherwise.
+    Of those **thirteen**, four are frozen-only (desktop shell, llm providers, model
     catalog, usearch): on a dev host they downgrade a failure to an
     informational ``skipped`` line rather than failing the run. The other
-    eight — child spawn, python interpreter, **fts5**, **embedding model**,
+    nine — child spawn, python interpreter, **fts5**, **embedding model**,
     **file watcher**'s import check, **window chrome** (skipped off Windows)
-    **time zones** and **mcp sdk** — gate unconditionally; file watcher is the one hybrid
-    gate (Flight 4 DD-9):
+    **time zones**, **mcp sdk** and **chart images** — gate unconditionally; file watcher is
+    the one hybrid gate (Flight 4 DD-9):
     its import half gates unconditionally, on every host, but its
     native round-trip half gates only when frozen, downgrading through the
     same ``_vector_probe_outcome`` helper the four frozen-only gates use.
@@ -1192,6 +1249,10 @@ def run_doctor(out=None) -> int:
     and the self-configuration surface and builds a truststore SSL context, so a
     frozen build missing the 2.x closure fails; the detail names the mcp version and
     handshake revision.
+    chart images (M35 F3 L1, DD4/DD12) gates unconditionally: it loads both bundled Geist TTFs
+    with the BASIC layout engine, requires the exact design-unit width of a fixed ASCII string
+    (measured through ``chart_image.measure``, the code layout uses) and the exact pixel size of
+    a fixed reference chart; the detail is ASCII-only.
     fts5 gates unconditionally per DD-11 (a mission constraint in every
     build, not an optional extra). The embedding gate is unconditional by
     design (M24 F01 DD-7): model2vec is a base dependency and the weights are
@@ -1265,6 +1326,9 @@ def run_doctor(out=None) -> int:
     # MCP SDK gate (M29 F1 L2, DD11): unconditional; proves the mcp 2.x import
     # closure survived the freeze. Both CI lanes grep this name verbatim.
     mcp_sdk_probe = _probe_mcp_sdk()
+    # Chart-images gate (M35 F3 L1, DD12): unconditional; proves the bundled fonts, BASIC
+    # layout and the exact design-unit width. Both CI lanes grep this name verbatim.
+    chart_images_probe = _probe_chart_images()
     gates = [
         spawn,
         interp,
@@ -1278,6 +1342,7 @@ def run_doctor(out=None) -> int:
         window_chrome,
         time_zone_probe,
         mcp_sdk_probe,
+        chart_images_probe,
     ]
 
     for res in gates:

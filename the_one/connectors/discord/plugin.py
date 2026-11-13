@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,17 +26,21 @@ from the_one.connectors.base import (
     HistoryMessage,
     InboundCallback,
     InboundEnvelope,
+    OutboundImage,
     PeerTarget,
     PermanentConnectorFailure,
     SendResult,
     SendTarget,
+    VisualUploadError,
 )
 from the_one.connectors.discord._gateway import GatewayConnection
-from the_one.connectors.discord._rest import DEFAULT_BASE_URL, RestClient
+from the_one.connectors.discord._rest import DEFAULT_BASE_URL, DiscordRestError, RestClient
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 logger = logging.getLogger(__name__)
+
+_DESCRIPTION_MAX = 1024  # Discord's cap on an attachment description
 
 # Discord channel types (only the ones DM/thread detection needs).
 _CHANNEL_TYPE_DM = 1
@@ -238,6 +243,53 @@ class DiscordClient:
     async def send(self, target: SendTarget, content: str) -> SendResult:
         channel_id = await self._resolve_channel_id(target)
         message = await self._rest.create_message(channel_id, content)
+        return SendResult(platform_message_id=str(message.get("id", "")), details={})
+
+    async def send_visual(
+        self, target: SendTarget, content: str, images: Sequence[OutboundImage]
+    ) -> SendResult:
+        """One multipart message: the text plus every image attached (M35 F3 DD6/DD11).
+
+        A 4xx raises ``VisualUploadError`` (nothing was posted, the caller resends the text);
+        a 5xx raises ``DiscordRestError`` and a transport failure ``DiscordTransportError``
+        (the message may have gone, so neither is resent). A ``create_dm`` failure propagates.
+        """
+        if not images:
+            raise ValueError("send_visual needs at least one image")
+        channel_id = await self._resolve_channel_id(target)
+        attachments = [
+            {"id": i, "filename": img.filename, "description": img.title[:_DESCRIPTION_MAX]}
+            for i, img in enumerate(images)
+        ]
+        try:
+            message = await self._rest.create_message_with_files(
+                channel_id, content, attachments, [(img.filename, img.data) for img in images]
+            )
+        except DiscordRestError as exc:
+            status = exc.status
+            if status is None or not 400 <= status < 500:
+                raise
+            # DEBUG: the shared helper in delivery.py logs the one fallback warning.
+            logger.debug(
+                "discord visual upload refused: images %s, status %s, channel %s",
+                list(range(len(images))),
+                status,
+                channel_id,
+            )
+            # Status only: str(exc) carries up to 200 characters of the response body.
+            reason = "429 (rate limited)" if status == 429 else str(status)
+            err = VisualUploadError(f"discord upload -> {reason}")
+            err.status = status  # type: ignore[attr-defined]
+            raise err from None
+        return SendResult(
+            platform_message_id=str(message.get("id", "")),
+            details={"images_sent": len(images), "images_failed": 0},
+        )
+
+    async def send_visual_fallback(self, target: SendTarget, content: str) -> SendResult:
+        """The text resend after a ``VisualUploadError``: one 429 retry, at most 10 s."""
+        channel_id = await self._resolve_channel_id(target)
+        message = await self._rest.create_message(channel_id, content, clamped=True)
         return SendResult(platform_message_id=str(message.get("id", "")), details={})
 
     async def history(self, target: SendTarget, limit: int) -> list[HistoryMessage]:
