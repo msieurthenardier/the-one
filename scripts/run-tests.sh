@@ -196,7 +196,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
-                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py')
+                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py')
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.
@@ -255,10 +255,10 @@ providers_pat=('test_flow_provider_*')
 contracts_overlay_pat=('test_ui_modal*' 'test_ui_menu*' 'test_ui_rail*' 'test_ui_list_pane_chats*' \
   'test_ui_search_list*' 'test_ui_drawer*' 'test_ui_nav_groups*' 'test_ui_confirm*' \
   'test_ui_focus_after*' 'test_ui_dialog_rule*' 'test_ui_dialog_scroll*')
-# Contracts-chat (M31 F6 L04, flight DD15): the six chat-control contract files, plus the
-# chart and chart-placeholder contracts (M35 F1 L1) and the visual notice contract (M35 F2 L2).
-contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' 'test_ui_trace*' \
-  'test_ui_telemetry*' 'test_ui_notice*' 'test_ui_chart*' 'test_ui_visual_notice*')
+# Contracts-chat (M31 F6 L04, flight DD15): the chat-control contract files, plus the chart
+# contract (M35 F1 L1), the visual notice contract (M35 F2 L2) and the turn work group (sortie 16).
+contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' \
+  'test_ui_telemetry*' 'test_ui_notice*' 'test_ui_chart*' 'test_ui_visual_notice*' 'test_ui_turn_work*')
 # Contracts-widget (M35 F2 L3): the widget frame and card contract files, split out of
 # contracts-chat because the frame's escape battery, focus, link and pause tests are slow.
 # Contracts-widget-lifecycle (M35 F2 L5): the lifecycle manager and hang guard contract files.

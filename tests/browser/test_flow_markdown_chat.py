@@ -2,17 +2,16 @@
 
 Validates four contracts layered on top of the leg-04 streaming infrastructure:
 
-A. Streaming + markdown — when assistant chunks accumulate, the rendered
-   bubble shows plain text mid-stream; on `done`,
-   ``finalizeStreamingBubble`` swaps the accumulated text for the
-   markdown-rendered DocumentFragment (``**bold**`` → ``<strong>bold</strong>``).
+A. Streamed chunks + markdown — the chunks are only a quiet preview in the
+   turn's work group (sortie 16); when the reply lands at `done` it is built once
+   as the markdown-rendered DocumentFragment (``**bold**`` → ``<strong>bold</strong>``).
 
 B. User messages stay literal — markdown is assistant-only;
    user / tool / system messages render via ``textContent`` so user-typed
    ``**bold**`` is preserved as visible text (no ``<strong>`` tag).
 
-C. Code-block rendering — a streamed fenced block (`````js``) on
-   `done` becomes ``<pre><code class="language-js">`` with the leg-03
+C. Code-block rendering — a streamed fenced block (`````js``) in the reply that
+   lands at `done` becomes ``<pre><code class="language-js">`` with the leg-03
    copy-button affordance (``.markdown-copy-btn``) attached.
 
 D. Session-rejoin renders historical assistant markdown — confirms the
@@ -31,14 +30,13 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page) -> None:
-    """Assistant message with ``**bold**`` in chunks renders ``<strong>`` on done.
+def test_a_streamed_reply_renders_markdown_when_it_lands(app_clean: str, page: Page) -> None:
+    """Assistant message with ``**bold**`` in chunks renders ``<strong>`` once it lands.
 
     The mock provider is configured with three chunks
     (``"Hello, "``, ``"**world**"``, ``"!"``) so the agent emits three
-    ``assistant_chunk`` events. The chat.js wire-up accumulates them as
-    plain text; ``finalizeStreamingBubble()`` on `done` swaps the buffer
-    for the markdown-rendered DocumentFragment.
+    ``assistant_chunk`` events. The reply bubble is built at `done` from
+    their concatenation, as the markdown-rendered DocumentFragment.
     """
     base_url = app_clean
     provider_id = seed_mock_provider(
@@ -93,10 +91,10 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
 
 
 @pytest.mark.browser
-def test_streaming_assistant_code_block_renders_with_copy_button(
+def test_a_streamed_code_block_renders_with_copy_button_when_the_reply_lands(
     app_clean: str, page: Page
 ) -> None:
-    """Streamed fenced code block renders as ``<pre><code>`` with copy button on done.
+    """Streamed fenced code block renders as ``<pre><code>`` with copy button once it lands.
 
     The mock provider streams three chunks that together form a properly
     closed `````js`` fence. After ``done``, the assistant bubble's
@@ -170,12 +168,12 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
 
 
 @pytest.mark.browser
-def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) -> None:
-    """Assistant message containing a GFM table renders as ``<table>`` on done.
+def test_a_streamed_markdown_table_renders_when_the_reply_lands(app_clean: str, page: Page) -> None:
+    """Assistant message containing a GFM table renders as ``<table>`` once it lands.
 
     The mock provider streams three chunks that together form a minimal
-    two-column GFM table (header + separator + one data row). After
-    ``finalizeStreamingBubble`` fires on ``done``, the assistant bubble
+    two-column GFM table (header + separator + one data row). Once the
+    reply lands at ``done``, the assistant bubble
     DOM must contain a ``<table>`` with a ``<thead>`` (header cells) and
     a ``<tbody>`` (data row). The raw pipe characters must no longer appear
     as visible text — they were consumed by the table parser.

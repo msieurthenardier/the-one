@@ -232,18 +232,11 @@
         group.appendChild(linkBlock);
       }
       // Sortie 04 (operator HAT decision): the sign-in control must not hide
-      // in a collapsed panel. The "Tool activity" trace is a collapsible
-      // disclosure, so the group goes in .messages as the NEXT SIBLING of this
-      // turn's trace shell (reads right after that turn's tool activity),
-      // never inside it (and so never counted by the trace's item count).
-      // The shell is only looked up, never created, here. With no
-      // parent_message_id, or no shell for it, append to .messages instead
-      // (legacy/null cases, e.g. synthetic auth_required events in tests).
-      var authShell = null;
-      if (data.parent_message_id) {
-        var authTrace = App.ui.trace.find(messagesEl, data.parent_message_id);
-        authShell = authTrace ? authTrace.el : ctx.transcript.traceShellFor(data.parent_message_id);
-      }
+      // in a collapsed panel. The turn's work group is a collapsible
+      // disclosure, so the block goes in .messages as the NEXT SIBLING of the
+      // group (reads right after the turn's work), never inside it. With no
+      // group in the log, append to .messages instead.
+      var authShell = ctx.turnWork.groupEl();
       if (authShell && authShell.parentNode === messagesEl) {
         messagesEl.insertBefore(group, authShell.nextSibling);
       } else {
@@ -272,9 +265,8 @@
 
     // The auth_required frame (moved from the gated frame chain, turn-frames.js).
     function onAuthRequired(data) {
-      ctx.transcript.hideThinking();
-      ctx.transcript.finalizeStreamingBubble();
-      ctx.transcript.clearStreamingVisibility();
+      // The turn's work group folds its pending text and reads "Waiting for sign-in".
+      ctx.turnWork.onAuthRequired();
       var flowKey = data.source_id ? loginFlowKey(data.source_id) : null;
       var flow = flowKey ? loginFlows[flowKey] : null;
       // Sortie 04 DD2 amendment: store a consent URL only for a flow this
@@ -317,6 +309,7 @@
       var ar = document.activeElement;
       var arLost = !!(ar && ar.closest && ar.closest('.login-required-group'));
       clearLoginRequiredButton(data);
+      ctx.turnWork.onAuthResolved();
       renderResumingPlaceholder(data);
       if (arLost && !composer.input.disabled) composer.focus();
     }

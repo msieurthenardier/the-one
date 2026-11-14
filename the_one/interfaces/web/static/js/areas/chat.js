@@ -82,7 +82,7 @@ App.registerArea({
       // peer-visible-tool-result promotion: the operator-only /
       // peer-visible distinction only exists for connector-attached sessions;
       // a plain chat session's tool results have no visibility concept at all
-      // and must keep collapsing into the "Tool activity" accordion.
+      // and must keep collapsing into the turn's work group.
       currentSessionPlatform: null,
       // The joined session's title from its session_joined (the header's
       // fallback until the `sessions` store has its row).
@@ -478,6 +478,7 @@ App.registerArea({
     ctx.holdQueue = App.chat.holdQueue.create(ctx);
     ctx.attachments = App.chat.attachments.create(ctx);
     ctx.transcript = App.chat.transcript.create(ctx);
+    ctx.turnWork = App.chat.turnWork.create(ctx);
     ctx.send = App.chat.send.create(ctx);
     ctx.signIn = App.chat.signIn.create(ctx);
     ctx.turnFrames = App.chat.turnFrames.create(ctx);
@@ -495,8 +496,9 @@ App.registerArea({
       // session.
       if (!ctx.socket.socketOpen() || state.rebinding) return;
       ctx.ws().send(JSON.stringify({ action: 'cancel' }));
-      // Optimistic: clear thinking immediately so the UI feels responsive.
-      ctx.transcript.hideThinking();
+      // Optimistic: stop the work line's dots at once so the UI feels responsive (the state
+      // changes only on the server's frames).
+      ctx.turnWork.stopClicked();
       // Discard pending queued message — "stop" means stop everything.
       var stopActive = chatState.activeId();
       if (stopActive) {
@@ -527,6 +529,8 @@ App.registerArea({
     self._telemetry = function () { return telemetry; };
     // The transcript, for the widget teardown race test (renderHistory and clearLog in one task).
     self._transcript = function () { return ctx.transcript; };
+    // The turn work module (the open group, replay), for the flow tests.
+    self._turnWork = function () { return ctx.turnWork; };
     // The turn-frame handler, for tests that feed one frame (the deleted-agent step-limit notice).
     self._turnFrames = function () { return ctx.turnFrames; };
     // AC4: "the joined or joining id", derived from the state (null while

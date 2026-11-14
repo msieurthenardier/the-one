@@ -1,16 +1,13 @@
 // App.chat.transcript -- the message log: addMsg and the scroll pin, history replay, the
-// streaming bubble (pacing, safe markdown boundary, finalize), the thinking indicator, trace
-// shells, tool bubbles, delivered tool results and the notice lines (M31 F6 L02, split out of
-// areas/chat.js; M31 F6 L05c moved it onto the control library: App.ui.message and its
-// attribution, App.ui.thinking, App.ui.trace and App.ui.notice).
+// model-loading line, tool bubbles, delivered tool results and the notice lines (M31 F6 L02,
+// split out of areas/chat.js; M31 F6 L05c moved it onto the control library: App.ui.message
+// and its attribution, App.ui.thinking and App.ui.notice).
 //
-// The streaming source stays here (DD4): pacing, the safe markdown boundary and the finalize
-// swap are the area's logic; the bubble's text node is driven through the message handle.
-// clearLog() is the one log wipe: it drops every handle the old log held (thinking, model
-// loading, the streaming bubble, the trace map), so no timer survives a conversation change.
-//
-// Exposes the functions below; traceShellFor and resetTraceShells give the other modules the
-// trace-shell bucket (it is reassigned on a new conversation, so it never leaves this module).
+// A turn's work (narration, thinking, tool calls) and its replay live in App.chat.turnWork
+// (Sortie 16 L02); this module builds the reply bubble, the chart and widget draws and the
+// markdown seam (renderMarkdown) it uses.
+// clearLog() is the one log wipe: it drops every handle the old log held (the turn groups,
+// model loading, widget cards), so no timer survives a conversation change.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -55,12 +52,6 @@
     function onChartLayout() {
       if (pinnedFlag) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
-    // Scroll to the bottom and remember the log as pinned (the stream module's one idiom).
-    function pinToBottom() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      pinnedFlag = true;
-    }
-
     // The one shared role=status node the "Copy reply" confirmations announce in (it lives
     // outside the role=log message list, so the confirmation is not read as a new message).
     function liveEl() { return ctx.copyLiveEl; }
@@ -92,9 +83,9 @@
     var widgetHandles = [];
     // hash -> how many CLOSED widgets with that source this log has drawn (resets in clearLog).
     var widgetSeen = Object.create(null);
-    // INVARIANT: drawWidget is never called from a render whose fragment is thrown away. History
-    // renders once, streaming commits render only new prefixes and finalize renders only the tail,
-    // so the counter below stays equal between a live reply and its reload.
+    // INVARIANT: drawWidget is never called from a render whose fragment is thrown away. Every
+    // text is rendered once, by the turn-work module (narration when its group opens, the reply
+    // when it lands), so the counter below stays equal between a live reply and its reload.
     function drawWidget(source, meta) {
       var hash = fnv1a(source);
       var n = widgetSeen[hash] || 0;
@@ -114,6 +105,11 @@
     }
     function mdOpts() {
       return { copyLiveEl: ctx.copyLiveEl, codeBlockRenderers: { chart: drawChart, widget: drawWidget } };
+    }
+    // The markdown fragment for a turn's narration (charts and widgets draw through the
+    // transcript, so the widget key counter stays here).
+    function renderMarkdown(text) {
+      return App.markdown.render(text, mdOpts());
     }
 
     // The side of a bubble's attribution: a peer-attributed user bubble aligns left (M11 F06
@@ -146,10 +142,7 @@
         testid: 'message'
       });
       if (opts.routineId) msg.el.setAttribute('data-routine-id', String(opts.routineId));
-      // A user message ends the previous turn's iteration; an assistant bubble is the anchor
-      // the next `thinking` disclosure is placed above (B2).
-      if (role === 'user') { iterationAnchor = null; dropContinue(); }
-      if (role === 'assistant') iterationAnchor = msg.el;
+      if (role === 'user') dropContinue();
       messagesEl.appendChild(msg.el);
       if (attribution) {
         var ts = Object.prototype.hasOwnProperty.call(opts, 'ts') ? opts.ts : new Date().toISOString();
@@ -193,11 +186,8 @@
     // emptied. The three wipe sites (a pending chat, a deleted chat, a history replay) call it.
     function clearLog() {
       dropContinue();
-      hideThinking();
       dropModelLoading();
-      resetStream();
-      traceShells = Object.create(null);
-      iterationAnchor = null;
+      if (ctx.turnWork) ctx.turnWork.reset();
       pinnedFlag = true;
       // Widgets (M35 F2 L6, DD7): destroy every card this log drew, then wipe, then sweep as a
       // backstop for a card that was connected once and detached by something else.
@@ -211,148 +201,30 @@
       App.ui.widget.sweep();
     }
 
-    // Drop a streaming bubble that belongs to the conversation being left.
-    function resetStream() {
-      stream.reset();
-      streamAttr = null;
-      streamSource = '';
-      currentStreamingVisibility = null;
-    }
-
-    // B2: the node a `thinking` disclosure is placed above. The live frame carries no message
-    // id and arrives after its reply, so the anchor is the current iteration's reply bubble: the
-    // streaming bubble, or the last assistant bubble added since the iteration began. It is
-    // cleared at every iteration boundary (tool_call, tool_result, user, done, cancelled), so a
-    // thinking-plus-tool-call iteration (no reply) appends in stream order. On replay the
-    // anchor is only the bubble built from the immediately preceding `assistant` event.
-    var iterationAnchor = null;
-    function clearIterationAnchor() { iterationAnchor = null; }
-
-    function renderHistory(history, agentName) {
+    // `opts.trailing` ('closed' default, 'working' or 'sign-in') says how the last turn
+    // renders (App.chat.turnWork.replay); the turn grouping lives there.
+    function renderHistory(history, agentName, opts) {
       messagesEl.setAttribute('aria-busy', 'true');
-      // A streaming bubble, a thinking or model-loading line from the conversation the log
-      // showed before are dropped with the wipe.
+      // The turn groups and the model-loading line from the conversation the log showed
+      // before are dropped with the wipe.
       clearLog();
       var agentLabel = agentName || 'agent';
       historyAgent = agentName || null;
-      try { renderHistoryEvents(history, agentLabel); } finally { historyAgent = undefined; }
+      try {
+        ctx.turnWork.replay(history, agentLabel, {
+          trailing: opts && opts.trailing,
+          agentName: agentName
+        });
+      } finally { historyAgent = undefined; }
       messagesEl.removeAttribute('aria-busy');
-    }
-
-    function renderHistoryEvents(history, agentLabel) {
-      for (var i = 0; i < history.length; i++) {
-        var ev = history[i];
-        // Pass ts explicitly (server-side broadcast events carry it; DB-restored
-        // events do not). When ts is undefined, addMsg's default is omitted so
-        // historical messages without a stored timestamp render unsuffixed.
-        // M10 F05 L05: forward ev.visibility so operator-only bubbles
-        // gain the visual marker on replay. Codec emits the key only when
-        // non-None (the_one/db/codec.py:154).
-        // M11 F06 L04: forward ev.peer_name onto histOpts.peerName so peer-
-        // attributed user bubbles render left-aligned with a peer-name
-        // attribution label.
-        var histOpts = { ts: ev.ts || null, visibility: ev.visibility, peerName: ev.peer_name };
-        if (ev.type === 'user') {
-          addUserEvent(ev, { ts: histOpts.ts, history: true });
-        }
-        else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
-        // M16 F10 L05: replay the thinking disclosure, above the reply it belongs to (B2).
-        else if (ev.type === 'thinking') renderThinking(ev);
-        else if (ev.type === 'tool_call') {
-          iterationAnchor = null;
-          // L03: bucket tool_call events under their parent_message_id's
-          // trace shell; fall back to a standalone bubble for legacy/null.
-          var argsText = '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
-          var trace = getOrCreateTrace(ev.parent_message_id);
-          var msg = buildToolMsg(argsText, false, ev.tool_call_id, { visibility: ev.visibility });
-          if (trace) trace.append(msg);
-          else messagesEl.appendChild(msg);
-        }
-        else if (ev.type === 'tool_result') {
-          iterationAnchor = null;
-          // M23 F02 L03: a delivered (peer-visible) tool result is
-          // promoted to a top-level bubble — imperceivable buried inside
-          // the collapsed accordion otherwise. Everything else keeps the
-          // pre-existing L03 bucketing.
-          if (isDeliveredToolResult(ev)) {
-            appendDeliveredToolMsg(ev, agentLabel, ev.ts || null);
-          } else {
-            var trace2 = getOrCreateTrace(ev.parent_message_id);
-            var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id, { visibility: ev.visibility });
-            if (trace2) trace2.append(msg2);
-            else messagesEl.appendChild(msg2);
-          }
-        }
-        // Filter transient model-loading pings — live UI hints, not history.
-        else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
-          addMsg('system', ev.content, null, histOpts);
-        }
-      }
-      iterationAnchor = null;
-    }
-
-    // The streaming bubble (the App.ui.message handle, streaming: true, held by `stream`)
-    // accumulates chunks for the in-flight assistant iteration; here are its attribution handle
-    // and the FULL received text of this bubble (the safe commit throws committed text away, so
-    // Copy needs its own copy). Reset at iteration boundaries (`tool_call` / `tool_result`) and
-    // at the end of the agent step (`done`), so iteration N+1 lands chunks in a fresh bubble.
-    var streamAttr = null;
-    var streamSource = '';
-    // M10 F05 L05: visibility for the streaming bubble. Captured from the FIRST
-    // ``assistant_chunk`` of a turn (``data.visibility`` if present) and applied at
-    // placeholder construction so the marker lands before chunk accumulation. Today's live
-    // broadcast doesn't carry ``visibility`` on ``assistant_chunk`` (known limitation: the
-    // storage-edge shim runs AFTER the agent step; broadcasts fire WITHIN it), so the bubble is
-    // unmarked until a re-join replays the codec's tag.
-    var currentStreamingVisibility = null;
-
-    // The pacing queue, the safe markdown commit, the placeholder hold and the finalize drain
-    // live in App.chat.streamCommit (M35 F2 L2); this module hands it each new bubble.
-    var stream = App.chat.streamCommit.create({
-      tags: ['chart', 'widget'],
-      isPinned: isPinned,
-      setPinned: function (b) { pinnedFlag = b; },
-      pinToBottom: pinToBottom,
-      scrollToBottomIfPinned: scrollToBottomIfPinned,
-      mdOpts: mdOpts
-    });
-
-    // Leg 05: swap the streaming bubble's pending tail for its markdown-rendered fragment.
-    // Idempotent: a no-op when no bubble is active. F1: the reply's Copy button is added here,
-    // with the full received text (also for a Stopped reply, which copies what was received).
-    function finalizeStreamingBubble() {
-      var attr = streamAttr;
-      var source = streamSource;
-      var done = stream.finalize(function () {
-        if (attr && source) attr.setCopy(source);
-      });
-      if (!done) return;
-      streamAttr = null;
-      streamSource = '';
-    }
-
-    // The thinking line (A8): "Thinking" and the control's dots, which read as "Thinking…"
-    // (a static ellipsis under reduced motion). hideThinking stops its timer AND removes it.
-    var thinkingHandle = null;
-    function showThinking() {
-      if (thinkingHandle) return;
-      thinkingHandle = App.ui.thinking({ label: 'Thinking', tone: 'assistant', testid: 'thinking-indicator' });
-      messagesEl.appendChild(thinkingHandle.el);
-      scrollToBottomIfPinned();
-    }
-
-    function hideThinking() {
-      if (!thinkingHandle) return;
-      thinkingHandle.destroy();
-      if (thinkingHandle.el.parentNode) thinkingHandle.el.parentNode.removeChild(thinkingHandle.el);
-      thinkingHandle = null;
     }
 
     // The "Loading model" line: a system-toned thinking handle kept here, settled in place by
     // "Model loaded." (never found by a class query) and dropped on any log wipe or turn end.
     var loadingHandle = null;
     function showModelLoading() {
-      hideThinking();
+      // An empty running work line gives way to this line (a group with items stays).
+      ctx.turnWork.hideForLoading();
       dropModelLoading();
       loadingHandle = App.ui.thinking({ label: 'Loading model', tone: 'system', testid: 'model-loading' });
       messagesEl.appendChild(loadingHandle.el);
@@ -382,57 +254,6 @@
       return String(s).replace(/(["\\])/g, '\\$1');
     }
 
-    // L03: bucket of trace handles keyed by parent_message_id.
-    // On first tool event for a parent, create the trace and append to
-    // .messages after the assistant bubble. Subsequent events route to the
-    // same trace. Reset by clearLog (replay) and re-seeded from the DOM on a
-    // WS reconnect mid-turn through App.ui.trace.find.
-    var traceShells = Object.create(null);
-
-    function getOrCreateTrace(parentMessageId) {
-      if (!parentMessageId) return null;
-      if (traceShells[parentMessageId]) return traceShells[parentMessageId];
-      // Self-heal across WS reconnect: if a trace for this parent already exists in the DOM
-      // from a prior connection's closure, re-wrap it rather than minting a duplicate.
-      var existing = App.ui.trace.find(messagesEl, parentMessageId);
-      if (existing) {
-        traceShells[parentMessageId] = existing;
-        return existing;
-      }
-      // B3: an icon chevron and "Tool activity · {n}".
-      var trace = App.ui.trace({
-        id: parentMessageId,
-        label: 'Tool activity',
-        chevron: 'icon',
-        countStyle: 'dot',
-        testid: 'trace-shell'
-      });
-      messagesEl.appendChild(trace.el);
-      traceShells[parentMessageId] = trace;
-      return trace;
-    }
-
-    // M16 F10 L05: place a thinking disclosure. Used by BOTH the live ``thinking`` ws handler
-    // and the ``renderHistory`` replay branch. B2: above the reply bubble of its own
-    // iteration (the anchor above); with no reply (a thinking-plus-tool-call iteration) it is
-    // appended in stream order, as before. It is its OWN disclosure, never nested in the
-    // tool trace, and it does not touch the thinking line.
-    function renderThinking(evt) {
-      evt = evt || {};
-      var disclosure = App.ui.trace.thinking({
-        label: 'Thinking',
-        body: evt.content != null ? evt.content : '',
-        parentId: evt.parent_message_id,
-        testid: 'thinking-disclosure'
-      });
-      if (iterationAnchor && iterationAnchor.parentNode === messagesEl) {
-        messagesEl.insertBefore(disclosure.el, iterationAnchor);
-      } else {
-        messagesEl.appendChild(disclosure.el);
-      }
-      scrollToBottomIfPinned();
-    }
-
     // M10 F05 L05: ``opts`` forwards visibility from the source event dict
     // (history-replay ``ev.visibility`` or live ``data.visibility``). Tool bubbles inherit the
     // persisted visibility tag so operator-only tool events render with the marker on replay.
@@ -457,7 +278,7 @@
     // operator-only tag. Gated on `currentSessionPlatform` — a plain
     // (non-connector) chat session's tool results carry no `visibility` key
     // either, but there's no peer to have seen them, so they must keep
-    // collapsing into the "Tool activity" accordion like before. Excludes
+    // collapsing into the turn's work group like before. Excludes
     // error results defensively (an error never actually reached a
     // platform-send success, but the visibility tag alone shouldn't be the
     // only guard against surfacing an error as if it were delivered).
@@ -466,7 +287,7 @@
     }
 
     // Renders a delivered (peer-visible) tool-result as a top-level bubble
-    // — outside the "Tool activity" accordion — with the same agent
+    // — outside the turn's work group — with the same agent
     // attribution row an ordinary assistant reply gets (without a Copy: F1 is agent replies
     // only), so it reads as "this reached the peer" rather than as leftover tool debug chatter.
     // `ts` mirrors addMsg's own default: history replay passes the stored timestamp (may be
@@ -588,64 +409,17 @@
       scrollToBottomIfPinned();
     }
 
-    function traceShellFor(parentMessageId) {
-      var trace = traceShells[parentMessageId];
-      return trace ? trace.el : null;
-    }
-    function resetTraceShells() { traceShells = Object.create(null); }
-    function clearStreamingVisibility() { currentStreamingVisibility = null; }
-
-    // The live assistant_chunk frame (moved from the gated frame chain, turn-frames.js).
-    function onAssistantChunk(data) {
-      hideThinking();
-      if (!stream.active()) {
-        // M10 F05 L05: capture visibility from the FIRST chunk so the marker lands at
-        // construction (not at finalize — that would cause a visual flip).
-        currentStreamingVisibility = data.visibility || null;
-        var streamMsg = App.ui.message({
-          role: 'assistant',
-          streaming: true,
-          visibility: currentStreamingVisibility,
-          visibilityStyle: App.ui.message.visibilityStyles.chip,
-          testid: 'message'
-        });
-        messagesEl.appendChild(streamMsg.el);
-        var now = new Date().toISOString();
-        streamAttr = App.ui.message.attribution({
-          side: 'agent',
-          name: state.currentAgentName || 'agent',
-          ts: now,
-          timeLabel: fmtTs(now),
-          liveEl: liveEl(),
-          copyTestid: 'message-copy'
-        });
-        messagesEl.appendChild(streamAttr.el);
-        streamSource = '';
-        iterationAnchor = streamMsg.el;
-        // begin() drops a stale placeholder from an earlier bubble and starts the pacing.
-        stream.begin(streamMsg);
-      }
-      streamSource += data.content;
-      stream.enqueue(data.content);
-    }
-
     return {
       SCROLL_PIN_THRESHOLD: SCROLL_PIN_THRESHOLD,
       addMsg: addMsg,
       addUserEvent: addUserEvent,
       scrollToBottomIfPinned: scrollToBottomIfPinned,
       clearLog: clearLog,
-      resetStream: resetStream,
       renderHistory: renderHistory,
-      showThinking: showThinking,
-      hideThinking: hideThinking,
+      renderMarkdown: renderMarkdown,
       showModelLoading: showModelLoading,
       settleModelLoading: settleModelLoading,
       dropModelLoading: dropModelLoading,
-      finalizeStreamingBubble: finalizeStreamingBubble,
-      clearIterationAnchor: clearIterationAnchor,
-      getOrCreateTrace: getOrCreateTrace,
-      renderThinking: renderThinking,
       buildToolMsg: buildToolMsg,
       isDeliveredToolResult: isDeliveredToolResult,
       appendDeliveredToolMsg: appendDeliveredToolMsg,
@@ -655,11 +429,7 @@
       addDiscardedNotice: addDiscardedNotice,
       addStepLimitNotice: addStepLimitNotice,
       setContinueEnabled: setContinueEnabled,
-      cssEscape: cssEscape,
-      traceShellFor: traceShellFor,
-      resetTraceShells: resetTraceShells,
-      clearStreamingVisibility: clearStreamingVisibility,
-      onAssistantChunk: onAssistantChunk
+      cssEscape: cssEscape
     };
   }
 

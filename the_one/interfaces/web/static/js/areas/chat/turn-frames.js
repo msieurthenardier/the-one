@@ -35,15 +35,13 @@
         // chunk arrives.
         var loadedActive = chatState.activeId();
         if (loadedActive && state.inFlightSessions[loadedActive]) {
-          ctx.transcript.showThinking();
+          ctx.turnWork.begin();
         }
       } else {
-        ctx.transcript.hideThinking();
         ctx.transcript.dropModelLoading();
+        // Every other system frame ends the turn (the work group folds, or goes if empty).
+        ctx.turnWork.onSystemEnd();
         if (ctx.transcript.isAgentError(data.content)) {
-          // A4: an agent error during streaming finalizes the bubble first, then the notice.
-          ctx.transcript.finalizeStreamingBubble();
-          ctx.transcript.clearStreamingVisibility();
           ctx.transcript.addAgentError(data.content);
         } else {
           ctx.transcript.addMsg('system', data.content);
@@ -68,59 +66,31 @@
       if (data.type === 'user') {
         // M10 F05 L05 / M11 F06 L04: visibility and peer_name ride the live event; the
         // transcript's addUserEvent owns the bubble (routine marker, source prefix).
+        // A new user message ends the previous turn (its work group closes in place).
+        ctx.turnWork.onUserEvent();
         ctx.transcript.addUserEvent(data);
         // M33 F1 L7: a routine run in the bound chat is a turn in flight that this window did
-        // not start: Stop works and sends are held (never ownTurn), the thinking line shows
+        // not start: Stop works and sends are held (never ownTurn), the work group starts
         // after the bubble. Gated on the frame's own session id, like the chat's other frames.
         if (data.source === 'routine' && data.session_id &&
             data.session_id === chatState.boundId()) {
           state.inFlightSessions[data.session_id] = true;
           ctx.send.updateStopControl();
           ctx.applyComposerState();
-          ctx.transcript.showThinking();
+          ctx.turnWork.begin();
         }
       }
-      else if (data.type === 'assistant_chunk') ctx.transcript.onAssistantChunk(data);
+      else if (data.type === 'assistant_chunk') ctx.turnWork.onText(data, false);
       else if (data.type === 'assistant') {
         // Direct-action shortcut path (non-streaming). Server only emits
-        // this when no chunks fired. Streaming path skips it server-side.
-        // Uniform finalize call — no-op when currentStreamingMsg is null.
-        ctx.transcript.hideThinking();
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
-        // M10 F05 L05: forward visibility from the live assistant event.
-        ctx.transcript.addMsg('assistant', data.content, state.currentAgentName || 'agent', { visibility: data.visibility });
+        // this when no chunks fired. The text is the pending text of the pass; the reply
+        // bubble is built at `done` (M10 F05 L05: its visibility is carried through).
+        ctx.turnWork.onText(data, true);
       }
-      else if (data.type === 'thinking') {
-        // M16 F10 L05 (DD2 reveal-after): the settled turn's thinking
-        // disclosure. Fires AFTER the answer streamed, so the loading spinner
-        // is already hidden by the assistant/chunk path — do NOT call
-        // hideThinking()/finalizeStreamingBubble() (that would disturb the
-        // spinner state machine or an in-progress bubble). Just append the
-        // disclosure in stream order.
-        ctx.transcript.renderThinking(data);
-      }
+      else if (data.type === 'thinking') ctx.turnWork.onThinking(data);
       else if (data.type === 'tool_call') {
         if (data.tool_call_id) state.liveToolNames[data.tool_call_id] = data.name;
-        ctx.transcript.hideThinking();
-        // Iteration boundary — finalize the current streaming bubble so
-        // iteration N+1's chunks land in a fresh bubble (markdown
-        // rendering + reset of currentStreamingMsg both happen inside).
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
-        ctx.transcript.clearIterationAnchor();
-        // L03: route into the trace shell for this assistant turn.
-        var argsText = '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
-        var liveTrace = ctx.transcript.getOrCreateTrace(data.parent_message_id);
-        // M10 F05 L05: forward visibility from the live tool_call event.
-        var liveMsg = ctx.transcript.buildToolMsg(argsText, false, data.tool_call_id, { visibility: data.visibility });
-        if (liveTrace) {
-          liveTrace.append(liveMsg);
-        } else {
-          // Legacy / null parent_message_id — render standalone.
-          messagesEl.appendChild(liveMsg);
-        }
-        ctx.transcript.scrollToBottomIfPinned();
+        ctx.turnWork.onToolCall(data);
       }
       else if (data.type === 'tool_result') {
         // M27 F3 L2: a note tool changed the notes; the panel re-fetches.
@@ -128,29 +98,9 @@
         // M33 F4 L5: a routine tool changed the routines; the group re-fetches.
         // An error result changed nothing.
         if (ROUTINE_TOOLS[state.liveToolNames[data.tool_call_id]] && !data.is_error) agentDrawer.refreshRoutines();
-        // Iteration boundary — finalize the current streaming bubble.
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
-        ctx.transcript.clearIterationAnchor();
-        // M23 F02 L03: a delivered (peer-visible) tool result is
-        // promoted to a top-level bubble live too, matching renderHistory
-        // — otherwise a live-vs-reload rendering gap would just move from
-        // the operator-only marker (fixed above) to this accordion
-        // placement instead.
-        if (ctx.transcript.isDeliveredToolResult(data)) {
-          ctx.transcript.appendDeliveredToolMsg(data, state.currentAgentName || 'agent', new Date().toISOString());
-        } else {
-          // L03: route into the trace shell for this assistant turn.
-          var resTrace = ctx.transcript.getOrCreateTrace(data.parent_message_id);
-          // M10 F05 L05: forward visibility from the live tool_result event.
-          var resMsg = ctx.transcript.buildToolMsg(data.content, data.is_error, data.tool_call_id, { visibility: data.visibility });
-          if (resTrace) {
-            resTrace.append(resMsg);
-          } else {
-            messagesEl.appendChild(resMsg);
-          }
-        }
-        ctx.transcript.scrollToBottomIfPinned();
+        // A delivered (peer-visible) result stays a top-level bubble (M23 F02 L03); any other
+        // result goes into the work group under its call.
+        ctx.turnWork.onToolResult(data);
       }
       else if (data.type === 'system') handleSystem(data);
       else if (data.type === 'usage') {
@@ -163,23 +113,18 @@
       else if (data.type === 'auth_resolved') ctx.signIn.onAuthResolved(data);
       else if (data.type === 'auth_failed') ctx.signIn.onAuthFailed(data);
       else if (data.type === 'step_limit') {
-        // DD8 F2: arrives immediately before `done`. Seal the reply first (as the assistant and
-        // tool-call branches do), then a muted line after it. Broadcast-only server side, so a
-        // re-join renders none; a held queued message at `done` leaves it in place.
-        ctx.transcript.hideThinking();
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
+        // DD8 F2: arrives immediately before `done`. The work group folds and reads "Paused at
+        // the step limit"; the `done` that follows promotes nothing. A muted line follows.
+        // Broadcast-only server side, so a re-join renders none; a held queued message at
+        // `done` leaves it in place.
+        ctx.turnWork.onStepLimit();
         ctx.transcript.addStepLimitNotice(data.steps, state.currentAgentName);
       }
       else if (data.type === 'done') {
-        ctx.transcript.hideThinking();
         ctx.transcript.dropModelLoading();
-        // End of agent step — finalize so the streaming bubble swaps
-        // its accumulated text for the markdown-rendered fragment, and
-        // the next user message starts a fresh streaming round.
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
-        ctx.transcript.clearIterationAnchor();
+        // End of agent step: the reply lands now (only from "working"), before a held
+        // message is sent, so it sits above the queued message's bubble.
+        ctx.turnWork.onDone();
         // AC6: the joined session (activeId); a held message goes out on
         // the joined path (performSend), never as a start.
         var sid = chatState.activeId();
@@ -214,13 +159,10 @@
       }
       else if (data.type === 'cancelled') {
         // F7 L04: cancel — mirror the FULL done reset (binding per design review).
-        // The partial assistant bubble was already committed by the backend (leg 3);
-        // finalizeStreamingBubble() seals any streaming tail still in the pacing queue.
-        ctx.transcript.hideThinking();
+        // The work group folds its pending text and reads "Stopped" (no reply bubble; with no
+        // open group nothing changes and only the notices are added).
         ctx.transcript.dropModelLoading();
-        ctx.transcript.finalizeStreamingBubble();
-        ctx.transcript.clearStreamingVisibility();
-        ctx.transcript.clearIterationAnchor();
+        ctx.turnWork.onCancelled();
         var cancelledActive = chatState.activeId();
         // B9: "Stopped." after the sealed reply, then "Queued message discarded." when a held
         // message went with it: the Stop click recorded one, or one is still held here (a Stop

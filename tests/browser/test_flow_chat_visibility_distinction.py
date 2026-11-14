@@ -202,6 +202,8 @@ def test_chat_renders_operator_visibility_distinction(
     # Assertion 3: tool bubble does NOT carry the operator-only class.
     # The codec emits tool_result events with the persisted visibility tag;
     # this tool message has visibility=None so its class set lacks the marker.
+    # The tool result is an item of the turn's work group (collapsed): open it to see it.
+    _chats.open_turn(_chats.turn_group(page))
     tool_bubble = _chats.messages(page, "tool").first
     expect(tool_bubble).to_be_visible(timeout=2000)
     has_operator_class = tool_bubble.evaluate(
@@ -225,21 +227,21 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
 ) -> None:
     """M23 F02 L03 (behavior-test fix #2): on a connector-attached session,
     a PEER-VISIBLE tool result (e.g. a successful ``send_to_platform_channel``
-    call) renders as a top-level bubble outside the "Tool activity"
-    accordion, while an OPERATOR-ONLY tool result stays collapsed inside it.
+    call) renders as a top-level bubble outside the turn's work group,
+    while an OPERATOR-ONLY tool result stays collapsed inside it.
 
     Regression test for behavior-test run 2026-08-31-21-37-14 checkpoint 7:
     the `[platform-send-ok]` result was correctly tagged peer-visible but
     imperceivable — buried in a collapsed accordion with no default-visible
     cue.
 
-    Seeds two assistant/tool-call/tool-result turns on a connector-attached
-    (``platform="stub"``) session:
-    - turn 1: an internal, OPERATOR-ONLY tool call + result — stays fully
-      collapsed inside its trace shell (2 items).
-    - turn 2: a ``send_to_platform_channel`` tool call (operator-only, like
+    Seeds two assistant/tool-call/tool-result passes of one user turn on a
+    connector-attached (``platform="stub"``) session:
+    - pass 1: an internal, OPERATOR-ONLY tool call + result — stays fully
+      collapsed inside the turn's work group (2 items).
+    - pass 2: a ``send_to_platform_channel`` tool call (operator-only, like
       every tool CALL) whose RESULT is peer-visible (``visibility=None``,
-      the successful-send tag) — the call stays in its trace shell (1 item,
+      the successful-send tag) — the call stays in the work group (1 item,
       the result is NOT there); the result renders as a standalone
       top-level bubble, visible without expanding anything.
     """
@@ -300,35 +302,24 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     _chats.expect_chat(page, agent_name)
     expect(page.locator('[data-testid="message"]').first).to_be_visible(timeout=5000)
 
-    # Both tool calls always route through a trace shell (they're never the
-    # successful-send exception themselves) — two turns, two shells.
-    trace_shells = page.locator('[data-testid="trace-shell"]')
-    expect(trace_shells).to_have_count(2, timeout=5000)
-
-    # Turn 1's shell: both the call and its result stayed collapsed inside.
-    first_body_count = trace_shells.nth(0).locator('.ui-trace-body [data-testid="message"]').count()
-    assert first_body_count == 2, (
-        f"expected turn 1's trace shell to hold 2 collapsed items (call + "
-        f"operator-only result), got {first_body_count}"
+    # The two passes are one user turn, so one work group holds both tool calls (they're never
+    # the successful-send exception themselves) and the operator-only result.
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=5000)
+    group = _chats.turn_group(page)
+    group_items = group.locator('[data-testid="message"]').count()
+    assert group_items == 3, (
+        f"expected the work group to hold 3 collapsed items (call, operator-only result, "
+        f"send call), got {group_items}"
     )
-
-    # Turn 2's shell: only the call — the delivered result was diverted out.
-    second_body_count = (
-        trace_shells.nth(1).locator('.ui-trace-body [data-testid="message"]').count()
-    )
-    assert second_body_count == 1, (
-        f"expected turn 2's trace shell to hold only the tool CALL (1 item) "
-        f"— the peer-visible result must not collapse into it, got {second_body_count}"
-    )
-    trace2_text = trace_shells.nth(1).locator(".ui-trace-body").text_content()
-    assert "platform-send-ok" not in (trace2_text or ""), (
-        "the delivered tool result leaked into the collapsed accordion "
+    group_text = group.text_content() or ""
+    assert "platform-send-ok" not in group_text, (
+        "the delivered tool result leaked into the collapsed work group "
         "instead of being promoted to a top-level bubble"
     )
 
     # The delivered result is a DIRECT CHILD of .messages (top-level,
-    # sibling to the trace shells and other bubbles) — not nested inside
-    # any trace shell — and visible without expanding anything.
+    # sibling to the work group and other bubbles) — not nested inside
+    # the work group — and visible without expanding anything.
     delivered = page.locator(".messages > " + _chats.message_sel("tool"))
     expect(delivered).to_have_count(1, timeout=5000)
     expect(delivered).to_be_visible()
@@ -370,7 +361,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         " className: el.className,"
         " isDirectChildOfMessages: !!el.parentElement && "
         "el.parentElement.classList.contains('messages'),"
-        " closestTraceShell: el.closest('[data-testid=\"trace-shell\"]'),"
+        " closestTurnWork: el.closest('[data-testid=\"turn-work\"]'),"
         " nextSiblingClass: el.nextElementSibling ? el.nextElementSibling.className : null,"
         "})"
     )
@@ -382,9 +373,9 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     assert structural["isDirectChildOfMessages"] is True, (
         "promoted bubble is not a direct child of .messages"
     )
-    assert structural["closestTraceShell"] is None, (
-        "promoted bubble is nested inside a [data-testid='trace-shell'] "
-        "accordion — it must be a top-level sibling, not collapsed content"
+    assert structural["closestTurnWork"] is None, (
+        "promoted bubble is nested inside a [data-testid='turn-work'] "
+        "group — it must be a top-level sibling, not collapsed content"
     )
     assert (
         structural["nextSiblingClass"] == "ui-message-attribution ui-message-attribution--agent"

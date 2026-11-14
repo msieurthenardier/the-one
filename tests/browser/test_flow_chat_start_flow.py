@@ -43,7 +43,7 @@ SEND = '[data-testid="chat-send-btn"]'
 STOP = '[data-testid="chat-stop-btn"]'
 USER_MSG = _chats.message_sel("user")
 ASSISTANT_MSG = _chats.message_sel("assistant")
-THINKING = '[data-testid="thinking-indicator"]'
+WORKING = '[data-testid="turn-work"][data-state="working"]'  # the running work group
 CHIP = '[data-testid="pending-queued"]'
 MESSAGES = ".area-chat .messages"
 
@@ -214,7 +214,7 @@ def test_first_turn_behaves_like_any_turn(app_with_provider: SeededApp, page: Pa
     box.press("Enter")
     # Optimistic bubble, thinking, Stop, Send disabled -- through the join.
     expect(page.locator(USER_MSG)).to_have_text(["first"])
-    expect(page.locator(THINKING)).to_be_visible()
+    expect(page.locator(WORKING)).to_be_visible()
     expect(page.locator(STOP)).to_be_visible()
     expect(page.locator(SEND)).to_be_disabled()
     _wait_state(page, "joined")
@@ -376,7 +376,8 @@ def test_start_failed_restores_the_text_and_the_staged_image(
     expect(page.locator(USER_MSG)).to_have_count(0)
     expect(box).to_have_value("will fail")
     expect(page.locator('[data-testid="chat-attachment"]')).to_have_count(1)
-    expect(page.locator(THINKING)).to_have_count(0)
+    # Leg 2 sweep: the retired thinking line becomes the work group; a failed start leaves none.
+    expect(_chats.turn_groups(page)).to_have_count(0)
     expect(page.locator(STOP)).to_be_hidden()
     expect(page.locator(SEND)).to_be_enabled()
     assert _sessions(base) == []

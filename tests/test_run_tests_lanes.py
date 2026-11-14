@@ -116,12 +116,11 @@ def test_contracts_chat_lane_is_the_chat_control_files(lanes: dict[str, set[str]
             "composer",
             "message",
             "thinking",
-            "trace",
             "telemetry",
             "notice",
             "chart",
-            "chart_placeholder",
             "visual_notice",
+            "turn_work",
         )
     }
     assert lanes["contracts-chat"] == chat
@@ -173,6 +172,9 @@ def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[
     transcript = lanes["chats-transcript"]
     assert "tests/browser/test_flow_chat_composer.py" in transcript
     assert "tests/browser/test_flow_streaming.py" in transcript
+    # Sortie 16 L02: the work-group-per-turn flow tests.
+    assert "tests/browser/test_flow_chat_turn_work.py" in transcript
+    assert "tests/browser/test_flow_chat_turn_work_states.py" in transcript
     assert "tests/browser/test_flow_chat_pane.py" in lanes["chats"]
     assert "tests/browser/test_chats_helper.py" in lanes["chats"]
     assert not (transcript & lanes["chats"])

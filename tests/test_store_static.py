@@ -192,7 +192,10 @@ def test_start_session_join_refreshes_the_list_that_primes_sessions() -> None:
     accepted = handler[handler.index("if (joinedEff.startFailed)") :]
     body = accepted[accepted.index("return;") + len("return;") :]
     # Only renderHistory is conditional on the start (AC2).
-    assert "if (joinedEff.render === 'history') ctx.transcript.renderHistory(" in body
+    # (Sortie 16 L02: the flag is read once, so the trailing turn's state can follow it.)
+    assert "var rendersHistory = joinedEff.render === 'history';" in body
+    assert "if (rendersHistory) {" in body
+    assert "ctx.transcript.renderHistory(" in body
     assert "refreshSessionList();" in body, "the accepted session_joined path must refresh"
     assert body.index("refreshSessionList();") < body.rindex("return;")
     assert body.count("return;") == 1  # the refresh is on the one exit

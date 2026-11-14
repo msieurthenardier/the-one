@@ -32,7 +32,7 @@ def _message_order(page: Page) -> list[dict[str, str]]:
     """Return the live transcript's message bubbles in DOM order.
 
     Each entry is ``{"cls": <className>, "text": <textContent>}``. The thinking
-    indicator (``data-testid="thinking-indicator"``) and the queued chip
+    work line (``data-testid="turn-work"``) and the queued chip
     (``data-testid="pending-queued"``) are excluded — only real
     user/assistant/tool/system bubbles carry ``data-testid="message"``.
     """
@@ -69,6 +69,14 @@ def _start_slow_turn(page: Page, base_url: str, chunks: list[str], delay_ms: int
     return agent_name
 
 
+def _wait_running(page: Page, text: str) -> None:
+    """Wait until the turn is running and its text has begun to arrive: the work group is
+    ``working`` and its quiet preview holds ``text``. (Sortie 16: the reply is not a bubble
+    until ``done``, so the old "first streamed assistant bubble" signal no longer exists.)"""
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=8000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_contain_text(text, timeout=8000)
+
+
 @pytest.mark.browser
 def test_queued_chip_is_pinned_outside_scroll_list(app_clean: str, page: Page) -> None:
     """F09-04 (pin): the queued chip renders in the pinned region above the
@@ -77,9 +85,9 @@ def test_queued_chip_is_pinned_outside_scroll_list(app_clean: str, page: Page) -
     base_url = app_clean
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], 400)
 
-    # Turn 1: send and wait until it is streaming (proves in-flight).
+    # Turn 1: send and wait until it is running (proves in-flight).
     _chats.send_first(page, "first")
-    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+    _wait_running(page, "one")
 
     # Queue a message via Enter (the Send button is disabled during a turn).
     page.locator('[data-testid="chat-input"]').fill("held message")
@@ -114,7 +122,7 @@ def test_cancel_chip_discards_held_message_no_turn_runs(app_clean: str, page: Pa
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], 400)
 
     _chats.send_first(page, "first")
-    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+    _wait_running(page, "one")
 
     # Queue, then cancel via the × button (keyboard-accessible native button).
     page.locator('[data-testid="chat-input"]').fill("discard me")
@@ -140,7 +148,7 @@ def test_cancelling_the_chip_by_keyboard_focuses_the_composer(app_clean: str, pa
     after the chip goes; the live region stays rendered (never hidden) while empty."""
     _start_slow_turn(page, app_clean, ["one ", "two ", "three"], 400)
     _chats.send_first(page, "first")
-    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+    _wait_running(page, "one")
     region = page.locator('[data-testid="pending-queued-region"]')
     expect(region).to_have_attribute("aria-live", "polite")
     assert region.evaluate("(e) => e.hasAttribute('hidden')") is False
@@ -166,8 +174,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
     _start_slow_turn(page, base_url, ["resp-one ", "resp-two ", "resp-DONE"], 400)
 
     _chats.send_first(page, "first")
-    assistant = _chats.messages(page, "assistant")
-    expect(assistant.first).to_contain_text("resp-one", timeout=8000)
+    _wait_running(page, "resp-one")
 
     # Hold "second" while turn 1 runs (Enter — Send is disabled during a turn).
     page.locator('[data-testid="chat-input"]').fill("second")
@@ -198,9 +205,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
     )
 
     # The session stays in-flight for the queued turn: Send is disabled right
-    # after the dequeue. (Send-disabled is the durable carry-over signal; the
-    # thinking indicator is replaced by the streaming bubble once turn 2's first
-    # chunk arrives, same as a normal turn.)
+    # after the dequeue. (Send-disabled is the durable carry-over signal.)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_disabled()
 
     # The queued turn runs as a real turn: its own assistant response appears,
@@ -220,9 +225,8 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     _start_slow_turn(page, base_url, ["alpha ", "beta ", "gamma-FINAL"], 500)
 
     _chats.send_first(page, "running")
-    assistant = _chats.messages(page, "assistant")
-    expect(assistant.first).to_contain_text("alpha", timeout=8000)
-    expect(assistant.first).not_to_contain_text("gamma-FINAL")
+    _wait_running(page, "alpha")
+    expect(_chats.turn_preview(_chats.turn_group(page))).not_to_contain_text("gamma-FINAL")
 
     # Hold a second message while turn 1 runs.
     page.locator('[data-testid="chat-input"]').fill("queued")
@@ -235,16 +239,20 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     # Wait well past the running turn's natural completion (3 chunks x 500ms ≈
     # 1s). If it had continued (the bug), the sentinel would have rendered.
     page.wait_for_timeout(2500)
-    expect(_chats.messages(page, "assistant")).not_to_contain_text("gamma-FINAL")
+    # A stopped turn builds no reply, and the sentinel is nowhere in its group.
+    expect(_chats.replies(page)).to_have_count(0)
+    texts = _chats.turn_texts(_chats.turn_group(page))
+    assert texts, "the stopped turn's work group must exist for the absence check to mean anything"
+    assert not any("gamma-FINAL" in t for t in texts)
 
     # The held message was discarded ("stop = stop everything"): no second user
     # bubble, no lingering chip.
     expect(_chats.messages(page, "user")).to_have_count(1)
     expect(page.locator('[data-testid="pending-queued"]')).to_have_count(0)
 
-    # The UI returns to idle (Send re-enabled, no thinking indicator).
+    # The UI returns to idle (Send re-enabled, no running work line).
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=8000)
-    expect(page.locator('[data-testid="thinking-indicator"]')).to_have_count(0)
+    expect(_chats.working_turns(page)).to_have_count(0)
 
 
 # ── M31 F6 L10a: several held messages ────────────────────────────────────────
@@ -262,7 +270,7 @@ def _hold(page: Page, text: str) -> None:
 def _running_turn(page: Page, base_url: str, delay_ms: int = 700) -> None:
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], delay_ms)
     _chats.send_first(page, "first")
-    expect(_chats.messages(page, "assistant").first).to_contain_text("one", timeout=8000)
+    _wait_running(page, "one")
 
 
 @pytest.mark.browser

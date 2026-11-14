@@ -2,11 +2,11 @@
 
 Validates two contracts:
 
-1. Streaming chunk events arrive and accumulate into a single rendered
-   assistant bubble — when the mock provider is configured with
-   ``stream_chunks``, the client receives ``assistant_chunk`` events and
-   the chat.js wire-up appends each delta to a single bubble. Final
-   rendered text equals the concatenation of all chunks.
+1. Streamed chunks land as one reply — when the mock provider is configured with
+   ``stream_chunks``, the client receives ``assistant_chunk`` events; since sortie 16 their text
+   is only a quiet preview in the turn's work group, and at ``done`` the whole concatenation
+   becomes exactly one assistant bubble (the growing-bubble streaming is gone; the work-group
+   shape itself is pinned in ``test_flow_chat_turn_work*.py``).
 
 2. Persistence contract — after the streaming round closes, refreshing
    the page (rejoining the session via the session list) renders the
@@ -25,13 +25,13 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page) -> None:
-    """Streaming chunks render delta-by-delta into one assistant bubble.
+def test_streamed_chunks_land_as_one_reply_bubble_at_done(app_clean: str, page: Page) -> None:
+    """Streamed chunks end as exactly one assistant bubble holding their concatenation.
 
     Configures the mock provider with ``stream_chunks=["Hello, ", "world", "!"]``
     so the agent emits three ``assistant_chunk`` WS events plus a final
-    metadata chunk. The chat.js leg-04 wire-up (option B minimal rendering)
-    accumulates them into a single ``[data-testid="message"]`` assistant bubble.
+    metadata chunk. They are a preview only; at ``done`` the reply is one
+    ``[data-testid="message"]`` assistant bubble and the turn has no work group (a plain reply).
     """
     base_url = app_clean
     provider_id = seed_mock_provider(
@@ -52,12 +52,11 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
     user_msg = _chats.messages(page, "user")
     expect(user_msg).to_have_text("hi", timeout=5000)
 
-    # The assistant bubble accumulates all three chunks. There is exactly
-    # one assistant bubble (chunks land in the same element) and its text
-    # is the concatenated content.
+    # There is exactly one assistant bubble and its text is the concatenated content.
     assistant_msg = _chats.messages(page, "assistant")
     expect(assistant_msg).to_have_text("Hello, world!", timeout=10000)
     expect(assistant_msg).to_have_count(1)
+    expect(_chats.turn_groups(page)).to_have_count(0)
 
     # Send button re-enabled after `done`.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled()
@@ -69,7 +68,7 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
 
     This validates the persistence contract: although the final synthesized
     assistant Message is NOT broadcast over WS (the client already has the
-    text via the chunk stream), it IS appended to session history server-side
+    text from the chunks), it IS appended to session history server-side
     via ``session.add_event``. So when the page reloads and rejoins the
     session, ``renderHistory`` walks the saved events and the assistant text
     appears.

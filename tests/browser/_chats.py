@@ -158,6 +158,109 @@ def messages(page: Page, role: str, *modifiers: str) -> Locator:
     return page.locator(message_sel(role, *modifiers))
 
 
+def turn_groups(page: Page) -> Locator:
+    """Every turn work group in the log (``turn-work``, ``App.ui.turnWork``, sortie 16 L02).
+    A turn has at most one; a plain reply has none. Tests name a group through these helpers,
+    never through the control's classes."""
+    return page.locator('[data-testid="turn-work"]')
+
+
+def working_turns(page: Page) -> Locator:
+    """The turn work groups still running (``data-state="working"``): the "in flight" signal
+    that replaced the old "Thinking" line."""
+    return page.locator('[data-testid="turn-work"][data-state="working"]')
+
+
+def turn_group(page: Page, nth: int = -1) -> Locator:
+    """One turn work group (the last by default; ``nth`` counts from 0)."""
+    groups = turn_groups(page)
+    return groups.last if nth == -1 else groups.nth(nth)
+
+
+def turn_state(group: Locator) -> str | None:
+    """The group's ``data-state``: ``working``, ``done``, ``stopped``, ``error``,
+    ``step-limit`` or ``sign-in``."""
+    return group.get_attribute("data-state")
+
+
+def turn_summary(group: Locator) -> Locator:
+    """The group's work line (its ``<summary>``, the first: a widget or notice inside the group
+    brings its own)."""
+    return group.locator("summary").first
+
+
+def turn_line(group: Locator) -> str:
+    """The work line's visible words, whitespace collapsed ("Work · 2 tool calls")."""
+    return " ".join((turn_summary(group).inner_text() or "").split())
+
+
+def turn_name(group: Locator) -> str | None:
+    """The work line's accessible name (its ``aria-label``)."""
+    return turn_summary(group).get_attribute("aria-label")
+
+
+def turn_dots_stopped(group: Locator) -> bool:
+    """True when the running line's dots have been replaced by the static ellipsis (the Stop
+    click does this without changing the group's state)."""
+    return bool(
+        group.evaluate(
+            """el => {
+              const lead = el.querySelector('.ui-turn-work-lead');
+              return !!lead && lead.textContent.trim() === '…';
+            }"""
+        )
+    )
+
+
+def turn_preview(group: Locator) -> Locator:
+    """The group's quiet preview (``turn-work-preview``); hidden unless the group is working."""
+    return group.locator('[data-testid="turn-work-preview"]')
+
+
+def turn_items(group: Locator, kind: str | None = None) -> Locator:
+    """The group's items in order (``kind``: ``narration``, ``thinking`` or ``tool``, or all).
+    They exist while the group is collapsed; read them with ``text_content``, or open the
+    group first (:func:`open_turn`)."""
+    return group.locator("[data-kind]" if kind is None else f'[data-kind="{kind}"]')
+
+
+def turn_texts(group: Locator, kind: str | None = None) -> list[str]:
+    """The text of each item (see :func:`turn_items`), whitespace collapsed."""
+    return [" ".join((t or "").split()) for t in turn_items(group, kind).all_text_contents()]
+
+
+def turn_item_list(group: Locator) -> list[str]:
+    """The group's items as a compact ordered list: ``thinking:<text>``, ``narration:<text>``
+    and ``tool`` (one per tool row, calls and results alike). Read from the DOM, so it works
+    while the group is collapsed."""
+    return group.evaluate(
+        """el => Array.from(el.querySelectorAll('[data-kind]')).map(e => {
+          const k = e.getAttribute('data-kind');
+          if (k === 'thinking') return 'thinking:' + e.textContent.replace('Thinking', '').trim();
+          if (k === 'narration') return 'narration:' + e.textContent.trim();
+          return 'tool';
+        })"""
+    )
+
+
+def turn_is_open(group: Locator) -> bool:
+    """True when the group is expanded."""
+    # `.first`: the group's own `<details>` precedes any a widget or notice inside it brings.
+    return bool(group.locator("details").first.evaluate("el => el.open"))
+
+
+def open_turn(group: Locator) -> None:
+    """Expand the group with a real click on its work line (a no-op when already open)."""
+    if not turn_is_open(group):
+        turn_summary(group).click()
+
+
+def replies(page: Page) -> Locator:
+    """Every assistant reply bubble (an alias of ``messages(page, "assistant")``): a finished
+    turn has exactly one, and none exists before ``done``."""
+    return messages(page, "assistant")
+
+
 def telemetry(page: Page) -> Locator:
     """The telemetry readout (``chat-telemetry``, ``App.ui.telemetry``) in the composer's
     telemetry row."""

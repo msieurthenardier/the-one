@@ -115,7 +115,7 @@ def test_live_routine_frame_marks_the_chat_in_flight(app_with_agent: SeededApp, 
             "session_id": other,
         },
     )
-    expect(page.locator('[data-testid="thinking-indicator"]')).to_have_count(0)
+    expect(_chats.turn_groups(page)).to_have_count(0)
     expect(stop).to_be_hidden()
 
     _chats.emit_frame(
@@ -133,7 +133,7 @@ def test_live_routine_frame_marks_the_chat_in_flight(app_with_agent: SeededApp, 
     expect(live).to_have_attribute("data-routine-id", RID)
     expect(live).to_contain_text("Run now")
     assert "[routine]" not in live.inner_text()
-    expect(page.locator('[data-testid="thinking-indicator"]')).to_be_visible()
+    expect(_chats.working_turns(page)).to_have_count(1)
     expect(stop).to_be_visible()
     expect(stop).to_be_enabled()
     # Sends are held.
@@ -191,7 +191,7 @@ def test_done_returns_the_chat_to_idle(app_with_agent: SeededApp, page: Page) ->
     expect(stop).to_be_visible()
     _chats.emit_frame(page, {"type": "done"})
     expect(stop).to_be_hidden()
-    expect(page.locator('[data-testid="thinking-indicator"]')).to_have_count(0)
+    expect(_chats.turn_groups(page)).to_have_count(0)
 
 
 def test_non_routine_sources_keep_their_prefix(app_with_agent: SeededApp, page: Page) -> None:

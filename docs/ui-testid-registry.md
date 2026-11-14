@@ -148,10 +148,8 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-consent-link-open` | chat | The block's "Open sign-in page" `<a target="_blank" rel="noopener noreferrer">` styled as a button (sortie 04 DD1) |
 | `chat-consent-link-copy` | chat | The block's Copy button (clipboard, `execCommand` fallback; sortie 04 DD1) |
 | `chat-widget` | chat | A widget card drawn from a `widget` fenced block in an assistant reply (`App.ui.widget`, `testid: 'chat-widget'`; M35 F2 L6, DD1). The `figure` carries `data-widget-key` (`{session id}:{source hash}:{n}`). Derived from it (see "Widget card family"): `chat-widget-frame` (the iframe), `chat-widget-pause`, `chat-widget-restart`, `chat-widget-paused` (the header chip), `chat-widget-start`, `chat-widget-stopped`, `chat-widget-status`, `chat-widget-source-details` (View source) + `chat-widget-source`, and, for a too-large or cut-off block, `chat-widget-notice` (+ `chat-widget-notice-details`) |
-| `chat-widget-placeholder` | chat | The glimmering "Rendering widget" card that holds a widget's place while its top-level block streams (`App.ui.chart.placeholder` with `shape: 'generic'`, held after the bubble's tail by `setTailHold`; M35 F2 L6, DD12); its "Show source" disclosure is `chat-widget-placeholder-source` |
 | `chat-copy-status` | chat | The one visually hidden `role=status` node (in the chat chrome, outside the `role=log` message list) every "Copy reply" confirmation announces in (M31 F6 L05c) |
 | `chat-chart` | chat | A chart drawn from a `chart` fenced block in an assistant reply (`App.ui.chart.block`, `testid: 'chat-chart'`; M35 F1 L2, DD15). Derived from it: `chat-chart-plot`, `chat-chart-tooltip`, `chat-chart-live` (the keyboard-reading live node), `chat-chart-data` (the "Show data" disclosure) and, for a broken or cut-off block, `chat-chart-error` (+ `chat-chart-error-details`); the root carries the stable `data-chart-type` |
-| `chat-chart-placeholder` | chat | The glimmering "Rendering chart" card that holds a chart's place while its top-level block streams (`App.ui.chart.placeholder`, held after the bubble's tail text by `setTailHold`; M35 F1 L2, DD8); its "Show source" disclosure is `chat-chart-placeholder-source` |
 | `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.ui-composer`; above the old `.input-area` row before M25 F4 L5) |
 | `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
@@ -596,8 +594,6 @@ caught — but it cannot see where the attribute is emitted.
 | `test-result` | admin | M31 F4 L07d — the Built-in tools editor's Test result: a polite live region (`aria-live=polite`, `data-state` pending / success / warning / danger) holding one `App.ui.status` with the fixed headline ("Returned a result ({N} ms)", "Blocked by this tool's settings ({N} ms)", "Request failed"); empty until a Test runs |
 | `test-saved-hint` | admin | M31 F4 L07d — "Tests the saved settings.", visible only while the editor is dirty |
 | `test-tool-btn` | admin | |
-| `thinking-disclosure` | chat | |
-| `thinking-indicator` | chat | |
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
 | `tool-editor-header` | admin | The open Built-in tool editor's header (`editorShell` `testid`); the page reveals and focuses it on an intent open (M31 F4 L11, replaces class queries) |
 | `tool-impact-list` | admin | Sortie 07 L05 (DD8) — the list in the "Saving narrows N agents" dialog: one item per agent, with the fields it would lose values on |
@@ -615,7 +611,8 @@ caught — but it cannot see where the attribute is emitted.
 | `tools-load-error` | admin | M31 F4 L06 — the Built-in tools list's load failure (`App.ui.status`, `role=alert`: "Couldn't load the built-in tools." and the server's reason); cleared by the next render |
 | `tools-load-retry` | admin | M31 F4 L06 — the Retry button beside `tools-load-error` |
 | `tools-loading` | admin | M31 F4 L06 — the "Loading tools…" status shown until the first list response |
-| `trace-shell` | chat | |
+| `turn-work` | chat | Sortie 16 L02 — a chat turn's work group (`App.ui.turnWork`: one collapsed `<details>` for the turn's narration, thinking and tool calls); `data-state` is `working`, `done`, `stopped`, `error`, `step-limit` or `sign-in`; a plain reply has none |
+| `turn-work-preview` | chat | Sortie 16 L02 — the group's muted preview under the work line (the pending text's tail, or "Drawing a chart" / "Building a widget"); `aria-hidden`, visible only while the group is working |
 | `ui-confirm-live` | shared | M31 F2 L5 (squawk 0220) — the one shared polite live region `App.ui.confirm` appends to `document.body` on the first arm; announces arm, lapse and commit |
 
 ### Widget card family (`App.ui.widget`, M35 F2 L4)
@@ -717,6 +714,9 @@ again. A retired id cannot come back.
 | `agent-tab-mcps` | studio | M33 F1 L06 — the MCPs tab (its `tab-mcps` testid is covered by the live `tab-` prefix row, so it is fenced in `RETIRED_SELECTORS` only), with its panel `agent-tab-panel-mcps`; folded into the Tools tab |
 | `admin-theme-toggle-mount` | admin | M31 F4 L08a (DD6, DD8-19) — the Appearance page's segmented theme toggle (`App.theme.renderToggle`, an element id rather than a testid) is replaced by the `theme-picker` radio group (`theme-option-light`, `-dark` and `-auto`) |
 | `platform-variant-` | admin | HAT step 9 (M31 F4, ledger 52) — the Platform prompt's "With tools" / "Without tools" sub-headings are removed; each block's "Applies when" line says it |
+| `trace-shell` | chat | Sortie 16 L02 — the per-pass "Tool activity" trace is replaced by one work group per turn (`turn-work`) |
+| `thinking-disclosure` | chat | Sortie 16 L02 — the per-pass "Thinking" disclosure is a thinking item inside the turn's work group (`turn-work`) |
+| `thinking-indicator` | chat | Sortie 16 L02 — the "Thinking" line is the work group's own "Working" line (`turn-work`, `data-state="working"`) |
 | `mcp-kv-tbody` | studio | M31 F5 L07 — the MCP key-value table is `App.ui.keyValueTable`; reach rows through `[data-testid="mcp-kv-table"] tbody tr` |
 | `mcp-kv-thead` | studio | M31 F5 L07 — use `[data-testid="mcp-kv-table"] thead` (hidden while the table has no rows) |
 | `mcp-kv-sensitive-info` | studio | M31 F5 L07 — the Sensitive column's info button is `App.ui.infoButton` (named "More information about Sensitive") |
@@ -770,3 +770,7 @@ again. A retired id cannot come back.
 | `routine-history-more` | studio | M33 F4 L03 — "Show older" is "Show more runs" (`routine-recent-runs-more`) |
 | `routine-run` | studio | M33 F4 L03 — a History entry is a recent-run line (`routine-recent-run`); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-run-now` extends its name |
 | `routine-done-hint` | studio | M33 F4 L03 — a Done routine says "Done" in its next-run cell (the hint is that cell's tooltip) |
+| `chat-chart-placeholder` | chat | Sortie 16 L04 (DD3, DD10) — the glimmering "Rendering chart" card held while a chart block streamed; the chat no longer streams into a bubble, so a chart is drawn when the reply lands |
+| `chat-chart-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-chart-placeholder` |
+| `chat-widget-placeholder` | chat | Sortie 16 L04 (DD3, DD10) — the "Rendering widget" card held while a widget block streamed; a widget is mounted when the reply lands |
+| `chat-widget-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-widget-placeholder` |
