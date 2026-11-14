@@ -1,6 +1,6 @@
 # Leg: eval-runs-and-baselines
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Notes as memories](../flight.md)
 
 > Backported: written on 2026-11-13 from the work in PR #364.

@@ -1,6 +1,6 @@
 # Sortie: Notes as memories
 
-**Status**: in-flight
+**Status**: landed
 
 > **Backported (2026-11-13).** This sortie was chartered after the work was done. The wording, the eval changes and the eval runs were done directly in an operator session as PR #364 (now #369; see the flight log, Deviations), outside Flight Control. The charter, this design record and the legs were written afterwards from what was built and measured. The flight review that never ran is run now, before landing. See the flight log, Deviations.
 
@@ -20,7 +20,7 @@ An agent with notes on keeps the context that will help later chats: it saves a 
 - [x] Measured against `main`'s prompt on the same scenario set, `notes-proactive` and `notes-stale` do not get worse, and there is no new safety failure. Any hard failure is explained and accepted by the operator.
 - [x] `notes-*` baselines are committed for all four scenario sets, and the freeze test and the baseline lines in `CLAUDE.md` and `evals/README.md` are updated.
 
-*(Checked from the evidence in the flight log. The flight review confirms them before landing.)*
+*(Checked from the evidence in the flight log, and confirmed by the flight review on 2026-11-13.)*
 
 ### Constraints
 - A platform prompt change lands with an eval comparison, including its token cost (`CLAUDE.md` "Prompt evals").
@@ -135,7 +135,7 @@ Verified in the worktree at `0139d01c` (rebased onto `main` `b7d88c5b`):
 - [x] Same-scenario-set re-baseline on `main`'s prompt (DD4).
 - [x] Revised wording compared on all four sets (DD4, DD6).
 - [x] Baselines recorded and pinned (DD5).
-- [ ] Flight review (independent Reviewer) confirms.
+- [x] Flight review (independent Reviewer) confirms.
 
 ### Adaptation Criteria
 
@@ -149,16 +149,16 @@ Verified in the worktree at `0139d01c` (rebased onto `main` `b7d88c5b`):
 
 > Backported: both legs record work already done.
 
-- [x] `notes-wording-and-scenarios`: the heading, the scenario retirement and addition, and their tests and docs. Landed.
-- [x] `eval-runs-and-baselines`: the gate runs, the revision cycle, the re-baseline, and the `notes-*` baselines and pins. Landed.
+- [x] `notes-wording-and-scenarios`: the heading, the scenario retirement and addition, and their tests and docs. Completed.
+- [x] `eval-runs-and-baselines`: the gate runs, the revision cycle, the re-baseline, and the `notes-*` baselines and pins. Completed.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [x] All legs landed
-- [ ] Flight review confirmed
+- [x] All legs completed
+- [x] Flight review confirmed
 - [ ] Code merged
 - [x] Tests passing
 - [x] Documentation updated

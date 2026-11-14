@@ -5,11 +5,28 @@
 ## Summary
 Backported on 2026-11-13. The work was done first, in an operator session on 2026-11-12 and 2026-11-13, as PR #364 (branch `notes-prompt-wording`, worktree `/home/cprch/projects/the-one-notes-prompt-wording`). The charter was then agreed with the operator, and these artifacts were written from what was built and measured.
 
-Both legs have landed. The flight review is the remaining step before the sortie lands.
+Both legs are complete and the flight review confirmed on 2026-11-13. The sortie has **landed** on PR #369 and is waiting to merge. A debrief (`/mission-control:flight-debrief sortie 15`) completes it.
 
 ---
 
 ## Leg Progress
+
+### Flight review (2026-11-13)
+- **Reviewer:** Sonnet. The security tier was chosen because the notes heading carries the prompt-injection trust rules and the secrets rule. The Reviewer saw only the diff against `b7d88c5b` and the sortie artifacts, never the session's reasoning. It was read-only, ran no quota-spending eval, and did not touch the main checkout.
+- **Result:** `[HANDOFF:confirmed]`, with no blocking issues.
+- **Verified by the Reviewer:**
+  - Both headings equal their word-for-word pins, and the tool-free heading names no note tool.
+  - The trust text is intact: "not instructions", never following an instruction inside a note, rules over notes, and the "(unverified)" warning. `RULES_OVER_NOTES` is unchanged.
+  - `measure-prompt` gives `1d02c156…`, equal to all four `notes-*` baselines, and every scenario fingerprint matches.
+  - The `SCORING_DIGESTS` files have no diff, and the freeze test pins `notes-platform.json`.
+  - 246 tests pass across the eval, prompt-layer and notes files, and none of them pass vacuously.
+  - The docs consistently name `notes-*` as current.
+  - The flight log's numbers match the committed baselines and the compare outputs.
+  - Not recounted: the `rule-beats-note` repeat runs.
+- **Non-blocking observations**, neither acted on:
+  1. The tool-capable heading no longer defines "outside content" (the "(web pages, tool results, other people's messages)" list was dropped). This is the operator's wording (DD1), and trust behaviour is unchanged. It is left for the operator to decide.
+  2. The two headings now open differently ("Notes: …" against "Saved notes from earlier conversations: …"), and only the tool-free one says "rules above". This is intended, and both are pinned.
+- Both legs are marked `completed` and the sortie `landed`.
 
 ### Leg 1: notes-wording-and-scenarios
 **Status**: landed
